@@ -41,8 +41,9 @@ le formulaire de login classique (les comptes intranet sont superadmins).
 ## Modèle économique
 
 - **Plans par organisation** : quota de réponses IA mensuelles **et** nombre max
-  de bots (free 50 IA / 1 bot · starter 2000 / 3 · pro 10000 / 10) — les
-  réponses de l'arbre sont **illimitées** (coût quasi nul).
+  de bots (free : arbre seul, 10 bulles max, 0 IA, 1 bot · starter 500 IA / 1 bot / 19 € ·
+  pro 2000 / 3 / 39 € · agence 10000 / 10 / 119 €) — les réponses de l'arbre
+  sont **illimitées** (coût quasi nul).
 - **Clés managées** (nos clés, marge sur la conso) ou **BYOK** (le client apporte
   sa clé, chiffrée en base, plan réduit).
 - **Cap quotidien** de réponses IA par bot : au-delà, le widget passe en mode

@@ -116,19 +116,27 @@ async def bot_conversations(
         .limit(limit)
     )).scalars().all()
 
-    out = []
-    for c in convs:
+    # Une seule requete pour tous les messages (pas de N+1), regroupes en Python
+    msgs_by_conv: dict[str, list[Message]] = {c.id: [] for c in convs}
+    if msgs_by_conv:
         msgs = (await db.execute(
-            select(Message).where(Message.conversation_id == c.id).order_by(Message.created_at)
+            select(Message)
+            .where(Message.conversation_id.in_(list(msgs_by_conv)))
+            .order_by(Message.created_at)
         )).scalars().all()
-        out.append({
+        for m in msgs:
+            msgs_by_conv[m.conversation_id].append(m)
+
+    return [
+        {
             "id": c.id,
             "visitor_id": c.visitor_id,
             "page_url": c.page_url,
             "started_at": c.started_at.isoformat(),
             "messages": [
                 {"role": m.role, "source": m.source, "content": m.content, "at": m.created_at.isoformat()}
-                for m in msgs
+                for m in msgs_by_conv[c.id]
             ],
-        })
-    return out
+        }
+        for c in convs
+    ]

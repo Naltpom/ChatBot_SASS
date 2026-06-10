@@ -143,9 +143,10 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
         if perm:
             _check_bot_perm(user, membership, bot, perm)
 
-    # Contraintes du plan (mode IA interdit en free, quota de bulles)
+    # Contraintes du plan (mode IA interdit en free, quota de bulles) :
+    # verifie le mode EFFECTIF (celui du PATCH ou l'actuel) des qu'un champ change
     org = await db.get(Organization, bot.organization_id)
-    _check_plan_constraints(org, user, mode=data.get("mode"), tree_json=data.get("tree_json"))
+    _check_plan_constraints(org, user, mode=data.get("mode", bot.mode), tree_json=data.get("tree_json"))
 
     if "tree_json" in data and data["tree_json"] is not None:
         try:
@@ -169,8 +170,16 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
 
 @router.delete("/bots/{bot_id}")
 async def delete_bot(bot_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from sqlalchemy import delete as sa_delete
+
+    from src.models.conversation import Conversation, Message
+
     bot, _ = await _get_accessible_bot(db, bot_id, user)
     await require_org_admin(bot.organization_id, user, db)
+    # Purge explicite des donnees liees (la cascade FK est aussi ajoutee au
+    # schema par ailleurs ; ce delete garantit le comportement quelle que soit la base)
+    await db.execute(sa_delete(Message).where(Message.bot_id == bot.id))
+    await db.execute(sa_delete(Conversation).where(Conversation.bot_id == bot.id))
     await db.delete(bot)
     await db.commit()
     return {"deleted": True}
@@ -189,6 +198,10 @@ async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = 
     """Import d'un fichier de config exporte (les champs inconnus sont ignores)."""
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     _check_bot_perm(user, membership, bot, "context")
+    # L'import doit respecter les contraintes du plan comme un PATCH classique
+    org = await db.get(Organization, bot.organization_id)
+    _check_plan_constraints(org, user, mode=config.get("mode", bot.mode),
+                            tree_json=config.get("tree_json"))
     if "tree_json" in config:
         try:
             validate_tree(config["tree_json"])

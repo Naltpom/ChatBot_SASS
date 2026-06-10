@@ -48,7 +48,8 @@ async def authenticate_intranet(email: str, password: str) -> Optional[dict]:
             if response.status_code == 200:
                 try:
                     data = response.json()
-                    if data.get("retour") == "Ok" or data.get("success") or data.get("authenticated"):
+                    # Comparaison stricte : un champ "success" truthy quelconque ne suffit pas
+                    if data.get("retour") == "Ok" or data.get("success") is True or data.get("authenticated") is True:
                         logger.info("Intranet auth success for %s", email)
                         return _user_info_from_email(email)
                 except Exception:
@@ -69,6 +70,7 @@ def _user_info_from_email(email: str) -> dict:
 
 async def authenticate(db: AsyncSession, email: str, password: str) -> User:
     """1. Intranet si active -> cree/maj le user (superadmin). 2. Fallback local."""
+    email = email.lower().strip()  # les emails sont stockes en minuscules
     if settings.INTRANET_AUTH_ENABLED:
         info = await authenticate_intranet(email, password)
         if info:

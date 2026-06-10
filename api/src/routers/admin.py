@@ -16,7 +16,7 @@ from src.core.database import get_db
 from src.core.security import require_superadmin
 from src.models.bot import Bot, BotOut
 from src.models.conversation import Message
-from src.models.user import Membership, Organization, User
+from src.models.user import PLANS, Membership, Organization, User
 from src.services.usage_service import count_ai_messages_this_month, plan_limits
 
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_superadmin)])
@@ -56,12 +56,12 @@ async def list_organizations(db: AsyncSession = Depends(get_db)):
         .where(Message.role == "user", Message.created_at >= since)
         .group_by(Bot.organization_id)
     )).all())
-    # Email du premier owner (contact du client)
+    # Email du premier admin de l'org (contact du client) — roles admin|member
     owners = {}
     for org_id, email in (await db.execute(
         select(Membership.organization_id, User.email)
         .join(User, User.id == Membership.user_id)
-        .where(Membership.role == "owner")
+        .where(Membership.role == "admin")
         .order_by(Membership.created_at)
     )).all():
         owners.setdefault(org_id, email)
@@ -94,6 +94,19 @@ async def patch_organization(org_id: int, body: OrgPatch, db: AsyncSession = Dep
     org = await db.get(Organization, org_id)
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organisation introuvable")
+    if body.plan is not None:
+        # Garde-fou downgrade : le nouveau plan doit pouvoir contenir les bots
+        # existants. On ne bloque PAS sur tree_only/bulles : l'IA des bots
+        # existants sera coupée naturellement par le quota à 0.
+        max_bots = PLANS[body.plan]["max_bots"]
+        bot_count = (await db.execute(
+            select(func.count(Bot.id)).where(Bot.organization_id == org_id)
+        )).scalar_one()
+        if bot_count > max_bots:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Le client a {bot_count} bots, le plan {body.plan} en autorise "
+                f"{max_bots} — supprimez des bots d'abord")
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(org, field, value)
     await db.commit()

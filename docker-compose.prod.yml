@@ -1,0 +1,86 @@
+# Compose de PRODUCTION : pas de bind mount de sources, pas de reload, bundle
+# statique servi par nginx. Secrets injectés par l'environnement (.env) —
+# POSTGRES_PASSWORD, JWT_SECRET_KEY et ENCRYPTION_KEY sont OBLIGATOIRES.
+# Lancement : docker compose -f docker-compose.prod.yml up -d --build
+services:
+  db:
+    image: postgres:15
+    container_name: chatbot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obligatoire en production}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Pas de port exposé sur l'hôte : la base n'est joignable que depuis le réseau compose.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: chatbot-api
+    restart: unless-stopped
+    environment:
+      - ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY obligatoire en production}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY obligatoire en production}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
+      - MOCK_AI=${MOCK_AI:-false}
+      # URLs publiques (CORS dashboard + snippets d'intégration).
+      - APP_URL=${APP_URL}
+      - API_URL=${API_URL}
+      - INTRANET_AUTH_URL=${INTRANET_AUTH_URL:-https://intranet.kertios.com/main/auth_ret}
+      - INTRANET_AUTH_ENABLED=${INTRANET_AUTH_ENABLED:-true}
+      - PYTHONUNBUFFERED=1
+    # API exposée derrière un reverse proxy (TLS) sur l'hôte.
+    ports:
+      - "${API_PORT:-8001}:8000"
+    volumes:
+      # Seuls les uploads (volume nommé) et le widget statique (lecture seule) :
+      # aucune source montée, le code vit dans l'image.
+      - upload_files:/app/uploads
+      - ./widget:/app/widget:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    # 1 worker : les rate-limiters vivent en mémoire process. Passer à plusieurs
+    # workers une fois le rate-limiting migré vers Redis.
+    # TRUSTED_PROXY_IPS : IP(s) du reverse proxy autorisées à poser X-Forwarded-*.
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=${TRUSTED_PROXY_IPS:-127.0.0.1}
+    # python:3.11-slim n'embarque pas curl -> healthcheck via urllib.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)\""]
+      interval: 10s
+      retries: 5
+      start_period: 20s
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.prod
+      args:
+        # Baké dans le bundle au build (import.meta.env.VITE_API_URL) :
+        # doit pointer vers l'URL PUBLIQUE de l'API.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8001}
+    container_name: chatbot-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3001}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  upload_files:

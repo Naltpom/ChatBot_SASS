@@ -10,12 +10,13 @@ from src.core.security import get_current_user
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
+# Pas de SVG : un SVG peut embarquer du <script> et serait servi depuis
+# l'origine API (XSS stocke). Formats raster uniquement.
 ALLOWED_TYPES = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/gif": ".gif",
     "image/webp": ".webp",
-    "image/svg+xml": ".svg",
 }
 
 
@@ -24,7 +25,7 @@ async def upload_image(file: UploadFile, user=Depends(get_current_user)):
     ext = ALLOWED_TYPES.get(file.content_type or "")
     if ext is None:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                            "Formats acceptés : PNG, JPEG, GIF, WebP, SVG")
+                            "Formats acceptés : PNG, JPEG, GIF, WebP")
     content = await file.read()
     if len(content) > settings.MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

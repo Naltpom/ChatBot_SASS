@@ -57,16 +57,28 @@ function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | 
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { user, activeOrg, setActiveOrg, logout } = useAuth()
+  const { user, activeOrg, setActiveOrg, logout, refreshUser } = useAuth()
   const [usage, setUsage] = useState<Usage | null>(null)
   const location = useLocation()
   const navigate = useNavigate()
+  // Org déjà resynchronisée après un 404 (anti-boucle : une fois par org)
+  const resyncedOrgId = useRef<number | null>(null)
 
   const inAdmin = location.pathname.startsWith('/admin')
 
   useEffect(() => {
     if (!activeOrg || inAdmin) return
-    api<Usage>(`/api/orgs/${activeOrg.id}/usage`).then(setUsage).catch(() => setUsage(null))
+    api<Usage>(`/api/orgs/${activeOrg.id}/usage`)
+      .then(setUsage)
+      .catch((err: any) => {
+        setUsage(null)
+        // Membre retiré de l'org pendant sa session : l'usage renvoie 404 →
+        // on recharge /me pour retirer l'org disparue et re-sélectionner.
+        if (err?.status === 404 && resyncedOrgId.current !== activeOrg.id) {
+          resyncedOrgId.current = activeOrg.id
+          refreshUser().catch(() => {})
+        }
+      })
   }, [activeOrg, location.pathname])
 
   const creditsPct = usage ? Math.round((usage.ai_messages_used / Math.max(1, usage.ai_messages_quota)) * 100) : 0

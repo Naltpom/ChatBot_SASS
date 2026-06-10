@@ -23,8 +23,17 @@
   if (!script) return;
   var BOT_KEY = script.getAttribute("data-bot-key");
   if (!BOT_KEY) return;
+  // Anti double-initialisation : un seul widget par clé même si le script est inclus deux fois
+  window.__kertiosChat = window.__kertiosChat || {};
+  if (window.__kertiosChat[BOT_KEY]) return;
+  window.__kertiosChat[BOT_KEY] = true;
   var INLINE = script.getAttribute("data-inline") === "true";
   var API = script.src.replace(/\/widget\.js.*$/, "");
+
+  // Garde-fous anti-injection : le design_json vient du serveur mais le widget
+  // se défend seul — seules des valeurs sûres entrent dans la feuille de style.
+  function safeColor(c, fallback) { return /^#[0-9a-fA-F]{3,8}$/.test(c || "") ? c : fallback; }
+  function safeInt(n, min, max, fallback) { n = parseInt(n, 10); return isNaN(n) ? fallback : Math.min(max, Math.max(min, n)); }
 
   function pageUrl() {
     return INLINE ? (document.referrer || location.href) : location.href;
@@ -67,13 +76,17 @@
   // --- Captcha (au handshake uniquement, invisible) ---
   // Pas de SRI : Turnstile/reCAPTCHA sont des scripts mutables mis à jour par
   // Cloudflare/Google (leurs docs officielles chargent sans integrity).
+  var loadedScripts = {}; // src -> Promise, évite la double injection au re-handshake
   function loadScript(src) {
-    return new Promise(function (resolve, reject) {
+    if (loadedScripts[src]) return loadedScripts[src];
+    loadedScripts[src] = new Promise(function (resolve, reject) {
       var s = document.createElement("script");
       s.src = src; s.async = true;
-      s.onload = resolve; s.onerror = reject;
+      s.onload = resolve;
+      s.onerror = function (e) { delete loadedScripts[src]; reject(e); };
       document.head.appendChild(s);
     });
+    return loadedScripts[src];
   }
 
   function getCaptchaToken() {
@@ -165,11 +178,12 @@
   var SIZES = { sm: 48, md: 58, lg: 68 };
 
   function css(d) {
-    var brand = d.primaryColor || "#0d9488";
-    var bg = d.secondaryColor ? "linear-gradient(135deg," + brand + "," + d.secondaryColor + ")" : brand;
+    var brand = safeColor(d.primaryColor, "#0d9488");
+    var color2 = d.secondaryColor ? safeColor(d.secondaryColor, brand) : null;
+    var bg = color2 ? "linear-gradient(135deg," + brand + "," + color2 + ")" : brand;
     var side = d.position === "left" ? "left" : "right";
     var bubble = SIZES[d.size] || SIZES.md;
-    var R = typeof d.borderRadius === "number" ? d.borderRadius : 16;
+    var R = safeInt(d.borderRadius, 0, 40, 16);
     var r14 = Math.min(R, 14);
     var panelPos = INLINE
       ? "position:fixed;inset:0;width:100%;height:100%;max-height:none;border-radius:0;"
@@ -209,15 +223,15 @@
       ".kc-back{align-self:flex-start;font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:99px;",
       "border:1px solid #d8dedc;background:#fff;color:#5f7873;cursor:pointer}",
       ".kc-typing{display:flex}.kc-typing>div{padding:10px 14px;border-radius:4px 14px 14px 14px;background:#fff;border:1px solid #e6eae8;display:flex;gap:4px;align-items:center}",
-      ".kc-td{width:6px;height:6px;border-radius:9px;background:#b9c4c0;display:inline-block;animation:kcBlink 1.2s infinite}",
+      ".kc-td{width:6px;height:6px;border-radius:9px;background:#b9c4c0;display:inline-block;animation:kertiosBlink 1.2s infinite}",
       ".kc-td:nth-child(2){animation-delay:.18s}.kc-td:nth-child(3){animation-delay:.36s}",
-      ".kc-typing.wave .kc-td{background:" + brand + ";animation:kcWave 1s infinite ease-in-out}",
+      ".kc-typing.wave .kc-td{background:" + brand + ";animation:kertiosWave 1s infinite ease-in-out}",
       ".kc-typing.wave .kc-td:nth-child(2){animation-delay:.14s}.kc-typing.wave .kc-td:nth-child(3){animation-delay:.28s}",
-      ".kc-typing.pulse .kc-td{width:10px;height:10px;background:" + brand + ";animation:kcPulse 1s infinite ease-in-out}",
+      ".kc-typing.pulse .kc-td{width:10px;height:10px;background:" + brand + ";animation:kertiosPulse 1s infinite ease-in-out}",
       ".kc-typing.pulse .kc-td:nth-child(2),.kc-typing.pulse .kc-td:nth-child(3){display:none}",
-      "@keyframes kcBlink{0%,80%,100%{opacity:.35}40%{opacity:1}}",
-      "@keyframes kcWave{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}",
-      "@keyframes kcPulse{0%,100%{transform:scale(.7);opacity:.5}50%{transform:scale(1.15);opacity:1}}",
+      "@keyframes kertiosBlink{0%,80%,100%{opacity:.35}40%{opacity:1}}",
+      "@keyframes kertiosWave{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}",
+      "@keyframes kertiosPulse{0%,100%{transform:scale(.7);opacity:.5}50%{transform:scale(1.15);opacity:1}}",
       ".kc-inputrow{border-top:1px solid #e9edec;padding:10px;display:flex;gap:8px;background:#fff}",
       ".kc-input{flex:1;font-family:inherit;font-size:13.5px;padding:10px 13px;border-radius:99px;border:1px solid #dde3e1;",
       "outline:none;background:#fff;color:#1d2b27;min-width:0}",
@@ -330,7 +344,10 @@
     ui.modeBadge.textContent = ai ? "IA" : "TREE";
     var canType = ai && state.config.mode !== "tree";
     ui.input.disabled = !canType;
-    ui.input.placeholder = canType ? (state.config.design.placeholder || "Écrivez votre message…") : "Choisissez une option ci-dessus";
+    // Bot IA pur dégradé : pas d'options à choisir, on invite à patienter
+    ui.input.placeholder = canType
+      ? (state.config.design.placeholder || "Écrivez votre message…")
+      : (state.degraded && state.config.mode === "ai" ? "Réessayez un peu plus tard" : "Choisissez une option ci-dessus");
     ui.send.disabled = !canType;
     ui.degradedBanner.style.display = state.degraded ? "flex" : "none";
     if (state.config.mode === "tree") ui.inputRow.style.display = "none";
@@ -379,6 +396,7 @@
     var t = ui.msgs.querySelector(".kc-typing");
     if (on && !t) {
       var anim = (state.config.design || {}).loadingAnimation || "dots";
+      if (anim !== "wave" && anim !== "pulse") anim = "dots"; // whitelist (valeur libre -> className)
       var wrap = el("div", "kc-typing" + (anim !== "dots" ? " " + anim : ""));
       var inner = el("div");
       inner.appendChild(el("span", "kc-td"));
@@ -403,8 +421,15 @@
   // --- Envoi ---
   function postMessage(body, retried) {
     return api("/api/widget/message", { method: "POST", auth: true, body: body })
+      .then(function (resp) {
+        // Sliding session : le serveur renouvelle le JWT quand l'expiration approche
+        if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
+        return resp;
+      })
       .catch(function (err) {
         if (err.status === 401 && !retried) {
+          // Re-handshake silencieux : on ignore le message d'accueil (first)
+          // pour ne pas l'empiler sur la conversation, et on rejoue la requête.
           return openSession().then(function () { return postMessage(body, true); });
         }
         throw err;

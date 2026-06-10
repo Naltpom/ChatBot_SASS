@@ -9,6 +9,7 @@ Flux :
 3. POST /api/widget/message (Bearer JWT)  -> tree ou IA, rate-limite, cape
 """
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 from urllib.parse import urlparse
@@ -20,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
-from src.core.security import create_widget_token, get_widget_session
+from src.core.security import create_widget_token, get_widget_session, widget_token_needs_refresh
 from src.models.bot import Bot
 from src.models.conversation import Conversation, Message
 from src.models.user import Organization
@@ -36,6 +37,12 @@ router = APIRouter(prefix="/api/widget", tags=["widget"])
 DEGRADED_MESSAGE = (
     "Le mode IA est momentanément indisponible. "
     "Vous pouvez continuer avec les options proposées."
+)
+
+# Bot IA pur (pas d'arbre de repli) : on explique au visiteur au lieu de bloquer
+DEGRADED_AI_ONLY_MESSAGE = (
+    "Notre assistant est momentanément indisponible. "
+    "Merci de réessayer un peu plus tard ou de nous contacter directement."
 )
 
 
@@ -117,6 +124,57 @@ def _check_ip_flood(request: Request) -> None:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de requêtes")
 
 
+_HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{3,8}")
+
+
+def _sanitize_design(design: dict) -> dict:
+    """design_json est saisi par les membres de l'org et injecte dans le
+    <style> du widget cote client : on ne renvoie que des valeurs sures
+    (anti injection CSS/URL). Les textes sont bornes par precaution meme si
+    le widget les insere en textContent."""
+    out = dict(design)
+
+    def _hex(value, default):
+        return value if isinstance(value, str) and _HEX_COLOR_RE.fullmatch(value) else default
+
+    out["primaryColor"] = _hex(out.get("primaryColor"), "#0d9488")
+    out["secondaryColor"] = _hex(out.get("secondaryColor"), None)
+
+    try:
+        out["borderRadius"] = max(0, min(40, int(out.get("borderRadius", 16))))
+    except (TypeError, ValueError):
+        out["borderRadius"] = 16
+    if out.get("size") not in ("sm", "md", "lg"):
+        out["size"] = "md"
+    if out.get("position") not in ("left", "right"):
+        out["position"] = "right"
+    if out.get("icon") not in ("chat", "spark", "help", "image"):
+        out["icon"] = "chat"
+    if out.get("loadingAnimation") not in ("dots", "wave", "pulse"):
+        out["loadingAnimation"] = "dots"
+
+    # Seules nos images uploadees sont acceptables comme avatar
+    avatar = out.get("avatarImage")
+    if not (isinstance(avatar, str) and avatar.startswith(settings.API_URL + "/uploads/")):
+        out["avatarImage"] = ""
+
+    for field, maxlen in (("title", 100), ("placeholder", 100), ("welcomeMessage", 500)):
+        value = out.get(field)
+        if value is not None:
+            out[field] = str(value)[:maxlen]
+    return out
+
+
+def _maybe_refresh(response: dict, bot: Bot, session: dict) -> dict:
+    """Contrat de session glissante : si le JWT widget expire dans <10 min,
+    la reponse contient `refresh_token` (meme conversation_id + domaine).
+    Le widget remplace alors son token courant — la conversation et son
+    contexte serveur sont conserves au-dela des 30 min initiales."""
+    if widget_token_needs_refresh(session):
+        response["refresh_token"] = create_widget_token(bot.id, session["sub"], session["domain"])
+    return response
+
+
 # --- Schemas ---
 
 class SessionRequest(BaseModel):
@@ -154,6 +212,7 @@ async def bootstrap(key: str, request: Request, db: AsyncSession = Depends(get_d
     design.setdefault("title", None)
     if not design.get("title"):
         design["title"] = bot.name
+    design = _sanitize_design(design)
     return {
         "design": design,
         "mode": bot.mode,
@@ -213,7 +272,17 @@ async def post_message(
     bot = await db.get(Bot, session["bot_id"])
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget désactivé")
-    _check_origin(request, bot, parent_url=body.page_url)
+    # Coherence avec la session : le domaine a deja ete valide au handshake
+    # (whitelist) et signe dans le JWT. On ne re-parse PAS body.page_url
+    # (controle client). En iframe, l'Origin reste celui de l'API : le parent
+    # a ete verifie a la creation de session.
+    host = _origin_host(request)
+    if not (
+        (settings.ENV == "dev" and host in ("localhost", "127.0.0.1"))
+        or host == session["domain"]
+        or host == _api_host()
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Origine incohérente avec la session")
 
     conversation = await db.get(Conversation, session["sub"])
     if conversation is None:
@@ -228,7 +297,7 @@ async def post_message(
         db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
                        role="assistant", source="tree", content=response["message"]))
         await db.commit()
-        return response
+        return _maybe_refresh(response, bot, session)
 
     # --- Message libre -> IA ---
     text = (body.text or "").strip()
@@ -242,11 +311,11 @@ async def post_message(
         db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
                        role="user", source="tree", content=text))
         await db.commit()
-        return {
+        return _maybe_refresh({
             "source": "tree", "node_id": node_id,
             "message": "Merci ! Choisissez une option ci-dessous.",
             "options": tree_engine.format_node_response(node_id, node)["options"],
-        }
+        }, bot, session)
 
     db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
                    role="user", source="ai", content=text))
@@ -257,12 +326,18 @@ async def post_message(
     allowed, reason = await ai_allowed(db, bot, org)
     if not allowed:
         logger.warning("Bot %s en mode dégradé (%s)", bot.id, reason)
+        if bot.mode == "ai":
+            # IA pure : pas d'arbre de repli, on explique au lieu de bloquer
+            return _maybe_refresh({
+                "source": "tree", "node_id": None, "degraded": True,
+                "message": DEGRADED_AI_ONLY_MESSAGE, "options": [],
+            }, bot, session)
         node_id, node = tree_engine.get_node(bot.tree_json)
-        return {
+        return _maybe_refresh({
             "source": "tree", "node_id": node_id, "degraded": True,
             "message": DEGRADED_MESSAGE,
             "options": tree_engine.format_node_response(node_id, node)["options"] if bot.mode == "hybrid" else [],
-        }
+        }, bot, session)
 
     # Historique tronque (limite de payload vers le modele)
     result = await db.execute(
@@ -283,7 +358,7 @@ async def post_message(
     try:
         ai = await generate_reply(bot, history, page_url)
     except AIServiceError:
-        return {"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.", "options": []}
+        return _maybe_refresh({"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.", "options": []}, bot, session)
 
     db.add(Message(
         conversation_id=conversation.id, bot_id=bot.id,
@@ -293,4 +368,4 @@ async def post_message(
     conversation.last_activity_at = datetime.utcnow()
     await db.commit()
 
-    return {"source": "ai", "message": ai.content, "options": []}
+    return _maybe_refresh({"source": "ai", "message": ai.content, "options": []}, bot, session)

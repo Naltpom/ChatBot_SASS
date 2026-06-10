@@ -10,6 +10,7 @@ Surfaces :
 - /uploads/*                    : images uploadees (avatars, lanceurs)
 """
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -78,6 +79,11 @@ async def widget_cors(request: Request, call_next):
     response = await call_next(request)
     if is_widget:
         response.headers["Access-Control-Allow-Origin"] = origin
+        if path.startswith("/uploads"):
+            # Defense en profondeur : un fichier uploade ne doit jamais
+            # s'executer s'il est ouvert directement depuis l'origine API
+            response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
+            response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
 
@@ -93,6 +99,9 @@ async def widget_frame(key: str):
     pleine zone. La securite reste identique (origin de l'iframe = l'API,
     toujours accepte ; le referer de la page parente est verifie au handshake
     via le header Referer transmis par le navigateur)."""
+    # Anti-XSS : `key` est reflete dans le HTML -> format pk_... strict ou rien
+    if not re.fullmatch(r"pk_[A-Za-z0-9_-]{10,64}", key):
+        return HTMLResponse("Bad request", status_code=400)
     html = f"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">

@@ -43,6 +43,9 @@ def validate_tree(tree: dict[str, Any]) -> None:
             target = opt.get("next")
             if target != AI_NODE and target not in nodes:
                 raise TreeError(f"L'option '{opt['label']}' du noeud '{key}' pointe vers un noeud inconnu '{target}'")
+    # Un depart sans option = widget mort en mode tree
+    if not nodes[start].get("options"):
+        raise TreeError("Le nœud de départ doit proposer au moins un choix")
 
 
 def get_node(tree: dict[str, Any], node_id: Optional[str] = None) -> tuple[str, dict[str, Any]]:

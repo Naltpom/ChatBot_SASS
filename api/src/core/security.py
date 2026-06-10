@@ -58,6 +58,16 @@ def create_widget_token(bot_id: int, conversation_id: str, domain: str) -> str:
     )
 
 
+def widget_token_needs_refresh(payload: dict) -> bool:
+    """Session glissante : True si le JWT widget expire dans moins de 10 min.
+    Le serveur joint alors un `refresh_token` a la reponse (meme conversation)
+    pour que le visiteur ne perde pas son fil apres 30 min d'echange."""
+    exp = payload.get("exp")
+    if not exp:
+        return False
+    return exp - datetime.now(timezone.utc).timestamp() < 600
+
+
 def decode_token(token: str, expected_scope: str) -> dict:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

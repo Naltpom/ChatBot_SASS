@@ -77,24 +77,32 @@ export default function BotPage() {
 
   async function save() {
     setError('')
-    const body: Record<string, any> = {
-      name: bot.name,
-      is_active: bot.is_active,
-      mode: bot.mode,
-      ai_provider: bot.ai_provider,
-      ai_model: bot.ai_model,
-      system_prompt: bot.system_prompt,
-      temperature: bot.temperature,
-      api_key_mode: bot.api_key_mode,
-      tree_json: bot.tree_json,
-      design_json: bot.design_json,
-      allowed_domains: bot.allowed_domains,
-      captcha_provider: bot.captcha_provider,
-      captcha_site_key: bot.captcha_site_key || null,
-      daily_ai_message_cap: bot.daily_ai_message_cap,
+    // Body construit groupe par groupe selon les permissions (FIELD_PERMS côté
+    // API vérifie chaque champ présent) : un member partiel n'envoie que les
+    // champs couverts, un admin envoie tout comme avant.
+    const body: Record<string, any> = {}
+    if (hasPerm('appearance')) {
+      body.name = bot.name
+      body.design_json = bot.design_json
+      body.mode = bot.mode
     }
-    if (byokKey) body.byok_key = byokKey
-    if (captchaSecret) body.captcha_secret = captchaSecret
+    if (hasPerm('context')) {
+      body.tree_json = bot.tree_json
+      body.system_prompt = bot.system_prompt
+      body.ai_provider = bot.ai_provider
+      body.ai_model = bot.ai_model
+      body.temperature = bot.temperature
+      body.api_key_mode = bot.api_key_mode
+      if (byokKey) body.byok_key = byokKey
+    }
+    if (hasPerm('security')) {
+      body.allowed_domains = bot.allowed_domains
+      body.captcha_provider = bot.captcha_provider
+      body.captcha_site_key = bot.captcha_site_key || null
+      body.daily_ai_message_cap = bot.daily_ai_message_cap
+      body.is_active = bot.is_active
+      if (captchaSecret) body.captcha_secret = captchaSecret
+    }
     try {
       const updated = await api(`/api/bots/${botId}`, { method: 'PATCH', body })
       setBot(updated)

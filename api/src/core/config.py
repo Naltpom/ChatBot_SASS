@@ -62,9 +62,21 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.ENV.lower() not in ("dev", "development")
 
+    def validate_production(self) -> None:
+        """Garde-fous : refuse de demarrer en prod avec des secrets par defaut
+        (JWT forgeables) ou sans cle de chiffrement (secrets BYOK perdus)."""
+        if not self.is_production:
+            return
+        if self.JWT_SECRET_KEY == "change-me-minimum-32-caracteres-en-production" or not self.ENCRYPTION_KEY:
+            raise RuntimeError(
+                "JWT_SECRET_KEY/ENCRYPTION_KEY doivent être définies en production "
+                "(secret JWT par défaut ou clé de chiffrement absente)"
+            )
+
     class Config:
         env_file = ".env"
         extra = "allow"
 
 
 settings = Settings()
+settings.validate_production()

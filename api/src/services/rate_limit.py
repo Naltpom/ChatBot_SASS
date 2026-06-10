@@ -46,3 +46,5 @@ session_limiter = SlidingWindowLimiter(
 ip_limiter = SlidingWindowLimiter(
     settings.RATE_IP_REQUESTS, settings.RATE_IP_WINDOW_SECONDS
 )
+# Anti-bruteforce login/register : 10 tentatives / 15 min par IP
+auth_limiter = SlidingWindowLimiter(10, 900)

@@ -1,6 +1,6 @@
 """Auth dashboard : inscription perso/entreprise (+ invitations), login
 (intranet Kertios -> local), auto-login admin en dev."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,8 +19,17 @@ from src.models.user import (
     UserRegister,
 )
 from src.services.auth_service import AuthenticationError, authenticate
+from src.services.rate_limit import auth_limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _check_auth_rate(request: Request) -> None:
+    """Anti-bruteforce : limite les tentatives login/register par IP."""
+    ip = request.client.host if request.client else "unknown"
+    if not auth_limiter.allow(ip):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            "Trop de tentatives, réessayez dans quelques minutes")
 
 
 async def _user_out(db: AsyncSession, user: User) -> UserOut:
@@ -60,8 +69,11 @@ async def _consume_invitations(db: AsyncSession, user: User) -> None:
 
 
 @router.post("/register", response_model=TokenOut)
-async def register(body: UserRegister, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(select(User).where(User.email == body.email))
+async def register(body: UserRegister, request: Request, db: AsyncSession = Depends(get_db)):
+    _check_auth_rate(request)
+    # Email normalise (lower) : evite doublons et invitations non consommees
+    email = body.email.lower().strip()
+    existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, "Un compte existe déjà avec cet email")
     if len(body.password) < 8:
@@ -69,7 +81,7 @@ async def register(body: UserRegister, db: AsyncSession = Depends(get_db)):
     if body.account_type == "entreprise" and not (body.organization_name or "").strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nom d'entreprise requis")
 
-    user = User(email=body.email, hashed_password=hash_password(body.password), name=body.name)
+    user = User(email=email, hashed_password=hash_password(body.password), name=body.name)
     # Perso = meme architecture qu'une entreprise, type different, une seule personne
     org_name = (body.organization_name or "").strip() or f"Espace de {body.name}"
     org = Organization(name=org_name, type=body.account_type)
@@ -81,15 +93,15 @@ async def register(body: UserRegister, db: AsyncSession = Depends(get_db)):
     # direct ; sinon invitation en attente (consommee a son inscription)
     if body.account_type == "entreprise":
         for inv in body.invites:
-            email = inv.email.lower()
-            if email == user.email.lower():
+            inv_email = inv.email.lower().strip()
+            if inv_email == user.email:
                 continue
-            target = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+            target = (await db.execute(select(User).where(User.email == inv_email))).scalar_one_or_none()
             if target:
                 db.add(Membership(user_id=target.id, organization_id=org.id,
                                   role=inv.role, permissions={}))
             else:
-                db.add(Invitation(organization_id=org.id, email=email, role=inv.role))
+                db.add(Invitation(organization_id=org.id, email=inv_email, role=inv.role))
 
     await _consume_invitations(db, user)
     await db.commit()
@@ -98,9 +110,10 @@ async def register(body: UserRegister, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenOut)
-async def login(body: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(body: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
+    _check_auth_rate(request)
     try:
-        user = await authenticate(db, body.email, body.password)
+        user = await authenticate(db, body.email.lower().strip(), body.password)
     except AuthenticationError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e))
     return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
