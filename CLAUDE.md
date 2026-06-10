@@ -17,10 +17,13 @@ de bots ; tree illimité), clés managées ou BYOK.
 ## Commands
 
 ```bash
-docker compose up -d --build     # db + api + app
+docker compose up -d --build     # db + redis + api + app (lifespan = alembic upgrade head)
 docker compose logs -f api
-docker compose down -v           # reset DB (create_all au démarrage, pas d'Alembic)
+docker compose down -v           # reset DB + redis (migrations rejouées au démarrage, .state.json e2e invalidé)
 docker compose exec app bunx tsc --noEmit   # typecheck du dashboard
+docker compose exec api alembic revision --autogenerate -m "..."  # nouvelle migration (après modif models/)
+docker compose exec redis redis-cli FLUSHALL   # purge les rate-limits (429 login persistants)
+cd e2e ; npx playwright test     # suite E2E Playwright (stack docker up requise)
 ```
 
 - Dashboard : http://localhost:3001 (auto-login admin si AUTO_LOGIN_ADMIN_DEV=true)
@@ -31,9 +34,12 @@ docker compose exec app bunx tsc --noEmit   # typecheck du dashboard
 ## Architecture
 
 ```
+api/alembic/           # migrations (env.py async + advisory lock PG, baseline 0242068a8d9d),
+                       # appliquées par le lifespan ; bind-mounté en dev (autogenerate écrit sur l'hôte)
 api/src/
 ├── main.py            # CORS double (dashboard strict / widget ouvert), /widget.js,
-│                      # /widget-frame (iframe), /uploads (StaticFiles), seed admin dev
+│                      # /widget-frame (iframe), /uploads (StaticFiles),
+│                      # lifespan : alembic upgrade head puis seed admin dev
 ├── core/
 │   ├── config.py      # Settings env (intranet, auto-login admin, caps widget)
 │   ├── database.py    # SQLAlchemy async
@@ -41,29 +47,31 @@ api/src/
 ├── models/            # SQLAlchemy + Pydantic dans le même fichier
 │   ├── user.py        # User / Organization / Membership (many-to-many) + PLANS
 │   ├── bot.py         # Bot (organization_id) : tree_json, design_json étendu, captcha, BYOK
-│   └── conversation.py
+│   └── conversation.py  # Conversation (+ colonne journey JSON nullable) / Message
 ├── routers/
 │   ├── auth.py        # register (crée l'org), login (intranet→local), dev-login, me (avec orgs)
-│   ├── orgs.py        # usage du plan, membres (multi-appartenance)
+│   ├── orgs.py        # usage du plan, POST /{id}/plan (changement self-serve), membres
 │   ├── bots.py        # /orgs/{id}/bots (liste/create, limite plan) + /bots/{id} (accès org)
 │   │                  # + config.json export/import + embed (html/iframe/gtm/wordpress)
 │   ├── admin.py       # superadmin : orgs+compteurs, patch plan/suspension, bots/membres par org
 │   ├── uploads.py     # images (avatar, lanceur) -> volume /app/uploads
-│   ├── widget.py      # PUBLIC : bootstrap → session (captcha+origin→JWT) → message
+│   ├── widget.py      # PUBLIC : bootstrap → session (captcha+origin→JWT, _sanitize_journey) → message
 │   └── stats.py       # stats par bot (accès via require_org_access)
 └── services/
     ├── auth_service.py  # intranet Kertios (POST mail/mdp, flux ao_scrapping) → superadmin
     ├── tree_engine.py   # "__ai__" = bascule IA
-    ├── ai_service.py    # anthropic/openai/gemini via httpx, MOCK_AI en dev
+    ├── ai_service.py    # anthropic/openai/gemini via httpx, MOCK_AI en dev,
+    │                    # journey injecté dans le system prompt (build_system_prompt)
     ├── captcha.py       # turnstile / recaptcha_v3 / disabled
-    ├── rate_limit.py    # EN MÉMOIRE → 1 worker uvicorn obligatoire (Redis avant multi-worker)
+    ├── rate_limit.py    # Redis (ZSET, REDIS_URL) fail-open → repli mémoire process
     ├── usage_service.py # caps quotidien bot + quota mensuel org + limite bots du plan
     └── crypto.py        # Fernet (BYOK, secret reCAPTCHA)
 
 app/src/
 ├── AuthContext.tsx    # user + organizations + activeOrg (localStorage) + auto dev-login
-├── Layout.tsx         # switcher d'org, lien Admin (superadmin), pill usage
-├── botConstants.ts    # MODELS par provider, CAPTCHA_INFO (encarts RGPD)
+├── Layout.tsx         # switcher d'org, nav Facturation, lien Admin (superadmin), pill usage
+├── botConstants.ts    # MODELS par provider, CAPTCHA_INFO (encarts RGPD),
+│                      # PLANS_INFO (miroir manuel de PLANS côté API)
 ├── components/
 │   ├── AppearanceForm.tsx  # design complet + aperçu live (gradient, tailles, images, anim)
 │   └── StatsPanel.tsx
@@ -73,10 +81,14 @@ app/src/
     ├── BotWizard.tsx  # étapes dynamiques selon mode : Nom&type → [IA] → [Arbre] →
     │                  # Apparence → Sécurité → création réelle → Intégration → page bot
     ├── BotPage.tsx    # onglets : Stats | Mode & IA | Arbre | Apparence | Sécurité | Intégration
+    ├── Billing.tsx    # plan actuel, conso du mois, changement de plan (POST /orgs/{id}/plan)
     └── Admin.tsx      # clients dépliables (plan, suspension, bots cliquables, membres)
 
 widget/widget.js       # vanilla JS : flottant ou data-inline (iframe), gradient/size/radius/
-                       # images/animations, servi par l'API
+                       # images/animations, journey (sessionStorage kc_journey), servi par l'API
+
+e2e/                   # Playwright : global-setup API (compte+org+bot → .state.json gitignoré),
+                       # opt-out auto-login via clé localStorage kc_no_autologin
 ```
 
 ## Concepts clés
@@ -112,18 +124,28 @@ widget/widget.js       # vanilla JS : flottant ou data-inline (iframe), gradient
 - `/` landing publique (Bricolage Grotesque + Instrument Serif, blobs, démo
   widget interactive, tarifs) · `/login` · `/register` (wizard Personnel/Entreprise + invitations)
 - `/app` liste des bots · `/app/bots/new` wizard · `/app/bots/:id` page bot ·
-  `/app/team` Équipe & permissions (matrice par bot)
+  `/app/team` Équipe & permissions (matrice par bot) · `/app/billing` Facturation
 - `/admin` + `/admin/clients/:orgId` back-office superadmin
 
 ### Sécurité du widget (empilée)
 1. `pk_...` publique → 2. vérif Origin vs `allowed_domains` (wildcards ; localhost si ENV=dev)
-→ 3. captcha au handshake → JWT 30 min → 4. rate limits mémoire (session 20/10min, IP 100/min)
+→ 3. captcha au handshake → JWT 30 min → 4. rate limits Redis (session 20/10min, IP 100/min)
 → 5. payload max 4000 chars, historique 20 msg → 6. cap quotidien bot + quota mensuel org
 → mode dégradé tree-only → 7. prompt/modèle verrouillés serveur.
 
 **Cas iframe** (`/widget-frame`) : l'Origin devient celui de l'API → la whitelist est
 vérifiée sur le domaine de la PAGE PARENTE (`parent_url` = document.referrer envoyé
 par le widget en mode `data-inline`). Bootstrap GET toléré sans parent (design public).
+
+### Parcours visiteur (journey)
+Pur contexte IA, aucune UI : widget.js enregistre les pathnames à chaque chargement
+(sessionStorage `kc_journey`, {p, t}, dédup, cap 10) et les envoie au handshake
+(champ `journey` du POST session, `Optional[Any]` → jamais de 422) →
+`_sanitize_journey` (widget.py : validation stricte mais silencieuse, sinon None) →
+`Conversation.journey` (JSON, NULL si absent) → bloc « Parcours du visiteur » dans le
+system prompt (ai_service), branche IA uniquement, jamais en mode arbre.
+Cas iframe : pathname tiré de document.referrer (même mécanisme que parent_url) ;
+Referrer-Policy stricte → journey null (dégradation propre).
 
 ### Auto-login admin dev
 `AUTO_LOGIN_ADMIN_DEV=true` + ENV=dev : seed de ADMIN_EMAIL/ADMIN_PASSWORD au
@@ -159,11 +181,26 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
 
 ## Pièges connus
 
-- 1 seul worker uvicorn tant que les rate-limiters sont en mémoire.
+- Multi-worker uvicorn OK avec REDIS_URL (limiteurs partagés via Redis) ; sans
+  Redis (ou panne), repli mémoire fail-open PAR PROCESS → 1 seul worker dans ce cas.
+- Rate-limit auth (10 login+register / 15 min / IP) PERSISTANT dans Redis : un
+  restart api ne le purge plus → `docker compose exec redis redis-cli FLUSHALL`.
+  En dev l'IP vue est la gateway Docker, partagée par tout le trafic hôte.
+- `docker compose down -v` efface DB ET volume redis ET invalide e2e/.state.json
+  (le global-setup Playwright le recrée au run suivant).
+- `PLANS_INFO` (app/src/botConstants.ts) = miroir manuel de `PLANS`
+  (models/user.py) : resynchroniser à chaque changement de plan.
 - CORS `/api/widget/*` + `/uploads` volontairement ouvert (middleware main.py) :
   le vrai contrôle est la whitelist par bot.
 - Pas de SRI sur les scripts (widget + captchas) : mutables par design.
-- `create_all` au démarrage : tout changement de schéma en dev = `docker compose down -v`.
-  Passer à Alembic avant la prod.
+- Schéma géré par Alembic (api/alembic/, baseline 0242068a8d9d) : le lifespan
+  exécute `alembic upgrade head` au démarrage (advisory lock Postgres = safe en
+  multi-worker). Changement de schéma = modifier models/ PUIS
+  `docker compose exec api alembic revision --autogenerate -m "..."` (le fichier
+  atterrit dans api/alembic/versions/ via le bind mount) et relire la révision.
+  Plus jamais de create_all. ATTENTION en dev : --reload surveille /app/alembic
+  → toute révision écrite/sauvegardée est APPLIQUÉE immédiatement au reload ;
+  supprimer une révision déjà appliquée casse `alembic current` (re-stamper via
+  UPDATE alembic_version en psql).
 - `.env` : ne pas utiliser USER/PASSWORD comme noms (collision $USER sous Linux
   dans compose) → ADMIN_EMAIL/ADMIN_PASSWORD sont les noms canoniques.
