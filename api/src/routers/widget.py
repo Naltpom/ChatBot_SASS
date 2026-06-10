@@ -1,0 +1,296 @@
+"""Endpoints PUBLICS consommes par le widget embarque (<script>).
+
+Archi : widget JS -> cette API (origin + captcha + JWT + rate limit + caps)
+-> provider IA avec cle serveur. Le widget ne touche jamais une cle IA.
+
+Flux :
+1. GET  /api/widget/bootstrap?key=pk_xxx  -> design + provider captcha (public)
+2. POST /api/widget/session               -> verif origin + captcha -> JWT 30 min
+3. POST /api/widget/message (Bearer JWT)  -> tree ou IA, rate-limite, cape
+"""
+import logging
+from datetime import datetime
+from typing import Optional
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.config import settings
+from src.core.database import get_db
+from src.core.security import create_widget_token, get_widget_session
+from src.models.bot import Bot
+from src.models.conversation import Conversation, Message
+from src.models.user import Organization
+from src.services import tree_engine
+from src.services.ai_service import AIServiceError, generate_reply
+from src.services.captcha import verify_captcha
+from src.services.rate_limit import ip_limiter, session_limiter
+from src.services.usage_service import ai_allowed
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/widget", tags=["widget"])
+
+DEGRADED_MESSAGE = (
+    "Le mode IA est momentanément indisponible. "
+    "Vous pouvez continuer avec les options proposées."
+)
+
+
+# --- Helpers ---
+
+def _client_ip(request: Request) -> str:
+    # --proxy-headers est actif : request.client.host reflete X-Forwarded-For
+    return request.client.host if request.client else "unknown"
+
+
+def _origin_host(request: Request) -> Optional[str]:
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    if not origin:
+        return None
+    return urlparse(origin).hostname
+
+
+def _domain_allowed(host: Optional[str], allowed: list[str]) -> bool:
+    """Whitelist par bot. Les navigateurs ne laissent pas forger l'Origin :
+    ca bloque l'embed sauvage sur d'autres sites. (Un script serveur peut le
+    spoofer -> c'est pour ca qu'on empile captcha + rate limits + caps.)"""
+    if not host:
+        return False
+    host = host.lower()
+    for entry in allowed:
+        entry = entry.lower().strip()
+        if not entry:
+            continue
+        if entry.startswith("*."):
+            if host == entry[2:] or host.endswith(entry[1:]):
+                return True
+        elif host == entry:
+            return True
+    return False
+
+
+async def _get_active_bot(db: AsyncSession, public_key: str) -> Bot:
+    result = await db.execute(select(Bot).where(Bot.public_key == public_key))
+    bot = result.scalar_one_or_none()
+    if bot is None or not bot.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    # Organisation suspendue (impayé, abus...) -> tous ses widgets coupés
+    org = await db.get(Organization, bot.organization_id)
+    if org is None or not org.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    return bot
+
+
+def _api_host() -> Optional[str]:
+    return urlparse(settings.API_URL).hostname
+
+
+def _check_origin(request: Request, bot: Bot, parent_url: Optional[str] = None,
+                  allow_api_origin: bool = False) -> str:
+    host = _origin_host(request)
+    if settings.ENV == "dev" and host in ("localhost", "127.0.0.1"):
+        return host
+    # Mode iframe (/widget-frame) : l'Origin est celui de l'API elle-meme.
+    # On verifie alors le domaine de la PAGE PARENTE (document.referrer envoye
+    # par le widget en parent_url) pour ne pas contourner la whitelist.
+    if host == _api_host():
+        parent_host = urlparse(parent_url).hostname if parent_url else None
+        if settings.ENV == "dev" and parent_host in ("localhost", "127.0.0.1"):
+            return parent_host
+        if parent_host and _domain_allowed(parent_host, bot.allowed_domains or []):
+            return parent_host
+        if allow_api_origin:
+            # bootstrap GET depuis l'iframe : pas de parent connu, on ne sert
+            # que le design (public). La session, elle, exige le parent.
+            return host
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Domaine parent non autorisé pour ce widget")
+    if not _domain_allowed(host, bot.allowed_domains or []):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Domaine non autorisé pour ce widget")
+    return host
+
+
+def _check_ip_flood(request: Request) -> None:
+    if not ip_limiter.allow(_client_ip(request)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de requêtes")
+
+
+# --- Schemas ---
+
+class SessionRequest(BaseModel):
+    public_key: str
+    visitor_id: str = Field(min_length=8, max_length=64)
+    page_url: Optional[str] = Field(None, max_length=2000)
+    # En mode iframe : document.referrer de la page parente (verif whitelist)
+    parent_url: Optional[str] = Field(None, max_length=2000)
+    captcha_token: Optional[str] = None
+
+
+class MessageRequest(BaseModel):
+    # Soit `node` (clic sur une option de l'arbre), soit `text` (message libre -> IA)
+    node: Optional[str] = Field(None, max_length=100)
+    text: Optional[str] = None
+    page_url: Optional[str] = Field(None, max_length=2000)
+
+
+# --- Endpoints ---
+
+@router.get("/bootstrap")
+async def bootstrap(key: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Config publique du widget : design + captcha. Aucun secret ici."""
+    _check_ip_flood(request)
+    bot = await _get_active_bot(db, key)
+    _check_origin(request, bot, allow_api_origin=True)
+
+    captcha_site_key = None
+    if bot.captcha_provider == "turnstile":
+        captcha_site_key = settings.TURNSTILE_SITE_KEY
+    elif bot.captcha_provider == "recaptcha_v3":
+        captcha_site_key = bot.captcha_site_key
+
+    design = dict(bot.design_json or {})
+    design.setdefault("title", None)
+    if not design.get("title"):
+        design["title"] = bot.name
+    return {
+        "design": design,
+        "mode": bot.mode,
+        "captcha": {"provider": bot.captcha_provider, "site_key": captcha_site_key},
+    }
+
+
+@router.post("/session")
+async def create_session(body: SessionRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Handshake : captcha verifie ICI (une fois), puis le JWT couvre la session."""
+    _check_ip_flood(request)
+    bot = await _get_active_bot(db, body.public_key)
+    domain = _check_origin(request, bot, parent_url=body.parent_url or body.page_url)
+
+    if not await verify_captcha(bot, body.captcha_token, _client_ip(request)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Vérification anti-bot échouée")
+
+    conversation = Conversation(
+        bot_id=bot.id,
+        visitor_id=body.visitor_id,
+        domain=domain or "unknown",
+        page_url=body.page_url,
+    )
+    db.add(conversation)
+    await db.commit()
+
+    token = create_widget_token(bot.id, conversation.id, domain or "unknown")
+
+    # Premier message : noeud de depart de l'arbre (tree/hybrid) ou accueil design
+    if bot.mode in ("tree", "hybrid"):
+        node_id, node = tree_engine.get_node(bot.tree_json)
+        first = tree_engine.format_node_response(node_id, node)
+    else:
+        welcome = (bot.design_json or {}).get("welcomeMessage") or "Bonjour ! Posez-moi votre question."
+        first = {"source": "tree", "node_id": None, "message": welcome, "options": []}
+
+    db.add(Message(
+        conversation_id=conversation.id, bot_id=bot.id,
+        role="assistant", source="tree", content=first["message"],
+    ))
+    await db.commit()
+
+    return {"token": token, "conversation_id": conversation.id, "first": first}
+
+
+@router.post("/message")
+async def post_message(
+    body: MessageRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    session: dict = Depends(get_widget_session),
+):
+    _check_ip_flood(request)
+    if not session_limiter.allow(session["sub"]):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Limite de messages atteinte, réessayez dans quelques minutes")
+
+    bot = await db.get(Bot, session["bot_id"])
+    if bot is None or not bot.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget désactivé")
+    _check_origin(request, bot, parent_url=body.page_url)
+
+    conversation = await db.get(Conversation, session["sub"])
+    if conversation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation introuvable")
+
+    # --- Navigation dans l'arbre (clic option) : gratuit, illimite ---
+    if body.node:
+        node_id, node = tree_engine.get_node(bot.tree_json, body.node)
+        response = tree_engine.format_node_response(node_id, node)
+        db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
+                       role="user", source="tree", content=f"[option] {body.node}"))
+        db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
+                       role="assistant", source="tree", content=response["message"]))
+        await db.commit()
+        return response
+
+    # --- Message libre -> IA ---
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Message vide")
+    if len(text) > settings.MAX_MESSAGE_CHARS:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            f"Message trop long (max {settings.MAX_MESSAGE_CHARS} caractères)")
+    if bot.mode == "tree":
+        node_id, node = tree_engine.get_node(bot.tree_json)
+        db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
+                       role="user", source="tree", content=text))
+        await db.commit()
+        return {
+            "source": "tree", "node_id": node_id,
+            "message": "Merci ! Choisissez une option ci-dessous.",
+            "options": tree_engine.format_node_response(node_id, node)["options"],
+        }
+
+    db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
+                   role="user", source="ai", content=text))
+    await db.commit()
+
+    # Caps budget : cap quotidien bot + quota mensuel du plan de l'org -> mode degrade tree-only
+    org = await db.get(Organization, bot.organization_id)
+    allowed, reason = await ai_allowed(db, bot, org)
+    if not allowed:
+        logger.warning("Bot %s en mode dégradé (%s)", bot.id, reason)
+        node_id, node = tree_engine.get_node(bot.tree_json)
+        return {
+            "source": "tree", "node_id": node_id, "degraded": True,
+            "message": DEGRADED_MESSAGE,
+            "options": tree_engine.format_node_response(node_id, node)["options"] if bot.mode == "hybrid" else [],
+        }
+
+    # Historique tronque (limite de payload vers le modele)
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation.id, Message.source.in_(["ai", "tree"]))
+        .order_by(Message.created_at.desc())
+        .limit(settings.MAX_HISTORY_MESSAGES)
+    )
+    rows = list(reversed(result.scalars().all()))
+    history = [{"role": m.role, "content": m.content} for m in rows if m.role in ("user", "assistant")]
+    # Les APIs exigent une alternance commencant par "user"
+    while history and history[0]["role"] != "user":
+        history.pop(0)
+    if not history:
+        history = [{"role": "user", "content": text}]
+
+    page_url = body.page_url or conversation.page_url
+    try:
+        ai = await generate_reply(bot, history, page_url)
+    except AIServiceError:
+        return {"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.", "options": []}
+
+    db.add(Message(
+        conversation_id=conversation.id, bot_id=bot.id,
+        role="assistant", source="ai", content=ai.content,
+        tokens_in=ai.tokens_in, tokens_out=ai.tokens_out,
+    ))
+    conversation.last_activity_at = datetime.utcnow()
+    await db.commit()
+
+    return {"source": "ai", "message": ai.content, "options": []}

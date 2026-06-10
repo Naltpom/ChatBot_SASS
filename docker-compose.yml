@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:15
+    container_name: chatbot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: chatbot-api
+    restart: unless-stopped
+    environment:
+      # ENV=dev assouplit le CORS pour le dashboard local. En prod, ne PAS définir
+      # ENV=dev -> seules les origines explicites (APP_URL) sont autorisées.
+      # NB: les endpoints /widget/* ont leur propre contrôle d'Origin par bot
+      # (whitelist de domaines), indépendant du CORS global.
+      - ENV=${ENV:-dev}
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
+      - MOCK_AI=${MOCK_AI:-true}
+      - APP_URL=${APP_URL:-http://localhost:3001}
+      - API_URL=${API_URL:-http://localhost:8001}
+      # Auth intranet Kertios (meme flux qu'ao_scrapping). Les comptes
+      # intranet deviennent superadmins du SaaS.
+      - INTRANET_AUTH_URL=${INTRANET_AUTH_URL:-https://intranet.kertios.com/main/auth_ret}
+      - INTRANET_AUTH_ENABLED=${INTRANET_AUTH_ENABLED:-true}
+      # Auto-login admin (dev uniquement, ignore si ENV != dev)
+      - AUTO_LOGIN_ADMIN_DEV=${AUTO_LOGIN_ADMIN_DEV:-false}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@kertios.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-Admin123!}
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./api/src:/app/src
+      - ./widget:/app/widget
+      - upload_files:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    # 1 worker : les rate-limiters vivent en mémoire process. Passer en multi-worker
+    # impose de les migrer vers Redis d'abord.
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips='*' --reload
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: chatbot-app
+    restart: unless-stopped
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8001}
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./app/src:/app/src
+      - ./app/index.html:/app/index.html
+      - ./app/vite.config.ts:/app/vite.config.ts
+      - ./app/tsconfig.json:/app/tsconfig.json
+    depends_on:
+      - api
+    command: bun run dev --host 0.0.0.0 --port 3000
+
+volumes:
+  postgres_data:
+  upload_files:
