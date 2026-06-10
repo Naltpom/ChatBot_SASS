@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Column,
     DateTime,
     ForeignKey,
@@ -33,6 +34,12 @@ class Conversation(Base):
     domain = Column(String, nullable=False)
     # Contexte injecte dans le prompt IA : "l'utilisateur est sur /tarifs"
     page_url = Column(String, nullable=True)
+    # Parcours du visiteur AVANT d'ouvrir le chat : [{"p": "/tarifs", "t": 1750...}].
+    # Pathnames uniquement (sans query/hash), max 10 entrees, validees dans
+    # routers/widget.py. Sert exclusivement de contexte aux reponses IA —
+    # ce n'est PAS de l'analytics (aucune UI ne l'expose).
+    # none_as_null : absence de parcours = SQL NULL (pas un 'null' JSON).
+    journey = Column(JSON(none_as_null=True), nullable=True)
     started_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     last_activity_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

@@ -52,6 +52,45 @@
     }
   }
 
+  // --- Parcours visiteur (contexte IA, pas de l'analytics) ---
+  // À chaque chargement de page on mémorise le pathname (JAMAIS la query
+  // string ni le hash : vie privée) dans sessionStorage, dédupliqué si la
+  // page n'a pas changé, plafonné aux 10 plus récents. Envoyé une seule fois,
+  // au handshake de session, pour aider l'IA à contextualiser ses réponses.
+  // Cas iframe (data-inline) : on ne voit pas le sessionStorage de la page
+  // parente — la page parente n'est connue que via document.referrer (même
+  // mécanisme que parent_url), et le parcours s'accumule dans le
+  // sessionStorage de la frame (même onglet). Referrer absent/illisible
+  // (Referrer-Policy stricte) → on n'enregistre rien : journey restera null.
+  function currentPath() {
+    if (!INLINE) return location.pathname || "/";
+    if (!document.referrer) return null;
+    try { return new URL(document.referrer).pathname || "/"; } catch (e) { return null; }
+  }
+
+  function recordJourney() {
+    var path = currentPath();
+    if (!path) return;
+    try {
+      var list = JSON.parse(sessionStorage.getItem("kc_journey") || "[]");
+      if (!Array.isArray(list)) list = [];
+      var last = list[list.length - 1];
+      if (last && last.p === path) return;
+      list.push({ p: path, t: Math.floor(Date.now() / 1000) });
+      if (list.length > 10) list = list.slice(-10);
+      sessionStorage.setItem("kc_journey", JSON.stringify(list));
+    } catch (e) { /* sessionStorage indisponible (navigation privée…) */ }
+  }
+
+  function getJourney() {
+    try {
+      var list = JSON.parse(sessionStorage.getItem("kc_journey") || "null");
+      return Array.isArray(list) && list.length ? list : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   var state = { config: null, token: null, open: false, busy: false, aiMode: false, degraded: false, unread: 1 };
 
   // --- HTTP ---
@@ -132,6 +171,7 @@
           page_url: pageUrl(),
           parent_url: INLINE ? document.referrer : null,
           captcha_token: token,
+          journey: getJourney(),
         },
       });
     }).then(function (data) {
@@ -541,6 +581,7 @@
   }
 
   // --- Init ---
+  recordJourney();
   api("/api/widget/bootstrap?key=" + encodeURIComponent(BOT_KEY))
     .then(function (config) {
       state.config = config;

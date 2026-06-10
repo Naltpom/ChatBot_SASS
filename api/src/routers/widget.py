@@ -11,7 +11,7 @@ Flux :
 import logging
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -165,6 +165,41 @@ def _sanitize_design(design: dict) -> dict:
     return out
 
 
+# Bornes de plausibilite du timestamp d'une entree de parcours (epoch secondes) :
+# entre 2020 et 2100 — au-dela c'est du bruit client, on ignore l'entree.
+_JOURNEY_T_MIN = 1577836800
+_JOURNEY_T_MAX = 4102444800
+_JOURNEY_MAX_ENTRIES = 10
+
+
+def _sanitize_journey(journey: Any) -> Optional[list[dict]]:
+    """Parcours du visiteur envoye par le widget (contexte IA, pas analytics).
+
+    Donnee 100% controlee par le client -> validation stricte mais SILENCIEUSE :
+    toute entree invalide est ignoree, les paths sont tronques, jamais de 4xx.
+    Format attendu : [{"p": "/tarifs", "t": 1750000000}, ...] (10 max).
+    """
+    if not isinstance(journey, list):
+        return None
+    out: list[dict] = []
+    # On ne regarde que la fin de la liste (les plus recentes) : borne le cout
+    # face a une liste enorme forgee, tout en gardant assez de marge pour
+    # retrouver 10 entrees valides parmi du bruit.
+    for entry in journey[-50:]:
+        if not isinstance(entry, dict):
+            continue
+        p, t = entry.get("p"), entry.get("t")
+        if not isinstance(p, str) or not p.startswith("/"):
+            continue
+        # bool est une sous-classe d'int : on l'exclut explicitement
+        if isinstance(t, bool) or not isinstance(t, int):
+            continue
+        if not (_JOURNEY_T_MIN <= t <= _JOURNEY_T_MAX):
+            continue
+        out.append({"p": p[:200], "t": t})
+    return out[-_JOURNEY_MAX_ENTRIES:] or None
+
+
 def _maybe_refresh(response: dict, bot: Bot, session: dict) -> dict:
     """Contrat de session glissante : si le JWT widget expire dans <10 min,
     la reponse contient `refresh_token` (meme conversation_id + domaine).
@@ -184,6 +219,10 @@ class SessionRequest(BaseModel):
     # En mode iframe : document.referrer de la page parente (verif whitelist)
     parent_url: Optional[str] = Field(None, max_length=2000)
     captcha_token: Optional[str] = None
+    # Parcours du visiteur avant l'ouverture du chat (contexte IA optionnel).
+    # Type `Any` volontaire : un payload mal forme ne doit JAMAIS provoquer de
+    # 422 — il est filtre par _sanitize_journey et devient None au pire.
+    journey: Optional[Any] = None
 
 
 class MessageRequest(BaseModel):
@@ -235,6 +274,7 @@ async def create_session(body: SessionRequest, request: Request, db: AsyncSessio
         visitor_id=body.visitor_id,
         domain=domain or "unknown",
         page_url=body.page_url,
+        journey=_sanitize_journey(body.journey),
     )
     db.add(conversation)
     await db.commit()
@@ -356,7 +396,9 @@ async def post_message(
 
     page_url = body.page_url or conversation.page_url
     try:
-        ai = await generate_reply(bot, history, page_url)
+        # journey : contexte IA uniquement (le mode arbre n'en a pas besoin),
+        # deja valide/tronque au handshake par _sanitize_journey
+        ai = await generate_reply(bot, history, page_url, journey=conversation.journey)
     except AIServiceError:
         return _maybe_refresh({"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.", "options": []}, bot, session)
 

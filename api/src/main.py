@@ -9,18 +9,21 @@ Surfaces :
 - /widget.js, /widget-frame     : le script a embarquer + la page iframe
 - /uploads/*                    : images uploadees (avatars, lanceurs)
 """
+import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.core.config import settings
-from src.core.database import AsyncSessionLocal, Base, engine
+from src.core.database import AsyncSessionLocal
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
 from src.routers import admin, auth, bots, orgs, stats, uploads, widget
 from src.services.auth_service import ensure_dev_admin
@@ -30,16 +33,29 @@ logger = logging.getLogger(__name__)
 
 WIDGET_JS = Path("/app/widget/widget.js")
 
+# /app dans le conteneur : alembic.ini et alembic/ vivent a cote de src/
+API_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _upgrade_database() -> None:
+    """`alembic upgrade head` — bloquant, lance dans un thread dedie.
+
+    L'env.py async fait son propre asyncio.run() : il doit tourner dans un
+    thread SANS event loop, d'ou l'asyncio.to_thread cote lifespan. Les
+    upgrades concurrents (multi-worker en prod) sont serialises par un
+    advisory lock Postgres pris dans env.py.
+    """
+    alembic_command.upgrade(AlembicConfig(str(API_ROOT / "alembic.ini")), "head")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # v1 : create_all au demarrage. Passer a Alembic des la premiere migration
-    # de schema en prod.
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Migrations Alembic au demarrage (remplace le create_all v1).
+    # Idempotent : base deja a head -> aucun DDL execute.
+    await asyncio.to_thread(_upgrade_database)
     async with AsyncSessionLocal() as session:
         await ensure_dev_admin(session)
-    logger.info("Base de données prête")
+    logger.info("Base de données prête (migrations Alembic à jour)")
     yield
 
 

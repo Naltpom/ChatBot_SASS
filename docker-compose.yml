@@ -71,6 +71,11 @@ services:
       - "8001:8000"
     volumes:
       - ./api/src:/app/src
+      # Alembic monté en dev : `docker compose exec api alembic revision
+      # --autogenerate -m "..."` écrit la révision dans ./api/alembic/versions
+      # sur l'hôte (sinon elle resterait dans le conteneur).
+      - ./api/alembic.ini:/app/alembic.ini
+      - ./api/alembic:/app/alembic
       - ./widget:/app/widget
       - upload_files:/app/uploads
     depends_on:
