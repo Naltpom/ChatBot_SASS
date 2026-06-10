@@ -119,8 +119,8 @@ def _check_origin(request: Request, bot: Bot, parent_url: Optional[str] = None,
     return host
 
 
-def _check_ip_flood(request: Request) -> None:
-    if not ip_limiter.allow(_client_ip(request)):
+async def _check_ip_flood(request: Request) -> None:
+    if not await ip_limiter.check(_client_ip(request)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de requêtes")
 
 
@@ -198,7 +198,7 @@ class MessageRequest(BaseModel):
 @router.get("/bootstrap")
 async def bootstrap(key: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Config publique du widget : design + captcha. Aucun secret ici."""
-    _check_ip_flood(request)
+    await _check_ip_flood(request)
     bot = await _get_active_bot(db, key)
     _check_origin(request, bot, allow_api_origin=True)
 
@@ -223,7 +223,7 @@ async def bootstrap(key: str, request: Request, db: AsyncSession = Depends(get_d
 @router.post("/session")
 async def create_session(body: SessionRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Handshake : captcha verifie ICI (une fois), puis le JWT couvre la session."""
-    _check_ip_flood(request)
+    await _check_ip_flood(request)
     bot = await _get_active_bot(db, body.public_key)
     domain = _check_origin(request, bot, parent_url=body.parent_url or body.page_url)
 
@@ -265,8 +265,8 @@ async def post_message(
     db: AsyncSession = Depends(get_db),
     session: dict = Depends(get_widget_session),
 ):
-    _check_ip_flood(request)
-    if not session_limiter.allow(session["sub"]):
+    await _check_ip_flood(request)
+    if not await session_limiter.check(session["sub"]):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Limite de messages atteinte, réessayez dans quelques minutes")
 
     bot = await db.get(Bot, session["bot_id"])

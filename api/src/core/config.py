@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_BYTES: int = 1_000_000  # 1 Mo
 
+    # Redis : backend partage des rate-limiters (prerequis multi-worker).
+    # Vide = limiteurs en memoire process -> 1 seul worker uvicorn obligatoire.
+    REDIS_URL: Optional[str] = None
+
     # Garde-fous widget
     MAX_MESSAGE_CHARS: int = 4000
     MAX_HISTORY_MESSAGES: int = 20          # historique max envoye au modele

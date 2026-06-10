@@ -59,3 +59,41 @@ export const WIDGET_BRAND_COLORS = ['#0d9488', '#4f46e5', '#ea580c', '#0f172a', 
 export const GRADIENT_SECOND_COLORS = ['#7c2d92', '#4f46e5', '#0d9488', '#0f172a', '#e11d48', '#f59e0b']
 
 export const PLAN_LABELS: Record<string, string> = { free: 'Free', starter: 'Starter', pro: 'Pro', agence: 'Agence' }
+
+// Miroir frontend de PLANS (api/src/models/user.py) — à garder synchronisé.
+// Wording aligné sur la landing (pages/Landing.tsx) : Starter 19 / Pro 39 / Agence 119.
+export interface PlanInfo {
+  key: string
+  label: string
+  price: number              // €/mois
+  aiMessages: number         // quota mensuel de réponses IA
+  maxBots: number
+  treeOnly: boolean
+  maxTreeNodes: number | null
+  desc: string
+  features: string[]
+  popular?: boolean
+}
+
+export const PLANS_INFO: PlanInfo[] = [
+  {
+    key: 'free', label: 'Free', price: 0, aiMessages: 0, maxBots: 1, treeOnly: true, maxTreeNodes: 10,
+    desc: 'Découverte — arbre de décision seul, sans IA.',
+    features: ['1 chatbot', 'Mode arbre uniquement', '10 bulles max dans l\'arbre', 'Réponses arbre illimitées'],
+  },
+  {
+    key: 'starter', label: 'Starter', price: 19, aiMessages: 500, maxBots: 1, treeOnly: false, maxTreeNodes: null,
+    desc: 'L\'IA sur votre site, pour démarrer.',
+    features: ['1 chatbot', '500 réponses IA / mois', 'Réponses arbre illimitées', 'Stats essentielles'],
+  },
+  {
+    key: 'pro', label: 'Pro', price: 39, aiMessages: 2000, maxBots: 3, treeOnly: false, maxTreeNodes: null,
+    desc: 'Plusieurs bots, équipe et permissions.', popular: true,
+    features: ['3 chatbots', '2 000 réponses IA / mois', 'Équipe & permissions', 'Cap budget configurable'],
+  },
+  {
+    key: 'agence', label: 'Agence', price: 119, aiMessages: 10000, maxBots: 10, treeOnly: false, maxTreeNodes: null,
+    desc: 'Pour gérer les bots de plusieurs clients.',
+    features: ['10 chatbots', '10 000 réponses IA / mois', 'BYOK (vos clés API)', 'Support prioritaire'],
+  },
+]

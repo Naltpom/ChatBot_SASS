@@ -24,10 +24,10 @@ from src.services.rate_limit import auth_limiter
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def _check_auth_rate(request: Request) -> None:
+async def _check_auth_rate(request: Request) -> None:
     """Anti-bruteforce : limite les tentatives login/register par IP."""
     ip = request.client.host if request.client else "unknown"
-    if not auth_limiter.allow(ip):
+    if not await auth_limiter.check(ip):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de tentatives, réessayez dans quelques minutes")
 
@@ -70,7 +70,7 @@ async def _consume_invitations(db: AsyncSession, user: User) -> None:
 
 @router.post("/register", response_model=TokenOut)
 async def register(body: UserRegister, request: Request, db: AsyncSession = Depends(get_db)):
-    _check_auth_rate(request)
+    await _check_auth_rate(request)
     # Email normalise (lower) : evite doublons et invitations non consommees
     email = body.email.lower().strip()
     existing = await db.execute(select(User).where(User.email == email))
@@ -111,7 +111,7 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
 
 @router.post("/login", response_model=TokenOut)
 async def login(body: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
-    _check_auth_rate(request)
+    await _check_auth_rate(request)
     try:
         user = await authenticate(db, body.email.lower().strip(), body.password)
     except AuthenticationError as e:

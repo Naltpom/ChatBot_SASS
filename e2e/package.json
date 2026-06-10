@@ -1,0 +1,12 @@
+{
+  "name": "chatbot-saas-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Suite E2E Playwright du dashboard et du widget Kertios Chat",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

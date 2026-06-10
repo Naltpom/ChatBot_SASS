@@ -64,6 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         // Auto-login admin en dev : l'endpoint n'existe qu'avec
         // AUTO_LOGIN_ADMIN_DEV=true et ENV=dev, sinon 404 silencieux.
+        // Opt-out (tests E2E) : la clé localStorage kc_no_autologin le neutralise.
+        if (localStorage.getItem('kc_no_autologin')) return
         const data = await api('/api/auth/dev-login', { method: 'POST' })
         setToken(data.access_token)
         applyUser(data.user)

@@ -18,6 +18,20 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: chatbot-redis
+    restart: unless-stopped
+    # appendonly : persiste les fenetres de rate-limit entre les redémarrages
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api:
     build:
       context: ./api
@@ -49,6 +63,9 @@ services:
       - AUTO_LOGIN_ADMIN_DEV=${AUTO_LOGIN_ADMIN_DEV:-false}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@kertios.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-Admin123!}
+      # Rate-limiters partagés via Redis. Si vide (ou Redis en panne) : repli
+      # mémoire fail-open -> 1 seul worker uvicorn obligatoire.
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PYTHONUNBUFFERED=1
     ports:
       - "8001:8000"
@@ -59,8 +76,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # 1 worker : les rate-limiters vivent en mémoire process. Passer en multi-worker
-    # impose de les migrer vers Redis d'abord.
+      redis:
+        condition: service_healthy
+    # --reload impose un process unique en dev ; les rate-limiters sont
+    # partagés via Redis (REDIS_URL), le repli mémoire reste sûr mono-worker.
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips='*' --reload
     # python:3.11-slim n'embarque pas curl -> healthcheck via urllib.
     healthcheck:
@@ -91,4 +110,5 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   upload_files:

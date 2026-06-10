@@ -20,6 +20,21 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: chatbot-redis
+    restart: unless-stopped
+    # appendonly : persiste les fenêtres de rate-limit entre les redémarrages.
+    # Pas de port exposé sur l'hôte : joignable uniquement depuis le réseau compose.
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api:
     build:
       context: ./api
@@ -42,6 +57,10 @@ services:
       - API_URL=${API_URL}
       - INTRANET_AUTH_URL=${INTRANET_AUTH_URL:-https://intranet.kertios.com/main/auth_ret}
       - INTRANET_AUTH_ENABLED=${INTRANET_AUTH_ENABLED:-true}
+      # Rate-limiters partagés via Redis : prérequis du multi-worker ci-dessous.
+      # Si Redis tombe, repli mémoire fail-open (limites par process, dégradé
+      # mais le produit reste up).
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PYTHONUNBUFFERED=1
     # API exposée derrière un reverse proxy (TLS) sur l'hôte.
     ports:
@@ -54,10 +73,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # 1 worker : les rate-limiters vivent en mémoire process. Passer à plusieurs
-    # workers une fois le rate-limiting migré vers Redis.
+      redis:
+        condition: service_healthy
+    # Multi-worker possible : les rate-limiters sont partagés via Redis
+    # (REDIS_URL). API_WORKERS ajuste le nombre de workers uvicorn.
     # TRUSTED_PROXY_IPS : IP(s) du reverse proxy autorisées à poser X-Forwarded-*.
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=${TRUSTED_PROXY_IPS:-127.0.0.1}
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2} --proxy-headers --forwarded-allow-ips=${TRUSTED_PROXY_IPS:-127.0.0.1}
     # python:3.11-slim n'embarque pas curl -> healthcheck via urllib.
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)\""]
@@ -83,4 +104,5 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   upload_files:

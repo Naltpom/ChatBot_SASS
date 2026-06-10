@@ -9,6 +9,7 @@ import BotList from './pages/BotList'
 import BotWizard from './pages/BotWizard'
 import BotPage from './pages/BotPage'
 import Team from './pages/Team'
+import Billing from './pages/Billing'
 import AdminHome, { AdminClient } from './pages/Admin'
 import Layout from './Layout'
 import './styles.css'
@@ -35,6 +36,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/app/bots/new" element={<Protected><BotWizard /></Protected>} />
           <Route path="/app/bots/:id" element={<Protected><BotPage /></Protected>} />
           <Route path="/app/team" element={<Protected><Team /></Protected>} />
+          <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
           {/* Back-office superadmin */}
           <Route path="/admin" element={<Protected adminOnly><AdminHome /></Protected>} />
           <Route path="/admin/clients/:orgId" element={<Protected adminOnly><AdminClient /></Protected>} />

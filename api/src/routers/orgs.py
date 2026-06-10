@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.security import get_current_user, require_org_access, require_org_admin
-from src.models.user import BOT_PERMS, Invitation, Membership, Organization, User
+from src.models.bot import Bot
+from src.models.user import BOT_PERMS, PLANS, Invitation, Membership, Organization, User
 from src.services.usage_service import count_ai_messages_this_month, count_bots, plan_limits
 
 router = APIRouter(prefix="/api/orgs", tags=["organizations"])
@@ -32,6 +33,10 @@ class MemberPatch(BaseModel):
 class OrgPatch(BaseModel):
     name: Optional[str] = None
     type: Optional[str] = Field(None, pattern="^(perso|entreprise)$")
+
+
+class PlanChange(BaseModel):
+    plan: str  # validé dans l'endpoint pour renvoyer un detail FR exploitable
 
 
 def _clean_permissions(perms: dict[str, Any]) -> dict[str, list[str]]:
@@ -83,6 +88,73 @@ async def patch_org(org_id: int, body: OrgPatch, db: AsyncSession = Depends(get_
         org.type = data["type"]
     await db.commit()
     return {"id": org.id, "name": org.name, "type": org.type}
+
+
+# ---------- Facturation / plan ----------
+
+@router.post("/{org_id}/plan")
+async def change_plan(org_id: int, body: PlanChange,
+                      db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Changement de plan self-serve par un admin de l'organisation
+    (superadmin passe). Miroir client du PATCH superadmin de admin.py, avec
+    des garde-fous de downgrade plus stricts : le nouveau plan doit pouvoir
+    contenir les bots EXISTANTS (nombre, mode, taille d'arbre).
+
+    TODO Stripe — brancher ici le checkout (upgrade) et le portail client
+    (downgrade / moyens de paiement). Pour l'instant : changement immédiat,
+    sans paiement.
+    """
+    await require_org_admin(org_id, user, db)
+    org = await _get_org(db, org_id)
+
+    if body.plan not in PLANS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"Plan inconnu : {body.plan}")
+    if body.plan == org.plan:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"L'organisation est déjà sur le plan {org.plan}")
+
+    new_limits = PLANS[body.plan]
+    bots = (await db.execute(
+        select(Bot).where(Bot.organization_id == org_id).order_by(Bot.created_at)
+    )).scalars().all()
+    problems: list[str] = []
+
+    # 1. Nombre de bots : le nouveau plan doit contenir tous les bots existants
+    if len(bots) > new_limits["max_bots"]:
+        names = ", ".join(b.name for b in bots)
+        problems.append(
+            f"le plan {body.plan} autorise {new_limits['max_bots']} bot(s) et "
+            f"l'organisation en a {len(bots)} ({names}) — supprimez des bots d'abord")
+
+    # 2. tree_only : aucun bot ne doit utiliser l'IA (mode ai ou hybrid)
+    if new_limits.get("tree_only"):
+        non_tree = [b.name for b in bots if b.mode != "tree"]
+        if non_tree:
+            problems.append(
+                f"le plan {body.plan} est limité au mode arbre, or ces bots "
+                f"utilisent l'IA : {', '.join(non_tree)} — passez-les en mode arbre d'abord")
+
+    # 3. Taille des arbres : quota de bulles (nœuds) du nouveau plan
+    max_nodes = new_limits.get("max_tree_nodes")
+    if max_nodes is not None:
+        oversized = []
+        for b in bots:
+            count = len((b.tree_json or {}).get("nodes") or {})
+            if count > max_nodes:
+                oversized.append(f"{b.name} ({count} bulles)")
+        if oversized:
+            problems.append(
+                f"le plan {body.plan} est limité à {max_nodes} bulles par arbre, "
+                f"dépassé par : {', '.join(oversized)} — allégez ces arbres d'abord")
+
+    if problems:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Changement de plan impossible : " + " ; ".join(problems))
+
+    org.plan = body.plan
+    await db.commit()
+    return {"id": org.id, "name": org.name, "type": org.type, "plan": org.plan}
 
 
 # ---------- Équipe ----------

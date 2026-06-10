@@ -1,7 +1,7 @@
 // Shell sidebar — porté du prototype Kertios Chat (sidebar 222px, logo, org
 // switcher, nav, bloc plan/crédits, MRR pour l'admin).
 import { ReactNode, useEffect, useRef, useState } from 'react'
-import { Bot, Building2, Check, ChevronDown, LogOut, ShieldCheck, Users } from 'lucide-react'
+import { Bot, Building2, Check, ChevronDown, CreditCard, LogOut, ShieldCheck, Users } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
 import { api } from './api'
@@ -102,13 +102,17 @@ export default function Layout({ children }: { children: ReactNode }) {
         <nav className="col" style={{ gap: 2 }}>
           {user && user.organizations.length > 0 && (
             <>
-              <button className={`nav-item ${!inAdmin && !location.pathname.startsWith('/app/team') ? 'active' : ''}`}
+              <button className={`nav-item ${!inAdmin && !location.pathname.startsWith('/app/team') && !location.pathname.startsWith('/app/billing') ? 'active' : ''}`}
                       onClick={() => navigate('/app')}>
                 <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
               </button>
               <button className={`nav-item ${location.pathname.startsWith('/app/team') ? 'active' : ''}`}
                       onClick={() => navigate('/app/team')}>
                 <span className="nav-ico"><Users size={16} /></span>Équipe
+              </button>
+              <button className={`nav-item ${location.pathname.startsWith('/app/billing') ? 'active' : ''}`}
+                      onClick={() => navigate('/app/billing')}>
+                <span className="nav-ico"><CreditCard size={16} /></span>Facturation
               </button>
             </>
           )}
@@ -122,7 +126,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div style={{ flex: 1 }} />
 
         {!inAdmin && usage && (
-          <div className="sidebar-block">
+          <div className="sidebar-block" role="button" tabIndex={0} title="Gérer la facturation"
+               style={{ cursor: 'pointer' }}
+               onClick={() => navigate('/app/billing')}
+               onKeyDown={e => e.key === 'Enter' && navigate('/app/billing')}>
             <div className="sidebar-plan-row">
               <span className="lbl">Plan {PLAN_LABELS[usage.plan] || usage.plan}</span>
               <Chip tone="acc">{usage.plan_price} €/mois</Chip>
