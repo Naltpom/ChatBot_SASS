@@ -20,6 +20,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 
 from src.core.database import Base
@@ -61,6 +62,18 @@ DEFAULT_DESIGN = {
     "placeholder": "Écrivez votre message…",
     "loadingAnimation": "dots",    # dots | wave | pulse
     "poweredBy": True,
+    # --- Personnalisation étendue (lot apparence). Rétro-compat : un design
+    # existant SANS ces clés rend pixel-identique (défauts = rendu actuel).
+    # Toute nouvelle clé doit aussi être bornée dans routers/widget.py
+    # (_sanitize_design) : c'est LÀ que vit la sanitisation (au bootstrap).
+    "font": "system",              # system | serif | mono (aucune police externe chargée)
+    "headerStyle": "solid",        # solid (en-tête brand) | soft (en-tête clair, badge contour)
+    "darkMode": False,             # palette sombre du panneau (couleur de marque conservée)
+    "bubbleStyle": "rounded",      # rounded (radii asymétriques) | square (radius uniformes)
+    "density": "cozy",             # cozy | compact (panneau 420px, textes resserrés)
+    "launcherText": "",            # <= 40 chars : bulle flottante -> pilule [icône + texte]
+    "offsetX": 18,                 # marge latérale bulle/panneau (0-120 px)
+    "offsetY": 18,                 # marge basse (0-120 px)
 }
 
 
@@ -94,6 +107,12 @@ class Bot(Base):
     # --- Config fichiers (exportable JSON) ---
     tree_json = Column(JSON, default=DEFAULT_TREE, nullable=False)
     design_json = Column(JSON, default=DEFAULT_DESIGN, nullable=False)
+
+    # --- Actions IA (tool-use) : webhooks signes et capture de lead ---
+    # [{"name","description","type":"webhook"|"capture_lead","url","secret_encrypted","fields":[...]}]
+    # server_default OBLIGATOIRE : la migration ajoute la colonne NOT NULL sur
+    # des lignes existantes. Secrets chiffres (Fernet), jamais en sortie API.
+    actions_json = Column(JSON, default=list, nullable=False, server_default=text("'[]'"))
 
     # --- Securite widget ---
     # Domaines autorises a charger le widget (verif Origin cote serveur).
@@ -130,6 +149,8 @@ class BotUpdate(BaseModel):
     byok_key: Optional[str] = None  # en clair a l'entree, chiffree au stockage
     tree_json: Optional[dict[str, Any]] = None
     design_json: Optional[dict[str, Any]] = None
+    # Validation metier (formats, types, secrets) dans routers/bots.py
+    actions_json: Optional[list[dict[str, Any]]] = None
     allowed_domains: Optional[list[str]] = None
     captcha_provider: Optional[str] = Field(None, pattern="^(turnstile|recaptcha_v3|disabled)$")
     captcha_site_key: Optional[str] = None
@@ -152,6 +173,7 @@ class BotOut(BaseModel):
     byok_key_set: bool = False
     tree_json: dict[str, Any]
     design_json: dict[str, Any]
+    actions_json: list[dict[str, Any]] = []
     allowed_domains: list[str]
     captcha_provider: str
     captcha_site_key: Optional[str] = None
@@ -171,4 +193,11 @@ class BotOut(BaseModel):
         out = cls.model_validate(bot)
         out.byok_key_set = bool(bot.byok_key_encrypted)
         out.captcha_secret_set = bool(bot.captcha_secret_encrypted)
+        # Actions : le secret (chiffre ou non) ne sort JAMAIS, seul un flag
+        # secret_set indique au dashboard qu'un secret est configure.
+        out.actions_json = [
+            {**{k: v for k, v in a.items() if k not in ("secret_encrypted", "secret")},
+             "secret_set": bool(a.get("secret_encrypted"))}
+            for a in (bot.actions_json or [])
+        ]
         return out

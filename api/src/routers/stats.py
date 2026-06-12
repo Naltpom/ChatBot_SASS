@@ -39,9 +39,11 @@ async def bot_stats(
         ).where(Conversation.bot_id == bot_id, Conversation.started_at >= since)
     )).one()
 
+    # Messages visiteurs : whitelist source (exclut les marqueurs systeme
+    # [lead]... qui gonfleraient les compteurs)
     msg_totals = (await db.execute(
         select(
-            func.count(Message.id).filter(Message.role == "user"),
+            func.count(Message.id).filter(Message.role == "user", Message.source.in_(["ai", "tree"])),
             func.count(Message.id).filter(Message.role == "assistant", Message.source == "ai"),
             func.count(Message.id).filter(Message.role == "assistant", Message.source == "tree"),
             func.coalesce(func.sum(Message.tokens_in), 0),
@@ -54,7 +56,7 @@ async def bot_stats(
     daily_rows = (await db.execute(
         select(
             day.label("day"),
-            func.count(Message.id).filter(Message.role == "user").label("user_messages"),
+            func.count(Message.id).filter(Message.role == "user", Message.source.in_(["ai", "tree"])).label("user_messages"),
             func.count(Message.id).filter(Message.role == "assistant", Message.source == "ai").label("ai_replies"),
             func.count(Message.id).filter(Message.role == "assistant", Message.source == "tree").label("tree_replies"),
         )

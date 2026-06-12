@@ -3,6 +3,7 @@
 Surfaces :
 - /api/auth, /api/orgs, /api/bots, /api/stats : dashboard clients (CORS strict)
 - /api/admin/*                  : back-office superadmin (staff Kertios)
+- /api/billing/webhook          : webhook Stripe (auth = signature HMAC)
 - /api/widget/*                 : endpoints publics du widget embarque
                                   (CORS ouvert, controle reel = whitelist de
                                   domaines par bot + captcha + JWT session)
@@ -25,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
-from src.routers import admin, auth, bots, orgs, stats, uploads, widget
+from src.routers import admin, auth, billing, bots, orgs, public, stats, uploads, widget
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -137,9 +138,12 @@ Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
 app.include_router(auth.router)
+app.include_router(public.router)
 app.include_router(orgs.router)
 app.include_router(bots.router)
 app.include_router(admin.router)
+# Webhook server-to-server (signature Stripe), hors CORS widget : pas de CORS necessaire
+app.include_router(billing.router)
 app.include_router(uploads.router)
 app.include_router(stats.router)
 app.include_router(widget.router)

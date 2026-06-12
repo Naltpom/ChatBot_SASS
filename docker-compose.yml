@@ -66,6 +66,18 @@ services:
       # Rate-limiters partagés via Redis. Si vide (ou Redis en panne) : repli
       # mémoire fail-open -> 1 seul worker uvicorn obligatoire.
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # SMTP (notification email des leads). HOST vide = fallback log, jamais bloquant
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      # Stripe : les 5 vides = billing désactivé (changement de plan immédiat)
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - STRIPE_PRICE_STARTER=${STRIPE_PRICE_STARTER:-}
+      - STRIPE_PRICE_PRO=${STRIPE_PRICE_PRO:-}
+      - STRIPE_PRICE_AGENCE=${STRIPE_PRICE_AGENCE:-}
       - PYTHONUNBUFFERED=1
     ports:
       - "8001:8000"

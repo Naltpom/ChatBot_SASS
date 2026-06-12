@@ -1,12 +1,20 @@
 """Auth dashboard : inscription perso/entreprise (+ invitations), login
-(intranet Kertios -> local), auto-login admin en dev."""
+(intranet Kertios -> local), auto-login admin en dev, profil (nom, mot de passe)."""
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
-from src.core.security import create_dashboard_token, get_current_user, hash_password
+from src.core.security import (
+    create_dashboard_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from src.models.user import (
     Invitation,
     Membership,
@@ -135,3 +143,54 @@ async def dev_login(db: AsyncSession = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     return await _user_out(db, user)
+
+
+# ---------- Profil ----------
+
+class MePatch(BaseModel):
+    name: Optional[str] = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.patch("/me", response_model=UserOut)
+async def patch_me(body: MePatch, user: User = Depends(get_current_user),
+                   db: AsyncSession = Depends(get_db)):
+    """Mise a jour du profil. L'email n'est PAS editable : c'est la cle
+    d'identite (login, invitations en attente)."""
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nom requis")
+        user.name = name[:120]
+        await db.commit()
+    return await _user_out(db, user)
+
+
+@router.post("/password")
+async def change_password(body: PasswordChange, request: Request,
+                          user: User = Depends(get_current_user),
+                          db: AsyncSession = Depends(get_db)):
+    """Changement de mot de passe des comptes LOCAUX uniquement : les comptes
+    intranet sont reecrits (hashed_password compris) a chaque login intranet,
+    un changement local serait ecrase.
+
+    NB : les JWT deja emis restent valides jusqu'a expiration (tokens
+    stateless, pas de revocation) — comportement documente, pas un bug."""
+    await _check_auth_rate(request)  # anti-bruteforce du mot de passe actuel
+    if user.auth_source != "local":
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Compte géré par l'intranet Kertios : le mot de passe se modifie dans l'intranet")
+    if not verify_password(body.current_password, user.hashed_password):
+        # 403 et non 401 : cote front, 401 = token invalide (purge + /login).
+        # Une faute de frappe ne doit pas deconnecter une session valide.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Mot de passe actuel incorrect")
+    if len(body.new_password) < 8:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Mot de passe trop court (8 caractères minimum)")
+    user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    return {"changed": True}

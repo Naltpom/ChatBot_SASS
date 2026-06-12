@@ -21,6 +21,12 @@ from typing import Any, Optional
 
 AI_NODE = "__ai__"
 
+# Types de noeuds. Sans `type` = noeud message classique (retro-compat des
+# arbres existants). appointment = URL de calendrier (Calendly/Cal.com) rendue
+# en overlay par le widget. lead = formulaire de contact dans le widget.
+NODE_TYPES = ("message", "appointment", "lead")
+LEAD_FIELDS = ("email", "phone", "name", "message")
+
 
 class TreeError(ValueError):
     pass
@@ -37,6 +43,18 @@ def validate_tree(tree: dict[str, Any]) -> None:
     for key, node in nodes.items():
         if not isinstance(node.get("message"), str) or not node["message"].strip():
             raise TreeError(f"Le noeud '{key}' doit avoir un 'message' non vide")
+        ntype = node.get("type")
+        if ntype is not None and ntype not in NODE_TYPES:
+            raise TreeError(f"Le noeud '{key}' a un type inconnu '{ntype}'")
+        if ntype == "appointment":
+            url = node.get("url")
+            if not isinstance(url, str) or not url.startswith("https://") or len(url) > 500:
+                raise TreeError(f"Le noeud '{key}' (rendez-vous) doit avoir une 'url' https:// valide")
+        if ntype == "lead":
+            fields = node.get("fields", ["email", "message"])
+            if (not isinstance(fields, list) or "email" not in fields
+                    or any(f not in LEAD_FIELDS for f in fields)):
+                raise TreeError(f"Le noeud '{key}' (contact) a des 'fields' invalides — email obligatoire, choix : {', '.join(LEAD_FIELDS)}")
         for opt in node.get("options", []):
             if not opt.get("label"):
                 raise TreeError(f"Une option du noeud '{key}' n'a pas de 'label'")
@@ -62,7 +80,7 @@ def get_node(tree: dict[str, Any], node_id: Optional[str] = None) -> tuple[str, 
 
 
 def format_node_response(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
-    return {
+    out = {
         "source": "tree",
         "node_id": node_id,
         "message": node["message"],
@@ -71,3 +89,13 @@ def format_node_response(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
             for o in node.get("options", [])
         ],
     }
+    # Noeuds types (rendez-vous / contact) : re-sanitisation au service, en
+    # plus de validate_tree a la sauvegarde et du widget (defense en couches).
+    ntype = node.get("type")
+    if ntype == "appointment" and isinstance(node.get("url"), str) and node["url"].startswith("https://"):
+        out["type"] = "appointment"
+        out["url"] = node["url"][:500]
+    elif ntype == "lead":
+        out["type"] = "lead"
+        out["fields"] = [f for f in node.get("fields", ["email", "message"]) if f in LEAD_FIELDS] or ["email"]
+    return out

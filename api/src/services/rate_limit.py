@@ -162,3 +162,7 @@ ip_limiter = RateLimiter(
 )
 # Anti-bruteforce login/register : 10 tentatives / 15 min par IP
 auth_limiter = RateLimiter("rl:auth:", 10, 900)
+# Generation d'arbre par IA (cout provider cote SaaS) : 10 / 24 h / organisation
+treegen_limiter = RateLimiter("rl:treegen:", 10, 86400)
+# Demandes de contact (leads) du widget : 5 / heure / session
+lead_limiter = RateLimiter("rl:lead:", 5, 3600)

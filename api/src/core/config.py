@@ -54,6 +54,23 @@ class Settings(BaseSettings):
     # Vide = limiteurs en memoire process -> 1 seul worker uvicorn obligatoire.
     REDIS_URL: Optional[str] = None
 
+    # --- SMTP (notification email des leads). SMTP_HOST absent => fallback
+    # log, l'envoi n'est jamais bloquant. Noms prefixes SMTP_ (le piege
+    # $USER/$PASSWORD sous Linux est ainsi evite).
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM: Optional[str] = None
+
+    # --- Stripe (facturation self-serve). TOUTES vides => billing desactive :
+    # changement de plan immediat, garde-fous conserves (comportement historique).
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_PRICE_STARTER: Optional[str] = None
+    STRIPE_PRICE_PRO: Optional[str] = None
+    STRIPE_PRICE_AGENCE: Optional[str] = None
+
     # Garde-fous widget
     MAX_MESSAGE_CHARS: int = 4000
     MAX_HISTORY_MESSAGES: int = 20          # historique max envoye au modele
@@ -75,6 +92,21 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "JWT_SECRET_KEY/ENCRYPTION_KEY doivent être définies en production "
                 "(secret JWT par défaut ou clé de chiffrement absente)"
+            )
+        # Stripe : tout-ou-rien. Une config partielle donnerait un billing
+        # semi-actif silencieux (ex : checkout sans webhook -> plan jamais applique).
+        stripe_vars = {
+            "STRIPE_SECRET_KEY": self.STRIPE_SECRET_KEY,
+            "STRIPE_WEBHOOK_SECRET": self.STRIPE_WEBHOOK_SECRET,
+            "STRIPE_PRICE_STARTER": self.STRIPE_PRICE_STARTER,
+            "STRIPE_PRICE_PRO": self.STRIPE_PRICE_PRO,
+            "STRIPE_PRICE_AGENCE": self.STRIPE_PRICE_AGENCE,
+        }
+        missing = [name for name, value in stripe_vars.items() if not value]
+        if missing and len(missing) < len(stripe_vars):
+            raise RuntimeError(
+                "Configuration Stripe partielle en production (billing semi-actif) : "
+                "variables manquantes : " + ", ".join(missing)
             )
 
     class Config:

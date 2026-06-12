@@ -26,6 +26,7 @@ from src.core.database import Base
 import src.models.user  # noqa: F401
 import src.models.bot  # noqa: F401
 import src.models.conversation  # noqa: F401
+import src.models.lead  # noqa: F401
 
 config = context.config
 

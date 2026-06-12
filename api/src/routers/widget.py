@@ -8,6 +8,7 @@ Flux :
 2. POST /api/widget/session               -> verif origin + captcha -> JWT 30 min
 3. POST /api/widget/message (Bearer JWT)  -> tree ou IA, rate-limite, cape
 """
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -15,7 +16,7 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,11 +25,13 @@ from src.core.database import get_db
 from src.core.security import create_widget_token, get_widget_session, widget_token_needs_refresh
 from src.models.bot import Bot
 from src.models.conversation import Conversation, Message
+from src.models.lead import Lead
 from src.models.user import Organization
 from src.services import tree_engine
 from src.services.ai_service import AIServiceError, generate_reply
 from src.services.captcha import verify_captcha
-from src.services.rate_limit import ip_limiter, session_limiter
+from src.services.email_service import build_lead_email, lead_notification_recipients, send_email
+from src.services.rate_limit import ip_limiter, lead_limiter, session_limiter
 from src.services.usage_service import ai_allowed
 
 logger = logging.getLogger(__name__)
@@ -124,6 +127,20 @@ async def _check_ip_flood(request: Request) -> None:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de requêtes")
 
 
+def _check_session_origin(request: Request, session: dict) -> None:
+    """Coherence avec la session : le domaine a deja ete valide au handshake
+    (whitelist) et signe dans le JWT. On ne re-parse PAS body.page_url
+    (controle client). En iframe, l'Origin reste celui de l'API : le parent
+    a ete verifie a la creation de session."""
+    host = _origin_host(request)
+    if not (
+        (settings.ENV == "dev" and host in ("localhost", "127.0.0.1"))
+        or host == session["domain"]
+        or host == _api_host()
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Origine incohérente avec la session")
+
+
 _HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{3,8}")
 
 
@@ -131,7 +148,11 @@ def _sanitize_design(design: dict) -> dict:
     """design_json est saisi par les membres de l'org et injecte dans le
     <style> du widget cote client : on ne renvoie que des valeurs sures
     (anti injection CSS/URL). Les textes sont bornes par precaution meme si
-    le widget les insere en textContent."""
+    le widget les insere en textContent.
+
+    TOUTE nouvelle cle design doit etre ajoutee ICI (whitelist/borne) : seul
+    le bootstrap sanitise, le PATCH dashboard stocke tel quel (volontaire,
+    l'export/import config.json reste fidele)."""
     out = dict(design)
 
     def _hex(value, default):
@@ -152,6 +173,25 @@ def _sanitize_design(design: dict) -> dict:
         out["icon"] = "chat"
     if out.get("loadingAnimation") not in ("dots", "wave", "pulse"):
         out["loadingAnimation"] = "dots"
+
+    # Personnalisation étendue (lot apparence) : memes patterns (whitelist
+    # stricte, bool strict, entiers bornes) — defauts = rendu historique.
+    if out.get("font") not in ("system", "serif", "mono"):
+        out["font"] = "system"
+    if out.get("headerStyle") not in ("solid", "soft"):
+        out["headerStyle"] = "solid"
+    if out.get("bubbleStyle") not in ("rounded", "square"):
+        out["bubbleStyle"] = "rounded"
+    if out.get("density") not in ("cozy", "compact"):
+        out["density"] = "cozy"
+    out["darkMode"] = out.get("darkMode") is True  # bool strict (pas de truthy)
+    lt = out.get("launcherText")
+    out["launcherText"] = str(lt)[:40] if isinstance(lt, str) and lt.strip() else ""
+    for f in ("offsetX", "offsetY"):
+        try:
+            out[f] = max(0, min(120, int(out.get(f, 18))))
+        except (TypeError, ValueError):
+            out[f] = 18
 
     # Seules nos images uploadees sont acceptables comme avatar
     avatar = out.get("avatarImage")
@@ -232,6 +272,14 @@ class MessageRequest(BaseModel):
     page_url: Optional[str] = Field(None, max_length=2000)
 
 
+class LeadRequest(BaseModel):
+    # Formulaire de contact du widget (noeud d'arbre type 'lead')
+    email: EmailStr
+    name: Optional[str] = Field(None, max_length=120)
+    phone: Optional[str] = Field(None, max_length=40)
+    message: Optional[str] = Field(None, max_length=2000)
+
+
 # --- Endpoints ---
 
 @router.get("/bootstrap")
@@ -298,6 +346,67 @@ async def create_session(body: SessionRequest, request: Request, db: AsyncSessio
     return {"token": token, "conversation_id": conversation.id, "first": first}
 
 
+def _bot_collects_leads(bot: Bot) -> bool:
+    """Garde anti-abus : l'endpoint lead n'est servi que si le bot collecte
+    effectivement des contacts (noeud 'lead' dans l'arbre OU action capture_lead)."""
+    nodes = (bot.tree_json or {}).get("nodes", {})
+    if any(isinstance(n, dict) and n.get("type") == "lead" for n in nodes.values()):
+        return True
+    return any(a.get("type") == "capture_lead" for a in (bot.actions_json or []))
+
+
+@router.post("/lead")
+async def submit_lead(
+    body: LeadRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    session: dict = Depends(get_widget_session),
+):
+    """Soumission du formulaire de contact (noeud d'arbre type 'lead').
+    Empile les memes protections que /message + rate-limit dedie."""
+    await _check_ip_flood(request)
+    if not await lead_limiter.check(session["sub"]):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            "Trop de demandes de contact, réessayez plus tard")
+
+    # Memes checks actifs que _get_active_bot (bot + org), via l'id de session
+    bot = await db.get(Bot, session["bot_id"])
+    if bot is None or not bot.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    org = await db.get(Organization, bot.organization_id)
+    if org is None or not org.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    _check_session_origin(request, session)
+
+    if not _bot_collects_leads(bot):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Ce bot ne collecte pas de demandes de contact")
+
+    conversation = await db.get(Conversation, session["sub"])
+    lead = Lead(
+        bot_id=bot.id,
+        conversation_id=conversation.id if conversation else None,
+        source="tree",
+        email=str(body.email).lower(),
+        name=body.name,
+        phone=body.phone,
+        message=body.message,
+    )
+    db.add(lead)
+    if conversation:
+        # Trace dans le transcript ; source=system => exclu de l'historique IA
+        db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
+                       role="user", source="system", content=f"[lead] {body.email}"))
+    await db.commit()
+
+    # Notification email NON bloquante : destinataires recuperes avec la
+    # session db de la requete, envoi en tache de fond (fallback log sans SMTP)
+    recipients = await lead_notification_recipients(db, bot)
+    subject, mail_body = build_lead_email(bot, lead)
+    asyncio.create_task(send_email(recipients, subject, mail_body))
+
+    return _maybe_refresh({"ok": True, "message": "Merci ! Votre demande a bien été transmise."}, bot, session)
+
+
 @router.post("/message")
 async def post_message(
     body: MessageRequest,
@@ -312,17 +421,7 @@ async def post_message(
     bot = await db.get(Bot, session["bot_id"])
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget désactivé")
-    # Coherence avec la session : le domaine a deja ete valide au handshake
-    # (whitelist) et signe dans le JWT. On ne re-parse PAS body.page_url
-    # (controle client). En iframe, l'Origin reste celui de l'API : le parent
-    # a ete verifie a la creation de session.
-    host = _origin_host(request)
-    if not (
-        (settings.ENV == "dev" and host in ("localhost", "127.0.0.1"))
-        or host == session["domain"]
-        or host == _api_host()
-    ):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Origine incohérente avec la session")
+    _check_session_origin(request, session)
 
     conversation = await db.get(Conversation, session["sub"])
     if conversation is None:
@@ -397,8 +496,10 @@ async def post_message(
     page_url = body.page_url or conversation.page_url
     try:
         # journey : contexte IA uniquement (le mode arbre n'en a pas besoin),
-        # deja valide/tronque au handshake par _sanitize_journey
-        ai = await generate_reply(bot, history, page_url, journey=conversation.journey)
+        # deja valide/tronque au handshake par _sanitize_journey.
+        # db + conversation_id : necessaires aux actions IA (capture_lead).
+        ai = await generate_reply(bot, history, page_url, journey=conversation.journey,
+                                  db=db, conversation_id=conversation.id)
     except AIServiceError:
         return _maybe_refresh({"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.", "options": []}, bot, session)
 
