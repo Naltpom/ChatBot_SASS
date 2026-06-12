@@ -1,20 +1,29 @@
 // Global setup : prépare via l'API (PAS via l'UI) les données partagées par
 // les specs, pour économiser le rate-limit auth (10 login+register / 15 min / IP) :
-// - 1 compte ENTREPRISE (register API = 1 seul appel d'auth par run)
+// - FLUSHALL Redis en tête (les rate-limits y sont persistants — seule donnée
+//   stockée dans Redis, purge sans effet de bord)
+// - 1 compte ENTREPRISE (register API = 1 appel d'auth par run frais)
 // - plan « agence » (self-serve, non rate-limité) : pas de tree_only, marge de bots
 // - 1 bot mode arbre avec un tree_json simple à 3 nœuds, captcha désactivé
+// - 1 compte MEMBER local jetable (« Membre E2E »), membre de l'org partagée,
+//   permissions remises à {} à chaque run (déterminisme team-permissions.spec)
 // Le tout est écrit dans e2e/.state.json (gitignoré).
 //
 // Si un .state.json valide existe déjà (itérations locales), il est réutilisé
 // tel quel — aucune inscription supplémentaire n'est consommée. Les bots créés
-// par les runs précédents (spec wizard) sont alors purgés et l'arbre du bot
-// partagé est remis à plat.
+// par les runs précédents (specs wizard et lots dédiés) sont alors purgés et
+// l'arbre du bot partagé est remis à plat.
 import { request, type APIRequestContext, type FullConfig } from '@playwright/test'
+import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 
 const API_URL = process.env.E2E_API_URL || 'http://localhost:8001'
 const STATE_PATH = path.join(__dirname, '.state.json')
+
+// Mot de passe commun aux comptes du state (principal + member). profile.spec
+// s'en sert pour le parcours « changement de mot de passe » (happy + revert).
+export const STATE_PASSWORD = 'MotDePasseE2E-1'
 
 export interface E2EState {
   apiUrl: string
@@ -24,6 +33,34 @@ export interface E2EState {
   orgName: string
   botId: number
   publicKey: string
+  // Compte member jetable (optionnels : un vieux .state.json reste lisible,
+  // le setup complète les champs manquants)
+  memberEmail?: string
+  memberToken?: string
+  memberUserId?: number
+  memberName?: string
+}
+
+// RÈGLE DURE : purge des rate-limits Redis (persistants entre restarts api).
+// Appelée EN TÊTE du setup — et ré-appelée par profile.spec.beforeAll en
+// assurance budget (POST /api/auth/password partage le limiteur auth).
+// Redis ne contient QUE des rate-limits (cf. CLAUDE.md) : purge sans effet
+// de bord. L'échec n'est PAS bloquant : le chemin reuse ne consomme aucun
+// appel d'auth.
+export function flushRedis() {
+  try {
+    execFileSync('docker', ['compose', 'exec', '-T', 'redis', 'redis-cli', 'FLUSHALL'], {
+      cwd: path.join(__dirname, '..'),
+      stdio: 'pipe',
+      timeout: 30_000,
+    })
+    console.log('[e2e] Redis FLUSHALL — rate-limits purgés.')
+  } catch {
+    console.warn(
+      '[e2e] FLUSHALL Redis impossible (docker indisponible ?) — '
+      + 'le rate-limit auth peut être encore chargé ; un 429 reste possible.',
+    )
+  }
 }
 
 // Design du bot partagé : titre explicite (le widget affiche design.title,
@@ -66,7 +103,7 @@ export const SHARED_TREE = {
   },
 }
 
-function authHeaders(token: string) {
+export function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` }
 }
 
@@ -75,10 +112,81 @@ async function fail(label: string, res: { status(): number; text(): Promise<stri
   if (res.status() === 429) {
     throw new Error(
       `${label} : 429 rate-limit auth atteint. ` +
-      'Exécutez `docker compose restart api`, attendez que http://localhost:8001/docs réponde, puis relancez.',
+      'Exécutez `docker compose exec redis redis-cli FLUSHALL` puis relancez.',
     )
   }
   throw new Error(`${label} : HTTP ${res.status()} ${body}`)
+}
+
+// Garantit le compte member « Membre E2E » (local, jetable) et sa membership
+// dans l'org partagée. Au plus 1 register (couvert par le FLUSHALL) ; les
+// runs suivants réutilisent memberToken (JWT stateless : il survit même au
+// changement de mot de passe joué par profile.spec). Les permissions du
+// member sont remises à {} à CHAQUE run (déterminisme team-permissions.spec).
+async function ensureMember(ctx: APIRequestContext, state: E2EState): Promise<void> {
+  const mainHeaders = authHeaders(state.token)
+  const wantedName = 'Membre E2E'
+
+  // 1. Token member encore valide ? (GET /me, gratuit)
+  let valid = false
+  if (state.memberToken && state.memberUserId && state.memberEmail) {
+    const me = await ctx.get('/api/auth/me', { headers: authHeaders(state.memberToken) })
+    if (me.ok()) {
+      valid = true
+      const u = await me.json()
+      state.memberUserId = u.id
+      state.memberEmail = u.email
+      // Run précédent crashé au milieu du renommage de profile.spec : on
+      // renormalise le nom (PATCH /me, non rate-limité).
+      if (u.name !== wantedName) {
+        await ctx.patch('/api/auth/me', {
+          headers: authHeaders(state.memberToken),
+          data: { name: wantedName },
+        })
+      }
+    }
+  }
+
+  // 2. Sinon : register d'un compte perso jetable (1 SEUL register)
+  if (!valid) {
+    const stamp = Date.now()
+    const email = `e2e.member.${stamp}@e2e-kertios.fr`
+    const reg = await ctx.post('/api/auth/register', {
+      data: {
+        email,
+        password: STATE_PASSWORD,
+        name: wantedName,
+        account_type: 'perso',
+        invites: [],
+      },
+    })
+    if (!reg.ok()) await fail('POST /api/auth/register (member E2E)', reg)
+    const body = await reg.json()
+    state.memberToken = body.access_token
+    state.memberUserId = body.user.id
+    state.memberEmail = email
+  }
+  state.memberName = wantedName
+
+  // 3. Membership dans l'org partagée (POST members : non rate-limité,
+  // joined:true car le compte existe)
+  const list = await ctx.get(`/api/orgs/${state.orgId}/members`, { headers: mainHeaders })
+  if (!list.ok()) await fail('GET /api/orgs/{id}/members', list)
+  const { members } = await list.json()
+  if (!members.some((m: { email: string }) => m.email === state.memberEmail)) {
+    const add = await ctx.post(`/api/orgs/${state.orgId}/members`, {
+      headers: mainHeaders,
+      data: { email: state.memberEmail, role: 'member' },
+    })
+    if (!add.ok()) await fail('POST /api/orgs/{id}/members (member E2E)', add)
+  }
+
+  // 4. Rôle member + permissions remises à zéro
+  const patch = await ctx.patch(`/api/orgs/${state.orgId}/members/${state.memberUserId}`, {
+    headers: mainHeaders,
+    data: { role: 'member', permissions: {} },
+  })
+  if (!patch.ok()) await fail('PATCH /api/orgs/{id}/members/{uid} (reset permissions)', patch)
 }
 
 // Réutilise un état existant encore valide (économise le rate-limit pendant
@@ -101,7 +209,14 @@ async function tryReuse(ctx: APIRequestContext): Promise<boolean> {
   const bot = await botRes.json()
   if (bot.public_key !== state.publicKey) return false
 
-  // Remise à plat du bot partagé (l'arbre a pu être modifié par botpage.spec)
+  // L'état n'est réutilisable que si le plan agence est bien appliqué (un
+  // .state.json créé alors que Stripe était actif serait resté en free)
+  const usageRes = await ctx.get(`/api/orgs/${state.orgId}/usage`, { headers })
+  if (!usageRes.ok()) return false
+  if ((await usageRes.json()).plan !== 'agence') return false
+
+  // Remise à plat du bot partagé (l'arbre a pu être modifié par botpage.spec,
+  // les domaines par savebar.spec)
   const patch = await ctx.patch(`/api/bots/${state.botId}`, {
     headers,
     data: {
@@ -115,18 +230,28 @@ async function tryReuse(ctx: APIRequestContext): Promise<boolean> {
   })
   if (!patch.ok()) return false
 
-  // Purge des bots créés par wizard-tree.spec lors des runs précédents
+  // Purge des bots dédiés créés par les specs lors des runs précédents
+  // (wizard-tree et lots e2e : tout sauf le bot partagé)
   const list = await ctx.get(`/api/orgs/${state.orgId}/bots`, { headers })
   if (list.ok()) {
     for (const b of await list.json()) {
       if (b.id !== state.botId) await ctx.delete(`/api/bots/${b.id}`, { headers })
     }
   }
-  console.log(`[e2e] État réutilisé (${state.email}, bot #${state.botId}) — aucune inscription consommée.`)
+
+  // Compte member : re-validé/recréé à chaque run, permissions remises à {}.
+  // Le .state.json est RÉ-ÉCRIT (les champs member peuvent changer).
+  await ensureMember(ctx, state)
+  fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
+
+  console.log(`[e2e] État réutilisé (${state.email} + member ${state.memberEmail}, bot #${state.botId}) — aucune inscription du compte principal consommée.`)
   return true
 }
 
 export default async function globalSetup(_config: FullConfig) {
+  // RÈGLE DURE : purge des rate-limits AVANT tout appel d'auth (rejouabilité)
+  flushRedis()
+
   const ctx = await request.newContext({ baseURL: API_URL })
   try {
     const health = await ctx.get('/health')
@@ -134,13 +259,13 @@ export default async function globalSetup(_config: FullConfig) {
 
     if (await tryReuse(ctx)) return
 
-    // --- 1. Compte entreprise (SEUL appel d'auth du setup) ---
+    // --- 1. Compte entreprise (1er des 2 seuls appels d'auth du setup) ---
     const stamp = Date.now()
     const email = `e2e.setup.${stamp}@e2e-kertios.fr`
     const reg = await ctx.post('/api/auth/register', {
       data: {
         email,
-        password: 'MotDePasseE2E-1',
+        password: STATE_PASSWORD,
         name: 'Setup E2E',
         account_type: 'entreprise',
         organization_name: `E2E Corp ${stamp}`,
@@ -153,9 +278,18 @@ export default async function globalSetup(_config: FullConfig) {
     const headers = authHeaders(token)
 
     // --- 2. Plan agence (self-serve org admin, non rate-limité) :
-    // pas de tree_only et 10 bots max -> marge pour la spec wizard ---
+    // pas de tree_only et 10 bots max -> marge pour les specs ---
     const plan = await ctx.post(`/api/orgs/${org.id}/plan`, { headers, data: { plan: 'agence' } })
     if (!plan.ok()) await fail('POST /api/orgs/{id}/plan', plan)
+    // Avec STRIPE_* configuré, le 200 peut être {applied:false, checkout_url}
+    // (le plan resterait free → wizard-tree/botpage casseraient de façon opaque)
+    const planBody = await plan.json()
+    if (!planBody.applied) {
+      throw new Error(
+        'POST /api/orgs/{id}/plan : applied=false (billing Stripe actif). ' +
+        'Videz les variables STRIPE_* du .env pour les runs e2e, puis `docker compose up -d api`.',
+      )
+    }
 
     // --- 3. Bot partagé : mode arbre, captcha désactivé (clés Turnstile
     // absentes en dev), arbre à 3 nœuds ---
@@ -186,8 +320,12 @@ export default async function globalSetup(_config: FullConfig) {
       botId: bot.id,
       publicKey: bot.public_key,
     }
+
+    // --- 4. Compte member « Membre E2E » (2e et DERNIER appel d'auth) ---
+    await ensureMember(ctx, state)
+
     fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
-    console.log(`[e2e] Compte ${email} créé (org #${org.id}, bot #${bot.id}).`)
+    console.log(`[e2e] Compte ${email} créé (org #${org.id}, bot #${bot.id}, member ${state.memberEmail}).`)
   } finally {
     await ctx.dispose()
   }
