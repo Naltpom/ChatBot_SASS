@@ -1,12 +1,29 @@
 // Primitives UI portées du prototype Kertios Chat (primitives.jsx + widget.jsx).
 // Icônes : lucide-react, même librairie qu'ao_scrapping.
-import { ReactNode } from 'react'
+import { Children, Fragment, isValidElement, ReactNode, useId } from 'react'
 import { AlertTriangle, Pause } from 'lucide-react'
 
 export function Card({ children, className = '', nopad = false, style, onClick }: {
   children: ReactNode; className?: string; nopad?: boolean; style?: React.CSSProperties; onClick?: () => void
 }) {
-  return <div className={`card ${nopad ? 'nopad' : ''} ${className}`} style={style} onClick={onClick}>{children}</div>
+  // Card cliquable = opérable au clavier (role button, Enter/Espace). Le test
+  // e.target === e.currentTarget évite de déclencher l'ouverture quand la
+  // touche vient d'un contrôle interne (bouton copier, menu, input).
+  const interactive = onClick ? {
+    role: 'button',
+    tabIndex: 0,
+    onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault()
+        onClick()
+      }
+    },
+  } : {}
+  return (
+    <div className={`card ${nopad ? 'nopad' : ''} ${className}`} style={style} onClick={onClick} {...interactive}>
+      {children}
+    </div>
+  )
 }
 
 export function SectionTitle({ children, sub, right }: { children: ReactNode; sub?: ReactNode; right?: ReactNode }) {
@@ -48,13 +65,48 @@ export function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: 
   )
 }
 
+// Un <label> implicite s'associe au PREMIER élément labelable du sous-arbre :
+// si c'est un bouton (Seg, ColorDots, icon-pick…), le titre du Field écrase
+// son nom accessible et un clic sur le titre le déclenche. On ne rend donc un
+// <label> que si le premier contrôle rencontré dans le JSX statique est un
+// input/select/textarea NATIF ; bouton, <label> imbriqué ou composant opaque
+// (Seg, Chip, Btn…) → wrapper <div role="group"> nommé via aria-labelledby.
+function labelIsSafe(node: ReactNode): boolean | null {
+  for (const child of Children.toArray(node)) {
+    if (!isValidElement(child)) continue
+    const t = child.type
+    const kids = (child.props as { children?: ReactNode })?.children
+    if (t === Fragment) {
+      const r = labelIsSafe(kids)
+      if (r !== null) return r
+      continue
+    }
+    if (typeof t !== 'string') return false // composant : contenu inconnu, prudence
+    if (t === 'input' || t === 'select' || t === 'textarea') return true
+    if (t === 'button' || t === 'label') return false
+    const r = labelIsSafe(kids)
+    if (r !== null) return r
+  }
+  return null
+}
+
 export function Field({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
+  const id = useId()
+  if (labelIsSafe(children)) {
+    return (
+      <label style={{ display: 'block' }}>
+        <span className="field-label">{label}</span>
+        {children}
+        {hint && <div className="field-hint">{hint}</div>}
+      </label>
+    )
+  }
   return (
-    <label style={{ display: 'block' }}>
-      <span className="field-label">{label}</span>
+    <div role="group" aria-labelledby={id}>
+      <span className="field-label" id={id}>{label}</span>
       {children}
       {hint && <div className="field-hint">{hint}</div>}
-    </label>
+    </div>
   )
 }
 
@@ -112,9 +164,10 @@ export function InfoBox({ children, tone = 'info', title }: { children: ReactNod
   )
 }
 
-// Mini bar chart empilé (IA vs Arbre), sans lib — porté de Bars (primitives.jsx)
-export function Bars({ data, height = 120 }: {
-  data: { label: string; a: number; b?: number }[]; height?: number
+// Mini bar chart empilé (IA vs Arbre par défaut), sans lib — porté de Bars
+// (primitives.jsx). aLabel/bLabel ne changent que le tooltip.
+export function Bars({ data, height = 120, aLabel = 'IA', bLabel = 'Arbre' }: {
+  data: { label: string; a: number; b?: number }[]; height?: number; aLabel?: string; bLabel?: string
 }) {
   const max = Math.max(1, ...data.map(d => d.a + (d.b || 0)))
   return (
@@ -123,7 +176,7 @@ export function Bars({ data, height = 120 }: {
         const hA = Math.round((d.a / max) * (height - 22))
         const hB = Math.round(((d.b || 0) / max) * (height - 22))
         return (
-          <div key={i} className="bar-col" title={`${d.label} — IA ${d.a} · Arbre ${d.b || 0}`}>
+          <div key={i} className="bar-col" title={`${d.label} — ${aLabel} ${d.a} · ${bLabel} ${d.b || 0}`}>
             <div className="bar-stack">
               <div style={{ height: hA, background: 'var(--acc)' }} />
               <div style={{ height: hB, background: 'var(--acc-bd)' }} />

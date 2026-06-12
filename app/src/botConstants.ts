@@ -58,42 +58,53 @@ export const CAPTCHA_OPTIONS = [
 export const WIDGET_BRAND_COLORS = ['#0d9488', '#4f46e5', '#ea580c', '#0f172a', '#be185d', '#0e7490']
 export const GRADIENT_SECOND_COLORS = ['#7c2d92', '#4f46e5', '#0d9488', '#0f172a', '#e11d48', '#f59e0b']
 
-export const PLAN_LABELS: Record<string, string> = { free: 'Free', starter: 'Starter', pro: 'Pro', agence: 'Agence' }
-
-// Miroir frontend de PLANS (api/src/models/user.py) — à garder synchronisé.
-// Wording aligné sur la landing (pages/Landing.tsx) : Starter 19 / Pro 39 / Agence 119.
-export interface PlanInfo {
-  key: string
-  label: string
-  price: number              // €/mois
-  aiMessages: number         // quota mensuel de réponses IA
-  maxBots: number
-  treeOnly: boolean
-  maxTreeNodes: number | null
-  desc: string
-  features: string[]
-  popular?: boolean
+// Presets de thèmes du widget (AppearanceForm) : un clic = merge PARTIEL de
+// `values` dans design_json — les clés non listées (taille, offsets, textes…)
+// sont conservées. Sélection affichée si toutes les clés de `values` matchent.
+export interface AppearancePreset {
+  id: string
+  name: string
+  values: Record<string, any>
 }
 
-export const PLANS_INFO: PlanInfo[] = [
-  {
-    key: 'free', label: 'Free', price: 0, aiMessages: 0, maxBots: 1, treeOnly: true, maxTreeNodes: 10,
-    desc: 'Découverte — arbre de décision seul, sans IA.',
-    features: ['1 chatbot', 'Mode arbre uniquement', '10 bulles max dans l\'arbre', 'Réponses arbre illimitées'],
-  },
-  {
-    key: 'starter', label: 'Starter', price: 19, aiMessages: 500, maxBots: 1, treeOnly: false, maxTreeNodes: null,
-    desc: 'L\'IA sur votre site, pour démarrer.',
-    features: ['1 chatbot', '500 réponses IA / mois', 'Réponses arbre illimitées', 'Stats essentielles'],
-  },
-  {
-    key: 'pro', label: 'Pro', price: 39, aiMessages: 2000, maxBots: 3, treeOnly: false, maxTreeNodes: null,
-    desc: 'Plusieurs bots, équipe et permissions.', popular: true,
-    features: ['3 chatbots', '2 000 réponses IA / mois', 'Équipe & permissions', 'Cap budget configurable'],
-  },
-  {
-    key: 'agence', label: 'Agence', price: 119, aiMessages: 10000, maxBots: 10, treeOnly: false, maxTreeNodes: null,
-    desc: 'Pour gérer les bots de plusieurs clients.',
-    features: ['10 chatbots', '10 000 réponses IA / mois', 'BYOK (vos clés API)', 'Support prioritaire'],
-  },
+export const APPEARANCE_PRESETS: AppearancePreset[] = [
+  { id: 'menthe', name: 'Menthe', values: { primaryColor: '#0d9488', secondaryColor: null, headerStyle: 'solid', darkMode: false, bubbleStyle: 'rounded', font: 'system', bordered: false, loadingAnimation: 'dots' } },
+  { id: 'crepuscule', name: 'Crépuscule', values: { primaryColor: '#4f46e5', secondaryColor: '#be185d', headerStyle: 'solid', darkMode: false, bubbleStyle: 'rounded', font: 'system', bordered: false, loadingAnimation: 'wave' } },
+  { id: 'nuit', name: 'Nuit', values: { primaryColor: '#0d9488', secondaryColor: null, headerStyle: 'solid', darkMode: true, bubbleStyle: 'rounded', font: 'system', bordered: false, loadingAnimation: 'pulse' } },
+  { id: 'corail', name: 'Corail', values: { primaryColor: '#ea580c', secondaryColor: '#f59e0b', headerStyle: 'solid', darkMode: false, bubbleStyle: 'rounded', font: 'system', bordered: true, loadingAnimation: 'dots' } },
+  { id: 'encre', name: 'Encre', values: { primaryColor: '#0f172a', secondaryColor: null, headerStyle: 'soft', darkMode: false, bubbleStyle: 'square', font: 'serif', bordered: false, loadingAnimation: 'dots' } },
+  { id: 'amethyste', name: 'Améthyste', values: { primaryColor: '#7c2d92', secondaryColor: '#4f46e5', headerStyle: 'soft', darkMode: true, bubbleStyle: 'rounded', font: 'system', bordered: false, loadingAnimation: 'wave' } },
 ]
+
+export const PLAN_LABELS: Record<string, string> = { free: 'Free', starter: 'Starter', pro: 'Pro', agence: 'Agence' }
+
+// Plan tel que servi par GET /api/public/plans — SOURCE DE VÉRITÉ du pricing
+// (PLANS + PLANS_META côté api/src/models/user.py). Consommé par Billing et
+// par la landing ; plus aucun miroir manuel des quotas côté front.
+export interface PublicPlan {
+  id: string
+  label: string
+  description: string
+  price: number              // €/mois
+  ai_messages: number        // quota mensuel de réponses IA
+  max_bots: number
+  tree_only: boolean
+  max_tree_nodes: number | null
+  byok: boolean
+}
+
+// Features dérivées des limites RÉELLEMENT appliquées par le code (rien de
+// marketing non gaté). Partagé Billing + Landing.
+export function planFeatures(p: PublicPlan): string[] {
+  const feats = [`${p.max_bots} chatbot${p.max_bots > 1 ? 's' : ''}`]
+  if (p.tree_only) {
+    feats.push('Arbre de décision seul (sans IA)')
+    if (p.max_tree_nodes != null) feats.push(`${p.max_tree_nodes} bulles max dans l'arbre`)
+  } else {
+    feats.push(`${p.ai_messages.toLocaleString('fr-FR')} réponses IA / mois`)
+  }
+  feats.push('Réponses arbre illimitées')
+  if (p.price > 0) feats.push("Génération d'arbre par IA")
+  if (p.byok) feats.push('BYOK (vos clés API)')
+  return feats
+}

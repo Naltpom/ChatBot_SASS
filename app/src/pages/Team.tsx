@@ -1,19 +1,22 @@
 // « Équipe & permissions » — portée de pages-team.jsx (design) :
 // invitation par email, rôles admin/membre, matrice de permissions PAR BOT
 // (copy / test / appearance / context / security), invitations en attente.
-import { useEffect, useState } from 'react'
+// La matrice vit dans sa propre section, TOUJOURS rendue (découvrable dès le
+// 1er jour, même sans membre au rôle « member »).
+import { useEffect, useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Btn, Card, Chip, InfoBox, SectionTitle, Seg, brandBg } from '../ui'
 import { BotSummary } from './BotList'
 
 const PERMS = [
-  { id: 'copy', label: 'Copier le script' },
-  { id: 'test', label: 'Tester' },
-  { id: 'appearance', label: 'Apparence' },
-  { id: 'context', label: 'Contexte (arbre + IA)' },
-  { id: 'security', label: 'Sécurité' },
+  { id: 'copy', label: 'Copier le script', desc: "récupérer les snippets d'intégration" },
+  { id: 'test', label: 'Tester', desc: 'prévisualiser le widget' },
+  { id: 'appearance', label: 'Apparence', desc: 'design, nom, mode' },
+  { id: 'context', label: 'Contexte (arbre + IA)', desc: 'arbre, IA, actions, leads, exports' },
+  { id: 'security', label: 'Sécurité', desc: 'domaines, captcha, plafonds' },
 ]
 
 interface Member {
@@ -27,6 +30,21 @@ interface Member {
 
 interface Invitation { id: number; email: string; role: string }
 
+// Légende des 5 permissions — affichée sous la matrice ET dans l'état vide,
+// pour que la délégation fine soit découvrable avant le premier membre.
+function PermLegend() {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px 16px' }}>
+      {PERMS.map(p => (
+        <div key={p.id}>
+          <div style={{ fontSize: 11.5, fontWeight: 700 }}>{p.label}</div>
+          <div style={{ fontSize: 11, color: 'var(--faint)', lineHeight: 1.45 }}>{p.desc}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function Team() {
   const { activeOrg, refreshUser } = useAuth()
   const [members, setMembers] = useState<Member[]>([])
@@ -34,20 +52,23 @@ export default function Team() {
   const [bots, setBots] = useState<BotSummary[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
-  const [expanded, setExpanded] = useState<number | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [converting, setConverting] = useState(false)
+  const matrixRef = useRef<HTMLDivElement | null>(null)
 
   const isAdmin = activeOrg?.role === 'admin'
 
   function reload() {
     if (!activeOrg) return
+    // .catch : sans lui, un échec afficherait « 0 membre » mensonger
     api(`/api/orgs/${activeOrg.id}/members`).then(d => {
       setMembers(d.members)
       setInvitations(d.invitations)
-    })
+    }).catch((err: any) => setError(`Chargement de l'équipe impossible : ${err.message}`))
     api<BotSummary[]>(`/api/orgs/${activeOrg.id}/bots`).then(setBots)
+      .catch((err: any) => setError(`Chargement des bots impossible : ${err.message}`))
   }
   useEffect(reload, [activeOrg?.id])
 
@@ -75,10 +96,13 @@ export default function Team() {
           permissions par bot.
         </InfoBox>
         {isAdmin && (
-          <div>
+          <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
             <Btn onClick={convert} disabled={converting}>
               {converting ? 'Conversion…' : 'Convertir en espace entreprise'}
             </Btn>
+            <Link to="/app/orgs" style={{ fontSize: 12, fontWeight: 700, color: 'var(--acc)' }}>
+              ou gérez vos organisations
+            </Link>
           </div>
         )}
       </div>
@@ -115,11 +139,22 @@ export default function Team() {
     }
   }
 
-  function togglePerm(m: Member, botId: number, perm: string) {
+  async function togglePerm(m: Member, botId: number, perm: string) {
     const key = String(botId)
     const cur = m.permissions[key] || []
     const next = cur.includes(perm) ? cur.filter(p => p !== perm) : [...cur, perm]
-    patchMember(m, { permissions: { ...m.permissions, [key]: next } })
+    const nextMap = { ...m.permissions, [key]: next }
+    // Mise à jour OPTIMISTE avant le PATCH : des toggles en rafale partiraient
+    // sinon avec un snapshot périmé (le PATCH envoie la map complète) et le
+    // 2e clic écraserait le 1er côté serveur. Re-sync (reload) sur échec.
+    setMembers(ms => ms.map(x => (x.id === m.id ? { ...x, permissions: nextMap } : x)))
+    setError('')
+    try {
+      await api(`/api/orgs/${activeOrg!.id}/members/${m.id}`, { method: 'PATCH', body: { permissions: nextMap } })
+    } catch (err: any) {
+      setError(err.message)
+      reload()
+    }
   }
 
   async function removeMember(m: Member) {
@@ -139,6 +174,15 @@ export default function Team() {
 
   const initials = (m: { name?: string | null; email: string }) =>
     m.name ? m.name.split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase() : m.email[0].toUpperCase()
+
+  // Membres au rôle « member » : seuls concernés par les permissions fines
+  const memberUsers = members.filter(m => m.role === 'member')
+  const selectedMember = memberUsers.find(m => m.id === selectedId) || memberUsers[0] || null
+
+  function focusMember(m: Member) {
+    setSelectedId(m.id)
+    matrixRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   return (
     <div className="col g18">
@@ -168,90 +212,39 @@ export default function Team() {
         </Card>
       )}
 
+      {/* ---- Membres + invitations en attente ---- */}
       <Card nopad>
-        {members.map((m, i) => {
-          const isOpen = expanded === m.id
-          return (
-            <div key={m.id} style={{ borderBottom: i < members.length - 1 || invitations.length > 0 ? '1px solid var(--border)' : 'none' }}>
-              <div className="member-row">
-                <span className="member-avatar">{initials(m)}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {m.name}
-                    {m.you && <Chip tone="acc">vous</Chip>}
-                  </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>{m.email}</div>
-                </div>
-                {isAdmin && !m.you ? (
-                  <Seg small value={m.role} onChange={v => patchMember(m, { role: v })}
-                       options={[{ value: 'member', label: 'Membre' }, { value: 'admin', label: 'Admin' }]} />
-                ) : (
-                  <Chip tone={m.role === 'admin' ? 'warn' : 'mut'}>{m.role === 'admin' ? 'Admin' : 'Membre'}</Chip>
-                )}
-                {m.role === 'member' ? (
-                  <Btn kind="soft" small onClick={() => setExpanded(isOpen ? null : m.id)}>
-                    {isOpen ? 'Fermer' : 'Permissions'}
-                  </Btn>
-                ) : (
-                  <Chip tone="go">Accès total</Chip>
-                )}
-                {isAdmin && !m.you && (
-                  <button onClick={() => removeMember(m)} aria-label="Retirer"
-                          style={{ border: 'none', background: 'none', color: 'var(--faint)', cursor: 'pointer', padding: 4 }}>
-                    <X size={15} />
-                  </button>
-                )}
+        <div className="card-title" style={{ padding: '14px 16px 4px' }}>Membres</div>
+        {members.map((m, i) => (
+          <div key={m.id} className="member-row"
+               style={{ borderBottom: i < members.length - 1 || invitations.length > 0 ? '1px solid var(--border)' : 'none' }}>
+            <span className="member-avatar">{initials(m)}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {m.name}
+                {m.you && <Chip tone="acc">vous</Chip>}
               </div>
-
-              {/* Matrice de permissions par bot */}
-              {isOpen && m.role === 'member' && (
-                <div style={{ padding: '0 16px 15px 62px' }}>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 11, overflow: 'hidden' }}>
-                    <table className="perm-matrix">
-                      <thead>
-                        <tr>
-                          <th>Bot</th>
-                          {PERMS.map(p => <th key={p.id}>{p.label}</th>)}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bots.map(b => (
-                          <tr key={b.id}>
-                            <td>
-                              <div className="row g8">
-                                <span style={{ width: 18, height: 18, borderRadius: 99, background: brandBg(b.design_json), flexShrink: 0 }} />
-                                <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{b.name}</span>
-                              </div>
-                            </td>
-                            {PERMS.map(p => {
-                              const on = (m.permissions[String(b.id)] || []).includes(p.id)
-                              return (
-                                <td key={p.id}>
-                                  <button className={`perm-check ${on ? 'on' : ''}`} aria-pressed={on}
-                                          disabled={!isAdmin}
-                                          onClick={() => isAdmin && togglePerm(m, b.id, p.id)}>
-                                    {on && <Check size={13} strokeWidth={3} />}
-                                  </button>
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        ))}
-                        {bots.length === 0 && (
-                          <tr><td colSpan={PERMS.length + 1} style={{ color: 'var(--faint)', padding: 14 }}>Aucun bot pour l'instant.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 7, lineHeight: 1.5 }}>
-                    « Contexte » couvre l'arbre de décision, le modèle et les instructions. Les stats sont
-                    visibles par tous les membres.
-                  </div>
-                </div>
-              )}
+              <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>{m.email}</div>
             </div>
-          )
-        })}
+            {isAdmin && !m.you ? (
+              <Seg small value={m.role} onChange={v => patchMember(m, { role: v })}
+                   options={[{ value: 'member', label: 'Membre' }, { value: 'admin', label: 'Admin' }]} />
+            ) : (
+              <Chip tone={m.role === 'admin' ? 'warn' : 'mut'}>{m.role === 'admin' ? 'Admin' : 'Membre'}</Chip>
+            )}
+            {m.role === 'member' ? (
+              <Btn kind="soft" small onClick={() => focusMember(m)}>Permissions</Btn>
+            ) : (
+              <Chip tone="go">Accès total</Chip>
+            )}
+            {isAdmin && !m.you && (
+              <button onClick={() => removeMember(m)} aria-label="Retirer"
+                      style={{ border: 'none', background: 'none', color: 'var(--faint)', cursor: 'pointer', padding: 4 }}>
+                <X size={15} />
+              </button>
+            )}
+          </div>
+        ))}
 
         {/* Invitations en attente */}
         {invitations.map((inv, i) => (
@@ -273,6 +266,85 @@ export default function Team() {
           </div>
         ))}
       </Card>
+
+      {/* ---- Permissions par bot (toujours visible : découvrable dès 1 membre) ---- */}
+      <div ref={matrixRef} className="col g18" style={{ scrollMarginTop: 14 }}>
+        <SectionTitle sub="Les admins ont tout accès ; chaque membre reçoit des droits fins, bot par bot.">
+          Permissions par bot
+        </SectionTitle>
+
+        {memberUsers.length === 0 ? (
+          <Card>
+            <div style={{ fontSize: 12.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 14 }}>
+              Aucun membre avec permissions fines pour l'instant — les admins ont déjà tout accès.
+              Invitez un membre (rôle Membre) pour lui déléguer des droits précis.
+            </div>
+            <PermLegend />
+          </Card>
+        ) : (
+          <Card>
+            {/* Sélecteur de membre */}
+            <div className="row g8" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
+              {memberUsers.length <= 4 ? (
+                <Seg small value={String(selectedMember!.id)} onChange={v => setSelectedId(Number(v))}
+                     options={memberUsers.map(m => ({ value: String(m.id), label: m.name || m.email }))} />
+              ) : (
+                <select value={String(selectedMember!.id)} onChange={e => setSelectedId(Number(e.target.value))}
+                        style={{ minWidth: 220 }}>
+                  {memberUsers.map(m => (
+                    <option key={m.id} value={String(m.id)}>{m.name || m.email}</option>
+                  ))}
+                </select>
+              )}
+              <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>{selectedMember!.email}</span>
+            </div>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 11, overflow: 'hidden' }}>
+              <table className="perm-matrix">
+                <thead>
+                  <tr>
+                    <th>Bot</th>
+                    {PERMS.map(p => <th key={p.id}>{p.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {bots.map(b => (
+                    <tr key={b.id}>
+                      <td>
+                        <div className="row g8">
+                          <span style={{ width: 18, height: 18, borderRadius: 99, background: brandBg(b.design_json), flexShrink: 0 }} />
+                          <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{b.name}</span>
+                        </div>
+                      </td>
+                      {PERMS.map(p => {
+                        const on = (selectedMember!.permissions[String(b.id)] || []).includes(p.id)
+                        return (
+                          <td key={p.id}>
+                            <button className={`perm-check ${on ? 'on' : ''}`} aria-pressed={on}
+                                    disabled={!isAdmin}
+                                    onClick={() => isAdmin && togglePerm(selectedMember!, b.id, p.id)}>
+                              {on && <Check size={13} strokeWidth={3} />}
+                            </button>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                  {bots.length === 0 && (
+                    <tr><td colSpan={PERMS.length + 1} style={{ color: 'var(--faint)', padding: 14 }}>Aucun bot pour l'instant.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ fontSize: 10.5, color: 'var(--faint)', margin: '7px 0 14px', lineHeight: 1.5 }}>
+              « Contexte » couvre l'arbre de décision, le modèle, les instructions, les actions IA et les
+              leads. Les stats sont visibles par tous les membres.
+            </div>
+            <PermLegend />
+          </Card>
+        )}
+      </div>
     </div>
   )
 }

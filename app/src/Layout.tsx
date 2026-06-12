@@ -1,7 +1,11 @@
 // Shell sidebar — porté du prototype Kertios Chat (sidebar 222px, logo, org
-// switcher, nav, bloc plan/crédits, MRR pour l'admin).
+// switcher, nav, bloc plan/crédits). Deux modes déduits du pathname :
+// /app/* = espace client (OrgSwitcher + usage), /admin/* = back-office staff.
 import { ReactNode, useEffect, useRef, useState } from 'react'
-import { Bot, Building2, Check, ChevronDown, CreditCard, LogOut, ShieldCheck, Users } from 'lucide-react'
+import {
+  ArrowLeftRight, Bot, Building2, Check, ChevronDown, CircleUser, CreditCard,
+  Layers, LayoutDashboard, LogOut, ReceiptText, ShieldCheck, Users,
+} from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
 import { api } from './api'
@@ -64,7 +68,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   // Org déjà resynchronisée après un 404 (anti-boucle : une fois par org)
   const resyncedOrgId = useRef<number | null>(null)
 
-  const inAdmin = location.pathname.startsWith('/admin')
+  const path = location.pathname
+  const inAdmin = path.startsWith('/admin')
 
   useEffect(() => {
     if (!activeOrg || inAdmin) return
@@ -100,26 +105,66 @@ export default function Layout({ children }: { children: ReactNode }) {
         )}
 
         <nav className="col" style={{ gap: 2 }}>
-          {user && user.organizations.length > 0 && (
+          {!inAdmin && (
             <>
-              <button className={`nav-item ${!inAdmin && !location.pathname.startsWith('/app/team') && !location.pathname.startsWith('/app/billing') ? 'active' : ''}`}
-                      onClick={() => navigate('/app')}>
-                <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
+              {user && user.organizations.length > 0 && (
+                <>
+                  <button className={`nav-item ${path === '/app' || path.startsWith('/app/bots') ? 'active' : ''}`}
+                          onClick={() => navigate('/app')}>
+                    <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
+                  </button>
+                  <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
+                          onClick={() => navigate('/app/team')}>
+                    <span className="nav-ico"><Users size={16} /></span>Équipe
+                  </button>
+                  <button className={`nav-item ${path.startsWith('/app/billing') ? 'active' : ''}`}
+                          onClick={() => navigate('/app/billing')}>
+                    <span className="nav-ico"><CreditCard size={16} /></span>Facturation
+                  </button>
+                  <div className="nav-divider" />
+                </>
+              )}
+              <button className={`nav-item ${path.startsWith('/app/orgs') ? 'active' : ''}`}
+                      onClick={() => navigate('/app/orgs')}>
+                <span className="nav-ico"><Layers size={16} /></span>Mes organisations
               </button>
-              <button className={`nav-item ${location.pathname.startsWith('/app/team') ? 'active' : ''}`}
-                      onClick={() => navigate('/app/team')}>
-                <span className="nav-ico"><Users size={16} /></span>Équipe
+              <button className={`nav-item ${path.startsWith('/app/profile') ? 'active' : ''}`}
+                      onClick={() => navigate('/app/profile')}>
+                <span className="nav-ico"><CircleUser size={16} /></span>Profil
               </button>
-              <button className={`nav-item ${location.pathname.startsWith('/app/billing') ? 'active' : ''}`}
-                      onClick={() => navigate('/app/billing')}>
-                <span className="nav-ico"><CreditCard size={16} /></span>Facturation
-              </button>
+              {user?.is_superadmin && (
+                <>
+                  <div className="nav-divider" />
+                  <button className="nav-item" onClick={() => navigate('/admin')}>
+                    <span className="nav-ico"><ShieldCheck size={16} /></span>Back-office
+                  </button>
+                </>
+              )}
             </>
           )}
-          {user?.is_superadmin && (
-            <button className={`nav-item ${inAdmin ? 'active' : ''}`} onClick={() => navigate('/admin')}>
-              <span className="nav-ico"><Building2 size={16} /></span>Clients
-            </button>
+          {inAdmin && (
+            <>
+              <button className={`nav-item ${path === '/admin' ? 'active' : ''}`}
+                      onClick={() => navigate('/admin')}>
+                <span className="nav-ico"><LayoutDashboard size={16} /></span>Dashboard
+              </button>
+              <button className={`nav-item ${path.startsWith('/admin/clients') ? 'active' : ''}`}
+                      onClick={() => navigate('/admin/clients')}>
+                <span className="nav-ico"><Building2 size={16} /></span>Clients
+              </button>
+              <button className={`nav-item ${path.startsWith('/admin/invoices') ? 'active' : ''}`}
+                      onClick={() => navigate('/admin/invoices')}>
+                <span className="nav-ico"><ReceiptText size={16} /></span>Factures
+              </button>
+              <button className={`nav-item ${path.startsWith('/admin/users') ? 'active' : ''}`}
+                      onClick={() => navigate('/admin/users')}>
+                <span className="nav-ico"><Users size={16} /></span>Utilisateurs
+              </button>
+              <div className="nav-divider" />
+              <button className="nav-item" onClick={() => navigate('/app')}>
+                <span className="nav-ico"><ArrowLeftRight size={16} /></span>Espace client
+              </button>
+            </>
           )}
         </nav>
 
@@ -144,10 +189,13 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        <div className="sidebar-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 4px 0' }}>
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--mut)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {user?.name}{user?.is_superadmin && <ShieldCheck size={13} style={{ color: 'var(--acc)' }} />}
-          </span>
+        <div className="sidebar-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 0 0' }}>
+          <button className="btn btn-ghost small" onClick={() => navigate('/app/profile')} title="Mon profil"
+                  style={{ minWidth: 0, border: 'none', background: 'transparent', padding: '4px 6px' }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--mut)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {user?.name}{user?.is_superadmin && <ShieldCheck size={13} style={{ color: 'var(--acc)', flexShrink: 0 }} />}
+            </span>
+          </button>
           <button className="btn btn-ghost small" onClick={logout} title="Déconnexion"><LogOut size={13} /></button>
         </div>
       </aside>

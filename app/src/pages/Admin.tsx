@@ -74,7 +74,16 @@ export default function AdminHome() {
             {orgs.map(o => {
               const used = Math.round((o.ai_messages_used / Math.max(1, o.ai_messages_quota)) * 100)
               return (
-                <tr key={o.id} className="click" onClick={() => navigate(`/admin/clients/${o.id}`)}>
+                // Ligne cliquable opérable au clavier (Enter/Espace) ; le test
+                // target === currentTarget évite les déclenchements internes.
+                <tr key={o.id} className="click" tabIndex={0}
+                    onClick={() => navigate(`/admin/clients/${o.id}`)}
+                    onKeyDown={e => {
+                      if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault()
+                        navigate(`/admin/clients/${o.id}`)
+                      }
+                    }}>
                   <td>
                     <div className="row g10">
                       <span className="org-avatar" style={{ width: 26, height: 26, fontSize: 10, background: orgColor(o.name) }}>
@@ -141,7 +150,7 @@ export function AdminClient() {
   return (
     <div className="col g18">
       <div>
-        <button className="back-link" onClick={() => navigate('/admin')}>← Tous les clients</button>
+        <button className="back-link" onClick={() => navigate('/admin/clients')}>← Tous les clients</button>
         <div className="bot-head">
           <span className="org-avatar" style={{ width: 44, height: 44, fontSize: 15, borderRadius: 12, background: orgColor(org.name) }}>
             {orgInitials(org.name)}

@@ -28,9 +28,12 @@ export async function api<T = any>(path: string, options: { method?: string; bod
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   })
 
-  if (res.status === 401) {
+  // 401 hors /api/auth = token invalide/expiré → purge + login. Les 401 des
+  // routes /api/auth sont des erreurs de credentials (login, register…) : on ne
+  // touche pas au token d'une session par ailleurs valide.
+  if (res.status === 401 && !path.startsWith('/api/auth')) {
     setToken(null)
-    if (!path.startsWith('/api/auth')) window.location.href = '/login'
+    window.location.href = '/login'
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))

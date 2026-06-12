@@ -24,6 +24,9 @@ export interface User {
   email: string
   name: string
   is_superadmin: boolean
+  auth_source: string                       // local | intranet
+  created_at?: string
+  last_login?: string | null
   organizations: Org[]
 }
 

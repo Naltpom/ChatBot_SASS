@@ -4,11 +4,24 @@
 // ou "__ai__". Drag & drop natif : réordonner les bulles et les déplacer d'une
 // branche à l'autre. Génération par IA depuis un texte/URL (plans payants).
 import { useRef, useState } from 'react'
-import { Download, GripVertical, MessageSquare, Plus, Sparkles, Upload } from 'lucide-react'
+import { Check, Download, GripVertical, MessageSquare, Plus, Sparkles, Upload } from 'lucide-react'
 import { api } from '../api'
 import { Btn, Card, Chip, Divider, Field, InfoBox, SectionTitle, Seg } from '../ui'
 
-type Tree = { start: string; nodes: Record<string, { message: string; options?: { label: string; next: string }[] }> }
+// Nœuds typés : sans type = message classique (rétro-compat), 'appointment' =
+// bouton « Prendre rendez-vous » (url https), 'lead' = formulaire de contact.
+type TreeNode = {
+  message: string
+  options?: { label: string; next: string }[]
+  type?: 'message' | 'appointment' | 'lead'
+  url?: string
+  fields?: string[]
+}
+type Tree = { start: string; nodes: Record<string, TreeNode> }
+
+const LEAD_FIELD_LABELS: [string, string][] = [
+  ['email', 'Email'], ['name', 'Nom'], ['phone', 'Téléphone'], ['message', 'Message'],
+]
 
 interface Props {
   tree: Tree
@@ -190,6 +203,95 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
     mutate(t => { if (t.nodes[opt.next]) t.nodes[opt.next].message = message })
   }
 
+  // ---------- Nœuds typés (message / rendez-vous / contact) ----------
+
+  function setNodeType(nodeId: string, v: string) {
+    mutate(t => {
+      const n = t.nodes[nodeId]
+      if (!n) return
+      if (v === 'appointment') {
+        n.type = 'appointment'
+        if (typeof n.url !== 'string') n.url = ''
+        delete n.fields
+      } else if (v === 'lead') {
+        if (n.type !== 'lead' || !Array.isArray(n.fields)) n.fields = ['email', 'message']
+        n.type = 'lead'
+        delete n.url
+      } else {
+        // Retour au message classique : on ne stocke JAMAIS type:'message'
+        delete n.type
+        delete n.url
+        delete n.fields
+      }
+    })
+  }
+
+  function toggleLeadField(nodeId: string, field: string) {
+    mutate(t => {
+      const n = t.nodes[nodeId]
+      if (!n) return
+      const cur = n.fields || ['email']
+      // Tableau ordonné, email toujours en tête
+      n.fields = LEAD_FIELD_LABELS.map(([f]) => f)
+        .filter(f => f === 'email' || (f === field ? !cur.includes(f) : cur.includes(f)))
+    })
+  }
+
+  // Bloc « Type de réponse » de l'inspecteur (accueil + cibles dédiées)
+  function nodeTypeFields(nodeId: string) {
+    const node = nodes[nodeId]
+    if (!node) return null
+    const ntype = node.type || 'message'
+    return (
+      <>
+        <Field label="Type de réponse">
+          <Seg small value={ntype} onChange={v => setNodeType(nodeId, v)}
+               options={[
+                 { value: 'message', label: 'Message' },
+                 { value: 'appointment', label: 'Rendez-vous' },
+                 { value: 'lead', label: 'Contact' },
+               ]} />
+        </Field>
+        {ntype === 'appointment' && (
+          <Field label="URL du calendrier"
+                 hint="https obligatoire, 500 caractères max. Calendly et Cal.com s'affichent intégrés dans le chat ; toute autre URL s'ouvre en lien.">
+            <input type="text" className="mono" placeholder="https://calendly.com/…"
+                   value={node.url || ''}
+                   onChange={e => mutate(t => { if (t.nodes[nodeId]) t.nodes[nodeId].url = e.target.value })} />
+            {!/^https:\/\//.test(node.url || '') && (
+              <div className="field-hint" style={{ color: 'var(--danger)' }}>
+                L'URL doit commencer par https://
+              </div>
+            )}
+          </Field>
+        )}
+        {ntype === 'lead' && (
+          <Field label="Champs demandés"
+                 hint="Le visiteur remplit un mini-formulaire ; chaque envoi apparaît dans l'onglet Leads.">
+            <div className="row" style={{ gap: 12, flexWrap: 'wrap', marginTop: 2 }}>
+              {LEAD_FIELD_LABELS.map(([f, lbl]) => {
+                const on = f === 'email' || (node.fields || []).includes(f)
+                return (
+                  <span key={f} className="row g6">
+                    <button type="button" className={`perm-check ${on ? 'on' : ''}`}
+                            disabled={f === 'email'} aria-label={lbl}
+                            style={f === 'email' ? { opacity: .55, cursor: 'default' } : undefined}
+                            onClick={() => f !== 'email' && toggleLeadField(nodeId, f)}>
+                      {on && <Check size={13} />}
+                    </button>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>
+                      {lbl}{f === 'email' ? ' (obligatoire)' : ''}
+                    </span>
+                  </span>
+                )
+              })}
+            </div>
+          </Field>
+        )}
+      </>
+    )
+  }
+
   function addChoice(parentId: string) {
     if (atNodeLimit) return
     mutate(t => {
@@ -245,7 +347,9 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
       setGenText('')
       setGenUrl('')
     } catch (err: any) {
-      setGenError(err.message)
+      setGenError(err.status === 429
+        ? "Limite quotidienne atteinte : 10 générations d'arbre par jour et par organisation. Réessayez demain."
+        : err.message)
     } finally {
       setGenBusy(false)
     }
@@ -285,6 +389,8 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
             <span className="lbl">{opt.label}</span>
             {isAI && <Chip tone="warn">→ IA</Chip>}
             {isCycle && <Chip tone="mut">↩ {opt.next === start ? 'menu' : 'boucle'}</Chip>}
+            {!isAI && target?.type === 'appointment' && <Chip tone="info">RDV</Chip>}
+            {!isAI && target?.type === 'lead' && <Chip tone="go">Contact</Chip>}
             {!isAI && !isCycle && children.length > 0 && <span className="cnt">{children.length}</span>}
           </button>
         </div>
@@ -410,6 +516,7 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
                 <textarea rows={4} value={root.message}
                           onChange={e => mutate(t => { t.nodes[t.start].message = e.target.value })} />
               </Field>
+              {nodeTypeFields(start)}
             </div>
           ) : opt ? (
             <div className="col" style={{ gap: 13 }}>
@@ -440,9 +547,12 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
               </Field>
 
               {opt.next !== '__ai__' && target && !targetIsShared && (
-                <Field label="Réponse du bot" hint="Affichée quand le visiteur clique ce choix.">
-                  <textarea rows={4} value={target.message} onChange={e => updateTargetMessage(e.target.value)} />
-                </Field>
+                <>
+                  <Field label="Réponse du bot" hint="Affichée quand le visiteur clique ce choix.">
+                    <textarea rows={4} value={target.message} onChange={e => updateTargetMessage(e.target.value)} />
+                  </Field>
+                  {nodeTypeFields(opt.next)}
+                </>
               )}
               {opt.next !== '__ai__' && targetIsShared && (
                 <InfoBox tone="info" title="Cible partagée">

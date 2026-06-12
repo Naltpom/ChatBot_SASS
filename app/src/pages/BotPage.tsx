@@ -1,9 +1,11 @@
-// Page bot à onglets — portée du shell du prototype (Kertios Chat - Prototype.html) :
-// header avatar de marque + chips, onglets Stats / Arbre / Bot & IA / Apparence /
-// Sécurité / Intégration, bannière « Vue admin » pour les superadmins.
-import { useEffect, useState } from 'react'
-import { Check, Clipboard, Lock, Plus, Trash2 } from 'lucide-react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+// Page bot à onglets — header avatar de marque + chips, onglets Stats / Arbre /
+// Bot & IA / Actions / Leads / Apparence / Sécurité / Intégration, bannière
+// « Vue admin » pour les superadmins. L'état dirty est suivi PAR ONGLET
+// (comparaison à savedBot, la photo du dernier état serveur) et matérialisé par
+// une save bar sticky en bas de page (Enregistrer / Annuler, Ctrl+S).
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Clipboard, Inbox, Lock, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import {
@@ -20,13 +22,31 @@ import WidgetPreview, { PreviewFrame } from '../components/WidgetPreview'
 const TABS = [
   { id: 'stats', label: 'Stats', perm: null },
   { id: 'tree', label: 'Arbre', perm: 'context' },
-  { id: 'ai', label: 'Bot & IA', perm: 'context' },
+  { id: 'ai', label: 'Bot & IA', perm: 'context' },          // si aiTabRelevant
+  { id: 'actions', label: 'Actions', perm: 'context' },      // si aiTabRelevant
+  { id: 'leads', label: 'Leads', perm: 'context' },          // toujours (nœuds lead = tous modes)
   { id: 'appearance', label: 'Apparence', perm: 'appearance' },
   { id: 'security', label: 'Sécurité', perm: 'security' },
   { id: 'install', label: 'Intégration', perm: 'copy' },
 ]
 
+// Groupes de champs par onglet, alignés sur FIELD_PERMS (API) et sur le body
+// de save() : ils pilotent le dirty tracking par onglet.
+const TAB_FIELDS: Record<string, string[]> = {
+  tree: ['tree_json'],
+  ai: ['system_prompt', 'ai_provider', 'ai_model', 'temperature', 'api_key_mode'],
+  actions: ['actions_json'],
+  appearance: ['name', 'design_json', 'mode'],
+  security: ['allowed_domains', 'captcha_provider', 'captcha_site_key', 'daily_ai_message_cap', 'is_active'],
+}
+
+const ACTION_NAME_RE = /^[a-z][a-z0-9_]{0,63}$/
+
 interface Integration { id: string; label: string; icon: string; description: string; snippet: string }
+interface LeadRow {
+  id: number; email: string; phone: string | null; name: string | null; message: string | null
+  source: 'tree' | 'ai'; conversation_id: string | null; created_at: string
+}
 
 export default function BotPage() {
   const { id } = useParams()
@@ -36,37 +56,88 @@ export default function BotPage() {
   const { user } = useAuth()
 
   const [bot, setBot] = useState<any>(null)
+  const [savedBot, setSavedBot] = useState<any>(null)   // photo du dernier état serveur
   const [tab, setTab] = useState(params.get('tab') || 'stats')
   const [byokKey, setByokKey] = useState('')
   const [captchaSecret, setCaptchaSecret] = useState('')
+  const [actionSecrets, setActionSecrets] = useState<Record<number, string>>({})
   const [newDomain, setNewDomain] = useState('')
   const [previewDegraded, setPreviewDegraded] = useState(false)
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [integType, setIntegType] = useState('html')
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const [usage, setUsage] = useState<{ tree_only: boolean; max_tree_nodes: number | null } | null>(null)
+  const [error, setError] = useState('')           // erreurs de SAUVEGARDE uniquement (save bar)
+  const [pageError, setPageError] = useState('')   // erreurs hors save (leads, import, delete) — dismissable
+  const [loadError, setLoadError] = useState('')   // échec du chargement initial (403/404, réseau)
+  const [loadTry, setLoadTry] = useState(0)
+  const [usage, setUsage] = useState<{ tree_only: boolean; max_tree_nodes: number | null; byok: boolean } | null>(null)
+  const [leadsData, setLeadsData] = useState<{ total: number; leads: LeadRow[] } | null>(null)
+  const [leadsBusy, setLeadsBusy] = useState(false)
 
   const fromAdmin = params.get('from') === 'admin'
   const isAdminView = !!user?.is_superadmin && fromAdmin
 
   useEffect(() => {
+    setLoadError('')
     api(`/api/bots/${botId}`).then((b: any) => {
       setBot(b)
+      setSavedBot(b)
       api(`/api/orgs/${b.organization_id}/usage`).then(setUsage).catch(() => {})
-    })
+    }).catch((err: any) => setLoadError(err.message))
     api(`/api/bots/${botId}/embed`).then(d => setIntegrations(d.integrations)).catch(() => {})
-  }, [botId])
+  }, [botId, loadTry])
+
+  // Permissions par bot : admins d'org et superadmins ont tout, les members
+  // voient uniquement les onglets couverts par leurs permissions
+  const botOrg = user?.organizations.find(o => o.id === bot?.organization_id)
+  const orgName = botOrg?.name || ''
+  const isOrgAdmin = !!user?.is_superadmin || botOrg?.role === 'admin'
+  const hasPerm = (perm: string | null) =>
+    perm === null || isOrgAdmin || (botOrg?.permissions?.[String(botId)] || []).includes(perm)
+  // Mode arbre pur (ou plan free) : les onglets Bot & IA et Actions n'ont pas lieu d'être
+  const aiTabRelevant = !!bot && bot.mode !== 'tree' && !usage?.tree_only
+  const visibleTabs = TABS.filter(t => hasPerm(t.perm) && ((t.id !== 'ai' && t.id !== 'actions') || aiTabRelevant))
+  const activeTab = visibleTabs.some(t => t.id === tab) ? tab : 'stats'
+
+  // ---------- Dirty tracking par onglet ----------
+  const dirtyTabs = useMemo(() => {
+    if (!bot || !savedBot) return [] as string[]
+    const pick = (obj: any, fields: string[]) => JSON.stringify(fields.map(f => obj?.[f]))
+    const extras: Record<string, boolean> = {
+      ai: byokKey !== '',
+      actions: Object.keys(actionSecrets).length > 0,
+      security: captchaSecret !== '',
+    }
+    return Object.keys(TAB_FIELDS).filter(t =>
+      extras[t] || pick(bot, TAB_FIELDS[t]) !== pick(savedBot, TAB_FIELDS[t]))
+  }, [bot, savedBot, byokKey, captchaSecret, actionSecrets])
+  const dirty = dirtyTabs.length > 0
+
+  // Ctrl+S / Cmd+S -> save() si dirty (refs : pas de listener périmé)
+  const saveRef = useRef<{ dirty: boolean; save: () => void }>({ dirty: false, save: () => {} })
+  saveRef.current = { dirty, save: () => save() }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault()
+        if (saveRef.current.dirty) saveRef.current.save()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Leads : fetch au premier affichage de l'onglet
+  useEffect(() => {
+    if (activeTab === 'leads' && leadsData === null && !leadsBusy) loadLeads()
+  }, [activeTab])  // eslint-disable-line react-hooks/exhaustive-deps
 
   function patch(fields: Record<string, any>) {
     setBot((b: any) => ({ ...b, ...fields }))
-    setDirty(true)
   }
   function patchDesign(fields: Record<string, any>) {
     setBot((b: any) => ({ ...b, design_json: { ...b.design_json, ...fields } }))
-    setDirty(true)
   }
 
   function switchTab(t: string) {
@@ -75,27 +146,42 @@ export default function BotPage() {
     setParams(params, { replace: true })
   }
 
+  function serializeActions() {
+    // secret : envoyé pour (re)poser, omis pour conserver ; secret_set jamais renvoyé
+    return ((bot?.actions_json || []) as any[]).map((a, i) => {
+      const { secret_set, ...rest } = a
+      return actionSecrets[i] ? { ...rest, secret: actionSecrets[i] } : rest
+    })
+  }
+
   async function save() {
     setError('')
-    // Body construit groupe par groupe selon les permissions (FIELD_PERMS côté
-    // API vérifie chaque champ présent) : un member partiel n'envoie que les
-    // champs couverts, un admin envoie tout comme avant.
+    // Body limité aux groupes des onglets DIRTY (TAB_FIELDS), croisés avec les
+    // permissions (FIELD_PERMS côté API vérifie chaque champ présent). Le PATCH
+    // est partiel (exclude_unset serveur) : un changement de design seul
+    // n'envoie ni mode/tree_json ni api_key_mode inchangés — les contraintes de
+    // plan d'un bot hors plan (downgrade webhook, BYOK posé par un superadmin)
+    // ne re-tournent donc pas à chaque save.
     const body: Record<string, any> = {}
-    if (hasPerm('appearance')) {
+    const dirtySet = new Set(dirtyTabs)
+    if (hasPerm('appearance') && dirtySet.has('appearance')) {
       body.name = bot.name
       body.design_json = bot.design_json
-      body.mode = bot.mode
+      if (bot.mode !== savedBot?.mode) body.mode = bot.mode
     }
     if (hasPerm('context')) {
-      body.tree_json = bot.tree_json
-      body.system_prompt = bot.system_prompt
-      body.ai_provider = bot.ai_provider
-      body.ai_model = bot.ai_model
-      body.temperature = bot.temperature
-      body.api_key_mode = bot.api_key_mode
-      if (byokKey) body.byok_key = byokKey
+      if (dirtySet.has('tree')) body.tree_json = bot.tree_json
+      if (dirtySet.has('ai')) {
+        body.system_prompt = bot.system_prompt
+        body.ai_provider = bot.ai_provider
+        body.ai_model = bot.ai_model
+        body.temperature = bot.temperature
+        if (bot.api_key_mode !== savedBot?.api_key_mode) body.api_key_mode = bot.api_key_mode
+        if (byokKey) body.byok_key = byokKey
+      }
+      if (dirtySet.has('actions')) body.actions_json = serializeActions()
     }
-    if (hasPerm('security')) {
+    if (hasPerm('security') && dirtySet.has('security')) {
       body.allowed_domains = bot.allowed_domains
       body.captcha_provider = bot.captcha_provider
       body.captcha_site_key = bot.captcha_site_key || null
@@ -106,14 +192,23 @@ export default function BotPage() {
     try {
       const updated = await api(`/api/bots/${botId}`, { method: 'PATCH', body })
       setBot(updated)
+      setSavedBot(updated)
       setByokKey('')
       setCaptchaSecret('')
-      setDirty(false)
+      setActionSecrets({})
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err: any) {
       setError(err.message)
     }
+  }
+
+  function cancelChanges() {
+    setBot(JSON.parse(JSON.stringify(savedBot)))
+    setByokKey('')
+    setCaptchaSecret('')
+    setActionSecrets({})
+    setError('')
   }
 
   function exportConfig() {
@@ -129,8 +224,13 @@ export default function BotPage() {
 
   function importConfig(file: File) {
     file.text().then(text => api(`/api/bots/${botId}/config.json`, { method: 'PUT', body: JSON.parse(text) }))
-      .then(updated => { setBot(updated); setDirty(false); setSaved(true); setTimeout(() => setSaved(false), 2500) })
-      .catch(err => setError(`Import échoué : ${err.message}`))
+      .then(updated => {
+        setBot(updated)
+        setSavedBot(updated)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2500)
+      })
+      .catch(err => setPageError(`Import échoué : ${err.message}`))
   }
 
   async function deleteBot() {
@@ -139,7 +239,7 @@ export default function BotPage() {
       await api(`/api/bots/${botId}`, { method: 'DELETE' })
       navigate(isAdminView ? `/admin/clients/${bot.organization_id}` : '/app')
     } catch (err: any) {
-      setError(err.message)
+      setPageError(err.message)
     }
   }
 
@@ -149,24 +249,93 @@ export default function BotPage() {
     setNewDomain('')
   }
 
-  if (!bot) return <div className="center-page">Chargement…</div>
+  // ---------- Actions IA ----------
+  function updateAction(i: number, fields: Record<string, any>) {
+    patch({ actions_json: (bot.actions_json || []).map((a: any, j: number) => (j === i ? { ...a, ...fields } : a)) })
+  }
+  function addAction() {
+    const list = bot.actions_json || []
+    if (list.length >= 5) return
+    patch({ actions_json: [...list, { name: '', description: '', type: 'webhook', url: '', fields: [], secret_set: false }] })
+  }
+  function removeAction(i: number) {
+    patch({ actions_json: (bot.actions_json || []).filter((_: any, j: number) => j !== i) })
+    setActionSecrets(prev => {
+      const next: Record<number, string> = {}
+      Object.entries(prev).forEach(([k, v]) => {
+        const idx = Number(k)
+        if (idx < i) next[idx] = v
+        else if (idx > i) next[idx - 1] = v
+      })
+      return next
+    })
+  }
+  function updateActionField(ai: number, fi: number, fields: Record<string, any>) {
+    const a = (bot.actions_json || [])[ai]
+    updateAction(ai, { fields: (a.fields || []).map((f: any, j: number) => (j === fi ? { ...f, ...fields } : f)) })
+  }
+
+  // ---------- Leads ----------
+  function loadLeads() {
+    setLeadsBusy(true)
+    setPageError('')  // un retry réussi efface l'erreur précédente
+    api(`/api/bots/${botId}/leads?limit=100`)
+      .then(setLeadsData)
+      .catch((err: any) => setPageError(err.message))
+      .finally(() => setLeadsBusy(false))
+  }
+
+  function exportLeadsCsv() {
+    const rows = leadsData?.leads || []
+    // Quoting CSV + anti-injection de formule (Excel/LibreOffice) : les valeurs
+    // viennent de visiteurs anonymes — préfixe ' si la cellule commence par
+    // = + - @ tab ou CR, sinon elle serait interprétée comme formule.
+    const esc = (v: any) => {
+      let s = String(v ?? '')
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
+      return `"${s.replace(/"/g, '""')}"`
+    }
+    const header = ['created_at', 'email', 'name', 'phone', 'message', 'source']
+    const csv = [header.join(','), ...rows.map(l => header.map(h => esc((l as any)[h])).join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `leads-${bot.name.toLowerCase().replace(/\s+/g, '-')}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  if (!bot) {
+    if (loadError) {
+      return (
+        <div className="center-page">
+          <Card style={{ textAlign: 'center', padding: '36px 28px', maxWidth: 440 }}>
+            <div className="col" style={{ alignItems: 'center', gap: 10 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 800 }}>Impossible de charger ce chatbot</div>
+              <div style={{ fontSize: 12.5, color: 'var(--mut)', lineHeight: 1.55 }}>{loadError}</div>
+              <div className="row g8" style={{ marginTop: 4 }}>
+                <Btn kind="soft" onClick={() => setLoadTry(n => n + 1)}>Réessayer</Btn>
+                <Btn kind="ghost" onClick={() => navigate(fromAdmin ? '/admin/clients' : '/app')}>
+                  {fromAdmin ? 'Retour aux clients' : 'Retour à mes chatbots'}
+                </Btn>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )
+    }
+    return <div className="center-page">Chargement…</div>
+  }
 
   const d = bot.design_json || {}
   const site = bot.allowed_domains[0] || 'votre-site.fr'
-  const botOrg = user?.organizations.find(o => o.id === bot.organization_id)
-  const orgName = botOrg?.name || ''
-  // Permissions par bot : admins d'org et superadmins ont tout, les members
-  // voient uniquement les onglets couverts par leurs permissions
-  const isOrgAdmin = !!user?.is_superadmin || botOrg?.role === 'admin'
-  const hasPerm = (perm: string | null) =>
-    perm === null || isOrgAdmin || (botOrg?.permissions?.[String(botId)] || []).includes(perm)
-  // Mode arbre pur (ou plan free) : l'onglet Bot & IA n'a pas lieu d'être
-  const aiTabRelevant = bot.mode !== 'tree' && !usage?.tree_only
-  const visibleTabs = TABS.filter(t => hasPerm(t.perm) && (t.id !== 'ai' || aiTabRelevant))
-  const activeTab = visibleTabs.some(t => t.id === tab) ? tab : 'stats'
   const currentModel = findModelOption(bot.ai_provider, bot.ai_model)
   const currentInteg = integrations.find(i => i.id === integType) || integrations[0]
   const capPct = Math.min(100, Math.round((bot.daily_ai_message_cap / 2000) * 100))
+  const actions: any[] = bot.actions_json || []
+  // BYOK : droit du plan (usage.byok) — le serveur re-vérifie (403)
+  const byokLocked = !!usage && !usage.byok && bot.api_key_mode !== 'byok'
+  const byokOutOfPlan = !!usage && !usage.byok && bot.api_key_mode === 'byok'
 
   return (
     <div className="col" style={{ gap: 16 }}>
@@ -192,19 +361,23 @@ export default function BotPage() {
             </div>
             <div className="bot-head-key">{site} · {bot.public_key}</div>
           </div>
-          {(dirty || saved) && (
-            <Btn onClick={save} kind={saved ? 'soft' : 'primary'}>
-              {saved ? <><Check size={14} /> Enregistré</> : 'Enregistrer'}
-            </Btn>
-          )}
         </div>
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {pageError && (
+        <div className="error" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ flex: 1 }}>{pageError}</span>
+          <button onClick={() => setPageError('')} aria-label="Fermer"
+                  style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', fontSize: 15, padding: 2, lineHeight: 1 }}>×</button>
+        </div>
+      )}
 
       <div className="tabs">
         {visibleTabs.map(t => (
-          <button key={t.id} className={activeTab === t.id ? 'active' : ''} onClick={() => switchTab(t.id)}>{t.label}</button>
+          <button key={t.id} className={activeTab === t.id ? 'active' : ''} onClick={() => switchTab(t.id)}>
+            {t.label}
+            {dirtyTabs.includes(t.id) && <span className="tab-dot" aria-hidden="true" />}
+          </button>
         ))}
       </div>
 
@@ -214,7 +387,8 @@ export default function BotPage() {
       {/* ================= ARBRE ================= */}
       {activeTab === 'tree' && (
         <TreeBuilder tree={bot.tree_json} onChange={t => patch({ tree_json: t })}
-                     onExport={exportConfig} onImport={importConfig}
+                     onExport={exportConfig}
+                     onImport={hasPerm('context') && hasPerm('appearance') ? importConfig : undefined}
                      botId={botId}
                      canGenerate={!usage?.tree_only}
                      maxNodes={usage?.max_tree_nodes ?? null}
@@ -249,8 +423,20 @@ export default function BotPage() {
 
               <Divider />
               <div className="card-title" style={{ marginBottom: 8 }}>Clé API</div>
-              <Seg value={bot.api_key_mode} onChange={v => patch({ api_key_mode: v })}
-                   options={[{ value: 'managed', label: 'Clé Kertios (managée)' }, { value: 'byok', label: 'Ma propre clé (BYOK)' }]} />
+              <div title={byokLocked ? 'Plan Agence requis' : undefined}>
+                <Seg value={bot.api_key_mode}
+                     onChange={v => { if (v === 'byok' && byokLocked) return; patch({ api_key_mode: v }) }}
+                     options={[{ value: 'managed', label: 'Clé Kertios (managée)' }, { value: 'byok', label: 'Ma propre clé (BYOK)' }]} />
+              </div>
+              {byokLocked && (
+                <div style={{ marginTop: 10 }}>
+                  <InfoBox tone="info"
+                           title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={13} /> Réservé au plan Agence</span>}>
+                    Votre propre clé API (BYOK) est réservée au plan Agence — passez au plan supérieur
+                    pour l'activer.
+                  </InfoBox>
+                </div>
+              )}
               <div style={{ marginTop: 10 }}>
                 {bot.api_key_mode === 'managed' ? (
                   <InfoBox tone="go" title="Clé managée">
@@ -259,9 +445,14 @@ export default function BotPage() {
                   </InfoBox>
                 ) : (
                   <div className="col g8">
+                    {byokOutOfPlan && (
+                      <InfoBox tone="warn" title="BYOK hors plan">
+                        L'IA de ce bot est coupée tant que le plan n'inclut pas l'option.
+                      </InfoBox>
+                    )}
                     <input type="password" className="mono"
                            placeholder={bot.byok_key_set ? '•••• (laisser vide pour conserver)' : 'sk-ant-api03-…'}
-                           value={byokKey} onChange={e => { setByokKey(e.target.value); setDirty(true) }} />
+                           value={byokKey} onChange={e => setByokKey(e.target.value)} />
                     <InfoBox tone="info" title="BYOK — votre clé, chiffrée côté serveur">
                       Votre clé est stockée chiffrée et utilisée uniquement côté serveur. Elle n'est jamais
                       exposée dans le widget. Vous payez les tokens directement au fournisseur.
@@ -290,6 +481,199 @@ export default function BotPage() {
               </Card>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ================= ACTIONS IA ================= */}
+      {activeTab === 'actions' && (
+        <div className="col g18">
+          <SectionTitle sub="Donnez à l'IA le pouvoir d'agir pendant la conversation : appeler vos webhooks (signés) ou enregistrer un contact. 5 actions maximum.">
+            Actions IA
+          </SectionTitle>
+
+          {bot.ai_provider === 'gemini' && (
+            <InfoBox tone="warn" title="Non supporté par Gemini">
+              Les actions sont ignorées tant que le modèle Gemini est sélectionné — choisissez Claude ou GPT
+              dans l'onglet Bot &amp; IA.
+            </InfoBox>
+          )}
+
+          {actions.map((a: any, i: number) => {
+            const nameBad = !ACTION_NAME_RE.test(a.name || '')
+              || actions.filter((x: any) => x.name === a.name).length > 1
+            const savedA = (savedBot?.actions_json || [])[i]
+            const renameWarn = a.type === 'webhook' && savedA?.secret_set
+              && savedA.name !== a.name && !actionSecrets[i]
+            return (
+              <Card key={i}>
+                <div className="row g10" style={{ flexWrap: 'wrap', marginBottom: 4 }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <input type="text" className="mono" placeholder="nom_de_l_action"
+                           value={a.name || ''} onChange={e => updateAction(i, { name: e.target.value })} />
+                  </div>
+                  <Chip tone={a.type === 'webhook' ? 'info' : 'go'}>
+                    {a.type === 'webhook' ? 'Webhook' : 'Capture de lead'}
+                  </Chip>
+                  <Btn kind="danger" small onClick={() => removeAction(i)}>Retirer</Btn>
+                </div>
+                {nameBad && (
+                  <div className="field-hint" style={{ color: 'var(--danger)', marginBottom: 8 }}>
+                    minuscules, chiffres, _ — unique
+                  </div>
+                )}
+                <div className="col" style={{ gap: 12, marginTop: 8 }}>
+                  <Field label="Description (pour l'IA)"
+                         hint="Expliquez quand l'IA doit déclencher cette action (1 à 500 caractères)">
+                    <textarea rows={2} value={a.description || ''}
+                              onChange={e => updateAction(i, { description: e.target.value })} />
+                  </Field>
+                  <Field label="Type">
+                    <Seg small value={a.type} onChange={v => updateAction(i, { type: v })}
+                         options={[{ value: 'webhook', label: 'Webhook' }, { value: 'capture_lead', label: 'Capture de lead' }]} />
+                  </Field>
+
+                  {a.type === 'webhook' ? (
+                    <>
+                      <Field label="URL (https://…)"
+                             hint={!/^https:\/\//.test(a.url || '')
+                               ? <span style={{ color: 'var(--danger)' }}>L'URL doit commencer par https://</span>
+                               : undefined}>
+                        <input type="text" className="mono" placeholder="https://api.votre-site.fr/hooks/kertios"
+                               value={a.url || ''} onChange={e => updateAction(i, { url: e.target.value })} />
+                      </Field>
+                      <Field label="Secret HMAC" hint="Signature HMAC-SHA256 dans l'en-tête X-Kertios-Signature.">
+                        <input type="password" className="mono"
+                               placeholder={a.secret_set ? '•••• (laisser vide pour conserver)' : 'Optionnel — signe chaque appel'}
+                               value={actionSecrets[i] || ''}
+                               onChange={e => setActionSecrets(prev => {
+                                 const next = { ...prev }
+                                 if (e.target.value) next[i] = e.target.value
+                                 else delete next[i]
+                                 return next
+                               })} />
+                        {renameWarn && (
+                          <div className="field-hint" style={{ color: 'var(--warn)' }}>
+                            Renommer sans ressaisir le secret le supprimera (le secret est rattaché au nom).
+                          </div>
+                        )}
+                      </Field>
+                      <div>
+                        <div className="field-label">Champs transmis</div>
+                        <div className="col g6">
+                          {(a.fields || []).map((f: any, fi: number) => (
+                            <div key={fi} className="row g8" style={{ flexWrap: 'wrap' }}>
+                              <input type="text" className="mono" style={{ width: 130 }} placeholder="nom"
+                                     value={f.name || ''}
+                                     onChange={e => updateActionField(i, fi, { name: e.target.value })} />
+                              <select value={f.type || 'string'} style={{ width: 102 }}
+                                      onChange={e => updateActionField(i, fi, { type: e.target.value })}>
+                                <option value="string">string</option>
+                                <option value="number">number</option>
+                                <option value="boolean">boolean</option>
+                              </select>
+                              <input type="text" style={{ flex: 1, minWidth: 140 }} placeholder="description"
+                                     value={f.description || ''}
+                                     onChange={e => updateActionField(i, fi, { description: e.target.value })} />
+                              <span className="row g6" style={{ fontSize: 11, fontWeight: 700, color: 'var(--mut)' }}>
+                                requis <Toggle on={!!f.required} onChange={v => updateActionField(i, fi, { required: v })} />
+                              </span>
+                              <button aria-label="Retirer le champ"
+                                      onClick={() => updateAction(i, { fields: (a.fields || []).filter((_: any, j: number) => j !== fi) })}
+                                      style={{ border: 'none', background: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: 14, padding: 2 }}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ marginTop: 8 }}>
+                          <Btn kind="soft" small disabled={(a.fields || []).length >= 8}
+                               onClick={() => updateAction(i, { fields: [...(a.fields || []), { name: '', type: 'string', description: '', required: false }] })}>
+                            <Plus size={13} /> Ajouter un champ
+                          </Btn>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <InfoBox tone="info">
+                      L'IA recueillera email, nom, téléphone et message au fil de la discussion et les déposera
+                      dans l'onglet Leads (notification email aux admins si le serveur a un SMTP).
+                    </InfoBox>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
+
+          <div className="row g10">
+            <Btn kind="soft" onClick={addAction} disabled={actions.length >= 5}>
+              <Plus size={14} /> Ajouter une action
+            </Btn>
+            {actions.length >= 5 && <Chip tone="warn">5/5</Chip>}
+          </div>
+        </div>
+      )}
+
+      {/* ================= LEADS ================= */}
+      {activeTab === 'leads' && (
+        <div className="col g18">
+          <SectionTitle sub={`${leadsData?.total ?? 0} contact(s) capturé(s) par ce bot.`}
+            right={
+              <div className="row g8">
+                <Btn kind="ghost" small onClick={loadLeads} disabled={leadsBusy}>
+                  <RefreshCw size={13} /> Actualiser
+                </Btn>
+                <Btn kind="ghost" small onClick={exportLeadsCsv} disabled={!leadsData?.leads?.length}>
+                  Exporter CSV
+                </Btn>
+              </div>
+            }>
+            Leads
+          </SectionTitle>
+
+          {leadsBusy && !leadsData ? (
+            <Card style={{ textAlign: 'center', color: 'var(--mut)' }}>Chargement…</Card>
+          ) : !leadsData || leadsData.leads.length === 0 ? (
+            <Card style={{ textAlign: 'center', padding: '40px 24px' }}>
+              <div className="col" style={{ alignItems: 'center', gap: 9 }}>
+                <Inbox size={24} style={{ color: 'var(--faint)' }} />
+                <div style={{ fontSize: 14, fontWeight: 800 }}>Aucun lead pour l'instant</div>
+                <div style={{ fontSize: 12, color: 'var(--mut)', maxWidth: 400, lineHeight: 1.55 }}>
+                  Ajoutez un nœud « Contact » dans l'arbre, ou une action « Capture de lead », pour
+                  collecter des demandes.
+                </div>
+                {hasPerm('context') && (
+                  <Btn kind="soft" small onClick={() => switchTab('tree')}>Ouvrir l'arbre</Btn>
+                )}
+              </div>
+            </Card>
+          ) : (
+            <Card nopad>
+              <table className="kc">
+                <thead>
+                  <tr><th>Date</th><th>Email</th><th>Nom</th><th>Téléphone</th><th>Message</th><th>Source</th></tr>
+                </thead>
+                <tbody>
+                  {leadsData.leads.map(l => (
+                    <tr key={l.id}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleString('fr-FR')}</td>
+                      <td className="mono">{l.email}</td>
+                      <td>{l.name || '—'}</td>
+                      <td className="mono">{l.phone || '—'}</td>
+                      <td title={l.message || ''}>
+                        {l.message ? (l.message.length > 60 ? `${l.message.slice(0, 60)}…` : l.message) : '—'}
+                      </td>
+                      <td>{l.source === 'ai' ? <Chip tone="acc">IA</Chip> : <Chip tone="mut">Arbre</Chip>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+
+          {isOrgAdmin && (
+            <div className="field-hint">
+              Notification email : sans SMTP configuré côté serveur (SMTP_HOST), les nouveaux leads sont
+              uniquement journalisés.
+            </div>
+          )}
         </div>
       )}
 
@@ -464,7 +848,7 @@ export default function BotPage() {
                               <input type="password" className="mono"
                                      placeholder={bot.captcha_secret_set ? 'Secret key — •••• (conservée si vide)' : 'Secret key — 6Lc•••'}
                                      value={captchaSecret}
-                                     onChange={e => { setCaptchaSecret(e.target.value); setDirty(true) }} />
+                                     onChange={e => setCaptchaSecret(e.target.value)} />
                             </div>
                           )}
                         </div>
@@ -510,6 +894,15 @@ export default function BotPage() {
                   IA restent côté serveur — même modèle que les clés publiques Stripe.
                 </InfoBox>
               </div>
+              <div style={{ marginTop: 10 }}>
+                <InfoBox tone="info" title="Site sous Content-Security-Policy">
+                  Pour l'overlay de prise de rendez-vous (mode script), autorisez :{' '}
+                  <span className="mono" style={{ fontSize: 10.5 }}>
+                    frame-src https://calendly.com https://*.calendly.com https://cal.com https://*.cal.com
+                  </span>
+                  . Le mode iframe (/widget-frame) n'est pas concerné.
+                </InfoBox>
+              </div>
             </Card>
 
             <Card>
@@ -536,6 +929,37 @@ export default function BotPage() {
               </div>
             </Card>
           </div>
+        </div>
+      )}
+
+      {/* ================= SAVE BAR STICKY ================= */}
+      {(dirty || saved || error) && (
+        <div className="save-bar" role="status">
+          <div className="sb-state">
+            {error ? (
+              <span style={{ color: 'var(--danger)', fontWeight: 700 }}>{error}</span>
+            ) : dirty ? (
+              <>
+                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 99, background: 'var(--warn)', display: 'inline-block', flexShrink: 0 }} />
+                <span style={{ fontWeight: 700 }}>Modifications non enregistrées</span>
+                {dirtyTabs.map(t => {
+                  const def = TABS.find(x => x.id === t)
+                  if (!def || !visibleTabs.some(v => v.id === t)) return null
+                  return (
+                    <button key={t} className="chip chip-warn" onClick={() => switchTab(t)}>{def.label}</button>
+                  )
+                })}
+              </>
+            ) : (
+              <span style={{ color: 'var(--go)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Check size={14} /> Modifications enregistrées
+              </span>
+            )}
+          </div>
+          <Btn kind="ghost" onClick={cancelChanges} disabled={!dirty}>Annuler</Btn>
+          <Btn kind={saved ? 'soft' : 'primary'} onClick={save} disabled={!dirty && !saved}>
+            {saved ? <><Check size={14} /> Enregistré</> : 'Enregistrer'}
+          </Btn>
         </div>
       )}
     </div>

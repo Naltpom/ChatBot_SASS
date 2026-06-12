@@ -1,9 +1,12 @@
 // Landing publique — portée de « Kertios Chat - Landing.html » (design) :
 // Bricolage Grotesque + accent serif italique, blobs, démo widget interactive,
 // Pourquoi hybride / Fonctionnement / Sécurité (bandeau sombre) / Tarifs / CTA.
+import { useEffect, useState } from 'react'
 import { ChevronRight, GitBranch, ShieldCheck, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { api } from '../api'
 import { useAuth } from '../AuthContext'
+import { PublicPlan, planFeatures } from '../botConstants'
 import WidgetPreview from '../components/WidgetPreview'
 
 const DEMO_DESIGN = {
@@ -69,23 +72,40 @@ const DEMO_TREE = {
   },
 }
 
-const PLANS = [
-  {
-    name: 'Starter', price: '19', pop: false,
-    feats: ['1 chatbot', '500 réponses IA / mois', 'Réponses arbre illimitées', 'Stats essentielles', 'Turnstile inclus'],
-  },
-  {
-    name: 'Pro', price: '39', pop: true,
-    feats: ['3 chatbots', '2 000 réponses IA / mois', 'Réponses arbre illimitées', 'Stats complètes', 'Équipe & permissions', 'Cap budget configurable'],
-  },
-  {
-    name: 'Agence', price: '119', pop: false,
-    feats: ['10 chatbots', '10 000 réponses IA / mois', 'BYOK (vos clés API)', 'Multi-organisations', 'Permissions par bot', 'Support prioritaire'],
-  },
+// Fallback réseau uniquement — la source de vérité est GET /api/public/plans
+// (PLANS + PLANS_META dans api/src/models/user.py). Miroir exact pour que la
+// section #tarifs rende immédiatement, même si le fetch traîne ou échoue.
+const FALLBACK_PLANS: PublicPlan[] = [
+  { id: 'free', label: 'Free', description: 'Découverte : un chatbot à arbre de décision, sans IA.', price: 0, ai_messages: 0, max_bots: 1, tree_only: true, max_tree_nodes: 10, byok: false },
+  { id: 'starter', label: 'Starter', description: 'Un bot complet avec IA pour votre site.', price: 19, ai_messages: 500, max_bots: 1, tree_only: false, max_tree_nodes: null, byok: false },
+  { id: 'pro', label: 'Pro', description: "Jusqu'à 3 bots et 2 000 réponses IA par mois.", price: 39, ai_messages: 2000, max_bots: 3, tree_only: false, max_tree_nodes: null, byok: false },
+  { id: 'agence', label: 'Agence', description: 'Multi-sites : 10 bots, gros volumes et clés API personnelles (BYOK).', price: 119, ai_messages: 10000, max_bots: 10, tree_only: false, max_tree_nodes: null, byok: true },
 ]
+
+// Features affichées sur la landing : celles de planFeatures (faits appliqués
+// par le code), complétées/condensées par plan. RDV/leads/actions et le cap
+// budget sont dispo dès qu'il y a de l'IA — formulations vraies, pas exclusives.
+function landingFeatures(p: PublicPlan): string[] {
+  const base = planFeatures(p)
+  switch (p.id) {
+    case 'free': return [...base, 'Turnstile inclus']
+    case 'starter': return [...base, 'RDV, leads & actions IA']
+    case 'pro': return [...base.slice(0, 2), 'Tout Starter inclus', 'Cap budget IA par bot']
+    case 'agence': return [...base.slice(0, 2), 'BYOK (vos clés API)', 'Tout Pro inclus']
+    default: return base
+  }
+}
 
 export default function Landing() {
   const { user } = useAuth()
+  const [plans, setPlans] = useState<PublicPlan[]>(FALLBACK_PLANS)
+  const [billingEnabled, setBillingEnabled] = useState(false)
+
+  useEffect(() => {
+    api<{ billing_enabled: boolean; plans: PublicPlan[] }>('/api/public/plans')
+      .then(d => { setPlans(d.plans); setBillingEnabled(d.billing_enabled) })
+      .catch(() => {})   // fallback local déjà rendu
+  }, [])
 
   return (
     <div className="landing">
@@ -309,33 +329,43 @@ export default function Landing() {
                 Compte gratuit pour découvrir. Jamais au-delà de votre plafond.
               </p>
             </div>
-            <div className="l-grid3" style={{ alignItems: 'stretch' }}>
-              {PLANS.map(p => (
-                <div key={p.name} className={`l-card ${p.pop ? 'shadow-lg' : ''}`} style={{
-                  padding: '28px 26px', display: 'flex', flexDirection: 'column', position: 'relative',
-                  border: p.pop ? '2px solid var(--l-teal)' : '1px solid var(--l-line)',
-                }}>
-                  {p.pop && <span style={{
-                    position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
-                    background: 'linear-gradient(135deg,#12a392,#0b7d72)', color: '#fff', fontSize: 11, fontWeight: 800,
-                    letterSpacing: .8, textTransform: 'uppercase', borderRadius: 99, padding: '5px 14px',
-                  }}>Populaire</span>}
-                  <div className="font-display" style={{ fontSize: 19, fontWeight: 700 }}>{p.name}</div>
-                  <div style={{ margin: '10px 0 18px' }}>
-                    <span className="font-display" style={{ fontSize: 44, fontWeight: 800, letterSpacing: '-.03em' }}>{p.price} €</span>
-                    <span style={{ color: 'var(--l-muted)', fontSize: 14 }}> / mois</span>
+            <div className="l-grid4" style={{ alignItems: 'stretch' }}>
+              {plans.map(p => {
+                const pop = p.id === 'pro'
+                return (
+                  <div key={p.id} className={`l-card ${pop ? 'shadow-lg' : ''}`} style={{
+                    padding: '28px 26px', display: 'flex', flexDirection: 'column', position: 'relative',
+                    border: pop ? '2px solid var(--l-teal)' : '1px solid var(--l-line)',
+                  }}>
+                    {pop && <span style={{
+                      position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
+                      background: 'linear-gradient(135deg,#12a392,#0b7d72)', color: '#fff', fontSize: 11, fontWeight: 800,
+                      letterSpacing: .8, textTransform: 'uppercase', borderRadius: 99, padding: '5px 14px',
+                    }}>Populaire</span>}
+                    <div className="font-display" style={{ fontSize: 19, fontWeight: 700 }}>{p.label}</div>
+                    <div style={{ margin: '10px 0 18px' }}>
+                      <span className="font-display" style={{ fontSize: 44, fontWeight: 800, letterSpacing: '-.03em' }}>{p.price} €</span>
+                      <span style={{ color: 'var(--l-muted)', fontSize: 14 }}> / mois</span>
+                    </div>
+                    <ul style={{ listStyle: 'none', margin: '0 0 24px', padding: 0, display: 'flex', flexDirection: 'column', gap: 9, flex: 1 }}>
+                      {landingFeatures(p).map(f => (
+                        <li key={f} style={{ display: 'flex', gap: 9, fontSize: 14, color: 'var(--l-ink2)' }}>
+                          <span style={{ color: 'var(--l-teal)', fontWeight: 800 }}>✓</span>{f}
+                        </li>
+                      ))}
+                    </ul>
+                    <Link className={`l-btn ${pop ? 'l-btn-primary' : 'l-btn-ghost'}`} to="/register">
+                      {p.price === 0 ? 'Commencer gratuitement' : 'Commencer'}
+                    </Link>
                   </div>
-                  <ul style={{ listStyle: 'none', margin: '0 0 24px', padding: 0, display: 'flex', flexDirection: 'column', gap: 9, flex: 1 }}>
-                    {p.feats.map(f => (
-                      <li key={f} style={{ display: 'flex', gap: 9, fontSize: 14, color: 'var(--l-ink2)' }}>
-                        <span style={{ color: 'var(--l-teal)', fontWeight: 800 }}>✓</span>{f}
-                      </li>
-                    ))}
-                  </ul>
-                  <Link className={`l-btn ${p.pop ? 'l-btn-primary' : 'l-btn-ghost'}`} to="/register">Commencer</Link>
-                </div>
-              ))}
+                )
+              })}
             </div>
+            {billingEnabled && (
+              <div style={{ textAlign: 'center', marginTop: 22, fontSize: 13, color: 'var(--l-muted)' }}>
+                Paiement sécurisé par Stripe — résiliable à tout moment depuis le portail client.
+              </div>
+            )}
           </div>
         </section>
 

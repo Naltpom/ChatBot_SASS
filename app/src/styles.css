@@ -77,6 +77,8 @@ button { font-family: inherit; }
 .nav-item.active { background: var(--acc-soft); color: var(--acc); font-weight: 800; }
 .nav-item .nav-ico { width: 18px; text-align: center; font-size: 13px; }
 
+.nav-divider { height: 1px; background: var(--border); margin: 7px 6px; }
+
 .sidebar-block { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 10px; }
 .sidebar-plan-row { display: flex; justify-content: space-between; align-items: center; padding: 0 4px; }
 .sidebar-plan-row .lbl { font-size: 11.5px; font-weight: 700; color: var(--mut); white-space: nowrap; }
@@ -227,6 +229,8 @@ table.kc tbody tr.click:hover { background: var(--surface3); }
 .bot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; }
 .bot-card { padding: 0; overflow: visible; cursor: pointer; transition: box-shadow .15s; }
 .bot-card:hover { box-shadow: var(--shadow-md); }
+.bot-card .open-hint { color: var(--faint); opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+.bot-card:hover .open-hint { opacity: 1; }
 .bot-card-body { padding: 16px; }
 .bot-avatar {
   border-radius: 99px; color: #fff; display: grid; place-items: center;
@@ -287,6 +291,22 @@ table.kc tbody tr.click:hover { background: var(--surface3); }
   border-bottom: 2.5px solid transparent; margin-bottom: -1px;
 }
 .tabs button.active { color: var(--acc); font-weight: 800; border-bottom-color: var(--acc); }
+.tab-dot { width: 6px; height: 6px; border-radius: 99px; background: var(--warn); display: inline-block; margin-left: 6px; }
+
+/* Barre de sauvegarde sticky (BotPage) : dernier élément du flux -> collée au
+   bas du viewport tant que la fin de page n'est pas atteinte */
+.save-bar {
+  position: sticky; bottom: 14px; z-index: 30;
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 12px; box-shadow: var(--shadow-lg);
+}
+.save-bar .sb-state {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; font-size: 12.5px;
+}
+.save-bar button.chip { cursor: pointer; font-family: inherit; }
+.save-bar button.chip:hover { filter: brightness(.96); }
 
 /* ---------- Wizard ---------- */
 .wiz-steps { display: flex; gap: 6px; }
@@ -394,11 +414,39 @@ pre.snippet {
 .toggle-row .tl { font-size: 12px; font-weight: 700; color: var(--ink); }
 .toggle-row .ts { font-size: 11px; color: var(--faint); line-height: 1.4; }
 
+/* Sections du formulaire d'apparence + presets de thèmes */
+.af-sec {
+  font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--faint); margin-top: 4px;
+}
+.af-sec:first-child { margin-top: 0; }
+.preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.preset-card {
+  border: 1px solid var(--border2); background: var(--surface); border-radius: 10px;
+  padding: 9px 6px 8px; cursor: pointer; display: flex; flex-direction: column;
+  align-items: center; gap: 6px; transition: border-color .12s, background .12s;
+}
+.preset-card:hover { border-color: var(--acc); }
+.preset-card.selected { border-color: var(--acc); background: var(--acc-soft); }
+.preset-card .preset-dots { display: flex; align-items: flex-start; }
+.preset-card .p-dot {
+  width: 16px; height: 16px; border-radius: 99px; border: 2px solid var(--surface);
+  display: inline-block; box-shadow: 0 1px 2px rgba(10, 30, 25, .15);
+}
+.preset-card .p-dot2 { margin-left: -7px; }
+.preset-card .p-dark {
+  width: 8px; height: 8px; border-radius: 99px; background: #101816;
+  border: 1.5px solid var(--surface); margin-left: -5px; display: inline-block;
+}
+.preset-card .preset-name { font-size: 11.5px; font-weight: 700; color: var(--ink); }
+
 /* Faux navigateur (preview) */
 .browser-bar { display: flex; align-items: center; gap: 7px; padding: 9px 13px; border-bottom: 1px solid var(--border); background: var(--surface3); }
 .browser-bar .b-dot { width: 9px; height: 9px; border-radius: 99px; display: inline-block; }
 .browser-bar .b-url { flex: 1; text-align: center; font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
-.preview-stage { position: relative; height: 560px; background: #fff; overflow: hidden; }
+/* isolation : les zIndex internes de l'aperçu (panneau 40, bulle 41, overlay 50)
+   restent confinés au cadre et ne peuvent pas recouvrir la save-bar sticky (z 30) */
+.preview-stage { position: relative; height: 560px; background: #fff; overflow: hidden; isolation: isolate; }
 
 /* ---------- Charts ---------- */
 .bars { display: flex; align-items: flex-end; gap: 5px; padding: 4px 0; }
@@ -491,6 +539,7 @@ pre.snippet {
 .l-input:focus { border-color: var(--l-teal); box-shadow: 0 0 0 3px rgba(13,148,136,.15); }
 .l-lbl { font-size: 12.5px; font-weight: 700; margin-bottom: 6px; display: block; }
 .l-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.l-grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; }
 .l-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 900px) { .l-grid3, .l-grid2, .l-hero-grid { grid-template-columns: 1fr !important; } }
 
