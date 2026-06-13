@@ -37,6 +37,26 @@ export const NODES_TREE = {
   },
 }
 
+// Arbre à un seul chemin handoff (parcours B — live chat), conforme à
+// tree_engine.validate_tree / NODE_TYPES (cas handoff : aucun champ requis en
+// plus ; le message du nœud sert d'intro, widget.js enchaîne requestHandoff()
+// car resp.type==='handoff'). Pas de __ai__, pas d'appointment → interceptCalendly
+// non requis pour cet arbre (mais reste disponible si besoin).
+export const HANDOFF_TREE = {
+  start: 'root',
+  nodes: {
+    root: {
+      message: 'Bonjour ! Comment puis-je aider ?',
+      options: [{ label: 'Parler à un conseiller', next: 'live' }],
+    },
+    live: {
+      type: 'handoff',
+      message: 'Je vous mets en relation avec un conseiller…',
+      options: [],
+    },
+  },
+}
+
 // Stub de TOUT le trafic Calendly (domaine racine + sous-domaines) : l'iframe
 // de l'overlay RDV ne charge RIEN de réel. page.route s'applique aussi aux
 // sous-frames en Chromium. À poser AVANT toute navigation du test.

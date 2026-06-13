@@ -233,7 +233,8 @@ widget/widget.js       # vanilla JS : flottant ou data-inline (iframe), gradient
                        # locale SANS appel API), dictionnaire UI FR/EN (design_json.locale,
                        # 'auto' = navigator.language), servi par l'API
 
-e2e/                   # Playwright, 28 tests, workers:1 — stack docker UP requise
+e2e/                   # Playwright, 33 tests, workers:1 — stack docker UP requise
+│                      # (2 runs consécutifs verts = contrat rejouabilité)
 ├── global-setup.ts    # FLUSHALL Redis EN TÊTE (rejouabilité) puis via API : compte
 │                      # entreprise plan agence + bot partagé tree (captcha disabled,
 │                      # localhost) + member local « Membre E2E » (permissions remises
@@ -244,10 +245,12 @@ e2e/                   # Playwright, 28 tests, workers:1 — stack docker UP req
 │                      # (token posé en localStorage AVANT le 1er chargement),
 │                      # devLoginToken (dev-login superadmin, non rate-limité),
 │                      # createOrg/createBot jetables (endpoints NON rate-limités,
-│                      # noms préfixés « E2E », jamais mode ai)
-├── widget-helpers.ts  # NODES_TREE (nœuds appointment+lead), interceptCalendly (stub
-│                      # total calendly.com + sous-domaines AVANT navigation : zéro
-│                      # réseau réel), openFrame (/widget-frame)
+│                      # noms préfixés « E2E », jamais mode ai) + deleteBot best-effort
+│                      # (afterAll des specs v4 à bot dédié)
+├── widget-helpers.ts  # NODES_TREE (nœuds appointment+lead), HANDOFF_TREE (arbre
+│                      # 2 nœuds root→handoff opt-in : live chat, pas d'IA),
+│                      # interceptCalendly (stub total calendly.com + sous-domaines
+│                      # AVANT navigation : zéro réseau réel), openFrame (/widget-frame)
 └── tests/             # 6 specs historiques : landing, register-perso (SEUL register
                        # UI), wizard-tree, botpage, widget, team (invitation) ;
                        # 9 specs v3 : profile (renommage, mdp happy+revert sur le
@@ -259,7 +262,30 @@ e2e/                   # Playwright, 28 tests, workers:1 — stack docker UP req
                        # CSV), actions (hints + secret_set sans fuite), appearance
                        # (preset + launcherText → bootstrap sanitisé), team-permissions
                        # (matrice : état vide + toggle persisté), savebar (sticky,
-                       # pastille d'onglet, Annuler, Ctrl+S)
+                       # pastille d'onglet, Annuler, Ctrl+S) ;
+                       # 5 specs v4 (bot DÉDIÉ jetable créé/supprimé via l'API, sauf
+                       # wizard-templates) : kb (onglet Connaissances, perm context :
+                       # source TEXTE → pending→Prête via polling KbPanel [timeout
+                       # 180 s, modèle fastembed en cache] → « Tester la recherche »
+                       # badge hybride|dégradée + ≥1 résultat → suppression ; 100 %
+                       # local, widget jamais ouvert), inbox-live (parcours B+C en UN
+                       # test : HANDOFF_TREE → /widget-frame → option handoff →
+                       # badge LIVE + saisie active ; staff onglet Inbox → « Prendre
+                       # en main »→human, reply Entrée → bulle « Conseiller » via poll
+                       # widget, « Clôturer »→closed + retour TREE ; take après close
+                       # = 409 ; CSAT pouce sur bulle d'accueil tree → /feedback 200,
+                       # rating remonté dans le transcript Inbox), triggers (onglet
+                       # Apparence, perm appearance : ajout trigger, hints FR message
+                       # vide / value requise, type scroll_depth→% / exit_intent→
+                       # mention mobile, save → GET /widget/bootstrap triggers
+                       # sanitisés [assert API] ; PAS de déclenchement temporisé
+                       # navigateur = anti-flaky), ab (onglet Arbre, perm context :
+                       # activer variante B [retry toPass anti-race re-render] + slider
+                       # ab_split_pct → assert API non-null → désactiver → assert API
+                       # null/0 ; 1 seul TreeBuilder monté), wizard-templates (étape
+                       # Arbre mode tree : galerie 4 TREE_TEMPLATES → Aperçu
+                       # WidgetPreview local → « Utiliser ce modèle » → builder peuplé,
+                       # sortie SANS création réelle → 0 register, rien à nettoyer)
 ```
 
 ## Concepts clés
@@ -785,16 +811,36 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
 - Budget auth e2e PAR RUN : setup frais = 2 registers API (compte principal +
   member) ; run reuse (.state.json valide) = 0 ; register-perso.spec = 1
   register UI ; profile.spec ≤ 4 POST /password après son propre FLUSHALL.
-  Tout nouveau spec doit RÉUTILISER state/dev-login/orgs jetables (createOrg /
-  createBot : non rate-limités) plutôt que register. Les orgs jetables ne sont
-  jamais supprimées (pas de DELETE /orgs) : accumulation dev acceptée, purge
-  via `docker compose down -v`.
+  Budget TOTAL/run ≤ 3 registers. Les 5 specs v4 = 0 register (state +
+  createBot jetable). Tout nouveau spec doit RÉUTILISER state/dev-login/orgs
+  jetables (createOrg / createBot : non rate-limités) plutôt que register. Les
+  orgs jetables ne sont jamais supprimées (pas de DELETE /orgs) : accumulation
+  dev acceptée, purge via `docker compose down -v`.
 - e2e + MOCK_AI=false (vraies clés) : AUCUN spec n'exerce l'IA — bots tree
   (ou hybrid pour rendre l'onglet Actions, widget jamais ouvert), pas de
   "__ai__", pas de tree/generate. Webhooks d'action de test →
   https://e2e.invalid (TLD réservé RFC 2606, jamais résolu) ; Calendly 100 %
   stubé (interceptCalendly posé AVANT toute navigation) ; 1 SEUL POST
-  /api/widget/lead réel par run (lead_limiter 5/h/session).
+  /api/widget/lead réel par run (lead_limiter 5/h/session). Specs v4 idem :
+  kb.spec = ingestion/recherche 100 % LOCALES (fastembed ONNX CPU, modèle déjà
+  en cache fastembed_cache, AUCUN provider) ; inbox-live = handoff par NŒUD
+  d'arbre (opt-in, pas d'IA) + reply staff source='human' (hors quotas) ;
+  triggers/ab/wizard-templates = édition pure, pas de chemin IA. Limiteurs par
+  session widget respectés : inbox-live = 1 handoff (cap 3/h) + 1 feedback
+  (cap 30/h) + poll natif 2,5 s (cap 60/min) — très en deçà des plafonds.
+- e2e specs v4 — pièges de sélecteurs/timing : kb.spec setTimeout 220 s
+  (1er embed = chargement ONNX depuis le cache, attente « Prête » ≤ 180 s) et
+  `td.mono` cible BIEN la seule cellule chunk_count (les autres .mono sont des
+  span/div) ; libellés à isoler exact:true / scope card sinon collision
+  getByRole/getByLabel (sous-chaîne) : « Texte libre », « Message » du trigger
+  vs « Message d'accueil (mode IA) » d'AppearanceForm (scoper la card
+  « Déclencheurs proactifs »), « Arbre de décision » (exact:true, count 1 par
+  vue), extraits liste Inbox `.inbox-row` préfixés « Visiteur : »/
+  « Conseiller : » (distincts des headers transcript). ab.spec : l'arrivée de
+  /usage (fetch chaîné APRÈS le bot dans BotPage) re-render l'onglet Arbre →
+  attendre cette réponse en beforeEach ET envelopper activer/désactiver de la
+  variante B dans un `expect(...).toPass()` (le clic peut tomber pendant le
+  re-render et être avalé) — flake observé puis corrigé côté spec.
 - e2e + Stripe : le global-setup exige `applied:true` au POST plan agence et
   `tryReuse` vérifie plan=agence dans l'usage — avec STRIPE_* configurés le
   200 renvoie checkout_url et la suite échoue avec un message explicite →

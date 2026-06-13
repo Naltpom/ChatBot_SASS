@@ -106,3 +106,15 @@ export async function createBot(
   }
   return { id: bot.id, publicKey: bot.public_key }
 }
+
+// Suppression d'un bot jetable (afterAll des specs des lots v4) : DELETE
+// /api/bots/{id} (admins d'org). Best-effort : un échec (worker tué, bot déjà
+// purgé) ne doit jamais faire échouer la suite — le tryReuse du global-setup
+// purge de toute façon les bots id !== state.botId au run suivant.
+export async function deleteBot(request: APIRequestContext, state: E2EState, id: number): Promise<void> {
+  try {
+    await request.delete(`${state.apiUrl}/api/bots/${id}`, { headers: authHeaders(state.token) })
+  } catch {
+    /* best-effort : tryReuse nettoiera au run suivant */
+  }
+}
