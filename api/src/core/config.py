@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     # Vide = limiteurs en memoire process -> 1 seul worker uvicorn obligatoire.
     REDIS_URL: Optional[str] = None
 
+    # --- Embeddings locaux (RAG base de connaissances) ---
+    # Modele fastembed ONNX (CPU), multilingue, 384 dims = vector(384) en base.
+    # NB : intfloat/multilingual-e5-small (choix initial) n'est PAS dans le
+    # registre fastembed 0.8 -> fallback MiniLM multilingue 384 dims (verifie
+    # via TextEmbedding.list_supported_models()). Changer de modele = changer
+    # de dimension potentielle : verifier vector(384) ET re-ingerer les sources.
+    # Cache hors de /app : zero interaction avec le watcher --reload.
+    FASTEMBED_CACHE_PATH: str = "/var/cache/fastembed"
+    EMBEDDINGS_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
     # --- SMTP (notification email des leads). SMTP_HOST absent => fallback
     # log, l'envoi n'est jamais bloquant. Noms prefixes SMTP_ (le piege
     # $USER/$PASSWORD sous Linux est ainsi evite).

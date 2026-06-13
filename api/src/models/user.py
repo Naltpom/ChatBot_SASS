@@ -3,7 +3,7 @@
 Une personne peut appartenir a PLUSIEURS organisations. Une organisation est de
 type "perso" (une seule personne, meme architecture) ou "entreprise" (equipe).
 Roles : admin (tout gerer) / member (permissions fines PAR BOT : copy, test,
-appearance, context, security). Les superadmins (staff Kertios) voient tout.
+appearance, context, security, inbox). Les superadmins (staff Kertios) voient tout.
 
 Invitation : membre invite par email sans compte existant -> rejoint
 automatiquement l'organisation a la creation de son compte.
@@ -46,8 +46,10 @@ PLANS_META = {
     "agence":  {"label": "Agence",  "description": "Multi-sites : 10 bots, gros volumes et clés API personnelles (BYOK)."},
 }
 
-# Permissions par bot accordables aux membres (les admins ont tout)
-BOT_PERMS = ["copy", "test", "appearance", "context", "security"]
+# Permissions par bot accordables aux membres (les admins ont tout).
+# 'inbox' (live chat conseiller) volontairement EN FIN de liste : la matrice
+# de la page Équipe suit cet ordre (contrainte e2e sur la 1re colonne).
+BOT_PERMS = ["copy", "test", "appearance", "context", "security", "inbox"]
 
 
 class User(Base):

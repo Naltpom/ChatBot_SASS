@@ -2,6 +2,8 @@
 de l'org du bot, ou superadmin). Export/import config JSON versionnable,
 snippets d'integration (script HTML, iframe, GTM)."""
 import re
+import zoneinfo
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,11 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import get_current_user, require_org_access, require_org_admin
+from src.models.analytics import InsightsReport, InsightsReportOut
 from src.models.bot import Bot, BotCreate, BotOut, BotUpdate
+from src.models.conversation import Message
 from src.models.lead import Lead, LeadOut
 from src.models.user import Organization, User
 from src.services.crypto import encrypt_secret
-from src.services.rate_limit import treegen_limiter
+from src.services.rate_limit import insights_limiter, treegen_limiter
 from src.services.tree_engine import TreeError, validate_tree
 from src.services.usage_service import bots_week_stats, count_bots, plan_limits
 
@@ -31,7 +35,10 @@ FIELD_PERMS = {
     "name": "appearance",
     "design_json": "appearance",
     "mode": "appearance",
+    "triggers_json": "appearance",
     "tree_json": "context",
+    "tree_variant_json": "context",
+    "ab_split_pct": "context",
     "actions_json": "context",
     "system_prompt": "context",
     "ai_provider": "context",
@@ -39,12 +46,14 @@ FIELD_PERMS = {
     "temperature": "context",
     "api_key_mode": "context",
     "byok_key": "context",
+    "handoff_webhook_url": "context",
     "allowed_domains": "security",
     "captcha_provider": "security",
     "captcha_site_key": "security",
     "captcha_secret": "security",
     "daily_ai_message_cap": "security",
     "is_active": "security",
+    "mcp_servers_json": "context",
 }
 
 
@@ -70,12 +79,37 @@ def _check_bot_perm(user: User, membership, bot: Bot, perm: str) -> None:
                             f"Permission « {perm} » requise sur ce bot — demandez à un admin de votre organisation")
 
 
-# Actions IA (tool-use) : bornes de validation
+def _mask_bot_out(out: BotOut, user: User, membership, bot: Bot) -> BotOut:
+    """Champs sensibles en LECTURE : handoff_webhook_url (un webhook entrant
+    Slack/Teams est un credential) n'est renvoyee qu'aux ayants droit de la
+    perm 'context' — la meme que pour l'ecrire (FIELD_PERMS). Les autres
+    members gardent le flag handoff_webhook_set (pose par from_bot)."""
+    if user.is_superadmin or membership is None or membership.role == "admin":
+        return out
+    if "context" not in _member_perms(membership, bot):
+        out.handoff_webhook_url = None
+    return out
+
+
+# Actions IA (tool-use) : bornes de validation. handoff : ni url ni fields
+# (ignores comme capture_lead — _project_action ne garde que name/description/type)
 _ACTION_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-_ACTION_TYPES = ("webhook", "capture_lead")
+_ACTION_TYPES = ("webhook", "capture_lead", "handoff", "create_ticket", "calendar_slots")
 _ACTION_FIELD_TYPES = ("string", "number", "boolean")
 _MAX_ACTIONS = 5
 _MAX_ACTION_FIELDS = 8
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# Secret par type d'action : (cle en clair a l'entree, cle chiffree stockee).
+# Semantique commune : fourni -> chiffre, omis -> herite par NOM de l'existant.
+_ACTION_SECRET_KEYS = {
+    "webhook": ("secret", "secret_encrypted"),
+    "calendar_slots": ("api_key", "api_key_encrypted"),
+}
+
+# Connecteur MCP : bornes de validation des serveurs declares par bot
+_MCP_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
+_MAX_MCP_SERVERS = 2
 
 
 def _check_actions(actions: Any) -> None:
@@ -96,6 +130,14 @@ def _check_actions(actions: Any) -> None:
         name = action.get("name")
         if not isinstance(name, str) or not _ACTION_NAME_RE.fullmatch(name) or name in seen:
             _bad(f"Nom d'action invalide ou en double : {name}")
+        # search_docs = tool interne (recherche KB) injecte par ai_service :
+        # une action homonyme masquerait silencieusement la base documentaire
+        if name == "search_docs":
+            _bad("Nom d'action réservé : search_docs")
+        # Les tools MCP decouverts sont exposes mcp_<server>_<tool> :
+        # collision interdite avec une action du dashboard
+        if name.startswith("mcp_"):
+            _bad(f"Préfixe de nom d'action réservé : mcp_ ({name})")
         seen.add(name)
         description = action.get("description")
         if not isinstance(description, str) or not 1 <= len(description) <= 500:
@@ -103,6 +145,31 @@ def _check_actions(actions: Any) -> None:
         atype = action.get("type")
         if atype not in _ACTION_TYPES:
             _bad(f"Type d'action inconnu : {atype}")
+        if atype == "create_ticket":
+            # url/fields ignores : schema impose cote ai_service (comme capture_lead)
+            to_email = action.get("to_email")
+            if to_email is not None and (
+                not isinstance(to_email, str) or len(to_email) > 254
+                or not _EMAIL_RE.fullmatch(to_email)
+            ):
+                _bad(f"L'email de destination de l'action {name} est invalide")
+            continue
+        if atype == "calendar_slots":
+            etid = action.get("event_type_id")
+            if isinstance(etid, bool) or not isinstance(etid, int) or not 1 <= etid <= 2_000_000_000:
+                _bad(f"L'action {name} doit avoir un event_type_id Cal.com (entier positif)")
+            tz = action.get("timezone")
+            if tz is not None:
+                if not isinstance(tz, str) or len(tz) > 50:
+                    _bad(f"Fuseau horaire invalide dans l'action {name}")
+                try:
+                    zoneinfo.ZoneInfo(tz)
+                except Exception:
+                    _bad(f"Fuseau horaire invalide dans l'action {name}")
+            api_key = action.get("api_key")
+            if api_key is not None and (not isinstance(api_key, str) or len(api_key) > 200):
+                _bad(f"La clé API de l'action {name} est invalide (200 caractères max)")
+            continue
         if atype != "webhook":
             continue
         url = action.get("url")
@@ -149,26 +216,124 @@ def _project_action(action: dict) -> dict:
             }
             for f in (action.get("fields") or [])
         ]
+    if action.get("type") == "create_ticket":
+        out["to_email"] = action.get("to_email") or None
+    if action.get("type") == "calendar_slots":
+        out["event_type_id"] = action.get("event_type_id")
+        out["timezone"] = action.get("timezone") or "Europe/Paris"
     return out
 
 
 def _merge_action_secrets(existing: list, incoming: list) -> list:
-    """Semantique des secrets : envoyer `secret` pour le (re)poser, l'omettre
-    (ou None) pour conserver celui deja stocke (chiffre) sous le MEME name.
-    Chaque action est reconstruite via _project_action : `secret_encrypted`
-    n'est posable QUE par encrypt_secret() ou herite de l'existant (webhook)."""
+    """Semantique des secrets (par type, table _ACTION_SECRET_KEYS) : envoyer
+    la cle en clair pour la (re)poser, l'omettre (ou None) pour conserver
+    celle deja stockee (chiffree) sous le MEME name (renommage sans ressaisie
+    = secret perdu, voulu). Chaque action est reconstruite via _project_action :
+    la cle chiffree n'est posable QUE par encrypt_secret() ou heritee."""
     by_name = {a.get("name"): a for a in (existing or [])}
     out = []
     for action in incoming:
-        secret = action.get("secret")
         clean = _project_action(action)
-        if clean["type"] == "webhook":
-            if secret:
-                clean["secret_encrypted"] = encrypt_secret(secret)
+        plain_key, enc_key = _ACTION_SECRET_KEYS.get(clean["type"], (None, None))
+        if plain_key:
+            value = action.get(plain_key)
+            if value:
+                clean[enc_key] = encrypt_secret(value)
             else:
                 previous = by_name.get(clean.get("name"))
-                if previous and previous.get("secret_encrypted"):
-                    clean["secret_encrypted"] = previous["secret_encrypted"]
+                if previous and previous.get(enc_key):
+                    clean[enc_key] = previous[enc_key]
+        out.append(clean)
+    return out
+
+
+def _check_mcp_servers(servers: Any) -> None:
+    """Validation metier de mcp_servers_json (422 FR, pattern _check_actions)."""
+    def _bad(msg: str) -> None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, msg)
+
+    if not isinstance(servers, list):
+        _bad("mcp_servers_json doit être une liste de serveurs")
+    if len(servers) > _MAX_MCP_SERVERS:
+        _bad(f"{_MAX_MCP_SERVERS} serveurs MCP maximum par bot")
+    seen: set = set()
+    for server in servers:
+        if not isinstance(server, dict):
+            _bad("Chaque serveur MCP doit être un objet")
+        name = server.get("name")
+        if not isinstance(name, str) or not _MCP_NAME_RE.fullmatch(name) or name in seen:
+            _bad(f"Nom de serveur MCP invalide ou en double : {name}")
+        seen.add(name)
+        url = server.get("url")
+        if not isinstance(url, str) or not url.startswith("https://") or len(url) > 500:
+            _bad(f"Le serveur MCP {name} doit avoir une URL https:// (500 caractères max)")
+        token = server.get("auth_token")
+        if token is not None and (not isinstance(token, str) or len(token) > 500):
+            _bad(f"Le jeton du serveur MCP {name} est invalide (500 caractères max)")
+
+
+# Triggers proactifs : bornes de validation (PATCH, perm 'appearance')
+_TRIGGER_TYPES = ("time_on_page", "scroll_depth", "exit_intent", "url_pattern")
+_MAX_TRIGGERS = 5
+
+
+def _check_triggers(triggers: Any) -> None:
+    """Validation metier de triggers_json (422 FR, pattern _check_actions).
+    value selon type : time_on_page = secondes 1-600, scroll_depth = % 1-100,
+    url_pattern = motif 1-200 chars, exit_intent = sans value (ignoree)."""
+    def _bad(msg: str) -> None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, msg)
+
+    if not isinstance(triggers, list):
+        _bad("triggers_json doit être une liste de déclencheurs")
+    if len(triggers) > _MAX_TRIGGERS:
+        _bad(f"{_MAX_TRIGGERS} déclencheurs maximum par bot")
+    for trigger in triggers:
+        if not isinstance(trigger, dict):
+            _bad("Chaque déclencheur doit être un objet")
+        ttype = trigger.get("type")
+        if ttype not in _TRIGGER_TYPES:
+            _bad(f"Type de déclencheur inconnu : {ttype}")
+        value = trigger.get("value")
+        # bool est une sous-classe d'int : exclu explicitement des bornes int
+        if ttype == "time_on_page":
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 600:
+                _bad(f"Valeur invalide pour le déclencheur {ttype}")
+        elif ttype == "scroll_depth":
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 100:
+                _bad(f"Valeur invalide pour le déclencheur {ttype}")
+        elif ttype == "url_pattern":
+            if not isinstance(value, str) or not 1 <= len(value) <= 200:
+                _bad(f"Valeur invalide pour le déclencheur {ttype}")
+        message = trigger.get("message")
+        if not isinstance(message, str) or not 1 <= len(message) <= 300:
+            _bad("Chaque déclencheur doit avoir un message (1 à 300 caractères)")
+        if not isinstance(trigger.get("once_per_session", True), bool):
+            _bad("'once_per_session' doit être un booléen")
+
+
+def _merge_mcp_secrets(existing: list, incoming: list) -> list:
+    """Projection stricte {name, url} + auth_token_encrypted : pose via
+    encrypt_secret(auth_token) si fourni, sinon herite de l'existant par NOM
+    et UNIQUEMENT a URL inchangee. Divergence voulue avec _merge_action_secrets :
+    un Bearer est un credential brut ENVOYE au serveur (contrairement au secret
+    HMAC webhook, jamais transmis) — sans ce verrou, un member 'context'
+    pourrait repointer l'URL vers un hote a lui et exfiltrer le jeton
+    write-only. Changer l'URL = ressaisir le jeton (le renommage l'invalide
+    deja, meme regle). Un auth_token_encrypted pose par le client est JETE
+    (meme raison que _project_action : seul encrypt_secret pose la cle)."""
+    by_name = {s.get("name"): s for s in (existing or [])}
+    out = []
+    for server in incoming:
+        clean = {"name": server.get("name"), "url": server.get("url")}
+        token = server.get("auth_token")
+        if token:
+            clean["auth_token_encrypted"] = encrypt_secret(token)
+        else:
+            previous = by_name.get(clean["name"])
+            if previous and previous.get("url") == clean["url"] \
+                    and previous.get("auth_token_encrypted"):
+                clean["auth_token_encrypted"] = previous["auth_token_encrypted"]
         out.append(clean)
     return out
 
@@ -195,12 +360,12 @@ def _check_plan_constraints(org: Organization, user: User,
 
 @router.get("/orgs/{org_id}/bots", response_model=list[BotOut])
 async def list_bots(org_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    await require_org_access(org_id, user, db)
+    membership = await require_org_access(org_id, user, db)
     result = await db.execute(select(Bot).where(Bot.organization_id == org_id).order_by(Bot.created_at))
     week = await bots_week_stats(db, org_id)
     out = []
     for b in result.scalars().all():
-        bo = BotOut.from_bot(b)
+        bo = _mask_bot_out(BotOut.from_bot(b), user, membership, b)
         bo.msgs_7d = week.get(b.id, {}).get("msgs_7d", 0)
         bo.visitors_7d = week.get(b.id, {}).get("visitors_7d", 0)
         out.append(bo)
@@ -239,8 +404,8 @@ async def create_bot(org_id: int, body: BotCreate, db: AsyncSession = Depends(ge
 
 @router.get("/bots/{bot_id}", response_model=BotOut)
 async def get_bot(bot_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    bot, _ = await _get_accessible_bot(db, bot_id, user)
-    return BotOut.from_bot(bot)
+    bot, membership = await _get_accessible_bot(db, bot_id, user)
+    return _mask_bot_out(BotOut.from_bot(bot), user, membership, bot)
 
 
 @router.patch("/bots/{bot_id}", response_model=BotOut)
@@ -248,10 +413,12 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     data = body.model_dump(exclude_unset=True)
 
-    # Colonnes JSON NOT NULL : un null explicite serait persiste (JSON null)
-    # ou violerait l'integrite -> bot illisible (tous les GET en 500). On
-    # ignore ces null AVANT la boucle setattr.
-    for field in ("actions_json", "tree_json", "design_json", "allowed_domains"):
+    # Colonnes JSON/int NOT NULL : un null explicite serait persiste (JSON
+    # null) ou violerait l'integrite -> bot illisible (tous les GET en 500).
+    # On ignore ces null AVANT la boucle setattr. tree_variant_json n'y figure
+    # PAS : null explicite = desactivation voulue de la variante A/B.
+    for field in ("actions_json", "tree_json", "design_json", "allowed_domains",
+                  "mcp_servers_json", "triggers_json", "ab_split_pct"):
         if field in data and data[field] is None:
             data.pop(field)
 
@@ -272,19 +439,44 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
             raise HTTPException(status.HTTP_403_FORBIDDEN,
                                 "L'utilisation de votre propre clé API (BYOK) est réservée au plan Agence — passez au plan supérieur")
 
-    # Contraintes du plan : uniquement si le mode ou l'arbre CHANGENT reellement
-    # (un patch design seul, ou renvoyant des valeurs identiques, ne doit pas
-    # etre bloque par l'etat existant d'un bot hors plan apres downgrade)
+    # Contraintes du plan : uniquement si le mode, l'arbre ou la variante A/B
+    # CHANGENT reellement (un patch design seul, ou renvoyant des valeurs
+    # identiques, ne doit pas etre bloque par l'etat existant d'un bot hors
+    # plan apres downgrade)
     mode_changed = "mode" in data and data["mode"] != bot.mode
     tree_changed = "tree_json" in data and data["tree_json"] != bot.tree_json
-    if mode_changed or tree_changed:
+    variant_changed = "tree_variant_json" in data and data["tree_variant_json"] != bot.tree_variant_json
+    if mode_changed or tree_changed or variant_changed:
         _check_plan_constraints(org, user, mode=data.get("mode", bot.mode), tree_json=data.get("tree_json"))
+    # Variante A/B : memes contraintes de plan (max_tree_nodes, decision actee)
+    # et meme validation structurelle que l'arbre principal. null = desactiver.
+    if variant_changed and data["tree_variant_json"] is not None:
+        _check_plan_constraints(org, user, tree_json=data["tree_variant_json"])
+        try:
+            validate_tree(data["tree_variant_json"])
+        except TreeError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
     if "tree_json" in data and data["tree_json"] is not None:
         try:
             validate_tree(data["tree_json"])
         except TreeError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+
+    # Triggers proactifs : validation metier (types, bornes, messages)
+    if "triggers_json" in data and data["triggers_json"] is not None:
+        _check_triggers(data["triggers_json"])
+
+    # Webhook de notification handoff : https:// + borne, chaine vide = effacer
+    if "handoff_webhook_url" in data and data["handoff_webhook_url"] is not None:
+        url = data["handoff_webhook_url"].strip()
+        if not url:
+            data["handoff_webhook_url"] = None
+        elif not url.startswith("https://") or len(url) > 500:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                "URL de notification invalide (https:// requis, 500 caractères max)")
+        else:
+            data["handoff_webhook_url"] = url
 
     # Secrets : chiffres au stockage, jamais renvoyes en clair
     if "byok_key" in data:
@@ -298,12 +490,18 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
         _check_actions(data["actions_json"])
         data["actions_json"] = _merge_action_secrets(bot.actions_json or [], data["actions_json"])
 
+    # Serveurs MCP : validation metier + fusion des jetons (chiffres au
+    # stockage, omis = conserves par nom)
+    if "mcp_servers_json" in data and data["mcp_servers_json"] is not None:
+        _check_mcp_servers(data["mcp_servers_json"])
+        data["mcp_servers_json"] = _merge_mcp_secrets(bot.mcp_servers_json or [], data["mcp_servers_json"])
+
     for field, value in data.items():
         setattr(bot, field, value)
 
     await db.commit()
     await db.refresh(bot)
-    return BotOut.from_bot(bot)
+    return _mask_bot_out(BotOut.from_bot(bot), user, membership, bot)
 
 
 @router.delete("/bots/{bot_id}")
@@ -381,7 +579,7 @@ async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = 
             setattr(bot, field, config[field])
     await db.commit()
     await db.refresh(bot)
-    return BotOut.from_bot(bot)
+    return _mask_bot_out(BotOut.from_bot(bot), user, membership, bot)
 
 
 from pydantic import BaseModel as _BaseModel
@@ -427,6 +625,68 @@ async def generate_tree_endpoint(bot_id: int, body: TreeGenerateRequest,
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
     return {"tree_json": tree}
+
+
+@router.post("/bots/{bot_id}/insights/generate", response_model=InsightsReportOut)
+async def generate_insights_endpoint(bot_id: int, db: AsyncSession = Depends(get_db),
+                                     user: User = Depends(get_current_user)):
+    """Analyse IA « questions sans réponse » : clusterise les messages visiteurs
+    adressés à l'IA sur les 30 derniers jours et suggère des bulles d'arbre.
+    Plans payants uniquement (coût IA côté SaaS), 3 analyses/jour/organisation.
+    Le rapport est persisté (insights_reports) et renvoyé."""
+    from src.services.insights_service import InsightsError, generate_insights
+
+    bot, membership = await _get_accessible_bot(db, bot_id, user)
+    _check_bot_perm(user, membership, bot, "context")
+
+    org = await db.get(Organization, bot.organization_id)
+    if not user.is_superadmin and plan_limits(org).get("price", 0) <= 0:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "L'analyse des questions sans réponse est réservée aux plans payants")
+
+    # Rate-limit par organisation AVANT tout echantillonnage/appel IA
+    # (protection cout, superadmin inclus — comme treegen). NB : un 422
+    # « aucune question » ci-dessous a donc deja consomme un credit (voulu :
+    # le limiteur protege le cout, pas le confort).
+    if not await insights_limiter.check(str(bot.organization_id)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            "Limite d'analyses atteinte pour aujourd'hui — réessayez demain")
+
+    since = datetime.utcnow() - timedelta(days=30)
+    samples = (await db.execute(
+        select(Message.content)
+        .where(Message.bot_id == bot.id, Message.role == "user",
+               Message.source == "ai", Message.created_at >= since)
+        .order_by(Message.created_at.desc())
+        .limit(200)
+    )).scalars().all()
+    if not samples:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Aucune question visiteur à analyser sur les 30 derniers jours")
+
+    try:
+        report = await generate_insights(list(samples))
+    except InsightsError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+
+    record = InsightsReport(bot_id=bot.id, report_json=report, message_count=len(samples))
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return InsightsReportOut.model_validate(record)
+
+
+@router.get("/bots/{bot_id}/insights")
+async def get_insights(bot_id: int, db: AsyncSession = Depends(get_db),
+                       user: User = Depends(get_current_user)):
+    """Dernier rapport d'insights du bot (null JSON si aucun)."""
+    bot, membership = await _get_accessible_bot(db, bot_id, user)
+    _check_bot_perm(user, membership, bot, "context")
+    record = (await db.execute(
+        select(InsightsReport).where(InsightsReport.bot_id == bot.id)
+        .order_by(InsightsReport.id.desc()).limit(1)
+    )).scalar_one_or_none()
+    return InsightsReportOut.model_validate(record) if record else None
 
 
 @router.get("/bots/{bot_id}/embed")

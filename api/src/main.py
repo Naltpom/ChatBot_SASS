@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
-from src.routers import admin, auth, billing, bots, orgs, public, stats, uploads, widget
+from src.routers import admin, auth, billing, bots, inbox, kb, orgs, public, stats, uploads, widget
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -141,6 +141,8 @@ app.include_router(auth.router)
 app.include_router(public.router)
 app.include_router(orgs.router)
 app.include_router(bots.router)
+app.include_router(kb.router)
+app.include_router(inbox.router)
 app.include_router(admin.router)
 # Webhook server-to-server (signature Stripe), hors CORS widget : pas de CORS necessaire
 app.include_router(billing.router)

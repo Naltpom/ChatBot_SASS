@@ -166,3 +166,19 @@ auth_limiter = RateLimiter("rl:auth:", 10, 900)
 treegen_limiter = RateLimiter("rl:treegen:", 10, 86400)
 # Demandes de contact (leads) du widget : 5 / heure / session
 lead_limiter = RateLimiter("rl:lead:", 5, 3600)
+# Demandes de conseiller (handoff live chat) : 3 / heure / session
+handoff_limiter = RateLimiter("rl:handoff:", 3, 3600)
+# Polling live chat (cadence widget 2,5 s = 24/min) : limiteur dedie genereux
+poll_limiter = RateLimiter("rl:poll:", 60, 60)
+# Budget IP DEDIE au poll (jamais ip_limiter partage 100/min : 4 visiteurs en
+# attente derriere un NAT l'epuiseraient et couperaient TOUT le widget de
+# l'IP). 600/min = ~25 visiteurs simultanes par IP a 24 req/min chacun ;
+# l'endpoint reste protege par le JWT de session + poll_limiter.
+poll_ip_limiter = RateLimiter("rl:ippoll:", 600, 60)
+# Messages visiteur en mode conseiller (plus fluide que le mode IA)
+human_msg_limiter = RateLimiter("rl:humanmsg:", 60, 600)
+# Retours CSAT du widget : 30 / heure / session
+feedback_limiter = RateLimiter("rl:feedback:", 30, 3600)
+# Analyses insights (cout IA cote SaaS) : 3 / 24 h / organisation, verifie
+# AVANT tout appel
+insights_limiter = RateLimiter("rl:insights:", 3, 86400)

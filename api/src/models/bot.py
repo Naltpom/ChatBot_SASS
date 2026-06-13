@@ -74,6 +74,7 @@ DEFAULT_DESIGN = {
     "launcherText": "",            # <= 40 chars : bulle flottante -> pilule [icône + texte]
     "offsetX": 18,                 # marge latérale bulle/panneau (0-120 px)
     "offsetY": 18,                 # marge basse (0-120 px)
+    "locale": "fr",                # auto | fr | en — langue de l'UI du widget
 }
 
 
@@ -108,11 +109,42 @@ class Bot(Base):
     tree_json = Column(JSON, default=DEFAULT_TREE, nullable=False)
     design_json = Column(JSON, default=DEFAULT_DESIGN, nullable=False)
 
+    # --- A/B test d'arbre ---
+    # Variante B optionnelle de l'arbre (none_as_null : NULL SQL = A/B
+    # desactive), servie aux conversations affectees 'b' a la creation de
+    # session (sticky). ab_split_pct = % de nouvelles sessions envoyees sur la
+    # variante (0 = off). Memes contraintes de plan que l'arbre principal.
+    # EXCLU de config.json (comme triggers_json — decision actee).
+    tree_variant_json = Column(JSON(none_as_null=True), nullable=True)
+    ab_split_pct = Column(Integer, default=0, nullable=False, server_default=text("'0'"))
+
+    # --- Triggers proactifs (widget) ---
+    # Max 5 : {type time_on_page|scroll_depth|exit_intent|url_pattern, value,
+    # message <=300, once_per_session}. Valides au PATCH (routers/bots.py),
+    # re-sanitises au bootstrap widget, evalues 100% cote client (aucun appel
+    # serveur au declenchement). server_default : backfill migration.
+    triggers_json = Column(JSON, default=list, nullable=False, server_default=text("'[]'"))
+
     # --- Actions IA (tool-use) : webhooks signes et capture de lead ---
     # [{"name","description","type":"webhook"|"capture_lead","url","secret_encrypted","fields":[...]}]
     # server_default OBLIGATOIRE : la migration ajoute la colonne NOT NULL sur
     # des lignes existantes. Secrets chiffres (Fernet), jamais en sortie API.
     actions_json = Column(JSON, default=list, nullable=False, server_default=text("'[]'"))
+
+    # --- Live chat (handoff conseiller) ---
+    # Webhook de notification optionnel quand un visiteur demande un conseiller
+    # (payload JSON compatible Slack, envoi SSRF strict via safe_fetch).
+    # ATTENTION : un webhook entrant Slack/Teams EST un credential (le token
+    # vit dans le chemin de l'URL) -> en sortie API, l'URL n'est renvoyee
+    # qu'aux ayants droit de la perm 'context' (masquage dans routers/bots.py),
+    # les autres ne voient que le flag handoff_webhook_set.
+    handoff_webhook_url = Column(String, nullable=True)
+
+    # --- Connecteur MCP generique ---
+    # Max 2 serveurs : [{"name", "url", "auth_token_encrypted"}]. Le jeton est
+    # chiffre Fernet, write-only (flag auth_token_set en sortie). EXCLU de
+    # config.json (comme actions_json). server_default : backfill migration.
+    mcp_servers_json = Column(JSON, default=list, nullable=False, server_default=text("'[]'"))
 
     # --- Securite widget ---
     # Domaines autorises a charger le widget (verif Origin cote serveur).
@@ -149,8 +181,18 @@ class BotUpdate(BaseModel):
     byok_key: Optional[str] = None  # en clair a l'entree, chiffree au stockage
     tree_json: Optional[dict[str, Any]] = None
     design_json: Optional[dict[str, Any]] = None
+    # A/B : null EXPLICITE = desactiver la variante (distingue d'« absent »
+    # par exclude_unset dans routers/bots.py)
+    tree_variant_json: Optional[dict[str, Any]] = None
+    ab_split_pct: Optional[int] = Field(None, ge=0, le=100)
+    # Validation metier (types, bornes par type) dans routers/bots.py
+    triggers_json: Optional[list[dict[str, Any]]] = None
     # Validation metier (formats, types, secrets) dans routers/bots.py
     actions_json: Optional[list[dict[str, Any]]] = None
+    # https:// + <=500 chars (valide dans routers/bots.py), "" = effacer
+    handoff_webhook_url: Optional[str] = None
+    # Validation metier (noms, urls https, jetons) dans routers/bots.py
+    mcp_servers_json: Optional[list[dict[str, Any]]] = None
     allowed_domains: Optional[list[str]] = None
     captcha_provider: Optional[str] = Field(None, pattern="^(turnstile|recaptcha_v3|disabled)$")
     captcha_site_key: Optional[str] = None
@@ -173,7 +215,17 @@ class BotOut(BaseModel):
     byok_key_set: bool = False
     tree_json: dict[str, Any]
     design_json: dict[str, Any]
+    tree_variant_json: Optional[dict[str, Any]] = None
+    ab_split_pct: int = 0
+    triggers_json: list[dict[str, Any]] = []
     actions_json: list[dict[str, Any]] = []
+    # URL masquee (None) pour les members sans la perm 'context' — le flag
+    # handoff_webhook_set permet au dashboard de distinguer « configure » de
+    # « vide » (masquage applique dans routers/bots.py)
+    handoff_webhook_url: Optional[str] = None
+    handoff_webhook_set: bool = False
+    # Serveurs MCP : jeton jamais en sortie, flag auth_token_set uniquement
+    mcp_servers_json: list[dict[str, Any]] = []
     allowed_domains: list[str]
     captcha_provider: str
     captcha_site_key: Optional[str] = None
@@ -193,11 +245,21 @@ class BotOut(BaseModel):
         out = cls.model_validate(bot)
         out.byok_key_set = bool(bot.byok_key_encrypted)
         out.captcha_secret_set = bool(bot.captcha_secret_encrypted)
-        # Actions : le secret (chiffre ou non) ne sort JAMAIS, seul un flag
-        # secret_set indique au dashboard qu'un secret est configure.
+        out.handoff_webhook_set = bool(bot.handoff_webhook_url)
+        # Actions : les secrets (chiffres ou non) ne sortent JAMAIS, seuls des
+        # flags secret_set / api_key_set indiquent au dashboard qu'un secret
+        # est configure (api_key_set pose pour tous les types : inoffensif).
         out.actions_json = [
-            {**{k: v for k, v in a.items() if k not in ("secret_encrypted", "secret")},
-             "secret_set": bool(a.get("secret_encrypted"))}
+            {**{k: v for k, v in a.items()
+                if k not in ("secret_encrypted", "secret", "api_key_encrypted", "api_key")},
+             "secret_set": bool(a.get("secret_encrypted")),
+             "api_key_set": bool(a.get("api_key_encrypted"))}
             for a in (bot.actions_json or [])
+        ]
+        # Serveurs MCP : le jeton (chiffre ou non) ne sort JAMAIS
+        out.mcp_servers_json = [
+            {"name": s.get("name"), "url": s.get("url"),
+             "auth_token_set": bool(s.get("auth_token_encrypted"))}
+            for s in (bot.mcp_servers_json or [])
         ]
         return out

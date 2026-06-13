@@ -24,7 +24,9 @@ AI_NODE = "__ai__"
 # Types de noeuds. Sans `type` = noeud message classique (retro-compat des
 # arbres existants). appointment = URL de calendrier (Calendly/Cal.com) rendue
 # en overlay par le widget. lead = formulaire de contact dans le widget.
-NODE_TYPES = ("message", "appointment", "lead")
+# handoff = demande de conseiller humain (le widget enchaine POST /widget/handoff,
+# le `message` du noeud sert de texte d'intro — aucun champ supplementaire).
+NODE_TYPES = ("message", "appointment", "lead", "handoff")
 LEAD_FIELDS = ("email", "phone", "name", "message")
 
 
@@ -98,4 +100,9 @@ def format_node_response(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
     elif ntype == "lead":
         out["type"] = "lead"
         out["fields"] = [f for f in node.get("fields", ["email", "message"]) if f in LEAD_FIELDS] or ["email"]
+    elif ntype == "handoff":
+        # Opt-in strict : les reponses sans type restent identiques (contrat
+        # e2e). Le serveur ne change PAS le statut ici — c'est le POST
+        # /widget/handoff enchaine par le widget qui fait la transition.
+        out["type"] = "handoff"
     return out

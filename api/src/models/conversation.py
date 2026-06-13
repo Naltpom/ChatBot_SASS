@@ -7,18 +7,28 @@ limiting en memoire, jamais en base.
 """
 import uuid
 from datetime import datetime
+from typing import Optional
 
+from pydantic import BaseModel
 from sqlalchemy import (
     JSON,
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
+    SmallInteger,
     String,
     Text,
+    text,
 )
 
 from src.core.database import Base
+
+# Cycle de vie live chat (handoff conseiller) :
+# ai -> human_requested (demande visiteur) -> human (staff a pris la main)
+# -> closed (cloture staff). Retours : timeout 15 min ou cloture -> ai.
+CONVERSATION_STATUSES = ("ai", "human_requested", "human", "closed")
 
 
 def generate_conversation_id() -> str:
@@ -27,6 +37,8 @@ def generate_conversation_id() -> str:
 
 class Conversation(Base):
     __tablename__ = "conversations"
+    # Index composite pour l'inbox staff (liste filtree par statut)
+    __table_args__ = (Index("ix_conversations_bot_status", "bot_id", "status"),)
 
     id = Column(String, primary_key=True, default=generate_conversation_id)
     bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -40,8 +52,20 @@ class Conversation(Base):
     # ce n'est PAS de l'analytics (aucune UI ne l'expose).
     # none_as_null : absence de parcours = SQL NULL (pas un 'null' JSON).
     journey = Column(JSON(none_as_null=True), nullable=True)
+    # A/B test d'arbre : 'a' | 'b' affecte a la creation de session (sticky
+    # pour toute la conversation), NULL = pas d'A/B actif a la creation.
+    # JAMAIS renvoye au widget (aucune fuite du variant au visiteur).
+    variant = Column(String, nullable=True)
     started_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     last_activity_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # --- Live chat (handoff conseiller) ---
+    # status : voir CONVERSATION_STATUSES. server_default = backfill des lignes
+    # existantes par la migration. Le timeout 15 min (human_requested sans
+    # staff) est evalue paresseusement dans routers/widget.py, pas de cron.
+    status = Column(String, default="ai", server_default=text("'ai'"), nullable=False)
+    human_requested_at = Column(DateTime, nullable=True)
+    human_taken_at = Column(DateTime, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
 
 
 class Message(Base):
@@ -51,8 +75,45 @@ class Message(Base):
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(String, nullable=False)    # user | assistant
-    source = Column(String, nullable=False)  # tree | ai | system
+    # tree | ai | system | human (visiteur en mode conseiller OU reponse staff,
+    # selon role). Convention : human/system sont EXCLUS de l'historique IA,
+    # des quotas (usage_service compte source='ai') et des stats (whitelists).
+    source = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     tokens_in = Column(Integer, default=0, nullable=False)
     tokens_out = Column(Integer, default=0, nullable=False)
+    # CSAT widget : +1 (reponse utile) / -1 (peu utile), pose par
+    # POST /api/widget/feedback — uniquement sur role=assistant source ai|tree
+    # (garanti par l'endpoint). NULL = pas de retour visiteur.
+    rating = Column(SmallInteger, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+# --- Schemas Pydantic (inbox live chat) ---
+
+class ConversationOut(BaseModel):
+    id: str
+    bot_id: int
+    status: str
+    visitor_id: str
+    domain: str
+    page_url: Optional[str] = None
+    started_at: datetime
+    last_activity_at: datetime
+    human_requested_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MessageOut(BaseModel):
+    id: int
+    role: str
+    source: str
+    content: str
+    rating: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

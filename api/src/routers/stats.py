@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.security import get_current_user, require_org_access
+from src.models.analytics import TreeEvent
 from src.models.bot import Bot
 from src.models.conversation import Conversation, Message
 from src.models.user import User
@@ -40,7 +41,8 @@ async def bot_stats(
     )).one()
 
     # Messages visiteurs : whitelist source (exclut les marqueurs systeme
-    # [lead]... qui gonfleraient les compteurs)
+    # [lead]... qui gonfleraient les compteurs). Le rating CSAT ne vit que sur
+    # role=assistant source ai|tree par construction (POST /widget/feedback).
     msg_totals = (await db.execute(
         select(
             func.count(Message.id).filter(Message.role == "user", Message.source.in_(["ai", "tree"])),
@@ -48,8 +50,38 @@ async def bot_stats(
             func.count(Message.id).filter(Message.role == "assistant", Message.source == "tree"),
             func.coalesce(func.sum(Message.tokens_in), 0),
             func.coalesce(func.sum(Message.tokens_out), 0),
+            func.count(Message.id).filter(Message.rating == 1),
+            func.count(Message.id).filter(Message.rating == -1),
         ).where(Message.bot_id == bot_id, Message.created_at >= since)
     )).one()
+
+    # A/B : conversations + satisfaction par variant (toujours present dans la
+    # reponse, zeros si A/B inactif — cles ADDITIVES, shape historique intacte)
+    conv_by_variant = dict((await db.execute(
+        select(Conversation.variant, func.count(Conversation.id))
+        .where(Conversation.bot_id == bot_id, Conversation.started_at >= since,
+               Conversation.variant.isnot(None))
+        .group_by(Conversation.variant)
+    )).all())
+    sat_by_variant = {
+        r[0]: (r[1], r[2])
+        for r in (await db.execute(
+            select(
+                Conversation.variant,
+                func.count(Message.id).filter(Message.rating == 1),
+                func.count(Message.id).filter(Message.rating == -1),
+            )
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(Message.bot_id == bot_id, Message.created_at >= since,
+                   Conversation.variant.isnot(None))
+            .group_by(Conversation.variant)
+        )).all()
+    }
+
+    def _variant_block(v: str) -> dict:
+        up, down = sat_by_variant.get(v, (0, 0))
+        return {"conversations": conv_by_variant.get(v, 0),
+                "satisfaction": {"up": up, "down": down, "total": up + down}}
 
     # Serie journaliere
     day = func.date_trunc("day", Message.created_at)
@@ -85,6 +117,10 @@ async def bot_stats(
         "tokens_out": msg_totals[4],
         "ai_replies_today": await count_ai_messages_today(db, bot_id),
         "daily_ai_message_cap": bot.daily_ai_message_cap,
+        # Cles ADDITIVES (CSAT + A/B) : la shape historique reste intacte
+        "satisfaction": {"up": msg_totals[5], "down": msg_totals[6],
+                         "total": msg_totals[5] + msg_totals[6]},
+        "variants": {"a": _variant_block("a"), "b": _variant_block("b")},
         "daily": [
             {
                 "day": r.day.date().isoformat(),
@@ -136,9 +172,82 @@ async def bot_conversations(
             "page_url": c.page_url,
             "started_at": c.started_at.isoformat(),
             "messages": [
-                {"role": m.role, "source": m.source, "content": m.content, "at": m.created_at.isoformat()}
+                {"role": m.role, "source": m.source, "content": m.content,
+                 "rating": m.rating, "at": m.created_at.isoformat()}
                 for m in msgs_by_conv[c.id]
             ],
         }
         for c in convs
     ]
+
+
+@router.get("/bots/{bot_id}/funnel")
+async def bot_funnel(
+    bot_id: int,
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Funnel de l'arbre : passages par noeud SERVI (tree_events) + abandons,
+    splittes par variante A/B.
+
+    Abandon = dernier noeud servi de la conversation (sous-requete max(id)
+    par conversation sur la fenetre). Les evenements orphelins (conversation
+    purgee, FK SET NULL) restent comptes dans `count` mais sont EXCLUS du
+    calcul des exits — on ne sait plus les rattacher a une conversation. Les
+    evenements sans variante (A/B inactif) alimentent count/exits mais ni
+    `variants` ni `variant_totals`.
+    """
+    bot = await db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    await require_org_access(bot.organization_id, user, db)
+
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+
+    count_rows = (await db.execute(
+        select(TreeEvent.node_key, TreeEvent.variant, func.count())
+        .where(TreeEvent.bot_id == bot_id, TreeEvent.created_at >= since)
+        .group_by(TreeEvent.node_key, TreeEvent.variant)
+    )).all()
+
+    # Dernier evenement de chaque conversation de la fenetre = noeud d'abandon
+    last_event_ids = (
+        select(func.max(TreeEvent.id))
+        .where(TreeEvent.bot_id == bot_id, TreeEvent.created_at >= since,
+               TreeEvent.conversation_id.isnot(None))
+        .group_by(TreeEvent.conversation_id)
+    )
+    exit_rows = (await db.execute(
+        select(TreeEvent.node_key, TreeEvent.variant, func.count())
+        .where(TreeEvent.id.in_(last_event_ids))
+        .group_by(TreeEvent.node_key, TreeEvent.variant)
+    )).all()
+
+    nodes: dict[str, dict] = {}
+    variant_totals = {"a": 0, "b": 0}
+    total_events = 0
+    for node_key, variant, n in count_rows:
+        entry = nodes.setdefault(node_key, {
+            "node_key": node_key, "count": 0, "exits": 0,
+            "variants": {"a": {"count": 0, "exits": 0}, "b": {"count": 0, "exits": 0}},
+        })
+        entry["count"] += n
+        total_events += n
+        if variant in ("a", "b"):
+            entry["variants"][variant]["count"] += n
+            variant_totals[variant] += n
+    for node_key, variant, n in exit_rows:
+        entry = nodes.get(node_key)
+        if entry is None:
+            continue
+        entry["exits"] += n
+        if variant in ("a", "b"):
+            entry["variants"][variant]["exits"] += n
+
+    out_nodes = sorted(nodes.values(), key=lambda e: e["count"], reverse=True)
+    for entry in out_nodes:
+        entry["exit_rate"] = round(entry["exits"] / entry["count"], 3) if entry["count"] else 0
+
+    return {"days": days, "total_events": total_events, "nodes": out_nodes,
+            "variant_totals": variant_totals}

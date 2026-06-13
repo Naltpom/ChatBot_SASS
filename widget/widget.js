@@ -91,7 +91,20 @@
     }
   }
 
-  var state = { config: null, token: null, open: false, busy: false, aiMode: false, degraded: false, unread: 1 };
+  // chatStatus : statut SERVEUR autoritaire du live chat (ai | human_requested
+  // | human) — aiMode/degraded restent des sous-états du mode ai. Le token vit
+  // en mémoire seule : un reload de page = nouvelle conversation (limitation
+  // documentée, couverte par le timeout 15 min serveur + la clôture staff).
+  var state = { config: null, token: null, open: false, busy: false, aiMode: false, degraded: false, unread: 1,
+    chatStatus: "ai", lastMsgId: 0, pollTimer: null,
+    // Triggers proactifs : interacted = le visiteur a déjà touché au widget
+    // (plus aucun tir possible) ; pendingTriggerMsg = bulle locale à afficher
+    // après l'accueil de la session ouverte par un trigger.
+    interacted: false, pendingTriggerMsg: null };
+
+  function isHuman() {
+    return state.chatStatus === "human" || state.chatStatus === "human_requested";
+  }
 
   // --- HTTP ---
   function api(path, opts) {
@@ -189,6 +202,9 @@
     send: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.6 21.8 12 3.4 3.4l.01 6.6L15 12 3.41 14z"></path></svg>',
     alert: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>',
     sparkSmall: '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"></path></svg>',
+    userSmall: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
+    thumbUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"></path><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"></path></svg>',
+    thumbDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"></path><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"></path></svg>',
   };
 
   // Construit l'icône via le DOM : avatarImage (configurable côté dashboard)
@@ -223,6 +239,95 @@
     serif: "Georgia,'Times New Roman',serif",
     mono: "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
   };
+
+  // --- Localisation de l'UI (design.locale : auto | fr | en, défaut fr) ---
+  // Les valeurs FR reprennent les chaînes historiques À L'OCTET PRÈS (les
+  // tests e2e tournent en défaut fr). Seuls les textes d'INTERFACE sont
+  // traduits : les badges (.kc-mode TREE/IA/LIVE, "1", "×"), le contenu
+  // d'arbre, les messages serveur (accueil, dégradé, handoff, confirmation
+  // lead côté API) et les messages de triggers restent tels quels.
+  var I18N = {
+    fr: {
+      online_tree: "En ligne · Menu guidé",
+      online_ai: "En ligne · Mode IA",
+      advisor_online: "Conseiller en ligne",
+      advisor_wait: "En attente d'un conseiller…",
+      close: "Fermer",
+      send: "Envoyer",
+      open_chat: "Ouvrir le chat",
+      degraded_banner: " Assistant IA momentanément indisponible — le menu guidé reste actif.",
+      placeholder: "Écrivez votre message…",
+      placeholder_advisor: "Écrivez au conseiller…",
+      placeholder_degraded: "Réessayez un peu plus tard",
+      placeholder_pick: "Choisissez une option ci-dessus",
+      powered_by: "Propulsé par",
+      tag_ai: " IA",
+      tag_advisor: " Conseiller",
+      appointment: "Prendre rendez-vous",
+      appointment_title: "Prise de rendez-vous",
+      open_new_tab: "Ouvrir dans un nouvel onglet",
+      back_to_menu: "↩ Revenir au menu",
+      back_to_menu_user: "Revenir au menu",
+      lead_email: "Email",
+      lead_name: "Nom",
+      lead_phone: "Téléphone",
+      lead_message: "Message",
+      lead_invalid_email: "Merci d'indiquer un email valide.",
+      lead_sent: "Merci ! Votre demande a bien été transmise.",
+      lead_too_many: "Trop de demandes envoyées, réessayez plus tard.",
+      error_generic: "Oups, une erreur est survenue. Réessayez.",
+      error_short: "Oups, une erreur est survenue.",
+      error_too_fast: "Vous envoyez des messages trop vite, patientez un instant.",
+      ai_unavailable: "Les réponses IA sont indisponibles pour le moment. Utilisez le menu ou le formulaire de contact.",
+      ai_intro: "Je vous écoute ! Posez votre question librement, je réponds grâce à l'IA.",
+      ai_intro_short: "Je vous écoute ! Posez votre question librement.",
+      chat_unavailable: "Le chat est momentanément indisponible.",
+      rate_up: "Réponse utile",
+      rate_down: "Réponse peu utile",
+    },
+    en: {
+      online_tree: "Online · Guided menu",
+      online_ai: "Online · AI mode",
+      advisor_online: "Advisor online",
+      advisor_wait: "Waiting for an advisor…",
+      close: "Close",
+      send: "Send",
+      open_chat: "Open chat",
+      degraded_banner: " AI assistant temporarily unavailable — the guided menu is still active.",
+      placeholder: "Type your message…",
+      placeholder_advisor: "Write to the advisor…",
+      placeholder_degraded: "Please try again later",
+      placeholder_pick: "Pick an option above",
+      powered_by: "Powered by",
+      tag_ai: " AI",
+      tag_advisor: " Advisor",
+      appointment: "Book an appointment",
+      appointment_title: "Appointment booking",
+      open_new_tab: "Open in a new tab",
+      back_to_menu: "↩ Back to menu",
+      back_to_menu_user: "Back to menu",
+      lead_email: "Email",
+      lead_name: "Name",
+      lead_phone: "Phone",
+      lead_message: "Message",
+      lead_invalid_email: "Please enter a valid email address.",
+      lead_sent: "Thank you! Your request has been sent.",
+      lead_too_many: "Too many requests sent, please try again later.",
+      error_generic: "Oops, something went wrong. Please try again.",
+      error_short: "Oops, something went wrong.",
+      error_too_fast: "You are sending messages too fast, please wait a moment.",
+      ai_unavailable: "AI answers are unavailable right now. Please use the menu or the contact form.",
+      ai_intro: "I'm listening! Ask your question freely, I answer with AI.",
+      ai_intro_short: "I'm listening! Ask your question freely.",
+      chat_unavailable: "The chat is temporarily unavailable.",
+      rate_up: "Helpful",
+      rate_down: "Not helpful",
+    },
+  };
+  var LOCALE = "fr"; // résolu au bootstrap (avant build) depuis design.locale
+  function t(key) {
+    return (I18N[LOCALE] && I18N[LOCALE][key]) || I18N.fr[key] || "";
+  }
 
   function css(d) {
     var brand = safeColor(d.primaryColor, "#0d9488");
@@ -290,6 +395,15 @@
       ".kc-row.bot .kc-msg{border-radius:" + (square ? "8px" : "4px " + r14 + "px " + r14 + "px " + r14 + "px") + ";background:" + botBg + ";color:" + botText + ";border:1px solid " + botBorder + ";box-shadow:0 1px 2px rgba(0,0,0,.04)}",
       ".kc-row.user .kc-msg{border-radius:" + (square ? "8px" : r14 + "px " + r14 + "px 4px " + r14 + "px") + ";background:" + brand + ";color:#fff}",
       ".kc-ai-tag{font-size:9.5px;font-weight:800;letter-spacing:.5px;color:" + brand + ";margin-bottom:3px}",
+      // Tag « Conseiller » (live chat) : même gabarit que le tag IA
+      ".kc-human-tag{font-size:9.5px;font-weight:800;letter-spacing:.5px;color:" + brand + ";margin-bottom:3px}",
+      // CSAT : pouces discrets SOUS la bulle assistant (élément séparé de
+      // .kc-msg — aucun texte ajouté aux bulles, contrat e2e)
+      ".kc-rate{display:flex;gap:2px;margin:-5px 0 0 4px}",
+      ".kc-rate button{background:none;border:none;cursor:pointer;color:" + mutedText + ";padding:2px;line-height:0;opacity:.7}",
+      ".kc-rate button:hover{opacity:1}",
+      ".kc-rate button svg{width:13px;height:13px}",
+      ".kc-rate button.kc-on{color:" + brand + ";opacity:1}",
       ".kc-opts{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}",
       ".kc-opt{font-family:inherit;font-size:" + (compact ? "11.5" : "12.5") + "px;font-weight:600;padding:" + (compact ? "6px 10px" : "8px 12px") + ";white-space:nowrap;border-radius:" + (square ? "10px" : "99px") + ";",
       "border:1.5px solid " + brand + ";background:#fff;color:" + brand + ";cursor:pointer;transition:background .15s,color .15s}",
@@ -360,7 +474,7 @@
     hMid.appendChild(el("div", "kc-head-name", d.title || "Assistant"));
     ui.headSub = el("div", "kc-head-sub");
     ui.headSub.appendChild(el("span", "kc-dot"));
-    ui.headSubText = el("span", null, "En ligne · Menu guidé");
+    ui.headSubText = el("span", null, t("online_tree"));
     ui.headSub.appendChild(ui.headSubText);
     hMid.appendChild(ui.headSub);
     head.appendChild(hMid);
@@ -368,15 +482,15 @@
     head.appendChild(ui.modeBadge);
     if (!INLINE) {
       var x = el("button", "kc-x", "×");
-      x.setAttribute("aria-label", "Fermer");
+      x.setAttribute("aria-label", t("close"));
       x.addEventListener("click", toggle);
       head.appendChild(x);
     }
     ui.panel.appendChild(head);
 
     ui.degradedBanner = el("div", "kc-degraded");
-    // Contenu 100% statique (constantes SVG + texte), pas de donnée externe
-    ui.degradedBanner.innerHTML = SVG.alert + " Assistant IA momentanément indisponible — le menu guidé reste actif.";
+    // Contenu 100% statique (constantes SVG + dictionnaire I18N du script)
+    ui.degradedBanner.innerHTML = SVG.alert + t("degraded_banner");
     ui.degradedBanner.style.display = "none";
     ui.panel.appendChild(ui.degradedBanner);
 
@@ -387,13 +501,13 @@
     ui.input = document.createElement("input");
     ui.input.className = "kc-input";
     ui.input.maxLength = 4000;
-    ui.input.placeholder = d.placeholder || "Écrivez votre message…";
+    ui.input.placeholder = d.placeholder || t("placeholder");
     ui.input.addEventListener("keydown", function (e) {
       if (e.key === "Enter") sendText();
     });
     ui.send = el("button", "kc-send");
     ui.send.innerHTML = SVG.send;
-    ui.send.setAttribute("aria-label", "Envoyer");
+    ui.send.setAttribute("aria-label", t("send"));
     ui.send.addEventListener("click", sendText);
     inputRow.appendChild(ui.input);
     inputRow.appendChild(ui.send);
@@ -402,7 +516,7 @@
 
     if (d.poweredBy !== false) {
       var powered = el("div", "kc-powered");
-      powered.innerHTML = "Propulsé par <b>Kertios Chat</b>";
+      powered.innerHTML = t("powered_by") + " <b>Kertios Chat</b>";
       ui.panel.appendChild(powered);
     }
     root.appendChild(ui.panel);
@@ -410,7 +524,7 @@
     // Bulle
     if (!INLINE) {
       ui.bubble = el("button", "kc-bubble");
-      ui.bubble.setAttribute("aria-label", "Ouvrir le chat");
+      ui.bubble.setAttribute("aria-label", t("open_chat"));
       ui.bubbleIcon = el("span");
       setIcon(ui.bubbleIcon, d, d.icon === "image" && d.avatarImage ? Math.round((SIZES[d.size] || 58) * .58) : Math.round((SIZES[d.size] || 58) * .44));
       ui.bubble.appendChild(ui.bubbleIcon);
@@ -435,32 +549,88 @@
   }
 
   function updateModeUI() {
+    var human = isHuman();
     var ai = state.aiMode && !state.degraded;
-    ui.headSubText.textContent = "En ligne · " + (ai ? "Mode IA" : "Menu guidé");
-    ui.modeBadge.textContent = ai ? "IA" : "TREE";
-    var canType = ai && state.config.mode !== "tree";
+    ui.headSubText.textContent = human
+      ? (state.chatStatus === "human" ? t("advisor_online") : t("advisor_wait"))
+      : (ai ? t("online_ai") : t("online_tree"));
+    ui.modeBadge.textContent = human ? "LIVE" : (ai ? "IA" : "TREE");
+    // Mode humain : saisie toujours active, même sur un bot tree/dégradé
+    var canType = human || (ai && state.config.mode !== "tree");
     ui.input.disabled = !canType;
     // Bot IA pur dégradé : pas d'options à choisir, on invite à patienter
-    ui.input.placeholder = canType
-      ? (state.config.design.placeholder || "Écrivez votre message…")
-      : (state.degraded && state.config.mode === "ai" ? "Réessayez un peu plus tard" : "Choisissez une option ci-dessus");
+    ui.input.placeholder = human
+      ? t("placeholder_advisor")
+      : (canType
+        ? (state.config.design.placeholder || t("placeholder"))
+        : (state.degraded && state.config.mode === "ai" ? t("placeholder_degraded") : t("placeholder_pick")));
     ui.send.disabled = !canType;
     ui.degradedBanner.style.display = state.degraded ? "flex" : "none";
-    if (state.config.mode === "tree") ui.inputRow.style.display = "none";
+    // Bot tree : la rangée de saisie reste cachée au bootstrap et ne
+    // s'affiche qu'APRÈS un handoff effectif (réévalué à chaque appel)
+    ui.inputRow.style.display = (state.config.mode === "tree" && !human) ? "none" : "";
   }
 
-  function addMsg(role, text, isAI) {
+  // tag : "ai" | "human" | null — libellé constant « Conseiller » (le serveur
+  // n'expose jamais l'identité du staff).
+  // msgId (optionnel) : id serveur du message assistant ai|tree -> rangée CSAT
+  // (pouces) appendée SÉPARÉMENT après la row, JAMAIS dans .kc-msg (les
+  // sélecteurs e2e font des toHaveText exacts sur les bulles : zéro texte
+  // ajouté, SVG + title localisé uniquement). Jamais de msgId pour les
+  // messages human/system (poll), locaux, d'erreur ou de trigger.
+  function addMsg(role, text, tag, msgId) {
     var row = el("div", "kc-row " + role);
     var m = el("div", "kc-msg");
-    if (isAI) {
-      var tag = el("div", "kc-ai-tag");
-      tag.innerHTML = SVG.sparkSmall + " IA"; // constantes statiques
-      m.appendChild(tag);
+    if (tag === "ai") {
+      var tg = el("div", "kc-ai-tag");
+      tg.innerHTML = SVG.sparkSmall + t("tag_ai"); // constantes statiques
+      m.appendChild(tg);
+    } else if (tag === "human") {
+      var th = el("div", "kc-human-tag");
+      th.innerHTML = SVG.userSmall + t("tag_advisor"); // constantes statiques
+      m.appendChild(th);
     }
     m.appendChild(document.createTextNode(text));
     row.appendChild(m);
     ui.msgs.appendChild(row);
+    if (msgId) ui.msgs.appendChild(rateRow(msgId));
     ui.msgs.scrollTop = ui.msgs.scrollHeight;
+  }
+
+  // --- CSAT (pouce haut/bas sous les réponses assistant ai|tree) ---
+  function rateRow(msgId) {
+    var rate = el("div", "kc-rate");
+    var current = null; // "up" | "down" (état local, le serveur écrase)
+    var pending = false; // garde anti double-envoi pendant le POST
+    var up, down;
+    function paint() {
+      up.classList.toggle("kc-on", current === "up");
+      down.classList.toggle("kc-on", current === "down");
+    }
+    function mkBtn(kind) {
+      var b = el("button");
+      b.type = "button";
+      b.innerHTML = SVG[kind === "up" ? "thumbUp" : "thumbDown"]; // constantes statiques
+      b.title = kind === "up" ? t("rate_up") : t("rate_down");
+      b.setAttribute("aria-label", b.title);
+      b.addEventListener("click", function () {
+        if (pending) return;
+        var prev = current;
+        if (prev === kind) return; // déjà noté pareil : rien à renvoyer
+        pending = true;
+        current = kind;
+        paint();
+        postFeedback(msgId, kind)
+          .catch(function () { current = prev; paint(); }) // revert silencieux
+          .finally(function () { pending = false; });
+      });
+      return b;
+    }
+    up = mkBtn("up");
+    down = mkBtn("down");
+    rate.appendChild(up);
+    rate.appendChild(down);
+    return rate;
   }
 
   function clearOptions() {
@@ -474,7 +644,7 @@
       var wrap = el("div", "kc-opts");
       if (apptUrl) {
         // Bouton rendez-vous : ouvre l'overlay calendrier (URL https validée)
-        var rdv = el("button", "kc-opt", "Prendre rendez-vous");
+        var rdv = el("button", "kc-opt", t("appointment"));
         rdv.addEventListener("click", function () { openAppointmentOverlay(apptUrl); });
         wrap.appendChild(rdv);
       }
@@ -485,9 +655,9 @@
       });
       ui.msgs.appendChild(wrap);
     }
-    // Lien retour au menu en mode IA (hybride uniquement)
-    if (state.aiMode && !state.degraded && state.config.mode === "hybrid") {
-      var back = el("button", "kc-back", "↩ Revenir au menu");
+    // Lien retour au menu en mode IA (hybride uniquement, jamais en mode humain)
+    if (state.aiMode && !state.degraded && state.config.mode === "hybrid" && !isHuman()) {
+      var back = el("button", "kc-back", t("back_to_menu"));
       back.addEventListener("click", backToTree);
       ui.msgs.appendChild(back);
     }
@@ -510,12 +680,116 @@
     } else if (!on && t) t.remove();
   }
 
+  // --- Live chat (handoff conseiller) : statut serveur + polling ---
+  // Pas de WebSocket : chaîne de setTimeout 2,5 s, uniquement panneau ouvert
+  // et onglet visible. Pas de state.busy pour le poll (la saisie reste libre),
+  // pas de setTyping pendant l'attente humaine.
+
+  function stopPolling() {
+    if (state.pollTimer) {
+      clearTimeout(state.pollTimer);
+      state.pollTimer = null;
+    }
+  }
+
+  function schedulePoll(ms) {
+    stopPolling();
+    state.pollTimer = setTimeout(pollTick, ms);
+  }
+
+  function maybeStartPolling() {
+    if (!isHuman() || !state.open || document.hidden || state.pollTimer) return;
+    schedulePoll(2500);
+  }
+
+  function pollTick() {
+    state.pollTimer = null;
+    if (!isHuman() || !state.open || document.hidden) return;
+    api("/api/widget/poll?after=" + state.lastMsgId, { auth: true })
+      .then(function (resp) {
+        // Session glissante : critique pendant l'attente passive
+        if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
+        (resp.messages || []).forEach(function (m) {
+          // Messages système (clôture, excuse timeout) : bulle bot sans tag
+          addMsg("bot", m.content, m.source === "human" ? "human" : null);
+          if (m.id > state.lastMsgId) state.lastMsgId = m.id;
+        });
+        applyStatus(resp);
+        maybeStartPolling(); // replanifie si toujours en mode humain
+      })
+      .catch(function (err) {
+        if (err.status === 401 || err.status === 404) {
+          // Session expirée (401) ou widget coupé (404 : bot suspendu, org
+          // inactive) : retour SILENCIEUX au mode normal — JAMAIS le
+          // re-handshake du retry-401 (il créerait une nouvelle conversation)
+          stopPolling();
+          state.chatStatus = "ai";
+          updateModeUI();
+          return;
+        }
+        // 429 : backoff ; autre erreur réseau : nouvel essai plus espacé
+        schedulePoll(err.status === 429 ? 10000 : 5000);
+      });
+  }
+
+  // Le statut serveur est AUTORITAIRE : appelé sur chaque réponse qui le porte
+  // (session/message/handoff/poll).
+  function applyStatus(resp) {
+    var s = resp && resp.status;
+    if (!s) return;
+    var wasHuman = isHuman();
+    if (s === "human" || s === "human_requested") {
+      state.chatStatus = s;
+      maybeStartPolling();
+      updateModeUI();
+      return;
+    }
+    // "ai" ou "closed" -> retour au mode normal
+    state.chatStatus = "ai";
+    if (wasHuman) {
+      stopPolling();
+      // Bot tree/hybrid hors mode IA : réaffiche les options racine (les
+      // messages de clôture/excuse arrivent dans le batch du poll)
+      if (state.config.mode !== "ai" && !state.aiMode) sendNodeSilent("__root__");
+      updateModeUI();
+    }
+  }
+
+  // Demande de mise en relation (enchaînée après un nœud d'arbre type
+  // "handoff", ou re-demande après clôture). retry-401 UNE fois autorisé ICI :
+  // la demande INITIE la relation, un re-handshake propre est acceptable.
+  function requestHandoff(retried) {
+    return api("/api/widget/handoff", { method: "POST", auth: true })
+      .then(function (resp) {
+        if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
+        clearOptions();
+        if (resp.message) addMsg("bot", resp.message);
+        // Curseur de polling : jamais de retour en arrière (cas idempotent
+        // -> last_message_id null, on conserve le curseur courant)
+        if (resp.last_message_id && resp.last_message_id > state.lastMsgId) {
+          state.lastMsgId = resp.last_message_id;
+        }
+        applyStatus(resp);
+      })
+      .catch(function (err) {
+        if (err.status === 401 && !retried) {
+          return openSession().then(function () { return requestHandoff(true); });
+        }
+        addMsg("bot", t("error_generic"));
+      });
+  }
+
   function renderResponse(resp) {
     if (resp.degraded) {
       state.degraded = true;
       state.aiMode = false;
     }
-    addMsg("bot", resp.message, resp.source === "ai");
+    // CSAT : uniquement les réponses assistant ai|tree porteuses d'un id
+    // serveur (jamais human/system, jamais les bulles locales/erreurs)
+    var msgId = (resp.source === "ai" || resp.source === "tree") && resp.message_id
+      ? resp.message_id : null;
+    // message null = accusé du mode humain (la réponse arrive par /poll)
+    if (resp.message != null) addMsg("bot", resp.message, resp.source === "ai" ? "ai" : null, msgId);
     if (resp.type === "lead") {
       // Formulaire de contact à la place des options (réaffichées après envoi)
       addLeadForm(resp.fields, resp.options);
@@ -524,6 +798,10 @@
     } else {
       addOptions(resp.options);
     }
+    applyStatus(resp);
+    // Nœud d'arbre handoff : le message d'intro du nœud est rendu, puis le
+    // widget enchaîne la vraie demande de conseiller
+    if (resp.type === "handoff") requestHandoff();
     updateModeUI();
   }
 
@@ -546,17 +824,17 @@
     if (old) old.remove();
     var overlay = el("div", "kc-overlay");
     var head = el("div", "kc-overlay-head");
-    head.appendChild(el("span", null, "Prendre rendez-vous"));
+    head.appendChild(el("span", null, t("appointment")));
     var x = el("button", "kc-overlay-x");
     x.innerHTML = SVG.close; // constante statique
-    x.setAttribute("aria-label", "Fermer");
+    x.setAttribute("aria-label", t("close"));
     x.addEventListener("click", function () { overlay.remove(); });
     head.appendChild(x);
     overlay.appendChild(head);
     if (embeddableCalendarHost(url)) {
       var frame = document.createElement("iframe");
       frame.src = url; // posé en PROPRIÉTÉ après validation, jamais en HTML
-      frame.title = "Prise de rendez-vous";
+      frame.title = t("appointment_title");
       overlay.appendChild(frame);
     }
     var link = document.createElement("a");
@@ -564,7 +842,7 @@
     link.target = "_blank";
     link.rel = "noopener";
     link.className = "kc-overlay-link";
-    link.textContent = "Ouvrir dans un nouvel onglet";
+    link.textContent = t("open_new_tab");
     overlay.appendChild(link);
     ui.panel.appendChild(overlay);
   }
@@ -572,6 +850,20 @@
   // --- Formulaire de contact (noeud "lead") ---
   var LEAD_LABELS = { email: "Email", name: "Nom", phone: "Téléphone", message: "Message" };
   var LEAD_MAXLEN = { email: 254, name: 120, phone: 40, message: 2000 }; // alignés serveur
+
+  // CSAT : POST du pouce. SANS retry-401 (contrat « jamais de re-handshake »
+  // hors envoi de message : un re-handshake créerait une NOUVELLE conversation
+  // et le message_id renverrait un 404 garanti — même philosophie que le
+  // poll). Échec = rejet de la promesse, revert visuel silencieux côté bouton.
+  function postFeedback(messageId, rating) {
+    return api("/api/widget/feedback", {
+      method: "POST", auth: true,
+      body: { message_id: messageId, rating: rating },
+    }).then(function (resp) {
+      if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
+      return resp;
+    });
+  }
 
   // Miroir de postMessage : même retry-401 + refresh_token
   function postLead(body, retried) {
@@ -595,7 +887,7 @@
     var form = el("div", "kc-lead");
     var inputs = {};
     fields.forEach(function (f) {
-      form.appendChild(el("label", "kc-lead-label", LEAD_LABELS[f]));
+      form.appendChild(el("label", "kc-lead-label", t("lead_" + f)));
       var input;
       if (f === "message") {
         input = document.createElement("textarea");
@@ -613,12 +905,12 @@
     var err = el("div", "kc-lead-err");
     err.style.display = "none";
     form.appendChild(err);
-    var submit = el("button", "kc-lead-send", "Envoyer");
+    var submit = el("button", "kc-lead-send", t("send"));
     submit.addEventListener("click", function () {
       if (state.busy) return;
       var email = (inputs.email.value || "").trim();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-        err.textContent = "Merci d'indiquer un email valide.";
+        err.textContent = t("lead_invalid_email");
         err.style.display = "block";
         return;
       }
@@ -632,13 +924,13 @@
       postLead(body)
         .then(function (resp) {
           form.remove();
-          addMsg("bot", resp.message || "Merci ! Votre demande a bien été transmise.");
+          addMsg("bot", resp.message || t("lead_sent"));
           addOptions(options);
         })
         .catch(function (e) {
           err.textContent = e.status === 429
-            ? "Trop de demandes envoyées, réessayez plus tard."
-            : "Oups, une erreur est survenue. Réessayez.";
+            ? t("lead_too_many")
+            : t("error_generic");
           err.style.display = "block";
           submit.disabled = false;
         })
@@ -676,12 +968,12 @@
     if (next === "__ai__") {
       state.busy = false;
       if (state.config.mode === "tree" || state.degraded) {
-        addMsg("bot", "Les réponses IA sont indisponibles pour le moment. Utilisez le menu ou le formulaire de contact.");
+        addMsg("bot", t("ai_unavailable"));
         sendNodeSilent("__root__");
         return;
       }
       state.aiMode = true;
-      addMsg("bot", "Je vous écoute ! Posez votre question librement, je réponds grâce à l'IA.");
+      addMsg("bot", t("ai_intro"));
       addOptions([]);
       updateModeUI();
       ui.input.focus();
@@ -691,7 +983,7 @@
     setTyping(true);
     postMessage({ node: next, page_url: pageUrl() })
       .then(renderResponse)
-      .catch(function () { addMsg("bot", "Oups, une erreur est survenue. Réessayez."); })
+      .catch(function () { addMsg("bot", t("error_generic")); })
       .finally(function () { setTyping(false); state.busy = false; });
   }
 
@@ -706,12 +998,12 @@
     if (state.busy) return;
     state.busy = true;
     state.aiMode = false;
-    addMsg("user", "Revenir au menu");
+    addMsg("user", t("back_to_menu_user"));
     clearOptions();
     setTyping(true);
     postMessage({ node: "__root__", page_url: pageUrl() })
       .then(renderResponse)
-      .catch(function () { addMsg("bot", "Oups, une erreur est survenue."); })
+      .catch(function () { addMsg("bot", t("error_short")); })
       .finally(function () { setTyping(false); state.busy = false; updateModeUI(); });
   }
 
@@ -722,14 +1014,13 @@
     addMsg("user", text);
     ui.input.value = "";
     clearOptions();
-    setTyping(true);
+    // Pas d'indicateur de frappe pendant l'attente humaine (simple accusé)
+    if (!isHuman()) setTyping(true);
 
     postMessage({ text: text, page_url: pageUrl() })
       .then(renderResponse)
       .catch(function (err) {
-        addMsg("bot", err.status === 429
-          ? "Vous envoyez des messages trop vite, patientez un instant."
-          : "Oups, une erreur est survenue. Réessayez.");
+        addMsg("bot", err.status === 429 ? t("error_too_fast") : t("error_generic"));
       })
       .finally(function () { setTyping(false); state.busy = false; });
   }
@@ -743,17 +1034,29 @@
     openSession()
       .then(function (first) {
         if (state.config.mode === "ai") {
-          addMsg("bot", first.message || "Je vous écoute ! Posez votre question librement.");
+          // Accueil notables (CSAT) : le serveur persiste le message d'accueil
+          addMsg("bot", first.message || t("ai_intro_short"), null, first.message_id || null);
           updateModeUI();
         } else {
           renderResponse(first);
         }
       })
-      .catch(function () { addMsg("bot", "Le chat est momentanément indisponible."); })
-      .finally(function () { setTyping(false); state.busy = false; });
+      .catch(function () { addMsg("bot", t("chat_unavailable")); })
+      .finally(function () {
+        setTyping(false); state.busy = false;
+        // Trigger proactif : bulle LOCALE du message APRÈS l'accueil (aucun
+        // appel serveur, jamais de msgId -> pas de CSAT dessus)
+        if (state.pendingTriggerMsg) {
+          addMsg("bot", state.pendingTriggerMsg);
+          state.pendingTriggerMsg = null;
+        }
+      });
   }
 
   function toggle() {
+    // Toute interaction avec le widget (ouverture OU fermeture) désarme
+    // définitivement les triggers proactifs de la page
+    state.interacted = true;
     state.open = !state.open;
     ui.panel.classList.toggle("open", state.open);
     if (ui.bubble) {
@@ -777,7 +1080,99 @@
       }
       if (state.open && ui.badge) { ui.badge.style.display = "none"; }
     }
-    if (state.open) startSession();
+    if (state.open) {
+      cancelTriggers(); // panneau ouvert : plus aucun tir possible
+      startSession();
+      maybeStartPolling(); // reprise du live chat si une demande est en cours
+    } else {
+      stopPolling(); // panneau fermé : arrêt propre du polling
+    }
+  }
+
+  // --- Triggers proactifs ---
+  // Évalués 100% côté client (timer, profondeur de scroll, intention de
+  // sortie, motif d'URL) à partir du bootstrap sanitisé — AUCUN appel serveur
+  // au déclenchement : le tir ouvre le panneau (toggle -> startSession) puis
+  // affiche le message en bulle locale. UN SEUL tir par chargement de page
+  // (le premier annule les autres), jamais si le panneau est ouvert ou si le
+  // visiteur a déjà interagi. Dédup once_per_session via sessionStorage
+  // kc_triggers (même try/catch que kc_journey). Jamais initialisés en mode
+  // INLINE (panneau déjà ouvert, scroll/souris de la page parente invisibles).
+  var triggerCleanups = [];
+
+  function firedTriggers() {
+    try {
+      var list = JSON.parse(sessionStorage.getItem("kc_triggers") || "[]");
+      return Array.isArray(list) ? list : [];
+    } catch (e) { return []; }
+  }
+
+  function markTriggerFired(id) {
+    try {
+      var list = firedTriggers();
+      if (list.indexOf(id) === -1) list.push(id);
+      sessionStorage.setItem("kc_triggers", JSON.stringify(list));
+    } catch (e) { /* sessionStorage indisponible (navigation privée…) */ }
+  }
+
+  function cancelTriggers() {
+    for (var i = 0; i < triggerCleanups.length; i++) {
+      try { triggerCleanups[i](); } catch (e) { /* déjà nettoyé */ }
+    }
+    triggerCleanups = [];
+  }
+
+  function fireTrigger(trg, id) {
+    if (state.open || state.interacted) return;
+    if (trg.once_per_session !== false) markTriggerFired(id);
+    cancelTriggers();
+    // Bulle locale affichée dans le .finally de startSession, après l'accueil
+    state.pendingTriggerMsg = String(trg.message || "");
+    toggle(); // pose state.interacted, ouvre le panneau + démarre la session
+  }
+
+  function matchUrlPattern(pattern, path) {
+    // Sans wildcard : match par sous-chaîne ; avec '*' : wildcard simple
+    if (pattern.indexOf("*") === -1) return path.indexOf(pattern) !== -1;
+    try {
+      var parts = pattern.split("*");
+      for (var i = 0; i < parts.length; i++) {
+        parts[i] = parts[i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      }
+      return new RegExp("^" + parts.join(".*") + "$").test(path);
+    } catch (e) { return false; }
+  }
+
+  function initTriggers(triggers) {
+    if (!triggers || !triggers.length) return;
+    var fired = firedTriggers();
+    triggers.forEach(function (trg) {
+      var id = String(trg.type) + ":" + String(trg.value == null ? "" : trg.value);
+      if (trg.once_per_session !== false && fired.indexOf(id) !== -1) return;
+      if (trg.type === "time_on_page") {
+        var timer = setTimeout(function () { fireTrigger(trg, id); },
+          Math.max(1, trg.value | 0) * 1000);
+        triggerCleanups.push(function () { clearTimeout(timer); });
+      } else if (trg.type === "scroll_depth") {
+        var onScroll = function () {
+          var h = document.documentElement.scrollHeight || 1;
+          if ((window.scrollY + window.innerHeight) / h * 100 >= trg.value) fireTrigger(trg, id);
+        };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        triggerCleanups.push(function () { window.removeEventListener("scroll", onScroll); });
+      } else if (trg.type === "exit_intent") {
+        // Pas de mouseleave fiable sur mobile (pointeur grossier) : désactivé
+        if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) return;
+        var onLeave = function (e) { if (e.clientY <= 0) fireTrigger(trg, id); };
+        document.addEventListener("mouseleave", onLeave);
+        triggerCleanups.push(function () { document.removeEventListener("mouseleave", onLeave); });
+      } else if (trg.type === "url_pattern") {
+        // Testé UNE fois au chargement, contre le pathname courant
+        if (typeof trg.value === "string" && matchUrlPattern(trg.value, location.pathname || "/")) {
+          fireTrigger(trg, id);
+        }
+      }
+    });
   }
 
   // --- Init ---
@@ -786,7 +1181,24 @@
     .then(function (config) {
       state.config = config;
       config.design = config.design || {};
+      // Locale de l'UI : résolue AVANT build ('auto' = langue du navigateur,
+      // anglais sinon français ; toute autre valeur retombe sur fr)
+      var loc = config.design.locale;
+      if (loc === "auto") {
+        loc = (navigator.language || "fr").toLowerCase().indexOf("en") === 0 ? "en" : "fr";
+      }
+      LOCALE = loc === "en" ? "en" : "fr";
       build(config.design);
+      // Triggers proactifs : jamais en INLINE (panneau déjà ouvert, les
+      // scroll/mouseleave de la page parente sont invisibles depuis l'iframe)
+      if (!INLINE) initTriggers(config.triggers || []);
+      // Live chat : onglet caché -> arrêt du polling, visible -> reprise.
+      // Enregistré UNE fois après build ; en inline (panneau toujours ouvert)
+      // c'est le seul interrupteur du polling.
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden) stopPolling();
+        else maybeStartPolling();
+      });
     })
     .catch(function (err) {
       console.warn("[kertios-chat]", err.message);

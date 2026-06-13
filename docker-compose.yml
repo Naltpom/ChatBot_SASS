@@ -1,7 +1,8 @@
 # Compose DE DÉVELOPPEMENT (bind mounts + reload). Production : docker-compose.prod.yml
 services:
   db:
-    image: postgres:15
+    # pgvector/pgvector:pg15 = postgres:15 + extension vector (RAG kb_chunks)
+    image: pgvector/pgvector:pg15
     container_name: chatbot-db
     restart: unless-stopped
     environment:
@@ -78,6 +79,11 @@ services:
       - STRIPE_PRICE_STARTER=${STRIPE_PRICE_STARTER:-}
       - STRIPE_PRICE_PRO=${STRIPE_PRICE_PRO:-}
       - STRIPE_PRICE_AGENCE=${STRIPE_PRICE_AGENCE:-}
+      # Embeddings locaux (RAG) : cache du modele fastembed hors de /app
+      # (zéro interaction avec le watcher --reload). Changer de modele peut
+      # changer la dimension (la base attend vector(384)).
+      - FASTEMBED_CACHE_PATH=${FASTEMBED_CACHE_PATH:-/var/cache/fastembed}
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
       - PYTHONUNBUFFERED=1
     ports:
       - "8001:8000"
@@ -90,6 +96,10 @@ services:
       - ./api/alembic:/app/alembic
       - ./widget:/app/widget
       - upload_files:/app/uploads
+      # Cache du modele d'embeddings (download ~100-400 Mo au premier usage) :
+      # survit aux rebuilds, efface par `docker compose down -v` (re-download
+      # non bloquant au prochain usage).
+      - fastembed_cache:/var/cache/fastembed
     depends_on:
       db:
         condition: service_healthy
@@ -129,3 +139,4 @@ volumes:
   postgres_data:
   redis_data:
   upload_files:
+  fastembed_cache:
