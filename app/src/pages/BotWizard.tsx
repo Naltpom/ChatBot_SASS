@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Btn, Card, Chip, Field, InfoBox, Seg, SectionTitle } from '../ui'
-import { MODEL_OPTIONS } from '../botConstants'
+import { MODEL_OPTIONS, TREE_TEMPLATES, TreeTemplate } from '../botConstants'
 import AppearanceForm from '../components/AppearanceForm'
 import TreeBuilder from '../components/TreeBuilder'
 import WidgetPreview, { PreviewFrame } from '../components/WidgetPreview'
@@ -57,6 +57,7 @@ export default function BotWizard() {
   const [byokKey, setByokKey] = useState('')
   const [design, setDesign] = useState<Record<string, any>>({ ...DEFAULT_DESIGN })
 
+  const [previewTpl, setPreviewTpl] = useState<string | null>(null)   // template d'arbre en aperçu (1 max)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [createdBotId, setCreatedBotId] = useState<number | null>(null)
@@ -130,6 +131,16 @@ export default function BotWizard() {
     setStep(s => Math.min(s + 1, STEPS.length - 1))
   }
 
+  // Applique un template d'arbre (deep clone : l'état du wizard ne partage
+  // jamais les objets de botConstants). STARTER_TREE = 2 nœuds → pas de confirm
+  // tant que l'utilisateur n'a rien construit lui-même.
+  function applyTemplate(tpl: TreeTemplate) {
+    if (Object.keys(tree.nodes || {}).length > 2
+        && !window.confirm('Remplacer l\'arbre en cours par ce modèle ?')) return
+    setTree(JSON.parse(JSON.stringify(tpl.tree)))
+    setPreviewTpl(null)
+  }
+
   function copy(integ: Integration) {
     navigator.clipboard.writeText(integ.snippet).catch(() => {})
     setCopiedId(integ.id)
@@ -201,9 +212,50 @@ export default function BotWizard() {
       )}
 
       {/* ---- Étape 1 : Arbre (mode tree) ou Intelligence (modes IA) ---- */}
+      {/* Galerie de templates AU-DESSUS du builder, jamais à sa place : le
+          builder reste visible dès l'arrivée à l'étape (contrat wizard-tree.spec).
+          Limitation actée : en mode hybrid/ai l'étape Arbre n'existe pas
+          (STARTER_TREE posé tel quel) — la galerie ne vit qu'ici. */}
       {step === 1 && mode === 'tree' && (
-        <TreeBuilder tree={tree as any} onChange={t => setTree(t)}
-                     maxNodes={usage?.max_tree_nodes ?? null} allowAI={false} />
+        <>
+          <Card>
+            <div className="card-title">Partir d'un modèle</div>
+            <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.5, marginBottom: 10 }}>
+              Quatre arbres prêts à personnaliser — boutons, textes et liens restent modifiables ci-dessous.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
+              {TREE_TEMPLATES.map(tpl => (
+                <div key={tpl.id} className="tpl-card">
+                  <div style={{ fontSize: 13, fontWeight: 800 }}>{tpl.label}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.5, flex: 1 }}>{tpl.blurb}</div>
+                  <div><Chip tone="mut">{Object.keys(tpl.tree.nodes).length} bulles</Chip></div>
+                  <div className="row g6" style={{ flexWrap: 'wrap' }}>
+                    <Btn kind="ghost" small onClick={() => setPreviewTpl(p => (p === tpl.id ? null : tpl.id))}>
+                      Aperçu
+                    </Btn>
+                    <Btn kind="soft" small onClick={() => applyTemplate(tpl)}>Utiliser ce modèle</Btn>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {previewTpl && (() => {
+              const tpl = TREE_TEMPLATES.find(x => x.id === previewTpl)
+              if (!tpl) return null
+              return (
+                <div className="col" style={{ gap: 10, marginTop: 12 }}>
+                  <PreviewFrame site={site || 'votre-site.fr'} brandColor={design.primaryColor} height={520}>
+                    <WidgetPreview design={design} mode="tree" tree={tpl.tree} botName={name || 'Aperçu'} />
+                  </PreviewFrame>
+                  <div>
+                    <Btn kind="ghost" small onClick={() => setPreviewTpl(null)}>Fermer l'aperçu</Btn>
+                  </div>
+                </div>
+              )
+            })()}
+          </Card>
+          <TreeBuilder tree={tree as any} onChange={t => setTree(t)}
+                       maxNodes={usage?.max_tree_nodes ?? null} allowAI={false} />
+        </>
       )}
       {step === 1 && mode !== 'tree' && (
         <Card>

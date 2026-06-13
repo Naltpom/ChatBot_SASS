@@ -1,6 +1,6 @@
 // « Équipe & permissions » — portée de pages-team.jsx (design) :
 // invitation par email, rôles admin/membre, matrice de permissions PAR BOT
-// (copy / test / appearance / context / security), invitations en attente.
+// (copy / test / appearance / context / security / inbox), invitations en attente.
 // La matrice vit dans sa propre section, TOUJOURS rendue (découvrable dès le
 // 1er jour, même sans membre au rôle « member »).
 import { useEffect, useRef, useState } from 'react'
@@ -11,12 +11,15 @@ import { useAuth } from '../AuthContext'
 import { Btn, Card, Chip, InfoBox, SectionTitle, Seg, brandBg } from '../ui'
 import { BotSummary } from './BotList'
 
+// 'inbox' volontairement EN FIN (ordre aligné sur BOT_PERMS côté API ; le spec
+// e2e team-permissions toggle la 1re colonne = copy via .first())
 const PERMS = [
   { id: 'copy', label: 'Copier le script', desc: "récupérer les snippets d'intégration" },
   { id: 'test', label: 'Tester', desc: 'prévisualiser le widget' },
   { id: 'appearance', label: 'Apparence', desc: 'design, nom, mode' },
   { id: 'context', label: 'Contexte (arbre + IA)', desc: 'arbre, IA, actions, leads, exports' },
   { id: 'security', label: 'Sécurité', desc: 'domaines, captcha, plafonds' },
+  { id: 'inbox', label: 'Boîte de réception (chat humain)', desc: 'voir et répondre aux conversations transmises à un conseiller' },
 ]
 
 interface Member {

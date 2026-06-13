@@ -42,6 +42,23 @@ export async function api<T = any>(path: string, options: { method?: string; bod
   return res.json()
 }
 
+// Upload multipart générique (PDF de la base de connaissances, …) — calqué sur
+// uploadImage : pas de Content-Type manuel (le navigateur pose le boundary).
+export async function postFile<T = any>(path: string, file: File, field = 'file'): Promise<T> {
+  const form = new FormData()
+  form.append(field, file)
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: form,
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new ApiError(res.status, data.detail || `Envoi échoué (${res.status})`)
+  }
+  return res.json()
+}
+
 export async function uploadImage(file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file)

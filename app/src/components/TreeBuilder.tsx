@@ -9,11 +9,12 @@ import { api } from '../api'
 import { Btn, Card, Chip, Divider, Field, InfoBox, SectionTitle, Seg } from '../ui'
 
 // Nœuds typés : sans type = message classique (rétro-compat), 'appointment' =
-// bouton « Prendre rendez-vous » (url https), 'lead' = formulaire de contact.
+// bouton « Prendre rendez-vous » (url https), 'lead' = formulaire de contact,
+// 'handoff' = mise en relation avec un conseiller (live chat, aucun champ).
 type TreeNode = {
   message: string
   options?: { label: string; next: string }[]
-  type?: 'message' | 'appointment' | 'lead'
+  type?: 'message' | 'appointment' | 'lead' | 'handoff'
   url?: string
   fields?: string[]
 }
@@ -217,6 +218,10 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
         if (n.type !== 'lead' || !Array.isArray(n.fields)) n.fields = ['email', 'message']
         n.type = 'lead'
         delete n.url
+      } else if (v === 'handoff') {
+        n.type = 'handoff'
+        delete n.url
+        delete n.fields
       } else {
         // Retour au message classique : on ne stocke JAMAIS type:'message'
         delete n.type
@@ -250,6 +255,7 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
                  { value: 'message', label: 'Message' },
                  { value: 'appointment', label: 'Rendez-vous' },
                  { value: 'lead', label: 'Contact' },
+                 { value: 'handoff', label: 'Conseiller' },
                ]} />
         </Field>
         {ntype === 'appointment' && (
@@ -287,6 +293,13 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
               })}
             </div>
           </Field>
+        )}
+        {ntype === 'handoff' && (
+          <InfoBox tone="info" title="Mise en relation avec un conseiller">
+            Le message de ce nœud sert d'introduction, puis le visiteur est placé en file d'attente
+            (onglet Inbox du bot). Sans prise en main sous 15 minutes, le bot reprend la main avec un
+            message d'excuse.
+          </InfoBox>
         )}
       </>
     )
@@ -391,6 +404,7 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
             {isCycle && <Chip tone="mut">↩ {opt.next === start ? 'menu' : 'boucle'}</Chip>}
             {!isAI && target?.type === 'appointment' && <Chip tone="info">RDV</Chip>}
             {!isAI && target?.type === 'lead' && <Chip tone="go">Contact</Chip>}
+            {!isAI && target?.type === 'handoff' && <Chip tone="acc">Conseiller</Chip>}
             {!isAI && !isCycle && children.length > 0 && <span className="cnt">{children.length}</span>}
           </button>
         </div>

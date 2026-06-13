@@ -219,6 +219,14 @@ export default function AppearanceForm({ design, botName, onChange, onNameChange
       <SectionLabel>Messages</SectionLabel>
       {!compact && (
         <>
+          {/* locale : clé HORS presets (presetMatches ne la considère pas) — le
+              BotOut sert design_json BRUT, souvent sans la clé → lecture
+              défensive, défaut fr (= rendu historique du widget). */}
+          <Field label="Langue du widget"
+                 hint={'Traduit les textes d\'interface du widget (placeholders, formulaire de contact, erreurs). Le contenu de l\'arbre et les messages des déclencheurs restent dans la langue où vous les avez écrits. "Auto" suit la langue du navigateur et demande aussi à l\'IA de répondre dans la langue du visiteur.'}>
+            <Seg small value={['auto', 'en'].includes(d.locale) ? d.locale : 'fr'} onChange={v => onChange({ locale: v })}
+                 options={[{ value: 'auto', label: 'Auto' }, { value: 'fr', label: 'Français' }, { value: 'en', label: 'English' }]} />
+          </Field>
           <Field label="Message d'accueil (mode IA)"
                  hint="Premier message quand le bot est en mode IA pur. En mode arbre/hybride, c'est le message d'accueil de l'arbre.">
             <textarea rows={2} maxLength={500} value={d.welcomeMessage || ''}
