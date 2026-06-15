@@ -4,6 +4,12 @@
 // bulle assistant tree, vérifié dans le transcript Inbox), réunis en UN seul
 // test déterministe (workers:1, deux pages d'un même context).
 //
+// REFONTE UI : l'Inbox (live chat staff) est désormais une PAGE dédiée
+// /app/inbox (pages/Inbox.tsx) avec un SÉLECTEUR DE BOT — plus un onglet de
+// l'éditeur. Le chemin staff passe donc par la page Inbox puis la pilule du bot
+// dédié (.inbox-bot-tab), tout le reste (InboxPanel : take/reply/close, ThumbsUp
+// du CSAT, placeholder « Votre réponse au visiteur… ») est inchangé.
+//
 // RÈGLE MOCK_AI=false : bot 100 % tree (input masqué hors mode humain, aucun
 // chemin IA). handoff = nœud d'arbre opt-in (aucun appel IA). reply staff =
 // source 'human' (exclu de l'historique IA/quotas). Calendly non sollicité
@@ -11,8 +17,7 @@
 // 1 handoff (cap 3/h), 1 feedback (cap 30/h), poll natif 2,5 s (cap 60/min) —
 // très en deçà des plafonds.
 import { expect, test } from '@playwright/test'
-import { authHeaders, authenticate, deleteBot, loadState } from '../helpers'
-import { createBot } from '../helpers'
+import { authHeaders, authenticate, createBot, deleteBot, loadState } from '../helpers'
 import { HANDOFF_TREE, openFrame } from '../widget-helpers'
 
 const state = loadState()
@@ -64,15 +69,24 @@ test('handoff widget → Inbox take/reply/close → retour tree ; 409 ; CSAT', a
   await expect(visitor.locator('.kc-mode')).toHaveText('LIVE', { timeout: 15_000 })
   await expect(visitor.locator('.kc-inputrow')).toBeVisible()
 
-  // ----- ÉTAPE INBOX (staff) -----
+  // ----- ÉTAPE INBOX (staff) : page dédiée /app/inbox + sélecteur de bot -----
   await authenticate(staff, state)
-  await staff.goto(`/app/bots/${bot.id}`)
-  await staff.locator('.tabs').getByRole('button', { name: 'Inbox' }).click()
+  await staff.goto('/app/inbox')
 
-  // La conv remonte (refetch 5 s). Liste = .inbox-row (préfixes « Visiteur : »/
-  // « Conseiller : » côté liste, distincts des headers transcript).
-  const row = staff.locator('.inbox-row').first()
-  await expect(row).toContainText('À prendre', { timeout: 15_000 })
+  // Sélecteur de bot (pilules) : l'org partagée porte le bot partagé + notre bot
+  // dédié → le picker est rendu (>1 bot accessible). On sélectionne notre bot
+  // par son nom (.inbox-bot-name dans .inbox-bot-tab).
+  await staff.locator('.inbox-bot-tab', { hasText: 'Bot Live E2E' }).click()
+
+  // Filtre « À prendre » (status human_requested) pour isoler notre conversation
+  // (déterminisme : la liste « Toutes » pourrait porter des conv d'autres specs).
+  // Le bouton vit dans le Seg de la liste (.seg) — distinct du chip de statut.
+  await staff.locator('.seg').getByRole('button', { name: 'À prendre', exact: true }).click()
+
+  // La conv remonte (refetch 5 s). Liste = .inbox-row, le chip de statut porte
+  // « À prendre ».
+  const row = staff.locator('.inbox-row').filter({ hasText: 'À prendre' }).first()
+  await expect(row).toBeVisible({ timeout: 15_000 })
   await row.click()
 
   // CSAT remonté côté staff (point C) : ThumbsUp (title) dans le transcript.
@@ -90,7 +104,8 @@ test('handoff widget → Inbox take/reply/close → retour tree ; 409 ; CSAT', a
   await staff.getByRole('button', { name: 'Prendre en main', exact: true }).click()
   await expect(staff.getByRole('button', { name: 'Prendre en main', exact: true })).toBeHidden()
 
-  // Répondre (Entrée) → POST /reply, source human.
+  // Répondre (Entrée) → POST /reply, source human. Le placeholder de l'input
+  // est inchangé ; l'onKeyDown Enter envoie (le bouton « Envoyer » fait pareil).
   await staff.getByPlaceholder('Votre réponse au visiteur…').fill('Bonjour, je prends le relais.')
   await staff.getByPlaceholder('Votre réponse au visiteur…').press('Enter')
 

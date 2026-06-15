@@ -1,42 +1,86 @@
-// Inscription — portée de « Chapote - Inscription.html » (design) :
-// type Personnel / Entreprise (même architecture, juste le type), infos,
-// invitations d'équipe (entreprise), succès → application.
-import { useState } from 'react'
+// Inscription — design Chapote (carte centrée sur fond dégradé, stepper).
+// Conserve la fonctionnalité réelle : type perso/entreprise, invitations
+// d'équipe (entreprise), register(RegisterPayload). L'étape de succès propose
+// « Configurer mon premier bot » (→ /app/bots/new), comme demandé.
+import { Fragment, useState } from 'react'
 import { Building2, Check, User as UserIcon, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 
 interface Invite { email: string; role: 'admin' | 'member' }
 
-function Shell({ children, step, total }: { children: React.ReactNode; step?: number; total?: number }) {
+const CLASH = "'Clash Display',sans-serif"
+const NAVY = '#1C3F5C'
+const MINT = '#2F9E79'
+
+const HatIcon = ({ size = 19, color = '#fff' }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+    <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', height: 46, border: '1px solid #D8DEE6', borderRadius: 12,
+  padding: '0 14px', fontSize: 15, color: '#1E2A32', background: '#fff',
+  fontFamily: 'inherit', outline: 'none',
+}
+const lbl: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 7, color: '#1E2A32' }
+const btnPrimary: React.CSSProperties = {
+  background: NAVY, color: '#fff', border: 'none', borderRadius: 12, padding: '13px 22px',
+  fontWeight: 600, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex',
+  alignItems: 'center', justifyContent: 'center', gap: 8, textDecoration: 'none',
+}
+const btnGhost: React.CSSProperties = {
+  background: '#fff', color: NAVY, border: '1px solid #D8DEE6', borderRadius: 12, padding: '13px 22px',
+  fontWeight: 600, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit',
+}
+
+function StepDot({ on, n }: { on: boolean; n: number }) {
   return (
-    <div className="landing" style={{ minHeight: '100vh' }}>
-      <div className="page-blobs"><div className="b b1" /><div className="b b2" /></div>
-      <div className="l-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 20px' }}>
-        <div style={{ width: '100%', maxWidth: 660, padding: '26px 0 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none', color: 'var(--l-ink)' }}>
-            <img src="/brand/icon.svg" alt="" style={{ width: 30, height: 30, borderRadius: 8 }} />
-            <span className="font-display" style={{ fontWeight: 700, fontSize: 16 }}>Chapote</span>
-          </Link>
-          <Link to="/login" style={{ fontSize: 13, fontWeight: 600, color: 'var(--l-muted)', textDecoration: 'none' }}>
-            Déjà un compte ? <span style={{ color: 'var(--l-teal-deep)' }}>Se connecter</span>
-          </Link>
-        </div>
-        {step != null && total != null && (
-          <div style={{ width: '100%', maxWidth: 660, display: 'flex', gap: 6, margin: '6px 0 22px' }}>
-            {Array.from({ length: total }).map((_, i) => (
-              <div key={i} style={{ flex: 1, height: 4, borderRadius: 99, background: i <= step ? 'var(--l-teal)' : '#d4e6e1' }} />
-            ))}
-          </div>
-        )}
-        <div style={{ width: '100%', maxWidth: 660, paddingBottom: 60 }}>{children}</div>
-      </div>
-    </div>
+    <span style={{
+      width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontWeight: 700, fontSize: 13, flexShrink: 0,
+      background: on ? NAVY : '#E2E8F0', color: on ? '#fff' : '#9AA7B4', transition: 'all .25s',
+    }}>{n}</span>
   )
 }
 
-function LCard({ children }: { children: React.ReactNode }) {
-  return <div className="l-card shadow-md" style={{ padding: '30px 30px' }}>{children}</div>
+function Shell({ children, step, total, caption, maxWidth = 560 }: {
+  children: React.ReactNode; step?: number; total?: number; caption?: string; maxWidth?: number
+}) {
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: "'Inter',system-ui,sans-serif", color: '#1E2A32', padding: 32,
+      background: 'radial-gradient(circle at 15% 18%, rgba(47,158,121,.08), transparent 45%),radial-gradient(circle at 85% 28%, rgba(140,109,255,.07), transparent 45%),#F0F2F5',
+    }}>
+      <div style={{ width: '100%', maxWidth, background: '#fff', borderRadius: 24, boxShadow: '0 44px 100px -44px rgba(28,63,92,.42)', padding: '40px 40px 36px' }}>
+        <Link to="/" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, textDecoration: 'none' }}>
+          <span style={{ width: 34, height: 34, borderRadius: 10, background: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon /></span>
+          <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 20, color: '#1E2A32' }}>Chapote</span>
+        </Link>
+        {step != null && total != null && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '26px auto 6px', maxWidth: 280 }}>
+              {Array.from({ length: total }).map((_, i) => (
+                <Fragment key={i}>
+                  {i > 0 && <span style={{ flex: 1, height: 2, background: i <= step ? MINT : '#E2E8F0', transition: 'background .25s' }} />}
+                  <StepDot on={i <= step} n={i + 1} />
+                </Fragment>
+              ))}
+            </div>
+            {caption && (
+              <div style={{ textAlign: 'center', fontSize: 12.5, fontWeight: 600, color: '#9AA7B4', letterSpacing: '.03em', marginBottom: 24 }}>
+                {caption}
+              </div>
+            )}
+          </>
+        )}
+        {children}
+      </div>
+    </div>
+  )
 }
 
 export default function Register() {
@@ -53,7 +97,10 @@ export default function Register() {
   const [busy, setBusy] = useState(false)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  const totalSteps = type === 'entreprise' ? 3 : 2
+  // Stepper (dots numérotés, façon template) : on compte le choix du type, les
+  // informations, [l'invitation équipe] puis l'écran « C'est prêt ! ».
+  const totalDots = type === 'entreprise' ? 4 : 3
+  const stepCaption = (i: number) => `Étape ${i + 1} sur ${totalDots} — ${i + 1 === totalDots ? "C'est prêt !" : i === 0 ? 'Type de compte' : i === 1 ? 'Votre compte' : 'Votre équipe'}`
   const canSubmitInfo = !!(form.prenom.trim() && form.email.includes('@') && form.pwd.length >= 8
     && (type === 'perso' || form.org.trim()))
 
@@ -85,87 +132,90 @@ export default function Register() {
     }
   }
 
+  const errBox = error && (
+    <div style={{ marginTop: 14, background: 'rgba(232,106,95,.08)', color: '#C4524A', border: '1px solid rgba(232,106,95,.3)', borderRadius: 11, padding: '10px 13px', fontSize: 13 }}>{error}</div>
+  )
+
   // ---------- Étape 0 : type de compte ----------
   if (step === 0) return (
-    <Shell step={0} total={totalSteps || 2}>
-      <h1 className="font-display" style={{ fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 800, lineHeight: 1.05, margin: '8px 0 8px' }}>
-        Créez votre compte
-      </h1>
-      <p style={{ color: 'var(--l-ink2)', fontSize: 15, margin: '0 0 26px' }}>
+    <Shell step={0} total={totalDots} caption={stepCaption(0)} maxWidth={680}>
+      <h1 style={{ fontFamily: CLASH, fontSize: 26, fontWeight: 600, textAlign: 'center', margin: '6px 0 6px' }}>Créez votre compte</h1>
+      <p style={{ textAlign: 'center', color: '#6B7B8D', fontSize: 14.5, margin: '0 0 24px' }}>
         Même produit dans les deux cas — vous pourrez passer en entreprise plus tard.
       </p>
-      <div className="l-grid2">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         {[
           {
-            v: 'perso' as const, icon: <UserIcon size={26} />, t: 'Personnel',
-            d: 'Vous travaillez seul·e sur vos chatbots. Freelance, indépendant, side-project.',
-            pts: ['Tous les plans disponibles', 'Juste vous dans l\'espace', 'Convertible en entreprise'],
+            v: 'perso' as const, icon: <UserIcon size={24} />, t: 'Personnel',
+            d: 'Vous travaillez seul·e. Freelance, indépendant, side-project.',
+            pts: ['Tous les plans disponibles', "Juste vous dans l'espace", 'Convertible en entreprise'],
           },
           {
-            v: 'entreprise' as const, icon: <Building2 size={26} />, t: 'Entreprise',
+            v: 'entreprise' as const, icon: <Building2 size={24} />, t: 'Entreprise',
             d: 'Vous travaillez en équipe. Agence, PME, collectivité.',
             pts: ['Invitez par e-mail', 'Rôles admin / membre', 'Permissions fines par bot'],
           },
         ].map(o => (
           <button key={o.v} onClick={() => { setType(o.v); setStep(1) }} style={{
             fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', background: '#fff',
-            border: `2px solid ${type === o.v ? 'var(--l-teal)' : 'var(--l-line)'}`, borderRadius: 18,
-            padding: '26px 24px', transition: 'border-color .15s, transform .15s',
-          }} className="shadow-md">
-            <span style={{ color: 'var(--l-teal)' }}>{o.icon}</span>
-            <div className="font-display" style={{ fontSize: 21, fontWeight: 700, margin: '10px 0 6px' }}>{o.t}</div>
-            <div style={{ fontSize: 13.5, color: 'var(--l-ink2)', lineHeight: 1.55, marginBottom: 14 }}>{o.d}</div>
+            border: `2px solid ${type === o.v ? MINT : '#E2E8F0'}`, borderRadius: 18,
+            padding: '24px 22px', transition: 'border-color .15s, transform .15s',
+          }}>
+            <span style={{ color: NAVY }}>{o.icon}</span>
+            <div style={{ fontFamily: CLASH, fontSize: 20, fontWeight: 600, margin: '10px 0 6px' }}>{o.t}</div>
+            <div style={{ fontSize: 13.5, color: '#6B7B8D', lineHeight: 1.55, marginBottom: 14 }}>{o.d}</div>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {o.pts.map(p => (
-                <li key={p} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: 'var(--l-ink2)', alignItems: 'center' }}>
-                  <Check size={13} style={{ color: 'var(--l-teal)', flexShrink: 0 }} strokeWidth={3} />{p}
+                <li key={p} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: '#1E2A32', alignItems: 'center' }}>
+                  <Check size={13} style={{ color: MINT, flexShrink: 0 }} strokeWidth={3} />{p}
                 </li>
               ))}
             </ul>
           </button>
         ))}
       </div>
+      <p style={{ textAlign: 'center', fontSize: 14, color: '#6B7B8D', margin: '22px 0 0' }}>
+        Déjà un compte ? <Link to="/login" style={{ color: NAVY, fontWeight: 600, textDecoration: 'none' }}>Se connecter</Link>
+      </p>
     </Shell>
   )
 
   // ---------- Étape 1 : informations ----------
   if (step === 1) return (
-    <Shell step={1} total={totalSteps}>
-      <h1 className="font-display" style={{ fontSize: 30, fontWeight: 800, margin: '8px 0 6px' }}>
+    <Shell step={1} total={totalDots} caption={stepCaption(1)}>
+      <h1 style={{ fontFamily: CLASH, fontSize: 25, fontWeight: 600, margin: '6px 0 6px', textAlign: 'center' }}>
         {type === 'entreprise' ? 'Votre entreprise' : 'Vos informations'}
       </h1>
-      <p style={{ color: 'var(--l-ink2)', fontSize: 14.5, margin: '0 0 22px' }}>
+      <p style={{ color: '#6B7B8D', fontSize: 14, margin: '0 0 22px', textAlign: 'center' }}>
         {type === 'entreprise'
-          ? "Vous serez administrateur de l'espace — vous inviterez l'équipe à l'étape suivante."
+          ? "Vous serez administrateur — vous inviterez l'équipe à l'étape suivante."
           : 'Votre espace personnel sera créé avec vous comme administrateur.'}
       </p>
-      <LCard>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {type === 'entreprise' && (
-            <label><span className="l-lbl">Nom de l'entreprise *</span>
-              <input className="l-input" value={form.org} onChange={e => set('org', e.target.value)} placeholder="Agence Webly" />
-            </label>
-          )}
-          <div className="l-grid2" style={{ gap: 12 }}>
-            <label><span className="l-lbl">Prénom *</span>
-              <input className="l-input" value={form.prenom} onChange={e => set('prenom', e.target.value)} placeholder="Théo" />
-            </label>
-            <label><span className="l-lbl">Nom</span>
-              <input className="l-input" value={form.nom} onChange={e => set('nom', e.target.value)} placeholder="Rousseau" />
-            </label>
-          </div>
-          <label><span className="l-lbl">E-mail professionnel *</span>
-            <input className="l-input" type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="theo@exemple.fr" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+        {type === 'entreprise' && (
+          <label><span style={lbl}>Nom de l'entreprise *</span>
+            <input style={inputStyle} value={form.org} onChange={e => set('org', e.target.value)} placeholder="Agence Webly" />
           </label>
-          <label><span className="l-lbl">Mot de passe * <span style={{ fontWeight: 500, color: 'var(--l-muted)' }}>(8 caractères min.)</span></span>
-            <input className="l-input" type="password" value={form.pwd} onChange={e => set('pwd', e.target.value)} placeholder="••••••••" />
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label><span style={lbl}>Prénom *</span>
+            <input style={inputStyle} value={form.prenom} onChange={e => set('prenom', e.target.value)} placeholder="Théo" />
+          </label>
+          <label><span style={lbl}>Nom</span>
+            <input style={inputStyle} value={form.nom} onChange={e => set('nom', e.target.value)} placeholder="Rousseau" />
           </label>
         </div>
-      </LCard>
-      {error && <div className="error" style={{ marginTop: 14 }}>{error}</div>}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
-        <button className="l-btn l-btn-ghost" onClick={() => setStep(0)}>← Retour</button>
-        <button className="l-btn l-btn-primary" disabled={!canSubmitInfo || busy}
+        <label><span style={lbl}>E-mail professionnel *</span>
+          <input style={inputStyle} type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="theo@exemple.fr" />
+        </label>
+        <label><span style={lbl}>Mot de passe * <span style={{ fontWeight: 500, color: '#9AA7B4' }}>(8 caractères min.)</span></span>
+          <input style={inputStyle} type="password" value={form.pwd} onChange={e => set('pwd', e.target.value)} placeholder="••••••••" />
+        </label>
+      </div>
+      {errBox}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+        <button style={btnGhost} onClick={() => setStep(0)}>← Retour</button>
+        <button style={{ ...btnPrimary, opacity: (!canSubmitInfo || busy) ? .5 : 1 }} disabled={!canSubmitInfo || busy}
                 onClick={() => type === 'entreprise' ? setStep(2) : submit()}>
           {busy ? '…' : type === 'entreprise' ? 'Continuer →' : 'Créer mon compte →'}
         </button>
@@ -175,57 +225,53 @@ export default function Register() {
 
   // ---------- Étape 2 (entreprise) : inviter l'équipe ----------
   if (step === 2) return (
-    <Shell step={2} total={totalSteps}>
-      <h1 className="font-display" style={{ fontSize: 30, fontWeight: 800, margin: '8px 0 6px' }}>Invitez votre équipe</h1>
-      <p style={{ color: 'var(--l-ink2)', fontSize: 14.5, margin: '0 0 22px' }}>
+    <Shell step={2} total={totalDots} caption={stepCaption(2)}>
+      <h1 style={{ fontFamily: CLASH, fontSize: 25, fontWeight: 600, margin: '6px 0 6px', textAlign: 'center' }}>Invitez votre équipe</h1>
+      <p style={{ color: '#6B7B8D', fontSize: 14, margin: '0 0 22px', textAlign: 'center' }}>
         Ils rejoindront <strong>{form.org || 'votre espace'}</strong> dès la création de leur compte.
-        Vous pourrez ensuite affiner leurs permissions bot par bot.
       </p>
-      <LCard>
-        <div style={{ display: 'flex', gap: 9, marginBottom: invites.length ? 16 : 0, flexWrap: 'wrap' }}>
-          <input className="l-input" style={{ flex: 1, minWidth: 200 }} type="email" value={inviteEmail}
-                 onChange={e => setInviteEmail(e.target.value)}
-                 onKeyDown={e => e.key === 'Enter' && addInvite()}
-                 placeholder="collegue@entreprise.fr" />
-          <select className="l-input" style={{ width: 130 }} value={inviteRole}
-                  onChange={e => setInviteRole(e.target.value as 'admin' | 'member')}>
-            <option value="member">Membre</option>
-            <option value="admin">Admin</option>
-          </select>
-          <button className="l-btn l-btn-primary" onClick={addInvite} style={{ padding: '11px 18px' }}>Inviter</button>
+      <div style={{ display: 'flex', gap: 9, marginBottom: invites.length ? 16 : 0, flexWrap: 'wrap' }}>
+        <input style={{ ...inputStyle, flex: 1, minWidth: 200 }} type="email" value={inviteEmail}
+               onChange={e => setInviteEmail(e.target.value)}
+               onKeyDown={e => e.key === 'Enter' && addInvite()}
+               placeholder="collegue@entreprise.fr" />
+        <select style={{ ...inputStyle, width: 130, cursor: 'pointer' }} value={inviteRole}
+                onChange={e => setInviteRole(e.target.value as 'admin' | 'member')}>
+          <option value="member">Membre</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button style={btnPrimary} onClick={addInvite}>Inviter</button>
+      </div>
+      {invites.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {invites.map(i => (
+            <div key={i.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 11, border: '1px solid #E8ECF0', background: '#FBFCFD' }}>
+              <span style={{ width: 26, height: 26, borderRadius: 99, background: 'rgba(47,158,121,.12)', color: '#1C7A5C', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700 }}>
+                {i.email[0].toUpperCase()}
+              </span>
+              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{i.email}</span>
+              <span style={{
+                fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99,
+                background: i.role === 'admin' ? 'rgba(224,168,46,.16)' : 'rgba(47,158,121,.12)',
+                color: i.role === 'admin' ? '#B5810F' : '#1C7A5C',
+              }}>{i.role === 'admin' ? 'Admin' : 'Membre'}</span>
+              <button onClick={() => setInvites(invites.filter(x => x.email !== i.email))}
+                      style={{ border: 'none', background: 'none', color: '#9AA7B4', cursor: 'pointer', padding: 2 }}>
+                <X size={15} />
+              </button>
+            </div>
+          ))}
         </div>
-        {invites.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            {invites.map(i => (
-              <div key={i.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 10, border: '1px solid var(--l-line)', background: '#f6fbf9' }}>
-                <span style={{ width: 26, height: 26, borderRadius: 99, background: 'var(--l-teal-soft)', color: 'var(--l-teal-deep)', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800 }}>
-                  {i.email[0].toUpperCase()}
-                </span>
-                <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{i.email}</span>
-                <span style={{
-                  fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 99,
-                  background: i.role === 'admin' ? '#f7eed9' : 'var(--l-teal-soft)',
-                  color: i.role === 'admin' ? '#b06f0e' : 'var(--l-teal-deep)',
-                }}>{i.role === 'admin' ? 'Admin' : 'Membre'}</span>
-                <button onClick={() => setInvites(invites.filter(x => x.email !== i.email))}
-                        style={{ border: 'none', background: 'none', color: 'var(--l-muted)', cursor: 'pointer', padding: 2 }}>
-                  <X size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{ marginTop: 16, fontSize: 12, color: 'var(--l-muted)', lineHeight: 1.6 }}>
-          <strong>Admin</strong> : tout gérer (bots, équipe). <strong>Membre</strong> : permissions au choix,
-          par bot — copier le script, tester, modifier l'apparence, modifier le contexte…
-        </div>
-      </LCard>
-      {error && <div className="error" style={{ marginTop: 14 }}>{error}</div>}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
-        <button className="l-btn l-btn-ghost" onClick={() => setStep(1)}>← Retour</button>
+      )}
+      <div style={{ marginTop: 16, fontSize: 12, color: '#9AA7B4', lineHeight: 1.6 }}>
+        <strong>Admin</strong> : tout gérer. <strong>Membre</strong> : permissions au choix, par bot.
+      </div>
+      {errBox}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+        <button style={btnGhost} onClick={() => setStep(1)}>← Retour</button>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="l-btn l-btn-ghost" disabled={busy} onClick={() => { setInvites([]); submit() }}>Passer</button>
-          <button className="l-btn l-btn-primary" disabled={busy} onClick={submit}>
+          <button style={{ ...btnGhost, opacity: busy ? .5 : 1 }} disabled={busy} onClick={() => { setInvites([]); submit() }}>Passer</button>
+          <button style={{ ...btnPrimary, opacity: busy ? .5 : 1 }} disabled={busy} onClick={submit}>
             {busy ? '…' : 'Créer mon compte →'}
           </button>
         </div>
@@ -233,30 +279,30 @@ export default function Register() {
     </Shell>
   )
 
-  // ---------- Étape 3 : succès ----------
+  // ---------- Étape 3 : succès → configurer le premier bot ----------
   return (
-    <Shell>
-      <div style={{ textAlign: 'center', paddingTop: 30 }}>
-        <div style={{
-          width: 76, height: 76, borderRadius: 99, margin: '0 auto 20px',
-          background: 'linear-gradient(135deg,#12a392,#0b7d72)', color: '#fff',
-          display: 'grid', placeItems: 'center', boxShadow: '0 10px 30px rgba(13,148,136,.35)',
-        }}><Check size={34} strokeWidth={3} /></div>
-        <h1 className="font-display" style={{ fontSize: 34, fontWeight: 800, margin: '0 0 10px' }}>
-          Bienvenue{form.prenom ? `, ${form.prenom}` : ''} !
+    <Shell step={totalDots - 1} total={totalDots} caption={stepCaption(totalDots - 1)}>
+      <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
+        <span style={{ width: 72, height: 72, borderRadius: 99, margin: '14px auto 0', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Check size={40} strokeWidth={2.6} style={{ color: MINT }} />
+        </span>
+        <h1 style={{ fontFamily: CLASH, fontSize: 26, fontWeight: 600, margin: '20px 0 0' }}>
+          Compte créé 🎉
         </h1>
-        <p style={{ color: 'var(--l-ink2)', fontSize: 15.5, margin: '0 0 8px' }}>
+        <p style={{ color: '#6B7B8D', fontSize: 14.5, margin: '10px auto 0', maxWidth: 400, lineHeight: 1.55 }}>
           {type === 'entreprise'
-            ? <span>L'espace <strong>{form.org || 'entreprise'}</strong> est créé{invites.length > 0 ? ` — ${invites.length} invitation${invites.length > 1 ? 's' : ''} en attente` : ''}.</span>
-            : <span>Votre espace personnel est prêt.</span>}
+            ? <span>L'espace <strong>{form.org || 'entreprise'}</strong> est prêt{invites.length > 0 ? ` — ${invites.length} invitation${invites.length > 1 ? 's' : ''} en attente` : ''}. Configurez votre premier bot, puis récupérez votre balise dans l'onglet Intégration.</span>
+            : <span>Votre espace est prêt. Configurez votre premier bot — arbre, IA, apparence — puis récupérez votre balise dans l'onglet Intégration.</span>}
         </p>
-        <p style={{ color: 'var(--l-muted)', fontSize: 13.5, margin: '0 0 28px' }}>
-          Prochaine étape : créer votre premier chatbot (2 minutes, promis).
-        </p>
-        <button className="l-btn l-btn-primary" style={{ fontSize: 15.5, padding: '14px 28px' }}
-                onClick={() => navigate('/app')}>
-          Ouvrir l'application →
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11, marginTop: 26 }}>
+          <button style={{ ...btnPrimary, padding: '15px', fontSize: 15.5 }} onClick={() => navigate('/app/bots/new')}>
+            Configurer mon premier bot →
+          </button>
+          <button style={{ background: 'transparent', border: 'none', color: '#6B7B8D', fontWeight: 600, fontSize: 14.5, cursor: 'pointer', fontFamily: 'inherit' }}
+                  onClick={() => navigate('/app')}>
+            Plus tard, aller au tableau de bord
+          </button>
+        </div>
       </div>
     </Shell>
   )

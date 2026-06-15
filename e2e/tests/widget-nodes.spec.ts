@@ -1,29 +1,41 @@
 // Nœuds typés du widget réel (parcours E) — bot DÉDIÉ mode tree (jamais le
 // bot partagé : widget.spec peut tourner après), créé en beforeAll via
-// createBot (captcha disabled + localhost posés par le helper). Nom unique :
-// purgé par le tryReuse du global-setup au run suivant (b.id !== state.botId).
+// createBot (captcha disabled + localhost posés par le helper) et supprimé en
+// afterAll (deleteBot best-effort).
 //
 // MOCK_AI=false : bot tree → input masqué (asserté), AUCUN chemin IA exercé.
 // Calendly : 100 % intercepté (interceptCalendly), aucun réseau sortant réel.
 // Lead : UN SEUL envoi réel (lead_limiter 5/h/session), la validation email
 // invalide est purement locale.
+//
+// NOUVELLE UI : les Leads ne sont plus un onglet de l'éditeur de bot — ils
+// vivent sur /app/analytics (pages/Analytics.tsx : sélecteur de bot + tableau
+// Leads + bouton « Exporter CSV »). La partie « lead » navigue donc vers
+// Analytics, sélectionne le bot dédié et vérifie la ligne + l'export. Le widget
+// (widget/widget.js) est INCHANGÉ : tous les sélecteurs .kc-* restent valides.
 import { expect, test } from '@playwright/test'
-import { authenticate, createBot, loadState } from '../helpers'
+import { authenticate, createBot, deleteBot, loadState } from '../helpers'
 import { interceptCalendly, NODES_TREE, openFrame } from '../widget-helpers'
 
 const state = loadState()
 let botId: number
+let botName: string
 let publicKey: string
 
 test.beforeAll(async ({ request }) => {
+  botName = `Bot noeuds E2E ${Date.now()}`
   const bot = await createBot(request, state, {
-    name: `Bot noeuds E2E ${Date.now()}`,
+    name: botName,
     mode: 'tree',
     tree: NODES_TREE,
     design: { title: 'Bot noeuds E2E' },
   })
   botId = bot.id
   publicKey = bot.publicKey
+})
+
+test.afterAll(async ({ request }) => {
+  await deleteBot(request, state, botId)
 })
 
 test('appointment : bouton « Prendre rendez-vous » + overlay sans réseau réel', async ({ page }) => {
@@ -54,7 +66,7 @@ test('appointment : bouton « Prendre rendez-vous » + overlay sans réseau rée
   await expect(overlay).toHaveCount(0)
 })
 
-test('lead : validation → POST /lead 200 → onglet Leads du dashboard + export CSV', async ({ page }) => {
+test('lead : validation → POST /lead 200 → page Analytics (tableau Leads + export CSV)', async ({ page }) => {
   // Auth posée DÈS MAINTENANT : addInitScript s'applique à toutes les
   // navigations suivantes (les clés cbsaas_* posées sur l'origine 8001 sont
   // inertes pour widget.js) — la bascule vers le dashboard se fait ensuite
@@ -85,11 +97,23 @@ test('lead : validation → POST /lead 200 → onglet Leads du dashboard + expor
   await expect(page.locator('.kc-row.bot .kc-msg').last())
     .toHaveText('Merci ! Votre demande a bien été transmise.')
 
-  // Dashboard (même page) : le lead apparaît dans l'onglet Leads
-  await page.goto(`/app/bots/${botId}`)
-  await page.locator('.tabs').getByRole('button', { name: 'Leads' }).click()
-  await expect(page.locator('.section-sub')).toHaveText(/1 contact\(s\) capturé\(s\)/)
-  const row = page.locator('tr', { hasText: email })
+  // NOUVELLE UI : le lead apparaît sur /app/analytics (et non plus dans
+  // l'éditeur). On navigue dans la MÊME page (auth déjà posée), on sélectionne
+  // le bot dédié dans le sélecteur de la card « Chatbot analysé » puis on
+  // vérifie la ligne dans le tableau Leads.
+  await page.goto('/app/analytics')
+  // Sélecteur de bot : pilule (button aria-pressed) dont le nom accessible est
+  // le nom unique du bot dédié — clic explicite (le bot dédié n'est pas
+  // forcément le 1er, donc pas auto-sélectionné).
+  await page.getByRole('button', { name: botName }).click()
+
+  // Titre de section Leads (sub = « N contact(s) capturé(s) par « <bot> ». ») —
+  // scopé sur le sous-titre qui parle de leads (la page a un autre .section-sub).
+  const leadsSub = page.locator('.section-sub', { hasText: 'contact(s) capturé(s)' })
+  await expect(leadsSub).toContainText('1 contact(s) capturé(s)')
+
+  // Ligne du lead : email en cellule mono + Source « Arbre » (Chip)
+  const row = page.locator('table.kc tr', { hasText: email })
   await expect(row.locator('td.mono', { hasText: email })).toBeVisible()
   await expect(row.getByText('Arbre', { exact: true })).toBeVisible()
 

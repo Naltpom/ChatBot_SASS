@@ -3,13 +3,14 @@
 // /app/* = espace client (OrgSwitcher + usage), /admin/* = back-office staff.
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeftRight, Bot, Building2, Check, ChevronDown, CircleUser, CreditCard,
-  Layers, LayoutDashboard, LogOut, ReceiptText, ShieldCheck, Users,
+  ArrowLeftRight, BarChart3, Bot, Building2, Check, ChevronDown, CircleUser,
+  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, ReceiptText, ShieldCheck,
+  Users,
 } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
 import { api } from './api'
-import { Chip, Meter, orgColor, orgInitials } from './ui'
+import { Meter, orgColor, orgInitials } from './ui'
 import { PLAN_LABELS } from './botConstants'
 
 interface Usage {
@@ -92,10 +93,15 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="shell">
       <aside className="sidebar">
         <Link to="/app" className="sidebar-logo">
-          <img src="/brand/icon.svg" alt="Chapote" />
+          <span className="sidebar-logo-mark" aria-hidden="true">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
+              <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" />
+              <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
           <div>
             <div className="brand-name">Chapote</div>
-            <div className="brand-sub">{inAdmin ? 'Opérateur' : 'Chatbots hybrides'}</div>
+            {inAdmin && <div className="brand-sub">Opérateur</div>}
           </div>
         </Link>
 
@@ -104,7 +110,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                        onSwitch={o => { setActiveOrg(o); navigate('/app') }} />
         )}
 
-        <nav className="col" style={{ gap: 2 }}>
+        <nav className="col" style={{ gap: 4 }}>
           {!inAdmin && (
             <>
               {user && user.organizations.length > 0 && (
@@ -112,6 +118,14 @@ export default function Layout({ children }: { children: ReactNode }) {
                   <button className={`nav-item ${path === '/app' || path.startsWith('/app/bots') ? 'active' : ''}`}
                           onClick={() => navigate('/app')}>
                     <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
+                  </button>
+                  <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
+                          onClick={() => navigate('/app/analytics')}>
+                    <span className="nav-ico"><BarChart3 size={16} /></span>Analytics
+                  </button>
+                  <button className={`nav-item ${path.startsWith('/app/inbox') ? 'active' : ''}`}
+                          onClick={() => navigate('/app/inbox')}>
+                    <span className="nav-ico"><Inbox size={16} /></span>Inbox
                   </button>
                   <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
                           onClick={() => navigate('/app/team')}>
@@ -171,32 +185,37 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div style={{ flex: 1 }} />
 
         {!inAdmin && usage && (
-          <div className="sidebar-block" role="button" tabIndex={0} title="Gérer la facturation"
-               style={{ cursor: 'pointer' }}
+          <div className="sidebar-plan" role="button" tabIndex={0} title="Gérer la facturation"
                onClick={() => navigate('/app/billing')}
                onKeyDown={e => e.key === 'Enter' && navigate('/app/billing')}>
             <div className="sidebar-plan-row">
               <span className="lbl">Plan {PLAN_LABELS[usage.plan] || usage.plan}</span>
-              <Chip tone="acc">{usage.plan_price} €/mois</Chip>
+              <span className="sidebar-plan-pill">{usage.bots_used}/{usage.bots_quota} bots</span>
             </div>
             <div className="sidebar-usage">
               <Meter pct={creditsPct} tone={creditsPct > 95 ? 'danger' : creditsPct > 70 ? 'warn' : 'acc'} height={5} />
               <div className="sub">
                 {usage.ai_messages_used.toLocaleString('fr-FR')} / {usage.ai_messages_quota.toLocaleString('fr-FR')} crédits IA
-                · {usage.bots_used}/{usage.bots_quota} bots
+                · {usage.plan_price} €/mois
               </div>
             </div>
           </div>
         )}
 
-        <div className="sidebar-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 0 0' }}>
-          <button className="btn btn-ghost small" onClick={() => navigate('/app/profile')} title="Mon profil"
-                  style={{ minWidth: 0, border: 'none', background: 'transparent', padding: '4px 6px' }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--mut)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              {user?.name}{user?.is_superadmin && <ShieldCheck size={13} style={{ color: 'var(--acc)', flexShrink: 0 }} />}
+        <div className="sidebar-user">
+          <button className="sidebar-user-main" onClick={() => navigate('/app/profile')} title="Mon profil">
+            <span className="sidebar-user-avatar" aria-hidden="true">{orgInitials(user?.name || '?')}</span>
+            <span className="sidebar-user-id">
+              <span className="nm">
+                {user?.name}
+                {user?.is_superadmin && <ShieldCheck size={12} style={{ color: 'var(--mint)', flexShrink: 0 }} />}
+              </span>
+              <span className="org">{activeOrg?.name || (inAdmin ? 'Back-office' : '')}</span>
             </span>
           </button>
-          <button className="btn btn-ghost small" onClick={logout} title="Déconnexion"><LogOut size={13} /></button>
+          <button className="sidebar-user-logout" onClick={logout} title="Déconnexion" aria-label="Déconnexion">
+            <LogOut size={14} />
+          </button>
         </div>
       </aside>
 

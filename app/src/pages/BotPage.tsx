@@ -1,12 +1,15 @@
-// Page bot à onglets — header avatar de marque + chips, onglets en 3 groupes
-// (mesure : Stats / Leads / Inbox · construire : Arbre / Bot & IA / Actions /
-// Connaissances · diffuser : Apparence / Sécurité / Intégration), bannière
-// « Vue admin » pour les superadmins. L'état dirty est suivi PAR ONGLET
+// Éditeur de bot — refonte charte Chapote. 7 onglets :
+// Apparence / Arbre / IA / Humain / Actions / Intégration / Sécurité.
+// Header bot (avatar navy, nom éditable inline, pills statut+mode, domaine · pk
+// mono, bouton « Activer le bot » si inactif). L'état dirty est suivi PAR ONGLET
 // (comparaison à savedBot, la photo du dernier état serveur) et matérialisé par
-// une save bar sticky en bas de page (Enregistrer / Annuler, Ctrl+S).
-// Inbox et Connaissances vivent HORS save bar (CRUD immédiat dans leurs panneaux).
+// une SAVE BAR SOMBRE fixée en bas (left:248px right:0) avec pills des onglets
+// dirty + Annuler/Enregistrer + indication Ctrl/Cmd S.
+// Stats / Insights / Leads / Inbox sont désormais des pages dédiées (les
+// composants StatsPanel/InsightsPanel/InboxPanel restent dans components/ et
+// sont importés ailleurs — ils ne sont plus montés ici).
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Clipboard, Inbox, Lock, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Check, Clipboard, Download, Lock, Plus, Sparkles, Trash2, Upload } from 'lucide-react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
@@ -16,52 +19,45 @@ import {
 } from '../ui'
 import { ACTION_TEMPLATES, CAPTCHA_OPTIONS, MODEL_OPTIONS, findModelOption } from '../botConstants'
 import AppearanceForm from '../components/AppearanceForm'
-import InboxPanel from '../components/InboxPanel'
-import InsightsPanel from '../components/InsightsPanel'
 import KbPanel from '../components/KbPanel'
-import StatsPanel from '../components/StatsPanel'
-import TreeBuilder from '../components/TreeBuilder'
+import TreeFlow from '../components/TreeFlow'
 import WidgetPreview, { PreviewFrame } from '../components/WidgetPreview'
 
-// perm = permission par bot requise pour un MEMBER (admins : tout).
-// 3 groupes de travail (mesurer / construire / diffuser) séparés visuellement ;
-// 'stats' reste PREMIER (fallback activeTab) et les libellés existants sont
-// inchangés à l'octet (contrat e2e : sélection par nom, jamais par position).
+// perm = permission par bot requise pour un MEMBER (admins : tout). Libellés
+// EXACTS de la charte Chapote. L'onglet 'appearance' reste PREMIER (fallback
+// activeTab).
 const TABS = [
-  { id: 'stats', label: 'Stats', perm: null, group: 'mesure' },
-  // Insights : PAS gaté par aiTabRelevant (le CTA upgrade doit rester visible
-  // sur plan free) — seul le bouton Analyser est désactivé dans le panneau.
-  { id: 'insights', label: 'Insights', perm: 'context', group: 'mesure' },
-  { id: 'leads', label: 'Leads', perm: 'context', group: 'mesure' },         // toujours (nœuds lead = tous modes)
-  { id: 'inbox', label: 'Inbox', perm: 'inbox', group: 'mesure' },
-  { id: 'tree', label: 'Arbre', perm: 'context', group: 'construire' },
-  { id: 'ai', label: 'Bot & IA', perm: 'context', group: 'construire' },     // si aiTabRelevant
-  { id: 'actions', label: 'Actions', perm: 'context', group: 'construire' }, // si aiTabRelevant
-  { id: 'kb', label: 'Connaissances', perm: 'context', group: 'construire' },
-  { id: 'appearance', label: 'Apparence', perm: 'appearance', group: 'diffuser' },
-  { id: 'security', label: 'Sécurité', perm: 'security', group: 'diffuser' },
-  { id: 'install', label: 'Intégration', perm: 'copy', group: 'diffuser' },
+  { id: 'appearance', label: 'Apparence', perm: 'appearance' },
+  { id: 'tree', label: 'Arbre', perm: 'context' },
+  { id: 'ai', label: 'IA', perm: 'context' },           // si aiTabRelevant
+  { id: 'human', label: 'Humain', perm: 'context' },     // relais / handoff
+  { id: 'actions', label: 'Actions', perm: 'context' },  // si aiTabRelevant
+  { id: 'install', label: 'Intégration', perm: 'copy' },
+  { id: 'security', label: 'Sécurité', perm: 'security' },
 ]
 
 // Groupes de champs par onglet, alignés sur FIELD_PERMS (API) et sur le body
 // de save() : ils pilotent le dirty tracking par onglet.
 const TAB_FIELDS: Record<string, string[]> = {
-  tree: ['tree_json', 'tree_variant_json', 'ab_split_pct'],
-  ai: ['system_prompt', 'ai_provider', 'ai_model', 'temperature', 'api_key_mode'],
-  actions: ['actions_json', 'mcp_servers_json'],
   // triggers_json : perm serveur = appearance (FIELD_PERMS), même onglet
   appearance: ['name', 'design_json', 'mode', 'triggers_json'],
+  tree: ['tree_json', 'tree_variant_json', 'ab_split_pct'],
+  // daily_ai_message_cap : perm serveur = security (FIELD_PERMS) — affiché dans
+  // l'onglet IA (charte) mais l'API exige la perm security ; la garde de save()
+  // croise hasPerm('security').
+  ai: ['system_prompt', 'ai_provider', 'ai_model', 'temperature', 'api_key_mode', 'daily_ai_message_cap'],
   // handoff_webhook_url : perm serveur = context (credential) — l'API la masque
   // à null dans bot ET savedBot pour un member sans context → jamais de faux dirty.
-  security: ['allowed_domains', 'captcha_provider', 'captcha_site_key', 'daily_ai_message_cap', 'is_active', 'handoff_webhook_url'],
+  human: ['handoff_webhook_url'],
+  actions: ['actions_json', 'mcp_servers_json'],
+  security: ['allowed_domains', 'captcha_provider', 'captcha_site_key', 'is_active'],
 }
 
 const ACTION_NAME_RE = /^[a-z][a-z0-9_]{0,63}$/
 // Nom de serveur MCP : règle serveur _check_mcp_servers (31 caractères max)
 const MCP_NAME_RE = /^[a-z][a-z0-9_]{0,30}$/
 
-// Chip d'en-tête par type d'action (spans : aucun bouton supplémentaire nommé
-// « Webhook », le Seg garde l'exclusivité — contrat e2e exact:true)
+// Chip d'en-tête par type d'action
 const ACTION_TYPE_CHIPS: Record<string, { tone: 'info' | 'go' | 'acc'; label: string }> = {
   webhook: { tone: 'info', label: 'Webhook' },
   capture_lead: { tone: 'go', label: 'Capture de lead' },
@@ -71,10 +67,6 @@ const ACTION_TYPE_CHIPS: Record<string, { tone: 'info' | 'go' | 'acc'; label: st
 }
 
 interface Integration { id: string; label: string; icon: string; description: string; snippet: string }
-interface LeadRow {
-  id: number; email: string; phone: string | null; name: string | null; message: string | null
-  source: 'tree' | 'ai'; conversation_id: string | null; created_at: string
-}
 
 export default function BotPage() {
   const { id } = useParams()
@@ -85,12 +77,19 @@ export default function BotPage() {
 
   const [bot, setBot] = useState<any>(null)
   const [savedBot, setSavedBot] = useState<any>(null)   // photo du dernier état serveur
-  const [tab, setTab] = useState(params.get('tab') || 'stats')
+  const [tab, setTab] = useState(params.get('tab') || 'appearance')
   const [byokKey, setByokKey] = useState('')
   const [captchaSecret, setCaptchaSecret] = useState('')
   const [actionSecrets, setActionSecrets] = useState<Record<number, string>>({})
   const [mcpTokens, setMcpTokens] = useState<Record<number, string>>({})    // jetons Bearer MCP, par INDEX (pattern actionSecrets)
-  const [treeView, setTreeView] = useState<'a' | 'b'>('a')                  // arbre affiché par le TreeBuilder (A/B)
+  const [treeView, setTreeView] = useState<'a' | 'b'>('a')                  // arbre affiché par TreeFlow (A/B)
+  const [genOpen, setGenOpen] = useState(false)                            // panneau « Générer avec l'IA » (arbre A)
+  const [genMode, setGenMode] = useState<'text' | 'url'>('text')
+  const [genText, setGenText] = useState('')
+  const [genUrl, setGenUrl] = useState('')
+  const [genBusy, setGenBusy] = useState(false)
+  const [genError, setGenError] = useState('')
+  const treeFileRef = useRef<HTMLInputElement>(null)
   const [newDomain, setNewDomain] = useState('')
   const [previewDegraded, setPreviewDegraded] = useState(false)
   const [integrations, setIntegrations] = useState<Integration[]>([])
@@ -98,13 +97,10 @@ export default function BotPage() {
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')           // erreurs de SAUVEGARDE uniquement (save bar)
-  const [pageError, setPageError] = useState('')   // erreurs hors save (leads, import, delete) — dismissable
+  const [pageError, setPageError] = useState('')   // erreurs hors save (import, delete) — dismissable
   const [loadError, setLoadError] = useState('')   // échec du chargement initial (403/404, réseau)
   const [loadTry, setLoadTry] = useState(0)
   const [usage, setUsage] = useState<{ tree_only: boolean; max_tree_nodes: number | null; byok: boolean } | null>(null)
-  const [leadsData, setLeadsData] = useState<{ total: number; leads: LeadRow[] } | null>(null)
-  const [leadsBusy, setLeadsBusy] = useState(false)
-  const [pendingHandoffs, setPendingHandoffs] = useState(0)  // pastille « à prendre » sur l'onglet Inbox
 
   const fromAdmin = params.get('from') === 'admin'
   const isAdminView = !!user?.is_superadmin && fromAdmin
@@ -126,30 +122,13 @@ export default function BotPage() {
   const isOrgAdmin = !!user?.is_superadmin || botOrg?.role === 'admin'
   const hasPerm = (perm: string | null) =>
     perm === null || isOrgAdmin || (botOrg?.permissions?.[String(botId)] || []).includes(perm)
-  // Mode arbre pur (ou plan free) : les onglets Bot & IA et Actions n'ont pas lieu d'être
+  // Mode arbre pur (ou plan free) : les onglets IA et Actions n'ont pas lieu d'être
   const aiTabRelevant = !!bot && bot.mode !== 'tree' && !usage?.tree_only
   const visibleTabs = TABS.filter(t => hasPerm(t.perm) && ((t.id !== 'ai' && t.id !== 'actions') || aiTabRelevant))
-  const activeTab = visibleTabs.some(t => t.id === tab) ? tab : 'stats'
-
-  // Pastille « à prendre » sur l'onglet Inbox : compteur léger (total des
-  // human_requested), poll 30 s même onglet fermé. InboxPanel affine à 5 s
-  // quand l'onglet est ouvert (via onPending). Échec silencieux.
-  const canInbox = !!bot && hasPerm('inbox')
-  useEffect(() => {
-    if (!canInbox) return
-    let alive = true
-    const check = () => {
-      api(`/api/bots/${botId}/conversations?status=human_requested&limit=1`)
-        .then((d: any) => { if (alive) setPendingHandoffs(d.total) })
-        .catch(() => {})
-    }
-    check()
-    const h = setInterval(check, 30000)
-    return () => { alive = false; clearInterval(h) }
-  }, [botId, canInbox])
+  const activeTab = visibleTabs.some(t => t.id === tab) ? tab : (visibleTabs[0]?.id || 'appearance')
 
   // Garde A/B : si la variante disparaît (Annuler, désactivation, reload), on
-  // ne reste jamais sur la vue B — un seul TreeBuilder monté, jamais avec
+  // ne reste jamais sur la vue B — un seul TreeFlow monté, jamais avec
   // tree=null (couvre cancelChanges ET la désactivation).
   useEffect(() => {
     if (bot && !bot.tree_variant_json && treeView === 'b') setTreeView('a')
@@ -183,11 +162,6 @@ export default function BotPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Leads : fetch au premier affichage de l'onglet
-  useEffect(() => {
-    if (activeTab === 'leads' && leadsData === null && !leadsBusy) loadLeads()
-  }, [activeTab])  // eslint-disable-line react-hooks/exhaustive-deps
-
   function patch(fields: Record<string, any>) {
     setBot((b: any) => ({ ...b, ...fields }))
   }
@@ -199,24 +173,6 @@ export default function BotPage() {
     setTab(t)
     params.set('tab', t)
     setParams(params, { replace: true })
-  }
-
-  // Pré-remplissage depuis un insight : nouveau nœud + option racine dans
-  // l'arbre LOCAL (l'onglet Arbre devient dirty → save bar, comportement
-  // attendu). Quota de bulles : non bloquant en pratique (insights = plans
-  // payants, max_tree_nodes null hors free) — le 403 au save couvrirait le cas.
-  function prefillFromInsight(theme: string, bubble: string) {
-    const t = JSON.parse(JSON.stringify(bot.tree_json))
-    let id
-    do { id = 'ins' + Date.now().toString(36).slice(-5) + Math.floor(Math.random() * 100) } while (t.nodes[id])
-    t.nodes[id] = { message: bubble, options: [] }
-    const root = t.nodes[t.start]
-    root.options = [...(root.options || []), { label: theme.slice(0, 60), next: id }]
-    patch({ tree_json: t })
-    // La bulle est ajoutée à l'arbre A : forcer la vue A (le Seg a pu rester
-    // sur la variante B, la bulle y serait invisible)
-    setTreeView('a')
-    switchTab('tree')
   }
 
   function serializeActions() {
@@ -291,19 +247,23 @@ export default function BotPage() {
         body.actions_json = serializeActions()
         body.mcp_servers_json = serializeMcpServers()
       }
+      // handoff_webhook_url : perm serveur = context (credential), onglet Humain.
+      if (dirtySet.has('human') && bot.handoff_webhook_url !== savedBot?.handoff_webhook_url) {
+        body.handoff_webhook_url = bot.handoff_webhook_url || null
+      }
+    }
+    // daily_ai_message_cap : champ affiché dans l'onglet IA mais perm serveur =
+    // security (FIELD_PERMS) — n'est envoyé qu'avec la perm security.
+    if (hasPerm('security') && dirtySet.has('ai')
+        && bot.daily_ai_message_cap !== savedBot?.daily_ai_message_cap) {
+      body.daily_ai_message_cap = bot.daily_ai_message_cap
     }
     if (hasPerm('security') && dirtySet.has('security')) {
       body.allowed_domains = bot.allowed_domains
       body.captcha_provider = bot.captcha_provider
       body.captcha_site_key = bot.captcha_site_key || null
-      body.daily_ai_message_cap = bot.daily_ai_message_cap
       body.is_active = bot.is_active
       if (captchaSecret) body.captcha_secret = captchaSecret
-      // Garde dédiée : la perm serveur du champ est context (FIELD_PERMS), pas
-      // security — un member security-sans-context ne doit jamais envoyer la clé.
-      if (hasPerm('context') && bot.handoff_webhook_url !== savedBot?.handoff_webhook_url) {
-        body.handoff_webhook_url = bot.handoff_webhook_url || null
-      }
     }
     try {
       const updated = await api(`/api/bots/${botId}`, { method: 'PATCH', body })
@@ -329,6 +289,16 @@ export default function BotPage() {
     setError('')
   }
 
+  // Activer le bot depuis le header / la zone de danger. is_active est en
+  // TAB_FIELDS.security : un PATCH direct (immédiat, hors save bar) est plus
+  // sain ici — mais pour respecter le pattern savedBot, on passe par patch()
+  // qui rend l'onglet Sécurité dirty (la save bar apparaît, l'utilisateur
+  // confirme). Le header n'apparaît que pour un bot inactif et n'est rendu que
+  // si l'utilisateur peut sauver la sécurité.
+  function activateBot() {
+    patch({ is_active: true })
+  }
+
   function exportConfig() {
     api(`/api/bots/${botId}/config.json`).then(config => {
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
@@ -351,6 +321,31 @@ export default function BotPage() {
       .catch(err => setPageError(`Import échoué : ${err.message}`))
   }
 
+  // Génération d'arbre par l'IA (plans payants, treegen_limiter 10/24h/org) :
+  // POST /tree/generate renvoie un tree_json NON sauvegardé → on le pose dans
+  // l'arbre A local (la save bar apparaît, l'utilisateur prévisualise puis
+  // enregistre). Réservée à la vue A : la variante B n'a pas de génération.
+  async function generateTree() {
+    setGenError('')
+    setGenBusy(true)
+    try {
+      const body = genMode === 'url' ? { url: genUrl.trim() } : { source_text: genText }
+      const res = await api(`/api/bots/${botId}/tree/generate`, { method: 'POST', body })
+      const nodeCount = Object.keys(bot.tree_json?.nodes || {}).length
+      if (nodeCount > 2 && !window.confirm("Remplacer l'arbre actuel par l'arbre généré ?")) return
+      patch({ tree_json: res.tree_json })
+      setGenText('')
+      setGenUrl('')
+      setGenOpen(false)
+    } catch (err: any) {
+      setGenError(err.status === 429
+        ? "Limite quotidienne atteinte : 10 générations d'arbre par jour et par organisation. Réessayez demain."
+        : err.message)
+    } finally {
+      setGenBusy(false)
+    }
+  }
+
   async function deleteBot() {
     if (!window.confirm(`Supprimer définitivement « ${bot.name} » ?\n\nLe widget cessera de fonctionner sur tous les sites où il est installé, et les conversations seront perdues.`)) return
     try {
@@ -362,8 +357,8 @@ export default function BotPage() {
   }
 
   function addDomain() {
-    const d = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
-    if (d && !bot.allowed_domains.includes(d)) patch({ allowed_domains: [...bot.allowed_domains, d] })
+    const dd = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+    if (dd && !bot.allowed_domains.includes(dd)) patch({ allowed_domains: [...bot.allowed_domains, dd] })
     setNewDomain('')
   }
 
@@ -462,36 +457,6 @@ export default function BotPage() {
     patch({ triggers_json: (bot.triggers_json || []).filter((_: any, j: number) => j !== i) })
   }
 
-  // ---------- Leads ----------
-  function loadLeads() {
-    setLeadsBusy(true)
-    setPageError('')  // un retry réussi efface l'erreur précédente
-    api(`/api/bots/${botId}/leads?limit=100`)
-      .then(setLeadsData)
-      .catch((err: any) => setPageError(err.message))
-      .finally(() => setLeadsBusy(false))
-  }
-
-  function exportLeadsCsv() {
-    const rows = leadsData?.leads || []
-    // Quoting CSV + anti-injection de formule (Excel/LibreOffice) : les valeurs
-    // viennent de visiteurs anonymes — préfixe ' si la cellule commence par
-    // = + - @ tab ou CR, sinon elle serait interprétée comme formule.
-    const esc = (v: any) => {
-      let s = String(v ?? '')
-      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
-      return `"${s.replace(/"/g, '""')}"`
-    }
-    const header = ['created_at', 'email', 'name', 'phone', 'message', 'source']
-    const csv = [header.join(','), ...rows.map(l => header.map(h => esc((l as any)[h])).join(','))].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `leads-${bot.name.toLowerCase().replace(/\s+/g, '-')}.csv`
-    a.click()
-    URL.revokeObjectURL(a.href)
-  }
-
   if (!bot) {
     if (loadError) {
       return (
@@ -524,9 +489,10 @@ export default function BotPage() {
   // BYOK : droit du plan (usage.byok) — le serveur re-vérifie (403)
   const byokLocked = !!usage && !usage.byok && bot.api_key_mode !== 'byok'
   const byokOutOfPlan = !!usage && !usage.byok && bot.api_key_mode === 'byok'
+  const canActivate = !bot.is_active && hasPerm('security')
 
   return (
-    <div className="col" style={{ gap: 16 }}>
+    <div className="col" style={{ gap: 16, paddingBottom: dirty || saved || error ? 76 : 0 }}>
       {isAdminView && (
         <InfoBox tone="warn" title="Vue admin">
           Vous éditez le bot d'un client ({orgName}). Chaque modification est journalisée.
@@ -540,15 +506,32 @@ export default function BotPage() {
         </button>
         <div className="bot-head">
           <span className={`bot-avatar ${d.bordered ? 'bordered' : ''}`}
-                style={{ width: 42, height: 42, background: brandBg(d) }}>
-            <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? 42 : 20} avatarImg={d.avatarImage} />
+                style={{ width: 46, height: 46, borderRadius: 13, background: brandBg(d) }}>
+            <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? 46 : 22} avatarImg={d.avatarImage} />
           </span>
           <div style={{ flex: 1, minWidth: 200 }}>
-            <div className="bot-head-title">
-              {bot.name} {statusChip(bot.is_active)} {modeChip(bot.mode)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {/* Nom éditable inline (perm appearance) — sinon affiché en lecture seule */}
+              {hasPerm('appearance') ? (
+                <input type="text" value={bot.name} placeholder="Nom du bot"
+                       onChange={e => patch({ name: e.target.value })}
+                       style={{
+                         fontFamily: 'var(--display)', fontWeight: 600, fontSize: 25, letterSpacing: '-.02em',
+                         color: 'var(--ink)', border: '1px solid transparent', borderRadius: 8,
+                         padding: '1px 8px', marginLeft: -8, background: 'transparent', width: 340, maxWidth: '100%',
+                         boxShadow: 'none',
+                       }} />
+              ) : (
+                <span className="bot-head-title" style={{ marginBottom: 0, fontSize: 25 }}>{bot.name}</span>
+              )}
+              {statusChip(bot.is_active)}
+              {modeChip(bot.mode)}
             </div>
-            <div className="bot-head-key">{site} · {bot.public_key}</div>
+            <div className="bot-head-key" style={{ marginTop: 3, fontSize: 13, color: 'var(--mut)' }}>{site} · {bot.public_key}</div>
           </div>
+          {canActivate && (
+            <Btn kind="primary" onClick={activateBot}>Activer le bot</Btn>
+          )}
         </div>
       </div>
 
@@ -561,46 +544,144 @@ export default function BotPage() {
       )}
 
       <div className="tabs">
-        {visibleTabs.map((t, i) => (
+        {visibleTabs.map(t => (
           <Fragment key={t.id}>
-            {/* Séparateur entre groupes, calculé sur visibleTabs : jamais de
-                séparateur orphelin quand un member n'a qu'une partie des onglets */}
-            {i > 0 && visibleTabs[i - 1].group !== t.group && <span className="tab-sep" aria-hidden="true" />}
-            {/* aria-label dynamique : contient toujours « Inbox » (les sélecteurs
-                e2e par nom et le contrat des libellés restent valides), la
-                pastille visuelle reste aria-hidden */}
-            <button className={activeTab === t.id ? 'active' : ''} onClick={() => switchTab(t.id)}
-                    aria-label={t.id === 'inbox' && pendingHandoffs > 0
-                      ? `Inbox — ${pendingHandoffs} en attente` : undefined}>
+            <button className={activeTab === t.id ? 'active' : ''} onClick={() => switchTab(t.id)}>
               {t.label}
               {dirtyTabs.includes(t.id) && <span className="tab-dot" aria-hidden="true" />}
-              {t.id === 'inbox' && pendingHandoffs > 0 && (
-                <span className="tab-badge" aria-hidden="true">{pendingHandoffs}</span>
-              )}
             </button>
           </Fragment>
         ))}
       </div>
 
-      {/* ================= STATS ================= */}
-      {activeTab === 'stats' && (
-        <StatsPanel botId={botId} botName={bot.name} orgId={bot.organization_id}
-                    tree={bot.tree_json} variantTree={bot.tree_variant_json}
-                    abSplit={bot.ab_split_pct ?? 0} />
+      {/* ================= APPARENCE ================= */}
+      {activeTab === 'appearance' && (
+        <div className="col g18">
+          <SectionTitle sub="Personnalisez le widget aux couleurs du site client. Aperçu en direct à droite.">
+            Apparence du widget
+          </SectionTitle>
+          <div className="grid-controls">
+            <div className="col g14">
+              <Card>
+                <AppearanceForm design={d} botName={bot.name}
+                                onChange={patchDesign} onNameChange={v => patch({ name: v })} />
+              </Card>
+              <Card>
+                <div className="card-title">Comportement</div>
+                <div className="col" style={{ gap: 12 }}>
+                  <Field label="Mode" hint={usage?.tree_only
+                    ? 'Plan free : mode arbre uniquement. Passez au plan Starter pour activer l\'IA.'
+                    : 'Hybride : arbre guidé d\'abord, IA à la demande. Les réponses arbre sont gratuites.'}>
+                    {usage?.tree_only ? (
+                      <Chip tone="mut"><Lock size={11} /> Arbre (plan free)</Chip>
+                    ) : (
+                      <Seg value={bot.mode} onChange={v => patch({ mode: v })}
+                           options={[{ value: 'tree', label: 'Arbre' }, { value: 'hybrid', label: 'Hybride' }, { value: 'ai', label: 'IA' }]} />
+                    )}
+                  </Field>
+                  <div className="toggle-row">
+                    <div>
+                      <div className="tl">Simuler le mode dégradé</div>
+                      <div className="ts">Cap budget atteint → arbre seul (aperçu uniquement)</div>
+                    </div>
+                    <Toggle on={previewDegraded} onChange={setPreviewDegraded} />
+                  </div>
+                </div>
+              </Card>
+
+              <Card>
+                <div className="card-title">Déclencheurs proactifs</div>
+                <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 4 }}>
+                  Ouvre le panneau avec un message local (aucun appel serveur), au plus un déclenchement
+                  par chargement de page, jamais en mode iframe. 5 déclencheurs max.
+                </div>
+                <div className="field-hint" style={{ marginBottom: 10 }}>
+                  Les déclencheurs ne sont pas simulés dans l'aperçu ci-contre.
+                </div>
+                <div className="col" style={{ gap: 10 }}>
+                  {((bot.triggers_json || []) as any[]).map((tr: any, i: number) => (
+                    <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 11, padding: '11px 13px' }}>
+                      <div className="col" style={{ gap: 10 }}>
+                        <Field label="Type">
+                          <select value={tr.type} onChange={e => updateTriggerType(i, e.target.value)}>
+                            <option value="time_on_page">Temps passé sur la page</option>
+                            <option value="scroll_depth">Profondeur de défilement</option>
+                            <option value="exit_intent">Intention de sortie</option>
+                            <option value="url_pattern">Adresse de la page</option>
+                          </select>
+                        </Field>
+                        {/* value : Number strict côté serveur (_check_triggers) — un
+                            string numérique ferait 422. Input vide = '' conservé +
+                            hint rouge, le 422 verbatim de la save bar reste le filet. */}
+                        {tr.type === 'time_on_page' && (
+                          <Field label="Après (secondes)"
+                                 hint={typeof tr.value !== 'number'
+                                   ? <span style={{ color: 'var(--danger)' }}>Valeur requise (1-600)</span>
+                                   : undefined}>
+                            <input type="number" min={1} max={600}
+                                   value={typeof tr.value === 'number' ? tr.value : ''}
+                                   onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
+                          </Field>
+                        )}
+                        {tr.type === 'scroll_depth' && (
+                          <Field label="À partir de (% de page)"
+                                 hint={typeof tr.value !== 'number'
+                                   ? <span style={{ color: 'var(--danger)' }}>Valeur requise (1-100)</span>
+                                   : undefined}>
+                            <input type="number" min={1} max={100}
+                                   value={typeof tr.value === 'number' ? tr.value : ''}
+                                   onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
+                          </Field>
+                        )}
+                        {tr.type === 'url_pattern' && (
+                          <Field label="Le chemin de la page contient">
+                            <input type="text" className="mono" maxLength={200} placeholder="/tarifs"
+                                   value={tr.value || ''}
+                                   onChange={e => updateTrigger(i, { value: e.target.value })} />
+                          </Field>
+                        )}
+                        {tr.type === 'exit_intent' && (
+                          <div className="field-hint">
+                            Souris quittant la page par le haut. Désactivé sur mobile.
+                          </div>
+                        )}
+                        <Field label="Message"
+                               hint={!tr.message
+                                 ? <span style={{ color: 'var(--danger)' }}>Message requis (1 à 300 caractères)</span>
+                                 : undefined}>
+                          <textarea rows={2} maxLength={300} value={tr.message || ''}
+                                    onChange={e => updateTrigger(i, { message: e.target.value })} />
+                        </Field>
+                        {/* once_per_session peut être ABSENT du JSON stocké → défaut true */}
+                        <div className="toggle-row">
+                          <div className="tl">Une seule fois par session</div>
+                          <Toggle on={tr.once_per_session ?? true}
+                                  onChange={v => updateTrigger(i, { once_per_session: v })} />
+                        </div>
+                        <div>
+                          <Btn kind="danger" small onClick={() => removeTrigger(i)}>Retirer</Btn>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="row g10" style={{ marginTop: 10 }}>
+                  <Btn kind="soft" small onClick={addTrigger} disabled={(bot.triggers_json || []).length >= 5}>
+                    <Plus size={13} /> Ajouter un déclencheur
+                  </Btn>
+                  {(bot.triggers_json || []).length >= 5 && <Chip tone="warn">5/5</Chip>}
+                </div>
+              </Card>
+            </div>
+            <Card nopad>
+              <PreviewFrame site={site} siteName={orgName || site} brandColor={d.primaryColor || '#1C3F5C'}>
+                <WidgetPreview design={d} mode={bot.mode} tree={bot.tree_json}
+                               botName={bot.name} degraded={previewDegraded} />
+              </PreviewFrame>
+            </Card>
+          </div>
+        </div>
       )}
-
-      {/* ================= INSIGHTS ================= */}
-      {activeTab === 'insights' && (
-        <InsightsPanel botId={botId} treeOnly={!!usage?.tree_only}
-                       isAdminView={isAdminView} onPrefill={prefillFromInsight} />
-      )}
-
-      {/* ================= INBOX (live chat) ================= */}
-      {/* Monté UNIQUEMENT onglet ouvert : le refetch 5 s meurt au changement d'onglet */}
-      {activeTab === 'inbox' && <InboxPanel botId={botId} onPending={setPendingHandoffs} />}
-
-      {/* ================= CONNAISSANCES (KB) ================= */}
-      {activeTab === 'kb' && <KbPanel botId={botId} aiActive={aiTabRelevant} />}
 
       {/* ================= ARBRE ================= */}
       {activeTab === 'tree' && (
@@ -610,7 +691,7 @@ export default function BotPage() {
               <div className="card-title">Test A/B de l'arbre</div>
               <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 10 }}>
                 Servez une variante B à une partie des nouvelles conversations et comparez conversations
-                et satisfaction dans l'onglet Stats. L'affectation est tirée au sort à l'ouverture et
+                et satisfaction dans vos statistiques. L'affectation est tirée au sort à l'ouverture et
                 reste stable pour toute la conversation.
               </div>
               <Btn kind="soft" onClick={() => {
@@ -648,34 +729,87 @@ export default function BotPage() {
             </Card>
           )}
 
-          {/* UN SEUL TreeBuilder monté à la fois (contrat e2e strict mode :
-              « Arbre de décision » / « Ajouter un choix racine » sans .first()).
-              key force le remount au switch — l'inspecteur ne garde jamais une
-              sélection pointant sur l'autre arbre. La variante B n'a ni
-              export/import (config.json l'exclut) ni génération IA (elle
-              remplacerait la variante : coût + confusion). */}
+          {/* Barre d'outils config-as-code + génération IA (arbre A uniquement).
+              TreeFlow ne porte plus l'export/import ni la génération : on les
+              garde ici en boutons discrets. La variante B n'a ni export/import
+              (config.json l'exclut) ni génération IA (elle remplacerait la
+              variante : coût + confusion). */}
+          {treeView === 'a' && (
+            <div className="col g14">
+              <div className="row g8" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {!usage?.tree_only && (
+                  <Btn kind="ghost" small onClick={() => setGenOpen(o => !o)}>
+                    <Sparkles size={13} /> Générer avec l'IA
+                  </Btn>
+                )}
+                <Btn kind="ghost" small onClick={exportConfig}>
+                  <Download size={13} /> Exporter JSON
+                </Btn>
+                {hasPerm('context') && hasPerm('appearance') && (
+                  <>
+                    <Btn kind="ghost" small onClick={() => treeFileRef.current?.click()}>
+                      <Upload size={13} /> Importer
+                    </Btn>
+                    <input ref={treeFileRef} type="file" accept=".json" hidden
+                           onChange={e => { if (e.target.files?.[0]) importConfig(e.target.files[0]); e.target.value = '' }} />
+                  </>
+                )}
+              </div>
+
+              {genOpen && !usage?.tree_only && (
+                <Card>
+                  <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Sparkles size={14} style={{ color: 'var(--acc)' }} /> Générer l'arbre avec l'IA
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--mut)', marginBottom: 10, lineHeight: 1.5 }}>
+                    Collez votre FAQ / documentation, ou indiquez l'URL d'une page d'aide : l'IA construit un
+                    arbre de décision complet que vous pourrez retoucher avant d'enregistrer.
+                  </div>
+                  <div className="col g10">
+                    <Seg small value={genMode} onChange={v => setGenMode(v as 'text' | 'url')}
+                         options={[{ value: 'text', label: 'Texte collé' }, { value: 'url', label: "URL d'une page" }]} />
+                    {genMode === 'text' ? (
+                      <textarea rows={5} value={genText} onChange={e => setGenText(e.target.value)}
+                                placeholder={'Q : Quels sont vos horaires ?\nR : Du lundi au vendredi, 9h-18h…\n\nQ : Comment prendre rendez-vous ?\nR : …'} />
+                    ) : (
+                      <input type="text" className="mono" value={genUrl} onChange={e => setGenUrl(e.target.value)}
+                             placeholder="https://votre-site.fr/faq" />
+                    )}
+                    {genError && <div className="error">{genError}</div>}
+                    <div>
+                      <Btn kind="soft" onClick={generateTree}
+                           disabled={genBusy || (genMode === 'text' ? genText.trim().length < 50 : !genUrl.trim())}>
+                        {genBusy ? 'Génération en cours…' : "Générer l'arbre"}
+                      </Btn>
+                    </div>
+                  </div>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* UN SEUL TreeFlow monté à la fois (la variante absente ne reste
+              jamais affichée — garde useEffect treeView). key force le remount
+              au switch A/B. */}
           {treeView === 'b' && bot.tree_variant_json ? (
-            <TreeBuilder key="b" tree={bot.tree_variant_json}
-                         onChange={t => patch({ tree_variant_json: t })}
-                         maxNodes={usage?.max_tree_nodes ?? null}
-                         allowAI={aiTabRelevant} />
+            <TreeFlow key="b" tree={bot.tree_variant_json}
+                      onChange={t => patch({ tree_variant_json: t })}
+                      maxNodes={usage?.max_tree_nodes ?? null}
+                      allowAI={aiTabRelevant} />
           ) : (
-            <TreeBuilder key="a" tree={bot.tree_json} onChange={t => patch({ tree_json: t })}
-                         onExport={exportConfig}
-                         onImport={hasPerm('context') && hasPerm('appearance') ? importConfig : undefined}
-                         botId={botId}
-                         canGenerate={!usage?.tree_only}
-                         maxNodes={usage?.max_tree_nodes ?? null}
-                         allowAI={aiTabRelevant} />
+            <TreeFlow key="a" tree={bot.tree_json}
+                      onChange={t => patch({ tree_json: t })}
+                      maxNodes={usage?.max_tree_nodes ?? null}
+                      allowAI={aiTabRelevant} />
           )}
         </div>
       )}
 
-      {/* ================= BOT & IA ================= */}
+      {/* ================= IA ================= */}
       {activeTab === 'ai' && (
         <div className="col g18">
           <SectionTitle sub="Modèle, clés API et instructions utilisées par l'IA pour répondre.">
-            Bot &amp; IA
+            IA
           </SectionTitle>
           <div className="grid2">
             <Card>
@@ -755,8 +889,89 @@ export default function BotPage() {
                        onChange={e => patch({ temperature: Number(e.target.value) })} />
                 <div className="field-hint">Basse = réponses factuelles et stables · haute = réponses plus créatives.</div>
               </Card>
+
+              {/* Plafond IA journalier : champ backend RÉEL daily_ai_message_cap
+                  (perm serveur security). Affiché dans l'onglet IA (charte). */}
+              {hasPerm('security') && (
+                <Card>
+                  <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div className="card-title" style={{ marginBottom: 0 }}>Plafond IA journalier</div>
+                    <Chip tone="acc">{bot.daily_ai_message_cap} rép. / jour</Chip>
+                  </div>
+                  <input type="range" min={0} max={2000} step={10} value={bot.daily_ai_message_cap}
+                         onChange={e => patch({ daily_ai_message_cap: Number(e.target.value) })} />
+                  <div style={{ margin: '6px 0' }}><Meter pct={capPct} height={6} /></div>
+                  <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55 }}>
+                    S'il est atteint, le widget passe en mode dégradé (arbre seul). C'est votre protection
+                    cash-flow.
+                  </div>
+                </Card>
+              )}
             </div>
           </div>
+
+          {/* Base de connaissances (RAG) — KbPanel vit HORS save bar */}
+          <Divider />
+          <KbPanel botId={botId} aiActive={aiTabRelevant} />
+        </div>
+      )}
+
+      {/* ================= HUMAIN (relais / handoff) ================= */}
+      {activeTab === 'human' && (
+        <div className="col g18">
+          <SectionTitle sub="Bascule la conversation vers un conseiller en dernier recours. Le visiteur passe en file d'attente et vos équipes sont notifiées.">
+            Relais humain
+          </SectionTitle>
+
+          {hasPerm('context') ? (
+            <Card style={{ maxWidth: 720 }}>
+              <div className="card-title">Notification de relais</div>
+              <Field label="Webhook de notification (Slack)"
+                     hint={bot.handoff_webhook_url && !/^https:\/\//.test(bot.handoff_webhook_url)
+                       ? <span style={{ color: 'var(--danger)' }}>L'adresse doit commencer par https://</span>
+                       : undefined}>
+                <input type="text" className="mono" placeholder="https://hooks.slack.com/services/…"
+                       value={bot.handoff_webhook_url || ''}
+                       onChange={e => patch({ handoff_webhook_url: e.target.value })} />
+              </Field>
+              <div className="field-hint" style={{ marginTop: 8 }}>
+                Appelé à chaque demande de conseiller (payload {'{"text": …}'} compatible Slack —
+                fonctionne aussi avec Mattermost ou un connecteur Teams). Les admins de l'organisation
+                reçoivent aussi un email ; sans SMTP configuré côté serveur, cette notification email
+                est uniquement journalisée.
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <InfoBox tone="info" title="Cette URL est un secret">
+                  Un webhook Slack contient un jeton dans son chemin : il n'apparaît jamais dans les
+                  exports config.json et n'est visible qu'avec la permission Contexte.
+                </InfoBox>
+              </div>
+            </Card>
+          ) : (
+            <Card style={{ maxWidth: 720 }}>
+              <InfoBox tone="warn" title="Permission requise">
+                La configuration du relais humain nécessite la permission Contexte sur ce bot.
+              </InfoBox>
+            </Card>
+          )}
+
+          <Card style={{ maxWidth: 720 }}>
+            <div className="card-title">Comment activer le relais</div>
+            <div className="col" style={{ gap: 10 }}>
+              <InfoBox tone="info">
+                Ajoutez un nœud de type <strong>« Conseiller »</strong> dans l'onglet Arbre, ou une
+                action IA de type <strong>« Conseiller humain »</strong> dans l'onglet Actions : le
+                visiteur est mis en relation, l'IA se met en retrait et la conversation apparaît dans
+                votre boîte de réception.
+              </InfoBox>
+              <div className="row g10" style={{ flexWrap: 'wrap' }}>
+                <Btn kind="soft" small onClick={() => switchTab('tree')}>Ouvrir l'arbre</Btn>
+                {aiTabRelevant && (
+                  <Btn kind="soft" small onClick={() => switchTab('actions')}>Ouvrir les actions</Btn>
+                )}
+              </div>
+            </div>
+          </Card>
         </div>
       )}
 
@@ -764,13 +979,13 @@ export default function BotPage() {
       {activeTab === 'actions' && (
         <div className="col g18">
           <SectionTitle sub="Donnez à l'IA le pouvoir d'agir pendant la conversation : appeler vos webhooks (signés) ou enregistrer un contact. 5 actions maximum.">
-            Actions IA
+            Actions &amp; outils
           </SectionTitle>
 
           {bot.ai_provider === 'gemini' && (
             <InfoBox tone="warn" title="Non supporté par Gemini">
               Les actions, la recherche dans les connaissances et les serveurs MCP sont ignorés tant que
-              le modèle Gemini est sélectionné — choisissez Claude ou GPT dans l'onglet Bot &amp; IA.
+              le modèle Gemini est sélectionné — choisissez Claude ou GPT dans l'onglet IA.
             </InfoBox>
           )}
 
@@ -909,8 +1124,8 @@ export default function BotPage() {
                   ) : a.type === 'handoff' ? (
                     <InfoBox tone="info">
                       L'IA transmet la conversation à un conseiller humain : le visiteur passe en file
-                      d'attente (onglet Inbox), vos admins sont notifiés par email et par le webhook Slack
-                      s'il est configuré (onglet Sécurité). Aucun champ à configurer.
+                      d'attente, vos admins sont notifiés par email et par le webhook Slack s'il est
+                      configuré (onglet Humain). Aucun champ à configurer.
                     </InfoBox>
                   ) : a.type === 'create_ticket' ? (
                     <>
@@ -961,7 +1176,7 @@ export default function BotPage() {
                   ) : (
                     <InfoBox tone="info">
                       L'IA recueillera email, nom, téléphone et message au fil de la discussion et les déposera
-                      dans l'onglet Leads (notification email aux admins si le serveur a un SMTP).
+                      dans vos leads (notification email aux admins si le serveur a un SMTP).
                     </InfoBox>
                   )}
                 </div>
@@ -1051,196 +1266,84 @@ export default function BotPage() {
         </div>
       )}
 
-      {/* ================= LEADS ================= */}
-      {activeTab === 'leads' && (
+      {/* ================= INTÉGRATION ================= */}
+      {activeTab === 'install' && (
         <div className="col g18">
-          <SectionTitle sub={`${leadsData?.total ?? 0} contact(s) capturé(s) par ce bot.`}
-            right={
-              <div className="row g8">
-                <Btn kind="ghost" small onClick={loadLeads} disabled={leadsBusy}>
-                  <RefreshCw size={13} /> Actualiser
-                </Btn>
-                <Btn kind="ghost" small onClick={exportLeadsCsv} disabled={!leadsData?.leads?.length}>
-                  Exporter CSV
-                </Btn>
-              </div>
-            }>
-            Leads
+          <SectionTitle sub="Une seule balise avant </body>. Le widget pèse < 30 ko et ne bloque jamais le rendu de la page.">
+            Intégration
           </SectionTitle>
 
-          {leadsBusy && !leadsData ? (
-            <Card style={{ textAlign: 'center', color: 'var(--mut)' }}>Chargement…</Card>
-          ) : !leadsData || leadsData.leads.length === 0 ? (
-            <Card style={{ textAlign: 'center', padding: '40px 24px' }}>
-              <div className="col" style={{ alignItems: 'center', gap: 9 }}>
-                <Inbox size={24} style={{ color: 'var(--faint)' }} />
-                <div style={{ fontSize: 14, fontWeight: 800 }}>Aucun lead pour l'instant</div>
-                <div style={{ fontSize: 12, color: 'var(--mut)', maxWidth: 400, lineHeight: 1.55 }}>
-                  Ajoutez un nœud « Contact » dans l'arbre, ou une action « Capture de lead », pour
-                  collecter des demandes.
-                </div>
-                {hasPerm('context') && (
-                  <Btn kind="soft" small onClick={() => switchTab('tree')}>Ouvrir l'arbre</Btn>
-                )}
+          {!bot.is_active && (
+            <InfoBox tone="warn" title="Bot inactif">
+              La balise ne répondra pas tant que le bot n'est pas activé.{' '}
+              {hasPerm('security') && (
+                <button onClick={activateBot}
+                        style={{ background: 'none', border: 'none', padding: 0, color: 'var(--acc)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>
+                  Activer le bot
+                </button>
+              )}
+            </InfoBox>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, alignItems: 'start' }}>
+            <Card>
+              <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
+                <div className="card-title" style={{ marginBottom: 0 }}>Extrait à insérer</div>
+                <Btn kind={copied ? 'soft' : 'primary'} small onClick={() => {
+                  navigator.clipboard.writeText(currentInteg?.snippet || '').catch(() => {})
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 1600)
+                }}>{copied ? <><Check size={13} /> Copié</> : <><Clipboard size={13} /> Copier</>}</Btn>
+              </div>
+              <div className="snippet-pills" style={{ marginBottom: 10 }}>
+                {integrations.map(it => (
+                  <button key={it.id} className={integType === it.id ? 'active' : ''}
+                          onClick={() => setIntegType(it.id)}>{it.label}</button>
+                ))}
+              </div>
+              <pre className="snippet">{currentInteg?.snippet}</pre>
+              {currentInteg?.description && (
+                <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 8, lineHeight: 1.5 }}>{currentInteg.description}</div>
+              )}
+              <div style={{ marginTop: 10 }}>
+                <InfoBox tone="info" title="pk_… est un identifiant public, pas un secret">
+                  Elle permet uniquement d'initialiser une session de chat sur vos domaines autorisés. Vos clés
+                  IA restent côté serveur — même modèle que les clés publiques Stripe.
+                </InfoBox>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <InfoBox tone="info" title="Site sous Content-Security-Policy">
+                  Pour l'overlay de prise de rendez-vous (mode script), autorisez :{' '}
+                  <span className="mono" style={{ fontSize: 10.5 }}>
+                    frame-src https://calendly.com https://*.calendly.com https://cal.com https://*.cal.com
+                  </span>
+                  . Le mode iframe (/widget-frame) n'est pas concerné.
+                </InfoBox>
               </div>
             </Card>
-          ) : (
-            <Card nopad>
-              <table className="kc">
-                <thead>
-                  <tr><th>Date</th><th>Email</th><th>Nom</th><th>Téléphone</th><th>Message</th><th>Source</th></tr>
-                </thead>
-                <tbody>
-                  {leadsData.leads.map(l => (
-                    <tr key={l.id}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleString('fr-FR')}</td>
-                      <td className="mono">{l.email}</td>
-                      <td>{l.name || '—'}</td>
-                      <td className="mono">{l.phone || '—'}</td>
-                      <td title={l.message || ''}>
-                        {l.message ? (l.message.length > 60 ? `${l.message.slice(0, 60)}…` : l.message) : '—'}
-                      </td>
-                      <td>{l.source === 'ai' ? <Chip tone="acc">IA</Chip> : <Chip tone="mut">Arbre</Chip>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
-          )}
 
-          {isOrgAdmin && (
-            <div className="field-hint">
-              Notification email : sans SMTP configuré côté serveur (SMTP_HOST), les nouveaux leads sont
-              uniquement journalisés.
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ================= APPARENCE ================= */}
-      {activeTab === 'appearance' && (
-        <div className="col g18">
-          <SectionTitle sub="Personnalisez le widget aux couleurs du site client. Aperçu en direct à droite.">
-            Apparence du widget
-          </SectionTitle>
-          <div className="grid-controls">
-            <div className="col g14">
-              <Card>
-                <AppearanceForm design={d} botName={bot.name}
-                                onChange={patchDesign} onNameChange={v => patch({ name: v })} />
-              </Card>
-              <Card>
-                <div className="card-title">Comportement</div>
-                <div className="col" style={{ gap: 12 }}>
-                  <Field label="Mode" hint={usage?.tree_only
-                    ? 'Plan free : mode arbre uniquement. Passez au plan Starter pour activer l\'IA.'
-                    : 'Hybride : arbre guidé d\'abord, IA à la demande. Les réponses arbre sont gratuites.'}>
-                    {usage?.tree_only ? (
-                      <Chip tone="mut"><Lock size={11} /> Arbre (plan free)</Chip>
-                    ) : (
-                      <Seg value={bot.mode} onChange={v => patch({ mode: v })}
-                           options={[{ value: 'tree', label: 'Arbre' }, { value: 'hybrid', label: 'Hybride' }, { value: 'ai', label: 'IA' }]} />
-                    )}
-                  </Field>
-                  <div className="toggle-row">
-                    <div>
-                      <div className="tl">Simuler le mode dégradé</div>
-                      <div className="ts">Cap budget atteint → arbre seul (aperçu uniquement)</div>
+            <Card>
+              <div className="card-title" style={{ marginBottom: 12 }}>Ce qui se passe au chargement</div>
+              <div className="col">
+                {[
+                  ['1', 'Chargement du widget', 'async, < 30 ko'],
+                  ['2', 'Handshake POST /session', 'clé publique + jeton Turnstile invisible'],
+                  ['3', 'Vérif. Origin + captcha', 'côté serveur, liste de domaines'],
+                  ['4', 'Émission du JWT éphémère', '30 min, lié au domaine + conversation'],
+                  ['5', 'Chat prêt', 'arbre gratuit / IA décomptée'],
+                ].map(([n, t, dsc], i, arr) => (
+                  <div key={n} className="timeline-step">
+                    <div className="col" style={{ alignItems: 'center' }}>
+                      <span className="timeline-num">{n}</span>
+                      {i < arr.length - 1 && <span className="timeline-line" />}
                     </div>
-                    <Toggle on={previewDegraded} onChange={setPreviewDegraded} />
+                    <div style={{ paddingBottom: i < arr.length - 1 ? 14 : 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700 }}>{t}</div>
+                      <div style={{ fontSize: 11, color: 'var(--mut)', marginTop: 1 }}>{dsc}</div>
+                    </div>
                   </div>
-                </div>
-              </Card>
-
-              <Card>
-                <div className="card-title">Déclencheurs proactifs</div>
-                <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 4 }}>
-                  Ouvre le panneau avec un message local (aucun appel serveur), au plus un déclenchement
-                  par chargement de page, jamais en mode iframe. 5 déclencheurs max.
-                </div>
-                <div className="field-hint" style={{ marginBottom: 10 }}>
-                  Les déclencheurs ne sont pas simulés dans l'aperçu ci-contre.
-                </div>
-                <div className="col" style={{ gap: 10 }}>
-                  {((bot.triggers_json || []) as any[]).map((tr: any, i: number) => (
-                    <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 11, padding: '11px 13px' }}>
-                      <div className="col" style={{ gap: 10 }}>
-                        <Field label="Type">
-                          <select value={tr.type} onChange={e => updateTriggerType(i, e.target.value)}>
-                            <option value="time_on_page">Temps passé sur la page</option>
-                            <option value="scroll_depth">Profondeur de défilement</option>
-                            <option value="exit_intent">Intention de sortie</option>
-                            <option value="url_pattern">Adresse de la page</option>
-                          </select>
-                        </Field>
-                        {/* value : Number strict côté serveur (_check_triggers) — un
-                            string numérique ferait 422. Input vide = '' conservé +
-                            hint rouge, le 422 verbatim de la save bar reste le filet. */}
-                        {tr.type === 'time_on_page' && (
-                          <Field label="Après (secondes)"
-                                 hint={typeof tr.value !== 'number'
-                                   ? <span style={{ color: 'var(--danger)' }}>Valeur requise (1-600)</span>
-                                   : undefined}>
-                            <input type="number" min={1} max={600}
-                                   value={typeof tr.value === 'number' ? tr.value : ''}
-                                   onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
-                          </Field>
-                        )}
-                        {tr.type === 'scroll_depth' && (
-                          <Field label="À partir de (% de page)"
-                                 hint={typeof tr.value !== 'number'
-                                   ? <span style={{ color: 'var(--danger)' }}>Valeur requise (1-100)</span>
-                                   : undefined}>
-                            <input type="number" min={1} max={100}
-                                   value={typeof tr.value === 'number' ? tr.value : ''}
-                                   onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
-                          </Field>
-                        )}
-                        {tr.type === 'url_pattern' && (
-                          <Field label="Le chemin de la page contient">
-                            <input type="text" className="mono" maxLength={200} placeholder="/tarifs"
-                                   value={tr.value || ''}
-                                   onChange={e => updateTrigger(i, { value: e.target.value })} />
-                          </Field>
-                        )}
-                        {tr.type === 'exit_intent' && (
-                          <div className="field-hint">
-                            Souris quittant la page par le haut. Désactivé sur mobile.
-                          </div>
-                        )}
-                        <Field label="Message"
-                               hint={!tr.message
-                                 ? <span style={{ color: 'var(--danger)' }}>Message requis (1 à 300 caractères)</span>
-                                 : undefined}>
-                          <textarea rows={2} maxLength={300} value={tr.message || ''}
-                                    onChange={e => updateTrigger(i, { message: e.target.value })} />
-                        </Field>
-                        {/* once_per_session peut être ABSENT du JSON stocké → défaut true */}
-                        <div className="toggle-row">
-                          <div className="tl">Une seule fois par session</div>
-                          <Toggle on={tr.once_per_session ?? true}
-                                  onChange={v => updateTrigger(i, { once_per_session: v })} />
-                        </div>
-                        <div>
-                          <Btn kind="danger" small onClick={() => removeTrigger(i)}>Retirer</Btn>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="row g10" style={{ marginTop: 10 }}>
-                  <Btn kind="soft" small onClick={addTrigger} disabled={(bot.triggers_json || []).length >= 5}>
-                    <Plus size={13} /> Ajouter un déclencheur
-                  </Btn>
-                  {(bot.triggers_json || []).length >= 5 && <Chip tone="warn">5/5</Chip>}
-                </div>
-              </Card>
-            </div>
-            <Card nopad>
-              <PreviewFrame site={site} siteName={orgName || site} brandColor={d.primaryColor || '#0d9488'}>
-                <WidgetPreview design={d} mode={bot.mode} tree={bot.tree_json}
-                               botName={bot.name} degraded={previewDegraded} />
-              </PreviewFrame>
+                ))}
+              </div>
             </Card>
           </div>
         </div>
@@ -1284,7 +1387,10 @@ export default function BotPage() {
               </Card>
 
               <Card>
-                <div className="card-title">Limites de débit</div>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div className="card-title" style={{ marginBottom: 0 }}>Limites de débit</div>
+                  <Chip tone="mut">Lecture seule</Chip>
+                </div>
                 <div className="col" style={{ gap: 9 }}>
                   {[
                     ['Par session', '20 msg / 10 min', 'JWT éphémère (30 min)'],
@@ -1300,51 +1406,6 @@ export default function BotPage() {
                   ))}
                 </div>
               </Card>
-
-              {/* Webhook handoff : perm serveur = context (credential), pas
-                  security — un member security-sans-context ne voit pas le champ
-                  (l'API le masque de toute façon à null en lecture). */}
-              {hasPerm('context') && (
-                <Card>
-                  <div className="card-title">Notification live chat</div>
-                  <Field label="Webhook de notification (Slack)"
-                         hint={bot.handoff_webhook_url && !/^https:\/\//.test(bot.handoff_webhook_url)
-                           ? <span style={{ color: 'var(--danger)' }}>L'adresse doit commencer par https://</span>
-                           : undefined}>
-                    <input type="text" className="mono" placeholder="https://hooks.slack.com/services/…"
-                           value={bot.handoff_webhook_url || ''}
-                           onChange={e => patch({ handoff_webhook_url: e.target.value })} />
-                  </Field>
-                  <div className="field-hint" style={{ marginTop: 8 }}>
-                    Appelé à chaque demande de conseiller (payload {'{"text": …}'} compatible Slack —
-                    fonctionne aussi avec Mattermost ou un connecteur Teams). Les admins de l'organisation
-                    reçoivent aussi un email ; sans SMTP configuré côté serveur, cette notification email
-                    est uniquement journalisée.
-                  </div>
-                  <div style={{ marginTop: 10 }}>
-                    <InfoBox tone="info" title="Cette URL est un secret">
-                      Un webhook Slack contient un jeton dans son chemin : il n'apparaît jamais dans les
-                      exports config.json et n'est visible qu'avec la permission Contexte.
-                    </InfoBox>
-                  </div>
-                </Card>
-              )}
-
-              {aiTabRelevant && (
-                <Card>
-                  <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
-                    <div className="card-title" style={{ marginBottom: 0 }}>Plafond IA journalier</div>
-                    <Chip tone="acc">{bot.daily_ai_message_cap} rép. / jour</Chip>
-                  </div>
-                  <input type="range" min={0} max={2000} step={10} value={bot.daily_ai_message_cap}
-                         onChange={e => patch({ daily_ai_message_cap: Number(e.target.value) })} />
-                  <div style={{ margin: '6px 0' }}><Meter pct={capPct} height={6} /></div>
-                  <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55 }}>
-                    S'il est atteint, le widget passe en mode dégradé (arbre seul). C'est votre protection
-                    cash-flow.
-                  </div>
-                </Card>
-              )}
 
               {isOrgAdmin && (
                 <Card style={{ borderColor: 'var(--danger-bd)' }}>
@@ -1415,104 +1476,62 @@ export default function BotPage() {
         </div>
       )}
 
-      {/* ================= INTÉGRATION ================= */}
-      {activeTab === 'install' && (
-        <div className="col g18">
-          <SectionTitle sub="Une seule balise avant </body>. Le widget pèse < 30 ko et ne bloque jamais le rendu de la page.">
-            Intégration
-          </SectionTitle>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, alignItems: 'start' }}>
-            <Card>
-              <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
-                <div className="card-title" style={{ marginBottom: 0 }}>Extrait à insérer</div>
-                <Btn kind={copied ? 'soft' : 'primary'} small onClick={() => {
-                  navigator.clipboard.writeText(currentInteg?.snippet || '').catch(() => {})
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 1600)
-                }}>{copied ? <><Check size={13} /> Copié</> : <><Clipboard size={13} /> Copier</>}</Btn>
-              </div>
-              <div className="snippet-pills" style={{ marginBottom: 10 }}>
-                {integrations.map(it => (
-                  <button key={it.id} className={integType === it.id ? 'active' : ''}
-                          onClick={() => setIntegType(it.id)}>{it.label}</button>
-                ))}
-              </div>
-              <pre className="snippet">{currentInteg?.snippet}</pre>
-              {currentInteg?.description && (
-                <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 8, lineHeight: 1.5 }}>{currentInteg.description}</div>
-              )}
-              <div style={{ marginTop: 10 }}>
-                <InfoBox tone="info" title="pk_… est un identifiant public, pas un secret">
-                  Elle permet uniquement d'initialiser une session de chat sur vos domaines autorisés. Vos clés
-                  IA restent côté serveur — même modèle que les clés publiques Stripe.
-                </InfoBox>
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <InfoBox tone="info" title="Site sous Content-Security-Policy">
-                  Pour l'overlay de prise de rendez-vous (mode script), autorisez :{' '}
-                  <span className="mono" style={{ fontSize: 10.5 }}>
-                    frame-src https://calendly.com https://*.calendly.com https://cal.com https://*.cal.com
-                  </span>
-                  . Le mode iframe (/widget-frame) n'est pas concerné.
-                </InfoBox>
-              </div>
-            </Card>
-
-            <Card>
-              <div className="card-title" style={{ marginBottom: 12 }}>Ce qui se passe au chargement</div>
-              <div className="col">
-                {[
-                  ['1', 'Chargement du widget', 'async, < 30 ko'],
-                  ['2', 'Handshake POST /session', 'clé publique + jeton Turnstile invisible'],
-                  ['3', 'Vérif. Origin + captcha', 'côté serveur, liste de domaines'],
-                  ['4', 'Émission du JWT éphémère', '30 min, lié au domaine + conversation'],
-                  ['5', 'Chat prêt', 'arbre gratuit / IA décomptée'],
-                ].map(([n, t, dsc], i, arr) => (
-                  <div key={n} className="timeline-step">
-                    <div className="col" style={{ alignItems: 'center' }}>
-                      <span className="timeline-num">{n}</span>
-                      {i < arr.length - 1 && <span className="timeline-line" />}
-                    </div>
-                    <div style={{ paddingBottom: i < arr.length - 1 ? 14 : 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700 }}>{t}</div>
-                      <div style={{ fontSize: 11, color: 'var(--mut)', marginTop: 1 }}>{dsc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* ================= SAVE BAR STICKY ================= */}
+      {/* ================= SAVE BAR SOMBRE (fixée bas, left:248px) ================= */}
       {(dirty || saved || error) && (
-        <div className="save-bar" role="status">
-          <div className="sb-state">
-            {error ? (
-              <span style={{ color: 'var(--danger)', fontWeight: 700 }}>{error}</span>
-            ) : dirty ? (
-              <>
-                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 99, background: 'var(--warn)', display: 'inline-block', flexShrink: 0 }} />
-                <span style={{ fontWeight: 700 }}>Modifications non enregistrées</span>
-                {dirtyTabs.map(t => {
-                  const def = TABS.find(x => x.id === t)
-                  if (!def || !visibleTabs.some(v => v.id === t)) return null
-                  return (
-                    <button key={t} className="chip chip-warn" onClick={() => switchTab(t)}>{def.label}</button>
-                  )
-                })}
-              </>
-            ) : (
-              <span style={{ color: 'var(--go)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Check size={14} /> Modifications enregistrées
-              </span>
-            )}
+        <div role="status" style={{
+          position: 'fixed', left: 248, right: 0, bottom: 0, zIndex: 90,
+          background: '#1E2A32', color: '#fff',
+          boxShadow: '0 -12px 32px -14px rgba(0,0,0,.4)',
+        }}>
+          <div style={{
+            maxWidth: 1080, margin: '0 auto', padding: '13px 28px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 16, flexWrap: 'wrap',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', minWidth: 0, fontSize: 13.5 }}>
+              {error ? (
+                <span style={{ color: '#FFB4AC', fontWeight: 700 }}>{error}</span>
+              ) : dirty ? (
+                <>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 99, background: '#E0A82E', display: 'inline-block', flexShrink: 0 }} />
+                    Modifications non enregistrées
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {dirtyTabs.map(t => {
+                      const def = TABS.find(x => x.id === t)
+                      if (!def || !visibleTabs.some(v => v.id === t)) return null
+                      return (
+                        <button key={t} onClick={() => switchTab(t)} style={{
+                          background: 'rgba(255,255,255,.1)', color: '#fff', border: 'none',
+                          borderRadius: 999, padding: '5px 12px', fontSize: 12.5, fontWeight: 600,
+                          cursor: 'pointer', fontFamily: 'inherit',
+                        }}>{def.label}</button>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: '#7FE3BE' }}>
+                  <Check size={16} /> Enregistré
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 12, color: '#7FA0B5', whiteSpace: 'nowrap' }}>Ctrl/Cmd S pour enregistrer</span>
+              {dirty && (
+                <button onClick={cancelChanges} style={{
+                  background: 'transparent', color: '#D6E2EA', border: '1px solid rgba(255,255,255,.22)',
+                  borderRadius: 10, padding: '10px 16px', fontWeight: 600, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit',
+                }}>Annuler</button>
+              )}
+              <button onClick={save} disabled={!dirty && !saved} style={{
+                background: dirty ? '#2F9E79' : 'rgba(255,255,255,.15)', color: '#fff', border: 'none',
+                borderRadius: 10, padding: '10px 20px', fontWeight: 600, fontSize: 14,
+                cursor: dirty ? 'pointer' : 'default', fontFamily: 'inherit',
+              }}>{saved ? 'Enregistré' : 'Enregistrer'}</button>
+            </div>
           </div>
-          <Btn kind="ghost" onClick={cancelChanges} disabled={!dirty}>Annuler</Btn>
-          <Btn kind={saved ? 'soft' : 'primary'} onClick={save} disabled={!dirty && !saved}>
-            {saved ? <><Check size={14} /> Enregistré</> : 'Enregistrer'}
-          </Btn>
         </div>
       )}
     </div>

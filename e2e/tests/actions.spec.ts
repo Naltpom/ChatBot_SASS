@@ -1,6 +1,10 @@
 // Éditeur d'actions IA (parcours F) — bot DÉDIÉ en mode hybrid (requis pour
-// que l'onglet Actions soit rendu), créé en beforeAll ; nom unique, purgé par
-// le tryReuse du global-setup au run suivant.
+// que l'onglet Actions soit rendu : aiTabRelevant), créé en beforeAll ; nom
+// unique, purgé par le tryReuse du global-setup au run suivant.
+//
+// Refonte charte Chapote : l'éditeur d'actions vit dans l'onglet « Actions »
+// de BotPage (titre de section « Actions & outils »). Les libellés, hints et
+// placeholders sont lus dans app/src/pages/BotPage.tsx.
 //
 // MOCK_AI=false : le WIDGET de ce bot n'est JAMAIS ouvert et l'édition
 // d'actions n'appelle jamais l'IA (l'exécution d'une action = conversation IA
@@ -21,7 +25,7 @@ test.beforeEach(async ({ page }) => {
   await authenticate(page, state)
   await page.goto(`/app/bots/${botId}`)
   await page.locator('.tabs').getByRole('button', { name: 'Actions' }).click()
-  await expect(page.getByText('Actions IA')).toBeVisible()
+  await expect(page.getByText('Actions & outils')).toBeVisible()
 })
 
 test('éditeur webhook : hints, save, secret jamais re-affiché', async ({ page, request }) => {
@@ -49,12 +53,15 @@ test('éditeur webhook : hints, save, secret jamais re-affiché', async ({ page,
   // La saisie du secret rend l'onglet dirty (actionSecrets)
   await page.getByPlaceholder('Optionnel — signe chaque appel').fill('secret-e2e-hmac')
 
-  await page.getByRole('button', { name: 'Enregistrer', exact: true }).click()
-  await expect(page.getByRole('button', { name: /Enregistré/ })).toBeVisible()
+  // Save bar SOMBRE (role=status) : bouton « Enregistrer », passe à « Enregistré »
+  const bar = page.getByRole('status')
+  await bar.getByRole('button', { name: 'Enregistrer', exact: true }).click()
+  await expect(bar).toContainText('Enregistré')
 
   // Pas de fuite après reload (l'URL garde ?tab=actions) : placeholder masqué,
   // champ VIDE — le secret n'est jamais re-servi par l'API
   await page.reload()
+  await expect(page.getByText('Actions & outils')).toBeVisible()
   const secretInput = page.getByPlaceholder('•••• (laisser vide pour conserver)')
   await expect(secretInput).toBeVisible()
   await expect(secretInput).toHaveValue('')
@@ -88,7 +95,7 @@ test('renommage avec secret_set : warning affiché, Annuler ne persiste rien', a
   })
   expect(seeded.ok()).toBeTruthy()
   await page.reload() // l'URL garde ?tab=actions
-  await expect(page.getByText('Actions IA')).toBeVisible()
+  await expect(page.getByText('Actions & outils')).toBeVisible()
 
   const nameInput = page.getByPlaceholder('nom_de_l_action')
   await expect(nameInput).toHaveValue('webhook_e2e')
