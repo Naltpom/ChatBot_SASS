@@ -1,0 +1,29 @@
+# Déploiement manuel sur le VPS (chapote.fr).
+# Onglet "Actions" du repo -> "Deploy to VPS (chapote.fr)" -> "Run workflow".
+# Se connecte en SSH au serveur et lance ./deploy.sh (git pull + build + up -d).
+name: Deploy to VPS (chapote.fr)
+
+on:
+  workflow_dispatch:   # bouton "Run workflow" dans l'UI GitHub
+
+concurrency:
+  group: deploy-chapote   # un seul déploiement à la fois
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configurer la clé SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Déployer (git pull + build + up -d)
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            'cd /home/ubuntu/apps/ChatBot_SASS && ./deploy.sh'
