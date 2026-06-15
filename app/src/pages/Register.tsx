@@ -2,12 +2,31 @@
 // Conserve la fonctionnalité réelle : type perso/entreprise, invitations
 // d'équipe (entreprise), register(RegisterPayload). L'étape de succès propose
 // « Configurer mon premier bot » (→ /app/bots/new), comme demandé.
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Building2, Check, User as UserIcon, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 
 interface Invite { email: string; role: 'admin' | 'member' }
+
+// Responsive mobile : breakpoint contenu <=760px (cartes/grilles empilées,
+// paddings réduits). matchMedia + listener resize — media queries impossibles
+// en styles inline. SSR-safe (window peut être absent au 1er rendu).
+function useIsMobile(maxWidth = 760): boolean {
+  const query = `(max-width:${maxWidth}px)`
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mql = window.matchMedia(query)
+    const onChange = () => setIsMobile(mql.matches)
+    onChange()
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [query])
+  return isMobile
+}
 
 const CLASH = "'Clash Display',sans-serif"
 const NAVY = '#1C3F5C'
@@ -49,13 +68,18 @@ function StepDot({ on, n }: { on: boolean; n: number }) {
 function Shell({ children, step, total, caption, maxWidth = 560 }: {
   children: React.ReactNode; step?: number; total?: number; caption?: string; maxWidth?: number
 }) {
+  const isMobile = useIsMobile()
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: "'Inter',system-ui,sans-serif", color: '#1E2A32', padding: 32,
+      fontFamily: "'Inter',system-ui,sans-serif", color: '#1E2A32', padding: isMobile ? 14 : 32,
       background: 'radial-gradient(circle at 15% 18%, rgba(47,158,121,.08), transparent 45%),radial-gradient(circle at 85% 28%, rgba(140,109,255,.07), transparent 45%),#F0F2F5',
     }}>
-      <div style={{ width: '100%', maxWidth, background: '#fff', borderRadius: 24, boxShadow: '0 44px 100px -44px rgba(28,63,92,.42)', padding: '40px 40px 36px' }}>
+      <div style={{
+        width: '100%', maxWidth: isMobile ? '100%' : maxWidth, background: '#fff',
+        borderRadius: isMobile ? 18 : 24, boxShadow: '0 44px 100px -44px rgba(28,63,92,.42)',
+        padding: isMobile ? '26px 20px 24px' : '40px 40px 36px',
+      }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, textDecoration: 'none' }}>
           <span style={{ width: 34, height: 34, borderRadius: 10, background: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon /></span>
           <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 20, color: '#1E2A32' }}>Chapote</span>
@@ -86,6 +110,7 @@ function Shell({ children, step, total, caption, maxWidth = 560 }: {
 export default function Register() {
   const { register } = useAuth()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
 
   const [step, setStep] = useState(0)
   const [type, setType] = useState<'perso' | 'entreprise' | null>(null)
@@ -143,7 +168,7 @@ export default function Register() {
       <p style={{ textAlign: 'center', color: '#6B7B8D', fontSize: 14.5, margin: '0 0 24px' }}>
         Même produit dans les deux cas — vous pourrez passer en entreprise plus tard.
       </p>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
         {[
           {
             v: 'perso' as const, icon: <UserIcon size={24} />, t: 'Personnel',
@@ -197,7 +222,7 @@ export default function Register() {
             <input style={inputStyle} value={form.org} onChange={e => set('org', e.target.value)} placeholder="Agence Webly" />
           </label>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
           <label><span style={lbl}>Prénom *</span>
             <input style={inputStyle} value={form.prenom} onChange={e => set('prenom', e.target.value)} placeholder="Théo" />
           </label>

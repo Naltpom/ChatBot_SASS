@@ -1,6 +1,22 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
+
+function useIsMobile(maxWidth = 760) {
+  const query = `(max-width: ${maxWidth}px)`
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mql = window.matchMedia(query)
+    const onChange = () => setIsMobile(mql.matches)
+    onChange()
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [query])
+  return isMobile
+}
 
 const NAVY = '#1C3F5C'
 const INPUT_BASE: React.CSSProperties = {
@@ -36,6 +52,7 @@ function Check() {
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
@@ -72,7 +89,7 @@ export default function Login() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 32,
+        padding: isMobile ? 16 : 32,
         background:
           'radial-gradient(circle at 15% 18%, rgba(47,158,121,.08), transparent 45%),' +
           'radial-gradient(circle at 85% 28%, rgba(140,109,255,.07), transparent 45%),' +
@@ -84,16 +101,17 @@ export default function Login() {
       <div
         style={{
           width: '100%',
-          maxWidth: 920,
+          maxWidth: isMobile ? 440 : 920,
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
           background: '#fff',
-          borderRadius: 28,
+          borderRadius: isMobile ? 22 : 28,
           overflow: 'hidden',
           boxShadow: '0 44px 100px -44px rgba(28,63,92,.42)',
         }}
       >
-        {/* Left — navy gradient */}
+        {/* Left — navy gradient (masqué en mobile, on garde le formulaire seul) */}
+        {!isMobile && (
         <div
           style={{
             background: 'linear-gradient(165deg, #1C3F5C, #15344b)',
@@ -149,9 +167,10 @@ export default function Login() {
             🇫🇷 Hébergement français · Conforme RGPD
           </div>
         </div>
+        )}
 
         {/* Right — form */}
-        <div style={{ padding: '48px 44px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <div style={{ padding: isMobile ? '32px 22px' : '48px 44px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <h3 style={{ fontFamily: "'Clash Display', sans-serif", fontWeight: 600, fontSize: 23, margin: '0 0 24px' }}>
             Se connecter
           </h3>

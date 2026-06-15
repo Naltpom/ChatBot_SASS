@@ -68,12 +68,36 @@ const ACTION_TYPE_CHIPS: Record<string, { tone: 'info' | 'go' | 'acc'; label: st
 
 interface Integration { id: string; label: string; icon: string; description: string; snippet: string }
 
+// Responsive : le shell passe la sidebar en drawer sous 860px (contrat burger).
+// La save bar sombre est fixée et alignée sur la sidebar (left:248px) — en mobile
+// la sidebar n'occupe plus la colonne de gauche, la barre doit donc passer à
+// left:0. styles.css est réservé à l'agent shell → on détecte le breakpoint via
+// matchMedia (les media queries sont impossibles en style inline) et on bascule
+// les styles concernés. Même breakpoint que le shell (860px).
+const MOBILE_MQ = '(max-width: 860px)'
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(MOBILE_MQ).matches,
+  )
+  useEffect(() => {
+    const mql = window.matchMedia(MOBILE_MQ)
+    const onChange = () => setIsMobile(mql.matches)
+    onChange()
+    // addEventListener('change') sur MediaQueryList (large support) ; pas de
+    // dépendance nouvelle, cleanup obligatoire.
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
+  return isMobile
+}
+
 export default function BotPage() {
   const { id } = useParams()
   const botId = Number(id)
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const { user } = useAuth()
+  const isMobile = useIsMobile()
 
   const [bot, setBot] = useState<any>(null)
   const [savedBot, setSavedBot] = useState<any>(null)   // photo du dernier état serveur
@@ -543,10 +567,17 @@ export default function BotPage() {
         </div>
       )}
 
-      <div className="tabs">
+      {/* En mobile : barre d'onglets scrollable horizontalement (nowrap +
+          overflow-x) plutôt que wrap sur plusieurs lignes — jamais de
+          débordement hors viewport. En desktop : comportement .tabs natif (wrap),
+          on n'override pas. */}
+      <div className="tabs" style={isMobile
+        ? { flexWrap: 'nowrap', overflowX: 'auto', maxWidth: '100%', WebkitOverflowScrolling: 'touch' }
+        : undefined}>
         {visibleTabs.map(t => (
           <Fragment key={t.id}>
-            <button className={activeTab === t.id ? 'active' : ''} onClick={() => switchTab(t.id)}>
+            <button className={activeTab === t.id ? 'active' : ''} onClick={() => switchTab(t.id)}
+                    style={isMobile ? { flexShrink: 0 } : undefined}>
               {t.label}
               {dirtyTabs.includes(t.id) && <span className="tab-dot" aria-hidden="true" />}
             </button>
@@ -560,7 +591,11 @@ export default function BotPage() {
           <SectionTitle sub="Personnalisez le widget aux couleurs du site client. Aperçu en direct à droite.">
             Apparence du widget
           </SectionTitle>
-          <div className="grid-controls">
+          {/* Apparence : contrôles + aperçu live. En mobile on force 1 colonne
+              (aperçu sous les contrôles, 100% de large) sans dépendre de la media
+              query de styles.css (réservée à l'agent shell). En desktop : grille
+              .grid-controls native (330px + 1fr). */}
+          <div className="grid-controls" style={isMobile ? { gridTemplateColumns: '1fr' } : undefined}>
             <div className="col g14">
               <Card>
                 <AppearanceForm design={d} botName={bot.name}
@@ -1285,7 +1320,9 @@ export default function BotPage() {
             </InfoBox>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, alignItems: 'start' }}>
+          {/* Intégration : extrait + timeline. Empilé en 1 colonne en mobile
+              (grille inline, pas de classe globale à dépendre). */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 14, alignItems: 'start' }}>
             <Card>
               <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
                 <div className="card-title" style={{ marginBottom: 0 }}>Extrait à insérer</div>
@@ -1479,14 +1516,17 @@ export default function BotPage() {
       {/* ================= SAVE BAR SOMBRE (fixée bas, left:248px) ================= */}
       {(dirty || saved || error) && (
         <div role="status" style={{
-          position: 'fixed', left: 248, right: 0, bottom: 0, zIndex: 90,
+          // En mobile (<=860px) la sidebar est un drawer off-canvas : la barre
+          // doit couvrir toute la largeur (left:0). En desktop elle reste alignée
+          // sur la sidebar fixe de 248px.
+          position: 'fixed', left: isMobile ? 0 : 248, right: 0, bottom: 0, zIndex: 90,
           background: '#1E2A32', color: '#fff',
           boxShadow: '0 -12px 32px -14px rgba(0,0,0,.4)',
         }}>
           <div style={{
-            maxWidth: 1080, margin: '0 auto', padding: '13px 28px',
+            maxWidth: 1080, margin: '0 auto', padding: isMobile ? '11px 14px' : '13px 28px',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            gap: 16, flexWrap: 'wrap',
+            gap: isMobile ? 10 : 16, flexWrap: 'wrap',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', minWidth: 0, fontSize: 13.5 }}>
               {error ? (

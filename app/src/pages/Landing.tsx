@@ -53,6 +53,8 @@ const CHAPOTE_CSS = `
 .ch-pricing-card:hover{transform:translateY(-4px);box-shadow:0 24px 46px -22px rgba(28,63,92,.3);}
 .ch-price-cta-light:hover{background:#F0F2F5 !important;}
 .ch-price-cta-dark:hover{transform:scale(1.02);}
+.ch-cmp-scroll{-webkit-overflow-scrolling:touch;}
+.ch-cmp-table{min-width:0;}
 @media (max-width:1040px){
   .ch-pricing-grid{grid-template-columns:1fr 1fr !important;}
 }
@@ -64,12 +66,30 @@ const CHAPOTE_CSS = `
   .ch-footer-grid{grid-template-columns:1fr 1fr !important;gap:36px !important;}
   .ch-menu-btn{display:flex !important;}
 }
+/* Comparatif : sous 720px le tableau 4 colonnes défile horizontalement
+   (au lieu d'écraser les colonnes), avec une largeur minimale lisible. */
+@media (max-width:720px){
+  .ch-cmp-table{min-width:560px;}
+}
 @media (max-width:600px){
   .ch-piliers-grid{grid-template-columns:1fr !important;}
   .ch-pricing-grid{grid-template-columns:1fr !important;}
   .ch-testi-grid{grid-template-columns:1fr !important;}
   .ch-hero-h1{font-size:38px !important;}
   .ch-section-h2{font-size:30px !important;}
+  .ch-footer-grid{grid-template-columns:1fr 1fr !important;gap:28px !important;}
+  /* Padding latéral réduit : 32px -> 18px sur tous les conteneurs centrés
+     de la landing (inline padding écrasé par !important, vertical préservé). */
+  .chapote .ch-pad{padding-left:18px !important;padding-right:18px !important;}
+  .ch-hero-split{padding-left:18px !important;padding-right:18px !important;padding-top:54px !important;}
+  .ch-hero-cta .ch-cta-primary,.ch-hero-cta .ch-cta-secondary{flex:1 1 100%;justify-content:center;}
+}
+@media (max-width:440px){
+  .ch-footer-grid{grid-template-columns:1fr !important;gap:24px !important;}
+  .ch-hero-h1{font-size:32px !important;}
+  .ch-section-h2{font-size:25px !important;}
+  .ch-pricing-grid{gap:18px !important;}
+  .ch-piliers-grid{gap:16px !important;}
 }
 @media (prefers-reduced-motion: reduce){.ch-reveal{opacity:1;transform:none;transition:none;}.chapote *{animation:none !important;}}
 `
@@ -308,7 +328,7 @@ export default function Landing() {
 
       {/* ---- Header sticky ---- */}
       <header style={{ position: 'sticky', top: 0, zIndex: 60, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', background: 'rgba(249,249,251,.82)', borderBottom: '1px solid rgba(226,232,240,.7)' }}>
-        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+        <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
           <a href="#" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
             <span style={{ width: 36, height: 36, borderRadius: 11, background: '#1C3F5C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon size={20} /></span>
             <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 22, color: '#1E2A32', letterSpacing: '-.01em' }}>Chapote</span>
@@ -363,7 +383,7 @@ export default function Landing() {
 
       {/* ---- 4 piliers ---- */}
       <section id="features" style={{ background: '#F9F9FB', padding: '88px 0' }}>
-        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
+        <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
           <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 50px' }}>
             <span style={eyebrow('#2F9E79')}>POURQUOI CHAPOTE</span>
             <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>L'hybride frugal, sans compromis</h2>
@@ -383,13 +403,14 @@ export default function Landing() {
 
       {/* ---- Comparatif ---- */}
       <section id="why" style={{ background: '#F0F2F5', padding: '88px 0' }}>
-        <div style={{ maxWidth: 1080, margin: '0 auto', padding: '0 32px' }}>
+        <div className="ch-pad" style={{ maxWidth: 1080, margin: '0 auto', padding: '0 32px' }}>
           <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 46px' }}>
             <span style={eyebrow('#2F9E79')}>COMPARATIF</span>
             <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Ni Intercom, ni Chatbase.</h2>
             <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px 0 0' }}>L'hybride qui prend le meilleur de chaque modèle, sans en payer les défauts.</p>
           </div>
-          <div className="ch-reveal" style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 24, overflow: 'hidden', boxShadow: '0 16px 44px -24px rgba(28,63,92,.24)' }}>
+          <div className="ch-reveal ch-cmp-scroll" style={{ overflowX: 'auto', padding: '4px 0 26px' }}>
+          <div className="ch-cmp-table" style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 24, overflow: 'hidden', boxShadow: '0 16px 44px -24px rgba(28,63,92,.24)' }}>
             {/* en-têtes */}
             <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr' }}>
               <div style={{ padding: '22px 24px' }} />
@@ -422,12 +443,13 @@ export default function Landing() {
               )
             })}
           </div>
+          </div>
         </div>
       </section>
 
       {/* ---- Installation ---- */}
       <section id="install" style={{ background: '#F9F9FB', padding: '88px 0' }}>
-        <div style={{ maxWidth: 920, margin: '0 auto', padding: '0 32px', textAlign: 'center' }}>
+        <div className="ch-pad" style={{ maxWidth: 920, margin: '0 auto', padding: '0 32px', textAlign: 'center' }}>
           <span style={eyebrow('#2F9E79')}>INSTALLATION</span>
           <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Une balise. Une minute. C'est tout.</h2>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px auto 0', maxWidth: 560 }}>Copiez-collez cette balise dans votre page — aucun autre réglage.</p>
@@ -449,7 +471,7 @@ export default function Landing() {
 
       {/* ---- Logos ---- */}
       <section style={{ background: '#F0F2F5', padding: '54px 0' }}>
-        <div style={{ maxWidth: 1080, margin: '0 auto', padding: '0 32px', textAlign: 'center' }}>
+        <div className="ch-pad" style={{ maxWidth: 1080, margin: '0 auto', padding: '0 32px', textAlign: 'center' }}>
           <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '.08em', color: '#9AA7B4', textTransform: 'uppercase' }}>Déjà adopté par des équipes qui comptent chaque euro</div>
           <div style={{ marginTop: 30, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 46 }}>
             {LOGOS.map(l => <span key={l} className="ch-logo" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 23, color: '#6B7B8D', opacity: .55 }}>{l}</span>)}
@@ -459,7 +481,7 @@ export default function Landing() {
 
       {/* ---- Tarifs (cartes design · plans réels GET /api/public/plans) ---- */}
       <section id="pricing" style={{ background: '#F0F2F5', padding: '88px 0' }}>
-        <div style={{ maxWidth: 1180, margin: '0 auto', padding: '0 32px' }}>
+        <div className="ch-pad" style={{ maxWidth: 1180, margin: '0 auto', padding: '0 32px' }}>
           <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 660, margin: '0 auto 48px' }}>
             <span style={eyebrow('#2F9E79')}>TARIFS</span>
             <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Un prix frugal, comme le produit.</h2>
@@ -512,7 +534,7 @@ export default function Landing() {
 
       {/* ---- Témoignages ---- */}
       <section id="testi" style={{ background: '#F9F9FB', padding: '88px 0' }}>
-        <div style={{ maxWidth: 1180, margin: '0 auto', padding: '0 32px' }}>
+        <div className="ch-pad" style={{ maxWidth: 1180, margin: '0 auto', padding: '0 32px' }}>
           <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 46px' }}>
             <span style={eyebrow('#8C6DFF')}>TÉMOIGNAGES</span>
             <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Moins de tickets, plus de marge.</h2>
@@ -536,7 +558,7 @@ export default function Landing() {
       <section style={{ background: 'linear-gradient(135deg,#1C3F5C 0%,#15344b 100%)', padding: '90px 0', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: '-30%', left: '8%', width: 340, height: 340, background: 'radial-gradient(circle,rgba(47,158,121,.22),transparent 65%)' }} />
         <div style={{ position: 'absolute', bottom: '-40%', right: '6%', width: 380, height: 380, background: 'radial-gradient(circle,rgba(140,109,255,.2),transparent 65%)' }} />
-        <div className="ch-reveal" style={{ maxWidth: 760, margin: '0 auto', padding: '0 32px', textAlign: 'center', position: 'relative' }}>
+        <div className="ch-reveal ch-pad" style={{ maxWidth: 760, margin: '0 auto', padding: '0 32px', textAlign: 'center', position: 'relative' }}>
           <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 42, lineHeight: 1.12, letterSpacing: '-.02em', color: '#fff', margin: 0 }}>Prêt à maîtriser vos coûts de support ?</h2>
           <p style={{ fontFamily: JAKARTA, fontWeight: 500, fontSize: 18, lineHeight: 1.5, color: '#A8C0D0', margin: '16px auto 0', maxWidth: 520 }}>Installez la balise en une minute. Gardez l'humain là où il compte.</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 30, justifyContent: 'center' }}>
@@ -549,7 +571,7 @@ export default function Landing() {
 
       {/* ---- Footer ---- */}
       <footer style={{ background: '#1C3F5C', color: '#fff', padding: '62px 0 28px' }}>
-        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
+        <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
           <div className="ch-footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr 1fr', gap: 28 }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

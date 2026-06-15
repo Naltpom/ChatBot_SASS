@@ -242,9 +242,41 @@ const RANDOM_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', 
 const PRIMARY_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
 const SECONDARY_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
 
+// ---------------------------------------------------------------------------
+// Hook responsive (media queries impossibles en style inline) : matchMedia
+// + écoute du resize. SSR-safe (window absent -> false au 1er rendu).
+function useMediaQuery(query: string): boolean {
+  const get = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia(query).matches : false)
+  const [match, setMatch] = useState<boolean>(get)
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const mql = window.matchMedia(query)
+    const on = () => setMatch(mql.matches)
+    on()
+    // addEventListener moderne ; addListener en repli (Safari ancien).
+    if (mql.addEventListener) mql.addEventListener('change', on)
+    else mql.addListener(on)
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener('change', on)
+      else mql.removeListener(on)
+    }
+  }, [query])
+  return match
+}
+
 export default function BotWizard() {
   const { activeOrg } = useAuth()
   const navigate = useNavigate()
+  // Responsive : empilement du contenu en dessous de ~760px (mobile ~360-430px).
+  const mobile = useMediaQuery('(max-width: 760px)')
+  // Le shell (.main) réduit son padding à 16px 14px sous 860px : on aligne le
+  // breakout négatif de la page sur ce padding pour ne PAS provoquer d'overflow
+  // horizontal (le calcul -24 d'origine ne vaut qu'au padding desktop 22px/26px).
+  const shellNarrow = useMediaQuery('(max-width: 860px)')
+  const breakout: React.CSSProperties = shellNarrow
+    ? { marginLeft: -14, marginRight: -14, marginTop: -16, marginBottom: -56 }
+    : { margin: -24 }
 
   const [step, setStep] = useState<Step>('chat')
   const [qi, setQi] = useState(0)
@@ -397,11 +429,11 @@ export default function BotWizard() {
   const poolGoals = cur && cur.type === 'multi' ? cur.opts.filter(o => !goals.includes(o[0])) : []
 
   return (
-    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', minHeight: '100%', color: INK, margin: -24 }}>
+    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', minHeight: '100%', color: INK, ...breakout }}>
       {/* ---- En-tête avec pastilles d'étape ---- */}
       <header style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(249,249,251,.92)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '13px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: mobile ? '11px 16px' : '13px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: mobile ? 10 : 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <span style={{ width: 32, height: 32, borderRadius: 10, background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <ChapoteMark size={18} />
             </span>
@@ -421,14 +453,14 @@ export default function BotWizard() {
       </header>
 
       {error && (
-        <div style={{ maxWidth: 680, margin: '16px auto 0', padding: '0 28px' }}>
+        <div style={{ maxWidth: 680, margin: '16px auto 0', padding: mobile ? '0 16px' : '0 28px' }}>
           <div style={{ background: 'rgba(232,106,95,.08)', border: `1px solid rgba(232,106,95,.32)`, color: CORAL, borderRadius: 12, padding: '11px 14px', fontSize: 13.5, fontWeight: 600 }}>{error}</div>
         </div>
       )}
 
       {/* ============================ ÉTAPE 1 : CHAT ============================ */}
       {step === 'chat' && (
-        <div style={{ maxWidth: 680, margin: '0 auto', padding: '40px 28px 60px' }}>
+        <div style={{ maxWidth: 680, margin: '0 auto', padding: mobile ? '24px 16px 44px' : '40px 28px 60px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {/* feed des questions déjà répondues */}
             {QUESTIONS.slice(0, qi).map((q, i) => {
@@ -448,9 +480,9 @@ export default function BotWizard() {
               <>
                 <BotBubble text={cur.q} />
                 {cur.type === 'single' && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 2 }}>
+                  <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 2 }}>
                     {cur.opts.map(o => (
-                      <ChatChip key={o[0]} onClick={() => answerSingle(cur.key, o[0])}>{o[1]}</ChatChip>
+                      <ChatChip key={o[0]} fullWidth={mobile} onClick={() => answerSingle(cur.key, o[0])}>{o[1]}</ChatChip>
                     ))}
                   </div>
                 )}
@@ -466,14 +498,14 @@ export default function BotWizard() {
                         ))}
                       </div>
                     )}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end' }}>
+                    <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end' }}>
                       {poolGoals.map(o => (
-                        <ChatChip key={o[0]} onClick={() => toggleGoal(o[0])}>+ {o[1]}</ChatChip>
+                        <ChatChip key={o[0]} fullWidth={mobile} onClick={() => toggleGoal(o[0])}>+ {o[1]}</ChatChip>
                       ))}
                     </div>
                     {goals.length > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-                        <button onClick={nextMulti} style={primaryBtn}>Continuer →</button>
+                        <button onClick={nextMulti} style={{ ...primaryBtn, ...(mobile ? { width: '100%' } : null) }}>Continuer →</button>
                       </div>
                     )}
                   </div>
@@ -486,7 +518,7 @@ export default function BotWizard() {
 
       {/* ============================ ÉTAPE 2 : PRESET ============================ */}
       {step === 'preset' && (
-        <div style={{ maxWidth: 680, margin: '0 auto', padding: '40px 28px 60px', animation: 'cin .35s ease' }}>
+        <div style={{ maxWidth: 680, margin: '0 auto', padding: mobile ? '24px 16px 44px' : '40px 28px 60px', animation: 'cin .35s ease' }}>
           <div style={{ textAlign: 'center', marginBottom: 26 }}>
             <span style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>✨</span>
             <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 30, margin: '16px 0 0', letterSpacing: '-.02em' }}>Voici l'assistant de vos rêves</h1>
@@ -522,9 +554,9 @@ export default function BotWizard() {
               <div style={{ fontSize: 13, color: FAINT }}>{draftBranchCount} branches générées — vous les personnaliserez à l'étape suivante.</div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
-            <button onClick={() => { setStep('chat'); setQi(0) }} style={ghostBtn}>← Modifier mes réponses</button>
-            <button onClick={() => setStep('appearance')} style={{ ...primaryBtnLg, flex: 1 }}>Personnaliser l'apparence →</button>
+          <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>
+            <button onClick={() => { setStep('chat'); setQi(0) }} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Modifier mes réponses</button>
+            <button onClick={() => setStep('appearance')} style={{ ...primaryBtnLg, flex: 1, ...(mobile ? { width: '100%' } : null) }}>Personnaliser l'apparence →</button>
           </div>
         </div>
       )}
@@ -532,7 +564,7 @@ export default function BotWizard() {
       {/* ============================ ÉTAPE 3 : APPARENCE ============================ */}
       {step === 'appearance' && (
         <>
-          <div style={{ maxWidth: 1000, margin: '0 auto', padding: '34px 28px 90px', animation: 'cin .35s ease' }}>
+          <div style={{ maxWidth: 1000, margin: '0 auto', padding: mobile ? '22px 16px 200px' : '34px 28px 90px', animation: 'cin .35s ease' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
               <div>
                 <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 28, margin: 0, letterSpacing: '-.02em' }}>L'apparence de votre widget</h1>
@@ -541,7 +573,7 @@ export default function BotWizard() {
               <button onClick={surpriseMe} style={{ background: '#fff', color: '#7C5CE6', border: '1px solid rgba(140,109,255,.4)', borderRadius: 12, padding: '11px 16px', fontWeight: 600, fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' }}>🎲 Surprends-moi</button>
             </div>
 
-            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 18, padding: 24, marginTop: 20, maxWidth: 640 }}>
+            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 18, padding: mobile ? 16 : 24, marginTop: 20, maxWidth: 640 }}>
               <Label>Couleur principale</Label>
               <div style={{ display: 'flex', gap: 11, flexWrap: 'wrap' }}>
                 {PRIMARY_SWATCHES.map(c => (
@@ -549,7 +581,7 @@ export default function BotWizard() {
                 ))}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px', marginTop: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: '16px 18px', marginTop: 20 }}>
                 <SegBlock label="Style de fond" value={look.gradient ? 'grad' : 'solid'} opts={[['solid', 'Uni'], ['grad', 'Dégradé']]} onPick={v => patchLook({ gradient: v === 'grad' })} />
                 <div>
                   <Label>Couleur secondaire</Label>
@@ -586,20 +618,20 @@ export default function BotWizard() {
                      style={{ width: '100%', height: 44, border: '1px solid #D8DEE6', borderRadius: 12, padding: '0 14px', fontSize: 14.5 }} />
             </div>
 
-            <div style={{ display: 'flex', gap: 12, marginTop: 24, maxWidth: 640 }}>
-              <button onClick={() => setStep('preset')} style={ghostBtn}>← Retour</button>
-              <button onClick={goToTree} style={{ ...primaryBtnLg, flex: 1 }}>Continuer vers l'arbre →</button>
+            <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24, maxWidth: 640 }}>
+              <button onClick={() => setStep('preset')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Retour</button>
+              <button onClick={goToTree} style={{ ...primaryBtnLg, flex: 1, ...(mobile ? { width: '100%' } : null) }}>Continuer vers l'arbre →</button>
             </div>
           </div>
 
-          {/* widget LIVE fixé en bas de page */}
-          <LiveWidget look={look} collapsed={collapsed} onCollapse={() => setCollapsed(true)} onExpand={() => setCollapsed(false)} />
+          {/* widget LIVE fixé en bas de page (réduit + repliable en mobile) */}
+          <LiveWidget look={look} mobile={mobile} collapsed={collapsed} onCollapse={() => setCollapsed(true)} onExpand={() => setCollapsed(false)} />
         </>
       )}
 
       {/* ============================ ÉTAPE 4 : ARBRE ============================ */}
       {step === 'tree' && (
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '34px 28px 70px', animation: 'cin .35s ease' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: mobile ? '22px 16px 56px' : '34px 28px 70px', animation: 'cin .35s ease' }}>
           <div style={{ marginBottom: 18 }}>
             <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 28, margin: 0, letterSpacing: '-.02em' }}>Votre arbre de conversation</h1>
             <p style={{ fontSize: 15, color: MUT, margin: '8px 0 0', maxWidth: 560 }}>Chaque réponse route vers une autre question, l'IA, un conseiller ou une action. Personnalisez tout ci-dessous — c'est exactement l'arbre que vous retrouverez dans l'éditeur.</p>
@@ -614,9 +646,9 @@ export default function BotWizard() {
             maxNodes={usage?.max_tree_nodes ?? null}
           />
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
-            <button onClick={() => setStep('appearance')} style={ghostBtn} disabled={busy}>← Retour</button>
-            <button onClick={createBot} disabled={busy} style={{ ...primaryBtnLg, flex: 1, background: MINT, opacity: busy ? 0.7 : 1 }}>
+          <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>
+            <button onClick={() => setStep('appearance')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }} disabled={busy}>← Retour</button>
+            <button onClick={createBot} disabled={busy} style={{ ...primaryBtnLg, flex: 1, background: MINT, opacity: busy ? 0.7 : 1, ...(mobile ? { width: '100%' } : null) }}>
               {busy ? 'Création…' : 'Créer mon chatbot ✓'}
             </button>
           </div>
@@ -625,7 +657,7 @@ export default function BotWizard() {
 
       {/* ============================ ÉTAPE 5 : DONE ============================ */}
       {step === 'done' && (
-        <div style={{ maxWidth: 520, margin: '0 auto', padding: '80px 28px', textAlign: 'center', animation: 'cin .35s ease' }}>
+        <div style={{ maxWidth: 520, margin: '0 auto', padding: mobile ? '56px 16px' : '80px 28px', textAlign: 'center', animation: 'cin .35s ease' }}>
           <span style={{ width: 84, height: 84, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="46" height="46" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10.5" stroke={MINT} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </span>
@@ -679,9 +711,9 @@ function UserBubble({ text }: { text: string }) {
     </div>
   )
 }
-function ChatChip({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+function ChatChip({ children, onClick, fullWidth }: { children: React.ReactNode; onClick: () => void; fullWidth?: boolean }) {
   return (
-    <button onClick={onClick} style={{ border: '1px solid #D8DEE6', background: '#fff', color: NAVY, borderRadius: 999, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer', transition: 'all .15s' }}
+    <button onClick={onClick} style={{ border: '1px solid #D8DEE6', background: '#fff', color: NAVY, borderRadius: 999, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer', transition: 'all .15s', width: fullWidth ? '100%' : undefined, textAlign: fullWidth ? 'center' : undefined }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = MINT; e.currentTarget.style.background = 'rgba(47,158,121,.06)' }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = '#D8DEE6'; e.currentTarget.style.background = '#fff' }}>
       {children}
@@ -721,15 +753,18 @@ function SegBlock({ label, value, opts, onPick }: { label: string; value: string
 // ---------------------------------------------------------------------------
 // Widget live (aperçu fixe bas de page de l'étape Apparence) — porté de
 // BotCreate.dc.html (liveWidget) + ChapoteWidget.dc.html.
-function LiveWidget({ look, collapsed, onCollapse, onExpand }: {
-  look: Look; collapsed: boolean; onCollapse: () => void; onExpand: () => void
+function LiveWidget({ look, mobile, collapsed, onCollapse, onExpand }: {
+  look: Look; mobile?: boolean; collapsed: boolean; onCollapse: () => void; onExpand: () => void
 }) {
   const radMap: Record<string, number> = { sm: 10, md: 18, lg: 26 }
   const cardRadMap: Record<string, number> = { sm: 8, md: 12, lg: 16 }
   const fontMap: Record<string, number> = { sm: 12.5, md: 13.5, lg: 15 }
   const headerBg = look.gradient ? `linear-gradient(135deg,${look.color} 0%,${look.color2 || MINT} 100%)` : look.color
   const dark = look.dark
-  const w = look.big ? 384 : 320
+  // En mobile : largeur bornée au viewport (jamais plein écran) et offsets réduits.
+  const baseW = look.big ? 384 : 320
+  const w = mobile ? `min(${baseW}px, calc(100vw - 24px))` : baseW
+  const edge = mobile ? 12 : 24
   const side = look.position === 'br' ? 'right' : 'left'
   const tint = `rgba(${parseInt(look.color.slice(1, 3), 16)},${parseInt(look.color.slice(3, 5), 16)},${parseInt(look.color.slice(5, 7), 16)},0.10)`
   const cardBg = dark ? '#26333E' : '#fff'
@@ -744,7 +779,7 @@ function LiveWidget({ look, collapsed, onCollapse, onExpand }: {
   const isLogo = !!look.logoUrl
 
   return (
-    <div style={{ position: 'fixed', bottom: 24, [side]: 24, zIndex: 50, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12, animation: 'cin .4s ease' } as React.CSSProperties}>
+    <div style={{ position: 'fixed', bottom: edge, [side]: edge, zIndex: 50, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12, animation: 'cin .4s ease' } as React.CSSProperties}>
       {!collapsed && (
         <div style={{ width: w, background: shellBg, border: `1px solid ${shellBorder}`, borderRadius: radMap[look.radius], overflow: 'hidden', boxShadow: '0 26px 60px -20px rgba(28,63,92,.45)' }}>
           <div style={{ background: headerBg, color: '#fff', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 11 }}>
@@ -761,7 +796,7 @@ function LiveWidget({ look, collapsed, onCollapse, onExpand }: {
             </div>
             <button onClick={onCollapse} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', opacity: .85, fontSize: 20, lineHeight: 1, padding: '0 2px' }}>×</button>
           </div>
-          <div style={{ padding: 15, background: panelBg, minHeight: 132 }}>
+          <div style={{ padding: 15, background: panelBg, minHeight: mobile ? 96 : 132 }}>
             <div style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: cardText, borderRadius: cardRadMap[look.radius], padding: '10px 13px', fontSize: font, lineHeight: 1.45, maxWidth: '88%' }}>{look.welcome}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 9 }}>
               {['Suivre ma commande', 'Une question'].map(c => (

@@ -137,6 +137,58 @@ button { font-family: inherit; }
 .main { flex: 1; min-width: 0; padding: 22px 26px 60px; }
 .main-inner { max-width: 1060px; margin: 0 auto; }
 
+/* ---------- Shell responsive : drawer off-canvas + barre haute mobile ----------
+   Desktop (>860px) : RIEN ne change (sidebar 248px sticky, topbar masquée).
+   Mobile (≤860px) : la sidebar devient un drawer fixe (translateX hors-écran
+   par défaut, .open = visible), une barre haute apparaît avec le hamburger,
+   et un backdrop sombre se pose derrière le drawer. */
+.topbar-mobile { display: none; }
+.sidebar-backdrop { display: none; }
+
+@media (max-width: 860px) {
+  /* Drawer : sorti de flux, glisse depuis la gauche. */
+  .sidebar {
+    position: fixed; top: 0; left: 0; height: 100vh; height: 100dvh;
+    width: 248px; max-width: 86vw; z-index: 210;
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    box-shadow: var(--shadow-lg);
+    overflow-y: auto;
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  /* Backdrop sombre, sous le drawer mais au-dessus du contenu. */
+  .sidebar-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 200;
+    background: rgba(28, 63, 92, .42);
+  }
+
+  /* Barre haute : logo + hamburger. */
+  .topbar-mobile {
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 90;
+    height: 56px; padding: 0 14px;
+    background: var(--side); border-bottom: 1px solid var(--border);
+  }
+  .topbar-mobile-logo { display: flex; align-items: center; gap: 9px; }
+  .topbar-mobile-logo .brand-name {
+    font-family: var(--display); font-weight: 600; font-size: 18px;
+    letter-spacing: -.01em; color: var(--ink); line-height: 1;
+  }
+  .topbar-mobile .sidebar-logo-mark { width: 30px; height: 30px; border-radius: 9px; }
+  .topbar-burger {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--ink); cursor: pointer;
+  }
+  .topbar-burger:hover { background: #F4F6F8; }
+
+  /* Le shell s'empile : barre haute en ligne, contenu pleine largeur. */
+  .shell { flex-direction: column; }
+  .main { padding: 16px 14px 56px; }
+}
+
 /* ---------- Org switcher ---------- */
 .orgsw { position: relative; margin-bottom: 14px; }
 .orgsw-btn {
