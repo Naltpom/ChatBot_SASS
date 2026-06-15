@@ -4,8 +4,8 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Bot, Building2, Check, ChevronDown, CircleUser,
-  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, ReceiptText, ShieldCheck,
-  Users,
+  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ReceiptText,
+  ShieldCheck, Users,
 } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
@@ -64,6 +64,8 @@ function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | 
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, activeOrg, setActiveOrg, logout, refreshUser } = useAuth()
   const [usage, setUsage] = useState<Usage | null>(null)
+  // Drawer mobile (off-canvas) — desktop n'utilise jamais cet état.
+  const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   // Org déjà resynchronisée après un 404 (anti-boucle : une fois par org)
@@ -71,6 +73,9 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   const path = location.pathname
   const inAdmin = path.startsWith('/admin')
+
+  // Fermeture auto du drawer à chaque changement de route.
+  useEffect(() => { setMobileOpen(false) }, [location.pathname])
 
   useEffect(() => {
     if (!activeOrg || inAdmin) return
@@ -91,7 +96,26 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      {/* Barre haute mobile (≤860px) — logo + hamburger. Cachée en desktop (CSS). */}
+      <div className="topbar-mobile">
+        <Link to="/app" className="topbar-mobile-logo">
+          <span className="sidebar-logo-mark" aria-hidden="true">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+              <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" />
+              <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="brand-name">Chapote</span>
+        </Link>
+        <button className="topbar-burger" aria-label="Menu" onClick={() => setMobileOpen(true)}>
+          <Menu size={20} />
+        </button>
+      </div>
+
+      {/* Backdrop du drawer — visible seulement quand ouvert (mobile). */}
+      {mobileOpen && <div className="sidebar-backdrop" onClick={() => setMobileOpen(false)} aria-hidden="true" />}
+
+      <aside className={`sidebar ${mobileOpen ? 'open' : ''}`}>
         <Link to="/app" className="sidebar-logo">
           <span className="sidebar-logo-mark" aria-hidden="true">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
