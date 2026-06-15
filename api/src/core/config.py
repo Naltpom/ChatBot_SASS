@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     TURNSTILE_SITE_KEY: Optional[str] = None
     TURNSTILE_SECRET_KEY: Optional[str] = None
 
-    # --- Auth intranet Kertios (meme flux qu'ao_scrapping) ---
+    # --- Auth intranet (meme flux qu'ao_scrapping) ---
     # Les comptes @kertios.com authentifies via l'intranet deviennent
     # superadmins du SaaS (vue sur tous les clients).
     INTRANET_AUTH_URL: str = "https://intranet.kertios.com/main/auth_ret"

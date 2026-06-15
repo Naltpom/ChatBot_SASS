@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('inviter un email sans compte crée une invitation en attente', async ({ page }) => {
-  const email = `invite.${Date.now()}@e2e-kertios.fr`
+  const email = `invite.${Date.now()}@e2e-chapote.fr`
 
   await page.goto('/app/team')
   await expect(page.getByText('Équipe & permissions')).toBeVisible()

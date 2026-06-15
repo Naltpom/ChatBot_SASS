@@ -36,7 +36,7 @@ test('éditeur webhook : hints, save, secret jamais re-affiché', async ({ page,
   await expect(nameHint).toBeHidden()
 
   // URL http → hint, corrigée en https://e2e.invalid (jamais résolue)
-  const urlInput = page.getByPlaceholder('https://api.votre-site.fr/hooks/kertios')
+  const urlInput = page.getByPlaceholder('https://api.votre-site.fr/hooks/chapote')
   const urlHint = page.getByText("L'URL doit commencer par https://")
   await urlInput.fill('http://e2e.invalid/hook')
   await expect(urlHint).toBeVisible()

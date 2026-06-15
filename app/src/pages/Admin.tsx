@@ -53,7 +53,7 @@ export default function AdminHome() {
 
   return (
     <div className="col g18">
-      <SectionTitle sub="Tous les clients Kertios Chat — vue opérateur.">Clients</SectionTitle>
+      <SectionTitle sub="Tous les clients Chapote — vue opérateur.">Clients</SectionTitle>
 
       <div className="stat-row">
         <Stat label="Clients" value={orgs.length} icon={<Building2 size={15} />} sub="organisations" />

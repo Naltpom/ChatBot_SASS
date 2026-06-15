@@ -17,6 +17,10 @@ RUN bun run build
 FROM nginx:alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Porte de maintenance : génère /etc/nginx/maintenance_gate.conf au démarrage
+# (lu par l'entrypoint officiel nginx) à partir de MAINTENANCE_MODE / ALLOW_MAINTENANCE_IPS.
+COPY docker-maintenance-gate.sh /docker-entrypoint.d/40-maintenance-gate.sh
+RUN chmod +x /docker-entrypoint.d/40-maintenance-gate.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80

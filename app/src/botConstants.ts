@@ -1,4 +1,4 @@
-// Constantes partagées — wording porté du prototype Kertios Chat.
+// Constantes partagées — wording porté du prototype Chapote.
 
 // Modèles proposés en radio-cards (design pages-bot.jsx), avec le multiplicateur
 // de coût en crédits affiché en chip.

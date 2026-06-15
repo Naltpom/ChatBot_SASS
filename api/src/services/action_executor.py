@@ -345,7 +345,7 @@ async def _webhook(action: dict, args: dict, bot, conversation_id: Optional[str]
         raise ActionError("Secret du webhook indéchiffrable — reconfigurez-le dans le dashboard")
     if secret:
         signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-        headers["X-Kertios-Signature"] = f"sha256={signature}"
+        headers["X-Chapote-Signature"] = f"sha256={signature}"
 
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:

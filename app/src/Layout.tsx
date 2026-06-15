@@ -1,4 +1,4 @@
-// Shell sidebar — porté du prototype Kertios Chat (sidebar 222px, logo, org
+// Shell sidebar — porté du prototype Chapote (sidebar 222px, logo, org
 // switcher, nav, bloc plan/crédits). Deux modes déduits du pathname :
 // /app/* = espace client (OrgSwitcher + usage), /admin/* = back-office staff.
 import { ReactNode, useEffect, useRef, useState } from 'react'
@@ -92,9 +92,9 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="shell">
       <aside className="sidebar">
         <Link to="/app" className="sidebar-logo">
-          <img src="/brand/icon.svg" alt="Kertios" />
+          <img src="/brand/icon.svg" alt="Chapote" />
           <div>
-            <div className="brand-name">Kertios <span>Chat</span></div>
+            <div className="brand-name">Chapote</div>
             <div className="brand-sub">{inAdmin ? 'Opérateur' : 'Chatbots hybrides'}</div>
           </div>
         </Link>

@@ -278,7 +278,7 @@ export default function BotWizard() {
               <div className="col g14">
                 <Field label="Clé API">
                   <Seg value={keyMode} onChange={setKeyMode}
-                       options={[{ value: 'managed', label: 'Kertios (managée)' }, { value: 'byok', label: 'BYOK' }]} />
+                       options={[{ value: 'managed', label: 'Chapote (managée)' }, { value: 'byok', label: 'BYOK' }]} />
                 </Field>
                 {keyMode === 'byok' && (
                   <input type="password" className="mono" placeholder="sk-ant-api03-…" value={byokKey}

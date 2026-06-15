@@ -71,7 +71,7 @@ async def safe_get(url: str, max_bytes: int) -> str:
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
             async with client.stream(
                 "GET", pinned_url,
-                headers={"Host": host_header, "User-Agent": "KertiosChat-KB/1.0"},
+                headers={"Host": host_header, "User-Agent": "Chapote-KB/1.0"},
                 extensions={"sni_hostname": hostname},
             ) as resp:
                 if 300 <= resp.status_code < 400:

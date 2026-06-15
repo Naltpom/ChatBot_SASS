@@ -1,25 +1,11 @@
 <svg width="560" height="150" viewBox="0 0 560 150" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="g" x1="20" y1="34" x2="116" y2="130" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#12a392"></stop><stop offset="1" stop-color="#0b7d72"></stop>
-    </linearGradient>
-    <linearGradient id="sheen" x1="68" y1="34" x2="68" y2="130" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff" stop-opacity=".16"></stop><stop offset=".5" stop-color="#ffffff" stop-opacity="0"></stop>
-    </linearGradient>
-    
-  </defs>
-  
   <g transform="translate(20 34)">
-    <rect width="96" height="96" rx="22" fill="url(#g)"></rect>
-    <rect width="96" height="96" rx="22" fill="url(#sheen)"></rect>
-    <g transform="scale(0.1875)" stroke="#ffffff" stroke-width="50" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M188 142 V370"></path>
-      <path d="M200 256 L320 162"></path>
-      <path d="M200 256 L330 372"></path>
+    <rect width="96" height="96" rx="22" fill="#1C3F5C"></rect>
+    <g transform="translate(8 8) scale(3.33)" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1"></path>
+      <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2"></path>
     </g>
-    <circle cx="67.5" cy="25.1" r="5.6" fill="#5eead4"></circle>
   </g>
-  
-  <text class="wm" x="140" y="78" font-size="44" font-weight="800" letter-spacing="-1" fill="#0f2a24">Kertios <tspan fill="#0d9488">AO</tspan></text>
-  <text class="wm" x="142" y="106" font-size="14.5" font-weight="600" letter-spacing="3.2" fill="#5f7873">VEILLE &amp; RÉPONSE APPELS D&#39;OFFRES</text>
+  <text x="140" y="80" font-family="'Clash Display','Public Sans',system-ui,sans-serif" font-size="50" font-weight="700" letter-spacing="-1" fill="#1E2A32">Chapote</text>
+  <text x="142" y="108" font-family="'Public Sans',system-ui,sans-serif" font-size="13.5" font-weight="600" letter-spacing="3.2" fill="#2F9E79">CHATBOT HYBRIDE FRANÇAIS</text>
 </svg>

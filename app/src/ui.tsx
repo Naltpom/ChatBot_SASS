@@ -1,4 +1,4 @@
-// Primitives UI portées du prototype Kertios Chat (primitives.jsx + widget.jsx).
+// Primitives UI portées du prototype Chapote (primitives.jsx + widget.jsx).
 // Icônes : lucide-react, même librairie qu'ao_scrapping.
 import { Children, Fragment, isValidElement, ReactNode, useId } from 'react'
 import { AlertTriangle, Pause } from 'lucide-react'

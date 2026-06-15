@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Chapote — Maintenance en cours</title>
+  <style>
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
+      font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      color:#1E2A32;background:#F9F9FB;
+      background-image:radial-gradient(circle at 12% 16%,rgba(47,158,121,.08) 0%,transparent 46%),
+                       radial-gradient(circle at 88% 26%,rgba(140,109,255,.07) 0%,transparent 44%);
+      padding:24px;-webkit-font-smoothing:antialiased;
+    }
+    .card{max-width:520px;width:100%;text-align:center}
+    .logo{width:64px;height:64px;border-radius:18px;background:#1C3F5C;display:inline-flex;
+          align-items:center;justify-content:center;box-shadow:0 16px 34px -16px rgba(28,63,92,.5)}
+    h1{font-size:30px;line-height:1.15;letter-spacing:-.02em;margin:26px 0 0;color:#1E2A32}
+    .accent{color:#2F9E79}
+    p{font-size:17px;line-height:1.55;color:#6B7B8D;margin:14px auto 0;max-width:420px}
+    .badge{display:inline-flex;align-items:center;gap:8px;margin-top:26px;padding:9px 16px;border-radius:999px;
+           background:rgba(47,158,121,.1);border:1px solid rgba(47,158,121,.26);color:#1C7A5C;font-size:13px;font-weight:600}
+    .dot{width:8px;height:8px;border-radius:50%;background:#2F9E79;animation:pulse 2.4s infinite}
+    .foot{margin-top:34px;font-size:13px;color:#9AA7B4}
+    @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(47,158,121,.55)}70%{box-shadow:0 0 0 7px rgba(47,158,121,0)}100%{box-shadow:0 0 0 0 rgba(47,158,121,0)}}
+    @media (prefers-reduced-motion:reduce){.dot{animation:none}}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <span class="logo" aria-hidden="true">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+        <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+    <h1>Chapote revient <span class="accent">très vite</span></h1>
+    <p>Nous effectuons une opération de maintenance pour améliorer le service. Merci de votre patience — réessayez dans quelques minutes.</p>
+    <span class="badge"><span class="dot"></span>Maintenance en cours</span>
+    <div class="foot">🇫🇷 Hébergement français · Conforme RGPD</div>
+  </main>
+</body>
+</html>

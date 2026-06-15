@@ -1,4 +1,4 @@
-"""Back-office superadmin (staff Kertios) : vue sur tous les clients, leurs
+"""Back-office superadmin (staff) : vue sur tous les clients, leurs
 bots, leurs membres ; changement de plan ; activation/desactivation.
 
 Pour CONFIGURER un bot client, l'admin utilise les memes endpoints /api/bots/*

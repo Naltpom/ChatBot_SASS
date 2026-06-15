@@ -103,6 +103,11 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8001}
     container_name: chatbot-app
     restart: unless-stopped
+    # Porte de maintenance (nginx) : redirige tout le monde vers la page de
+    # maintenance SAUF les IP listées. Toggle sans rebuild (recrée le conteneur).
+    environment:
+      - MAINTENANCE_MODE=${MAINTENANCE_MODE:-on}
+      - ALLOW_MAINTENANCE_IPS=${ALLOW_MAINTENANCE_IPS:-}
     ports:
       - "${APP_PORT:-3001}:80"
     depends_on:

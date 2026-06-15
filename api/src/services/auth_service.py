@@ -1,8 +1,8 @@
-"""Authentification : intranet Kertios d'abord (si active), fallback local.
+"""Authentification : intranet d'abord (si active), fallback local.
 
 Meme flux qu'ao_scrapping : POST {mail, mdp} sur INTRANET_AUTH_URL, succes si
-redirect vers /main ou JSON {"retour": "Ok"}. Les comptes intranet (staff
-Kertios) sont crees superadmins du SaaS : vue sur tous les clients.
+redirect vers /main ou JSON {"retour": "Ok"}. Les comptes intranet (staff)
+sont crees superadmins du SaaS : vue sur tous les clients.
 """
 import logging
 from datetime import datetime

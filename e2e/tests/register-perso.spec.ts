@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
 
 test('inscription compte Personnel : arrivée sur /app avec l\'org « Espace de … »', async ({ page }) => {
   const prenom = 'Testeur'
-  const email = `e2e.perso.${Date.now()}@e2e-kertios.fr`
+  const email = `e2e.perso.${Date.now()}@e2e-chapote.fr`
 
   await page.goto('/register')
 

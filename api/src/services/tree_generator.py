@@ -65,7 +65,7 @@ async def fetch_page_text(url: str) -> str:
         raise TreeGenerationError("URL invalide (http/https uniquement)")
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (KertiosChat TreeBuilder)"})
+            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Chapote TreeBuilder)"})
             resp.raise_for_status()
             html = resp.text
     except httpx.HTTPError as e:

@@ -1,5 +1,5 @@
 /**
- * Kertios Chat — widget embarquable.
+ * Chapote — widget embarquable.
  *
  * Usage flottant :
  *   <script src="https://api.exemple.com/widget.js" data-bot-key="pk_xxx" defer></script>
@@ -10,7 +10,7 @@
  * permet que d'initialiser une session (vérifiée côté serveur : domaine
  * whitelisté + captcha + rate limits). Aucune clé IA ne transite ici.
  *
- * Design : prototype "Kertios Chat" (claude.ai/design) — widget.jsx.
+ * Design : prototype "Chapote" (claude.ai/design) — widget.jsx.
  */
 (function () {
   "use strict";
@@ -24,9 +24,9 @@
   var BOT_KEY = script.getAttribute("data-bot-key");
   if (!BOT_KEY) return;
   // Anti double-initialisation : un seul widget par clé même si le script est inclus deux fois
-  window.__kertiosChat = window.__kertiosChat || {};
-  if (window.__kertiosChat[BOT_KEY]) return;
-  window.__kertiosChat[BOT_KEY] = true;
+  window.__chapoteChat = window.__chapoteChat || {};
+  if (window.__chapoteChat[BOT_KEY]) return;
+  window.__chapoteChat[BOT_KEY] = true;
   var INLINE = script.getAttribute("data-inline") === "true";
   var API = script.src.replace(/\/widget\.js.*$/, "");
 
@@ -411,15 +411,15 @@
       ".kc-back{align-self:flex-start;font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:99px;",
       "border:1px solid #d8dedc;background:#fff;color:#5f7873;cursor:pointer}",
       ".kc-typing{display:flex}.kc-typing>div{padding:10px 14px;border-radius:4px 14px 14px 14px;background:" + botBg + ";border:1px solid " + botBorder + ";display:flex;gap:4px;align-items:center}",
-      ".kc-td{width:6px;height:6px;border-radius:9px;background:#b9c4c0;display:inline-block;animation:kertiosBlink 1.2s infinite}",
+      ".kc-td{width:6px;height:6px;border-radius:9px;background:#b9c4c0;display:inline-block;animation:chapoteBlink 1.2s infinite}",
       ".kc-td:nth-child(2){animation-delay:.18s}.kc-td:nth-child(3){animation-delay:.36s}",
-      ".kc-typing.wave .kc-td{background:" + brand + ";animation:kertiosWave 1s infinite ease-in-out}",
+      ".kc-typing.wave .kc-td{background:" + brand + ";animation:chapoteWave 1s infinite ease-in-out}",
       ".kc-typing.wave .kc-td:nth-child(2){animation-delay:.14s}.kc-typing.wave .kc-td:nth-child(3){animation-delay:.28s}",
-      ".kc-typing.pulse .kc-td{width:10px;height:10px;background:" + brand + ";animation:kertiosPulse 1s infinite ease-in-out}",
+      ".kc-typing.pulse .kc-td{width:10px;height:10px;background:" + brand + ";animation:chapotePulse 1s infinite ease-in-out}",
       ".kc-typing.pulse .kc-td:nth-child(2),.kc-typing.pulse .kc-td:nth-child(3){display:none}",
-      "@keyframes kertiosBlink{0%,80%,100%{opacity:.35}40%{opacity:1}}",
-      "@keyframes kertiosWave{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}",
-      "@keyframes kertiosPulse{0%,100%{transform:scale(.7);opacity:.5}50%{transform:scale(1.15);opacity:1}}",
+      "@keyframes chapoteBlink{0%,80%,100%{opacity:.35}40%{opacity:1}}",
+      "@keyframes chapoteWave{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}",
+      "@keyframes chapotePulse{0%,100%{transform:scale(.7);opacity:.5}50%{transform:scale(1.15);opacity:1}}",
       ".kc-inputrow{border-top:1px solid " + lineBorder + ";padding:10px;display:flex;gap:8px;background:" + panelBg + "}",
       ".kc-input{flex:1;font-family:inherit;font-size:13.5px;padding:10px 13px;border-radius:99px;border:1px solid " + inputBorder + ";",
       "outline:none;background:" + inputBg + ";color:" + botText + ";min-width:0}",
@@ -516,7 +516,7 @@
 
     if (d.poweredBy !== false) {
       var powered = el("div", "kc-powered");
-      powered.innerHTML = t("powered_by") + " <b>Kertios Chat</b>";
+      powered.innerHTML = t("powered_by") + " <b>Chapote</b>";
       ui.panel.appendChild(powered);
     }
     root.appendChild(ui.panel);
@@ -1201,6 +1201,6 @@
       });
     })
     .catch(function (err) {
-      console.warn("[kertios-chat]", err.message);
+      console.warn("[chapote-chat]", err.message);
     });
 })();

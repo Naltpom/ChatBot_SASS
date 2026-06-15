@@ -156,7 +156,7 @@ async def _initialize(url: str, headers: dict) -> Optional[str]:
     _, resp_headers = await _rpc(url, headers, {
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"protocolVersion": _PROTOCOL_VERSION, "capabilities": {},
-                   "clientInfo": {"name": "kertios-chat", "version": "1.0"}},
+                   "clientInfo": {"name": "chapote", "version": "1.0"}},
     })
     sid = None
     for key, value in resp_headers.items():

@@ -76,7 +76,7 @@ test('lead : validation → POST /lead 200 → onglet Leads du dashboard + expor
   await expect(form.locator('.kc-lead-err')).toHaveText("Merci d'indiquer un email valide.")
 
   // UN SEUL envoi réel (lead_limiter 5/h/session)
-  const email = `lead.${Date.now()}@e2e-kertios.fr`
+  const email = `lead.${Date.now()}@e2e-chapote.fr`
   await emailInput.fill(email)
   await messageInput.fill('Demande envoyée par la suite e2e.')
   const leadResp = page.waitForResponse(r => r.url().includes('/api/widget/lead'))

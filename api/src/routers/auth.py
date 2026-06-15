@@ -1,5 +1,5 @@
 """Auth dashboard : inscription perso/entreprise (+ invitations), login
-(intranet Kertios -> local), auto-login admin en dev, profil (nom, mot de passe)."""
+(intranet -> local), auto-login admin en dev, profil (nom, mot de passe)."""
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -183,7 +183,7 @@ async def change_password(body: PasswordChange, request: Request,
     await _check_auth_rate(request)  # anti-bruteforce du mot de passe actuel
     if user.auth_source != "local":
         raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "Compte géré par l'intranet Kertios : le mot de passe se modifie dans l'intranet")
+                            "Compte géré par l'intranet : le mot de passe se modifie dans l'intranet")
     if not verify_password(body.current_password, user.hashed_password):
         # 403 et non 401 : cote front, 401 = token invalide (purge + /login).
         # Une faute de frappe ne doit pas deconnecter une session valide.

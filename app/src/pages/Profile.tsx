@@ -1,6 +1,6 @@
 // Page Profil — sobre et utile : nom éditable, infos compte en lecture seule,
 // changement de mot de passe (comptes LOCAUX uniquement, les comptes intranet
-// sont gérés par l'intranet Kertios).
+// sont gérés par l'intranet).
 import { useState } from 'react'
 import { Check, ShieldCheck } from 'lucide-react'
 import { api } from '../api'
@@ -93,11 +93,11 @@ export default function Profile() {
           <div style={{ marginTop: 14 }}>
             <InfoRow label="Email"><span className="mono" style={{ fontSize: 11.5 }}>{user.email}</span></InfoRow>
             <InfoRow label="Authentification">
-              {intranet ? <Chip tone="acc">Intranet Kertios</Chip> : <Chip tone="mut">Compte local</Chip>}
+              {intranet ? <Chip tone="acc">Intranet</Chip> : <Chip tone="mut">Compte local</Chip>}
             </InfoRow>
             <InfoRow label="Rôle">
               {user.is_superadmin
-                ? <Chip tone="acc"><ShieldCheck size={12} /> Staff Kertios</Chip>
+                ? <Chip tone="acc"><ShieldCheck size={12} /> Staff</Chip>
                 : <Chip tone="mut">Client</Chip>}
             </InfoRow>
             <InfoRow label="Membre depuis">{fmtDate(user.created_at)}</InfoRow>
@@ -109,7 +109,7 @@ export default function Profile() {
           <div className="card-title">Mot de passe</div>
           {intranet ? (
             <InfoBox tone="info" title="Compte intranet">
-              Votre mot de passe est géré par l'intranet Kertios. Modifiez-le là-bas — il sera
+              Votre mot de passe est géré par l'intranet. Modifiez-le là-bas — il sera
               pris en compte ici à votre prochaine connexion.
             </InfoBox>
           ) : (

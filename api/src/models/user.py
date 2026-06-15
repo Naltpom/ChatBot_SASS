@@ -3,7 +3,7 @@
 Une personne peut appartenir a PLUSIEURS organisations. Une organisation est de
 type "perso" (une seule personne, meme architecture) ou "entreprise" (equipe).
 Roles : admin (tout gerer) / member (permissions fines PAR BOT : copy, test,
-appearance, context, security, inbox). Les superadmins (staff Kertios) voient tout.
+appearance, context, security, inbox). Les superadmins (staff) voient tout.
 
 Invitation : membre invite par email sans compte existant -> rejoint
 automatiquement l'organisation a la creation de son compte.

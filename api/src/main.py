@@ -2,7 +2,7 @@
 
 Surfaces :
 - /api/auth, /api/orgs, /api/bots, /api/stats : dashboard clients (CORS strict)
-- /api/admin/*                  : back-office superadmin (staff Kertios)
+- /api/admin/*                  : back-office superadmin (staff)
 - /api/billing/webhook          : webhook Stripe (auth = signature HMAC)
 - /api/widget/*                 : endpoints publics du widget embarque
                                   (CORS ouvert, controle reel = whitelist de

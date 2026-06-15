@@ -544,7 +544,7 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
 
           {d.poweredBy !== false && (
             <div style={{ textAlign: 'center', fontSize: 10, color: dark ? '#6b7a76' : '#9aa7a3', padding: '0 0 7px', background: panelBg }}>
-              {t('powered_by')} <span style={{ fontWeight: 700, color: '#0d9488' }}>Kertios Chat</span>
+              {t('powered_by')} <span style={{ fontWeight: 700, color: '#0d9488' }}>Chapote</span>
             </div>
           )}
 

@@ -1,4 +1,4 @@
-// Inscription — portée de « Kertios Chat - Inscription.html » (design) :
+// Inscription — portée de « Chapote - Inscription.html » (design) :
 // type Personnel / Entreprise (même architecture, juste le type), infos,
 // invitations d'équipe (entreprise), succès → application.
 import { useState } from 'react'
@@ -16,7 +16,7 @@ function Shell({ children, step, total }: { children: React.ReactNode; step?: nu
         <div style={{ width: '100%', maxWidth: 660, padding: '26px 0 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none', color: 'var(--l-ink)' }}>
             <img src="/brand/icon.svg" alt="" style={{ width: 30, height: 30, borderRadius: 8 }} />
-            <span className="font-display" style={{ fontWeight: 700, fontSize: 16 }}>Kertios <span style={{ color: 'var(--l-teal)' }}>Chat</span></span>
+            <span className="font-display" style={{ fontWeight: 700, fontSize: 16 }}>Chapote</span>
           </Link>
           <Link to="/login" style={{ fontSize: 13, fontWeight: 600, color: 'var(--l-muted)', textDecoration: 'none' }}>
             Déjà un compte ? <span style={{ color: 'var(--l-teal-deep)' }}>Se connecter</span>

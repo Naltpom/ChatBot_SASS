@@ -1,407 +1,492 @@
-// Landing publique — portée de « Kertios Chat - Landing.html » (design) :
-// Bricolage Grotesque + accent serif italique, blobs, démo widget interactive,
-// Pourquoi hybride / Fonctionnement / Sécurité (bandeau sombre) / Tarifs / CTA.
+// Landing publique « Chapote » — port fidèle du design claude.ai/design
+// (Chapote Landing.dc.html, hero « Split »). Charte : navy #1C3F5C primaire,
+// mint #2F9E79 (local/RGPD), corail #E86A5F (humain), violet #8C6DFF (IA) ;
+// typo Clash Display / Plus Jakarta Sans / Inter / JetBrains Mono.
+// Sections : header sticky (blur), hero + widget animé, 4 piliers, comparatif,
+// installation (snippet copiable), logos, témoignages, CTA final, footer.
+// Auto-contenu : polices + keyframes/reveal/responsive injectés au montage
+// (portée landing uniquement, nettoyés au démontage). Pas de switcher de hero,
+// pas de cartes tarifs (le design renvoie « Tarifs » vers l'installation).
 import { useEffect, useState } from 'react'
-import { ChevronRight, GitBranch, ShieldCheck, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { PublicPlan, planFeatures } from '../botConstants'
-import WidgetPreview from '../components/WidgetPreview'
 
-const DEMO_DESIGN = {
-  primaryColor: '#0d9488', secondaryColor: null, position: 'right', size: 'md',
-  borderRadius: 16, icon: 'chat', avatarImage: '', bordered: false,
-  title: 'Assistant Marchand', placeholder: 'Écrivez votre message…',
-  loadingAnimation: 'dots', poweredBy: true,
+// ---- Polices + styles scoped (.chapote) injectés au montage ----------------
+const FONT_LINKS = [
+  ['preconnect', 'https://fonts.googleapis.com', ''],
+  ['preconnect', 'https://fonts.gstatic.com', 'anonymous'],
+  ['stylesheet', 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap', ''],
+  ['stylesheet', 'https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap', ''],
+] as const
+
+const CHAPOTE_CSS = `
+.chapote *{box-sizing:border-box;}
+.chapote ::selection{background:rgba(47,158,121,.22);}
+.chapote :focus-visible{outline:3px solid #1C3F5C;outline-offset:2px;}
+@keyframes ch-floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@keyframes ch-flashok{0%{transform:scale(1)}40%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes ch-in{0%{opacity:0;transform:translateY(9px) scale(.985)}100%{opacity:1;transform:none}}
+@keyframes ch-pulse{0%{box-shadow:0 0 0 0 rgba(47,158,121,.55)}70%{box-shadow:0 0 0 7px rgba(47,158,121,0)}100%{box-shadow:0 0 0 0 rgba(47,158,121,0)}}
+.ch-reveal{opacity:0;transform:translateY(28px);transition:opacity .7s cubic-bezier(.16,1,.3,1),transform .7s cubic-bezier(.16,1,.3,1);}
+.ch-reveal.is-in{opacity:1;transform:none;}
+.ch-navlink{text-decoration:none;color:#1E2A32;font-size:15px;font-weight:500;transition:color .2s;}
+.ch-navlink:hover{color:#2F9E79;}
+.ch-cta-primary{transition:transform .2s,box-shadow .2s;}
+.ch-cta-primary:hover{transform:scale(1.02);box-shadow:0 16px 32px -10px rgba(28,63,92,.7);}
+.ch-cta-secondary{transition:transform .2s,border-color .2s;}
+.ch-cta-secondary:hover{transform:scale(1.02);border-color:#2F9E79;}
+.ch-pilier{transition:transform .25s,box-shadow .25s;}
+.ch-pilier:hover{transform:translateY(-4px);box-shadow:0 24px 46px -22px rgba(28,63,92,.3);}
+.ch-cmp-row{transition:background .2s;}
+.ch-cmp-row:hover{background:rgba(47,158,121,.045);}
+.ch-logo{transition:opacity .2s,color .2s;}
+.ch-logo:hover{opacity:1 !important;color:#1C3F5C !important;}
+.ch-copy:hover{background:#268968 !important;}
+.ch-flink{text-decoration:none;color:rgba(255,255,255,.72);font-size:14px;transition:color .2s;}
+.ch-flink:hover{color:#fff;}
+.ch-cta-dark:hover{transform:scale(1.02);box-shadow:0 18px 36px -12px rgba(0,0,0,.5);}
+.ch-cta-coral:hover{transform:scale(1.02);background:#df5b50 !important;}
+.ch-menu-btn{display:none;}
+@media (max-width:920px){
+  .ch-nav-links{display:none !important;}
+  .ch-hero-split{grid-template-columns:1fr !important;gap:38px !important;text-align:center;}
+  .ch-hero-split .ch-hero-cta,.ch-hero-split .ch-hero-trust{justify-content:center;}
+  .ch-piliers-grid{grid-template-columns:1fr 1fr !important;}
+  .ch-footer-grid{grid-template-columns:1fr 1fr !important;gap:36px !important;}
+  .ch-menu-btn{display:flex !important;}
+}
+@media (max-width:600px){
+  .ch-piliers-grid{grid-template-columns:1fr !important;}
+  .ch-testi-grid{grid-template-columns:1fr !important;}
+  .ch-hero-h1{font-size:38px !important;}
+  .ch-section-h2{font-size:30px !important;}
+}
+@media (prefers-reduced-motion: reduce){.ch-reveal{opacity:1;transform:none;transition:none;}.chapote *{animation:none !important;}}
+`
+
+function useChapoteAssets() {
+  useEffect(() => {
+    const nodes: HTMLElement[] = []
+    FONT_LINKS.forEach(([rel, href, cors]) => {
+      const l = document.createElement('link')
+      l.rel = rel
+      l.href = href
+      if (cors) l.crossOrigin = cors
+      document.head.appendChild(l)
+      nodes.push(l)
+    })
+    const style = document.createElement('style')
+    style.textContent = CHAPOTE_CSS
+    document.head.appendChild(style)
+    nodes.push(style)
+    return () => { nodes.forEach(n => n.remove()) }
+  }, [])
 }
 
-const DEMO_TREE = {
-  start: 'root',
-  nodes: {
-    root: {
-      message: "Bonjour ! Je suis l'assistant du cabinet. Comment puis-je vous aider ?",
-      options: [
-        { label: 'Prendre rendez-vous', next: 'rdv' },
-        { label: 'Nos services', next: 'services' },
-        { label: 'Tarifs', next: 'tarifs' },
-        { label: 'Autre question', next: '__ai__' },
-      ],
-    },
-    rdv: {
-      message: 'Très bien ! Vous pouvez réserver un créneau directement en ligne, ou préférez-vous être rappelé ?',
-      options: [
-        { label: 'Réserver en ligne', next: 'rdv_ligne' },
-        { label: 'Être rappelé', next: 'rdv_rappel' },
-        { label: 'Menu principal', next: 'root' },
-      ],
-    },
-    rdv_ligne: {
-      message: 'Voici le lien de réservation : cabinet-marchand.fr/rdv — choisissez le créneau qui vous convient. À bientôt !',
-      options: [{ label: 'Menu principal', next: 'root' }],
-    },
-    rdv_rappel: {
-      message: 'Parfait. Laissez-nous votre numéro via le formulaire de contact et nous vous rappelons sous 24 h ouvrées.',
-      options: [{ label: 'Menu principal', next: 'root' }],
-    },
-    services: {
-      message: "Nous accompagnons TPE et indépendants : comptabilité, paie, création d'entreprise et pilotage. Un domaine vous intéresse ?",
-      options: [
-        { label: 'Comptabilité', next: 'compta' },
-        { label: 'Paie & social', next: 'paie' },
-        { label: 'Autre question', next: '__ai__' },
-        { label: 'Menu principal', next: 'root' },
-      ],
-    },
-    compta: {
-      message: 'Tenue complète, bilans, liasses fiscales et tableaux de bord trimestriels. Forfaits dès 180 €/mois pour les TPE.',
-      options: [{ label: 'Prendre rendez-vous', next: 'rdv' }, { label: 'Menu principal', next: 'root' }],
-    },
-    paie: {
-      message: "Bulletins, DSN, contrats et conseil social. Tarification au bulletin, dégressive selon l'effectif.",
-      options: [{ label: 'Prendre rendez-vous', next: 'rdv' }, { label: 'Menu principal', next: 'root' }],
-    },
-    tarifs: {
-      message: 'Nos forfaits démarrent à 180 €/mois (TPE) et sont ajustés à votre volume. Un devis précis prend 10 minutes en rendez-vous.',
-      options: [
-        { label: 'Prendre rendez-vous', next: 'rdv' },
-        { label: 'Autre question', next: '__ai__' },
-        { label: 'Menu principal', next: 'root' },
-      ],
-    },
-  },
+// Apparition au scroll (IntersectionObserver) pour les blocs .ch-reveal
+function useReveal() {
+  useEffect(() => {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target) } })
+    }, { threshold: 0.12 })
+    const t = setTimeout(() => { document.querySelectorAll('.ch-reveal').forEach(el => io.observe(el)) }, 90)
+    return () => { clearTimeout(t); io.disconnect() }
+  }, [])
 }
 
-// Fallback réseau uniquement — la source de vérité est GET /api/public/plans
-// (PLANS + PLANS_META dans api/src/models/user.py). Miroir exact pour que la
-// section #tarifs rende immédiatement, même si le fetch traîne ou échoue.
-const FALLBACK_PLANS: PublicPlan[] = [
-  { id: 'free', label: 'Free', description: 'Découverte : un chatbot à arbre de décision, sans IA.', price: 0, ai_messages: 0, max_bots: 1, tree_only: true, max_tree_nodes: 10, byok: false },
-  { id: 'starter', label: 'Starter', description: 'Un bot complet avec IA pour votre site.', price: 19, ai_messages: 500, max_bots: 1, tree_only: false, max_tree_nodes: null, byok: false },
-  { id: 'pro', label: 'Pro', description: "Jusqu'à 3 bots et 2 000 réponses IA par mois.", price: 39, ai_messages: 2000, max_bots: 3, tree_only: false, max_tree_nodes: null, byok: false },
-  { id: 'agence', label: 'Agence', description: 'Multi-sites : 10 bots, gros volumes et clés API personnelles (BYOK).', price: 119, ai_messages: 10000, max_bots: 10, tree_only: false, max_tree_nodes: null, byok: true },
+// ---- Icônes (SVG inline, tracés repris du design) --------------------------
+const HatIcon = ({ size = 20 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+const Check = ({ stroke = '#2F9E79', w = 2.2, size = 16 }: { stroke?: string; w?: number; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10.5" stroke={stroke} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" /></svg>
+)
+
+// ---- Widget Chapote animé (port de ChapoteWidget.dc.html) ------------------
+type WItem = { kind: string; side?: string; ai?: boolean; text?: string; items?: string[]; name?: string; role?: string; initials?: string }
+const WIDGET_PHASES: WItem[][] = [
+  [
+    { kind: 'msg', side: 'bot', text: "Bonjour 👋 Je suis l'assistant Chapote. Comment vous aider ?" },
+    { kind: 'chips', items: ['Suivre ma commande', "Modifier l'abonnement", 'Autre question'] },
+    { kind: 'msg', side: 'user', text: 'Suivre ma commande' },
+    { kind: 'msg', side: 'bot', text: 'Parfait — quel est votre numéro de commande ? 📦' },
+  ],
+  [
+    { kind: 'msg', side: 'user', text: "C'est compatible avec mon forfait Pro ?" },
+    { kind: 'msg', side: 'bot', ai: true, text: 'Oui ✨ Le forfait Pro inclut le suivi en temps réel et le multi-agent.' },
+    { kind: 'note', text: 'Réponse IA · plafonnée & modérée' },
+  ],
+  [
+    { kind: 'msg', side: 'bot', text: 'Je vous mets en relation avec un conseiller humain.' },
+    { kind: 'handoff', name: 'Camille', role: 'Conseillère Chapote', initials: 'CA' },
+    { kind: 'msg', side: 'user', text: 'Merci, parfait !' },
+  ],
 ]
 
-// Features affichées sur la landing : celles de planFeatures (faits appliqués
-// par le code), complétées/condensées par plan. RDV/leads/actions et le cap
-// budget sont dispo dès qu'il y a de l'IA — formulations vraies, pas exclusives.
-function landingFeatures(p: PublicPlan): string[] {
-  const base = planFeatures(p)
-  switch (p.id) {
-    case 'free': return [...base, 'Turnstile inclus']
-    case 'starter': return [...base, 'RDV, leads & actions IA']
-    case 'pro': return [...base.slice(0, 2), 'Tout Starter inclus', 'Cap budget IA par bot']
-    case 'agence': return [...base.slice(0, 2), 'BYOK (vos clés API)', 'Tout Pro inclus']
-    default: return base
-  }
+function ChapoteWidget() {
+  const [phase, setPhase] = useState(0)
+  const [seq, setSeq] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => { setPhase(p => (p + 1) % 3); setSeq(s => s + 1) }, 5000)
+    return () => clearInterval(t)
+  }, [])
+
+  const pill = (on: boolean, c: string): React.CSSProperties => ({
+    padding: '7px 11px', borderRadius: 999, fontSize: 11.5, fontWeight: 600,
+    display: 'flex', alignItems: 'center', gap: 6, background: '#fff',
+    border: `1px solid ${on ? c : '#E6EAEF'}`, color: on ? c : '#9AA7B4',
+    boxShadow: on ? `0 2px 8px -2px ${c}66` : 'none', transition: 'all .3s',
+  })
+  const items = WIDGET_PHASES[phase]
+
+  return (
+    <div style={{ width: 340, fontFamily: "'Inter',system-ui,sans-serif", background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 24, boxShadow: '0 26px 64px -20px rgba(28,63,92,.32)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '15px 18px', background: '#1C3F5C', color: '#fff' }}>
+        <span style={{ width: 38, height: 38, borderRadius: 12, background: 'rgba(255,255,255,.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><HatIcon size={21} /></span>
+        <div style={{ flex: 1, lineHeight: 1.25 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Assistant Chapote</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#A8C0D0', marginTop: 1 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2F9E79', animation: 'ch-pulse 2.4s infinite' }} />En ligne
+          </div>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#7FA0B5', letterSpacing: '.04em' }}>🇫🇷</span>
+      </div>
+      <div style={{ display: 'flex', gap: 6, padding: '11px 14px', background: '#F9F9FB', borderBottom: '1px solid #EEF1F4' }}>
+        <span style={pill(phase === 0, '#2F9E79')}><span style={{ width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} />Arbre</span>
+        <span style={pill(phase === 1, '#8C6DFF')}><span style={{ width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} />IA</span>
+        <span style={pill(phase === 2, '#E86A5F')}><span style={{ width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} />Humain</span>
+      </div>
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 250, background: '#FBFCFD' }}>
+        {items.map((m, i) => {
+          const key = `${seq}-${i}`
+          if (m.kind === 'msg' && m.side === 'user')
+            return <div key={key} style={{ display: 'flex', justifyContent: 'flex-end', animation: 'ch-in .42s ease both' }}><div style={{ maxWidth: '78%', background: '#1C3F5C', color: '#fff', padding: '9px 13px', borderRadius: '16px 16px 4px 16px', fontSize: 13.5, lineHeight: 1.45 }}>{m.text}</div></div>
+          if (m.kind === 'msg' && m.side === 'bot' && !m.ai)
+            return <div key={key} style={{ display: 'flex', justifyContent: 'flex-start', animation: 'ch-in .42s ease both' }}><div style={{ maxWidth: '82%', background: '#fff', border: '1px solid #E8ECF0', color: '#1E2A32', padding: '9px 13px', borderRadius: '16px 16px 16px 4px', fontSize: 13.5, lineHeight: 1.45, boxShadow: '0 2px 6px rgba(28,63,92,.05)' }}>{m.text}</div></div>
+          if (m.kind === 'msg' && m.side === 'bot' && m.ai)
+            return (
+              <div key={key} style={{ display: 'flex', justifyContent: 'flex-start', animation: 'ch-in .42s ease both' }}>
+                <div style={{ maxWidth: '84%', background: 'rgba(140,109,255,.08)', border: '1px solid rgba(140,109,255,.3)', color: '#1E2A32', padding: '10px 13px', borderRadius: '16px 16px 16px 4px', fontSize: 13.5, lineHeight: 1.5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.05em', color: '#8C6DFF' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#8C6DFF"><path d="M12 2l1.9 5.6L19.5 9l-4.2 3.7 1.3 5.8L12 15.6 7.4 18.5l1.3-5.8L4.5 9l5.6-1.4z" /></svg>GÉNÉRATION IA
+                  </div>{m.text}
+                </div>
+              </div>
+            )
+          if (m.kind === 'chips')
+            return <div key={key} style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'flex-start', animation: 'ch-in .42s ease both' }}>{m.items!.map(c => <span key={c} style={{ border: '1px solid #2F9E79', color: '#1C3F5C', background: 'rgba(47,158,121,.06)', padding: '7px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 500, cursor: 'pointer' }}>{c}</span>)}</div>
+          if (m.kind === 'note')
+            return <div key={key} style={{ textAlign: 'center', fontSize: 11, color: '#9AA7B4', animation: 'ch-in .42s ease both' }}>{m.text}</div>
+          if (m.kind === 'handoff')
+            return (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 11, background: 'rgba(232,106,95,.07)', border: '1px solid rgba(232,106,95,.32)', borderRadius: 14, padding: '10px 12px', animation: 'ch-in .42s ease both' }}>
+                <span style={{ width: 36, height: 36, borderRadius: '50%', background: '#E86A5F', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13 }}>{m.initials}</span>
+                <span style={{ lineHeight: 1.25 }}><span style={{ display: 'block', fontWeight: 700, fontSize: 13, color: '#1E2A32' }}>{m.name}</span><span style={{ display: 'block', fontSize: 11.5, color: '#6B7B8D' }}>{m.role}</span></span>
+                <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, color: '#2F9E79', display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: '#2F9E79' }} />Connecté</span>
+              </div>
+            )
+          return null
+        })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderTop: '1px solid #EEF1F4', background: '#fff' }}>
+        <div style={{ flex: 1, height: 38, borderRadius: 12, background: '#F0F2F5', display: 'flex', alignItems: 'center', padding: '0 14px', color: '#9AA7B4', fontSize: 13 }}>Écrivez votre message…</div>
+        <button aria-label="Envoyer" style={{ width: 38, height: 38, border: 'none', borderRadius: 12, background: '#1C3F5C', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12h13M13 6l6 6-6 6" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---- Données comparatif ----------------------------------------------------
+const SNIPPET = '<script src="https://chapote.com/widget.js" data-bot-id="votre-id"></script>'
+
+const PILIERS = [
+  { bg: 'rgba(47,158,121,.12)', co: '#2F9E79', t: 'Coût maîtrisé', d: 'IA plafonnée par design. Vous fixez le budget — jamais de facture surprise.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" /><path d="M14.5 9.4a3.2 3.2 0 100 5.2M8 11h4.5M8 13.2h3.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg> },
+  { bg: 'rgba(47,158,121,.12)', co: '#2F9E79', t: 'RGPD par défaut', d: 'Hébergement français, données locales. Conforme sans la moindre configuration.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 2.6v5.2c0 4.4-3 7.4-7 8.9-4-1.5-7-4.5-7-8.9V5.6z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><path d="M9 12l2 2 4-4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+  { bg: 'rgba(140,109,255,.12)', co: '#8C6DFF', t: 'Installation 1 minute', d: 'Une seule balise <script> à coller. Aucun autre réglage requis.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M9 7l-4.5 5L9 17M15 7l4.5 5L15 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+  { bg: 'rgba(232,106,95,.12)', co: '#E86A5F', t: 'Relais humain', d: "Bascule fluide vers un conseiller quand l'humain fait la différence.", icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 6h16v10H9l-4 3.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><circle cx="12" cy="11" r="2.2" stroke="currentColor" strokeWidth="1.8" /></svg> },
+]
+
+type Cell = { kind: 'ok' | 'warn' | 'no'; label: string; strong?: boolean }
+const CmpOk = ({ strong }: { strong?: boolean }) => <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill={strong ? 'rgba(47,158,121,.2)' : 'rgba(47,158,121,.14)'} /><path d="M7.5 12.4l3 3 6-6.6" stroke="#2F9E79" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+const CmpWarn = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="rgba(224,168,46,.16)" /><path d="M12 7v6" stroke="#C98A12" strokeWidth="2.2" strokeLinecap="round" /><circle cx="12" cy="16.4" r="1.3" fill="#C98A12" /></svg>
+const CmpNo = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="rgba(107,123,141,.14)" /><path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke="#8A98A6" strokeWidth="2.2" strokeLinecap="round" /></svg>
+
+const CMP_ROWS: { label: string; badge?: string; chapote: Cell; ia: Cell; classic: Cell }[] = [
+  { label: 'Coût maîtrisé', chapote: { kind: 'ok', label: 'Budget plafonné' }, ia: { kind: 'warn', label: "Coût à l'usage" }, classic: { kind: 'no', label: 'Masse salariale' } },
+  { label: 'RGPD & hébergement FR', chapote: { kind: 'ok', label: 'Français, natif' }, ia: { kind: 'no', label: 'Souvent hors UE' }, classic: { kind: 'warn', label: "Selon l'outil" } },
+  { label: 'Installation', chapote: { kind: 'ok', label: '1 balise, 1 min' }, ia: { kind: 'warn', label: 'Config requise' }, classic: { kind: 'no', label: 'Projet long' } },
+  { label: 'Relais humain', chapote: { kind: 'ok', label: 'Bascule fluide' }, ia: { kind: 'no', label: 'Aucun' }, classic: { kind: 'ok', label: 'Oui, mais lent' } },
+  { label: 'Arbre guidé', badge: 'ILLIMITÉ', chapote: { kind: 'ok', label: 'Sans surcoût', strong: true }, ia: { kind: 'no', label: "Limité à l'IA" }, classic: { kind: 'no', label: 'Manuel' } },
+]
+
+const TESTIS = [
+  { stars: 5, q: '« On a divisé par 3 notre volume de tickets de niveau 1 — sans jamais dépasser notre budget IA. »', av: 'LM', bg: '#1C3F5C', name: 'Léa Mercier', role: 'Head of Support · Velobird' },
+  { stars: 5, q: '« L\'installation a pris deux minutes. Le relais humain reste fluide — nos clients ne voient pas la couture. »', av: 'KB', bg: '#2F9E79', name: 'Karim Benali', role: 'CTO · Maison Lou' },
+  { stars: 5, q: '« Enfin un chatbot où je maîtrise le coût ET le RGPD. L\'hébergement français a débloqué notre service juridique. »', av: 'SD', bg: '#E86A5F', name: 'Sophie Dubois', role: 'COO · Nordia' },
+]
+
+const LOGOS = ['Velobird', 'Maison Lou', 'Nordia', 'Fika&Co', 'Atelier 9']
+const NAV = [['#features', 'Fonctionnalités'], ['#why', 'Pourquoi Chapote'], ['#install', 'Tarifs'], ['#testi', 'Blog']]
+
+const CLASH = "'Clash Display',sans-serif"
+const JAKARTA = "'Plus Jakarta Sans',sans-serif"
+const MONO = "'JetBrains Mono',monospace"
+const eyebrow = (color: string): React.CSSProperties => ({ fontSize: 13, fontWeight: 700, letterSpacing: '.12em', color })
+
+// Snippet colorisé (repris du design)
+function Snippet({ big }: { big?: boolean }) {
+  return (
+    <span style={{ fontSize: big ? 14 : 13 }}>
+      <span style={{ color: '#6B7B8D' }}>&lt;</span><span style={{ color: '#8C6DFF' }}>script</span> <span style={{ color: '#7FE3BE' }}>src</span><span style={{ color: '#6B7B8D' }}>=</span><span style={{ color: '#A8D8C5' }}>"https://chapote.com/widget.js"</span> <span style={{ color: '#7FE3BE' }}>data-bot-id</span><span style={{ color: '#6B7B8D' }}>=</span><span style={{ color: '#A8D8C5' }}>"votre-id"</span><span style={{ color: '#6B7B8D' }}>&gt;&lt;/</span><span style={{ color: '#8C6DFF' }}>script</span><span style={{ color: '#6B7B8D' }}>&gt;</span>
+    </span>
+  )
 }
 
 export default function Landing() {
   const { user } = useAuth()
-  const [plans, setPlans] = useState<PublicPlan[]>(FALLBACK_PLANS)
-  const [billingEnabled, setBillingEnabled] = useState(false)
+  useChapoteAssets()
+  useReveal()
+  const [copied, setCopied] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const ctaTo = user ? '/app' : '/register'
 
-  useEffect(() => {
-    api<{ billing_enabled: boolean; plans: PublicPlan[] }>('/api/public/plans')
-      .then(d => { setPlans(d.plans); setBillingEnabled(d.billing_enabled) })
-      .catch(() => {})   // fallback local déjà rendu
-  }, [])
+  const copyCode = () => {
+    try { navigator.clipboard?.writeText(SNIPPET) } catch { /* clipboard indispo */ }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
+  }
+
+  const btnPrimary: React.CSSProperties = { background: '#1C3F5C', color: '#fff', border: 'none', borderRadius: 14, padding: '15px 26px', fontWeight: 600, fontSize: 16, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', boxShadow: '0 12px 26px -10px rgba(28,63,92,.6)' }
+  const btnSecondary: React.CSSProperties = { background: '#fff', color: '#1C3F5C', border: '1px solid #D8DEE6', borderRadius: 14, padding: '15px 24px', fontWeight: 600, fontSize: 16, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 9 }
 
   return (
-    <div className="landing">
-      <div className="page-blobs"><div className="b b1" /><div className="b b2" /><div className="b b3" /></div>
-      <div className="l-content">
+    <div className="chapote" style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', color: '#1E2A32', WebkitFontSmoothing: 'antialiased' }}>
 
-        {/* ---- Nav ---- */}
-        <div style={{
-          position: 'sticky', top: 0, zIndex: 50, background: 'rgba(237,246,243,.86)',
-          backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(220,235,231,.7)',
-        }}>
-          <div className="l-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 28px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <img src="/brand/icon.svg" alt="" style={{ width: 34, height: 34, borderRadius: 9 }} />
-              <span className="font-display" style={{ fontWeight: 700, fontSize: 18, whiteSpace: 'nowrap' }}>
-                Kertios <span style={{ color: 'var(--l-teal)' }}>Chat</span>
-              </span>
-            </div>
-            <nav style={{ display: 'flex', alignItems: 'center', gap: 26 }} className="landing-nav">
-              <a className="navlink" href="#hybride">Pourquoi hybride</a>
-              <a className="navlink" href="#how">Fonctionnement</a>
-              <a className="navlink" href="#secu">Sécurité</a>
-              <a className="navlink" href="#tarifs">Tarifs</a>
-            </nav>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {user ? (
-                <Link className="l-btn l-btn-primary l-btn-sm" to="/app">Ouvrir l'application</Link>
-              ) : (
-                <>
-                  <Link className="navlink" to="/login" style={{ padding: '8px 10px' }}>Se connecter</Link>
-                  <Link className="l-btn l-btn-primary l-btn-sm" to="/register">Créer mon compte</Link>
-                </>
-              )}
-            </div>
+      {/* ---- Header sticky ---- */}
+      <header style={{ position: 'sticky', top: 0, zIndex: 60, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', background: 'rgba(249,249,251,.82)', borderBottom: '1px solid rgba(226,232,240,.7)' }}>
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+          <a href="#" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+            <span style={{ width: 36, height: 36, borderRadius: 11, background: '#1C3F5C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon size={20} /></span>
+            <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 22, color: '#1E2A32', letterSpacing: '-.01em' }}>Chapote</span>
+          </a>
+          <nav className="ch-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 30 }}>
+            {NAV.map(([href, label]) => <a key={label} className="ch-navlink" href={href}>{label}</a>)}
+          </nav>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {!user && <Link className="ch-navlink" to="/login" style={{ whiteSpace: 'nowrap' }}>Se connecter</Link>}
+            <Link to={ctaTo} className="ch-cta-primary" style={{ background: '#1C3F5C', color: '#fff', borderRadius: 12, padding: '11px 18px', fontWeight: 600, fontSize: 14.5, whiteSpace: 'nowrap', textDecoration: 'none', boxShadow: '0 6px 16px -8px rgba(28,63,92,.6)' }}>
+              {user ? "Ouvrir l'application" : 'Installer la balise'}
+            </Link>
+            <button className="ch-menu-btn" aria-label="Menu" aria-expanded={mobileOpen} onClick={() => setMobileOpen(o => !o)} style={{ width: 42, height: 42, border: '1px solid #E2E8F0', borderRadius: 11, background: '#fff', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1E2A32" strokeWidth="2" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            </button>
           </div>
         </div>
-
-        {/* ---- Hero + démo live ---- */}
-        <section style={{ padding: '64px 0 90px' }}>
-          <div className="l-container l-hero-grid" style={{ display: 'grid', gridTemplateColumns: '1.02fr .98fr', gap: 54, alignItems: 'center' }}>
-            <div className="fade-up">
-              <span className="eyebrow" style={{ marginBottom: 26 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--l-teal)', animation: 'pulseDot 2s infinite' }} />
-                Chatbot hybride — arbre + IA
-              </span>
-              <h1 className="font-display" style={{ fontSize: 'clamp(44px, 5.6vw, 78px)', lineHeight: 1.04, fontWeight: 800, margin: '22px 0 26px', letterSpacing: '-.035em' }}>
-                Un chatbot qui<br />
-                <span className="font-serif" style={{ color: 'var(--l-teal)', fontWeight: 400, fontSize: '1.04em' }}>ne brûle pas</span><br />
-                votre budget IA.
-              </h1>
-              <p style={{ fontSize: 19, lineHeight: 1.55, color: 'var(--l-ink2)', maxWidth: 470, margin: '0 0 30px' }}>
-                L'arbre de décision répond <strong>gratuitement</strong> aux questions courantes.
-                L'IA prend le relais <strong>seulement quand il faut</strong> — plafonnée, sécurisée, sans surprise sur la facture.
-              </p>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <Link className="l-btn l-btn-primary" to="/register">
-                  Créer mon chatbot <ChevronRight size={15} strokeWidth={2.5} />
-                </Link>
-                <a className="l-btn l-btn-ghost" href="#demo">Essayer la démo</a>
-              </div>
-              <div style={{ display: 'flex', gap: 18, marginTop: 28, fontSize: 13, color: 'var(--l-muted)', flexWrap: 'wrap' }}>
-                <span>✓ Installation en 1 balise</span>
-                <span>✓ Réponses arbre illimitées</span>
-                <span>✓ RGPD-ready</span>
-              </div>
-            </div>
-
-            <div id="demo" className="fade-up" style={{ animationDelay: '.12s' }}>
-              <div className="l-card shadow-lg" style={{ overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 14px', borderBottom: '1px solid var(--l-line)', background: 'var(--l-cream)' }}>
-                  {['#f87171', '#fbbf24', '#34d399'].map(c => <span key={c} style={{ width: 9, height: 9, borderRadius: 99, background: c, display: 'inline-block' }} />)}
-                  <span className="mono" style={{ flex: 1, textAlign: 'center', fontSize: 10.5, color: 'var(--l-muted)' }}>cabinet-marchand.fr — démo interactive</span>
-                </div>
-                <div style={{ position: 'relative', height: 540, background: '#fff', overflow: 'hidden' }}>
-                  <div style={{ padding: '24px 26px', opacity: .8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontWeight: 800, fontSize: 14, color: '#283733' }}>Cabinet Marchand</div>
-                      <div style={{ display: 'flex', gap: 12 }}>
-                        {['Services', 'Tarifs', 'Contact'].map(n => <span key={n} style={{ fontSize: 11, color: '#7d8c87' }}>{n}</span>)}
-                      </div>
-                    </div>
-                    <div style={{ marginTop: 28, maxWidth: 330 }}>
-                      <div style={{ height: 18, width: '75%', borderRadius: 6, background: '#e8eeec' }} />
-                      <div style={{ height: 18, width: '52%', borderRadius: 6, background: '#e8eeec', marginTop: 7 }} />
-                      <div style={{ height: 10, width: '90%', borderRadius: 5, background: '#f0f4f3', marginTop: 15 }} />
-                      <div style={{ height: 10, width: '78%', borderRadius: 5, background: '#f0f4f3', marginTop: 6 }} />
-                      <div style={{ height: 30, width: 116, borderRadius: 8, background: '#0d9488', opacity: .85, marginTop: 18 }} />
-                    </div>
-                  </div>
-                  <div style={{
-                    position: 'absolute', left: 18, bottom: 16, fontSize: 11, fontWeight: 700, color: 'var(--l-teal-deep)',
-                    background: 'var(--l-teal-soft)', border: '1px solid #bfe2db', borderRadius: 99, padding: '6px 11px',
-                  }}>Cliquez sur la bulle, c'est un vrai chat</div>
-                  <WidgetPreview design={DEMO_DESIGN} mode="hybrid" tree={DEMO_TREE}
-                                 botName="Assistant Marchand" defaultOpen={false} />
-                </div>
-              </div>
-            </div>
+        {mobileOpen && (
+          <div style={{ borderTop: '1px solid #E2E8F0', background: '#fff', padding: '14px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {NAV.map(([href, label]) => <a key={label} href={href} onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 500 }}>{label}</a>)}
           </div>
-        </section>
+        )}
+      </header>
 
-        {/* ---- Pourquoi hybride ---- */}
-        <section id="hybride" style={{ padding: '40px 0 80px' }}>
-          <div className="l-container">
-            <div style={{ textAlign: 'center', maxWidth: 640, margin: '0 auto 44px' }}>
-              <span className="eyebrow">Pourquoi hybride</span>
-              <h2 className="font-display" style={{ fontSize: 'clamp(30px, 3.6vw, 46px)', fontWeight: 700, lineHeight: 1.08, margin: '18px 0 12px' }}>
-                Le tout-IA coûte cher.<br />Le tout-arbre <span className="font-serif" style={{ color: 'var(--l-teal)', fontWeight: 400 }}>frustre</span>.
-              </h2>
+      {/* ---- Hero (Split) ---- */}
+      <div style={{ position: 'relative', background: 'radial-gradient(circle at 12% 16%, rgba(47,158,121,.07) 0%, transparent 46%), radial-gradient(circle at 88% 26%, rgba(140,109,255,.06) 0%, transparent 44%)', overflow: 'hidden' }}>
+        <section className="ch-hero-split" style={{ maxWidth: 1280, margin: '0 auto', padding: '74px 32px 70px', display: 'grid', gridTemplateColumns: '1.05fr .95fr', gap: 56, alignItems: 'center' }}>
+          <div>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 14px', borderRadius: 999, background: 'rgba(47,158,121,.1)', border: '1px solid rgba(47,158,121,.26)', color: '#1C7A5C', fontSize: 13, fontWeight: 600 }}>🇫🇷 Hébergement français · RGPD par défaut</span>
+            <h1 className="ch-hero-h1" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 56, lineHeight: 1.07, letterSpacing: '-.02em', color: '#1E2A32', margin: '22px 0 0' }}>Le chatbot <span style={{ color: '#2F9E79' }}>hybride français</span></h1>
+            <p style={{ fontFamily: JAKARTA, fontWeight: 500, fontSize: 20, lineHeight: 1.5, color: '#6B7B8D', margin: '20px 0 0', maxWidth: 520 }}>Arbre guidé illimité + IA plafonnée + relais humain — en une seule balise. RGPD par défaut.</p>
+            <div className="ch-hero-cta" style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 32 }}>
+              <Link to={ctaTo} className="ch-cta-primary" style={btnPrimary}>Ajouter gratuitement la balise →</Link>
+              <a href="#demo" className="ch-cta-secondary" style={btnSecondary}><svg width="15" height="15" viewBox="0 0 24 24" fill="#1C3F5C"><path d="M7 5v14l12-7z" /></svg>Voir la démo interactive</a>
             </div>
-            <div className="l-grid3">
-              {[
-                {
-                  icon: <GitBranch size={20} />, t: "L'arbre répond d'abord", co: '#0d9488', bg: '#e0f2ef',
-                  d: 'Horaires, tarifs, prise de RDV : 70% des questions sont prévisibles. L\'arbre de décision y répond instantanément — gratuit et illimité.',
-                },
-                {
-                  icon: <Sparkles size={20} />, t: "L'IA quand il le faut", co: '#7c5cd6', bg: '#ece7f9',
-                  d: '« Autre question » bascule vers le modèle de votre choix (Claude, GPT), nourri par votre contexte. Chaque réponse IA est décomptée, pas une de plus.',
-                },
-                {
-                  icon: <ShieldCheck size={20} />, t: 'Plafond = zéro surprise', co: '#b06f0e', bg: '#f7eed9',
-                  d: 'Cap journalier de réponses IA : atteint, le bot repasse en mode arbre. Votre facture a un maximum, par construction.',
-                },
-              ].map(c => (
-                <div key={c.t} className="l-card" style={{ padding: '26px 24px' }}>
-                  <span style={{ width: 44, height: 44, borderRadius: 13, background: c.bg, color: c.co, display: 'grid', placeItems: 'center' }}>{c.icon}</span>
-                  <h3 className="font-display" style={{ fontSize: 20, fontWeight: 700, margin: '16px 0 8px' }}>{c.t}</h3>
-                  <p style={{ fontSize: 14.5, color: 'var(--l-ink2)', margin: 0, lineHeight: 1.6 }}>{c.d}</p>
-                </div>
+            <div className="ch-hero-trust" style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 22 }}>
+              {['Sans carte bancaire', 'Installation en 2 min', 'Résiliable à tout moment'].map(t => (
+                <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13.5, color: '#6B7B8D' }}><Check />{t}</span>
               ))}
             </div>
           </div>
-        </section>
-
-        {/* ---- Fonctionnement ---- */}
-        <section id="how" style={{ padding: '30px 0 80px' }}>
-          <div className="l-container l-hero-grid" style={{ display: 'grid', gridTemplateColumns: '.9fr 1.1fr', gap: 54, alignItems: 'center' }}>
-            <div>
-              <span className="eyebrow">Fonctionnement</span>
-              <h2 className="font-display" style={{ fontSize: 'clamp(30px, 3.6vw, 44px)', fontWeight: 700, lineHeight: 1.08, margin: '18px 0 26px' }}>
-                En ligne <span className="font-serif" style={{ color: 'var(--l-teal)', fontWeight: 400 }}>avant</span> votre pause café.
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-                {[
-                  ['1', 'Configurez en 2 minutes', 'Wizard guidé : nom, type (arbre, IA ou hybride), apparence aux couleurs de votre site.'],
-                  ['2', 'Collez une balise', "Un <script> avant </body> et c'est en ligne. WordPress, GTM, React ou iframe aussi. Moins de 30 ko, zéro impact sur votre vitesse."],
-                  ['3', 'Suivez tout, pilotez tout', "Conversations, visiteurs uniques, conso IA en temps réel. Ajustez l'arbre là où l'IA est trop sollicitée."],
-                ].map(([n, t, d]) => (
-                  <div key={n} style={{ display: 'flex', gap: 16 }}>
-                    <span className="font-display" style={{
-                      width: 38, height: 38, borderRadius: 99, background: 'linear-gradient(135deg,#12a392,#0b7d72)', color: '#fff',
-                      display: 'grid', placeItems: 'center', fontSize: 16, fontWeight: 700, flexShrink: 0, boxShadow: '0 4px 12px rgba(13,148,136,.3)',
-                    }}>{n}</span>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 16.5 }}>{t}</div>
-                      <div style={{ fontSize: 14, color: 'var(--l-ink2)', marginTop: 4, lineHeight: 1.6 }}>{d}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="l-card shadow-md" style={{ padding: 22 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: .8, textTransform: 'uppercase', color: 'var(--l-muted)', marginBottom: 12 }}>
-                Toute l'installation tient ici
-              </div>
-              <pre className="mono" style={{
-                margin: 0, fontSize: 13, lineHeight: 1.8, padding: '18px 20px', borderRadius: 13,
-                background: '#0b0e14', color: '#e6eaf0', overflowX: 'auto',
-              }}>{'<script\n  src="https://chat.kertios.fr/widget.js"\n  data-bot-key="pk_…"\n  defer>\n</' + 'script>'}</pre>
-              <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-                {['HTML', 'WordPress', 'Tag Manager', 'React', 'iframe'].map(x => (
-                  <span key={x} style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--l-teal-deep)', background: 'var(--l-teal-soft)', border: '1px solid #bfe2db', borderRadius: 99, padding: '5px 11px' }}>{x}</span>
-                ))}
-              </div>
+          <div id="demo" style={{ position: 'relative', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ position: 'absolute', inset: '-12% -8%', background: 'radial-gradient(circle at 50% 42%, rgba(47,158,121,.14), transparent 62%)' }} />
+            <div style={{ position: 'relative', animation: 'ch-floaty 7s ease-in-out infinite' }}>
+              <ChapoteWidget />
+              <div style={{ position: 'absolute', top: -16, left: -30, display: 'flex', alignItems: 'center', gap: 7, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: '8px 12px', boxShadow: '0 14px 30px -14px rgba(28,63,92,.3)', fontSize: 12.5, fontWeight: 600, color: '#1C3F5C' }}>🔒 RGPD natif</div>
+              <div style={{ position: 'absolute', bottom: 64, right: -38, display: 'flex', alignItems: 'center', gap: 7, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: '8px 12px', boxShadow: '0 14px 30px -14px rgba(28,63,92,.3)', fontSize: 12.5, fontWeight: 600, color: '#8C6DFF' }}>✨ IA plafonnée</div>
             </div>
           </div>
         </section>
-
-        {/* ---- Sécurité (bandeau sombre) ---- */}
-        <section id="secu" style={{ padding: '30px 0 80px' }}>
-          <div className="l-container">
-            <div className="l-card shadow-lg" style={{ padding: '38px 36px', background: '#0f2a24', border: 'none' }}>
-              <div className="l-hero-grid" style={{ display: 'grid', gridTemplateColumns: '.8fr 1.2fr', gap: 40, alignItems: 'center' }}>
-                <div>
-                  <span className="eyebrow" style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.14)', color: '#7adfd2' }}>Sécurité</span>
-                  <h2 className="font-display" style={{ fontSize: 'clamp(26px, 3vw, 38px)', fontWeight: 700, lineHeight: 1.1, margin: '16px 0 10px', color: '#fff' }}>
-                    Un script public,<br />des coûts <span className="font-serif" style={{ color: '#5eead4', fontWeight: 400 }}>privés</span>.
-                  </h2>
-                  <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.65, margin: 0 }}>
-                    Un widget embarqué est exposé par nature. Le nôtre est conçu pour que ça ne vous coûte jamais rien.
-                  </p>
-                </div>
-                <div className="l-grid2">
-                  {[
-                    ['Clé publique seulement', "Comme Stripe : la balise n'expose qu'un identifiant. Vos clés IA ne quittent jamais nos serveurs."],
-                    ['Domaines verrouillés', 'Le widget refuse de se charger ailleurs que sur vos domaines autorisés.'],
-                    ['Sessions éphémères', 'JWT 30 min + rate limiting multi-niveaux. Les bots et les scrapers paient leur tournée ailleurs.'],
-                    ['RGPD par défaut', 'Captcha invisible Cloudflare Turnstile, pas de cookie publicitaire, flux de données documentés pour votre registre.'],
-                  ].map(([t, d]) => (
-                    <div key={t} style={{ background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 14, padding: '16px 17px' }}>
-                      <div style={{ fontWeight: 800, fontSize: 14, color: '#aef0e6' }}>{t}</div>
-                      <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,.68)', marginTop: 5, lineHeight: 1.6 }}>{d}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ---- Tarifs ---- */}
-        <section id="tarifs" style={{ padding: '30px 0 90px' }}>
-          <div className="l-container">
-            <div style={{ textAlign: 'center', maxWidth: 560, margin: '0 auto 42px' }}>
-              <span className="eyebrow">Tarifs</span>
-              <h2 className="font-display" style={{ fontSize: 'clamp(30px, 3.6vw, 46px)', fontWeight: 700, lineHeight: 1.08, margin: '18px 0 10px' }}>
-                Prévisible, <span className="font-serif" style={{ color: 'var(--l-teal)', fontWeight: 400 }}>par design</span>.
-              </h2>
-              <p style={{ color: 'var(--l-ink2)', fontSize: 15.5, margin: 0 }}>
-                Compte gratuit pour découvrir. Jamais au-delà de votre plafond.
-              </p>
-            </div>
-            <div className="l-grid4" style={{ alignItems: 'stretch' }}>
-              {plans.map(p => {
-                const pop = p.id === 'pro'
-                return (
-                  <div key={p.id} className={`l-card ${pop ? 'shadow-lg' : ''}`} style={{
-                    padding: '28px 26px', display: 'flex', flexDirection: 'column', position: 'relative',
-                    border: pop ? '2px solid var(--l-teal)' : '1px solid var(--l-line)',
-                  }}>
-                    {pop && <span style={{
-                      position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
-                      background: 'linear-gradient(135deg,#12a392,#0b7d72)', color: '#fff', fontSize: 11, fontWeight: 800,
-                      letterSpacing: .8, textTransform: 'uppercase', borderRadius: 99, padding: '5px 14px',
-                    }}>Populaire</span>}
-                    <div className="font-display" style={{ fontSize: 19, fontWeight: 700 }}>{p.label}</div>
-                    <div style={{ margin: '10px 0 18px' }}>
-                      <span className="font-display" style={{ fontSize: 44, fontWeight: 800, letterSpacing: '-.03em' }}>{p.price} €</span>
-                      <span style={{ color: 'var(--l-muted)', fontSize: 14 }}> / mois</span>
-                    </div>
-                    <ul style={{ listStyle: 'none', margin: '0 0 24px', padding: 0, display: 'flex', flexDirection: 'column', gap: 9, flex: 1 }}>
-                      {landingFeatures(p).map(f => (
-                        <li key={f} style={{ display: 'flex', gap: 9, fontSize: 14, color: 'var(--l-ink2)' }}>
-                          <span style={{ color: 'var(--l-teal)', fontWeight: 800 }}>✓</span>{f}
-                        </li>
-                      ))}
-                    </ul>
-                    <Link className={`l-btn ${pop ? 'l-btn-primary' : 'l-btn-ghost'}`} to="/register">
-                      {p.price === 0 ? 'Commencer gratuitement' : 'Commencer'}
-                    </Link>
-                  </div>
-                )
-              })}
-            </div>
-            {billingEnabled && (
-              <div style={{ textAlign: 'center', marginTop: 22, fontSize: 13, color: 'var(--l-muted)' }}>
-                Paiement sécurisé par Stripe — résiliable à tout moment depuis le portail client.
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* ---- CTA final ---- */}
-        <section style={{ padding: '10px 0 90px' }}>
-          <div className="l-container" style={{ textAlign: 'center' }}>
-            <h2 className="font-display" style={{ fontSize: 'clamp(32px, 4vw, 54px)', fontWeight: 800, lineHeight: 1.04, margin: '0 0 14px', letterSpacing: '-.03em' }}>
-              Votre site mérite mieux<br />qu'un <span className="font-serif" style={{ color: 'var(--l-teal)', fontWeight: 400 }}>formulaire de contact</span>.
-            </h2>
-            <p style={{ color: 'var(--l-ink2)', fontSize: 16.5, margin: '0 0 28px' }}>
-              Compte gratuit, premier bot en ligne en moins de 5 minutes.
-            </p>
-            <Link className="l-btn l-btn-primary" to="/register" style={{ fontSize: 16, padding: '15px 30px' }}>
-              Créer mon chatbot <ChevronRight size={15} strokeWidth={2.5} />
-            </Link>
-          </div>
-        </section>
-
-        {/* ---- Footer ---- */}
-        <footer style={{ borderTop: '1px solid var(--l-line)', background: 'rgba(255,255,255,.5)' }}>
-          <div className="l-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '26px 28px', flexWrap: 'wrap', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <img src="/brand/icon.svg" alt="" style={{ width: 24, height: 24, borderRadius: 6 }} />
-              <span className="font-display" style={{ fontWeight: 700, fontSize: 14.5, whiteSpace: 'nowrap' }}>
-                Kertios <span style={{ color: 'var(--l-teal)' }}>Chat</span>
-              </span>
-              <span style={{ fontSize: 12.5, color: 'var(--l-muted)' }}>· chatbots hybrides arbre + IA</span>
-            </div>
-            <div style={{ display: 'flex', gap: 22, fontSize: 13 }}>
-              <a className="navlink" href="#tarifs">Tarifs</a>
-              <Link className="navlink" to="/register">Inscription</Link>
-              <Link className="navlink" to="/login">Se connecter</Link>
-            </div>
-          </div>
-        </footer>
       </div>
+
+      {/* ---- 4 piliers ---- */}
+      <section id="features" style={{ background: '#F9F9FB', padding: '88px 0' }}>
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
+          <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 50px' }}>
+            <span style={eyebrow('#2F9E79')}>POURQUOI CHAPOTE</span>
+            <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>L'hybride frugal, sans compromis</h2>
+            <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px 0 0' }}>Quatre promesses tenues par design — pas par option payante.</p>
+          </div>
+          <div className="ch-piliers-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 24 }}>
+            {PILIERS.map(p => (
+              <div key={p.t} className="ch-reveal ch-pilier" style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 24, padding: '28px 24px', boxShadow: '0 6px 20px -12px rgba(28,63,92,.18)' }}>
+                <span style={{ width: 50, height: 50, borderRadius: 14, background: p.bg, color: p.co, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{p.icon}</span>
+                <h3 style={{ fontFamily: JAKARTA, fontWeight: 700, fontSize: 19, color: '#1E2A32', margin: '18px 0 0' }}>{p.t}</h3>
+                <p style={{ fontSize: 14.5, lineHeight: 1.55, color: '#6B7B8D', margin: '8px 0 0' }}>{p.d}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---- Comparatif ---- */}
+      <section id="why" style={{ background: '#F0F2F5', padding: '88px 0' }}>
+        <div style={{ maxWidth: 1080, margin: '0 auto', padding: '0 32px' }}>
+          <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 46px' }}>
+            <span style={eyebrow('#2F9E79')}>COMPARATIF</span>
+            <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Ni Intercom, ni Chatbase.</h2>
+            <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px 0 0' }}>L'hybride qui prend le meilleur de chaque modèle, sans en payer les défauts.</p>
+          </div>
+          <div className="ch-reveal" style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 24, overflow: 'hidden', boxShadow: '0 16px 44px -24px rgba(28,63,92,.24)' }}>
+            {/* en-têtes */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr' }}>
+              <div style={{ padding: '22px 24px' }} />
+              <div style={{ padding: '20px 14px', textAlign: 'center', background: 'rgba(47,158,121,.07)', borderBottom: '3px solid #2F9E79' }}>
+                <div style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 19, color: '#1C3F5C' }}>Chapote</div>
+                <div style={{ fontSize: 11.5, color: '#1C7A5C', marginTop: 2, fontWeight: 600 }}>L'hybride frugal</div>
+              </div>
+              <div style={{ padding: '20px 14px', textAlign: 'center', borderBottom: '1px solid #EEF1F4' }}><div style={{ fontWeight: 600, fontSize: 15, color: '#6B7B8D' }}>Chatbot 100% IA</div></div>
+              <div style={{ padding: '20px 14px', textAlign: 'center', borderBottom: '1px solid #EEF1F4' }}><div style={{ fontWeight: 600, fontSize: 15, color: '#6B7B8D' }}>Support classique</div></div>
+            </div>
+            {/* lignes */}
+            {CMP_ROWS.map((row, idx) => {
+              const lastRow = idx === CMP_ROWS.length - 1
+              const cell = (c: Cell, chapoteCol: boolean) => (
+                <div style={{ padding: '15px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, textAlign: 'center', background: chapoteCol ? (lastRow ? 'rgba(47,158,121,.1)' : 'rgba(47,158,121,.05)') : undefined }}>
+                  {c.kind === 'ok' ? <CmpOk strong={c.strong} /> : c.kind === 'warn' ? <CmpWarn /> : <CmpNo />}
+                  <span style={{ fontSize: 11.5, color: c.strong ? '#1C7A5C' : c.kind === 'ok' && chapoteCol ? '#6B7B8D' : '#9AA7B4', fontWeight: c.strong ? 600 : 400 }}>{c.label}</span>
+                </div>
+              )
+              return (
+                <div key={row.label} className={lastRow ? undefined : 'ch-cmp-row'} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', borderTop: '1px solid #EEF1F4', background: lastRow ? 'rgba(47,158,121,.07)' : undefined }}>
+                  <div style={{ padding: '18px 24px', fontWeight: lastRow ? 700 : 600, fontSize: 15, color: '#1E2A32', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {row.label}
+                    {row.badge && <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 9px', borderRadius: 999, background: '#2F9E79', color: '#fff', fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em' }}>{row.badge}</span>}
+                  </div>
+                  {cell(row.chapote, true)}
+                  {cell(row.ia, false)}
+                  {cell(row.classic, false)}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ---- Installation ---- */}
+      <section id="install" style={{ background: '#F9F9FB', padding: '88px 0' }}>
+        <div style={{ maxWidth: 920, margin: '0 auto', padding: '0 32px', textAlign: 'center' }}>
+          <span style={eyebrow('#2F9E79')}>INSTALLATION</span>
+          <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Une balise. Une minute. C'est tout.</h2>
+          <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px auto 0', maxWidth: 560 }}>Copiez-collez cette balise dans votre page — aucun autre réglage.</p>
+          <div className="ch-reveal" style={{ marginTop: 36, textAlign: 'left', background: '#1E2A32', borderRadius: 20, overflow: 'hidden', boxShadow: '0 34px 64px -28px rgba(28,63,92,.55)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '13px 18px', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+              {['#E86A5F', '#E0A82E', '#2F9E79'].map(c => <span key={c} style={{ width: 11, height: 11, borderRadius: '50%', background: c }} />)}
+              <span style={{ marginLeft: 8, fontSize: 12, color: '#7FA0B5', fontFamily: MONO }}>index.html</span>
+              <button onClick={copyCode} className="ch-copy" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7, background: '#2F9E79', color: '#fff', border: 'none', borderRadius: 10, padding: '8px 14px', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', transition: 'background .2s' }}>
+                {copied
+                  ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, animation: 'ch-flashok .5s ease' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10.5" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>Copié</span>
+                  : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2.5" stroke="#fff" strokeWidth="1.8" /><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="#fff" strokeWidth="1.8" /></svg>Copier</>}
+              </button>
+            </div>
+            <div style={{ padding: '22px 22px', fontFamily: MONO, fontSize: 14, lineHeight: 1.7, color: '#E2E8F0', overflowX: 'auto', whiteSpace: 'nowrap' }}><Snippet big /></div>
+          </div>
+          <p style={{ fontSize: 13.5, color: '#9AA7B4', marginTop: 16 }}>Compatible WordPress, Shopify, Webflow et tout site HTML.</p>
+        </div>
+      </section>
+
+      {/* ---- Logos ---- */}
+      <section style={{ background: '#F0F2F5', padding: '54px 0' }}>
+        <div style={{ maxWidth: 1080, margin: '0 auto', padding: '0 32px', textAlign: 'center' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '.08em', color: '#9AA7B4', textTransform: 'uppercase' }}>Déjà adopté par des équipes qui comptent chaque euro</div>
+          <div style={{ marginTop: 30, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 46 }}>
+            {LOGOS.map(l => <span key={l} className="ch-logo" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 23, color: '#6B7B8D', opacity: .55 }}>{l}</span>)}
+          </div>
+        </div>
+      </section>
+
+      {/* ---- Témoignages ---- */}
+      <section id="testi" style={{ background: '#F9F9FB', padding: '88px 0' }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto', padding: '0 32px' }}>
+          <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 46px' }}>
+            <span style={eyebrow('#8C6DFF')}>TÉMOIGNAGES</span>
+            <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Moins de tickets, plus de marge.</h2>
+          </div>
+          <div className="ch-testi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
+            {TESTIS.map(t => (
+              <div key={t.name} className="ch-reveal" style={{ background: '#fff', border: '1px solid #E2E8F0', borderLeft: '4px solid #8C6DFF', borderRadius: 18, padding: '26px 24px', boxShadow: '0 8px 26px -16px rgba(28,63,92,.2)' }}>
+                <div style={{ display: 'flex', gap: 3, color: '#E0A82E' }}>{'★★★★★'.slice(0, t.stars)}</div>
+                <p style={{ fontSize: 15.5, lineHeight: 1.6, color: '#1E2A32', margin: '14px 0 0' }}>{t.q}</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 20 }}>
+                  <span style={{ width: 42, height: 42, borderRadius: '50%', background: t.bg, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>{t.av}</span>
+                  <span style={{ lineHeight: 1.3 }}><span style={{ display: 'block', fontWeight: 600, fontSize: 14.5, color: '#1E2A32' }}>{t.name}</span><span style={{ display: 'block', fontSize: 13, color: '#6B7B8D' }}>{t.role}</span></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---- CTA final ---- */}
+      <section style={{ background: 'linear-gradient(135deg,#1C3F5C 0%,#15344b 100%)', padding: '90px 0', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '-30%', left: '8%', width: 340, height: 340, background: 'radial-gradient(circle,rgba(47,158,121,.22),transparent 65%)' }} />
+        <div style={{ position: 'absolute', bottom: '-40%', right: '6%', width: 380, height: 380, background: 'radial-gradient(circle,rgba(140,109,255,.2),transparent 65%)' }} />
+        <div className="ch-reveal" style={{ maxWidth: 760, margin: '0 auto', padding: '0 32px', textAlign: 'center', position: 'relative' }}>
+          <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 42, lineHeight: 1.12, letterSpacing: '-.02em', color: '#fff', margin: 0 }}>Prêt à maîtriser vos coûts de support ?</h2>
+          <p style={{ fontFamily: JAKARTA, fontWeight: 500, fontSize: 18, lineHeight: 1.5, color: '#A8C0D0', margin: '16px auto 0', maxWidth: 520 }}>Installez la balise en une minute. Gardez l'humain là où il compte.</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 30, justifyContent: 'center' }}>
+            <Link to={ctaTo} className="ch-cta-dark" style={{ background: '#fff', color: '#1C3F5C', border: 'none', borderRadius: 14, padding: '15px 26px', fontWeight: 600, fontSize: 16, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', boxShadow: '0 14px 30px -12px rgba(0,0,0,.4)', transition: 'transform .2s,box-shadow .2s' }}>Installer la balise →</Link>
+            <a href="#demo" className="ch-cta-coral" style={{ background: '#E86A5F', color: '#fff', border: 'none', borderRadius: 14, padding: '15px 24px', fontWeight: 600, fontSize: 16, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 9, transition: 'transform .2s,background .2s' }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 6h16v10H9l-4 3.5z" stroke="#fff" strokeWidth="1.8" strokeLinejoin="round" /></svg>Parler à un conseiller</a>
+          </div>
+          <p style={{ fontSize: 13, color: '#7FA0B5', marginTop: 20 }}>Sans engagement · Hébergement français · Conforme RGPD</p>
+        </div>
+      </section>
+
+      {/* ---- Footer ---- */}
+      <footer style={{ background: '#1C3F5C', color: '#fff', padding: '62px 0 28px' }}>
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
+          <div className="ch-footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr 1fr', gap: 28 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,.13)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon size={19} /></span>
+                <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 21, color: '#fff' }}>Chapote</span>
+              </div>
+              <p style={{ fontSize: 14, lineHeight: 1.6, color: '#A8C0D0', margin: '16px 0 0', maxWidth: 280 }}>Le chatbot hybride français. Arbre guidé, IA plafonnée, relais humain — en une balise.</p>
+            </div>
+            {[
+              ['Produit', [['#features', 'Fonctionnalités'], ['#why', 'Comparatif'], ['#install', 'Tarifs'], ['#demo', 'Démo']]],
+              ['Ressources', [['#', 'Documentation'], ['#', 'Blog'], ['#', 'Guides'], ['#', 'Statut']]],
+              ['RGPD & Légal', [['#', 'Confidentialité'], ['#', 'Hébergement FR'], ['#', 'CGU'], ['#', 'DPA']]],
+              ['Réseaux', [['#', 'LinkedIn'], ['#', 'X / Twitter'], ['#', 'GitHub']]],
+            ].map(([title, links]) => (
+              <div key={title as string}>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14, color: '#fff' }}>{title as string}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+                  {(links as string[][]).map(([href, label], i) => <a key={label + i} className="ch-flink" href={href}>{label}</a>)}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ height: 1, background: 'rgba(255,255,255,.12)', margin: '40px 0 22px' }} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: '#A8C0D0' }}>🇫🇷 Hébergement français · Données locales · Conforme RGPD</span>
+            <span style={{ fontSize: 13, color: '#7FA0B5' }}>© {new Date().getFullYear()} Chapote. Tous droits réservés.</span>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }

@@ -45,7 +45,7 @@ DEFAULT_TREE = {
     },
 }
 
-# Tokens du design Kertios Chat (prototype claude.ai/design) : icone SVG de
+# Tokens du design Chapote (prototype claude.ai/design) : icone SVG de
 # bulle (chat/spark/help) ou image uploadee, degrade 2 couleurs, liseré blanc,
 # animations dots/wave/pulse.
 DEFAULT_DESIGN = {

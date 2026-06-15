@@ -1,5 +1,5 @@
-// Landing publique : hero + section tarifs visibles, CTA vers /register.
-// Sans auth — l'auto-login dev est neutralisé pour rester déconnecté.
+// Landing publique « Chapote » : hero + comparatif + installation visibles,
+// CTA vers /register. Sans auth — l'auto-login dev est neutralisé.
 import { expect, test } from '@playwright/test'
 import { blockAutoLogin } from '../helpers'
 
@@ -7,26 +7,27 @@ test.beforeEach(async ({ page }) => {
   await blockAutoLogin(page)
 })
 
-test('la landing affiche le hero et les tarifs, le CTA mène à /register', async ({ page }) => {
+test('la landing Chapote affiche hero/comparatif/installation, le CTA mène à /register', async ({ page }) => {
   await page.goto('/')
 
   // Hero
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Un chatbot qui')
-  await expect(page.getByRole('link', { name: /Créer mon chatbot/ }).first()).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('hybride français')
+  await expect(page.getByRole('link', { name: /Ajouter gratuitement la balise/ })).toBeVisible()
 
-  // Section tarifs : les 3 plans payants de la landing
-  const tarifs = page.locator('#tarifs')
-  await expect(tarifs.getByRole('heading', { name: /Prévisible/ })).toBeVisible()
-  for (const plan of ['Starter', 'Pro', 'Agence']) {
-    await expect(tarifs.getByText(plan, { exact: true })).toBeVisible()
-  }
-  await expect(tarifs.getByText('19 €', { exact: true })).toBeVisible()
+  // Comparatif (design : pas de cartes tarifs, « Tarifs » renvoie à l'installation)
+  await expect(page.locator('#why').getByRole('heading', { name: /Ni Intercom/ })).toBeVisible()
+  await expect(page.locator('#why').getByText('ILLIMITÉ', { exact: true })).toBeVisible()
 
-  // Déconnecté : la nav propose la création de compte
-  await expect(page.getByRole('link', { name: 'Créer mon compte' })).toBeVisible()
+  // Installation : snippet copiable
+  const install = page.locator('#install')
+  await expect(install.getByRole('heading', { name: /Une minute/ })).toBeVisible()
+  await expect(install.getByRole('button', { name: 'Copier' })).toBeVisible()
+
+  // Déconnecté : la nav propose connexion + installation
+  await expect(page.getByRole('link', { name: 'Se connecter' })).toBeVisible()
 
   // CTA hero -> inscription
-  await page.getByRole('link', { name: /Créer mon chatbot/ }).first().click()
+  await page.getByRole('link', { name: /Ajouter gratuitement la balise/ }).click()
   await expect(page).toHaveURL(/\/register$/)
   await expect(page.getByRole('heading', { name: 'Créez votre compte' })).toBeVisible()
 })

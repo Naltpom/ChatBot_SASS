@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /$
+Allow: /brand/
+Disallow: /app
+Disallow: /admin
+Disallow: /login
+Disallow: /register
+
+Sitemap: https://chapote.fr/sitemap.xml

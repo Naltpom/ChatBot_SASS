@@ -150,7 +150,7 @@ async function ensureMember(ctx: APIRequestContext, state: E2EState): Promise<vo
   // 2. Sinon : register d'un compte perso jetable (1 SEUL register)
   if (!valid) {
     const stamp = Date.now()
-    const email = `e2e.member.${stamp}@e2e-kertios.fr`
+    const email = `e2e.member.${stamp}@e2e-chapote.fr`
     const reg = await ctx.post('/api/auth/register', {
       data: {
         email,
@@ -261,7 +261,7 @@ export default async function globalSetup(_config: FullConfig) {
 
     // --- 1. Compte entreprise (1er des 2 seuls appels d'auth du setup) ---
     const stamp = Date.now()
-    const email = `e2e.setup.${stamp}@e2e-kertios.fr`
+    const email = `e2e.setup.${stamp}@e2e-chapote.fr`
     const reg = await ctx.post('/api/auth/register', {
       data: {
         email,

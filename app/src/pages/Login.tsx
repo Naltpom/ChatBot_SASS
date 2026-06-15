@@ -30,11 +30,11 @@ export default function Login() {
       <form onSubmit={submit}>
         <Card className="auth-card">
           <div className="auth-logo">
-            <img src="/brand/icon.svg" alt="Kertios" />
-            <span className="nm">Kertios <span>Chat</span></span>
+            <img src="/brand/icon.svg" alt="Chapote" />
+            <span className="nm">Chapote</span>
           </div>
           <p style={{ margin: 0, textAlign: 'center', fontSize: 12.5, color: 'var(--mut)' }}>
-            Connectez-vous (compte local ou intranet Kertios)
+            Connectez-vous (compte local ou intranet)
           </p>
           <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required />
           <input type="password" placeholder="Mot de passe" value={password}

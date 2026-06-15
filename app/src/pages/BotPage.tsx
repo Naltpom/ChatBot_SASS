@@ -702,7 +702,7 @@ export default function BotPage() {
               <div title={byokLocked ? 'Plan Agence requis' : undefined}>
                 <Seg value={bot.api_key_mode}
                      onChange={v => { if (v === 'byok' && byokLocked) return; patch({ api_key_mode: v }) }}
-                     options={[{ value: 'managed', label: 'Clé Kertios (managée)' }, { value: 'byok', label: 'Ma propre clé (BYOK)' }]} />
+                     options={[{ value: 'managed', label: 'Clé Chapote (managée)' }, { value: 'byok', label: 'Ma propre clé (BYOK)' }]} />
               </div>
               {byokLocked && (
                 <div style={{ marginTop: 10 }}>
@@ -853,10 +853,10 @@ export default function BotPage() {
                              hint={!/^https:\/\//.test(a.url || '')
                                ? <span style={{ color: 'var(--danger)' }}>L'URL doit commencer par https://</span>
                                : undefined}>
-                        <input type="text" className="mono" placeholder="https://api.votre-site.fr/hooks/kertios"
+                        <input type="text" className="mono" placeholder="https://api.votre-site.fr/hooks/chapote"
                                value={a.url || ''} onChange={e => updateAction(i, { url: e.target.value })} />
                       </Field>
-                      <Field label="Secret HMAC" hint="Signature HMAC-SHA256 dans l'en-tête X-Kertios-Signature.">
+                      <Field label="Secret HMAC" hint="Signature HMAC-SHA256 dans l'en-tête X-Chapote-Signature.">
                         <input type="password" className="mono"
                                placeholder={a.secret_set ? '•••• (laisser vide pour conserver)' : 'Optionnel — signe chaque appel'}
                                value={actionSecrets[i] || ''}
