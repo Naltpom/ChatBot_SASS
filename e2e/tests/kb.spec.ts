@@ -1,10 +1,18 @@
-// Base de connaissances RAG (parcours A) — onglet « Connaissances » (perm
-// context). Bot DÉDIÉ mode tree, créé/supprimé par bot via l'API.
+// Base de connaissances RAG — refonte Chapote. La KB n'est PLUS un onglet
+// « Connaissances » dédié : KbPanel vit désormais dans l'onglet « IA » de
+// l'éditeur de bot (BotPage.tsx, section « Base de connaissances »). L'onglet
+// IA n'est rendu que si l'IA est pertinente (aiTabRelevant) → bot DÉDIÉ en mode
+// hybrid (org agence du state, pas tree_only), créé/supprimé via l'API.
 //
 // MOCK_AI=false : l'ingestion et la recherche KB sont 100 % LOCALES (fastembed
-// ONNX CPU, modèle déjà en cache dans le volume fastembed_cache) — AUCUN appel
-// provider IA. Le widget n'est jamais ouvert. Le panneau « Tester la recherche »
-// est exactement ce que search_docs exécute, sans crédit IA.
+// ONNX CPU) — AUCUN appel provider IA. Le widget n'est jamais ouvert. Le
+// panneau « Tester la recherche » est exactement ce que search_docs exécute,
+// sans crédit IA.
+//
+// ATTENTION timing : après un reset DB, le cache fastembed est vide → le 1er
+// embed télécharge le modèle (~240 Mo) puis le charge en ONNX CPU. La 1re
+// source peut donc rester « Indexation… » plusieurs minutes — d'où le timeout
+// généreux ci-dessous (l'attente interne « Prête » est à 180 s, on aligne).
 import { expect, test } from '@playwright/test'
 import { authenticate, createBot, deleteBot, loadState } from '../helpers'
 
@@ -12,7 +20,9 @@ const state = loadState()
 let botId: number
 
 test.beforeAll(async ({ request }) => {
-  const bot = await createBot(request, state, { name: `Bot KB E2E ${Date.now()}`, mode: 'tree' })
+  // mode hybrid : REQUIS pour que l'onglet « IA » (qui héberge KbPanel) soit
+  // rendu. Aucun chemin IA n'est exercé (widget jamais ouvert).
+  const bot = await createBot(request, state, { name: `Bot KB E2E ${Date.now()}`, mode: 'hybrid' })
   botId = bot.id
 })
 
@@ -22,16 +32,24 @@ test.afterAll(async ({ request }) => {
 
 test.beforeEach(async ({ page }) => {
   await authenticate(page, state)
-  await page.goto(`/app/bots/${botId}?tab=kb`)
+  // L'onglet IA dépend de aiTabRelevant (bot.mode !== 'tree' && !usage.tree_only).
+  // BotPage fetch /usage APRÈS le bot (effet chaîné) et son arrivée re-render les
+  // onglets : on attend cette réponse pour ne pas cliquer pendant le re-render.
+  const usageSeen = page.waitForResponse(
+    r => /\/api\/orgs\/\d+\/usage/.test(r.url()) && r.request().method() === 'GET',
+  )
+  await page.goto(`/app/bots/${botId}?tab=ai`)
+  await usageSeen
 })
 
-test('ingestion texte locale → ready → recherche hybride/fts → suppression', async ({ page }) => {
-  // L'init paresseuse du modèle fastembed (chargement ONNX depuis le cache au
-  // 1er embed du process API) + l'indexation peuvent dépasser le timeout global
-  // de 45 s — l'attente interne « Prête » est à 180 s, on aligne le test.
+test('onglet IA → ajout source texte → Prête → recherche hybride/fts → suppression', async ({ page }) => {
+  // Init paresseuse du modèle fastembed (chargement ONNX au 1er embed du
+  // process API) + indexation : peut dépasser largement le timeout global.
+  // L'attente interne « Prête » est à 180 s, on aligne le test (+ marge réseau).
   test.setTimeout(220_000)
 
-  await page.locator('.tabs').getByRole('button', { name: 'Connaissances' }).click()
+  // Onglet IA (héberge la section « Base de connaissances »)
+  await page.locator('.tabs').getByRole('button', { name: 'IA', exact: true }).click()
   await expect(page.getByText('Base de connaissances')).toBeVisible()
 
   // --- Ajout d'une source TEXTE ---
@@ -46,8 +64,8 @@ test('ingestion texte locale → ready → recherche hybride/fts → suppression
   )
   await page.getByRole('button', { name: /Ajouter la source/ }).click()
 
-  // --- Statut pending → ready (polling auto KbPanel 4 s ; modèle en cache →
-  // rapide, timeout généreux par sûreté) ---
+  // --- Statut pending → ready (polling auto KbPanel 4 s ; 1er embed = download
+  // + chargement ONNX, timeout généreux) ---
   const row = page.locator('tr', { hasText: 'Doc E2E KB' })
   await expect(row.getByText('Prête')).toBeVisible({ timeout: 180_000 })
   // Au moins un extrait indexé (colonne Extraits = td.mono)

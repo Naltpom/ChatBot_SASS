@@ -2,6 +2,12 @@
 // DÉDIÉ mode tree (createBot pose un STARTER_TREE serveur par défaut),
 // créé/supprimé par l'API.
 //
+// Refonte charte Chapote : l'éditeur d'arbre est le composant partagé
+// TreeFlow.tsx (carte « Arbre de conversation »), monté UNE SEULE FOIS (vue A
+// OU vue B) ; le bloc « Test A/B de l'arbre » (Activer/Désactiver la variante,
+// chip « A/B actif », slider de répartition) vit au-dessus dans l'onglet Arbre.
+// Libellés lus dans app/src/pages/BotPage.tsx et components/TreeFlow.tsx.
+//
 // MOCK_AI=false : aucun chemin IA (édition d'arbre + variante en mode tree).
 // Plan agence (state) : max_tree_nodes=null → la variante n'est jamais bloquée
 // par _check_plan_constraints (pas de 403/422). On assert l'effet via l'API.
@@ -38,8 +44,9 @@ test.beforeEach(async ({ page }) => {
 test('activer variante B + split → assert API non-null → désactiver → assert API null/0', async ({ page, request }) => {
   await page.locator('.tabs').getByRole('button', { name: 'Arbre' }).click()
 
-  // UN SEUL TreeBuilder monté (contrat strict mode) : vue A
-  await expect(page.getByText('Arbre de décision', { exact: true })).toHaveCount(1)
+  // UN SEUL TreeFlow monté (contrat strict mode) : vue A. La carte éditeur
+  // porte le titre « Arbre de conversation » (h3), unique par vue.
+  await expect(page.getByText('Arbre de conversation', { exact: true })).toHaveCount(1)
 
   // --- Activer la variante B ---
   // Clic + assert du chip enveloppés dans un retry (toPass) : le re-render de
@@ -50,14 +57,14 @@ test('activer variante B + split → assert API non-null → désactiver → ass
     if (await activate.isVisible()) await activate.click()
     await expect(page.getByText('A/B actif')).toBeVisible({ timeout: 2000 })
   }).toPass({ timeout: 15000 })
-  // Toujours un seul TreeBuilder (vue B après activation)
-  await expect(page.getByText('Arbre de décision', { exact: true })).toHaveCount(1)
+  // Toujours un seul TreeFlow (vue B après activation)
+  await expect(page.getByText('Arbre de conversation', { exact: true })).toHaveCount(1)
 
   // --- Régler le split à 40 % (input[type=range], unique sur l'onglet) ---
   const slider = page.locator('input[type="range"]')
   await slider.fill('40')
 
-  // --- Save ---
+  // --- Save (save bar SOMBRE, role=status) ---
   const bar = page.getByRole('status')
   await bar.getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await expect(bar).toContainText('Enregistré')

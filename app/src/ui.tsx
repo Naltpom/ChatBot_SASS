@@ -234,13 +234,15 @@ export function modeChip(mode: string) {
 
 // Dégradé de marque d'un bot (design_json)
 export function brandBg(design: Record<string, any>) {
-  const c1 = design?.primaryColor || '#0d9488'
+  const c1 = design?.primaryColor || '#1C3F5C'
   const c2 = design?.secondaryColor
   return c2 ? `linear-gradient(135deg, ${c1}, ${c2})` : c1
 }
 
-// Avatar d'organisation : initiales + couleur stable dérivée du nom
-const ORG_COLORS = ['#0d9488', '#4f46e5', '#0e7490', '#7c3aed', '#b45309', '#be185d']
+// Avatar d'organisation : initiales + couleur stable dérivée du nom.
+// Palette alignée sur la charte Chapote : navy, mint, violet IA, corail humain
+// + deux nuances complémentaires sobres.
+const ORG_COLORS = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#2563EB', '#15344b']
 export function orgInitials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
 }

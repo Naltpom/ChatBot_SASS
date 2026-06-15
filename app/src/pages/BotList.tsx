@@ -1,10 +1,10 @@
-// « Mes chatbots » — cards + intégrations + CTA wizard (pages-bots-list.jsx).
+// « Mes chatbots » — cards Chapote + intégrations + CTA wizard.
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Bot, Building2, Check, ChevronDown, ChevronRight, Clipboard, Plus } from 'lucide-react'
+import { AlertTriangle, Bot, Building2, Check, ChevronDown, Clipboard, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, BubbleIcon, Card, Chip, InfoBox, SectionTitle, brandBg, modeChip, statusChip } from '../ui'
+import { Btn, BubbleIcon, Card, InfoBox, brandBg, statusChip } from '../ui'
 import { PLAN_LABELS } from '../botConstants'
 
 export interface BotSummary {
@@ -66,9 +66,21 @@ function IntegrationMenu({ botId, onCopied }: { botId: number; onCopied: () => v
   )
 }
 
+// Pills de mode déduites du VRAI mode du bot (tree | hybrid | ai). On n'affiche
+// que des capacités réelles : « Arbre » toujours, « IA » si le mode l'autorise.
+// Pas de pill « Humain » fabriquée (le handoff dépend de l'arbre/des actions,
+// non porté par l'objet liste — on n'invente rien).
+function modePills(mode: string) {
+  const pills: { label: string; cls: string }[] = []
+  pills.push({ label: 'Arbre', cls: 'mp-tree' })
+  if (mode === 'ai' || mode === 'hybrid') pills.push({ label: 'IA', cls: 'mp-ai' })
+  return pills
+}
+
 export function BotCard({ bot, onOpen, canCopy = true }: { bot: BotSummary; onOpen: (id: number) => void; canCopy?: boolean }) {
   const [copied, setCopied] = useState(false)
   const d = bot.design_json || {}
+  const initials = bot.name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join('') || '?'
 
   async function copyMain(e: React.MouseEvent) {
     e.stopPropagation()
@@ -83,28 +95,57 @@ export function BotCard({ bot, onOpen, canCopy = true }: { bot: BotSummary; onOp
     setTimeout(() => setCopied(false), 1700)
   }
 
+  // L'avatar suit la marque du bot : image perso si design_json le prévoit,
+  // sinon dégradé/couleur de marque avec initiales (visuel Chapote).
+  const hasImg = d.icon === 'image' && d.avatarImage
+  const customIcon = d.icon && d.icon !== 'image'
+
   return (
     <Card nopad className="bot-card" onClick={() => onOpen(bot.id)} style={{ overflow: 'visible' }}>
       <div className="bot-card-body">
         <div className="bot-card-head">
-          <span className={`bot-avatar ${d.bordered ? 'bordered' : ''}`}
-                style={{ width: 40, height: 40, background: brandBg(d) }}>
-            <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? 40 : 19} avatarImg={d.avatarImage} />
+          <span className={`bot-avatar ${d.bordered ? 'bordered' : ''}`} style={{ background: brandBg(d) }}>
+            {hasImg
+              ? <BubbleIcon kind="image" size={44} avatarImg={d.avatarImage} />
+              : customIcon
+                ? <BubbleIcon kind={d.icon} size={20} />
+                : <span className="bot-avatar-initials">{initials}</span>}
           </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="bot-card-id">
             <div className="bot-card-name">{bot.name}</div>
             <div className="bot-card-site">{bot.allowed_domains[0] || 'aucun domaine'}</div>
           </div>
           {statusChip(bot.is_active)}
-          <ChevronRight size={14} className="open-hint" aria-hidden="true" />
         </div>
-        <div className="bot-card-chips">
-          {modeChip(bot.mode)}
-          <Chip tone="mut">{bot.msgs_7d.toLocaleString('fr-FR')} msg / 7 j</Chip>
-          <Chip tone="mut">{bot.visitors_7d.toLocaleString('fr-FR')} visiteurs</Chip>
-          {bot.allowed_domains.length === 0 && <Chip tone="warn"><AlertTriangle size={11} /> aucun domaine</Chip>}
+
+        <div className="bot-card-sep" />
+
+        <div className="bot-card-stats">
+          <div className="bcs-cell">
+            <div className="bcs-label">Conversations · 7 j</div>
+            <div className="bcs-value">{bot.visitors_7d.toLocaleString('fr-FR')}</div>
+          </div>
+          <div className="bcs-cell">
+            <div className="bcs-label">Messages · 7 j</div>
+            <div className="bcs-value mint">{bot.msgs_7d.toLocaleString('fr-FR')}</div>
+          </div>
+        </div>
+
+        <div className="bot-card-modes">
+          {modePills(bot.mode).map(p => (
+            // Pills de mode : forme exacte du template Chapote (radius 8px,
+            // padding 4/10, tint 12 %). Couleurs portées par la classe mp-*.
+            <span key={p.label} className={`mode-pill ${p.cls}`}
+                  style={{ borderRadius: 8, padding: '4px 10px' }}>{p.label}</span>
+          ))}
+          {bot.allowed_domains.length === 0 && (
+            <span className="mode-pill mp-warn" style={{ borderRadius: 8, padding: '4px 10px' }}>
+              <AlertTriangle size={11} /> aucun domaine
+            </span>
+          )}
         </div>
       </div>
+
       {canCopy && (
         <div className="bot-card-foot">
           <Btn kind={copied ? 'soft' : 'primary'} small onClick={copyMain} style={{ flex: 1, justifyContent: 'center' }}>
@@ -121,7 +162,7 @@ export default function BotList() {
   const { activeOrg } = useAuth()
   const navigate = useNavigate()
   const [bots, setBots] = useState<BotSummary[]>([])
-  const [quota, setQuota] = useState({ bots_quota: 1 })
+  const [quota, setQuota] = useState<{ bots_quota: number; ai_messages_used?: number; ai_messages_quota?: number }>({ bots_quota: 1 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
@@ -159,7 +200,12 @@ export default function BotList() {
   if (error) {
     return (
       <div className="col g18">
-        <SectionTitle sub={`Chatbots de ${activeOrg.name}.`}>Mes chatbots</SectionTitle>
+        <div className="botlist-head">
+          <div>
+            <h1 className="botlist-title" style={{ fontSize: 32 }}>Mes chatbots</h1>
+            <p className="botlist-sub">Chatbots de {activeOrg.name}.</p>
+          </div>
+        </div>
         <InfoBox tone="danger" title="Impossible de charger vos chatbots">{error}</InfoBox>
         <div><Btn kind="soft" onClick={() => setRetry(n => n + 1)}>Réessayer</Btn></div>
       </div>
@@ -172,15 +218,29 @@ export default function BotList() {
   const canCopyBot = (botId: number) =>
     isAdmin || (activeOrg.permissions[String(botId)] || []).includes('copy')
 
+  // Sous-ligne : chiffres RÉELS uniquement. Conversations 7 j = somme des
+  // visiteurs uniques par bot ; messages IA du mois depuis l'usage de l'org.
+  const conv7d = bots.reduce((s, b) => s + (b.visitors_7d || 0), 0)
+  const subParts = [
+    `${bots.length} chatbot${bots.length > 1 ? 's' : ''} sur ${quota.bots_quota} · plan ${planLabel}`,
+  ]
+  if (bots.length > 0) subParts.push(`${conv7d.toLocaleString('fr-FR')} conversation${conv7d > 1 ? 's' : ''} sur 7 j`)
+  if (typeof quota.ai_messages_used === 'number')
+    subParts.push(`${quota.ai_messages_used.toLocaleString('fr-FR')} message${quota.ai_messages_used > 1 ? 's' : ''} IA ce mois`)
+
   return (
     <div className="col g18">
-      <SectionTitle
-        sub={`${bots.length} chatbot${bots.length > 1 ? 's' : ''} sur ${quota.bots_quota} inclus dans le plan ${planLabel}.`}
-        right={isAdmin
-          ? <Btn onClick={() => navigate('/app/bots/new')} disabled={atLimit}><Plus size={14} /> Créer un chatbot</Btn>
-          : undefined}>
-        Mes chatbots
-      </SectionTitle>
+      <div className="botlist-head">
+        <div>
+          <h1 className="botlist-title">Mes chatbots</h1>
+          <p className="botlist-sub">{subParts.join(' · ')}</p>
+        </div>
+        {isAdmin && (
+          <button className="botlist-create" onClick={() => navigate('/app/bots/new')} disabled={atLimit}>
+            <Plus size={17} /> Créer un bot
+          </button>
+        )}
+      </div>
 
       {isAdmin && atLimit && (
         <InfoBox tone="warn" title="Limite du plan atteinte">
@@ -194,7 +254,7 @@ export default function BotList() {
             <div className="col" style={{ alignItems: 'center', gap: 10 }}>
               <span style={{
                 width: 54, height: 54, borderRadius: 99, background: 'var(--acc-soft)',
-                border: '1px solid var(--acc-bd)', color: 'var(--acc)', display: 'grid', placeItems: 'center',
+                border: '1px solid var(--acc-bd)', color: 'var(--mint)', display: 'grid', placeItems: 'center',
               }}>
                 <Bot size={28} />
               </span>
@@ -219,14 +279,14 @@ export default function BotList() {
           </Card>
         )
       ) : (
-        <div className="bot-grid">
+        <div className="bot-grid" style={{ gap: 22 }}>
           {bots.map(b => (
             <BotCard key={b.id} bot={b} onOpen={id => navigate(`/app/bots/${id}`)} canCopy={canCopyBot(b.id)} />
           ))}
           {isAdmin && !atLimit && (
             <button className="bot-create-cta" onClick={() => navigate('/app/bots/new')}>
-              <span className="plus"><Plus size={18} /></span>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>Ajouter un chatbot</span>
+              <span className="plus"><Plus size={20} /></span>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>Créer un bot</span>
               <span style={{ fontSize: 11, color: 'var(--faint)' }}>Configuration guidée, ~2 min</span>
             </button>
           )}

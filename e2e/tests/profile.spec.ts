@@ -37,12 +37,18 @@ test.beforeEach(async ({ page }) => {
 
 test('renommage du profil reflété dans la sidebar (puis revert)', async ({ page }) => {
   const nameInput = page.getByLabel('Nom')
-  const sidebarName = page.locator('button[title="Mon profil"]')
+  // Nouvelle sidebar (Layout.tsx) : le nom de l'utilisateur vit dans le bloc
+  // user en bas — bouton .sidebar-user-main (title="Mon profil") qui contient
+  // l'avatar (initiales), le nom (.sidebar-user-id .nm) et l'org (.org). On
+  // cible la SEULE span du nom pour pouvoir asserter en texte exact (sinon les
+  // initiales + le nom d'org polluent le texte du bouton). Le member n'est pas
+  // superadmin → pas d'icône ShieldCheck dans .nm : c'est du texte pur.
+  const sidebarName = page.locator('.sidebar-user-id .nm')
 
   await nameInput.fill('Membre E2E Renommé')
   await page.getByRole('button', { name: 'Mettre à jour' }).click()
   await expect(page.getByRole('button', { name: /Enregistré/ })).toBeVisible()
-  await expect(sidebarName).toContainText('Membre E2E Renommé')
+  await expect(sidebarName).toHaveText('Membre E2E Renommé')
 
   // REVERT dans le même test (le global-setup renormalise aussi en secours)
   await nameInput.fill(state.memberName!)

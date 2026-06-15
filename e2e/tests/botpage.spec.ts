@@ -1,43 +1,84 @@
-// Page du bot partagé (global-setup) : onglets visibles, ajout d'une bulle
-// dans l'onglet Arbre + enregistrement, zone de danger dans Sécurité
-// (le bouton Supprimer est présent mais N'EST PAS cliqué).
+// Éditeur de bot (refonte Chapote) — onglets visibles selon le mode, et
+// l'onglet Arbre (TreeFlow) : ajout d'une branche + enregistrement via la
+// save bar, puis vérification de la persistance après reload.
+// Bot DÉDIÉ jetable (createBot, mode arbre) → deleteBot en afterAll : aucune
+// interférence avec le bot partagé / les autres specs.
 import { expect, test } from '@playwright/test'
-import { authenticate, loadState } from '../helpers'
+import { authenticate, createBot, deleteBot, loadState } from '../helpers'
 
 const state = loadState()
 
+let botId = 0
+let publicKey = ''
+
+test.beforeAll(async ({ request }) => {
+  const bot = await createBot(request, state, { name: 'E2E BotPage' })
+  botId = bot.id
+  publicKey = bot.publicKey
+})
+
+test.afterAll(async ({ request }) => {
+  await deleteBot(request, state, botId)
+})
+
 test.beforeEach(async ({ page }) => {
   await authenticate(page, state)
-  await page.goto(`/app/bots/${state.botId}`)
-  await expect(page.getByText('Bot partagé E2E').first()).toBeVisible()
+  await page.goto(`/app/bots/${botId}`)
+  // Éditeur chargé : on attend la barre d'onglets (le nom du bot apparaît à
+  // plusieurs endroits — header + AppearanceForm — donc input[value] serait ambigu).
+  await expect(page.locator('.tabs').getByRole('button', { name: 'Apparence', exact: true })).toBeVisible()
 })
 
-test('les onglets du bot s\'affichent (mode arbre : pas d\'onglet Bot & IA)', async ({ page }) => {
+test('les 7 onglets de l\'éditeur en mode arbre (IA et Actions masqués)', async ({ page }) => {
   const tabs = page.locator('.tabs')
-  for (const label of ['Stats', 'Arbre', 'Apparence', 'Sécurité', 'Intégration']) {
-    await expect(tabs.getByRole('button', { name: label })).toBeVisible()
+  // Bot mode arbre sur un plan non tree_only → aiTabRelevant=false : les
+  // onglets « IA » et « Actions » n'ont pas lieu d'être.
+  for (const label of ['Apparence', 'Arbre', 'Humain', 'Intégration', 'Sécurité']) {
+    await expect(tabs.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
-  // Bot en mode arbre -> l'onglet « Bot & IA » n'a pas lieu d'être
-  await expect(tabs.getByRole('button', { name: 'Bot & IA' })).toHaveCount(0)
+  await expect(tabs.getByRole('button', { name: 'IA', exact: true })).toHaveCount(0)
+  await expect(tabs.getByRole('button', { name: 'Actions', exact: true })).toHaveCount(0)
 })
 
-test('onglet Arbre : ajouter une bulle puis enregistrer', async ({ page }) => {
-  await page.locator('.tabs').getByRole('button', { name: 'Arbre' }).click()
-  await expect(page.getByText('Arbre de décision', { exact: true })).toBeVisible()
+test('onglet Arbre : ajouter une branche, voir le flowchart, enregistrer puis persister', async ({ page }) => {
+  await page.locator('.tabs').getByRole('button', { name: 'Arbre', exact: true }).click()
 
-  // Ajout d'une bulle (choix racine) -> l'option apparaît dans le canvas
-  await page.getByRole('button', { name: /Ajouter un choix racine/ }).click()
-  await expect(page.getByRole('button', { name: /Nouveau choix/ }).first()).toBeVisible()
+  // Carte éditeur de TreeFlow présente (racine + bouton d'ajout)
+  await expect(page.getByText('Arbre de conversation', { exact: true })).toBeVisible()
+  await expect(page.getByText("Message d'accueil")).toBeVisible()
 
-  // L'état devient « dirty » -> bouton Enregistrer dans l'en-tête
-  await page.getByRole('button', { name: 'Enregistrer', exact: true }).click()
-  await expect(page.getByRole('button', { name: /Enregistré/ })).toBeVisible()
+  // Ajout d'une branche -> une ligne d'édition apparaît (input « Réponse »
+  // pré-rempli « Nouvelle réponse ») et la branche se reflète dans le canvas.
+  await page.getByRole('button', { name: '+ Branche' }).click()
+  const answerInput = page.locator('input[placeholder="Réponse"]').last()
+  await expect(answerInput).toBeVisible()
+  await answerInput.fill('Choix E2E')
+  // La destination du nœud cible (placeholder « Destination »)
+  const destInput = page.locator('input[placeholder="Destination"]').last()
+  await destInput.fill('Réponse E2E')
+
+  // Le flowchart reflète la nouvelle branche (pastille de réponse dans le canvas)
+  await expect(page.getByText('Choix E2E').first()).toBeVisible()
+
+  // L'état devient dirty -> la save bar sombre (role=status) apparaît
+  const bar = page.getByRole('status')
+  await expect(bar).toBeVisible()
+  await expect(bar).toContainText('Modifications non enregistrées')
+
+  // Enregistrement via le bouton « Enregistrer » de la save bar
+  await bar.getByRole('button', { name: 'Enregistrer', exact: true }).click()
+  await expect(bar).toContainText('Enregistré')
+
+  // Persistance serveur : après reload, la branche est toujours là
+  await page.reload()
+  await page.locator('.tabs').getByRole('button', { name: 'Arbre', exact: true }).click()
+  await expect(page.locator('input[value="Choix E2E"]')).toBeVisible()
 })
 
 test('onglet Sécurité : la zone de danger expose le bouton de suppression', async ({ page }) => {
-  await page.locator('.tabs').getByRole('button', { name: 'Sécurité' }).click()
-  await expect(page.getByText('Zone de danger')).toBeVisible()
-  // Présence seulement — on ne supprime PAS le bot partagé
-  await expect(page.getByRole('button', { name: /Supprimer ce chatbot/ })).toBeVisible()
+  await page.locator('.tabs').getByRole('button', { name: 'Sécurité', exact: true }).click()
   await expect(page.getByText('Domaines autorisés').first()).toBeVisible()
+  await expect(page.getByText('Zone de danger')).toBeVisible()
+  // Présence seulement — la suppression réelle est gérée par deleteBot (afterAll)
+  await expect(page.getByRole('button', { name: /Supprimer ce chatbot/ })).toBeVisible()
 })
