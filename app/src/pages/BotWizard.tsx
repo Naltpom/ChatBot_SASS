@@ -1,6 +1,6 @@
 // Wizard de création — expérience conversationnelle Chapote (BotCreate.dc.html).
 // 5 étapes : CHAT (le bot interroge l'utilisateur) → PRESET (récap des
-// capacités + prix estimé) → APPARENCE (contrôles + widget live fixe) →
+// capacités, tout inclus/gratuit) → APPARENCE (contrôles + widget live fixe) →
 // ARBRE (composant PARTAGÉ TreeFlow) → DONE (bot créé).
 //
 // SOURCE UNIQUE de l'arbre : à l'entrée de l'étape ARBRE, les réponses du chat
@@ -50,11 +50,6 @@ const QUESTIONS: Question[] = [
     q: "Quand l'arbre guidé ne suffit pas, que préférez-vous ?",
     opts: [['ia', "Laisser l'IA répondre"], ['human', 'Passer à un conseiller'], ['both', 'Les deux : IA puis humain']],
   },
-  {
-    key: 'budget', type: 'single',
-    q: 'Quel plafond de budget IA par mois ? Vous ne le dépasserez jamais.',
-    opts: [['10', '10 €'], ['30', '30 €'], ['50', '50 €'], ['none', "Pas d'IA"]],
-  },
 ]
 function optLabel(key: string, v: string): string {
   const q = QUESTIONS.find(x => x.key === key)
@@ -69,7 +64,7 @@ interface Branch { answer: string; type: string; title: string; subs: SubBranch[
 
 // Construit l'ébauche d'arbre à partir des réponses du chat.
 function rawBranches(answers: Record<string, string>, goals: string[]): Branch[] {
-  const ai = (answers.fallback === 'ia' || answers.fallback === 'both') && answers.budget !== 'none'
+  const ai = answers.fallback === 'ia' || answers.fallback === 'both'
   const human = answers.fallback === 'human' || answers.fallback === 'both'
   const out: Branch[] = []
   if (goals.includes('orders')) out.push({
@@ -295,8 +290,8 @@ export default function BotWizard() {
   const [error, setError] = useState('')
   const [createdBotId, setCreatedBotId] = useState<number | null>(null)
 
-  // L'IA est câblée si l'utilisateur l'a choisie avec un budget.
-  const wantsAI = (answers.fallback === 'ia' || answers.fallback === 'both') && answers.budget !== 'none'
+  // L'IA est câblée si l'utilisateur l'a choisie (tout est gratuit, pas de budget).
+  const wantsAI = answers.fallback === 'ia' || answers.fallback === 'both'
   const wantsHuman = answers.fallback === 'human' || answers.fallback === 'both'
   const allowAI = wantsAI
   // Mode réel du bot : hybride si IA voulue, sinon arbre.
@@ -306,11 +301,6 @@ export default function BotWizard() {
   // Logique du chat
   function answerSingle(key: string, v: string) {
     const a = { ...answers, [key]: v }
-    if (key === 'fallback' && v === 'human') {
-      // Pas d'IA -> on saute la question budget.
-      a.budget = 'none'
-      setAnswers(a); setStep('preset'); return
-    }
     const next = qi + 1
     setAnswers(a)
     if (next >= QUESTIONS.length) setStep('preset')
@@ -326,18 +316,18 @@ export default function BotWizard() {
   }
 
   // -------------------------------------------------------------------------
-  // Capacités / prix (récap PRESET — données frontend pures, charte du design)
+  // Capacités activées (récap PRESET — données frontend pures, charte du design).
+  // Tout est gratuit : aucune notion de prix/quota.
   const caps = useMemo(() => {
-    const list: { icon: string; label: string; desc: string; price: string; priceCol: string; tint: string; cost: number }[] = [
-      { icon: '🌿', label: 'Arbre guidé illimité', desc: 'Branches & options sans limite', price: 'Inclus', priceCol: MINT, tint: 'rgba(47,158,121,.12)', cost: 0 },
+    const list: { icon: string; label: string; desc: string; tint: string }[] = [
+      { icon: '🌿', label: 'Arbre guidé illimité', desc: 'Branches & options sans limite', tint: 'rgba(47,158,121,.12)' },
     ]
-    if (allowAI) list.push({ icon: '✨', label: `IA plafonnée (${answers.budget}€/mois)`, desc: 'Répond aux questions ouvertes', price: '+19€', priceCol: INK, tint: 'rgba(140,109,255,.12)', cost: 19 })
-    if (wantsHuman) list.push({ icon: '💬', label: 'Relais humain', desc: 'Bascule vers un conseiller', price: '+15€', priceCol: INK, tint: 'rgba(232,106,95,.12)', cost: 15 })
-    if (goals.includes('leads')) list.push({ icon: '📥', label: 'Capture de contacts', desc: 'Collecte les leads qualifiés', price: '+9€', priceCol: INK, tint: 'rgba(37,99,235,.12)', cost: 9 })
-    if (goals.includes('rdv')) list.push({ icon: '📅', label: 'Prise de rendez-vous', desc: 'Intégration calendrier', price: '+12€', priceCol: INK, tint: 'rgba(224,168,46,.14)', cost: 12 })
+    if (allowAI) list.push({ icon: '✨', label: 'IA conversationnelle', desc: 'Répond aux questions ouvertes', tint: 'rgba(140,109,255,.12)' })
+    if (wantsHuman) list.push({ icon: '💬', label: 'Relais humain', desc: 'Bascule vers un conseiller', tint: 'rgba(232,106,95,.12)' })
+    if (goals.includes('leads')) list.push({ icon: '📥', label: 'Capture de contacts', desc: 'Collecte les leads qualifiés', tint: 'rgba(37,99,235,.12)' })
+    if (goals.includes('rdv')) list.push({ icon: '📅', label: 'Prise de rendez-vous', desc: 'Intégration calendrier', tint: 'rgba(224,168,46,.14)' })
     return list
-  }, [allowAI, wantsHuman, goals, answers.budget])
-  const total = caps.reduce((s, c) => s + c.cost, 0)
+  }, [allowAI, wantsHuman, goals])
   const draftBranchCount = useMemo(() => rawBranches(answers, goals).length, [answers, goals])
 
   // -------------------------------------------------------------------------
@@ -515,25 +505,18 @@ export default function BotWizard() {
           <div style={{ textAlign: 'center', marginBottom: 26 }}>
             <span style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>✨</span>
             <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 30, margin: '16px 0 0', letterSpacing: '-.02em' }}>Voici l'assistant de vos rêves</h1>
-            <p style={{ fontSize: 15, color: MUT, margin: '8px 0 0' }}>Construit d'après vos réponses. Chaque capacité est activable séparément.</p>
+            <p style={{ fontSize: 15, color: MUT, margin: '8px 0 0' }}>Construit d'après vos réponses — toutes les capacités sont incluses.</p>
           </div>
           <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 20, overflow: 'hidden', boxShadow: '0 18px 50px -28px rgba(28,63,92,.3)' }}>
             {caps.map((c, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderBottom: '1px solid #F4F6F8' }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderBottom: i < caps.length - 1 ? '1px solid #F4F6F8' : 'none' }}>
                 <span style={{ width: 40, height: 40, borderRadius: 11, background: c.tint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{c.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{c.label}</div>
                   <div style={{ fontSize: 13, color: FAINT }}>{c.desc}</div>
                 </div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: c.priceCol, whiteSpace: 'nowrap' }}>{c.price}</span>
               </div>
             ))}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', background: '#FBFCFD' }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: MUT }}>Total mensuel estimé</span>
-              <span style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 24, color: NAVY }}>
-                {total}€<span style={{ fontSize: 14, color: FAINT, fontFamily: "'Inter'", fontWeight: 500 }}>/mois</span>
-              </span>
-            </div>
           </div>
           <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 16, display: 'flex', alignItems: 'center', gap: 13 }}>
             <span style={{ fontSize: 20 }}>🌿</span>
