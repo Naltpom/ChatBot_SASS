@@ -1,11 +1,11 @@
-// « Inbox » — live chat staff au niveau de l'ORGANISATION (page autonome, hors
-// BotPage). Un sélecteur de bot (bots de l'org active où l'utilisateur a la perm
-// inbox) puis le même <InboxPanel> que l'onglet Inbox de la page bot : tout le
-// câblage live chat (polling/refetch 5 s, take/reply/close) vit DANS le panneau,
-// on ne le touche pas. Style Chapote : carte blanche, titre Clash, sélecteur en
+// « Inbox » — live chat staff transverse à TOUS mes bots (perso + équipes), page
+// autonome hors BotPage. Un sélecteur de bot (ceux où j'ai accès au live chat)
+// puis le même <InboxPanel> que l'onglet Inbox de la page bot : tout le câblage
+// live chat (polling/refetch 5 s, take/reply/close) vit DANS le panneau, on ne
+// le touche pas. Style Chapote : carte blanche, titre Clash, sélecteur en
 // pilules avec pastille « à prendre ».
 import { useEffect, useMemo, useState } from 'react'
-import { Building2, Inbox as InboxIcon } from 'lucide-react'
+import { Inbox as InboxIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
@@ -14,7 +14,7 @@ import InboxPanel from '../components/InboxPanel'
 import { BotSummary } from './BotList'
 
 export default function Inbox() {
-  const { activeOrg } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [bots, setBots] = useState<BotSummary[] | null>(null)
   const [error, setError] = useState('')
@@ -24,28 +24,32 @@ export default function Inbox() {
   // ET, pour les bots non sélectionnés, par un sondage léger au chargement).
   const [pending, setPending] = useState<Record<number, number>>({})
 
-  const isOrgAdmin = activeOrg?.role === 'admin'
-
-  // Bots visibles dans l'Inbox : admins/superadmins = tous ; members = ceux où
-  // ils ont la perm inbox (même règle que hasPerm('inbox') de BotPage). Le
-  // superadmin a role 'admin' sur les orgs qu'il possède ; sur les autres il
-  // n'y a pas d'entrée /me → cette page reste org-scopée (cohérent avec Team).
+  // Bots visibles dans l'Inbox, sur TOUS mes bots (perso + équipes) :
+  // - superadmin : tous ; bot perso : son propriétaire (tous droits) ;
+  // - bot d'équipe : admin de l'équipe, ou member avec la perm 'inbox'
+  //   (même règle que hasPerm('inbox') de BotPage).
   const accessibleBots = useMemo(() => {
-    if (!bots || !activeOrg) return [] as BotSummary[]
-    if (isOrgAdmin) return bots
-    return bots.filter(b => (activeOrg.permissions[String(b.id)] || []).includes('inbox'))
-  }, [bots, activeOrg, isOrgAdmin])
+    if (!bots || !user) return [] as BotSummary[]
+    if (user.is_superadmin) return bots
+    return bots.filter(b => {
+      const isPersonal = b.scope === 'personal' || (b.owner_user_id != null && b.organization_id == null)
+      if (isPersonal) return b.owner_user_id === user.id
+      const org = user.organizations.find(o => o.id === b.organization_id)
+      if (!org) return false
+      return org.role === 'admin' || (org.permissions[String(b.id)] || []).includes('inbox')
+    })
+  }, [bots, user])
 
+  // Liste de TOUS mes bots — perso + équipes (même endpoint que BotList)
   useEffect(() => {
-    if (!activeOrg) { setBots([]); return }
     setBots(null)
     setError('')
     setSelectedId(null)
     setPending({})
-    api<BotSummary[]>(`/api/orgs/${activeOrg.id}/bots`)
+    api<BotSummary[]>(`/api/bots`)
       .then(setBots)
       .catch((err: any) => setError(err.message))
-  }, [activeOrg?.id, retry])
+  }, [retry])
 
   // Sélection par défaut + pré-comptage des demandes en attente sur TOUS les
   // bots accessibles (sondage léger limit=1 : on ne lit que le total). Le bot
@@ -63,25 +67,10 @@ export default function Inbox() {
   }, [accessibleBots])
 
   // ---------- États bordés ----------
-  if (!activeOrg) {
-    return (
-      <Card style={{ textAlign: 'center', padding: '44px 24px' }}>
-        <div className="col" style={{ alignItems: 'center', gap: 10 }}>
-          <Building2 size={24} style={{ color: 'var(--faint)' }} />
-          <div style={{ fontSize: 15, fontWeight: 800 }}>Aucune équipe active</div>
-          <div style={{ fontSize: 12.5, color: 'var(--mut)', maxWidth: 400, lineHeight: 1.55 }}>
-            Sélectionnez une équipe pour suivre les conversations en direct de ses chatbots.
-          </div>
-          <Btn onClick={() => navigate('/app/orgs')}>Mes équipes</Btn>
-        </div>
-      </Card>
-    )
-  }
-
   if (error) {
     return (
       <div className="col g18">
-        <SectionTitle sub={`Conversations en direct de ${activeOrg.name}.`}>Inbox</SectionTitle>
+        <SectionTitle sub="Conversations en direct de vos chatbots.">Inbox</SectionTitle>
         <InfoBox tone="danger" title="Impossible de charger vos chatbots">{error}</InfoBox>
         <div><Btn kind="soft" onClick={() => setRetry(n => n + 1)}>Réessayer</Btn></div>
       </div>
@@ -112,12 +101,10 @@ export default function Inbox() {
             <div style={{ fontSize: 16, fontWeight: 800 }}>Aucune conversation à suivre</div>
             <div style={{ fontSize: 12.5, color: 'var(--mut)', maxWidth: 420, lineHeight: 1.55 }}>
               {bots.length === 0
-                ? `${activeOrg.name} n'a pas encore de chatbot. Créez-en un pour activer le live chat.`
-                : isOrgAdmin
-                  ? "Aucun de vos chatbots n'a de conversation transmise à un conseiller pour le moment."
-                  : "Aucun chatbot ne vous a été confié pour la boîte de réception. Demandez la permission « Boîte de réception » à un admin de l'organisation."}
+                ? "Vous n'avez pas encore de chatbot. Créez-en un pour activer le live chat."
+                : "Aucun de vos chatbots n'a de conversation transmise à un conseiller, ou la permission « Boîte de réception » ne vous a pas été accordée sur ces bots."}
             </div>
-            {bots.length === 0 && isOrgAdmin && (
+            {bots.length === 0 && (
               <Btn onClick={() => navigate('/app/bots/new')}>Créer un chatbot</Btn>
             )}
           </div>
