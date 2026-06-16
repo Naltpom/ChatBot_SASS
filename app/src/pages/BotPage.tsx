@@ -9,20 +9,24 @@
 // composants StatsPanel/InsightsPanel/InboxPanel restent dans components/ et
 // sont importés ailleurs — ils ne sont plus montés ici).
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Clipboard, Download, Plus, Sparkles, Trash2, Upload } from 'lucide-react'
+import { Check, Download, Plus, Sparkles, Upload } from 'lucide-react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import {
-  Btn, BubbleIcon, Card, Chip, Divider, Field, InfoBox, SectionTitle, Seg, Toggle,
+  Btn, BubbleIcon, Card, Chip, Field, InfoBox, SectionTitle, Seg, Toggle,
   brandBg, modeChip, statusChip,
 } from '../ui'
-import { ACTION_TEMPLATES, CAPTCHA_OPTIONS, MODEL_OPTIONS, findModelOption } from '../botConstants'
+import { findModelOption } from '../botConstants'
 import { canAccessBotPerm, isPersonalBot } from '../utils/permissions'
 import AppearanceForm from '../components/AppearanceForm'
-import KbPanel from '../components/KbPanel'
 import TreeFlow from '../components/TreeFlow'
 import WidgetPreview, { PreviewFrame } from '../components/WidgetPreview'
+import AiTab from '../components/bot-tabs/AiTab'
+import HumanTab from '../components/bot-tabs/HumanTab'
+import ActionsTab from '../components/bot-tabs/ActionsTab'
+import IntegrationTab from '../components/bot-tabs/IntegrationTab'
+import SecurityTab from '../components/bot-tabs/SecurityTab'
 
 // perm = permission par bot requise pour un MEMBER (admins : tout). Libellés
 // EXACTS de la charte Chapote. L'onglet 'appearance' reste PREMIER (fallback
@@ -49,19 +53,6 @@ const TAB_FIELDS: Record<string, string[]> = {
   human: ['handoff_webhook_url'],
   actions: ['actions_json', 'mcp_servers_json'],
   security: ['allowed_domains', 'captcha_provider', 'captcha_site_key', 'is_active'],
-}
-
-const ACTION_NAME_RE = /^[a-z][a-z0-9_]{0,63}$/
-// Nom de serveur MCP : règle serveur _check_mcp_servers (31 caractères max)
-const MCP_NAME_RE = /^[a-z][a-z0-9_]{0,30}$/
-
-// Chip d'en-tête par type d'action
-const ACTION_TYPE_CHIPS: Record<string, { tone: 'info' | 'go' | 'acc'; label: string }> = {
-  webhook: { tone: 'info', label: 'Webhook' },
-  capture_lead: { tone: 'go', label: 'Capture de lead' },
-  handoff: { tone: 'acc', label: 'Conseiller humain' },
-  create_ticket: { tone: 'go', label: 'Ticket par email' },
-  calendar_slots: { tone: 'info', label: 'Créneaux Cal.com' },
 }
 
 interface Integration { id: string; label: string; icon: string; description: string; snippet: string }
@@ -841,666 +832,41 @@ export default function BotPage() {
 
       {/* ================= IA ================= */}
       {activeTab === 'ai' && (
-        <div className="col g18">
-          <SectionTitle sub="Modèle, clés API et instructions utilisées par l'IA pour répondre.">
-            IA
-          </SectionTitle>
-          <div className="grid2">
-            <Card>
-              <div className="card-title">Modèle IA</div>
-              <div className="col" style={{ gap: 8 }}>
-                {MODEL_OPTIONS.map(m => {
-                  const selected = currentModel?.model === m.model
-                  return (
-                    <button key={m.model} className={`radio-card ${selected ? 'selected' : ''}`}
-                            onClick={() => patch({ ai_provider: m.provider, ai_model: m.model })}>
-                      <span className="radio-dot" />
-                      <span style={{ flex: 1 }}>
-                        <span className="rc-name">{m.name}</span>
-                        <span className="rc-desc">{m.desc}</span>
-                      </span>
-                      {m.recommended && <Chip tone="acc">Recommandé</Chip>}
-                    </button>
-                  )
-                })}
-              </div>
-
-              <Divider />
-              <div className="card-title" style={{ marginBottom: 8 }}>Clé API</div>
-              <div>
-                <Seg value={bot.api_key_mode}
-                     onChange={v => patch({ api_key_mode: v })}
-                     options={[{ value: 'managed', label: 'Clé Chapote (managée)' }, { value: 'byok', label: 'Ma propre clé (BYOK)' }]} />
-              </div>
-              <div style={{ marginTop: 10 }}>
-                {bot.api_key_mode === 'managed' ? (
-                  <InfoBox tone="go" title="Clé managée">
-                    L'IA utilise la clé Chapote managée. Aucune clé à gérer, les plafonds
-                    protègent votre budget.
-                  </InfoBox>
-                ) : (
-                  <div className="col g8">
-                    <input type="password" className="mono"
-                           placeholder={bot.byok_key_set ? '•••• (laisser vide pour conserver)' : 'sk-ant-api03-…'}
-                           value={byokKey} onChange={e => setByokKey(e.target.value)} />
-                    <InfoBox tone="info" title="BYOK — votre clé, chiffrée côté serveur">
-                      Votre clé est stockée chiffrée et utilisée uniquement côté serveur. Elle n'est jamais
-                      exposée dans le widget. Vous payez les tokens directement au fournisseur.
-                    </InfoBox>
-                  </div>
-                )}
-              </div>
-            </Card>
-
-            <div className="col g14">
-              <Card>
-                <div className="card-title" style={{ marginBottom: 8 }}>Instructions (prompt système)</div>
-                <textarea rows={5} value={bot.system_prompt} onChange={e => patch({ system_prompt: e.target.value })} />
-                <div style={{ marginTop: 8 }}>
-                  <InfoBox tone="warn" title="Verrouillé côté serveur">
-                    Le visiteur final ne peut jamais modifier ces instructions, le modèle ou la température — le
-                    widget n'y a pas accès (protection prompt-injection).
-                  </InfoBox>
-                </div>
-              </Card>
-              <Card>
-                <div className="card-title" style={{ marginBottom: 8 }}>Température : {(bot.temperature / 100).toFixed(2)}</div>
-                <input type="range" min={0} max={100} value={bot.temperature}
-                       onChange={e => patch({ temperature: Number(e.target.value) })} />
-                <div className="field-hint">Basse = réponses factuelles et stables · haute = réponses plus créatives.</div>
-              </Card>
-
-            </div>
-          </div>
-
-          {/* Base de connaissances (RAG) — KbPanel vit HORS save bar */}
-          <Divider />
-          <KbPanel botId={botId} aiActive={aiTabRelevant} />
-        </div>
+        <AiTab bot={bot} patch={patch} byokKey={byokKey} setByokKey={setByokKey}
+               currentModel={currentModel} botId={botId} aiTabRelevant={aiTabRelevant} />
       )}
 
       {/* ================= HUMAIN (relais / handoff) ================= */}
       {activeTab === 'human' && (
-        <div className="col g18">
-          <SectionTitle sub="Bascule la conversation vers un conseiller en dernier recours. Le visiteur passe en file d'attente et vos équipes sont notifiées.">
-            Relais humain
-          </SectionTitle>
-
-          {hasPerm('context') ? (
-            <Card style={{ maxWidth: 720 }}>
-              <div className="card-title">Notification de relais</div>
-              <Field label="Webhook de notification (Slack)"
-                     hint={bot.handoff_webhook_url && !/^https:\/\//.test(bot.handoff_webhook_url)
-                       ? <span style={{ color: 'var(--danger)' }}>L'adresse doit commencer par https://</span>
-                       : undefined}>
-                <input type="text" className="mono" placeholder="https://hooks.slack.com/services/…"
-                       value={bot.handoff_webhook_url || ''}
-                       onChange={e => patch({ handoff_webhook_url: e.target.value })} />
-              </Field>
-              <div className="field-hint" style={{ marginTop: 8 }}>
-                Appelé à chaque demande de conseiller (payload {'{"text": …}'} compatible Slack —
-                fonctionne aussi avec Mattermost ou un connecteur Teams). Les admins de l'organisation
-                reçoivent aussi un email ; sans SMTP configuré côté serveur, cette notification email
-                est uniquement journalisée.
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <InfoBox tone="info" title="Cette URL est un secret">
-                  Un webhook Slack contient un jeton dans son chemin : il n'apparaît jamais dans les
-                  exports config.json et n'est visible qu'avec la permission Contexte.
-                </InfoBox>
-              </div>
-            </Card>
-          ) : (
-            <Card style={{ maxWidth: 720 }}>
-              <InfoBox tone="warn" title="Permission requise">
-                La configuration du relais humain nécessite la permission Contexte sur ce bot.
-              </InfoBox>
-            </Card>
-          )}
-
-          <Card style={{ maxWidth: 720 }}>
-            <div className="card-title">Comment activer le relais</div>
-            <div className="col" style={{ gap: 10 }}>
-              <InfoBox tone="info">
-                Ajoutez un nœud de type <strong>« Conseiller »</strong> dans l'onglet Arbre, ou une
-                action IA de type <strong>« Conseiller humain »</strong> dans l'onglet Actions : le
-                visiteur est mis en relation, l'IA se met en retrait et la conversation apparaît dans
-                votre boîte de réception.
-              </InfoBox>
-              <div className="row g10" style={{ flexWrap: 'wrap' }}>
-                <Btn kind="soft" small onClick={() => switchTab('tree')}>Ouvrir l'arbre</Btn>
-                {aiTabRelevant && (
-                  <Btn kind="soft" small onClick={() => switchTab('actions')}>Ouvrir les actions</Btn>
-                )}
-              </div>
-            </div>
-          </Card>
-        </div>
+        <HumanTab bot={bot} patch={patch} hasPerm={hasPerm} switchTab={switchTab}
+                  aiTabRelevant={aiTabRelevant} />
       )}
 
       {/* ================= ACTIONS IA ================= */}
       {activeTab === 'actions' && (
-        <div className="col g18">
-          <SectionTitle sub="Donnez à l'IA le pouvoir d'agir pendant la conversation : appeler vos webhooks (signés) ou enregistrer un contact. 5 actions maximum.">
-            Actions &amp; outils
-          </SectionTitle>
-
-          {bot.ai_provider === 'gemini' && (
-            <InfoBox tone="warn" title="Non supporté par Gemini">
-              Les actions, la recherche dans les connaissances et les serveurs MCP sont ignorés tant que
-              le modèle Gemini est sélectionné — choisissez Claude ou GPT dans l'onglet IA.
-            </InfoBox>
-          )}
-
-          <Card>
-            <div className="card-title">Modèles d'actions</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
-              {ACTION_TEMPLATES.map(tpl => (
-                <div key={tpl.id} className="tpl-card">
-                  <div style={{ fontSize: 13, fontWeight: 800 }}>{tpl.label}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.5, flex: 1 }}>{tpl.blurb}</div>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <Chip tone="mut">{tpl.action.type === 'create_ticket' ? 'Ticket email' : 'Webhook'}</Chip>
-                    <Btn kind="soft" small disabled={actions.length >= 5}
-                         onClick={() => patch({ actions_json: [...actions, JSON.parse(JSON.stringify(tpl.action))] })}>
-                      Utiliser
-                    </Btn>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="field-hint" style={{ marginTop: 8 }}>
-              Pré-remplit une action — ajustez l'URL ou l'email avant d'enregistrer.
-            </div>
-          </Card>
-
-          {actions.map((a: any, i: number) => {
-            const nameBad = !ACTION_NAME_RE.test(a.name || '')
-              || actions.filter((x: any) => x.name === a.name).length > 1
-            // Le secret (HMAC ou clé Cal.com) est rattaché au NOM côté serveur
-            // (_merge_action_secrets) : on compare donc la photo serveur sous le
-            // nom COURANT — jamais par index, les index glissent après une
-            // suppression locale non sauvegardée. Le flag *_set de l'action live
-            // vient du serveur et survit aux édits : warning ssi l'action croit
-            // avoir un secret qu'aucune action sauvegardée du même nom ne porte.
-            const savedByName = (savedBot?.actions_json || []).find((x: any) => x.name === a.name)
-            const renameWarn = ((a.type === 'webhook' && a.secret_set)
-              || (a.type === 'calendar_slots' && a.api_key_set))
-              && !(savedByName?.secret_set || savedByName?.api_key_set) && !actionSecrets[i]
-            // event_type_id : même filet inline que nameBad/urlBad (le 422 FR de
-            // la save bar reste le filet final)
-            const etidBad = a.type === 'calendar_slots'
-              && !(typeof a.event_type_id === 'number' && Number.isInteger(a.event_type_id) && a.event_type_id >= 1)
-            return (
-              <Card key={i}>
-                <div className="row g10" style={{ flexWrap: 'wrap', marginBottom: 4 }}>
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <input type="text" className="mono" placeholder="nom_de_l_action"
-                           value={a.name || ''} onChange={e => updateAction(i, { name: e.target.value })} />
-                  </div>
-                  <Chip tone={(ACTION_TYPE_CHIPS[a.type] || ACTION_TYPE_CHIPS.webhook).tone}>
-                    {(ACTION_TYPE_CHIPS[a.type] || ACTION_TYPE_CHIPS.webhook).label}
-                  </Chip>
-                  <Btn kind="danger" small onClick={() => removeAction(i)}>Retirer</Btn>
-                </div>
-                {nameBad && (
-                  <div className="field-hint" style={{ color: 'var(--danger)', marginBottom: 8 }}>
-                    minuscules, chiffres, _ — unique
-                  </div>
-                )}
-                <div className="col" style={{ gap: 12, marginTop: 8 }}>
-                  <Field label="Description (pour l'IA)"
-                         hint="Expliquez quand l'IA doit déclencher cette action (1 à 500 caractères)">
-                    <textarea rows={2} value={a.description || ''}
-                              onChange={e => updateAction(i, { description: e.target.value })} />
-                  </Field>
-                  <Field label="Type">
-                    <Seg small value={a.type} onChange={v => updateActionType(i, v)}
-                         options={[
-                           { value: 'webhook', label: 'Webhook' },
-                           { value: 'capture_lead', label: 'Capture de lead' },
-                           { value: 'handoff', label: 'Conseiller' },
-                           { value: 'create_ticket', label: 'Ticket email' },
-                           { value: 'calendar_slots', label: 'Créneaux Cal.com' },
-                         ]} />
-                  </Field>
-
-                  {a.type === 'webhook' ? (
-                    <>
-                      <Field label="URL (https://…)"
-                             hint={!/^https:\/\//.test(a.url || '')
-                               ? <span style={{ color: 'var(--danger)' }}>L'URL doit commencer par https://</span>
-                               : undefined}>
-                        <input type="text" className="mono" placeholder="https://api.votre-site.fr/hooks/chapote"
-                               value={a.url || ''} onChange={e => updateAction(i, { url: e.target.value })} />
-                      </Field>
-                      <Field label="Secret HMAC" hint="Signature HMAC-SHA256 dans l'en-tête X-Chapote-Signature.">
-                        <input type="password" className="mono"
-                               placeholder={a.secret_set ? '•••• (laisser vide pour conserver)' : 'Optionnel — signe chaque appel'}
-                               value={actionSecrets[i] || ''}
-                               onChange={e => setActionSecrets(prev => {
-                                 const next = { ...prev }
-                                 if (e.target.value) next[i] = e.target.value
-                                 else delete next[i]
-                                 return next
-                               })} />
-                        {renameWarn && (
-                          <div className="field-hint" style={{ color: 'var(--warn)' }}>
-                            Renommer sans ressaisir le secret le supprimera (le secret est rattaché au nom).
-                          </div>
-                        )}
-                      </Field>
-                      <div>
-                        <div className="field-label">Champs transmis</div>
-                        <div className="col g6">
-                          {(a.fields || []).map((f: any, fi: number) => (
-                            <div key={fi} className="row g8" style={{ flexWrap: 'wrap' }}>
-                              <input type="text" className="mono" style={{ width: 130 }} placeholder="nom"
-                                     value={f.name || ''}
-                                     onChange={e => updateActionField(i, fi, { name: e.target.value })} />
-                              <select value={f.type || 'string'} style={{ width: 102 }}
-                                      onChange={e => updateActionField(i, fi, { type: e.target.value })}>
-                                <option value="string">string</option>
-                                <option value="number">number</option>
-                                <option value="boolean">boolean</option>
-                              </select>
-                              <input type="text" style={{ flex: 1, minWidth: 140 }} placeholder="description"
-                                     value={f.description || ''}
-                                     onChange={e => updateActionField(i, fi, { description: e.target.value })} />
-                              <span className="row g6" style={{ fontSize: 11, fontWeight: 700, color: 'var(--mut)' }}>
-                                requis <Toggle on={!!f.required} onChange={v => updateActionField(i, fi, { required: v })} />
-                              </span>
-                              <button aria-label="Retirer le champ"
-                                      onClick={() => updateAction(i, { fields: (a.fields || []).filter((_: any, j: number) => j !== fi) })}
-                                      style={{ border: 'none', background: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: 14, padding: 2 }}>×</button>
-                            </div>
-                          ))}
-                        </div>
-                        <div style={{ marginTop: 8 }}>
-                          <Btn kind="soft" small disabled={(a.fields || []).length >= 8}
-                               onClick={() => updateAction(i, { fields: [...(a.fields || []), { name: '', type: 'string', description: '', required: false }] })}>
-                            <Plus size={13} /> Ajouter un champ
-                          </Btn>
-                        </div>
-                      </div>
-                    </>
-                  ) : a.type === 'handoff' ? (
-                    <InfoBox tone="info">
-                      L'IA transmet la conversation à un conseiller humain : le visiteur passe en file
-                      d'attente, vos admins sont notifiés par email et par le webhook Slack s'il est
-                      configuré (onglet Humain). Aucun champ à configurer.
-                    </InfoBox>
-                  ) : a.type === 'create_ticket' ? (
-                    <>
-                      <Field label="Email de destination (optionnel)"
-                             hint="Vide : le ticket est envoyé aux admins de l'organisation. Sans SMTP configuré côté serveur, le ticket est uniquement journalisé.">
-                        <input type="email" placeholder="support@votre-domaine.fr"
-                               value={a.to_email || ''}
-                               onChange={e => updateAction(i, { to_email: e.target.value })} />
-                      </Field>
-                      <InfoBox tone="info">
-                        L'IA recueille sujet, résumé et coordonnées du visiteur, puis ouvre un ticket par
-                        email (référence TK-XXXXXXXX, trace visible dans le transcript).
-                      </InfoBox>
-                    </>
-                  ) : a.type === 'calendar_slots' ? (
-                    <>
-                      <Field label="Event type ID (Cal.com)"
-                             hint={etidBad
-                               ? <span style={{ color: 'var(--danger)' }}>Valeur requise (entier positif)</span>
-                               : undefined}>
-                        <input type="number" className="mono"
-                               value={a.event_type_id ?? ''}
-                               onChange={e => updateAction(i, { event_type_id: e.target.value === '' ? '' : Number(e.target.value) })} />
-                      </Field>
-                      <Field label="Fuseau horaire" hint="Identifiant IANA, ex. Europe/Paris.">
-                        <input type="text" className="mono"
-                               value={a.timezone || 'Europe/Paris'}
-                               onChange={e => updateAction(i, { timezone: e.target.value })} />
-                      </Field>
-                      <Field label="Clé API Cal.com"
-                             hint="Stockée chiffrée, jamais réaffichée. L'IA consultera les disponibilités des 7 prochains jours (40 créneaux max).">
-                        <input type="password" className="mono"
-                               placeholder={a.api_key_set ? '•••• (laisser vide pour conserver)' : 'cal_live_…'}
-                               value={actionSecrets[i] || ''}
-                               onChange={e => setActionSecrets(prev => {
-                                 const next = { ...prev }
-                                 if (e.target.value) next[i] = e.target.value
-                                 else delete next[i]
-                                 return next
-                               })} />
-                        {renameWarn && (
-                          <div className="field-hint" style={{ color: 'var(--warn)' }}>
-                            Renommer sans ressaisir le secret le supprimera (le secret est rattaché au nom).
-                          </div>
-                        )}
-                      </Field>
-                    </>
-                  ) : (
-                    <InfoBox tone="info">
-                      L'IA recueillera email, nom, téléphone et message au fil de la discussion et les déposera
-                      dans vos leads (notification email aux admins si le serveur a un SMTP).
-                    </InfoBox>
-                  )}
-                </div>
-              </Card>
-            )
-          })}
-
-          <div className="row g10">
-            <Btn kind="soft" onClick={addAction} disabled={actions.length >= 5}>
-              <Plus size={14} /> Ajouter une action
-            </Btn>
-            {actions.length >= 5 && <Chip tone="warn">5/5</Chip>}
-          </div>
-
-          <Divider />
-          <SectionTitle sub="Branchez l'IA sur vos services externes via le protocole MCP. 2 serveurs maximum.">
-            Serveurs MCP
-          </SectionTitle>
-
-          <InfoBox tone="info" title="Qu'est-ce que MCP ?">
-            MCP (Model Context Protocol) est une prise standard : votre serveur expose des outils
-            (rechercher un client, consulter un stock…) et l'IA peut les appeler pendant la conversation.
-            Les outils sont proposés au modèle sous le nom{' '}
-            <span className="mono">{'mcp_<serveur>_<outil>'}</span>. Serveur en échec ou trop lent : ses
-            outils sont simplement absents, le chat n'est jamais bloqué.
-          </InfoBox>
-
-          {mcpServers.map((s: any, i: number) => {
-            const nameBad = !MCP_NAME_RE.test(s.name || '')
-              || mcpServers.filter((x: any) => x.name === s.name).length > 1
-            const urlBad = !/^https:\/\//.test(s.url || '')
-            // Divergence voulue avec le webhook : le jeton Bearer est un
-            // credential ENVOYÉ au serveur — il n'est hérité par nom qu'à URL
-            // inchangée (_merge_mcp_secrets). Renommer OU changer l'URL = ressaisir.
-            // Comparaison par nom+URL contre la photo serveur (jamais par index,
-            // les index glissent après une suppression locale non sauvegardée).
-            const tokenWarn = s.auth_token_set
-              && !((savedBot?.mcp_servers_json || []).find((x: any) => x.name === s.name && x.url === s.url)?.auth_token_set)
-              && !mcpTokens[i]
-            return (
-              <Card key={i}>
-                <div className="row g10" style={{ flexWrap: 'wrap', marginBottom: 4 }}>
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <input type="text" className="mono" placeholder="crm"
-                           value={s.name || ''} onChange={e => updateMcpServer(i, { name: e.target.value })} />
-                  </div>
-                  <Btn kind="danger" small onClick={() => removeMcpServer(i)}>Retirer</Btn>
-                </div>
-                <div className="field-hint" style={nameBad ? { color: 'var(--danger)' } : undefined}>
-                  nom court en minuscules (a-z, 0-9, _), 31 caractères max, unique
-                </div>
-                <div className="col" style={{ gap: 12, marginTop: 10 }}>
-                  <Field label="URL du serveur"
-                         hint={urlBad
-                           ? <span style={{ color: 'var(--danger)' }}>L'URL du serveur doit commencer par https://</span>
-                           : undefined}>
-                    <input type="text" className="mono" placeholder="https://mcp.votre-site.fr/mcp"
-                           value={s.url || ''} onChange={e => updateMcpServer(i, { url: e.target.value })} />
-                  </Field>
-                  <Field label="Jeton (Bearer, optionnel)">
-                    <input type="password" className="mono"
-                           placeholder={s.auth_token_set ? '•••• (laisser vide pour conserver le jeton)' : 'Jeton Bearer — optionnel'}
-                           value={mcpTokens[i] || ''}
-                           onChange={e => setMcpTokens(prev => {
-                             const next = { ...prev }
-                             if (e.target.value) next[i] = e.target.value
-                             else delete next[i]
-                             return next
-                           })} />
-                    {tokenWarn && (
-                      <div className="field-hint" style={{ color: 'var(--warn)' }}>
-                        Renommer le serveur ou changer son URL invalide le jeton enregistré — ressaisissez-le.
-                      </div>
-                    )}
-                  </Field>
-                </div>
-              </Card>
-            )
-          })}
-
-          <div className="row g10">
-            <Btn kind="soft" onClick={addMcpServer} disabled={mcpServers.length >= 2}>
-              <Plus size={14} /> Ajouter un serveur MCP
-            </Btn>
-            {mcpServers.length >= 2 && <Chip tone="warn">2/2</Chip>}
-          </div>
-        </div>
+        <ActionsTab bot={bot} savedBot={savedBot} patch={patch} actions={actions} mcpServers={mcpServers}
+                    actionSecrets={actionSecrets} setActionSecrets={setActionSecrets}
+                    mcpTokens={mcpTokens} setMcpTokens={setMcpTokens}
+                    updateAction={updateAction} addAction={addAction} removeAction={removeAction}
+                    updateActionField={updateActionField} updateActionType={updateActionType}
+                    updateMcpServer={updateMcpServer} addMcpServer={addMcpServer} removeMcpServer={removeMcpServer} />
       )}
 
       {/* ================= INTÉGRATION ================= */}
       {activeTab === 'install' && (
-        <div className="col g18">
-          <SectionTitle sub="Une seule balise avant </body>. Le widget pèse < 30 ko et ne bloque jamais le rendu de la page.">
-            Intégration
-          </SectionTitle>
-
-          {!bot.is_active && (
-            <InfoBox tone="warn" title="Bot inactif">
-              La balise ne répondra pas tant que le bot n'est pas activé.{' '}
-              {hasPerm('security') && (
-                <button onClick={activateBot}
-                        style={{ background: 'none', border: 'none', padding: 0, color: 'var(--acc)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>
-                  Activer le bot
-                </button>
-              )}
-            </InfoBox>
-          )}
-
-          {/* Intégration : extrait + timeline. Empilé en 1 colonne en mobile
-              (grille inline, pas de classe globale à dépendre). */}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 14, alignItems: 'start' }}>
-            <Card>
-              <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
-                <div className="card-title" style={{ marginBottom: 0 }}>Extrait à insérer</div>
-                <Btn kind={copied ? 'soft' : 'primary'} small onClick={() => {
-                  navigator.clipboard.writeText(currentInteg?.snippet || '').catch(() => {})
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 1600)
-                }}>{copied ? <><Check size={13} /> Copié</> : <><Clipboard size={13} /> Copier</>}</Btn>
-              </div>
-              <div className="snippet-pills" style={{ marginBottom: 10 }}>
-                {integrations.map(it => (
-                  <button key={it.id} className={integType === it.id ? 'active' : ''}
-                          onClick={() => setIntegType(it.id)}>{it.label}</button>
-                ))}
-              </div>
-              <pre className="snippet">{currentInteg?.snippet}</pre>
-              {currentInteg?.description && (
-                <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 8, lineHeight: 1.5 }}>{currentInteg.description}</div>
-              )}
-              <div style={{ marginTop: 10 }}>
-                <InfoBox tone="info" title="pk_… est un identifiant public, pas un secret">
-                  Elle permet uniquement d'initialiser une session de chat sur vos domaines autorisés. Vos clés
-                  IA restent côté serveur — même modèle que les clés publiques Stripe.
-                </InfoBox>
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <InfoBox tone="info" title="Site sous Content-Security-Policy">
-                  Pour l'overlay de prise de rendez-vous (mode script), autorisez :{' '}
-                  <span className="mono" style={{ fontSize: 10.5 }}>
-                    frame-src https://calendly.com https://*.calendly.com https://cal.com https://*.cal.com
-                  </span>
-                  . Le mode iframe (/widget-frame) n'est pas concerné.
-                </InfoBox>
-              </div>
-            </Card>
-
-            <Card>
-              <div className="card-title" style={{ marginBottom: 12 }}>Ce qui se passe au chargement</div>
-              <div className="col">
-                {[
-                  ['1', 'Chargement du widget', 'async, < 30 ko'],
-                  ['2', 'Handshake POST /session', 'clé publique + jeton Turnstile invisible'],
-                  ['3', 'Vérif. Origin + captcha', 'côté serveur, liste de domaines'],
-                  ['4', 'Émission du JWT éphémère', '30 min, lié au domaine + conversation'],
-                  ['5', 'Chat prêt', 'arbre gratuit / IA décomptée'],
-                ].map(([n, t, dsc], i, arr) => (
-                  <div key={n} className="timeline-step">
-                    <div className="col" style={{ alignItems: 'center' }}>
-                      <span className="timeline-num">{n}</span>
-                      {i < arr.length - 1 && <span className="timeline-line" />}
-                    </div>
-                    <div style={{ paddingBottom: i < arr.length - 1 ? 14 : 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700 }}>{t}</div>
-                      <div style={{ fontSize: 11, color: 'var(--mut)', marginTop: 1 }}>{dsc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-        </div>
+        <IntegrationTab bot={bot} integrations={integrations} integType={integType}
+                        setIntegType={setIntegType} currentInteg={currentInteg}
+                        copied={copied} setCopied={setCopied} hasPerm={hasPerm}
+                        activateBot={activateBot} isMobile={isMobile} />
       )}
 
       {/* ================= SÉCURITÉ ================= */}
       {activeTab === 'security' && (
-        <div className="col g18">
-          <SectionTitle sub="Protection en couches : clé publique → vérif. d'origine → JWT éphémère → rate limits. Vos vraies clés IA ne quittent jamais le serveur.">
-            Sécurité &amp; anti-abus
-          </SectionTitle>
-          <div className="grid2">
-            <div className="col g14">
-              <Card>
-                <div className="card-title" style={{ marginBottom: 4 }}>Domaines autorisés</div>
-                <div style={{ fontSize: 11.5, color: 'var(--mut)', marginBottom: 11, lineHeight: 1.5 }}>
-                  Le widget ne s'initialise que si l'Origin correspond. Vérification côté serveur — les
-                  navigateurs ne peuvent pas la forger.
-                </div>
-                <div className="col g6">
-                  {bot.allowed_domains.map((dom: string) => (
-                    <div key={dom} className="domain-row">
-                      <span className="dot" />
-                      <span className="dm">{dom}</span>
-                      <button className="rm" aria-label="Retirer"
-                              onClick={() => patch({ allowed_domains: bot.allowed_domains.filter((x: string) => x !== dom) })}>×</button>
-                    </div>
-                  ))}
-                  {bot.allowed_domains.length === 0 && (
-                    <InfoBox tone="danger" title="Aucun domaine autorisé">
-                      Le widget ne fonctionnera nulle part tant qu'aucun domaine n'est déclaré.
-                    </InfoBox>
-                  )}
-                </div>
-                <div className="row g8" style={{ marginTop: 10 }}>
-                  <input type="text" className="mono" value={newDomain} placeholder="autre-domaine.fr"
-                         onChange={e => setNewDomain(e.target.value)}
-                         onKeyDown={e => e.key === 'Enter' && addDomain()} style={{ flex: 1 }} />
-                  <Btn kind="soft" small onClick={addDomain}><Plus size={13} /> Ajouter</Btn>
-                </div>
-              </Card>
-
-              <Card>
-                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div className="card-title" style={{ marginBottom: 0 }}>Limites de débit</div>
-                  <Chip tone="mut">Lecture seule</Chip>
-                </div>
-                <div className="col" style={{ gap: 9 }}>
-                  {[
-                    ['Par session', '20 msg / 10 min', 'JWT éphémère (30 min)'],
-                    ['Par IP', '100 req / min', 'anti-flood uniquement'],
-                    ['Taille message', '4 000 caractères max', 'protection tokens'],
-                    ['Historique IA', '20 messages max', 'envoyés au modèle'],
-                  ].map(([k, v, hint]) => (
-                    <div key={k} className="row g10">
-                      <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600 }}>{k}</span>
-                      <span className="mono" style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--acc)' }}>{v}</span>
-                      <span style={{ fontSize: 10.5, color: 'var(--faint)', width: 130, textAlign: 'right' }}>{hint}</span>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-
-              {canMoveToTeam && (
-                <Card>
-                  <div className="card-title">Déplacer vers une équipe</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 10 }}>
-                    Ce chatbot est personnel. Transférez-le à une équipe pour le partager avec ses
-                    membres. <strong>Transfert définitif</strong> : un bot d'équipe ne peut pas redevenir
-                    personnel.
-                  </div>
-                  <div className="row g8" style={{ flexWrap: 'wrap' }}>
-                    <select value={moveTarget === '' ? '' : String(moveTarget)}
-                            onChange={e => setMoveTarget(e.target.value === '' ? '' : Number(e.target.value))}
-                            style={{ flex: 1, minWidth: 180 }}>
-                      <option value="">Choisir une équipe…</option>
-                      {myTeams.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                    <Btn kind="soft" onClick={moveToTeam} disabled={moveTarget === '' || moveBusy}>
-                      {moveBusy ? 'Déplacement…' : 'Déplacer'}
-                    </Btn>
-                  </div>
-                </Card>
-              )}
-
-              {isOrgAdmin && (
-                <Card style={{ borderColor: 'var(--danger-bd)' }}>
-                  <div className="card-title" style={{ color: 'var(--danger)' }}>Zone de danger</div>
-                  <div className="toggle-row" style={{ marginBottom: 12 }}>
-                    <div>
-                      <div className="tl">Widget actif</div>
-                      <div className="ts">Désactivé : le chat disparaît des sites, sans rien supprimer.</div>
-                    </div>
-                    <Toggle on={bot.is_active} onChange={v => patch({ is_active: v })} />
-                  </div>
-                  <Btn kind="danger" onClick={deleteBot}>
-                    <Trash2 size={14} /> Supprimer ce chatbot
-                  </Btn>
-                  <div className="field-hint" style={{ marginTop: 6 }}>
-                    Suppression définitive : widget coupé partout, conversations et stats perdues.
-                  </div>
-                </Card>
-              )}
-            </div>
-
-            <Card>
-              <div className="card-title" style={{ marginBottom: 4 }}>Vérification anti-bot (captcha)</div>
-              <div style={{ fontSize: 11.5, color: 'var(--mut)', marginBottom: 12, lineHeight: 1.5 }}>
-                Vérifié une seule fois à l'ouverture de session — invisible pour le visiteur, jamais à chaque
-                message.
-              </div>
-              <div className="col g10">
-                {CAPTCHA_OPTIONS.map(o => {
-                  const selected = bot.captcha_provider === o.value
-                  return (
-                    <div key={o.value} onClick={() => patch({ captcha_provider: o.value })}
-                         style={{
-                           borderRadius: 11, cursor: 'pointer', padding: '11px 13px',
-                           border: `1.5px solid ${selected ? 'var(--acc)' : 'var(--border)'}`,
-                           background: selected ? 'var(--acc-soft)' : 'var(--surface)',
-                         }}>
-                      <div className="row g10">
-                        <span className="radio-dot" style={selected ? { borderColor: 'var(--acc)', background: 'var(--acc)', boxShadow: 'inset 0 0 0 3px var(--surface)' } : {}} />
-                        <span style={{ flex: 1, fontSize: 13, fontWeight: 700 }}>{o.name}</span>
-                        <Chip tone={o.tagTone}>{o.tag}</Chip>
-                      </div>
-                      <div style={{ fontSize: 11.5, color: 'var(--mut)', margin: '6px 0 0 25px', lineHeight: 1.5 }}>{o.desc}</div>
-                      {selected && (
-                        <div style={{ margin: '9px 0 0 25px' }} onClick={e => e.stopPropagation()}>
-                          <InfoBox tone={o.rgpdTone} title="Flux de données (pour votre registre RGPD)">
-                            {o.rgpd}
-                          </InfoBox>
-                          {o.value === 'recaptcha_v3' && (
-                            <div className="col" style={{ gap: 7, marginTop: 9 }}>
-                              <input type="text" className="mono" placeholder="Site key — 6Lc•••"
-                                     value={bot.captcha_site_key || ''}
-                                     onChange={e => patch({ captcha_site_key: e.target.value })} />
-                              <input type="password" className="mono"
-                                     placeholder={bot.captcha_secret_set ? 'Secret key — •••• (conservée si vide)' : 'Secret key — 6Lc•••'}
-                                     value={captchaSecret}
-                                     onChange={e => setCaptchaSecret(e.target.value)} />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </Card>
-          </div>
-        </div>
+        <SecurityTab bot={bot} patch={patch} newDomain={newDomain} setNewDomain={setNewDomain}
+                     addDomain={addDomain} captchaSecret={captchaSecret} setCaptchaSecret={setCaptchaSecret}
+                     canMoveToTeam={canMoveToTeam} myTeams={myTeams} moveTarget={moveTarget}
+                     setMoveTarget={setMoveTarget} moveBusy={moveBusy} moveToTeam={moveToTeam}
+                     isOrgAdmin={isOrgAdmin} deleteBot={deleteBot} />
       )}
 
       {/* ================= SAVE BAR SOMBRE (fixée bas, left:248px) ================= */}
