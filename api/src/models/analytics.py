@@ -8,8 +8,8 @@ splitte par variante A/B le cas echeant.
 
 InsightsReport : sortie de l'analyse IA « questions sans reponse »
 (services/insights_service.py) — clusters de questions visiteurs des
-30 derniers jours, generes a la demande cote dashboard (plans payants,
-limiteur Redis 3/jour/org).
+30 derniers jours, generation IA a la demande cote dashboard (limiteur Redis
+3/jour/org = borne anti-cout provider, pas un gating de plan).
 """
 from datetime import datetime
 from typing import Any

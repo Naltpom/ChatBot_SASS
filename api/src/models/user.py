@@ -52,7 +52,7 @@ class Organization(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    # --- Stripe (facturation) ---
+    # --- Stripe (facturation DORMANTE : conservee pour un futur modele) ---
     stripe_customer_id = Column(String, nullable=True, index=True)   # cus_... (lookup webhook)
     stripe_subscription_id = Column(String, nullable=True)           # sub_... (abonnement actif)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

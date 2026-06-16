@@ -2,8 +2,8 @@
 d'aide collé) ou d'une URL de page d'aide.
 
 Utilisé côté DASHBOARD (config-time, clé managée du SaaS) — jamais par le
-widget, donc pas décompté du quota IA des conversations. Réservé aux plans
-payants côté router.
+widget. Accessible à tous ; le treegen_limiter Redis (10/24h/org) côté router
+borne le COÛT provider (anti-abus), ce n'est pas un gating de plan.
 """
 import json
 import logging

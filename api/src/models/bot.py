@@ -111,8 +111,8 @@ class Bot(Base):
     ai_model = Column(String, default="claude-haiku-4-5-20251001", nullable=False)
     system_prompt = Column(Text, default="Tu es un assistant utile et concis pour ce site web.", nullable=False)
     temperature = Column(Integer, default=70, nullable=False)  # x100 (70 = 0.7)
-    # managed : cles du SaaS (env), conso decomptee du quota du plan
-    # byok    : cle du client, chiffree -> quota IA non decompte (plan moins cher)
+    # managed : cles du SaaS (env)
+    # byok    : cle du client, chiffree (le client paie son propre provider)
     api_key_mode = Column(String, default="managed", nullable=False)
     byok_key_encrypted = Column(Text, nullable=True)
 
@@ -124,7 +124,7 @@ class Bot(Base):
     # Variante B optionnelle de l'arbre (none_as_null : NULL SQL = A/B
     # desactive), servie aux conversations affectees 'b' a la creation de
     # session (sticky). ab_split_pct = % de nouvelles sessions envoyees sur la
-    # variante (0 = off). Memes contraintes de plan que l'arbre principal.
+    # variante (0 = off). Memes contraintes de validation que l'arbre principal.
     # EXCLU de config.json (comme triggers_json — decision actee).
     tree_variant_json = Column(JSON(none_as_null=True), nullable=True)
     ab_split_pct = Column(Integer, default=0, nullable=False, server_default=text("'0'"))

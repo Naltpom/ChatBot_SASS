@@ -47,7 +47,7 @@ export const CAPTCHA_OPTIONS = [
     tag: 'Environnements fermés',
     tagTone: 'mut' as const,
     desc: 'Pour les intranets et environnements fermés.',
-    rgpd: 'Vos quotas vous protègent toujours, mais le widget est plus exposé aux bots.',
+    rgpd: 'Le widget public est plus exposé aux bots — gardez une protection anti-abus active.',
     rgpdTone: 'danger' as const,
   },
 ]

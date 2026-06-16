@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # true = aucune API IA appelee, reponses simulees (dev / demo)
     MOCK_AI: bool = True
 
-    # Turnstile par defaut (nos cles, incluses dans les plans)
+    # Turnstile par defaut (nos cles)
     TURNSTILE_SITE_KEY: Optional[str] = None
     TURNSTILE_SECRET_KEY: Optional[str] = None
 
@@ -73,8 +73,10 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM: Optional[str] = None
 
-    # --- Stripe (facturation self-serve). TOUTES vides => billing desactive :
-    # changement de plan immediat, garde-fous conserves (comportement historique).
+    # --- Stripe (facturation DORMANTE). L'application est actuellement 100 %
+    # gratuite : AUCUNE route ne consomme ces settings. Le provider Stripe est
+    # conserve pour un futur modele de tarification. TOUTES vides en dev/prod
+    # actuelle => billing desactive.
     STRIPE_SECRET_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
     STRIPE_PRICE_STARTER: Optional[str] = None
@@ -103,8 +105,10 @@ class Settings(BaseSettings):
                 "JWT_SECRET_KEY/ENCRYPTION_KEY doivent être définies en production "
                 "(secret JWT par défaut ou clé de chiffrement absente)"
             )
-        # Stripe : tout-ou-rien. Une config partielle donnerait un billing
-        # semi-actif silencieux (ex : checkout sans webhook -> plan jamais applique).
+        # Stripe : tout-ou-rien. Billing actuellement DORMANT (aucune route ne
+        # l'utilise), mais on conserve ce garde-fou pour le futur modele de
+        # tarification : une config partielle donnerait un billing semi-actif
+        # silencieux (ex : checkout sans webhook -> changement jamais applique).
         stripe_vars = {
             "STRIPE_SECRET_KEY": self.STRIPE_SECRET_KEY,
             "STRIPE_WEBHOOK_SECRET": self.STRIPE_WEBHOOK_SECRET,

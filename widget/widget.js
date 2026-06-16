@@ -92,10 +92,10 @@
   }
 
   // chatStatus : statut SERVEUR autoritaire du live chat (ai | human_requested
-  // | human) — aiMode/degraded restent des sous-états du mode ai. Le token vit
-  // en mémoire seule : un reload de page = nouvelle conversation (limitation
-  // documentée, couverte par le timeout 15 min serveur + la clôture staff).
-  var state = { config: null, token: null, open: false, busy: false, aiMode: false, degraded: false, unread: 1,
+  // | human) — aiMode est un sous-état du mode ai. Le token vit en mémoire
+  // seule : un reload de page = nouvelle conversation (limitation documentée,
+  // couverte par le timeout 15 min serveur + la clôture staff).
+  var state = { config: null, token: null, open: false, busy: false, aiMode: false, unread: 1,
     chatStatus: "ai", lastMsgId: 0, pollTimer: null,
     // Triggers proactifs : interacted = le visiteur a déjà touché au widget
     // (plus aucun tir possible) ; pendingTriggerMsg = bulle locale à afficher
@@ -255,10 +255,8 @@
       close: "Fermer",
       send: "Envoyer",
       open_chat: "Ouvrir le chat",
-      degraded_banner: " Assistant IA momentanément indisponible — le menu guidé reste actif.",
       placeholder: "Écrivez votre message…",
       placeholder_advisor: "Écrivez au conseiller…",
-      placeholder_degraded: "Réessayez un peu plus tard",
       placeholder_pick: "Choisissez une option ci-dessus",
       powered_by: "Propulsé par",
       tag_ai: " IA",
@@ -293,10 +291,8 @@
       close: "Close",
       send: "Send",
       open_chat: "Open chat",
-      degraded_banner: " AI assistant temporarily unavailable — the guided menu is still active.",
       placeholder: "Type your message…",
       placeholder_advisor: "Write to the advisor…",
-      placeholder_degraded: "Please try again later",
       placeholder_pick: "Pick an option above",
       powered_by: "Powered by",
       tag_ai: " AI",
@@ -388,7 +384,6 @@
       ".kc-mode{font-size:9.5px;font-weight:800;letter-spacing:.6px;padding:3px 8px;border-radius:99px;text-transform:uppercase;"
         + (soft ? "border:1.5px solid " + brand + ";color:" + brand + ";background:transparent" : "background:rgba(255,255,255,.2)") + "}",
       ".kc-x{background:none;border:none;color:" + headText + ";cursor:pointer;font-size:18px;line-height:1;padding:4px;opacity:.85}",
-      ".kc-degraded{background:#fdf3e0;border-bottom:1px solid #ecd6a8;color:#8a5a0a;font-size:11.5px;padding:7px 13px;display:flex;gap:7px;align-items:center}",
       ".kc-msgs{flex:1;overflow-y:auto;padding:" + (compact ? "10px" : "14px 13px") + ";display:flex;flex-direction:column;gap:" + (compact ? 6 : 9) + "px;background:" + msgsBg + "}",
       ".kc-row{display:flex}.kc-row.user{justify-content:flex-end}",
       ".kc-msg{max-width:82%;padding:" + (compact ? "7px 10px" : "9px 12px") + ";font-size:" + (compact ? "12.5" : "13.5") + "px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}",
@@ -488,12 +483,6 @@
     }
     ui.panel.appendChild(head);
 
-    ui.degradedBanner = el("div", "kc-degraded");
-    // Contenu 100% statique (constantes SVG + dictionnaire I18N du script)
-    ui.degradedBanner.innerHTML = SVG.alert + t("degraded_banner");
-    ui.degradedBanner.style.display = "none";
-    ui.panel.appendChild(ui.degradedBanner);
-
     ui.msgs = el("div", "kc-msgs");
     ui.panel.appendChild(ui.msgs);
 
@@ -550,22 +539,20 @@
 
   function updateModeUI() {
     var human = isHuman();
-    var ai = state.aiMode && !state.degraded;
+    var ai = state.aiMode;
     ui.headSubText.textContent = human
       ? (state.chatStatus === "human" ? t("advisor_online") : t("advisor_wait"))
       : (ai ? t("online_ai") : t("online_tree"));
     ui.modeBadge.textContent = human ? "LIVE" : (ai ? "IA" : "TREE");
-    // Mode humain : saisie toujours active, même sur un bot tree/dégradé
+    // Mode humain : saisie toujours active, même sur un bot tree
     var canType = human || (ai && state.config.mode !== "tree");
     ui.input.disabled = !canType;
-    // Bot IA pur dégradé : pas d'options à choisir, on invite à patienter
     ui.input.placeholder = human
       ? t("placeholder_advisor")
       : (canType
         ? (state.config.design.placeholder || t("placeholder"))
-        : (state.degraded && state.config.mode === "ai" ? t("placeholder_degraded") : t("placeholder_pick")));
+        : t("placeholder_pick"));
     ui.send.disabled = !canType;
-    ui.degradedBanner.style.display = state.degraded ? "flex" : "none";
     // Bot tree : la rangée de saisie reste cachée au bootstrap et ne
     // s'affiche qu'APRÈS un handoff effectif (réévalué à chaque appel)
     ui.inputRow.style.display = (state.config.mode === "tree" && !human) ? "none" : "";
@@ -656,7 +643,7 @@
       ui.msgs.appendChild(wrap);
     }
     // Lien retour au menu en mode IA (hybride uniquement, jamais en mode humain)
-    if (state.aiMode && !state.degraded && state.config.mode === "hybrid" && !isHuman()) {
+    if (state.aiMode && state.config.mode === "hybrid" && !isHuman()) {
       var back = el("button", "kc-back", t("back_to_menu"));
       back.addEventListener("click", backToTree);
       ui.msgs.appendChild(back);
@@ -780,10 +767,6 @@
   }
 
   function renderResponse(resp) {
-    if (resp.degraded) {
-      state.degraded = true;
-      state.aiMode = false;
-    }
     // CSAT : uniquement les réponses assistant ai|tree porteuses d'un id
     // serveur (jamais human/system, jamais les bulles locales/erreurs)
     var msgId = (resp.source === "ai" || resp.source === "tree") && resp.message_id
@@ -967,7 +950,7 @@
 
     if (next === "__ai__") {
       state.busy = false;
-      if (state.config.mode === "tree" || state.degraded) {
+      if (state.config.mode === "tree") {
         addMsg("bot", t("ai_unavailable"));
         sendNodeSilent("__root__");
         return;

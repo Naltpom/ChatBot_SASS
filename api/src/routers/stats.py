@@ -1,6 +1,5 @@
 """Stats conversations par bot : messages/jour, visiteurs uniques (UUID widget,
-pas IP), repartition tree vs IA, conso du quota. C'est ce qui justifie
-l'abonnement cote client."""
+pas IP), repartition tree vs IA, volume de reponses IA servies."""
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status

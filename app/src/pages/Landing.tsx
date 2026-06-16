@@ -47,15 +47,8 @@ const CHAPOTE_CSS = `
 .ch-cta-dark:hover{transform:scale(1.02);box-shadow:0 18px 36px -12px rgba(0,0,0,.5);}
 .ch-cta-coral:hover{transform:scale(1.02);background:#df5b50 !important;}
 .ch-menu-btn{display:none;}
-.ch-pricing-card{transition:transform .25s,box-shadow .25s;}
-.ch-pricing-card:hover{transform:translateY(-4px);box-shadow:0 24px 46px -22px rgba(28,63,92,.3);}
-.ch-price-cta-light:hover{background:#F0F2F5 !important;}
-.ch-price-cta-dark:hover{transform:scale(1.02);}
 .ch-cmp-scroll{-webkit-overflow-scrolling:touch;}
 .ch-cmp-table{min-width:0;}
-@media (max-width:1040px){
-  .ch-pricing-grid{grid-template-columns:1fr 1fr !important;}
-}
 @media (max-width:920px){
   .ch-nav-links{display:none !important;}
   .ch-hero-split{grid-template-columns:1fr !important;gap:38px !important;text-align:center;}
@@ -71,7 +64,6 @@ const CHAPOTE_CSS = `
 }
 @media (max-width:600px){
   .ch-piliers-grid{grid-template-columns:1fr !important;}
-  .ch-pricing-grid{grid-template-columns:1fr !important;}
   .ch-testi-grid{grid-template-columns:1fr !important;}
   .ch-hero-h1{font-size:38px !important;}
   .ch-section-h2{font-size:30px !important;}
@@ -86,7 +78,6 @@ const CHAPOTE_CSS = `
   .ch-footer-grid{grid-template-columns:1fr !important;gap:24px !important;}
   .ch-hero-h1{font-size:32px !important;}
   .ch-section-h2{font-size:25px !important;}
-  .ch-pricing-grid{gap:18px !important;}
   .ch-piliers-grid{gap:16px !important;}
 }
 @media (prefers-reduced-motion: reduce){.ch-reveal{opacity:1;transform:none;transition:none;}.chapote *{animation:none !important;}}

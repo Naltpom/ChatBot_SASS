@@ -1,8 +1,9 @@
 """Stripe via l'API REST (httpx exclusivement, pas de SDK).
 
-Billing "tout-ou-rien" : actif uniquement si les 5 variables STRIPE_* sont
-definies (cle secrete, secret webhook, 3 price IDs). Sinon le changement de
-plan reste immediat (comportement historique), garde-fous conserves.
+Billing DORMANT : l'application est actuellement 100 % gratuite et AUCUNE
+route n'appelle ce service. Module conserve pour un futur modele de
+tarification. Logique "tout-ou-rien" : ne serait actif que si les 5 variables
+STRIPE_* etaient definies (cle secrete, secret webhook, 3 price IDs).
 
 La verification de signature webhook (Stripe-Signature) est faite a la main :
 HMAC-SHA256 sur "{timestamp}.{corps brut}" avec STRIPE_WEBHOOK_SECRET.

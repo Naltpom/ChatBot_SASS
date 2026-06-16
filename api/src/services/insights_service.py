@@ -3,9 +3,9 @@ adressés à l'IA (30 derniers jours, échantillonnés côté router) en thèmes
 récurrents, avec suggestion de bulle d'arbre pour chacun.
 
 Utilisé côté DASHBOARD (config-time, clé managée du SaaS, UN appel par
-génération) — jamais par le widget, donc pas décompté du quota IA des
-conversations. Plans payants + limiteur Redis 3/jour/org côté router,
-vérifiés AVANT tout appel.
+génération) — jamais par le widget. Accessible à tous ; l'insights_limiter
+Redis (3/jour/org) côté router, vérifié AVANT tout appel, borne le COÛT
+provider (anti-abus), ce n'est pas un gating de plan.
 """
 import json
 import logging

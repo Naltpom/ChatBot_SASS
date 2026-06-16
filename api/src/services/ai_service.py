@@ -4,7 +4,7 @@ Le widget ne parle jamais directement a Anthropic/OpenAI/Gemini — meme en
 BYOK la cle du client est dechiffree ici et utilisee depuis l'API.
 
 Resolution de la cle :
-- api_key_mode=managed -> cle du SaaS (env), conso decomptee du quota du plan
+- api_key_mode=managed -> cle du SaaS (env)
 - api_key_mode=byok    -> cle du client (chiffree en base)
 """
 import json
@@ -23,9 +23,9 @@ from src.services.crypto import decrypt_secret
 logger = logging.getLogger(__name__)
 
 # Boucle tool-use bornee : au-dela, on rend le dernier texte disponible.
-# ATTENTION cout : chaque tour = un appel provider facture, alors que le quota
-# du plan compte UNE reponse par message visiteur (count des Message ai) —
-# borne a 2 pour limiter le ratio appels/reponse a 2x maximum (documente).
+# ATTENTION cout : chaque tour = un appel provider facture, pour UNE seule
+# reponse rendue au visiteur (count des Message ai) — borne a 2 pour limiter
+# le ratio appels/reponse a 2x maximum (documente).
 # Decision RAG : 2 tours suffisent aussi a search_docs (recherche puis
 # reponse). Au dernier tour autorise, les tool_use ne sont PAS executes :
 # aucun effet de bord (lead, webhook) qui serait ensuite annonce en echec au
