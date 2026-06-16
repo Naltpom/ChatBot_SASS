@@ -449,61 +449,62 @@ export default function BotWizard() {
       {step === 'chat' && (
         <div style={{ maxWidth: 680, margin: '0 auto', padding: mobile ? '24px 16px 44px' : '40px 28px 60px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* feed des questions déjà répondues — clé STABLE par index de question
-                (q-${i}) : la bulle d'une question doit rester le MÊME nœud DOM quand
-                elle passe de « courante » à « historique », sinon React la remonte et
-                rejoue l'animation d'entrée. */}
-            {QUESTIONS.slice(0, qi).map((q, i) => {
-              const lbl = q.type === 'multi'
-                ? (goals.map(v => optLabel('goals', v)).join(', ') || '—')
-                : optLabel(q.key, answers[q.key])
-              return (
-                <div key={`q-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <BotBubble text={q.q} />
-                  <UserBubble text={lbl} />
-                </div>
-              )
-            })}
-
-            {/* question courante : MÊME enveloppe + MÊME clé (q-${qi}) que sa future
-                ligne d'historique → React conserve le nœud de la bulle, donc seules la
-                réponse et la question suivante s'animent (plus de re-jeu sur l'existant). */}
-            {cur && (
-              <div key={`q-${qi}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <BotBubble text={cur.q} />
-                {cur.type === 'single' && (
-                  <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 2 }}>
-                    {cur.opts.map(o => (
-                      <ChatChip key={o[0]} fullWidth={mobile} onClick={() => answerSingle(cur.key, o[0])}>{o[1]}</ChatChip>
-                    ))}
+            {/* Historique + question courante dans UN SEUL tableau : les clés
+                (q-${i}) vivent dans le MÊME espace de noms React (une map et un
+                élément frère seraient namespacés différemment → remount). Quand on
+                répond, la question courante (dernier item) devient un item
+                d'historique au MÊME index/clé → React conserve son nœud DOM et ne
+                rejoue PAS l'animation d'entrée. Seules la réponse (nouveau nœud) et
+                la question suivante s'animent. */}
+            {[
+              ...QUESTIONS.slice(0, qi).map((q, i) => {
+                const lbl = q.type === 'multi'
+                  ? (goals.map(v => optLabel('goals', v)).join(', ') || '—')
+                  : optLabel(q.key, answers[q.key])
+                return (
+                  <div key={`q-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <BotBubble text={q.q} />
+                    <UserBubble text={lbl} />
                   </div>
-                )}
-                {cur.type === 'multi' && (
-                  <div style={{ marginTop: 2 }}>
-                    {goals.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', marginBottom: 10 }}>
-                        {goals.map(v => (
-                          <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: MINT, color: '#fff', borderRadius: 999, padding: '8px 12px', fontSize: 13.5, fontWeight: 600 }}>
-                            {optLabel('goals', v)}
-                            <button onClick={() => toggleGoal(v)} style={{ width: 17, height: 17, border: 'none', borderRadius: '50%', background: 'rgba(255,255,255,.25)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, lineHeight: 1 }}>×</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end' }}>
-                      {poolGoals.map(o => (
-                        <ChatChip key={o[0]} fullWidth={mobile} onClick={() => toggleGoal(o[0])}>+ {o[1]}</ChatChip>
+                )
+              }),
+              ...(cur ? [(
+                <div key={`q-${qi}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <BotBubble text={cur.q} />
+                  {cur.type === 'single' && (
+                    <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 2 }}>
+                      {cur.opts.map(o => (
+                        <ChatChip key={o[0]} fullWidth={mobile} onClick={() => answerSingle(cur.key, o[0])}>{o[1]}</ChatChip>
                       ))}
                     </div>
-                    {goals.length > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-                        <button onClick={nextMulti} style={{ ...primaryBtn, ...(mobile ? { width: '100%' } : null) }}>Continuer →</button>
+                  )}
+                  {cur.type === 'multi' && (
+                    <div style={{ marginTop: 2 }}>
+                      {goals.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', marginBottom: 10 }}>
+                          {goals.map(v => (
+                            <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: MINT, color: '#fff', borderRadius: 999, padding: '8px 12px', fontSize: 13.5, fontWeight: 600 }}>
+                              {optLabel('goals', v)}
+                              <button onClick={() => toggleGoal(v)} style={{ width: 17, height: 17, border: 'none', borderRadius: '50%', background: 'rgba(255,255,255,.25)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, lineHeight: 1 }}>×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end' }}>
+                        {poolGoals.map(o => (
+                          <ChatChip key={o[0]} fullWidth={mobile} onClick={() => toggleGoal(o[0])}>+ {o[1]}</ChatChip>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                      {goals.length > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+                          <button onClick={nextMulti} style={{ ...primaryBtn, ...(mobile ? { width: '100%' } : null) }}>Continuer →</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )] : []),
+            ]}
           </div>
         </div>
       )}
