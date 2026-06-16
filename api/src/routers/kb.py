@@ -17,7 +17,7 @@ from src.core.database import get_db
 from src.core.security import get_current_user
 from src.models.kb import KbSearchRequest, KbSource, KbSourceCreate, KbSourceOut
 from src.models.user import User
-from src.routers.bots import _check_bot_perm, _get_accessible_bot
+from src.routers.bots_helpers import _check_bot_perm, _get_accessible_bot
 from src.services.kb_service import (
     MAX_PDF_BYTES,
     MAX_SOURCES_PER_BOT,

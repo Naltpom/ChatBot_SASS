@@ -29,7 +29,7 @@ from src.models.conversation import (
     MessageOut,
 )
 from src.models.user import User
-from src.routers.bots import _check_bot_perm, _get_accessible_bot
+from src.routers.bots_helpers import _check_bot_perm, _get_accessible_bot
 from src.routers.widget import HANDOFF_CLOSED_MESSAGE
 
 router = APIRouter(prefix="/api", tags=["inbox"])
