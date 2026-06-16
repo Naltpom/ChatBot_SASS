@@ -376,9 +376,10 @@ e2e/                   # Playwright, 31 tests, workers:1 — stack docker UP req
 - Staff = auth intranet Kertios (POST mail/mdp sur INTRANET_AUTH_URL, succès si
   redirect /main ou {"retour":"Ok"}) → user créé `is_superadmin=True`.
 - Org `is_active=False` (suspension par l'admin) → tous ses widgets coupés.
-- **GAP connu** (limite à documenter) : les pages top-level Analytics et Inbox
-  restent org-scoped → les bots PERSO n'y apparaissent pas encore (mais les
-  onglets Stats/Inbox DANS BotPage fonctionnent pour les bots perso).
+- Les pages top-level **Analytics** et **Inbox** listent TOUS mes bots via
+  `GET /api/bots` (perso + équipes), plus aucun gate « équipe active ». Inbox
+  résout l'accès par bot : superadmin = tous, bot perso = propriétaire, bot
+  d'équipe = admin de l'équipe ou perm `inbox`.
 
 ### Facturation Stripe — RETIRÉE
 La facturation a été RETIRÉE de l'application (gratuite, tout ouvert). Aucun
