@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Btn, BubbleIcon, Card, Chip, InfoBox, brandBg, statusChip } from '../ui'
+import { botOwnerLabel, canAccessBotPerm } from '../utils/permissions'
 
 export interface BotSummary {
   id: number
@@ -192,23 +193,6 @@ export default function BotList() {
       .finally(() => setLoading(false))
   }, [retry])
 
-  // Nom d'équipe pour un bot d'équipe ; « Perso » sinon. Fallback « Équipe » si
-  // l'org n'est pas dans la liste de l'utilisateur (cas superadmin éditant un
-  // bot d'un client, improbable depuis cette page).
-  function ownerLabel(b: BotSummary): string {
-    if (b.scope === 'personal' || (b.owner_user_id != null && b.organization_id == null)) return 'Perso'
-    const org = user?.organizations.find(o => o.id === b.organization_id)
-    return org?.name || 'Équipe'
-  }
-  // Droit de copie : perso ou admin de l'équipe propriétaire → toujours ; sinon
-  // permission « copy » sur ce bot dans l'équipe.
-  function canCopyBot(b: BotSummary): boolean {
-    if (b.scope === 'personal' || (b.owner_user_id != null && b.organization_id == null)) return true
-    const org = user?.organizations.find(o => o.id === b.organization_id)
-    if (!org) return false
-    return org.role === 'admin' || (org.permissions[String(b.id)] || []).includes('copy')
-  }
-
   if (loading) return <div className="center-page">Chargement…</div>
 
   // Échec du chargement : ne jamais afficher l'état vide « Créez votre premier
@@ -274,7 +258,7 @@ export default function BotList() {
         <div className="bot-grid" style={{ gap: 22 }}>
           {bots.map(b => (
             <BotCard key={b.id} bot={b} onOpen={id => navigate(`/app/bots/${id}`)}
-                     canCopy={canCopyBot(b)} ownerLabel={ownerLabel(b)} />
+                     canCopy={canAccessBotPerm(user, b, 'copy')} ownerLabel={botOwnerLabel(user, b)} />
           ))}
           <button className="bot-create-cta" onClick={() => navigate('/app/bots/new')}>
             <span className="plus"><Plus size={20} /></span>

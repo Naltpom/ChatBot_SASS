@@ -20,7 +20,6 @@ hostname d'origine), aucun redirect suivi, timeout 10 s, reponse tronquee a
 import asyncio
 import hashlib
 import hmac
-import ipaddress
 import json
 import logging
 import re
@@ -28,10 +27,11 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from urllib.parse import urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import httpx
+
+from src.services.safe_fetch import FetchError, pin_url, resolve_public_ip
 
 logger = logging.getLogger(__name__)
 
@@ -45,33 +45,21 @@ class ActionError(Exception):
 
 
 async def _resolve_public_ip(url: str) -> str:
-    """https:// + resolution DNS UNIQUE : TOUTES les IP resolues doivent etre
-    publiques (is_global exclut prive/loopback/link-local/reserve/multicast/
-    unspecified), et la connexion se fera ensuite sur l'IP retournee — jamais
-    de seconde resolution (anti DNS-rebinding TOCTOU)."""
-    parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.hostname:
-        raise ActionError("URL de webhook invalide (https:// requis)")
+    """Resolution + validation anti-SSRF FACTORISEE dans safe_fetch.resolve_public_ip
+    (logique UNIQUE : https://, resolution DNS unique, rejet des IP non
+    publiques via is_global, IPv4 d'abord). Seule la couche de message change
+    ici : la FetchError de safe_fetch est retraduite en ActionError avec le
+    libelle « webhook » (contrat d'erreur renvoye au modele en tool_result
+    is_error) — le comportement de validation reste identique a l'octet."""
     try:
-        infos = await asyncio.get_running_loop().getaddrinfo(parsed.hostname, None)
-    except OSError:
-        raise ActionError("Hôte du webhook introuvable")
-    ips: list = []
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            raise ActionError("Adresse du webhook non publique (refusée)")
-        if not ip.is_global:
-            raise ActionError("Adresse du webhook non publique (refusée)")
-        ips.append(ip)
-    if not ips:
-        raise ActionError("Hôte du webhook introuvable")
-    # IPv4 d'abord (chemin le plus repandu), sinon la premiere IPv6 validee
-    for ip in ips:
-        if ip.version == 4:
-            return str(ip)
-    return str(ips[0])
+        return await resolve_public_ip(url)
+    except FetchError as exc:
+        msg = str(exc)
+        if "https://" in msg:
+            raise ActionError("URL de webhook invalide (https:// requis)")
+        if "introuvable" in msg:
+            raise ActionError("Hôte du webhook introuvable")
+        raise ActionError("Adresse du webhook non publique (refusée)")
 
 
 async def execute_action(action: dict, args: dict, bot, db=None,
@@ -310,16 +298,11 @@ async def _webhook(action: dict, args: dict, bot, conversation_id: Optional[str]
     url = action.get("url") or ""
     ip = await _resolve_public_ip(url)
 
-    # Connexion EPINGLEE sur l'IP validee (anti DNS-rebinding) : l'hote de
-    # l'URL est remplace par l'IP, le Host HTTP et le SNI TLS (qui porte la
-    # verification du certificat) restent le hostname d'origine.
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-    host_header = hostname if parsed.port in (None, 443) else f"{hostname}:{parsed.port}"
-    netloc = f"[{ip}]" if ":" in ip else ip
-    if parsed.port:
-        netloc += f":{parsed.port}"
-    pinned_url = urlunparse(parsed._replace(netloc=netloc))
+    # Connexion EPINGLEE sur l'IP validee (anti DNS-rebinding) : helper PARTAGE
+    # safe_fetch.pin_url — l'hote de l'URL est remplace par l'IP, le Host HTTP
+    # et le SNI TLS (qui porte la verification du certificat) restent le
+    # hostname d'origine.
+    pinned_url, host_header, hostname = pin_url(url, ip)
 
     # Corps canonique (cles triees, separateurs compacts) : c'est CE corps
     # exact que le destinataire doit verifier avec son secret HMAC.

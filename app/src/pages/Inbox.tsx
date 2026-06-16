@@ -9,8 +9,10 @@ import { Inbox as InboxIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, BubbleIcon, Card, InfoBox, SectionTitle, brandBg } from '../ui'
+import { Btn, Card, InfoBox, SectionTitle } from '../ui'
 import InboxPanel from '../components/InboxPanel'
+import BotSelector from '../components/BotSelector'
+import { canAccessBotPerm } from '../utils/permissions'
 import { BotSummary } from './BotList'
 
 export default function Inbox() {
@@ -31,13 +33,7 @@ export default function Inbox() {
   const accessibleBots = useMemo(() => {
     if (!bots || !user) return [] as BotSummary[]
     if (user.is_superadmin) return bots
-    return bots.filter(b => {
-      const isPersonal = b.scope === 'personal' || (b.owner_user_id != null && b.organization_id == null)
-      if (isPersonal) return b.owner_user_id === user.id
-      const org = user.organizations.find(o => o.id === b.organization_id)
-      if (!org) return false
-      return org.role === 'admin' || (org.permissions[String(b.id)] || []).includes('inbox')
-    })
+    return bots.filter(b => canAccessBotPerm(user, b, 'inbox'))
   }, [bots, user])
 
   // Liste de TOUS mes bots — perso + équipes (même endpoint que BotList)
@@ -115,28 +111,8 @@ export default function Inbox() {
               prendre ». Masqué s'il n'y a qu'un seul bot accessible. */}
           {accessibleBots.length > 1 && (
             <Card nopad>
-              <div className="inbox-bot-picker" role="tablist" aria-label="Choisir un chatbot">
-                {accessibleBots.map(b => {
-                  const d = b.design_json || {}
-                  const n = pending[b.id] || 0
-                  const active = b.id === selectedId
-                  return (
-                    <button key={b.id} role="tab" aria-selected={active}
-                            className={`inbox-bot-tab ${active ? 'active' : ''}`}
-                            onClick={() => setSelectedId(b.id)}>
-                      <span className={`bot-avatar ${d.bordered ? 'bordered' : ''}`}
-                            style={{ width: 26, height: 26, background: brandBg(d), flex: '0 0 auto' }}>
-                        <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? 26 : 13}
-                                    avatarImg={d.avatarImage} />
-                      </span>
-                      <span className="inbox-bot-name">{b.name}</span>
-                      {n > 0 && (
-                        <span className="tab-badge" role="img" aria-label={`${n} en attente`}>{n}</span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
+              <BotSelector bots={accessibleBots} selectedId={selectedId}
+                           onSelect={setSelectedId} pending={pending} />
             </Card>
           )}
 

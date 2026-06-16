@@ -50,9 +50,14 @@ async def resolve_public_ip(url: str) -> str:
     return str(ips[0])
 
 
-def _pin(url: str, ip: str) -> tuple[str, str, str]:
+def pin_url(url: str, ip: str) -> tuple[str, str, str]:
     """(pinned_url, host_header, hostname) : l'hote de l'URL est remplace par
-    l'IP validee, le Host HTTP et le SNI TLS restent le hostname d'origine."""
+    l'IP validee, le Host HTTP et le SNI TLS restent le hostname d'origine.
+
+    Helper PARTAGE (anti DNS-rebinding) : utilise par les fetch de ce module
+    ET par action_executor._webhook (signature HMAC en plus). Toute requete
+    epinglee doit passer pinned_url + header Host=host_header +
+    extensions={"sni_hostname": hostname} a httpx."""
     parsed = urlparse(url)
     hostname = parsed.hostname
     host_header = hostname if parsed.port in (None, 443) else f"{hostname}:{parsed.port}"
@@ -66,7 +71,7 @@ async def safe_get(url: str, max_bytes: int) -> str:
     """GET borne : 3xx refusees, lecture en stream coupee a max_bytes,
     decodage texte tolerant (le HTML/XML sera de toute facon re-nettoye)."""
     ip = await resolve_public_ip(url)
-    pinned_url, host_header, hostname = _pin(url, ip)
+    pinned_url, host_header, hostname = pin_url(url, ip)
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
             async with client.stream(
@@ -98,7 +103,7 @@ async def safe_post_json_read(url: str, payload: dict, headers: Optional[dict] =
     reponse) — les headers servent a Mcp-Session-Id. 3xx refusees, statut
     hors 200-299 refuse (202 tolere : notifications MCP)."""
     ip = await resolve_public_ip(url)
-    pinned_url, host_header, hostname = _pin(url, ip)
+    pinned_url, host_header, hostname = pin_url(url, ip)
     base_headers = {"Host": host_header, "Content-Type": "application/json"}
     if headers:
         base_headers.update(headers)
@@ -134,7 +139,7 @@ async def safe_post_json(url: str, payload: dict) -> None:
     safe_get : le corps de reponse (cible controlee par un tiers) n'est
     JAMAIS lu en memoire, le contexte ferme la connexion sans le charger."""
     ip = await resolve_public_ip(url)
-    pinned_url, host_header, hostname = _pin(url, ip)
+    pinned_url, host_header, hostname = pin_url(url, ip)
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
             async with client.stream(

@@ -18,6 +18,7 @@ import {
   brandBg, modeChip, statusChip,
 } from '../ui'
 import { ACTION_TEMPLATES, CAPTCHA_OPTIONS, MODEL_OPTIONS, findModelOption } from '../botConstants'
+import { canAccessBotPerm, isPersonalBot } from '../utils/permissions'
 import AppearanceForm from '../components/AppearanceForm'
 import KbPanel from '../components/KbPanel'
 import TreeFlow from '../components/TreeFlow'
@@ -141,10 +142,15 @@ export default function BotPage() {
   // propriétaire — pas de notion d'org/de membership.
   const botOrg = user?.organizations.find(o => o.id === bot?.organization_id)
   const orgName = botOrg?.name || ''
-  const isPersonalScope = !!bot && (bot.scope === 'personal' || (bot.owner_user_id != null && bot.organization_id == null))
-  const isOrgAdmin = !!user?.is_superadmin || isPersonalScope || botOrg?.role === 'admin'
+  const isPersonalScope = !!bot && isPersonalBot(bot)
+  // Admin d'org (ou superadmin / propriétaire perso) : zone de danger. La perm
+  // « admin » n'est jamais accordée par bot → canAccessBotPerm ne renvoie true
+  // que pour superadmin / propriétaire / role admin (équivalent à l'ancien calcul).
+  const isOrgAdmin = !!bot && canAccessBotPerm(user, bot, 'admin')
+  // hasPerm délègue à canAccessBotPerm (source unique) — perm null = onglet
+  // public, et tant que le bot n'est pas chargé on refuse (état de chargement).
   const hasPerm = (perm: string | null) =>
-    perm === null || isOrgAdmin || (botOrg?.permissions?.[String(botId)] || []).includes(perm)
+    perm === null || (!!bot && canAccessBotPerm(user, bot, perm))
   // Mode arbre pur : les onglets IA et Actions n'ont pas lieu d'être
   const aiTabRelevant = !!bot && bot.mode !== 'tree'
   const visibleTabs = TABS.filter(t => hasPerm(t.perm) && ((t.id !== 'ai' && t.id !== 'actions') || aiTabRelevant))

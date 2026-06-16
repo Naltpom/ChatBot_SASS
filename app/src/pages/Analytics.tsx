@@ -10,9 +10,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Inbox, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { Btn, BubbleIcon, Card, Chip, InfoBox, SectionTitle, brandBg } from '../ui'
+import { Btn, Card, Chip, InfoBox, SectionTitle } from '../ui'
 import StatsPanel from '../components/StatsPanel'
 import InsightsPanel from '../components/InsightsPanel'
+import BotSelector from '../components/BotSelector'
+import { downloadCsv } from '../utils/csv'
 
 interface BotSummary {
   id: number
@@ -40,15 +42,6 @@ interface LeadRow {
   source: 'tree' | 'ai'
   conversation_id: string | null
   created_at: string
-}
-
-// CSV : quoting + anti-injection de formule (Excel/LibreOffice). Les valeurs
-// viennent de visiteurs anonymes — préfixe ' si la cellule commence par
-// = + - @ tab ou CR, sinon elle serait interprétée comme formule.
-function csvEsc(v: any) {
-  let s = String(v ?? '')
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
-  return `"${s.replace(/"/g, '""')}"`
 }
 
 export default function Analytics() {
@@ -107,13 +100,8 @@ export default function Analytics() {
   function exportLeadsCsv() {
     const rows = leads?.leads || []
     const header = ['created_at', 'email', 'name', 'phone', 'message', 'source']
-    const csv = [header.join(','), ...rows.map(l => header.map(h => csvEsc((l as any)[h])).join(','))].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `leads-${(detail?.name || 'bot').toLowerCase().replace(/\s+/g, '-')}.csv`
-    a.click()
-    URL.revokeObjectURL(a.href)
+    const filename = `leads-${(detail?.name || 'bot').toLowerCase().replace(/\s+/g, '-')}.csv`
+    downloadCsv(filename, header, rows.map(l => header.map(h => (l as any)[h])))
   }
 
   const selectedBot = useMemo(() => bots.find(b => b.id === selectedId) || null, [bots, selectedId])
@@ -156,39 +144,12 @@ export default function Analytics() {
       </SectionTitle>
 
       {/* ---------- Sélecteur de bot ---------- */}
-      <Card>
-        <div className="card-title">Chatbot analysé</div>
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-          {bots.map(b => {
-            const bd = b.design_json || {}
-            const active = b.id === selectedId
-            return (
-              // Pilule de sélection « mint-active » : fond + bordure en mint
-              // (var(--acc-soft)/var(--acc-bd)), texte navy — strictement le
-              // même rendu que le sélecteur de l'Inbox (.inbox-bot-tab.active),
-              // pour une cohérence parfaite entre les deux pages.
-              <button key={b.id} type="button" onClick={() => setSelectedId(b.id)}
-                      aria-pressed={active}
-                      className="row g8"
-                      style={{
-                        cursor: 'pointer', borderRadius: 999, padding: '6px 14px 6px 6px',
-                        border: active ? '1px solid var(--acc-bd)' : '1px solid var(--border2)',
-                        background: active ? 'var(--acc-soft)' : 'var(--surface)',
-                        color: active ? 'var(--acc)' : 'var(--mut)',
-                        fontFamily: 'inherit', textAlign: 'left',
-                        transition: 'background .15s, border-color .15s, color .15s',
-                      }}>
-                <span className={`bot-avatar ${bd.bordered ? 'bordered' : ''}`}
-                      style={{ width: 28, height: 28, background: brandBg(bd), flexShrink: 0 }}>
-                  <BubbleIcon kind={bd.icon} size={bd.icon === 'image' && bd.avatarImage ? 28 : 14}
-                              avatarImg={bd.avatarImage} />
-                </span>
-                <span style={{ fontSize: 12.5, fontWeight: active ? 800 : 600 }}>{b.name}</span>
-                {!b.is_active && <Chip tone="mut">En pause</Chip>}
-              </button>
-            )
-          })}
-        </div>
+      {/* Même rendu en pilules .inbox-bot-* que l'Inbox (cohérence inter-pages) ;
+          chip « En pause » pour les bots inactifs via le slot `extra`. */}
+      <Card nopad>
+        <div className="card-title" style={{ padding: '12px 12px 0' }}>Chatbot analysé</div>
+        <BotSelector bots={bots} selectedId={selectedId} onSelect={setSelectedId}
+                     extra={b => (!(b as BotSummary).is_active ? <Chip tone="mut">En pause</Chip> : null)} />
       </Card>
 
       {detailError ? (
