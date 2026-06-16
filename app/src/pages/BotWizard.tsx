@@ -279,13 +279,6 @@ export default function BotWizard() {
   )
   // Responsive : empilement du contenu en dessous de ~760px (mobile ~360-430px).
   const mobile = useMediaQuery('(max-width: 760px)')
-  // Le shell (.main) réduit son padding à 16px 14px sous 860px : on aligne le
-  // breakout négatif de la page sur ce padding pour ne PAS provoquer d'overflow
-  // horizontal (le calcul -24 d'origine ne vaut qu'au padding desktop 22px/26px).
-  const shellNarrow = useMediaQuery('(max-width: 860px)')
-  const breakout: React.CSSProperties = shellNarrow
-    ? { marginLeft: -14, marginRight: -14, marginTop: -16, marginBottom: -56 }
-    : { margin: -24 }
 
   const [step, setStep] = useState<Step>('chat')
   const [qi, setQi] = useState(0)
@@ -423,7 +416,7 @@ export default function BotWizard() {
   const poolGoals = cur && cur.type === 'multi' ? cur.opts.filter(o => !goals.includes(o[0])) : []
 
   return (
-    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', minHeight: '100%', color: INK, ...breakout }}>
+    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', minHeight: '100%', color: INK }}>
       {/* ---- En-tête avec pastilles d'étape ---- */}
       <header style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(249,249,251,.92)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: mobile ? '11px 16px' : '13px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: mobile ? 10 : 20, flexWrap: 'wrap' }}>
@@ -456,22 +449,27 @@ export default function BotWizard() {
       {step === 'chat' && (
         <div style={{ maxWidth: 680, margin: '0 auto', padding: mobile ? '24px 16px 44px' : '40px 28px 60px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* feed des questions déjà répondues */}
+            {/* feed des questions déjà répondues — clé STABLE par index de question
+                (q-${i}) : la bulle d'une question doit rester le MÊME nœud DOM quand
+                elle passe de « courante » à « historique », sinon React la remonte et
+                rejoue l'animation d'entrée. */}
             {QUESTIONS.slice(0, qi).map((q, i) => {
               const lbl = q.type === 'multi'
                 ? (goals.map(v => optLabel('goals', v)).join(', ') || '—')
                 : optLabel(q.key, answers[q.key])
               return (
-                <div key={`feed-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div key={`q-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <BotBubble text={q.q} />
                   <UserBubble text={lbl} />
                 </div>
               )
             })}
 
-            {/* question courante */}
+            {/* question courante : MÊME enveloppe + MÊME clé (q-${qi}) que sa future
+                ligne d'historique → React conserve le nœud de la bulle, donc seules la
+                réponse et la question suivante s'animent (plus de re-jeu sur l'existant). */}
             {cur && (
-              <>
+              <div key={`q-${qi}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <BotBubble text={cur.q} />
                 {cur.type === 'single' && (
                   <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 2 }}>
@@ -504,7 +502,7 @@ export default function BotWizard() {
                     )}
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         </div>

@@ -72,9 +72,21 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   const path = location.pathname
   const inAdmin = path.startsWith('/admin')
+  // Le wizard de création (/app/bots/new) a son propre en-tête plein écran
+  // (logo + étapes + « Quitter ») : on masque le chrome du tableau de bord
+  // (sidebar + topbar mobile) et on le rend pleine largeur, sans padding.
+  const chromeless = path === '/app/bots/new'
 
   // Fermeture auto du drawer à chaque changement de route.
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
+
+  if (chromeless) {
+    return (
+      <div className="shell">
+        <main className="main" style={{ padding: 0 }}>{children}</main>
+      </div>
+    )
+  }
 
   return (
     <div className="shell">
