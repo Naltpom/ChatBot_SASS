@@ -13,6 +13,7 @@ export default defineConfig({
   retries: 1,
   reporter: 'list',
   globalSetup: './global-setup.ts',
+  globalTeardown: './global-teardown.ts',
   timeout: 45_000,
   expect: { timeout: 10_000 },
   use: {

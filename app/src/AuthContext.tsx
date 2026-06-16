@@ -5,7 +5,6 @@ export interface Org {
   id: number
   name: string
   type: string                              // perso | entreprise
-  plan: string
   role: string                              // admin | member
   permissions: Record<string, string[]>     // perms par bot (member)
 }

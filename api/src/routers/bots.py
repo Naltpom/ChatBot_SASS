@@ -21,7 +21,7 @@ from src.models.user import Organization, User
 from src.services.crypto import encrypt_secret
 from src.services.rate_limit import insights_limiter, treegen_limiter
 from src.services.tree_engine import TreeError, validate_tree
-from src.services.usage_service import bots_week_stats, count_bots, plan_limits
+from src.services.usage_service import bots_week_stats
 
 router = APIRouter(prefix="/api", tags=["bots"])
 
@@ -338,24 +338,6 @@ def _merge_mcp_secrets(existing: list, incoming: list) -> list:
     return out
 
 
-def _check_plan_constraints(org: Organization, user: User,
-                            mode: str | None = None, tree_json: dict | None = None) -> None:
-    """Contraintes du plan : free = mode arbre uniquement + quota de bulles.
-    Les superadmins (staff) peuvent outrepasser."""
-    if user.is_superadmin:
-        return
-    limits = plan_limits(org)
-    if mode and mode != "tree" and limits.get("tree_only"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "Le plan free est limité au mode arbre — passez au plan Starter pour activer l'IA")
-    max_nodes = limits.get("max_tree_nodes")
-    if tree_json is not None and max_nodes is not None:
-        count = len(tree_json.get("nodes", {}))
-        if count > max_nodes:
-            raise HTTPException(status.HTTP_403_FORBIDDEN,
-                                f"Le plan {org.plan} est limité à {max_nodes} bulles dans l'arbre ({count} actuellement)")
-
-
 # --- Par organisation ---
 
 @router.get("/orgs/{org_id}/bots", response_model=list[BotOut])
@@ -377,21 +359,9 @@ async def create_bot(org_id: int, body: BotCreate, db: AsyncSession = Depends(ge
     # Creation reservee aux admins de l'org (les members ont des permissions
     # par bot existant, pas de creation)
     await require_org_admin(org_id, user, db)
-    # Fetch verrouille : serialise le comptage de bots vis-a-vis des creations
-    # concurrentes de la meme org (limite max_bots du plan)
-    org = (await db.execute(
-        select(Organization).where(Organization.id == org_id).with_for_update()
-    )).scalar_one_or_none()
+    org = await db.get(Organization, org_id)
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organisation introuvable")
-
-    # Limite de bots du plan (les superadmins peuvent outrepasser)
-    if not user.is_superadmin:
-        max_bots = plan_limits(org)["max_bots"]
-        if await count_bots(db, org_id) >= max_bots:
-            raise HTTPException(status.HTTP_403_FORBIDDEN,
-                                f"Limite du plan {org.plan} atteinte ({max_bots} bots). Passez au plan supérieur.")
-    _check_plan_constraints(org, user, mode=body.mode or "hybrid")
 
     bot = Bot(organization_id=org_id, name=body.name, mode=body.mode or "hybrid")
     db.add(bot)
@@ -428,30 +398,9 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
         if perm:
             _check_bot_perm(user, membership, bot, perm)
 
-    org = await db.get(Organization, bot.organization_id)
-
-    # BYOK : reserve aux plans qui incluent l'option (superadmin bypass, coherent
-    # avec _check_plan_constraints). Uniquement si la valeur CHANGE : un bot deja
-    # en BYOK hors plan (pose par un superadmin, downgrade webhook) doit rester
-    # sauvable sur ses autres champs.
-    if data.get("api_key_mode") == "byok" and bot.api_key_mode != "byok" and not user.is_superadmin:
-        if not plan_limits(org).get("byok"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN,
-                                "L'utilisation de votre propre clé API (BYOK) est réservée au plan Agence — passez au plan supérieur")
-
-    # Contraintes du plan : uniquement si le mode, l'arbre ou la variante A/B
-    # CHANGENT reellement (un patch design seul, ou renvoyant des valeurs
-    # identiques, ne doit pas etre bloque par l'etat existant d'un bot hors
-    # plan apres downgrade)
-    mode_changed = "mode" in data and data["mode"] != bot.mode
-    tree_changed = "tree_json" in data and data["tree_json"] != bot.tree_json
+    # Variante A/B : validation structurelle de l'arbre. null = desactiver.
     variant_changed = "tree_variant_json" in data and data["tree_variant_json"] != bot.tree_variant_json
-    if mode_changed or tree_changed or variant_changed:
-        _check_plan_constraints(org, user, mode=data.get("mode", bot.mode), tree_json=data.get("tree_json"))
-    # Variante A/B : memes contraintes de plan (max_tree_nodes, decision actee)
-    # et meme validation structurelle que l'arbre principal. null = desactiver.
     if variant_changed and data["tree_variant_json"] is not None:
-        _check_plan_constraints(org, user, tree_json=data["tree_variant_json"])
         try:
             validate_tree(data["tree_variant_json"])
         except TreeError as e:
@@ -558,15 +507,6 @@ async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = 
             perm = FIELD_PERMS.get(field)
             if perm:
                 _check_bot_perm(user, membership, bot, perm)
-    org = await db.get(Organization, bot.organization_id)
-    # Contraintes du plan : uniquement si le mode ou l'arbre CHANGENT reellement
-    # (comme le PATCH — un import partiel ou identique, ex. design seul, ne doit
-    # pas etre bloque par l'etat existant d'un bot hors plan apres un downgrade)
-    mode_changed = "mode" in config and config["mode"] != bot.mode
-    tree_changed = "tree_json" in config and config["tree_json"] != bot.tree_json
-    if mode_changed or tree_changed:
-        _check_plan_constraints(org, user, mode=config.get("mode", bot.mode),
-                                tree_json=config.get("tree_json"))
     if "tree_json" in config:
         try:
             validate_tree(config["tree_json"])
@@ -596,16 +536,11 @@ async def generate_tree_endpoint(bot_id: int, body: TreeGenerateRequest,
                                  db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Construit un arbre par IA à partir d'un texte (FAQ collée) ou d'une URL
     de page d'aide. Retourne le tree_json SANS le sauvegarder — le client
-    prévisualise puis enregistre. Plans payants uniquement (coût IA côté SaaS)."""
+    prévisualise puis enregistre."""
     from src.services.tree_generator import TreeGenerationError, fetch_page_text, generate_tree
 
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     _check_bot_perm(user, membership, bot, "context")
-
-    org = await db.get(Organization, bot.organization_id)
-    if not user.is_superadmin and plan_limits(org).get("price", 0) <= 0:
-        raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "La génération d'arbre par IA est réservée aux plans payants")
 
     # Rate-limit par organisation AVANT tout appel IA (protection cout,
     # superadmin inclus)
@@ -632,17 +567,12 @@ async def generate_insights_endpoint(bot_id: int, db: AsyncSession = Depends(get
                                      user: User = Depends(get_current_user)):
     """Analyse IA « questions sans réponse » : clusterise les messages visiteurs
     adressés à l'IA sur les 30 derniers jours et suggère des bulles d'arbre.
-    Plans payants uniquement (coût IA côté SaaS), 3 analyses/jour/organisation.
-    Le rapport est persisté (insights_reports) et renvoyé."""
+    3 analyses/jour/organisation. Le rapport est persisté (insights_reports)
+    et renvoyé."""
     from src.services.insights_service import InsightsError, generate_insights
 
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     _check_bot_perm(user, membership, bot, "context")
-
-    org = await db.get(Organization, bot.organization_id)
-    if not user.is_superadmin and plan_limits(org).get("price", 0) <= 0:
-        raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "L'analyse des questions sans réponse est réservée aux plans payants")
 
     # Rate-limit par organisation AVANT tout echantillonnage/appel IA
     # (protection cout, superadmin inclus — comme treegen). NB : un 422

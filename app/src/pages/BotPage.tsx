@@ -9,7 +9,7 @@
 // composants StatsPanel/InsightsPanel/InboxPanel restent dans components/ et
 // sont importés ailleurs — ils ne sont plus montés ici).
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Clipboard, Download, Lock, Plus, Sparkles, Trash2, Upload } from 'lucide-react'
+import { Check, Clipboard, Download, Plus, Sparkles, Trash2, Upload } from 'lucide-react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
@@ -124,7 +124,6 @@ export default function BotPage() {
   const [pageError, setPageError] = useState('')   // erreurs hors save (import, delete) — dismissable
   const [loadError, setLoadError] = useState('')   // échec du chargement initial (403/404, réseau)
   const [loadTry, setLoadTry] = useState(0)
-  const [usage, setUsage] = useState<{ tree_only: boolean; max_tree_nodes: number | null; byok: boolean } | null>(null)
 
   const fromAdmin = params.get('from') === 'admin'
   const isAdminView = !!user?.is_superadmin && fromAdmin
@@ -134,7 +133,6 @@ export default function BotPage() {
     api(`/api/bots/${botId}`).then((b: any) => {
       setBot(b)
       setSavedBot(b)
-      api(`/api/orgs/${b.organization_id}/usage`).then(setUsage).catch(() => {})
     }).catch((err: any) => setLoadError(err.message))
     api(`/api/bots/${botId}/embed`).then(d => setIntegrations(d.integrations)).catch(() => {})
   }, [botId, loadTry])
@@ -146,8 +144,8 @@ export default function BotPage() {
   const isOrgAdmin = !!user?.is_superadmin || botOrg?.role === 'admin'
   const hasPerm = (perm: string | null) =>
     perm === null || isOrgAdmin || (botOrg?.permissions?.[String(botId)] || []).includes(perm)
-  // Mode arbre pur (ou plan free) : les onglets IA et Actions n'ont pas lieu d'être
-  const aiTabRelevant = !!bot && bot.mode !== 'tree' && !usage?.tree_only
+  // Mode arbre pur : les onglets IA et Actions n'ont pas lieu d'être
+  const aiTabRelevant = !!bot && bot.mode !== 'tree'
   const visibleTabs = TABS.filter(t => hasPerm(t.perm) && ((t.id !== 'ai' && t.id !== 'actions') || aiTabRelevant))
   const activeTab = visibleTabs.some(t => t.id === tab) ? tab : (visibleTabs[0]?.id || 'appearance')
 
@@ -510,9 +508,6 @@ export default function BotPage() {
   const capPct = Math.min(100, Math.round((bot.daily_ai_message_cap / 2000) * 100))
   const actions: any[] = bot.actions_json || []
   const mcpServers: any[] = bot.mcp_servers_json || []
-  // BYOK : droit du plan (usage.byok) — le serveur re-vérifie (403)
-  const byokLocked = !!usage && !usage.byok && bot.api_key_mode !== 'byok'
-  const byokOutOfPlan = !!usage && !usage.byok && bot.api_key_mode === 'byok'
   const canActivate = !bot.is_active && hasPerm('security')
 
   return (
@@ -604,15 +599,9 @@ export default function BotPage() {
               <Card>
                 <div className="card-title">Comportement</div>
                 <div className="col" style={{ gap: 12 }}>
-                  <Field label="Mode" hint={usage?.tree_only
-                    ? 'Plan free : mode arbre uniquement. Passez au plan Starter pour activer l\'IA.'
-                    : 'Hybride : arbre guidé d\'abord, IA à la demande. Les réponses arbre sont gratuites.'}>
-                    {usage?.tree_only ? (
-                      <Chip tone="mut"><Lock size={11} /> Arbre (plan free)</Chip>
-                    ) : (
-                      <Seg value={bot.mode} onChange={v => patch({ mode: v })}
-                           options={[{ value: 'tree', label: 'Arbre' }, { value: 'hybrid', label: 'Hybride' }, { value: 'ai', label: 'IA' }]} />
-                    )}
+                  <Field label="Mode" hint="Hybride : arbre guidé d'abord, IA à la demande. Les réponses arbre sont gratuites.">
+                    <Seg value={bot.mode} onChange={v => patch({ mode: v })}
+                         options={[{ value: 'tree', label: 'Arbre' }, { value: 'hybrid', label: 'Hybride' }, { value: 'ai', label: 'IA' }]} />
                   </Field>
                   <div className="toggle-row">
                     <div>
@@ -733,11 +722,6 @@ export default function BotPage() {
                 patch({ tree_variant_json: JSON.parse(JSON.stringify(bot.tree_json)), ab_split_pct: bot.ab_split_pct || 50 })
                 setTreeView('b')
               }}>Activer une variante B</Btn>
-              {usage?.max_tree_nodes != null && (
-                <div className="field-hint" style={{ marginTop: 8 }}>
-                  Le quota de bulles de votre plan s'applique aussi à la variante.
-                </div>
-              )}
             </Card>
           ) : (
             <Card>
@@ -772,11 +756,9 @@ export default function BotPage() {
           {treeView === 'a' && (
             <div className="col g14">
               <div className="row g8" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                {!usage?.tree_only && (
-                  <Btn kind="ghost" small onClick={() => setGenOpen(o => !o)}>
-                    <Sparkles size={13} /> Générer avec l'IA
-                  </Btn>
-                )}
+                <Btn kind="ghost" small onClick={() => setGenOpen(o => !o)}>
+                  <Sparkles size={13} /> Générer avec l'IA
+                </Btn>
                 <Btn kind="ghost" small onClick={exportConfig}>
                   <Download size={13} /> Exporter JSON
                 </Btn>
@@ -791,7 +773,7 @@ export default function BotPage() {
                 )}
               </div>
 
-              {genOpen && !usage?.tree_only && (
+              {genOpen && (
                 <Card>
                   <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <Sparkles size={14} style={{ color: 'var(--acc)' }} /> Générer l'arbre avec l'IA
@@ -829,12 +811,10 @@ export default function BotPage() {
           {treeView === 'b' && bot.tree_variant_json ? (
             <TreeFlow key="b" tree={bot.tree_variant_json}
                       onChange={t => patch({ tree_variant_json: t })}
-                      maxNodes={usage?.max_tree_nodes ?? null}
                       allowAI={aiTabRelevant} />
           ) : (
             <TreeFlow key="a" tree={bot.tree_json}
                       onChange={t => patch({ tree_json: t })}
-                      maxNodes={usage?.max_tree_nodes ?? null}
                       allowAI={aiTabRelevant} />
           )}
         </div>
@@ -868,33 +848,19 @@ export default function BotPage() {
 
               <Divider />
               <div className="card-title" style={{ marginBottom: 8 }}>Clé API</div>
-              <div title={byokLocked ? 'Plan Agence requis' : undefined}>
+              <div>
                 <Seg value={bot.api_key_mode}
-                     onChange={v => { if (v === 'byok' && byokLocked) return; patch({ api_key_mode: v }) }}
+                     onChange={v => patch({ api_key_mode: v })}
                      options={[{ value: 'managed', label: 'Clé Chapote (managée)' }, { value: 'byok', label: 'Ma propre clé (BYOK)' }]} />
               </div>
-              {byokLocked && (
-                <div style={{ marginTop: 10 }}>
-                  <InfoBox tone="info"
-                           title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={13} /> Réservé au plan Agence</span>}>
-                    Votre propre clé API (BYOK) est réservée au plan Agence — passez au plan supérieur
-                    pour l'activer.
-                  </InfoBox>
-                </div>
-              )}
               <div style={{ marginTop: 10 }}>
                 {bot.api_key_mode === 'managed' ? (
                   <InfoBox tone="go" title="Clé managée">
-                    La consommation IA est facturée en crédits sur votre plan. Aucune clé à gérer, les plafonds
+                    L'IA utilise la clé Chapote managée. Aucune clé à gérer, les plafonds
                     protègent votre budget.
                   </InfoBox>
                 ) : (
                   <div className="col g8">
-                    {byokOutOfPlan && (
-                      <InfoBox tone="warn" title="BYOK hors plan">
-                        L'IA de ce bot est coupée tant que le plan n'inclut pas l'option.
-                      </InfoBox>
-                    )}
                     <input type="password" className="mono"
                            placeholder={bot.byok_key_set ? '•••• (laisser vide pour conserver)' : 'sk-ant-api03-…'}
                            value={byokKey} onChange={e => setByokKey(e.target.value)} />

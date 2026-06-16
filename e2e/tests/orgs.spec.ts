@@ -18,7 +18,7 @@ test('créer une org depuis la page → elle devient active dans le switcher', a
 
   const card = page.locator('.card', { hasText: 'Créer une organisation' })
   await card.getByLabel('Nom').fill(name)
-  // exact OBLIGATOIRE : « Personnel · Plan Free » apparaît dans les lignes d'org
+  // exact OBLIGATOIRE : le type (« Personnel ») apparaît dans les lignes d'org
   await card.getByRole('button', { name: 'Personnel', exact: true }).click()
   await card.getByRole('button', { name: "Créer l'organisation" }).click()
 
@@ -38,7 +38,7 @@ test('renommer, convertir perso→entreprise, garde-fou « Quitter » (dernier a
   const row = page.locator('.member-row', { hasText: org.name })
   await expect(row.getByText('active', { exact: true })).toBeVisible()
   await expect(row.getByText('Admin', { exact: true })).toBeVisible()
-  await expect(row).toContainText('Personnel ·')
+  await expect(row).toContainText('Personnel')
 
   // --- Renommage ---
   // En mode renommage la ligne PERD le texte du nom (remplacé par l'input,
@@ -53,7 +53,7 @@ test('renommer, convertir perso→entreprise, garde-fou « Quitter » (dernier a
 
   // --- Conversion perso → entreprise (définitive : le bouton disparaît) ---
   await row2.getByRole('button', { name: 'Passer en entreprise' }).click()
-  await expect(row2).toContainText('Entreprise ·')
+  await expect(row2).toContainText('Entreprise')
   await expect(row2.getByRole('button', { name: 'Passer en entreprise' })).toHaveCount(0)
 
   // --- Quitter : 422 « dernier admin » affiché tel quel, ligne conservée ---

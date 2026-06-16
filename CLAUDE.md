@@ -233,14 +233,21 @@ widget/widget.js       # vanilla JS : flottant ou data-inline (iframe), gradient
                        # locale SANS appel API), dictionnaire UI FR/EN (design_json.locale,
                        # 'auto' = navigator.language), servi par l'API
 
-e2e/                   # Playwright, 33 tests, workers:1 — stack docker UP requise
+e2e/                   # Playwright, 30 tests, workers:1 — stack docker UP requise
 │                      # (2 runs consécutifs verts = contrat rejouabilité)
 ├── global-setup.ts    # FLUSHALL Redis EN TÊTE (rejouabilité) puis via API : compte
-│                      # entreprise plan agence + bot partagé tree (captcha disabled,
-│                      # localhost) + member local « Membre E2E » (permissions remises
-│                      # à {} à chaque run) → .state.json (gitignoré, réutilisé :
-│                      # tryReuse purge les bots dédiés des runs précédents et remet
-│                      # bot partagé / arbre / design à plat)
+│                      # entreprise (plus aucune notion de plan : org « tout ouvert »)
+│                      # + bot partagé tree (captcha disabled, localhost) + member local
+│                      # « Membre E2E » (permissions remises à {} à chaque run) →
+│                      # .state.json (gitignoré). tryReuse remet le bot partagé à plat
+│                      # et purge les bots dédiés — MAIS le global-teardown efface
+│                      # .state.json, donc en pratique chaque run repart d'un setup frais
+├── global-teardown.ts # purge en base TOUTES les données e2e à la fin du run (orgs
+│                      # « E2E » + comptes @e2e-chapote.fr → bots/memberships/invitations
+│                      # /conversations… ; ordre FK NO ACTION : bots→memberships→
+│                      # invitations→orgs→users) via `docker compose exec db psql`
+│                      # (échec NON bloquant), puis supprime .state.json. Préserve le
+│                      # staff superadmin (autre domaine d'email)
 ├── helpers.ts         # loadState, blockAutoLogin (kc_no_autologin), authenticateWithToken
 │                      # (token posé en localStorage AVANT le 1er chargement),
 │                      # devLoginToken (dev-login superadmin, non rate-limité),
@@ -253,11 +260,11 @@ e2e/                   # Playwright, 33 tests, workers:1 — stack docker UP req
 │                      # AVANT navigation : zéro réseau réel), openFrame (/widget-frame)
 └── tests/             # 6 specs historiques : landing, register-perso (SEUL register
                        # UI), wizard-tree, botpage, widget, team (invitation) ;
-                       # 9 specs v3 : profile (renommage, mdp happy+revert sur le
+                       # 8 specs v3 : profile (renommage, mdp happy+revert sur le
                        # member, 403 sans déconnexion), orgs (création/renommage/
-                       # conversion/422 dernier admin), admin-split (4 pages back-
-                       # office + redirect non-superadmin), billing (grille public/
-                       # plans, applied:true, 422 downgrade, ?checkout=cancelled),
+                       # conversion/422 dernier admin — lignes d'org = type seul,
+                       # « Personnel »/« Entreprise », plus de plan), admin-split
+                       # (back-office + redirect non-superadmin ; plus de page Factures),
                        # widget-nodes (overlay RDV intercepté, lead → onglet Leads +
                        # CSV), actions (hints + secret_set sans fuite), appearance
                        # (preset + launcherText → bootstrap sanitisé), team-permissions
@@ -800,22 +807,20 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   En dev l'IP vue est la gateway Docker, partagée par tout le trafic hôte.
 - `docker compose down -v` efface DB ET volume redis ET cache fastembed ET
   invalide e2e/.state.json (le global-setup Playwright le recrée au run suivant).
-- `PLANS_INFO` n'existe plus : le pricing front (Billing + Landing) consomme
-  GET /api/public/plans (source unique). La landing garde un `FALLBACK_PLANS`
-  local (Landing.tsx) = miroir utilisé en secours RÉSEAU uniquement → à
-  resynchroniser si les plans serveur changent.
 - POST /api/auth/password partage l'auth_limiter (10/15min/IP) avec
   login/register. Le global-setup e2e fait le FLUSHALL automatiquement
   (helper `flushRedis`, ré-appelé en beforeAll de profile.spec en assurance
   budget) — plus besoin de purge manuelle avant un run.
-- Budget auth e2e PAR RUN : setup frais = 2 registers API (compte principal +
-  member) ; run reuse (.state.json valide) = 0 ; register-perso.spec = 1
-  register UI ; profile.spec ≤ 4 POST /password après son propre FLUSHALL.
-  Budget TOTAL/run ≤ 3 registers. Les 5 specs v4 = 0 register (state +
-  createBot jetable). Tout nouveau spec doit RÉUTILISER state/dev-login/orgs
-  jetables (createOrg / createBot : non rate-limités) plutôt que register. Les
-  orgs jetables ne sont jamais supprimées (pas de DELETE /orgs) : accumulation
-  dev acceptée, purge via `docker compose down -v`.
+- Budget auth e2e PAR RUN : le global-teardown efface .state.json → chaque run
+  est un setup FRAIS = 2 registers API (compte principal + member) ;
+  register-perso.spec = 1 register UI ; profile.spec ≤ 4 POST /password après
+  son propre FLUSHALL. Budget TOTAL/run ≤ 3 registers, couvert par le FLUSHALL
+  du setup. Les specs v4 = 0 register (state + createBot jetable). Tout nouveau
+  spec doit RÉUTILISER state/dev-login/orgs jetables (createOrg / createBot :
+  non rate-limités) plutôt que register. NETTOYAGE : le global-teardown purge en
+  base toutes les données e2e à la fin du run (orgs « E2E » + comptes
+  @e2e-chapote.fr, cf. global-teardown.ts) — plus d'accumulation, plus besoin de
+  `docker compose down -v` pour la propreté (down -v reste pour un reset total).
 - e2e + MOCK_AI=false (vraies clés) : AUCUN spec n'exerce l'IA — bots tree
   (ou hybrid pour rendre l'onglet Actions, widget jamais ouvert), pas de
   "__ai__", pas de tree/generate. Webhooks d'action de test →
@@ -836,15 +841,11 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   vs « Message d'accueil (mode IA) » d'AppearanceForm (scoper la card
   « Déclencheurs proactifs »), « Arbre de décision » (exact:true, count 1 par
   vue), extraits liste Inbox `.inbox-row` préfixés « Visiteur : »/
-  « Conseiller : » (distincts des headers transcript). ab.spec : l'arrivée de
-  /usage (fetch chaîné APRÈS le bot dans BotPage) re-render l'onglet Arbre →
-  attendre cette réponse en beforeEach ET envelopper activer/désactiver de la
-  variante B dans un `expect(...).toPass()` (le clic peut tomber pendant le
-  re-render et être avalé) — flake observé puis corrigé côté spec.
-- e2e + Stripe : le global-setup exige `applied:true` au POST plan agence et
-  `tryReuse` vérifie plan=agence dans l'usage — avec STRIPE_* configurés le
-  200 renvoie checkout_url et la suite échoue avec un message explicite →
-  vider les STRIPE_* du .env pour les runs e2e.
+  « Conseiller : » (distincts des headers transcript). ab.spec ET kb.spec :
+  BotPage ne fetch plus /usage (supprimé avec les plans) → l'attente anti-flake
+  porte désormais sur `GET /api/bots/{id}` (fetch du bot au chargement) ;
+  ab.spec enveloppe en plus activer/désactiver de la variante B dans un
+  `expect(...).toPass()` (le clic peut tomber pendant le re-render et être avalé).
 - Accessibilité : un Seg dans `<Field>` donne le texte du label comme nom
   accessible à son PREMIER bouton (label → labelable) → utiliser `exact:true`
   dans les sélecteurs Playwright.

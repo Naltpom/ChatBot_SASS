@@ -9,8 +9,8 @@
 // Libellés lus dans app/src/pages/BotPage.tsx et components/TreeFlow.tsx.
 //
 // MOCK_AI=false : aucun chemin IA (édition d'arbre + variante en mode tree).
-// Plan agence (state) : max_tree_nodes=null → la variante n'est jamais bloquée
-// par _check_plan_constraints (pas de 403/422). On assert l'effet via l'API.
+// Plus aucune notion de plan : la variante n'est jamais bloquée (pas de
+// 403/422). On assert l'effet via l'API.
 import { expect, test } from '@playwright/test'
 import { authHeaders, authenticate, createBot, deleteBot, loadState } from '../helpers'
 
@@ -30,15 +30,15 @@ test.beforeEach(async ({ page }) => {
   // window.confirm de « Désactiver la variante B » : accepté d'office.
   page.on('dialog', d => d.accept())
   await authenticate(page, state)
-  // On attend la réponse /usage : BotPage la fetch APRÈS le bot (effet chaîné)
-  // et son arrivée re-render l'onglet Arbre (aiTabRelevant/visibleTabs). Sans
-  // cette attente, un clic « Activer » peut tomber pendant ce re-render et
-  // être avalé (flake observé : le chip « A/B actif » n'apparaît jamais).
-  const usageSeen = page.waitForResponse(
-    r => /\/api\/orgs\/\d+\/usage/.test(r.url()) && r.request().method() === 'GET',
+  // On attend la réponse du bot (GET /api/bots/{id}) avant d'agir : son arrivée
+  // monte/rerender l'onglet Arbre. Sans cette attente, un clic « Activer » peut
+  // tomber pendant le re-render et être avalé (flake observé : le chip « A/B
+  // actif » n'apparaît jamais). Le toPass ci-dessous reste la garde principale.
+  const botSeen = page.waitForResponse(
+    r => new RegExp(`/api/bots/${botId}(\\?|$)`).test(r.url()) && r.request().method() === 'GET',
   )
   await page.goto(`/app/bots/${botId}?tab=tree`)
-  await usageSeen
+  await botSeen
 })
 
 test('activer variante B + split → assert API non-null → désactiver → assert API null/0', async ({ page, request }) => {

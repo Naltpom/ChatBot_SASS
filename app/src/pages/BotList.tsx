@@ -5,7 +5,6 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Btn, BubbleIcon, Card, InfoBox, brandBg, statusChip } from '../ui'
-import { PLAN_LABELS } from '../botConstants'
 
 export interface BotSummary {
   id: number
@@ -162,7 +161,6 @@ export default function BotList() {
   const { activeOrg } = useAuth()
   const navigate = useNavigate()
   const [bots, setBots] = useState<BotSummary[]>([])
-  const [quota, setQuota] = useState<{ bots_quota: number; ai_messages_used?: number; ai_messages_quota?: number }>({ bots_quota: 1 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
@@ -171,10 +169,8 @@ export default function BotList() {
     if (!activeOrg) { setLoading(false); return }
     setLoading(true)
     setError('')
-    Promise.all([
-      api<BotSummary[]>(`/api/orgs/${activeOrg.id}/bots`),
-      api(`/api/orgs/${activeOrg.id}/usage`),
-    ]).then(([b, u]) => { setBots(b); setQuota(u) })
+    api<BotSummary[]>(`/api/orgs/${activeOrg.id}/bots`)
+      .then(setBots)
       .catch((err: any) => setError(err.message))
       .finally(() => setLoading(false))
   }, [activeOrg, retry])
@@ -212,21 +208,15 @@ export default function BotList() {
     )
   }
 
-  const atLimit = bots.length >= quota.bots_quota
-  const planLabel = PLAN_LABELS[activeOrg.plan] || activeOrg.plan
   const isAdmin = activeOrg.role === 'admin'
   const canCopyBot = (botId: number) =>
     isAdmin || (activeOrg.permissions[String(botId)] || []).includes('copy')
 
   // Sous-ligne : chiffres RÉELS uniquement. Conversations 7 j = somme des
-  // visiteurs uniques par bot ; messages IA du mois depuis l'usage de l'org.
+  // visiteurs uniques par bot.
   const conv7d = bots.reduce((s, b) => s + (b.visitors_7d || 0), 0)
-  const subParts = [
-    `${bots.length} chatbot${bots.length > 1 ? 's' : ''} sur ${quota.bots_quota} · plan ${planLabel}`,
-  ]
+  const subParts = [`${bots.length} chatbot${bots.length > 1 ? 's' : ''}`]
   if (bots.length > 0) subParts.push(`${conv7d.toLocaleString('fr-FR')} conversation${conv7d > 1 ? 's' : ''} sur 7 j`)
-  if (typeof quota.ai_messages_used === 'number')
-    subParts.push(`${quota.ai_messages_used.toLocaleString('fr-FR')} message${quota.ai_messages_used > 1 ? 's' : ''} IA ce mois`)
 
   return (
     <div className="col g18">
@@ -236,17 +226,11 @@ export default function BotList() {
           <p className="botlist-sub">{subParts.join(' · ')}</p>
         </div>
         {isAdmin && (
-          <button className="botlist-create" onClick={() => navigate('/app/bots/new')} disabled={atLimit}>
+          <button className="botlist-create" onClick={() => navigate('/app/bots/new')}>
             <Plus size={17} /> Créer un bot
           </button>
         )}
       </div>
-
-      {isAdmin && atLimit && (
-        <InfoBox tone="warn" title="Limite du plan atteinte">
-          Le plan {planLabel} inclut {quota.bots_quota} bot{quota.bots_quota > 1 ? 's' : ''}. Passez au plan supérieur pour en ajouter.
-        </InfoBox>
-      )}
 
       {bots.length === 0 ? (
         isAdmin ? (
@@ -283,7 +267,7 @@ export default function BotList() {
           {bots.map(b => (
             <BotCard key={b.id} bot={b} onOpen={id => navigate(`/app/bots/${id}`)} canCopy={canCopyBot(b.id)} />
           ))}
-          {isAdmin && !atLimit && (
+          {isAdmin && (
             <button className="bot-create-cta" onClick={() => navigate('/app/bots/new')}>
               <span className="plus"><Plus size={20} /></span>
               <span style={{ fontSize: 14, fontWeight: 700 }}>Créer un bot</span>

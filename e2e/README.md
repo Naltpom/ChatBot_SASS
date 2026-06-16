@@ -35,8 +35,8 @@ npx playwright test tests/widget.spec.ts # une spec
   principal + member), run reuse = 0 ; register-perso.spec = 1 register UI ;
   profile.spec ≤ 4 POST /password après son propre flush.
 - Le global-setup (`global-setup.ts`) crée via l'API un compte entreprise
-  (plan agence — exige `applied:true` : vider les STRIPE_* du .env), un bot
-  partagé mode arbre (captcha désactivé) et un compte member « Membre E2E »
+  (plus aucune notion de plan : toute org est « tout ouvert » par défaut), un
+  bot partagé mode arbre (captcha désactivé) et un compte member « Membre E2E »
   (permissions remises à `{}`), puis écrit `e2e/.state.json` (gitignoré).
   Un état encore valide est réutilisé au run suivant (bots dédiés purgés,
   bot partagé remis à plat) — aucune inscription supplémentaire.

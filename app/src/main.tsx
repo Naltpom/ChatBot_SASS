@@ -9,14 +9,12 @@ import BotList from './pages/BotList'
 import BotWizard from './pages/BotWizard'
 import BotPage from './pages/BotPage'
 import Team from './pages/Team'
-import Billing from './pages/Billing'
 import Profile from './pages/Profile'
 import MyOrgs from './pages/MyOrgs'
 import Analytics from './pages/Analytics'
 import Inbox from './pages/Inbox'
 import AdminHome, { AdminClient } from './pages/Admin'
 import AdminDashboard from './pages/AdminDashboard'
-import AdminInvoices from './pages/AdminInvoices'
 import AdminUsers from './pages/AdminUsers'
 import Layout from './Layout'
 import './styles.css'
@@ -45,14 +43,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/app/analytics" element={<Protected><Analytics /></Protected>} />
           <Route path="/app/inbox" element={<Protected><Inbox /></Protected>} />
           <Route path="/app/team" element={<Protected><Team /></Protected>} />
-          <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
           <Route path="/app/orgs" element={<Protected><MyOrgs /></Protected>} />
           <Route path="/app/profile" element={<Protected><Profile /></Protected>} />
           {/* Back-office superadmin */}
           <Route path="/admin" element={<Protected adminOnly><AdminDashboard /></Protected>} />
           <Route path="/admin/clients" element={<Protected adminOnly><AdminHome /></Protected>} />
           <Route path="/admin/clients/:orgId" element={<Protected adminOnly><AdminClient /></Protected>} />
-          <Route path="/admin/invoices" element={<Protected adminOnly><AdminInvoices /></Protected>} />
           <Route path="/admin/users" element={<Protected adminOnly><AdminUsers /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

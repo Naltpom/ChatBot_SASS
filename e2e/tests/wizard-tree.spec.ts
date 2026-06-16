@@ -8,7 +8,7 @@
 // force botMode='tree' (wantsAI=false). La création appelle l'API réelle ; on
 // récupère l'id du bot créé via l'URL de l'éditeur pour le supprimer (afterAll).
 //
-// Auth : token du global-setup (compte entreprise, plan agence, org active)
+// Auth : token du global-setup (compte entreprise, org active)
 // injecté en localStorage avant le 1er chargement.
 import { expect, test } from '@playwright/test'
 import { authenticate, deleteBot, loadState } from '../helpers'

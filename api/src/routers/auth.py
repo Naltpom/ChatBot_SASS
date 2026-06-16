@@ -46,7 +46,7 @@ async def _user_out(db: AsyncSession, user: User) -> UserOut:
     if user.is_superadmin:
         orgs = (await db.execute(select(Organization).order_by(Organization.name))).scalars().all()
         out.organizations = [
-            OrgOut(id=o.id, name=o.name, type=o.type, plan=o.plan, role="admin", permissions={})
+            OrgOut(id=o.id, name=o.name, type=o.type, role="admin", permissions={})
             for o in orgs
         ]
     else:
@@ -57,7 +57,7 @@ async def _user_out(db: AsyncSession, user: User) -> UserOut:
             .order_by(Organization.name)
         )).all()
         out.organizations = [
-            OrgOut(id=o.id, name=o.name, type=o.type, plan=o.plan,
+            OrgOut(id=o.id, name=o.name, type=o.type,
                    role=m.role, permissions=m.permissions or {})
             for o, m in rows
         ]

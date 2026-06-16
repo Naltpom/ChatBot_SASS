@@ -10,8 +10,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
-import { api } from '../api'
-import { planFeatures, type PublicPlan } from '../botConstants'
 
 // ---- Polices + styles scoped (.chapote) injectés au montage ----------------
 const FONT_LINKS = [
@@ -277,42 +275,13 @@ function Snippet({ big }: { big?: boolean }) {
   )
 }
 
-// ---- Tarifs (cartes design, alimentées par GET /api/public/plans) ----------
-// Coche mint des features (tracé repris du design : cercle teinté + check).
-const PriceCheck = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginTop: 1 }}>
-    <circle cx="12" cy="12" r="10" fill="rgba(47,158,121,.14)" />
-    <path d="M8 12.2l2.6 2.6 5.2-5.6" stroke="#2F9E79" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
-// Secours RÉSEAU uniquement (mêmes quotas que api/src/models/user.py · PLANS) :
-// utilisé seulement si GET /api/public/plans échoue. À resynchroniser si les
-// plans serveur changent (cf. piège FALLBACK_PLANS, CLAUDE.md).
-const FALLBACK_PLANS: PublicPlan[] = [
-  { id: 'free', label: 'Free', description: "Pour tester l'hybride sur un site.", price: 0, ai_messages: 0, max_bots: 1, tree_only: true, max_tree_nodes: 10, byok: false },
-  { id: 'starter', label: 'Starter', description: 'Pour démarrer le support IA.', price: 19, ai_messages: 500, max_bots: 1, tree_only: false, max_tree_nodes: null, byok: false },
-  { id: 'pro', label: 'Pro', description: 'Pour les équipes qui scalent leur support.', price: 39, ai_messages: 2000, max_bots: 3, tree_only: false, max_tree_nodes: null, byok: false },
-  { id: 'agence', label: 'Agence', description: 'Volume, multi-bots et clés API.', price: 119, ai_messages: 10000, max_bots: 10, tree_only: false, max_tree_nodes: null, byok: true },
-]
-
 export default function Landing() {
   const { user } = useAuth()
   useChapoteAssets()
   useReveal()
   const [copied, setCopied] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [plans, setPlans] = useState<PublicPlan[]>(FALLBACK_PLANS)
   const ctaTo = user ? '/app' : '/register'
-
-  // Pricing RÉEL : GET /api/public/plans → fallback local si le réseau échoue.
-  useEffect(() => {
-    let alive = true
-    api<{ billing_enabled: boolean; plans: PublicPlan[] }>('/api/public/plans')
-      .then(r => { if (alive && Array.isArray(r?.plans) && r.plans.length) setPlans(r.plans) })
-      .catch(() => { /* fallback local conservé */ })
-    return () => { alive = false }
-  }, [])
 
   const copyCode = () => {
     try { navigator.clipboard?.writeText(SNIPPET) } catch { /* clipboard indispo */ }
@@ -479,55 +448,16 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ---- Tarifs (cartes design · plans réels GET /api/public/plans) ---- */}
+      {/* ---- 100% gratuit ---- */}
       <section id="pricing" style={{ background: '#F0F2F5', padding: '88px 0' }}>
-        <div className="ch-pad" style={{ maxWidth: 1180, margin: '0 auto', padding: '0 32px' }}>
-          <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 660, margin: '0 auto 48px' }}>
+        <div className="ch-pad" style={{ maxWidth: 760, margin: '0 auto', padding: '0 32px', textAlign: 'center' }}>
+          <div className="ch-reveal">
             <span style={eyebrow('#2F9E79')}>TARIFS</span>
-            <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Un prix frugal, comme le produit.</h2>
-            <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px 0 0' }}>L'IA est plafonnée par design : vous ne dépassez jamais votre budget. L'arbre guidé, lui, reste illimité.</p>
-          </div>
-          <div className="ch-pricing-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${plans.length || 1},1fr)`, gap: 24, alignItems: 'start' }}>
-            {plans.map(p => {
-              const popular = p.id === 'pro'
-              const feats = planFeatures(p)
-              return (
-                <div key={p.id} className="ch-reveal ch-pricing-card" style={{
-                  position: 'relative', background: '#fff', borderRadius: 24,
-                  border: popular ? '2px solid #2F9E79' : '1px solid #E2E8F0',
-                  padding: popular ? '34px 28px' : '32px 28px',
-                  boxShadow: popular ? '0 30px 64px -28px rgba(47,158,121,.5)' : '0 8px 24px -16px rgba(28,63,92,.2)',
-                }}>
-                  {popular && (
-                    <span style={{ position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)', background: '#2F9E79', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', padding: '5px 14px', borderRadius: 999, whiteSpace: 'nowrap' }}>POPULAIRE</span>
-                  )}
-                  <div style={{ fontFamily: JAKARTA, fontWeight: 700, fontSize: 18, color: popular ? '#1C3F5C' : '#1E2A32' }}>{p.label}</div>
-                  <div style={{ marginTop: 10, display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                    <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 44, color: '#1E2A32' }}>{p.price === 0 ? 'Gratuit' : `${p.price}€`}</span>
-                    {p.price > 0 && <span style={{ color: '#6B7B8D', fontSize: 15 }}>/mois</span>}
-                  </div>
-                  <p style={{ fontSize: 14, color: '#6B7B8D', margin: '6px 0 0', minHeight: 40 }}>{p.description}</p>
-                  <Link to={ctaTo} className={popular ? 'ch-price-cta-dark' : 'ch-price-cta-light'} style={{
-                    display: 'block', textAlign: 'center', width: '100%', margin: '22px 0 0', borderRadius: 12,
-                    padding: '13px', fontWeight: 600, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none',
-                    ...(popular
-                      ? { background: '#1C3F5C', color: '#fff', border: 'none', transition: 'transform .2s' }
-                      : { background: '#fff', color: '#1C3F5C', border: '1px solid #1C3F5C', transition: 'background .2s' }),
-                  }}>
-                    {p.price === 0 ? 'Ajouter la balise' : `Démarrer avec ${p.label}`}
-                  </Link>
-                  <div style={{ height: 1, background: '#EEF1F4', margin: '24px 0' }} />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {feats.map(f => (
-                      <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                        <PriceCheck />
-                        <span style={{ fontSize: 14, color: '#1E2A32', lineHeight: 1.45 }}>{f}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
+            <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>100% gratuit, sans limite.</h2>
+            <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px auto 0', maxWidth: 560 }}>Arbre guidé illimité, IA, relais humain : toutes les fonctionnalités sont incluses, sans carte bancaire.</p>
+            <div style={{ marginTop: 30 }}>
+              <Link to={ctaTo} className="ch-cta-primary" style={btnPrimary}>Commencer gratuitement →</Link>
+            </div>
           </div>
         </div>
       </section>

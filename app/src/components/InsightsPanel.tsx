@@ -1,12 +1,11 @@
-// Onglet « Insights » — analyse IA des « questions sans réponse » (perm context,
-// plans payants). Le panneau est autonome : ses erreurs (403 plan free, 422
-// aucune question, 429 limiteur) restent dans une div locale, jamais dans le
-// canal setError de BotPage (réservé à la save bar). Le CTA « Pré-remplir dans
-// l'arbre » remonte à BotPage (onPrefill) qui crée le nœud et ouvre l'onglet
-// Arbre — la save bar qui apparaît alors est le comportement contractuel.
+// Onglet « Insights » — analyse IA des « questions sans réponse » (perm context).
+// Le panneau est autonome : ses erreurs (422 aucune question, 429 limiteur)
+// restent dans une div locale, jamais dans le canal setError de BotPage (réservé
+// à la save bar). Le CTA « Pré-remplir dans l'arbre » remonte à BotPage
+// (onPrefill) qui crée le nœud et ouvre l'onglet Arbre — la save bar qui
+// apparaît alors est le comportement contractuel.
 import { useEffect, useState } from 'react'
-import { Lock, Sparkles } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Sparkles } from 'lucide-react'
 import { api } from '../api'
 import { Btn, Card, Chip, InfoBox, SectionTitle } from '../ui'
 
@@ -20,13 +19,10 @@ interface Report {
   report_json: { clusters: Cluster[] }
 }
 
-export default function InsightsPanel({ botId, treeOnly, isAdminView, onPrefill }: {
+export default function InsightsPanel({ botId, onPrefill }: {
   botId: number
-  treeOnly: boolean        // plan free : génération impossible (403 serveur), CTA upgrade
-  isAdminView: boolean     // vue admin d'un client : pas de CTA billing (org du staff)
   onPrefill: (theme: string, bubble: string) => void
 }) {
-  const navigate = useNavigate()
   const [report, setReport] = useState<Report | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -45,7 +41,7 @@ export default function InsightsPanel({ botId, treeOnly, isAdminView, onPrefill 
   }, [botId])
 
   async function generate() {
-    if (busy || treeOnly) return
+    if (busy) return
     setBusy(true)
     setError('')
     try {
@@ -64,7 +60,7 @@ export default function InsightsPanel({ botId, treeOnly, isAdminView, onPrefill 
       <SectionTitle
         sub="L'IA regroupe les questions des visiteurs des 30 derniers jours et vous suggère des bulles d'arbre pour y répondre gratuitement."
         right={
-          <Btn kind="primary" onClick={generate} disabled={treeOnly || busy}>
+          <Btn kind="primary" onClick={generate} disabled={busy}>
             {busy ? 'Analyse en cours…' : 'Analyser les questions sans réponse'}
           </Btn>
         }>
@@ -74,19 +70,6 @@ export default function InsightsPanel({ botId, treeOnly, isAdminView, onPrefill 
       <div className="field-hint" style={{ marginTop: -10 }}>
         3 analyses par jour et par organisation — chaque lancement compte, même sans résultat.
       </div>
-
-      {treeOnly && (
-        <InfoBox tone="info"
-                 title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={13} /> Réservé aux plans payants</span>}>
-          L'analyse s'appuie sur les conversations IA, absentes du plan free. Passez au plan Starter pour
-          l'activer.
-          {!isAdminView && (
-            <div style={{ marginTop: 8 }}>
-              <Btn kind="soft" small onClick={() => navigate('/app/billing')}>Voir les plans</Btn>
-            </div>
-          )}
-        </InfoBox>
-      )}
 
       {error && <div className="error">{error}</div>}
 

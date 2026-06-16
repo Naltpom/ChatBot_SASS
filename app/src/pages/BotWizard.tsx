@@ -11,8 +11,8 @@
 //
 // Câblage réel : à l'étape ARBRE, « Créer mon chatbot » crée vraiment le bot
 // via l'API existante (POST /api/orgs/{id}/bots puis PATCH /api/bots/{id}),
-// avec ce tree_json et un design_json valide. Le plan free (tree_only) force le
-// mode "tree" et masque l'option IA dans TreeFlow (allowAI=false).
+// avec ce tree_json et un design_json valide. Le mode "tree" (aucune IA voulue)
+// masque l'option IA dans TreeFlow (allowAI=false).
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -289,24 +289,16 @@ export default function BotWizard() {
   // qu'on n'a pas atteint cette étape.
   const [treeJson, setTreeJson] = useState<Record<string, any> | null>(null)
 
-  const [usage, setUsage] = useState<{ tree_only: boolean; max_tree_nodes: number | null } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [createdBotId, setCreatedBotId] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (!activeOrg) return
-    api(`/api/orgs/${activeOrg.id}/usage`).then(u => setUsage(u)).catch(() => {})
-  }, [activeOrg?.id])
-
-  const treeOnly = usage?.tree_only ?? false
-  // L'IA n'est réellement câblée que hors plan tree_only ET si l'utilisateur l'a
-  // choisie avec un budget.
+  // L'IA est câblée si l'utilisateur l'a choisie avec un budget.
   const wantsAI = (answers.fallback === 'ia' || answers.fallback === 'both') && answers.budget !== 'none'
   const wantsHuman = answers.fallback === 'human' || answers.fallback === 'both'
-  const allowAI = wantsAI && !treeOnly
-  // Mode réel du bot : tree_only force tree ; sinon hybride si IA voulue, sinon arbre.
-  const botMode = treeOnly ? 'tree' : (wantsAI ? 'hybrid' : 'tree')
+  const allowAI = wantsAI
+  // Mode réel du bot : hybride si IA voulue, sinon arbre.
+  const botMode = wantsAI ? 'hybrid' : 'tree'
 
   // -------------------------------------------------------------------------
   // Logique du chat
@@ -542,11 +534,6 @@ export default function BotWizard() {
               </span>
             </div>
           </div>
-          {treeOnly && (
-            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '14px 18px', marginTop: 14, fontSize: 13, color: MUT, lineHeight: 1.5 }}>
-              Votre plan actuel est limité à l'arbre guidé (sans IA). Les capacités IA seront ignorées tant que vous n'aurez pas changé de plan — l'arbre reste pleinement fonctionnel.
-            </div>
-          )}
           <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 16, display: 'flex', alignItems: 'center', gap: 13 }}>
             <span style={{ fontSize: 20 }}>🌿</span>
             <div style={{ flex: 1 }}>
@@ -643,7 +630,6 @@ export default function BotWizard() {
             tree={treeJson ?? buildTree(rawBranches(answers, goals), look.welcome, allowAI)}
             onChange={setTreeJson}
             allowAI={allowAI}
-            maxNodes={usage?.max_tree_nodes ?? null}
           />
 
           <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>

@@ -2,8 +2,7 @@
 // et Leads d'un bot choisi via un sélecteur. Les données restant PAR BOT, on
 // liste les bots de l'org (comme BotList : GET /api/orgs/{id}/bots) et on charge
 // le détail du bot sélectionné (tree_json/variant/ab_split + organization_id)
-// plus l'usage de l'org (tree_only) pour alimenter StatsPanel et InsightsPanel
-// avec leurs props EXACTES. Les Leads reprennent la logique de l'onglet Leads
+// pour alimenter StatsPanel et InsightsPanel. Les Leads reprennent la logique de l'onglet Leads
 // du BotPage (GET /api/bots/{id}/leads, colonnes date/email/nom/tel/message/
 // source, export CSV anti-injection). Style Chapote.
 import { useEffect, useMemo, useState } from 'react'
@@ -31,8 +30,6 @@ interface BotDetail {
   ab_split_pct: number
   design_json: Record<string, any>
 }
-
-interface OrgUsage { tree_only: boolean }
 
 interface LeadRow {
   id: number
@@ -65,7 +62,6 @@ export default function Analytics() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<BotDetail | null>(null)
-  const [usage, setUsage] = useState<OrgUsage | null>(null)
   const [detailError, setDetailError] = useState('')
 
   const [leads, setLeads] = useState<{ total: number; leads: LeadRow[] } | null>(null)
@@ -87,22 +83,14 @@ export default function Analytics() {
       .finally(() => setBotsLoading(false))
   }, [activeOrg, retry])
 
-  // Détail du bot sélectionné (tree/variant/ab_split + organization_id) + usage
-  // de l'org (tree_only pour InsightsPanel) + leads
+  // Détail du bot sélectionné (tree/variant/ab_split + organization_id) + leads
   useEffect(() => {
-    if (selectedId == null) { setDetail(null); setUsage(null); setLeads(null); return }
+    if (selectedId == null) { setDetail(null); setLeads(null); return }
     let alive = true
     setDetail(null)
-    setUsage(null)
     setDetailError('')
     api<BotDetail>(`/api/bots/${selectedId}`)
-      .then(b => {
-        if (!alive) return
-        setDetail(b)
-        api<OrgUsage>(`/api/orgs/${b.organization_id}/usage`)
-          .then(u => { if (alive) setUsage(u) })
-          .catch(() => {})
-      })
+      .then(b => { if (alive) setDetail(b) })
       .catch((err: any) => { if (alive) setDetailError(err.message) })
     loadLeads(selectedId, () => alive)
     return () => { alive = false }
@@ -234,7 +222,7 @@ export default function Analytics() {
           {/* ---------- Insights ---------- */}
           {/* onPrefill : pas d'éditeur d'arbre ici → on renvoie vers l'onglet
               Arbre du bot pour appliquer la suggestion. */}
-          <InsightsPanel botId={detail.id} treeOnly={!!usage?.tree_only} isAdminView={false}
+          <InsightsPanel botId={detail.id}
                          onPrefill={() => navigate(`/app/bots/${detail.id}?tab=tree`)} />
 
           {/* ---------- Leads ---------- */}

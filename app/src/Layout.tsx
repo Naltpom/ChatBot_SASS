@@ -1,26 +1,14 @@
 // Shell sidebar — porté du prototype Chapote (sidebar 222px, logo, org
-// switcher, nav, bloc plan/crédits). Deux modes déduits du pathname :
-// /app/* = espace client (OrgSwitcher + usage), /admin/* = back-office staff.
+// switcher, nav). Deux modes déduits du pathname :
+// /app/* = espace client (OrgSwitcher), /admin/* = back-office staff.
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Bot, Building2, Check, ChevronDown, CircleUser,
-  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ReceiptText,
-  ShieldCheck, Users,
+  Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Users,
 } from 'lucide-react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
-import { api } from './api'
-import { Meter, orgColor, orgInitials } from './ui'
-import { PLAN_LABELS } from './botConstants'
-
-interface Usage {
-  plan: string
-  plan_price: number
-  ai_messages_used: number
-  ai_messages_quota: number
-  bots_used: number
-  bots_quota: number
-}
+import { orgColor, orgInitials } from './ui'
 
 function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | null; onSwitch: (o: Org) => void }) {
   const [open, setOpen] = useState(false)
@@ -40,7 +28,7 @@ function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | 
         <span className="org-avatar" style={{ background: orgColor(current.name) }}>{orgInitials(current.name)}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span className="orgsw-name">{current.name}</span>
-          <span className="orgsw-sub">Plan {PLAN_LABELS[current.plan] || current.plan}</span>
+          <span className="orgsw-sub">{current.type === 'perso' ? 'Personnel' : 'Entreprise'}</span>
         </span>
         <ChevronDown size={12} style={{ color: 'var(--faint)', flexShrink: 0 }} />
       </button>
@@ -62,37 +50,17 @@ function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | 
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { user, activeOrg, setActiveOrg, logout, refreshUser } = useAuth()
-  const [usage, setUsage] = useState<Usage | null>(null)
+  const { user, activeOrg, setActiveOrg, logout } = useAuth()
   // Drawer mobile (off-canvas) — desktop n'utilise jamais cet état.
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  // Org déjà resynchronisée après un 404 (anti-boucle : une fois par org)
-  const resyncedOrgId = useRef<number | null>(null)
 
   const path = location.pathname
   const inAdmin = path.startsWith('/admin')
 
   // Fermeture auto du drawer à chaque changement de route.
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
-
-  useEffect(() => {
-    if (!activeOrg || inAdmin) return
-    api<Usage>(`/api/orgs/${activeOrg.id}/usage`)
-      .then(setUsage)
-      .catch((err: any) => {
-        setUsage(null)
-        // Membre retiré de l'org pendant sa session : l'usage renvoie 404 →
-        // on recharge /me pour retirer l'org disparue et re-sélectionner.
-        if (err?.status === 404 && resyncedOrgId.current !== activeOrg.id) {
-          resyncedOrgId.current = activeOrg.id
-          refreshUser().catch(() => {})
-        }
-      })
-  }, [activeOrg, location.pathname])
-
-  const creditsPct = usage ? Math.round((usage.ai_messages_used / Math.max(1, usage.ai_messages_quota)) * 100) : 0
 
   return (
     <div className="shell">
@@ -155,10 +123,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                           onClick={() => navigate('/app/team')}>
                     <span className="nav-ico"><Users size={16} /></span>Équipe
                   </button>
-                  <button className={`nav-item ${path.startsWith('/app/billing') ? 'active' : ''}`}
-                          onClick={() => navigate('/app/billing')}>
-                    <span className="nav-ico"><CreditCard size={16} /></span>Facturation
-                  </button>
                   <div className="nav-divider" />
                 </>
               )}
@@ -190,10 +154,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                       onClick={() => navigate('/admin/clients')}>
                 <span className="nav-ico"><Building2 size={16} /></span>Clients
               </button>
-              <button className={`nav-item ${path.startsWith('/admin/invoices') ? 'active' : ''}`}
-                      onClick={() => navigate('/admin/invoices')}>
-                <span className="nav-ico"><ReceiptText size={16} /></span>Factures
-              </button>
               <button className={`nav-item ${path.startsWith('/admin/users') ? 'active' : ''}`}
                       onClick={() => navigate('/admin/users')}>
                 <span className="nav-ico"><Users size={16} /></span>Utilisateurs
@@ -207,24 +167,6 @@ export default function Layout({ children }: { children: ReactNode }) {
         </nav>
 
         <div style={{ flex: 1 }} />
-
-        {!inAdmin && usage && (
-          <div className="sidebar-plan" role="button" tabIndex={0} title="Gérer la facturation"
-               onClick={() => navigate('/app/billing')}
-               onKeyDown={e => e.key === 'Enter' && navigate('/app/billing')}>
-            <div className="sidebar-plan-row">
-              <span className="lbl">Plan {PLAN_LABELS[usage.plan] || usage.plan}</span>
-              <span className="sidebar-plan-pill">{usage.bots_used}/{usage.bots_quota} bots</span>
-            </div>
-            <div className="sidebar-usage">
-              <Meter pct={creditsPct} tone={creditsPct > 95 ? 'danger' : creditsPct > 70 ? 'warn' : 'acc'} height={5} />
-              <div className="sub">
-                {usage.ai_messages_used.toLocaleString('fr-FR')} / {usage.ai_messages_quota.toLocaleString('fr-FR')} crédits IA
-                · {usage.plan_price} €/mois
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="sidebar-user">
           <button className="sidebar-user-main" onClick={() => navigate('/app/profile')} title="Mon profil">

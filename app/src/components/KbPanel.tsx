@@ -164,7 +164,7 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
 
       {!aiActive ? (
         <InfoBox tone="warn" title="L'IA de ce bot est inactive">
-          Ce bot répond uniquement avec l'arbre (mode arbre ou plan free) : les connaissances ne seront
+          Ce bot répond uniquement avec l'arbre (mode arbre) : les connaissances ne seront
           utilisées que lorsque l'IA sera activée. Vous pouvez préparer vos sources dès maintenant.
         </InfoBox>
       ) : hasReady ? (

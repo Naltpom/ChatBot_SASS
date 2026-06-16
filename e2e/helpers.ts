@@ -54,7 +54,7 @@ export async function devLoginToken(request: APIRequestContext, apiUrl: string):
   return (await res.json()).access_token
 }
 
-// Org jetable (POST /api/orgs, non rate-limité, plan free) au nom du compte
+// Org jetable (POST /api/orgs, non rate-limité, « tout ouvert ») au nom du compte
 // principal du state. Préfixer les noms par « E2E » (pas de DELETE /orgs :
 // accumulation en DB dev acceptée, reset via docker compose down -v).
 export async function createOrg(

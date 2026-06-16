@@ -55,21 +55,9 @@ from src.services.rate_limit import (
     session_limiter,
 )
 from src.services.safe_fetch import FetchError, safe_post_json
-from src.services.usage_service import ai_allowed
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/widget", tags=["widget"])
-
-DEGRADED_MESSAGE = (
-    "Le mode IA est momentanément indisponible. "
-    "Vous pouvez continuer avec les options proposées."
-)
-
-# Bot IA pur (pas d'arbre de repli) : on explique au visiteur au lieu de bloquer
-DEGRADED_AI_ONLY_MESSAGE = (
-    "Notre assistant est momentanément indisponible. "
-    "Merci de réessayer un peu plus tard ou de nous contacter directement."
-)
 
 # --- Live chat (handoff conseiller) ---
 # Messages serveur (role=assistant, source=system) : exclus de l'historique IA,
@@ -910,30 +898,6 @@ async def post_message(
                    role="user", source="ai", content=text))
     await db.commit()
 
-    # Caps budget : cap quotidien bot + quota mensuel du plan de l'org -> mode degrade tree-only
-    org = await db.get(Organization, bot.organization_id)
-    allowed, reason = await ai_allowed(db, bot, org)
-    if not allowed:
-        logger.warning("Bot %s en mode dégradé (%s)", bot.id, reason)
-        if bot.mode == "ai":
-            # IA pure : pas d'arbre de repli, on explique au lieu de bloquer
-            return _maybe_refresh({
-                "source": "tree", "node_id": None, "degraded": True,
-                "message": DEGRADED_AI_ONLY_MESSAGE, "options": [],
-                "status": conversation.status,
-            }, bot, session)
-        # Degrade hybrid : un noeud d'arbre est servi -> evenement funnel
-        # (le degrade ai-only ci-dessus n'en sert aucun)
-        node_id, node = tree_engine.get_node(_active_tree(bot, conversation))
-        _record_tree_event(db, bot, conversation, node_id)
-        await db.commit()
-        return _maybe_refresh({
-            "source": "tree", "node_id": node_id, "degraded": True,
-            "message": DEGRADED_MESSAGE,
-            "options": tree_engine.format_node_response(node_id, node)["options"] if bot.mode == "hybrid" else [],
-            "status": conversation.status,
-        }, bot, session)
-
     # Historique tronque (limite de payload vers le modele)
     result = await db.execute(
         select(Message)
@@ -951,8 +915,7 @@ async def post_message(
 
     page_url = body.page_url or conversation.page_url
     # Base de connaissances : le tool search_docs n'est expose au modele que
-    # si le bot a au moins un extrait indexe. Free/tree-only n'atteint jamais
-    # cette branche (ai_allowed) -> aucun gating de plan supplementaire.
+    # si le bot a au moins un extrait indexe.
     has_kb = (await db.execute(
         select(KbChunk.id).where(KbChunk.bot_id == bot.id).limit(1)
     )).first() is not None

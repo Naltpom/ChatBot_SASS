@@ -6,7 +6,6 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { Org, useAuth } from '../AuthContext'
 import { Btn, Card, Chip, Field, InfoBox, SectionTitle, Seg, orgColor, orgInitials } from '../ui'
-import { PLAN_LABELS } from '../botConstants'
 
 export default function MyOrgs() {
   const { user, activeOrg, setActiveOrg, refreshUser } = useAuth()
@@ -139,7 +138,7 @@ export default function MyOrgs() {
                     <>
                       <div style={{ fontSize: 13.5, fontWeight: 700 }}>{o.name}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>
-                        {o.type === 'perso' ? 'Personnel' : 'Entreprise'} · Plan {PLAN_LABELS[o.plan] || o.plan}
+                        {o.type === 'perso' ? 'Personnel' : 'Entreprise'}
                       </div>
                     </>
                   )}

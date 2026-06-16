@@ -361,35 +361,3 @@ export const TREE_TEMPLATES: TreeTemplate[] = [
   },
 ]
 
-export const PLAN_LABELS: Record<string, string> = { free: 'Free', starter: 'Starter', pro: 'Pro', agence: 'Agence' }
-
-// Plan tel que servi par GET /api/public/plans — SOURCE DE VÉRITÉ du pricing
-// (PLANS + PLANS_META côté api/src/models/user.py). Consommé par Billing et
-// par la landing ; plus aucun miroir manuel des quotas côté front.
-export interface PublicPlan {
-  id: string
-  label: string
-  description: string
-  price: number              // €/mois
-  ai_messages: number        // quota mensuel de réponses IA
-  max_bots: number
-  tree_only: boolean
-  max_tree_nodes: number | null
-  byok: boolean
-}
-
-// Features dérivées des limites RÉELLEMENT appliquées par le code (rien de
-// marketing non gaté). Partagé Billing + Landing.
-export function planFeatures(p: PublicPlan): string[] {
-  const feats = [`${p.max_bots} chatbot${p.max_bots > 1 ? 's' : ''}`]
-  if (p.tree_only) {
-    feats.push('Arbre de décision seul (sans IA)')
-    if (p.max_tree_nodes != null) feats.push(`${p.max_tree_nodes} bulles max dans l'arbre`)
-  } else {
-    feats.push(`${p.ai_messages.toLocaleString('fr-FR')} réponses IA / mois`)
-  }
-  feats.push('Réponses arbre illimitées')
-  if (p.price > 0) feats.push("Génération d'arbre par IA")
-  if (p.byok) feats.push('BYOK (vos clés API)')
-  return feats
-}

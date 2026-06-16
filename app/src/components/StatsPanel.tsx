@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from 'react'
 import { Bot as BotIcon, GitBranch, MessageSquare, Sparkles, ThumbsDown, ThumbsUp, User, Users } from 'lucide-react'
 import { api } from '../api'
-import { Bars, Card, Chip, Divider, Meter, SectionTitle, Seg, Stat } from '../ui'
+import { Bars, Card, Chip, Meter, SectionTitle, Seg, Stat } from '../ui'
 
 interface DailyRow { day: string; user_messages: number; ai_replies: number; tree_replies: number }
 
@@ -51,8 +51,6 @@ interface Conv {
   messages: { role: string; source: string; content: string; at: string }[]
 }
 
-interface OrgUsage { plan: string; ai_messages_used: number; ai_messages_quota: number }
-
 const DAY_LABELS = ['Di', 'Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa']
 
 function convMode(messages: Conv['messages']) {
@@ -70,15 +68,14 @@ function timeAgo(iso: string) {
   return `il y a ${Math.round(mins / 1440)} j`
 }
 
-export default function StatsPanel({ botId, botName, orgId, tree, variantTree, abSplit }: {
-  botId: number; botName: string; orgId: number
+export default function StatsPanel({ botId, botName, tree, variantTree, abSplit }: {
+  botId: number; botName: string; orgId?: number
   tree: Record<string, any>                  // tree_json : mapping node_key → label du funnel
   variantTree: Record<string, any> | null    // tree_variant_json : détection A/B actif + labels B
   abSplit: number                            // ab_split_pct courant (chip « N % vers B »)
 }) {
   const [days, setDays] = useState(7)
   const [stats, setStats] = useState<Stats | null>(null)
-  const [usage, setUsage] = useState<OrgUsage | null>(null)
   const [convs, setConvs] = useState<Conv[]>([])
   const [openConv, setOpenConv] = useState<string | null>(null)
   // Funnel : composant autonome — erreur LOCALE, jamais le canal d'erreur de BotPage
@@ -100,9 +97,8 @@ export default function StatsPanel({ botId, botName, orgId, tree, variantTree, a
   }, [botId, days])
 
   useEffect(() => {
-    api<OrgUsage>(`/api/orgs/${orgId}/usage`).then(setUsage).catch(() => {})
     api<Conv[]>(`/api/stats/bots/${botId}/conversations?limit=15`).then(setConvs)
-  }, [botId, orgId])
+  }, [botId])
 
   // Label d'un nœud du funnel : racine → libellé fixe ; sinon l'option qui
   // pointe vers lui (logique nodeLabel de TreeBuilder), d'abord dans l'arbre A
@@ -128,7 +124,6 @@ export default function StatsPanel({ botId, botName, orgId, tree, variantTree, a
     const label = days <= 7 ? DAY_LABELS[date.getDay()] : d.day.slice(5)
     return { label, a: d.ai_replies, b: d.tree_replies }
   })
-  const creditsPct = usage ? Math.round((usage.ai_messages_used / Math.max(1, usage.ai_messages_quota)) * 100) : 0
   const capPct = Math.round((stats.ai_replies_today / Math.max(1, stats.daily_ai_message_cap)) * 100)
   const sat = stats.satisfaction
   const satPct = Math.round((sat.up / Math.max(1, sat.up + sat.down)) * 100)
@@ -169,21 +164,10 @@ export default function StatsPanel({ botId, botName, orgId, tree, variantTree, a
         </Card>
 
         <Card>
-          <div className="card-title">Crédits IA — plan {usage?.plan ?? ''}</div>
-          <div className="row" style={{ alignItems: 'baseline', gap: 7 }}>
-            <span className="num" style={{ fontSize: 25, fontWeight: 800 }}>{(usage?.ai_messages_used ?? 0).toLocaleString('fr-FR')}</span>
-            <span style={{ fontSize: 12.5, color: 'var(--mut)' }}>/ {(usage?.ai_messages_quota ?? 0).toLocaleString('fr-FR')} réponses IA incluses</span>
-          </div>
-          <div style={{ margin: '10px 0 6px' }}>
-            <Meter pct={creditsPct} tone={creditsPct > 95 ? 'danger' : creditsPct > 70 ? 'warn' : 'acc'} />
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.5 }}>
-            {creditsPct}% utilisés ce mois, toutes organisations de bots confondues.
-          </div>
-          <Divider />
+          <div className="card-title">Plafond IA journalier</div>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700 }}>Plafond journalier</div>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>Réponses IA aujourd'hui</div>
               <div style={{ fontSize: 11, color: 'var(--faint)' }}>Au-delà → mode arbre seul</div>
             </div>
             <Chip tone={capPct >= 100 ? 'danger' : 'go'}>{stats.ai_replies_today} / {stats.daily_ai_message_cap}</Chip>
