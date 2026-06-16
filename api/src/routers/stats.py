@@ -116,7 +116,6 @@ async def bot_stats(
         "tokens_in": msg_totals[3],
         "tokens_out": msg_totals[4],
         "ai_replies_today": await count_ai_messages_today(db, bot_id),
-        "daily_ai_message_cap": bot.daily_ai_message_cap,
         # Cles ADDITIVES (CSAT + A/B) : la shape historique reste intacte
         "satisfaction": {"up": msg_totals[5], "down": msg_totals[6],
                          "total": msg_totals[5] + msg_totals[6]},

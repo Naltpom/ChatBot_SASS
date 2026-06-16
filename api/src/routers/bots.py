@@ -58,7 +58,6 @@ FIELD_PERMS = {
     "captcha_provider": "security",
     "captcha_site_key": "security",
     "captcha_secret": "security",
-    "daily_ai_message_cap": "security",
     "is_active": "security",
     "mcp_servers_json": "context",
 }

@@ -14,7 +14,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import {
-  Btn, BubbleIcon, Card, Chip, Divider, Field, InfoBox, Meter, SectionTitle, Seg, Toggle,
+  Btn, BubbleIcon, Card, Chip, Divider, Field, InfoBox, SectionTitle, Seg, Toggle,
   brandBg, modeChip, statusChip,
 } from '../ui'
 import { ACTION_TEMPLATES, CAPTCHA_OPTIONS, MODEL_OPTIONS, findModelOption } from '../botConstants'
@@ -42,10 +42,7 @@ const TAB_FIELDS: Record<string, string[]> = {
   // triggers_json : perm serveur = appearance (FIELD_PERMS), même onglet
   appearance: ['name', 'design_json', 'mode', 'triggers_json'],
   tree: ['tree_json', 'tree_variant_json', 'ab_split_pct'],
-  // daily_ai_message_cap : perm serveur = security (FIELD_PERMS) — affiché dans
-  // l'onglet IA (charte) mais l'API exige la perm security ; la garde de save()
-  // croise hasPerm('security').
-  ai: ['system_prompt', 'ai_provider', 'ai_model', 'temperature', 'api_key_mode', 'daily_ai_message_cap'],
+  ai: ['system_prompt', 'ai_provider', 'ai_model', 'temperature', 'api_key_mode'],
   // handoff_webhook_url : perm serveur = context (credential) — l'API la masque
   // à null dans bot ET savedBot pour un member sans context → jamais de faux dirty.
   human: ['handoff_webhook_url'],
@@ -117,7 +114,6 @@ export default function BotPage() {
   const [newDomain, setNewDomain] = useState('')
   const [moveTarget, setMoveTarget] = useState<number | ''>('')   // équipe cible du déplacement
   const [moveBusy, setMoveBusy] = useState(false)
-  const [previewDegraded, setPreviewDegraded] = useState(false)
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [integType, setIntegType] = useState('html')
   const [copied, setCopied] = useState(false)
@@ -278,12 +274,6 @@ export default function BotPage() {
       if (dirtySet.has('human') && bot.handoff_webhook_url !== savedBot?.handoff_webhook_url) {
         body.handoff_webhook_url = bot.handoff_webhook_url || null
       }
-    }
-    // daily_ai_message_cap : champ affiché dans l'onglet IA mais perm serveur =
-    // security (FIELD_PERMS) — n'est envoyé qu'avec la perm security.
-    if (hasPerm('security') && dirtySet.has('ai')
-        && bot.daily_ai_message_cap !== savedBot?.daily_ai_message_cap) {
-      body.daily_ai_message_cap = bot.daily_ai_message_cap
     }
     if (hasPerm('security') && dirtySet.has('security')) {
       body.allowed_domains = bot.allowed_domains
@@ -532,7 +522,6 @@ export default function BotPage() {
   const site = bot.allowed_domains[0] || 'votre-site.fr'
   const currentModel = findModelOption(bot.ai_provider, bot.ai_model)
   const currentInteg = integrations.find(i => i.id === integType) || integrations[0]
-  const capPct = Math.min(100, Math.round((bot.daily_ai_message_cap / 2000) * 100))
   const actions: any[] = bot.actions_json || []
   const mcpServers: any[] = bot.mcp_servers_json || []
   const canActivate = !bot.is_active && hasPerm('security')
@@ -634,13 +623,6 @@ export default function BotPage() {
                     <Seg value={bot.mode} onChange={v => patch({ mode: v })}
                          options={[{ value: 'tree', label: 'Arbre' }, { value: 'hybrid', label: 'Hybride' }, { value: 'ai', label: 'IA' }]} />
                   </Field>
-                  <div className="toggle-row">
-                    <div>
-                      <div className="tl">Simuler le mode dégradé</div>
-                      <div className="ts">Cap budget atteint → arbre seul (aperçu uniquement)</div>
-                    </div>
-                    <Toggle on={previewDegraded} onChange={setPreviewDegraded} />
-                  </div>
                 </div>
               </Card>
 
@@ -731,7 +713,7 @@ export default function BotPage() {
             <Card nopad>
               <PreviewFrame site={site} siteName={orgName || site} brandColor={d.primaryColor || '#1C3F5C'}>
                 <WidgetPreview design={d} mode={bot.mode} tree={bot.tree_json}
-                               botName={bot.name} degraded={previewDegraded} />
+                               botName={bot.name} />
               </PreviewFrame>
             </Card>
           </div>
@@ -922,23 +904,6 @@ export default function BotPage() {
                 <div className="field-hint">Basse = réponses factuelles et stables · haute = réponses plus créatives.</div>
               </Card>
 
-              {/* Plafond IA journalier : champ backend RÉEL daily_ai_message_cap
-                  (perm serveur security). Affiché dans l'onglet IA (charte). */}
-              {hasPerm('security') && (
-                <Card>
-                  <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
-                    <div className="card-title" style={{ marginBottom: 0 }}>Plafond IA journalier</div>
-                    <Chip tone="acc">{bot.daily_ai_message_cap} rép. / jour</Chip>
-                  </div>
-                  <input type="range" min={0} max={2000} step={10} value={bot.daily_ai_message_cap}
-                         onChange={e => patch({ daily_ai_message_cap: Number(e.target.value) })} />
-                  <div style={{ margin: '6px 0' }}><Meter pct={capPct} height={6} /></div>
-                  <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55 }}>
-                    S'il est atteint, le widget passe en mode dégradé (arbre seul). C'est votre protection
-                    cash-flow.
-                  </div>
-                </Card>
-              )}
             </div>
           </div>
 
@@ -1386,7 +1351,7 @@ export default function BotPage() {
       {/* ================= SÉCURITÉ ================= */}
       {activeTab === 'security' && (
         <div className="col g18">
-          <SectionTitle sub="Protection en couches : clé publique → vérif. d'origine → JWT éphémère → rate limits → cap budget. Vos vraies clés IA ne quittent jamais le serveur.">
+          <SectionTitle sub="Protection en couches : clé publique → vérif. d'origine → JWT éphémère → rate limits. Vos vraies clés IA ne quittent jamais le serveur.">
             Sécurité &amp; anti-abus
           </SectionTitle>
           <div className="grid2">

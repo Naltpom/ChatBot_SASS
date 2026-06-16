@@ -18,7 +18,6 @@ interface Stats {
   ai_replies: number
   tree_replies: number
   ai_replies_today: number
-  daily_ai_message_cap: number
   daily: DailyRow[]
   top_pages: { page: string; conversations: number }[]
   // Clés ADDITIVES v4 — toujours présentes (zéros si A/B inactif / aucun avis)
@@ -124,7 +123,6 @@ export default function StatsPanel({ botId, botName, tree, variantTree, abSplit 
     const label = days <= 7 ? DAY_LABELS[date.getDay()] : d.day.slice(5)
     return { label, a: d.ai_replies, b: d.tree_replies }
   })
-  const capPct = Math.round((stats.ai_replies_today / Math.max(1, stats.daily_ai_message_cap)) * 100)
   const sat = stats.satisfaction
   const satPct = Math.round((sat.up / Math.max(1, sat.up + sat.down)) * 100)
   const variantActive = !!variantTree
@@ -164,16 +162,12 @@ export default function StatsPanel({ botId, botName, tree, variantTree, abSplit 
         </Card>
 
         <Card>
-          <div className="card-title">Plafond IA journalier</div>
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700 }}>Réponses IA aujourd'hui</div>
-              <div style={{ fontSize: 11, color: 'var(--faint)' }}>Au-delà → mode arbre seul</div>
-            </div>
-            <Chip tone={capPct >= 100 ? 'danger' : 'go'}>{stats.ai_replies_today} / {stats.daily_ai_message_cap}</Chip>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <Meter pct={capPct} tone={capPct >= 100 ? 'danger' : 'acc'} height={6} />
+          <div className="card-title">Réponses IA aujourd'hui</div>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span className="num" style={{ fontSize: 26, fontWeight: 800 }}>
+              {stats.ai_replies_today.toLocaleString('fr-FR')}
+            </span>
+            <Sparkles size={16} style={{ color: 'var(--acc)' }} />
           </div>
           <div style={{ marginTop: 12 }}>
             <Chip tone="mut">Réponses arbre : illimitées et gratuites</Chip>

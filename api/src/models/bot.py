@@ -165,10 +165,6 @@ class Bot(Base):
     captcha_site_key = Column(String, nullable=True)        # si reCAPTCHA client
     captcha_secret_encrypted = Column(Text, nullable=True)  # si reCAPTCHA client
 
-    # Hard cap : au-dela de N reponses IA / jour, le widget passe en mode
-    # degrade (tree only). Protection cash-flow, par bot.
-    daily_ai_message_cap = Column(Integer, default=500, nullable=False)
-
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -208,7 +204,6 @@ class BotUpdate(BaseModel):
     captcha_provider: Optional[str] = Field(None, pattern="^(turnstile|recaptcha_v3|disabled)$")
     captcha_site_key: Optional[str] = None
     captcha_secret: Optional[str] = None  # en clair a l'entree, chiffree au stockage
-    daily_ai_message_cap: Optional[int] = Field(None, ge=0)
 
 
 class BotOut(BaseModel):
@@ -244,7 +239,6 @@ class BotOut(BaseModel):
     captcha_provider: str
     captcha_site_key: Optional[str] = None
     captcha_secret_set: bool = False
-    daily_ai_message_cap: int
     created_at: datetime
     updated_at: datetime
     # Renseignes par les endpoints de liste (cards) uniquement

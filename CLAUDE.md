@@ -335,12 +335,12 @@ e2e/                   # Playwright, 31 tests, workers:1 — stack docker UP req
   réservé aux comptes locaux — les comptes intranet voient leur hash réécrit à
   chaque login intranet, d'où le 403 (UI en lecture seule avec explication).
 - **App 100 % gratuite, tout ouvert** : plus AUCUN plan, quota, coupure IA,
-  gating BYOK ni limite de bots/nœuds. Supprimés : `PLANS`/`PLANS_META`,
-  colonne `organizations.plan`, `_check_plan_constraints`, `ai_allowed`,
-  `plan_change_problems`, `count_ai_messages_this_month`, `count_bots`. Reste
-  VESTIGIAL non appliqué : `Bot.daily_ai_message_cap` (champ + affichage stats
-  subsistent mais ne sont plus enforced — l'enforcement est parti avec
-  `ai_allowed`).
+  gating BYOK, cap IA ni limite de bots/nœuds. Supprimés : `PLANS`/`PLANS_META`,
+  colonne `organizations.plan`, colonne `bots.daily_ai_message_cap` (+ mode
+  dégradé/aperçu), `_check_plan_constraints`, `ai_allowed`,
+  `plan_change_problems`, `count_ai_messages_this_month`, `count_bots`. Le
+  compteur informatif `count_ai_messages_today` / `ai_replies_today` (stats
+  « réponses IA aujourd'hui ») est conservé.
 - **Génération d'arbre par IA** : POST /api/bots/{id}/tree/generate {source_text|url}
   (services/tree_generator.py, claude-sonnet-4-6, clé managée, perm context).
   Plus de gating de plan ; treegen_limiter Redis 10/24h/org CONSERVÉ (anti-abus)
@@ -879,7 +879,8 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   f4a91c27d3b8 (FTS unaccent) ← 0a25919f448f (connecteur MCP) ←
   960e241f162a (analytics et growth) ← a1b2c3d4e5f6 (drop organizations.plan) ←
   b2c3d4e5f6a7 (bot ownership polymorphe owner_user_id XOR organization_id +
-  drop organizations.type) = head. Les révisions v4 sont ÉCRITES À
+  drop organizations.type) ← c3d4e5f6a7b8 (drop bots.daily_ai_message_cap)
+  = head. Les révisions v4 sont ÉCRITES À
   LA MAIN (Vector custom, colonne GÉNÉRÉE, index HNSW/GIN : non générables) ;
   kb_chunks.embedding/tsv sont mal compris d'Alembic → tout futur
   --autogenerate peut produire du BRUIT sur ces colonnes, relire la révision

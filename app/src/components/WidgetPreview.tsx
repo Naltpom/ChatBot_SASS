@@ -8,7 +8,7 @@
 // on n'affiche pas non plus de badge « N déclencheurs actifs » (même raison :
 // l'aperçu reste épuré, l'info vit dans l'éditeur).
 import { ReactNode, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CalendarDays, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { CalendarDays, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { BubbleIcon, brandBg } from '../ui'
 
 interface Msg {
@@ -48,7 +48,6 @@ const PREVIEW_I18N: Record<'fr' | 'en', Record<string, string>> = {
     close: 'Fermer',
     send: 'Envoyer',
     open_chat: 'Ouvrir le chat',
-    degraded_banner: ' Assistant IA momentanément indisponible — le menu guidé reste actif.',
     placeholder: 'Écrivez votre message…',
     placeholder_advisor: 'Écrivez au conseiller…',
     placeholder_pick: 'Choisissez une option ci-dessus',
@@ -79,7 +78,6 @@ const PREVIEW_I18N: Record<'fr' | 'en', Record<string, string>> = {
     close: 'Close',
     send: 'Send',
     open_chat: 'Open chat',
-    degraded_banner: ' AI assistant temporarily unavailable — the guided menu is still active.',
     placeholder: 'Type your message…',
     placeholder_advisor: 'Write to the advisor…',
     placeholder_pick: 'Pick an option above',
@@ -109,7 +107,6 @@ interface Props {
   mode: string             // tree | ai | hybrid
   tree: Record<string, any>
   botName: string
-  degraded?: boolean
   defaultOpen?: boolean    // false : bulle fermée au départ (démo landing)
 }
 
@@ -131,7 +128,7 @@ function clampInt(v: any, min: number, max: number, fallback: number): number {
   return isNaN(n) ? fallback : Math.min(max, Math.max(min, n))
 }
 
-export default function WidgetPreview({ design, mode, tree, botName, degraded = false, defaultOpen = true }: Props) {
+export default function WidgetPreview({ design, mode, tree, botName, defaultOpen = true }: Props) {
   const d = design || {}
   const brand = d.primaryColor || '#0d9488'
   const bg = brandBg(d)
@@ -211,7 +208,7 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
 
   // reset à chaque changement structurel
   useEffect(() => {
-    const isIA = mode === 'ai' && !degraded
+    const isIA = mode === 'ai'
     setAiMode(isIA)
     setAppt(null)
     setLead(null)
@@ -239,7 +236,7 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
     // démontage (sinon une réponse « Conseiller » différée resurgirait dans
     // l'aperçu fraîchement réinitialisé)
     return clearPendingTimers
-  }, [mode, degraded, lang, JSON.stringify(tree)])
+  }, [mode, lang, JSON.stringify(tree)])
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
@@ -267,7 +264,7 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
   function pick(opt: { label: string; next: string }) {
     setMsgs(m => [...m, { from: 'user', text: opt.label.replace(/^[^\p{L}\p{N}↩]*\s*/u, '') }])
     if (opt.next === '__ai__') {
-      if (degraded || mode === 'tree') {
+      if (mode === 'tree') {
         const root = nodeOf(start)
         botSay(t('ai_unavailable'), root.options || [], 500)
         return
@@ -354,7 +351,7 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
     botSay(root.message, root.options || [], 450)
   }
 
-  const inputDisabled = live ? false : (!aiMode || degraded)
+  const inputDisabled = live ? false : !aiMode
   const r14 = Math.min(R, 14)
 
   return (
@@ -394,12 +391,6 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
             </span>
             <button onClick={() => setOpen(false)} aria-label={t('close')} style={{ background: 'none', border: 'none', color: headText, cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4, opacity: .85 }}>×</button>
           </div>
-
-          {degraded && (
-            <div style={{ background: '#fdf3e0', borderBottom: '1px solid #ecd6a8', color: '#8a5a0a', fontSize: 11.5, padding: '7px 13px', display: 'flex', gap: 7, alignItems: 'center' }}>
-              <AlertTriangle size={13} style={{ flexShrink: 0 }} />{t('degraded_banner')}
-            </div>
-          )}
 
           {/* Messages */}
           <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: compact ? 10 : '14px 13px', display: 'flex', flexDirection: 'column', gap: compact ? 6 : 9, background: msgsBg }}>

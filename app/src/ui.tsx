@@ -1,7 +1,7 @@
 // Primitives UI portées du prototype Chapote (primitives.jsx + widget.jsx).
 // Icônes : lucide-react, même librairie qu'ao_scrapping.
 import { Children, Fragment, isValidElement, ReactNode, useId } from 'react'
-import { AlertTriangle, Pause } from 'lucide-react'
+import { Pause } from 'lucide-react'
 
 export function Card({ children, className = '', nopad = false, style, onClick }: {
   children: ReactNode; className?: string; nopad?: boolean; style?: React.CSSProperties; onClick?: () => void
@@ -220,9 +220,8 @@ export function BubbleIcon({ kind, size = 26, avatarImg }: { kind?: string; size
 }
 
 // ---------- Chips de statut / mode (pages-bots-list.jsx) ----------
-export function statusChip(isActive: boolean, degraded = false) {
+export function statusChip(isActive: boolean) {
   if (!isActive) return <Chip tone="mut"><Pause size={11} /> En pause</Chip>
-  if (degraded) return <Chip tone="warn"><AlertTriangle size={11} /> Dégradé</Chip>
   return <Chip tone="go">● En ligne</Chip>
 }
 
