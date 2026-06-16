@@ -7,21 +7,28 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel as _BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
-from src.core.security import get_current_user, require_org_access, require_org_admin
+from src.core.security import (
+    get_current_user,
+    require_bot_access,
+    require_bot_admin,
+    require_org_access,
+    require_org_admin,
+)
 from src.models.analytics import InsightsReport, InsightsReportOut
 from src.models.bot import Bot, BotCreate, BotOut, BotUpdate
 from src.models.conversation import Message
 from src.models.lead import Lead, LeadOut
-from src.models.user import Organization, User
+from src.models.user import Membership, Organization, User
 from src.services.crypto import encrypt_secret
 from src.services.rate_limit import insights_limiter, treegen_limiter
 from src.services.tree_engine import TreeError, validate_tree
-from src.services.usage_service import bots_week_stats
+from src.services.usage_service import bots_week_stats, bots_week_stats_for_ids
 
 router = APIRouter(prefix="/api", tags=["bots"])
 
@@ -62,7 +69,7 @@ async def _get_accessible_bot(db: AsyncSession, bot_id: int, user: User) -> tupl
     bot = await db.get(Bot, bot_id)
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    membership = await require_org_access(bot.organization_id, user, db)
+    membership = await require_bot_access(bot, user, db)
     return bot, membership
 
 
@@ -338,6 +345,99 @@ def _merge_mcp_secrets(existing: list, incoming: list) -> list:
     return out
 
 
+def _bot_limiter_key(bot: Bot) -> str:
+    """Cle de rate-limit IA (treegen/insights) : par organisation pour un bot
+    d'equipe, par utilisateur proprietaire pour un bot perso."""
+    return f"org:{bot.organization_id}" if bot.organization_id else f"user:{bot.owner_user_id}"
+
+
+# --- Mes bots (ownership polymorphe : perso + equipes) ---
+
+@router.get("/bots", response_model=list[BotOut])
+async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Tous les bots accessibles : mes bots perso + ceux des organisations dont
+    je suis membre. Un superadmin voit SES bots perso + ceux de SES orgs (pas
+    tout le parc — la vue back-office est dans /api/admin)."""
+    my_org_ids = (await db.execute(
+        select(Membership.organization_id).where(Membership.user_id == user.id)
+    )).scalars().all()
+    conditions = [Bot.owner_user_id == user.id]
+    if my_org_ids:
+        conditions.append(Bot.organization_id.in_(list(my_org_ids)))
+    from sqlalchemy import or_
+    bots = (await db.execute(
+        select(Bot).where(or_(*conditions)).order_by(Bot.created_at)
+    )).scalars().all()
+
+    week = await bots_week_stats_for_ids(db, {b.id for b in bots})
+    # Membership par org (pour le masquage des bots d'equipe selon la perm)
+    memberships = (await db.execute(
+        select(Membership).where(Membership.user_id == user.id)
+    )).scalars().all()
+    by_org = {m.organization_id: m for m in memberships}
+
+    out = []
+    for b in bots:
+        # Bot perso (owner) ou superadmin -> membership None (tous droits) ;
+        # bot d'equipe -> membership dans l'org (None aussi pour superadmin)
+        if b.owner_user_id == user.id:
+            membership = None
+        else:
+            membership = None if user.is_superadmin else by_org.get(b.organization_id)
+        bo = _mask_bot_out(BotOut.from_bot(b), user, membership, b)
+        bo.msgs_7d = week.get(b.id, {}).get("msgs_7d", 0)
+        bo.visitors_7d = week.get(b.id, {}).get("visitors_7d", 0)
+        out.append(bo)
+    return out
+
+
+@router.post("/bots", response_model=BotOut)
+async def create_personal_bot(body: BotCreate, db: AsyncSession = Depends(get_db),
+                              user: User = Depends(get_current_user)):
+    """Cree un bot PERSO (appartient directement a l'utilisateur, aucune org).
+    Memes defauts que la creation d'equipe. Aucune contrainte de plan."""
+    bot = Bot(owner_user_id=user.id, organization_id=None,
+              name=body.name, mode=body.mode or "hybrid")
+    db.add(bot)
+    await db.commit()
+    await db.refresh(bot)
+    return BotOut.from_bot(bot)
+
+
+class MoveRequest(_BaseModel):
+    organization_id: int
+
+
+@router.post("/bots/{bot_id}/move", response_model=BotOut)
+async def move_bot_to_org(bot_id: int, body: MoveRequest,
+                          db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Deplace un bot PERSO vers une organisation (equipe). Sens unique :
+    une fois en equipe, le bot suit la hierarchie de l'org (pas de retour
+    perso). Le bot adopte l'org comme proprietaire (owner_user_id efface) ;
+    le deplaceur doit etre membre de la cible (s'il n'en est pas admin il
+    retombe a son role member sur ce bot — comportement voulu)."""
+    bot = await db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    if bot.owner_user_id is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Ce bot appartient déjà à une organisation")
+    # Seul l'owner (ou un superadmin) peut deplacer son bot perso
+    if not user.is_superadmin and user.id != bot.owner_user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    # La cible : je dois etre membre de l'org (require_org_access, superadmin OK)
+    await require_org_access(body.organization_id, user, db)
+    org = await db.get(Organization, body.organization_id)
+    if org is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organisation introuvable")
+
+    bot.organization_id = body.organization_id
+    bot.owner_user_id = None
+    await db.commit()
+    await db.refresh(bot)
+    return BotOut.from_bot(bot)
+
+
 # --- Par organisation ---
 
 @router.get("/orgs/{org_id}/bots", response_model=list[BotOut])
@@ -460,7 +560,7 @@ async def delete_bot(bot_id: int, db: AsyncSession = Depends(get_db), user: User
     from src.models.conversation import Conversation, Message
 
     bot, _ = await _get_accessible_bot(db, bot_id, user)
-    await require_org_admin(bot.organization_id, user, db)
+    await require_bot_admin(bot, user, db)
     # Purge explicite des donnees liees (la cascade FK est aussi ajoutee au
     # schema par ailleurs ; ce delete garantit le comportement quelle que soit la base)
     await db.execute(sa_delete(Message).where(Message.bot_id == bot.id))
@@ -522,7 +622,6 @@ async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = 
     return _mask_bot_out(BotOut.from_bot(bot), user, membership, bot)
 
 
-from pydantic import BaseModel as _BaseModel
 from typing import Optional as _Optional
 
 
@@ -542,9 +641,9 @@ async def generate_tree_endpoint(bot_id: int, body: TreeGenerateRequest,
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     _check_bot_perm(user, membership, bot, "context")
 
-    # Rate-limit par organisation AVANT tout appel IA (protection cout,
-    # superadmin inclus)
-    if not await treegen_limiter.check(str(bot.organization_id)):
+    # Rate-limit par proprietaire (org pour un bot d'equipe, user pour un bot
+    # perso) AVANT tout appel IA (protection cout, superadmin inclus)
+    if not await treegen_limiter.check(_bot_limiter_key(bot)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Limite de générations d'arbre atteinte pour aujourd'hui — réessayez demain")
 
@@ -578,7 +677,7 @@ async def generate_insights_endpoint(bot_id: int, db: AsyncSession = Depends(get
     # (protection cout, superadmin inclus — comme treegen). NB : un 422
     # « aucune question » ci-dessous a donc deja consomme un credit (voulu :
     # le limiteur protege le cout, pas le confort).
-    if not await insights_limiter.check(str(bot.organization_id)):
+    if not await insights_limiter.check(_bot_limiter_key(bot)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Limite d'analyses atteinte pour aujourd'hui — réessayez demain")
 

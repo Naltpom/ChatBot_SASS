@@ -49,7 +49,7 @@ function PermLegend() {
 }
 
 export default function Team() {
-  const { activeOrg, refreshUser } = useAuth()
+  const { activeOrg } = useAuth()
   const [members, setMembers] = useState<Member[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [bots, setBots] = useState<BotSummary[]>([])
@@ -58,7 +58,6 @@ export default function Team() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
-  const [converting, setConverting] = useState(false)
   const matrixRef = useRef<HTMLDivElement | null>(null)
 
   const isAdmin = activeOrg?.role === 'admin'
@@ -75,44 +74,21 @@ export default function Team() {
   }
   useEffect(reload, [activeOrg?.id])
 
-  if (!activeOrg) return <Card>Sélectionnez d'abord une organisation.</Card>
-
-  // ---------- Compte personnel ----------
-  if (activeOrg.type === 'perso') {
-    async function convert() {
-      setConverting(true)
-      try {
-        await api(`/api/orgs/${activeOrg!.id}`, { method: 'PATCH', body: { type: 'entreprise' } })
-        await refreshUser()
-      } catch (err: any) {
-        setError(err.message)
-      } finally {
-        setConverting(false)
-      }
-    }
+  if (!activeOrg) {
     return (
-      <div className="col g18">
-        <SectionTitle sub="Compte personnel — vous êtes le seul membre.">Équipe</SectionTitle>
-        {error && <div className="error">{error}</div>}
-        <InfoBox tone="info" title="Passer en entreprise">
-          Même architecture, plus de monde : convertissez cet espace pour inviter des collègues et gérer des
-          permissions par bot.
-        </InfoBox>
-        {isAdmin && (
-          <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-            <Btn onClick={convert} disabled={converting}>
-              {converting ? 'Conversion…' : 'Convertir en espace entreprise'}
-            </Btn>
-            <Link to="/app/orgs" style={{ fontSize: 12, fontWeight: 700, color: 'var(--acc)' }}>
-              ou gérez vos organisations
-            </Link>
+      <Card style={{ textAlign: 'center', padding: '36px 24px' }}>
+        <div className="col" style={{ alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 800 }}>Aucune équipe active</div>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)', maxWidth: 380, lineHeight: 1.55 }}>
+            Sélectionnez une équipe dans le menu latéral, ou créez-en une.
           </div>
-        )}
-      </div>
+          <Link to="/app/orgs" style={{ fontSize: 13, fontWeight: 700, color: 'var(--acc)' }}>Mes équipes</Link>
+        </div>
+      </Card>
     )
   }
 
-  // ---------- Entreprise ----------
+  // ---------- Membres & permissions ----------
   async function invite() {
     const email = inviteEmail.trim().toLowerCase()
     if (!email.includes('@')) return

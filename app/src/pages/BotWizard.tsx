@@ -266,8 +266,17 @@ function useMediaQuery(query: string): boolean {
 }
 
 export default function BotWizard() {
-  const { activeOrg } = useAuth()
+  const { user, activeOrg } = useAuth()
   const navigate = useNavigate()
+  // Équipes où l'utilisateur est admin = destinations possibles d'un bot
+  // d'équipe (POST /api/orgs/{id}/bots est réservé aux admins).
+  const adminOrgs = (user?.organizations || []).filter(o => o.role === 'admin')
+  // Destination du bot : 'perso' (POST /api/bots) ou un id d'équipe
+  // (POST /api/orgs/{id}/bots). Pré-sélectionne l'équipe active si elle fait
+  // partie des équipes admin, sinon « Perso ».
+  const [dest, setDest] = useState<'perso' | number>(
+    activeOrg && adminOrgs.some(o => o.id === activeOrg.id) ? activeOrg.id : 'perso',
+  )
   // Responsive : empilement du contenu en dessous de ~760px (mobile ~360-430px).
   const mobile = useMediaQuery('(max-width: 760px)')
   // Le shell (.main) réduit son padding à 16px 14px sous 860px : on aligne le
@@ -370,7 +379,6 @@ export default function BotWizard() {
   // -------------------------------------------------------------------------
   // Création réelle du bot (étape ARBRE -> DONE)
   async function createBot() {
-    if (!activeOrg) return
     setError('')
     setBusy(true)
     try {
@@ -380,8 +388,10 @@ export default function BotWizard() {
       const design = buildDesign(look)
       const name = sectorName(answers.sector)
 
-      // 1) création du bot (name + mode)
-      const bot = await api(`/api/orgs/${activeOrg.id}/bots`, {
+      // 1) création du bot (name + mode) — perso (POST /api/bots) ou équipe
+      // (POST /api/orgs/{id}/bots) selon la destination choisie.
+      const createPath = dest === 'perso' ? '/api/bots' : `/api/orgs/${dest}/bots`
+      const bot = await api(createPath, {
         method: 'POST', body: { name, mode: botMode },
       })
 
@@ -406,14 +416,6 @@ export default function BotWizard() {
     } finally {
       setBusy(false)
     }
-  }
-
-  if (!activeOrg) {
-    return (
-      <div style={{ maxWidth: 520, margin: '80px auto', padding: 28, textAlign: 'center', color: MUT }}>
-        Sélectionnez d'abord une organisation.
-      </div>
-    )
   }
 
   const si = STEP_ORDER.indexOf(step)
@@ -632,6 +634,25 @@ export default function BotWizard() {
             allowAI={allowAI}
           />
 
+          {/* Destination du bot : perso (par défaut) ou une équipe où je suis
+              admin. Masqué si l'utilisateur n'a aucune équipe admin (perso seul). */}
+          {adminOrgs.length > 0 && (
+            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 22 }}>
+              <Label>Où créer ce chatbot ?</Label>
+              <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+                <button onClick={() => setDest('perso')} style={destChip(dest === 'perso')}>Perso</button>
+                {adminOrgs.map(o => (
+                  <button key={o.id} onClick={() => setDest(o.id)} style={destChip(dest === o.id)}>{o.name}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 12.5, color: FAINT, marginTop: 10, lineHeight: 1.5 }}>
+                {dest === 'perso'
+                  ? 'Bot personnel : vous en êtes le seul propriétaire. Vous pourrez le transférer à une équipe plus tard.'
+                  : 'Bot d\'équipe : partagé avec les membres de l\'équipe selon leurs permissions.'}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>
             <button onClick={() => setStep('appearance')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }} disabled={busy}>← Retour</button>
             <button onClick={createBot} disabled={busy} style={{ ...primaryBtnLg, flex: 1, background: MINT, opacity: busy ? 0.7 : 1, ...(mobile ? { width: '100%' } : null) }}>
@@ -709,6 +730,14 @@ function ChatChip({ children, onClick, fullWidth }: { children: React.ReactNode;
 
 function Label({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, margin: '0 0 10px', ...style }}>{children}</label>
+}
+// Pilule de choix de destination (perso / équipe) — même look que ChatChip.
+function destChip(on: boolean): React.CSSProperties {
+  return {
+    border: `1.5px solid ${on ? MINT : '#D8DEE6'}`, background: on ? 'rgba(47,158,121,.08)' : '#fff',
+    color: on ? '#1C7A5C' : NAVY, borderRadius: 999, padding: '9px 16px', fontSize: 13.5, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  }
 }
 function Swatch({ c, on, onClick, size }: { c: string; on: boolean; onClick: () => void; size: number }) {
   return (

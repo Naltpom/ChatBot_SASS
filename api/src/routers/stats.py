@@ -8,7 +8,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.security import get_current_user, require_org_access
+from src.core.security import get_current_user, require_bot_access
 from src.models.analytics import TreeEvent
 from src.models.bot import Bot
 from src.models.conversation import Conversation, Message
@@ -28,7 +28,7 @@ async def bot_stats(
     bot = await db.get(Bot, bot_id)
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    await require_org_access(bot.organization_id, user, db)
+    await require_bot_access(bot, user, db)
 
     since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
 
@@ -145,7 +145,7 @@ async def bot_conversations(
     bot = await db.get(Bot, bot_id)
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    await require_org_access(bot.organization_id, user, db)
+    await require_bot_access(bot, user, db)
 
     convs = (await db.execute(
         select(Conversation)
@@ -201,7 +201,7 @@ async def bot_funnel(
     bot = await db.get(Bot, bot_id)
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    await require_org_access(bot.organization_id, user, db)
+    await require_bot_access(bot, user, db)
 
     since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
 

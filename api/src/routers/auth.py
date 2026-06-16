@@ -46,7 +46,7 @@ async def _user_out(db: AsyncSession, user: User) -> UserOut:
     if user.is_superadmin:
         orgs = (await db.execute(select(Organization).order_by(Organization.name))).scalars().all()
         out.organizations = [
-            OrgOut(id=o.id, name=o.name, type=o.type, role="admin", permissions={})
+            OrgOut(id=o.id, name=o.name, role="admin", permissions={})
             for o in orgs
         ]
     else:
@@ -57,7 +57,7 @@ async def _user_out(db: AsyncSession, user: User) -> UserOut:
             .order_by(Organization.name)
         )).all()
         out.organizations = [
-            OrgOut(id=o.id, name=o.name, type=o.type,
+            OrgOut(id=o.id, name=o.name,
                    role=m.role, permissions=m.permissions or {})
             for o, m in rows
         ]
@@ -90,16 +90,19 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nom d'entreprise requis")
 
     user = User(email=email, hashed_password=hash_password(body.password), name=body.name)
-    # Perso = meme architecture qu'une entreprise, type different, une seule personne
-    org_name = (body.organization_name or "").strip() or f"Espace de {body.name}"
-    org = Organization(name=org_name, type=body.account_type)
-    db.add_all([user, org])
+    db.add(user)
     await db.flush()
-    db.add(Membership(user_id=user.id, organization_id=org.id, role="admin", permissions={}))
 
-    # Invitations de l'inscription entreprise : compte existant -> membre
-    # direct ; sinon invitation en attente (consommee a son inscription)
+    # Perso = utilisateur SEUL (aucune org, aucun membership) : ses bots
+    # appartiendront directement a lui (Bot.owner_user_id). Entreprise = une
+    # organisation (equipe) creee avec le createur en admin + invitations.
     if body.account_type == "entreprise":
+        org = Organization(name=(body.organization_name or "").strip()[:120])
+        db.add(org)
+        await db.flush()
+        db.add(Membership(user_id=user.id, organization_id=org.id, role="admin", permissions={}))
+        # Invitations : compte existant -> membre direct ; sinon invitation en
+        # attente (consommee a l'inscription de la personne invitee)
         for inv in body.invites:
             inv_email = inv.email.lower().strip()
             if inv_email == user.email:
@@ -111,6 +114,8 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
             else:
                 db.add(Invitation(organization_id=org.id, email=inv_email, role=inv.role))
 
+    # Un perso peut aussi avoir des invitations en attente vers des equipes :
+    # consommees dans LES DEUX cas
     await _consume_invitations(db, user)
     await db.commit()
     await db.refresh(user)

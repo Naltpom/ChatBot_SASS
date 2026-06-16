@@ -1,10 +1,10 @@
 // « Mes chatbots » — cards Chapote + intégrations + CTA wizard.
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Bot, Building2, Check, ChevronDown, Clipboard, Plus } from 'lucide-react'
+import { AlertTriangle, Bot, Check, ChevronDown, Clipboard, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, BubbleIcon, Card, InfoBox, brandBg, statusChip } from '../ui'
+import { Btn, BubbleIcon, Card, Chip, InfoBox, brandBg, statusChip } from '../ui'
 
 export interface BotSummary {
   id: number
@@ -17,6 +17,11 @@ export interface BotSummary {
   design_json: Record<string, any>
   msgs_7d: number
   visitors_7d: number
+  // Nouveau modèle d'appartenance : un bot est SOIT perso (owner_user_id) SOIT
+  // d'une équipe (organization_id). scope = "personal" | "team".
+  owner_user_id?: number | null
+  organization_id?: number | null
+  scope?: 'personal' | 'team'
 }
 
 interface Integration { id: string; label: string; icon: string; description: string; snippet: string }
@@ -76,7 +81,12 @@ function modePills(mode: string) {
   return pills
 }
 
-export function BotCard({ bot, onOpen, canCopy = true }: { bot: BotSummary; onOpen: (id: number) => void; canCopy?: boolean }) {
+export function BotCard({ bot, onOpen, canCopy = true, ownerLabel }: {
+  bot: BotSummary; onOpen: (id: number) => void; canCopy?: boolean
+  // Badge d'appartenance optionnel (« Perso » ou nom d'équipe). Omis (Admin.tsx)
+  // = pas de badge.
+  ownerLabel?: string
+}) {
   const [copied, setCopied] = useState(false)
   const d = bot.design_json || {}
   const initials = bot.name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join('') || '?'
@@ -114,7 +124,12 @@ export function BotCard({ bot, onOpen, canCopy = true }: { bot: BotSummary; onOp
             <div className="bot-card-name">{bot.name}</div>
             <div className="bot-card-site">{bot.allowed_domains[0] || 'aucun domaine'}</div>
           </div>
-          {statusChip(bot.is_active)}
+          <div className="col g6" style={{ alignItems: 'flex-end' }}>
+            {statusChip(bot.is_active)}
+            {ownerLabel && (
+              <Chip tone={bot.scope === 'personal' ? 'mut' : 'acc'}>{ownerLabel}</Chip>
+            )}
+          </div>
         </div>
 
         <div className="bot-card-sep" />
@@ -158,7 +173,10 @@ export function BotCard({ bot, onOpen, canCopy = true }: { bot: BotSummary; onOp
 }
 
 export default function BotList() {
-  const { activeOrg } = useAuth()
+  // Nouveau modèle : on liste TOUS mes bots (perso + équipes) via GET /api/bots.
+  // Plus de dépendance à l'org active. `organizations` sert à mapper
+  // organization_id → nom d'équipe pour le badge d'appartenance.
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [bots, setBots] = useState<BotSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -166,40 +184,42 @@ export default function BotList() {
   const [retry, setRetry] = useState(0)
 
   useEffect(() => {
-    if (!activeOrg) { setLoading(false); return }
     setLoading(true)
     setError('')
-    api<BotSummary[]>(`/api/orgs/${activeOrg.id}/bots`)
+    api<BotSummary[]>('/api/bots')
       .then(setBots)
       .catch((err: any) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [activeOrg, retry])
+  }, [retry])
 
-  if (!activeOrg) {
-    return (
-      <Card style={{ textAlign: 'center', padding: '44px 24px' }}>
-        <div className="col" style={{ alignItems: 'center', gap: 10 }}>
-          <Building2 size={24} style={{ color: 'var(--faint)' }} />
-          <div style={{ fontSize: 15, fontWeight: 800 }}>Vous n'appartenez à aucune organisation</div>
-          <div style={{ fontSize: 12.5, color: 'var(--mut)', maxWidth: 400, lineHeight: 1.55 }}>
-            Demandez à un collègue de vous inviter, ou créez votre propre organisation pour commencer.
-          </div>
-          <Btn onClick={() => navigate('/app/orgs')}>Mes organisations</Btn>
-        </div>
-      </Card>
-    )
+  // Nom d'équipe pour un bot d'équipe ; « Perso » sinon. Fallback « Équipe » si
+  // l'org n'est pas dans la liste de l'utilisateur (cas superadmin éditant un
+  // bot d'un client, improbable depuis cette page).
+  function ownerLabel(b: BotSummary): string {
+    if (b.scope === 'personal' || (b.owner_user_id != null && b.organization_id == null)) return 'Perso'
+    const org = user?.organizations.find(o => o.id === b.organization_id)
+    return org?.name || 'Équipe'
   }
+  // Droit de copie : perso ou admin de l'équipe propriétaire → toujours ; sinon
+  // permission « copy » sur ce bot dans l'équipe.
+  function canCopyBot(b: BotSummary): boolean {
+    if (b.scope === 'personal' || (b.owner_user_id != null && b.organization_id == null)) return true
+    const org = user?.organizations.find(o => o.id === b.organization_id)
+    if (!org) return false
+    return org.role === 'admin' || (org.permissions[String(b.id)] || []).includes('copy')
+  }
+
   if (loading) return <div className="center-page">Chargement…</div>
 
   // Échec du chargement : ne jamais afficher l'état vide « Créez votre premier
-  // chatbot » (mensonger) ni un quota par défaut — message + réessayer.
+  // chatbot » (mensonger) — message + réessayer.
   if (error) {
     return (
       <div className="col g18">
         <div className="botlist-head">
           <div>
             <h1 className="botlist-title" style={{ fontSize: 32 }}>Mes chatbots</h1>
-            <p className="botlist-sub">Chatbots de {activeOrg.name}.</p>
+            <p className="botlist-sub">Vos chatbots personnels et d'équipe.</p>
           </div>
         </div>
         <InfoBox tone="danger" title="Impossible de charger vos chatbots">{error}</InfoBox>
@@ -207,10 +227,6 @@ export default function BotList() {
       </div>
     )
   }
-
-  const isAdmin = activeOrg.role === 'admin'
-  const canCopyBot = (botId: number) =>
-    isAdmin || (activeOrg.permissions[String(botId)] || []).includes('copy')
 
   // Sous-ligne : chiffres RÉELS uniquement. Conversations 7 j = somme des
   // visiteurs uniques par bot.
@@ -225,55 +241,46 @@ export default function BotList() {
           <h1 className="botlist-title">Mes chatbots</h1>
           <p className="botlist-sub">{subParts.join(' · ')}</p>
         </div>
-        {isAdmin && (
-          <button className="botlist-create" onClick={() => navigate('/app/bots/new')}>
-            <Plus size={17} /> Créer un bot
-          </button>
-        )}
+        <button className="botlist-create" onClick={() => navigate('/app/bots/new')}>
+          <Plus size={17} /> Créer un bot
+        </button>
       </div>
 
       {bots.length === 0 ? (
-        isAdmin ? (
-          <Card style={{ textAlign: 'center', padding: '44px 24px' }}>
-            <div className="col" style={{ alignItems: 'center', gap: 10 }}>
-              <span style={{
-                width: 54, height: 54, borderRadius: 99, background: 'var(--acc-soft)',
-                border: '1px solid var(--acc-bd)', color: 'var(--mint)', display: 'grid', placeItems: 'center',
-              }}>
-                <Bot size={28} />
-              </span>
-              <div style={{ fontSize: 16, fontWeight: 800 }}>Créez votre premier chatbot</div>
-              <div style={{ fontSize: 12.5, color: 'var(--mut)', maxWidth: 380, lineHeight: 1.55 }}>
-                Wizard guidé : arbre, IA ou hybride — en ligne en 2 minutes.
-              </div>
-              <Btn onClick={() => navigate('/app/bots/new')}><Plus size={14} /> Créer un chatbot</Btn>
-              <div className="row" style={{ gap: 22, marginTop: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {['Configurez', 'Collez la balise', 'Suivez les stats'].map((s, i) => (
-                  <span key={s} className="row g8">
-                    <span className="timeline-num">{i + 1}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--mut)' }}>{s}</span>
-                  </span>
-                ))}
-              </div>
+        <Card style={{ textAlign: 'center', padding: '44px 24px' }}>
+          <div className="col" style={{ alignItems: 'center', gap: 10 }}>
+            <span style={{
+              width: 54, height: 54, borderRadius: 99, background: 'var(--acc-soft)',
+              border: '1px solid var(--acc-bd)', color: 'var(--mint)', display: 'grid', placeItems: 'center',
+            }}>
+              <Bot size={28} />
+            </span>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Créez votre premier chatbot</div>
+            <div style={{ fontSize: 12.5, color: 'var(--mut)', maxWidth: 380, lineHeight: 1.55 }}>
+              Wizard guidé : arbre, IA ou hybride — en ligne en 2 minutes.
             </div>
-          </Card>
-        ) : (
-          <Card style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--faint)', fontSize: 12.5 }}>
-            Aucun chatbot pour l'instant — un admin de {activeOrg.name} doit le créer.
-          </Card>
-        )
+            <Btn onClick={() => navigate('/app/bots/new')}><Plus size={14} /> Créer un bot</Btn>
+            <div className="row" style={{ gap: 22, marginTop: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
+              {['Configurez', 'Collez la balise', 'Suivez les stats'].map((s, i) => (
+                <span key={s} className="row g8">
+                  <span className="timeline-num">{i + 1}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--mut)' }}>{s}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </Card>
       ) : (
         <div className="bot-grid" style={{ gap: 22 }}>
           {bots.map(b => (
-            <BotCard key={b.id} bot={b} onOpen={id => navigate(`/app/bots/${id}`)} canCopy={canCopyBot(b.id)} />
+            <BotCard key={b.id} bot={b} onOpen={id => navigate(`/app/bots/${id}`)}
+                     canCopy={canCopyBot(b)} ownerLabel={ownerLabel(b)} />
           ))}
-          {isAdmin && (
-            <button className="bot-create-cta" onClick={() => navigate('/app/bots/new')}>
-              <span className="plus"><Plus size={20} /></span>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>Créer un bot</span>
-              <span style={{ fontSize: 11, color: 'var(--faint)' }}>Configuration guidée, ~2 min</span>
-            </button>
-          )}
+          <button className="bot-create-cta" onClick={() => navigate('/app/bots/new')}>
+            <span className="plus"><Plus size={20} /></span>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>Créer un bot</span>
+            <span style={{ fontSize: 11, color: 'var(--faint)' }}>Configuration guidée, ~2 min</span>
+          </button>
         </div>
       )}
     </div>

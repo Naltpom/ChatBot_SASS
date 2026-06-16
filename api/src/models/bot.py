@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -84,9 +85,19 @@ def generate_public_key() -> str:
 
 class Bot(Base):
     __tablename__ = "bots"
+    # Ownership polymorphe : un bot appartient SOIT a un user (perso) SOIT a une
+    # organisation (equipe). XOR garanti par la contrainte SQL.
+    __table_args__ = (
+        CheckConstraint(
+            "(owner_user_id IS NULL) <> (organization_id IS NULL)",
+            name="ck_bots_owner_xor_org",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    # owner_user_id (perso) XOR organization_id (equipe) — l'un des deux exactement
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String, nullable=False)
     public_key = Column(String, unique=True, index=True, nullable=False, default=generate_public_key)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -202,7 +213,10 @@ class BotUpdate(BaseModel):
 
 class BotOut(BaseModel):
     id: int
-    organization_id: int
+    # Ownership polymorphe : exactement l'un des deux est renseigne
+    organization_id: Optional[int] = None
+    owner_user_id: Optional[int] = None
+    scope: str = "team"            # "personal" (owner_user_id) | "team" (organization_id)
     name: str
     public_key: str
     is_active: bool
@@ -243,6 +257,7 @@ class BotOut(BaseModel):
     @classmethod
     def from_bot(cls, bot: "Bot") -> "BotOut":
         out = cls.model_validate(bot)
+        out.scope = "personal" if bot.owner_user_id else "team"
         out.byok_key_set = bool(bot.byok_key_encrypted)
         out.captcha_secret_set = bool(bot.captcha_secret_encrypted)
         out.handoff_webhook_set = bool(bot.handoff_webhook_url)

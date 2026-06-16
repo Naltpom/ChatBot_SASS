@@ -5,15 +5,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 ChatBot SaaS : plateforme multi-tenant de chatbots embarquables (tree + IA).
-Les CLIENTS (organisations) configurent leurs bots via un wizard puis une page
-de paramétrage (mode, modèle IA, arbre, apparence, sécurité), collent une
-balise `<script>` (ou iframe/GTM/WordPress) sur leur site, et suivent leurs
-stats. Le STAFF Kertios (superadmins, auth intranet) a une vue d'administration
-sur tous les clients et peut configurer leurs bots.
+Les CLIENTS configurent leurs bots via un wizard puis une page de paramétrage
+(mode, modèle IA, arbre, apparence, sécurité), collent une balise `<script>`
+(ou iframe/GTM/WordPress) sur leur site, et suivent leurs stats. Le STAFF
+Kertios (superadmins, auth intranet) a une vue d'administration sur tous les
+clients et peut configurer leurs bots.
 
-Modèle éco : plans par organisation (quota mensuel de réponses IA + nombre max
-de bots ; tree illimité), clés managées ou BYOK (réservé au plan agence).
-Facturation self-serve Stripe optionnelle (sans clés : changement immédiat).
+Modèle : APP 100 % GRATUITE, tout ouvert — plus AUCUNE notion de plan, quota,
+coupure IA, gating BYOK ni limite de bots/nœuds. Toutes les fonctionnalités
+(IA, BYOK, KB, insights, génération d'arbre, actions, MCP) sont accessibles
+sans condition. Un bot appartient SOIT à un utilisateur (perso, aucune équipe
+requise) SOIT à une organisation (= « équipe » multi-personnes avec
+permissions par bot). La facturation Stripe a été RETIRÉE — le code provider
+(stripe_service.py + config STRIPE_* + colonnes stripe_*) reste DORMANT pour un
+rebranchement futur, aucun endpoint ne l'utilise.
 v4 backend : base de connaissances RAG 100 % locale (pgvector + fastembed),
 live chat (handoff vers un conseiller humain, polling sans WebSocket), actions
 élargies (tickets, créneaux Cal.com, connecteur MCP générique) et analytics &
@@ -50,14 +55,20 @@ api/src/
 │                      # /widget-frame (iframe), /uploads (StaticFiles),
 │                      # lifespan : alembic upgrade head puis seed admin dev
 ├── core/
-│   ├── config.py      # Settings env (intranet, auto-login admin, caps widget, SMTP, Stripe ;
-│   │                  # validate_production refuse une config Stripe PARTIELLE en prod)
+│   ├── config.py      # Settings env (intranet, auto-login admin, caps widget, SMTP, Stripe DORMANT ;
+│   │                  # validate_production refuse une config Stripe PARTIELLE en prod — conservé)
 │   ├── database.py    # SQLAlchemy async
-│   └── security.py    # JWT scope=dashboard|widget, require_superadmin, require_org_access
+│   └── security.py    # JWT scope=dashboard|widget, require_superadmin, require_org_access,
+│                      # require_bot_access / require_bot_admin (bot owned par user XOR org :
+│                      # owner perso = tous droits / équipe = require_org_access + permissions /
+│                      # superadmin = tout)
 ├── models/            # SQLAlchemy + Pydantic dans le même fichier
-│   ├── user.py        # User / Organization (stripe_customer_id indexé + stripe_subscription_id)
-│   │                  # / Membership (many-to-many) + PLANS (flag byok) + PLANS_META (labels)
-│   ├── bot.py         # Bot (organization_id) : tree_json, design_json étendu (dont locale),
+│   ├── user.py        # User / Organization (= équipe ; stripe_customer_id/subscription_id
+│   │                  # DORMANTS ; plus de colonne plan ni type) / Membership (admin|member,
+│   │                  # permissions par bot). PLANS/PLANS_META SUPPRIMÉS
+│   ├── bot.py         # Bot owned par user XOR org : owner_user_id + organization_id NULLABLE,
+│   │                  # CHECK ck_bots_owner_xor_org (exactement un des deux) ; tree_json,
+│   │                  # design_json étendu (dont locale),
 │   │                  # actions_json (secrets Fernet, sortie API = secret_set), captcha, BYOK,
 │   │                  # handoff_webhook_url (credential : masqué sans perm context),
 │   │                  # mcp_servers_json (≤2, jeton Fernet write-only), tree_variant_json
@@ -74,36 +85,34 @@ api/src/
 │                      # UserDefinedType — paquet Python pgvector INTERDIT —, tsv tsvector
 │                      # french_unaccent GÉNÉRÉE + GIN, index HNSW cosine)
 ├── routers/
-│   ├── auth.py        # register (crée l'org), login (intranet→local), dev-login, me (avec orgs)
+│   ├── auth.py        # register (perso=user SEUL sans org ; entreprise=équipe+membership admin),
+│   │                  # login (intranet→local), dev-login, me (avec orgs/équipes)
 │   │                  # + profil : PATCH /me (nom), POST /password (comptes locaux UNIQUEMENT —
 │   │                  # le hash des comptes intranet est réécrit à chaque login intranet, d'où
 │   │                  # le 403) ; UserOut expose auth_source/created_at/last_login
-│   ├── public.py      # SANS auth : GET /api/public/plans (PLANS+PLANS_META+billing_enabled)
-│   ├── orgs.py        # POST "" (création d'org self-serve, plan free), usage du plan,
-│   │                  # POST /{id}/plan (self-serve → Stripe ou immédiat), billing/portal,
-│   │                  # GET /{id}/invoices, membres, POST /{id}/leave (garde-fou dernier
-│   │                  # admin, 404 anti-énumération)
-│   ├── bots.py        # /orgs/{id}/bots (liste/create, limite plan) + /bots/{id} (accès org)
+│   ├── orgs.py        # POST "" (création d'équipe), membres, POST /{id}/leave (garde-fou
+│   │                  # dernier admin, 404 anti-énumération) ; OrgOut sans type/plan
+│   ├── bots.py        # POST /bots (bot PERSO) + GET /bots (TOUS mes bots perso+équipes,
+│   │                  # msgs_7d/visitors_7d) + POST /orgs/{id}/bots (bot d'équipe, ADMIN d'org)
+│   │                  # + POST /bots/{id}/move {organization_id} (perso→équipe, sens unique,
+│   │                  # 422 si déjà équipe) + /bots/{id} (require_bot_access via _get_accessible_bot)
 │   │                  # + config.json export/import + embed + GET /bots/{id}/leads + tree/generate
 │   │                  # + insights (POST /insights/generate, GET /insights = dernier rapport)
 │   │                  # ; valide handoff_webhook_url (https + ≤500), réserve search_docs ET
 │   │                  # le préfixe mcp_ (_check_actions), valide mcp_servers_json
 │   │                  # (_check_mcp_servers + _merge_mcp_secrets : jeton hérité par nom
 │   │                  # UNIQUEMENT à URL inchangée) et triggers_json (_check_triggers) ;
-│   │                  # _check_plan_constraints appliqué AUSSI à tree_variant_json
+│   │                  # DELETE = require_bot_admin (plus de contraintes de plan)
 │   ├── kb.py          # base de connaissances (perm context) : sources url|sitemap|text,
 │   │                  # upload PDF multipart, liste+statuts (rattrapage pending orphelins),
 │   │                  # DELETE, POST /kb/search (test de recherche = smoke sans IA)
 │   ├── inbox.py       # live chat staff (perm inbox) : GET conversations?status= (extraits
 │   │                  # + non-lus), transcript, take / reply (= take implicite) / close —
 │   │                  # transitions gardées en SQL, identité staff JAMAIS exposée
-│   ├── admin.py       # superadmin : GET /admin/stats (agrégats GROUP BY dashboard opérateur :
-│   │                  # MRR sur orgs actives, répartition par plan, conso IA managed du mois,
-│   │                  # inscriptions 6 mois via date_trunc), orgs+compteurs, patch
-│   │                  # plan/suspension (mêmes garde-fous que le self-serve),
-│   │                  # GET /admin/invoices, GET /admin/users, bots/membres par org
-│   ├── billing.py     # webhook Stripe (auth = signature HMAC) : applique le plan payé
-│   │                  # + _enforce_plan_limits (mise en conformité forcée des bots)
+│   ├── admin.py       # superadmin : GET /admin/stats (agrégats dashboard opérateur SANS
+│   │                  # MRR/plan/quota : inscriptions 6 mois via date_trunc, etc.),
+│   │                  # orgs+compteurs, suspension, GET /admin/users, bots/membres par org
+│   │                  # (public.py et billing.py SUPPRIMÉS, /admin/invoices SUPPRIMÉ)
 │   ├── uploads.py     # images (avatar, lanceur) -> volume /app/uploads
 │   ├── widget.py      # PUBLIC : bootstrap (+ triggers sanitisés, locale) → session
 │   │                  # (captcha+origin→JWT, _sanitize_journey, affectation A/B sticky)
@@ -112,7 +121,7 @@ api/src/
 │   │                  # unique transition+notifications, _lazy_timeout 15 min) ;
 │   │                  # _record_tree_event best-effort à chaque nœud servi ;
 │   │                  # réponses /session+/message portent `status`
-│   └── stats.py       # stats par bot (accès via require_org_access) : clés ADDITIVES
+│   └── stats.py       # stats par bot (accès via require_bot_access) : clés ADDITIVES
 │                      # satisfaction (CSAT) + split par variant, shape historique intacte ;
 │                      # + GET /bots/{id}/funnel?days= (counts/abandons par nœud, split A/B)
 │                      # — whitelist source ai|tree inchangée (comme usage_service)
@@ -155,33 +164,31 @@ api/src/
     │                    # réponse lue BORNÉE + headers retournés)
     ├── email_service.py # notification leads + demandes de conseiller (build_handoff_email)
     │                    # + tickets IA (build_ticket_email) : smtplib via to_thread,
-    │                    # fallback log sans SMTP_HOST
-    ├── stripe_service.py # API REST Stripe via httpx (PAS de SDK) : customer, checkout,
-    │                    # portail, vérif signature webhook, invoices, billing_enabled()
+    │                    # fallback log sans SMTP_HOST ; lead_notification_recipients =
+    │                    # OWNER (bot perso) ou admins de l'org (bot d'équipe)
+    ├── stripe_service.py # DORMANT : API REST Stripe via httpx (PAS de SDK), intact mais
+    │                    # appelé par aucun endpoint (facturation retirée, rebranchement futur)
     ├── captcha.py       # turnstile / recaptcha_v3 / disabled
     ├── rate_limit.py    # Redis (ZSET, REDIS_URL) fail-open → repli mémoire process ;
     │                    # treegen 10/24h/org, lead 5/h/session, handoff 3/h/session,
     │                    # poll 60/min/session + poll_ip 600/min/IP, human_msg 60/10min,
     │                    # feedback 30/h/session, insights 3/jour/org (vérifié AVANT l'appel IA)
-    ├── usage_service.py # caps quotidien bot + quota mensuel org + limite bots du plan
-    │                    # + plan_change_problems (garde-fous partagés self-serve/admin)
+    ├── usage_service.py # compteurs de stats (source='ai') — PLUS de cap/quota/limite de plan
+    │                    # ni plan_change_problems (supprimés avec les plans)
     └── crypto.py        # Fernet (BYOK, secrets d'actions, secret reCAPTCHA)
 
 app/src/
 ├── api.ts             # fetch JSON Bearer + postFile (multipart, upload PDF KB)
-├── AuthContext.tsx    # user (+ auth_source/created_at/last_login) + organizations + activeOrg
-│                      # (localStorage) + auto dev-login
+├── AuthContext.tsx    # user (+ auth_source/created_at/last_login) + organizations (équipes,
+│                      # peut être vide) + activeOrg (localStorage) + auto dev-login
 ├── Layout.tsx         # DEUX shells dans le MÊME composant : mode admin (opérateur) si
 │                      # pathname.startsWith('/admin'), sinon mode user ; superadmin = liens de
-│                      # bascule entre les deux ; à 0 organisation seuls Mes organisations et
-│                      # Profil sont affichés
+│                      # bascule entre les deux ; OrgSwitcher tolère 0 équipe (encart « Espace
+│                      # perso / Aucune équipe ») — plus d'état dégradé « 0 organisation »
 ├── botConstants.ts    # MODEL_OPTIONS par provider, CAPTCHA (encarts RGPD), APPEARANCE_PRESETS
-│                      # (presets design en merge partiel), PLAN_LABELS / PublicPlan /
-│                      # planFeatures — PLANS_INFO n'existe plus (pricing = GET /api/public/plans)
+│                      # (presets design en merge partiel)
 │                      # + ACTION_TEMPLATES (galerie d'actions, données frontend pures)
 │                      # + TREE_TEMPLATES (4 arbres sectoriels FR ≤10 nœuds, wizard)
-├── billingUtils.tsx   # partagé Billing/AdminInvoices : invoiceStatusChip, montants Stripe
-│                      # en CENTIMES, dates en epoch SECONDES
 ├── components/
 │   ├── AppearanceForm.tsx  # design complet + presets + clés étendues (police, sombre, densité…)
 │   │                       # + Seg « Langue du widget » (locale auto|fr|en, hors presets)
@@ -197,30 +204,32 @@ app/src/
 │   └── StatsPanel.tsx      # stats historiques + satisfaction CSAT + comparatif A/B
 │                           # + funnel (GET /funnel, mapping node_key→labels)
 └── pages/
-    ├── Login.tsx      # login (intranet ou local) / register avec nom d'organisation
-    ├── BotList.tsx    # « Mes chatbots » : BotCard exportée ({bot,onOpen,canCopy}, importée par
-    │                  # Admin.tsx ; canCopy=false = footer omis), statut/usage, états vides, CTA wizard
-    ├── BotWizard.tsx  # étapes dynamiques selon mode : Nom&type → [IA] → [Arbre] →
+    ├── Login.tsx      # login (intranet ou local) / register Personnel (sans org) ou
+    │                  # Entreprise (nom d'équipe + invitations)
+    ├── BotList.tsx    # « Mes chatbots » : liste TOUS mes bots via GET /api/bots (perso+équipes)
+    │                  # avec badge « Perso » / nom d'équipe ; BotCard exportée
+    │                  # ({bot,onOpen,canCopy}, importée par Admin.tsx ; canCopy=false = footer
+    │                  # omis), statut, états vides, CTA wizard
+    ├── BotWizard.tsx  # étapes dynamiques selon mode : Nom&type (+ sélecteur destination
+    │                  # Perso/équipe-admin, Perso par défaut) → [IA] → [Arbre] →
     │                  # Apparence → Sécurité → création réelle → Intégration → page bot ;
     │                  # étape Arbre (mode tree SEUL) : galerie « Partir d'un modèle »
     │                  # (TREE_TEMPLATES) au-dessus du builder, avec aperçu
     ├── BotPage.tsx    # 11 onglets en 3 groupes (cf. Design) + save bar sticky
     │                  # (pattern savedBot, dirty PAR ONGLET, Ctrl+S) + éditeurs
-    │                  # actions/MCP/A-B/triggers + pastille Inbox (poll 30 s)
-    ├── Billing.tsx    # branché Stripe : checkout/portail, retours ?checkout=, polling usage,
-    │                  # card Factures, bandeau billing_enabled=false
+    │                  # actions/MCP/A-B/triggers + pastille Inbox (poll 30 s) ; onglet Sécurité
+    │                  # = carte « Déplacer vers une équipe » (bots perso seulement)
     ├── Profile.tsx    # nom, infos compte, mot de passe (comptes locaux ; intranet = lecture seule)
-    ├── MyOrgs.tsx     # orgs de l'utilisateur (rôle/plan/type), org active, création, renommage,
-    │                  # conversion perso→entreprise, quitter (garde-fou dernier admin côté API)
+    ├── MyOrgs.tsx     # « Mes équipes » (route /app/orgs conservée) : équipes de l'utilisateur
+    │                  # (rôle), équipe active, création, renommage, quitter (garde-fou dernier
+    │                  # admin côté API) — plus de type/conversion ni de plan
     ├── Team.tsx       # membres + invitations en attente + section « Permissions par bot »
     │                  # TOUJOURS rendue (sélecteur de membre), dès 1 membre
     ├── Admin.tsx      # AdminHome (/admin/clients, table clients) + AdminClient (détail org)
-    ├── AdminDashboard.tsx # /admin : stats opérateur (GET /api/admin/stats) + projection
-    │                  # LINÉAIRE indicative calculée côté front
-    ├── AdminInvoices.tsx  # /admin/invoices : factures Stripe agrégées (staff)
+    ├── AdminDashboard.tsx # /admin : stats opérateur (GET /api/admin/stats) — plus de MRR/plan
     ├── AdminUsers.tsx     # /admin/users : tous les comptes, lecture seule
-    └── Landing.tsx    # pricing via GET /api/public/plans (FALLBACK_PLANS local = secours
-                       # réseau uniquement), carte Free incluse
+    └── Landing.tsx    # landing publique sans grille de tarifs (app gratuite)
+                       # (Billing.tsx, AdminInvoices.tsx, billingUtils.tsx SUPPRIMÉS)
 
 widget/widget.js       # vanilla JS : flottant ou data-inline (iframe), gradient/size/radius/
                        # images/animations + clés design étendues (font/darkMode/density/
@@ -233,11 +242,11 @@ widget/widget.js       # vanilla JS : flottant ou data-inline (iframe), gradient
                        # locale SANS appel API), dictionnaire UI FR/EN (design_json.locale,
                        # 'auto' = navigator.language), servi par l'API
 
-e2e/                   # Playwright, 30 tests, workers:1 — stack docker UP requise
-│                      # (2 runs consécutifs verts = contrat rejouabilité)
-├── global-setup.ts    # FLUSHALL Redis EN TÊTE (rejouabilité) puis via API : compte
-│                      # entreprise (plus aucune notion de plan : org « tout ouvert »)
-│                      # + bot partagé tree (captcha disabled, localhost) + member local
+e2e/                   # Playwright, 31 tests, workers:1 — stack docker UP requise
+│                      # (chaque run = setup frais, cf. global-teardown)
+├── global-setup.ts    # FLUSHALL Redis EN TÊTE puis via API : compte entreprise → équipe
+│                      # (plus aucune notion de plan : tout ouvert)
+│                      # + bot d'ÉQUIPE partagé tree (captcha disabled, localhost) + member local
 │                      # « Membre E2E » (permissions remises à {} à chaque run) →
 │                      # .state.json (gitignoré). tryReuse remet le bot partagé à plat
 │                      # et purge les bots dédiés — MAIS le global-teardown efface
@@ -258,14 +267,15 @@ e2e/                   # Playwright, 30 tests, workers:1 — stack docker UP req
 │                      # 2 nœuds root→handoff opt-in : live chat, pas d'IA),
 │                      # interceptCalendly (stub total calendly.com + sous-domaines
 │                      # AVANT navigation : zéro réseau réel), openFrame (/widget-frame)
-└── tests/             # 6 specs historiques : landing, register-perso (SEUL register
-                       # UI), wizard-tree, botpage, widget, team (invitation) ;
+└── tests/             # 7 specs historiques : landing, register-perso (SEUL register
+                       # UI, compte SANS org), wizard-tree, botpage, widget,
+                       # team (invitation), personal-bot (bot perso : POST /bots → badge
+                       # « Perso » → onglets Stats/Inbox) ;
                        # 8 specs v3 : profile (renommage, mdp happy+revert sur le
-                       # member, 403 sans déconnexion), orgs (création/renommage/
-                       # conversion/422 dernier admin — lignes d'org = type seul,
-                       # « Personnel »/« Entreprise », plus de plan), admin-split
-                       # (back-office + redirect non-superadmin ; plus de page Factures),
-                       # widget-nodes (overlay RDV intercepté, lead → onglet Leads +
+                       # member, 403 sans déconnexion), orgs (création/renommage/422
+                       # dernier admin — équipes, plus de type/conversion ni de plan),
+                       # admin-split (back-office + redirect non-superadmin ; plus de page
+                       # Factures), widget-nodes (overlay RDV intercepté, lead → onglet Leads +
                        # CSV), actions (hints + secret_set sans fuite), appearance
                        # (preset + launcherText → bootstrap sanitisé), team-permissions
                        # (matrice : état vide + toggle persisté), savebar (sticky,
@@ -297,42 +307,47 @@ e2e/                   # Playwright, 30 tests, workers:1 — stack docker UP req
 
 ## Concepts clés
 
-### Multi-tenant, rôles & permissions
-- `User` ←(Membership: admin|member)→ `Organization` (type perso|entreprise) :
-  une personne peut appartenir à plusieurs clients. Perso = même architecture,
-  une seule personne, convertible en entreprise (PATCH /orgs/{id} type, jamais l'inverse).
-- **Mes organisations** (/app/orgs, MyOrgs.tsx) : switch d'org active, création
-  self-serve (POST /api/orgs, plan free), renommage/conversion (admins),
-  quitter (POST /api/orgs/{id}/leave, garde-fou dernier admin, 404
-  anti-énumération). Orgs suspendues ABSENTES du /me → état « 0 organisation »
-  géré par Layout (seuls Mes organisations/Profil affichés).
+### Multi-tenant, appartenance des bots, rôles & permissions
+- **Appartenance polymorphe** : un bot appartient SOIT à un USER (perso :
+  `owner_user_id`, tous droits au créateur, AUCUNE équipe requise) SOIT à une
+  ORGANISATION (= « équipe » : `organization_id`, administrée par sa hiérarchie
+  admin|member + permissions par bot). CHECK `ck_bots_owner_xor_org` :
+  exactement un des deux ; `bots.organization_id` est NULLABLE. `BotOut` porte
+  `owner_user_id` (int|null) et `scope` ("personal"|"team"). Accès via les
+  helpers `require_bot_access` / `require_bot_admin` (core/security.py), utilisés
+  par `_get_accessible_bot` (bots.py) et stats.py : owner perso = tous droits /
+  équipe = require_org_access + permissions / superadmin = tout.
+- **Endpoints bots** : `POST /api/bots` (bot perso), `GET /api/bots` (TOUS mes
+  bots perso+équipes, avec msgs_7d/visitors_7d), `POST /api/bots/{id}/move
+  {organization_id}` (perso→équipe, sens UNIQUE, 422 si déjà équipe),
+  `POST /api/orgs/{id}/bots` (bot d'équipe, ADMIN d'org requis),
+  `DELETE /api/bots/{id}` (require_bot_admin).
+- `User` ←(Membership: admin|member)→ `Organization` (= équipe, toujours
+  multi-personnes — le type « perso » d'org N'EXISTE PLUS, OrgOut sans type ni
+  plan). Une personne peut appartenir à plusieurs équipes. Un utilisateur SEUL
+  (0 équipe) est le cas NORMAL.
+- **Mes équipes** (/app/orgs, MyOrgs.tsx) : switch d'équipe active, création
+  (POST /api/orgs), renommage (admins), quitter (POST /api/orgs/{id}/leave,
+  garde-fou dernier admin, 404 anti-énumération) — plus de conversion ni de
+  plan. Équipes suspendues ABSENTES du /me ; 0 équipe = cas normal (OrgSwitcher
+  affiche « Espace perso »).
 - **Profil** (/app/profile) : PATCH /api/auth/me (nom) ; POST /api/auth/password
   réservé aux comptes locaux — les comptes intranet voient leur hash réécrit à
   chaque login intranet, d'où le 403 (UI en lecture seule avec explication).
-- Bots, quotas et plans portés par l'**organisation**. `PLANS` dans models/user.py :
-  free = mode ARBRE uniquement (`tree_only`) + 10 bulles max (`max_tree_nodes`) + 0 IA ·
-  starter 500 IA/1 bot/19€ · pro 2000/3/39€ · agence 10000/10/119€ + `byok: true`
-  (alignés sur la landing). BYOK réservé au flag `byok` : 403 au PATCH
-  api_key_mode=byok hors plan (superadmin bypass) et coupure IA au RUNTIME par
-  `ai_allowed` (tree_only ou BYOK hors plan, même après downgrade webhook).
-  `PLANS_META` (même fichier) = labels/descriptions marketing, servis avec PLANS
-  par GET /api/public/plans (routers/public.py) = source unique du pricing front.
-  Contraintes appliquées par `_check_plan_constraints` (routers/bots.py),
-  superadmin bypass — au PATCH/import, vérifiées SEULEMENT si mode ou tree_json
-  changent (pas d'over-blocking d'un patch design seul).
-- **Changement de plan** : garde-fous factorisés `usage_service.plan_change_problems`
-  (4 vérifs : max_bots, tree_only, max_tree_nodes, byok), PARTAGÉS entre
-  POST /orgs/{id}/plan (self-serve) et PATCH /api/admin/organizations/{id}
-  (plan validé dynamiquement contre PLANS, plus de regex en dur). Anti-race :
-  Organization lue en SELECT FOR UPDATE dans change_plan, patch_organization
-  (admin) et create_bot.
+- **App 100 % gratuite, tout ouvert** : plus AUCUN plan, quota, coupure IA,
+  gating BYOK ni limite de bots/nœuds. Supprimés : `PLANS`/`PLANS_META`,
+  colonne `organizations.plan`, `_check_plan_constraints`, `ai_allowed`,
+  `plan_change_problems`, `count_ai_messages_this_month`, `count_bots`. Reste
+  VESTIGIAL non appliqué : `Bot.daily_ai_message_cap` (champ + affichage stats
+  subsistent mais ne sont plus enforced — l'enforcement est parti avec
+  `ai_allowed`).
 - **Génération d'arbre par IA** : POST /api/bots/{id}/tree/generate {source_text|url}
   (services/tree_generator.py, claude-sonnet-4-6, clé managée, perm context).
-  Réservée aux plans payants (price>0) + treegen_limiter Redis 10/24h/org
-  vérifié AVANT tout appel IA (superadmin non exempté).
-  Retourne le tree_json sans le sauvegarder — le client prévisualise puis enregistre.
+  Plus de gating de plan ; treegen_limiter Redis 10/24h/org CONSERVÉ (anti-abus)
+  vérifié AVANT tout appel IA. Retourne le tree_json sans le sauvegarder — le
+  client prévisualise puis enregistre.
 - TreeBuilder : la cible d'un bouton est retargetable vers un nœud EXISTANT (boucles/retours)
-  via le select « Cible du bouton » ; suppression de bot = bouton zone danger (admins d'org).
+  via le select « Cible du bouton » ; suppression de bot = bouton zone danger (require_bot_admin).
 - **Permissions par bot** des members : `Membership.permissions = {"<bot_id>": ["copy","test","appearance","context","security","inbox"]}`.
   `inbox` (live chat) volontairement EN FIN de `BOT_PERMS` (models/user.py) :
   la matrice de la page Équipe suit cet ordre (contrainte e2e sur la 1re colonne).
@@ -349,44 +364,32 @@ e2e/                   # Playwright, 30 tests, workers:1 — stack docker UP req
   Le frontend filtre les onglets de BotPage et les boutons de copie en conséquence.
 - **Invitations** : email sans compte → table `invitations`, consommée à
   l'inscription (`_consume_invitations`) ; email avec compte → membership direct.
-- Inscription : `account_type` perso (org "Espace de X") ou entreprise
-  (nom + invitations avec rôle), créateur = admin.
+- Inscription : `account_type='perso'` → user SEUL (aucune org/membership) ;
+  `account_type='entreprise'` → équipe + membership admin (+ invitations avec
+  rôle). Onboarding post-register : « configurer mon premier bot » crée un bot
+  PERSO.
+- **Notifications** (lead widget, handoff/conseiller, action create_ticket) :
+  destinataires = l'OWNER pour un bot perso, les admins de l'org pour un bot
+  d'équipe (helper `lead_notification_recipients`, email_service.py).
 - Superadmin : `require_org_access` le laisse passer partout → l'admin configure
   les bots clients via les MÊMES endpoints/pages que les clients.
 - Staff = auth intranet Kertios (POST mail/mdp sur INTRANET_AUTH_URL, succès si
   redirect /main ou {"retour":"Ok"}) → user créé `is_superadmin=True`.
 - Org `is_active=False` (suspension par l'admin) → tous ses widgets coupés.
+- **GAP connu** (limite à documenter) : les pages top-level Analytics et Inbox
+  restent org-scoped → les bots PERSO n'y apparaissent pas encore (mais les
+  onglets Stats/Inbox DANS BotPage fonctionnent pour les bots perso).
 
-### Facturation Stripe
-API REST via httpx (services/stripe_service.py, PAS de SDK). Billing
-TOUT-OU-RIEN sur 5 env : STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
-STRIPE_PRICE_STARTER|PRO|AGENCE (vides en dev = billing désactivé → changement
-de plan immédiat historique, garde-fous conservés ; en prod une config
-PARTIELLE refuse de démarrer via validate_production). Quand actif,
-POST /orgs/{id}/plan renvoie `checkout_url` (upgrade payant sans abonnement)
-ou `portal_url` (abonnement existant, portail ÉPINGLÉ sur le plan validé par
-les garde-fous ; cible free = flow de résiliation) — le plan payé n'est
-APPLIQUÉ que par le webhook POST /api/billing/webhook (routers/billing.py,
-auth = signature Stripe-Signature HMAC-SHA256 vérifiée à la main sur le corps
-BRUT, handlers idempotents, org introuvable → ack 200). Le webhook applique
-SANS garde-fous (la réalité du paiement prime) PUIS `_enforce_plan_limits` :
-bots excédentaires désactivés, byok→managed, mode→tree si tree_only.
-Factures lues à la demande via l'API Stripe (pas de table locale) :
-GET /orgs/{id}/invoices (admins d'org) · GET /api/admin/invoices (staff,
-agrégé + org_id/org_name). `billing_enabled` exposé par /api/public/plans,
-/orgs/{id}/usage (qui renvoie aussi `byok`) et les réponses de change_plan
-(bandeau front « paiement non configuré »). Free reste hors Stripe.
-Test local : `stripe listen --forward-to localhost:8001/api/billing/webhook`.
-
-Côté front (Billing.tsx) : retours Stripe `/app/billing?checkout=success|cancelled`
-(param nettoyé) ; sur success le plan est appliqué PAR LE WEBHOOK (asynchrone)
-→ polling usage 2s×10 avant de conclure — en dev sans `stripe listen` le
-TIMEOUT est le chemin normal. `checkout_url` → window.location.href ;
-`portal_url` → redirection portail (downgrade d'un abonné passe par le
-portail, pas par un checkout) ; bouton « Gérer mon abonnement » =
-POST /orgs/{id}/billing/portal. Card Factures via billingUtils.tsx
-(centimes, epoch secondes). Les 422 « Changement de plan impossible : … »
-sont affichés tels quels.
+### Facturation Stripe — RETIRÉE
+La facturation a été RETIRÉE de l'application (gratuite, tout ouvert). Aucun
+endpoint ne facture ni n'applique de plan. Le code provider reste DORMANT pour
+un rebranchement futur : `services/stripe_service.py` (intact), la config
+`STRIPE_*` (5 env) et `validate_production` (refuse TOUJOURS une config Stripe
+PARTIELLE en prod — conservé), les colonnes `Organization.stripe_customer_id`
+et `stripe_subscription_id`. SUPPRIMÉS : router `/api/billing/*`,
+POST /orgs/{id}/plan, /orgs/{id}/billing/portal, GET /orgs/{id}/invoices,
+GET /api/admin/invoices, et côté front Billing.tsx / AdminInvoices.tsx /
+billingUtils.tsx.
 
 ### Intégrations : rendez-vous, leads, actions IA
 - **Nœuds d'arbre typés** (tree_engine, NODE_TYPES) : sans `type` = message
@@ -513,8 +516,7 @@ Aucun appel IA externe pour l'indexation/recherche : embeddings fastembed
   extraits {content ≤600, ref} JSON borné 2000 chars. Anthropic/openai
   exécutés, gemini ignoré+loggé (comme les actions). MOCK_AI : `!search
   question` = VRAIE recherche locale déterministe, aucun provider appelé.
-  Free/tree-only n'atteint jamais la branche IA (ai_allowed) → aucun gating
-  de plan supplémentaire.
+  La branche IA n'est atteinte qu'en mode hybrid|ai (aucun gating de plan).
 - **Caps** : 20 sources/bot · ~1000 chunks/bot (troncature loggée) ·
   30 pages/sitemap · 100 pages et 10 Mo/PDF · 2 Mo lus par page.
 
@@ -563,9 +565,8 @@ ai → human_requested (demande visiteur) → human (staff a pris) → closed
   source.in_(['ai','tree'])), des quotas (usage_service compte source='ai')
   et des stats (whitelists) — stats.py et usage_service.py n'ont PAS été
   modifiés et ne doivent pas l'être.
-- Pas de gating par plan : free reste tree-only (pas d'IA donc ni search_docs
-  ni action handoff), mais le NŒUD d'arbre handoff reste utilisable
-  (cohérent avec lead).
+- Pas de gating par plan (app gratuite) : le NŒUD d'arbre handoff comme
+  l'action IA handoff sont utilisables sans condition.
 
 ### Analytics & growth (v4 chantier B)
 - **Funnel d'arbre** : table `tree_events` (models/analytics.py — bot_id FK
@@ -590,8 +591,7 @@ ai → human_requested (demande visiteur) → human (staff a pris) → closed
   même philosophie que le poll), textes FR/EN. stats.py expose satisfaction
   (up/down/total) en clé ADDITIVE — shape historique intacte.
 - **A/B test d'arbre** : `Bot.tree_variant_json` nullable (null explicite au
-  PATCH = désactivation) + `ab_split_pct` 0-100 (perm context,
-  _check_plan_constraints appliqué AUSSI à la variante). Affectation à la
+  PATCH = désactivation) + `ab_split_pct` 0-100 (perm context). Affectation à la
   création de session si variante ET split>0 → `Conversation.variant` 'a'|'b'
   sticky (random pondéré) ; `_active_tree` (widget.py) passe la variante à
   tree_engine pour les conversations 'b', repli SILENCIEUX sur l'arbre
@@ -601,15 +601,15 @@ ai → human_requested (demande visiteur) → human (staff a pris) → closed
   les DEUX arbres (un nœud lead/handoff seulement dans la variante B doit
   rester servi au bras B).
 - **Insights « questions sans réponse »** : POST /api/bots/{id}/insights/
-  generate (perm context, plans payants price>0, insights_limiter Redis
-  3/jour/org vérifié AVANT tout appel IA, superadmin inclus — un 422
+  generate (perm context, plus de gating de plan, insights_limiter Redis
+  3/jour/org CONSERVÉ — vérifié AVANT tout appel IA, superadmin inclus — un 422
   « aucune question » consomme donc un crédit, voulu) : échantillon ≤200 messages
   visiteurs source='ai' des 30 derniers jours → UN appel au modèle managé
   (insights_service, pattern tree_generator) → {clusters:[{theme, count,
   examples≤3, suggested_bubble}]} persisté dans `insights_reports`.
   GET /api/bots/{id}/insights = dernier rapport (null si aucun). MOCK_AI =
-  rapport déterministe. Smoke : gating 403 free / 429 limiteur / GET vide —
-  JAMAIS de génération réelle.
+  rapport déterministe. Smoke : 429 limiteur / GET vide — JAMAIS de génération
+  réelle.
 - **Triggers proactifs** : `Bot.triggers_json` (max 5 : {type time_on_page|
   scroll_depth|exit_intent|url_pattern, value selon type, message ≤300,
   once_per_session défaut true}), PATCH perm appearance, validation 422 FR
@@ -628,21 +628,20 @@ ai → human_requested (demande visiteur) → human (staff a pris) → closed
   locale='auto' → build_system_prompt ajoute « Réponds dans la langue du
   visiteur » (kwarg locale, défaut None = comportement historique). Le contenu
   d'ARBRE reste tel qu'écrit par le client (non traduit, documenté).
-- Gating par plan : insights seulement (payants). free reste tree-only de
-  fait (pas d'actions/MCP/insights) mais CSAT/triggers/locale/funnel
-  fonctionnent en mode arbre.
+- Aucun gating par plan (app gratuite) : CSAT/triggers/locale/funnel
+  fonctionnent en mode arbre ; actions/MCP/insights disponibles sans condition.
 
 ### Routes frontend (split admin / user)
 - `/` landing publique (Bricolage Grotesque + Instrument Serif, blobs, démo
-  widget interactive ; tarifs servis par GET /api/public/plans, carte Free,
-  features reformulées sur ce qui est réellement appliqué) · `/login` ·
-  `/register` (wizard Personnel/Entreprise + invitations)
-- Mode user : `/app` Mes chatbots · `/app/bots/new` wizard · `/app/bots/:id`
-  page bot · `/app/team` Équipe & permissions · `/app/billing` Facturation ·
-  `/app/orgs` Mes organisations · `/app/profile` Profil
+  widget interactive ; app gratuite, pas de grille de tarifs) · `/login` ·
+  `/register` (wizard Personnel [sans org] / Entreprise [équipe + invitations])
+- Mode user : `/app` Mes chatbots (tous : perso + équipes) · `/app/bots/new`
+  wizard (destination Perso/équipe) · `/app/bots/:id` page bot · `/app/team`
+  Équipe & permissions · `/app/orgs` Mes équipes · `/app/profile` Profil
+  (plus de `/app/billing`)
 - Mode admin (superadmin) : `/admin` dashboard opérateur (AdminDashboard) ·
   `/admin/clients` table clients (AdminHome) + `/admin/clients/:orgId` ·
-  `/admin/invoices` factures Stripe · `/admin/users` comptes (lecture seule)
+  `/admin/users` comptes (lecture seule) (plus de `/admin/invoices`)
 - Layout.tsx = deux shells dans le même composant, mode déduit de
   `pathname.startsWith('/admin')`. Un superadmin bascule entre les deux et
   utilise les MÊMES pages client que les clients.
@@ -650,8 +649,8 @@ ai → human_requested (demande visiteur) → human (staff a pris) → closed
 ### Sécurité du widget (empilée)
 1. `pk_...` publique → 2. vérif Origin vs `allowed_domains` (wildcards ; localhost si ENV=dev)
 → 3. captcha au handshake → JWT 30 min → 4. rate limits Redis (session 20/10min, IP 100/min)
-→ 5. payload max 4000 chars, historique 20 msg → 6. cap quotidien bot + quota mensuel org
-→ mode dégradé tree-only → 7. prompt/modèle verrouillés serveur.
+→ 5. payload max 4000 chars, historique 20 msg → 6. prompt/modèle verrouillés serveur
+(plus de cap/quota ni de mode dégradé par plan — app gratuite).
 
 **Cas iframe** (`/widget-frame`) : l'Origin devient celui de l'API → la whitelist est
 vérifiée sur le domaine de la PAGE PARENTE (`parent_url` = document.referrer envoyé
@@ -682,8 +681,9 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   qu'ao_scrapping), imports nommés, tailles 11-17px. Le widget vanilla utilise
   des constantes SVG inline (mêmes tracés). Les badges du menu intégrations
   sont du texte mono ("</>", "W", "GTM", "npm", "ifr").
-- Shell sidebar 222px (Layout.tsx) : logo, org switcher (initiales colorées),
-  nav, bloc plan/crédits ; vue admin avec MRR.
+- Shell sidebar 222px (Layout.tsx) : logo, org/équipe switcher (initiales
+  colorées, tolère 0 équipe = « Espace perso »), nav (plus de bloc plan/crédits
+  ni de MRR admin).
 - Primitives dans app/src/ui.tsx : Card, Chip, Btn, Seg, Toggle, Stat, Bars,
   Meter, InfoBox, BubbleIcon (icônes SVG chat/spark/help), statusChip/modeChip.
 - design_json (models/bot.py) suit les tokens du prototype : icon
@@ -726,8 +726,7 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   libellés existants (getByRole name = match sous-chaîne insensible à la
   casse) — d'où « Connaissances », « Inbox », « Insights ».
   « Connaissances » (perm context) et « Insights » (perm context) NON gatés
-  par aiTabRelevant (le CTA upgrade Insights doit rester visible sur free) ;
-  « Inbox » = perm inbox, pastille « à prendre » (compteur human_requested,
+  par aiTabRelevant ; « Inbox » = perm inbox, pastille « à prendre » (compteur human_requested,
   poll 30 s gaté hasPerm('inbox')) — pastilles/compteurs dans les boutons
   d'onglet TOUJOURS aria-hidden.
 - KbPanel / InboxPanel / InsightsPanel vivent HORS save bar : CRUD/actions
@@ -739,13 +738,15 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   context → carte rendue si hasPerm('context') + garde dédiée dans save() ;
   rangé dans TAB_FIELDS.security (pas de faux dirty : l'API masque à null
   sans la perm, dans bot ET savedBot).
+- Onglet SÉCURITÉ : carte « Déplacer vers une équipe » visible UNIQUEMENT pour
+  les bots perso (scope='personal') → POST /api/bots/{id}/move (sens unique).
 - A/B test (onglet Arbre) : TAB_FIELDS.tree =
   tree_json + tree_variant_json + ab_split_pct ; le save du groupe tree
   envoie TOUJOURS tree_variant_json (null EXPLICITE = désactivation — SEUL
   champ où null n'est pas ignoré au PATCH) ; UN SEUL TreeBuilder monté à la
   fois (state treeView + effet de garde + key="a"/"b"), la vue B sans
-  onExport/onImport/botId/canGenerate. 422/403 plan (variante soumise à
-  max_tree_nodes) affichés tels quels par la save bar.
+  onExport/onImport/botId/canGenerate. 422 éventuels affichés tels quels par la
+  save bar (plus de contrainte de plan sur la variante).
 - Triggers proactifs : éditeur dans l'onglet APPARENCE
   (TAB_FIELDS.appearance = name/design_json/mode/triggers_json, perm
   appearance) ; value envoyée en Number STRICT (int serveur), exit_intent
@@ -760,9 +761,9 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   événements orphelins comptés dans count mais exclus des exits) ; mapping
   node_key→label = logique nodeLabel de TreeBuilder (arbre A puis variante B
   suffixée « (variante B) », clé brute mono si nœud supprimé).
-- Onglets ai ET actions masqués quand mode=tree ou plan tree_only ; Leads
-  visible dans tous les modes (perm context). Import config.json masqué aux
-  members sans appearance+context (l'API exige la perm de CHAQUE champ importé).
+- Onglets ai ET actions masqués quand mode=tree ; Leads visible dans tous les
+  modes (perm context). Import config.json masqué aux members sans
+  appearance+context (l'API exige la perm de CHAQUE champ importé).
 - Onglet Arbre = builder VISUEL (components/TreeBuilder.tsx) mappé sur notre
   format tree_json (une option = un nœud cible ou "__ai__") + export/import
   JSON + nœuds typés (Seg « Type de réponse » à 4 options dont handoff
@@ -778,7 +779,9 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   réception (chat humain) » (inbox) EN FIN — ordre aligné sur BOT_PERMS,
   les 5 premières colonnes et la légende existante NON reformulées (e2e).
 - BotCard (BotList.tsx) : export conservé, signature {bot,onOpen,canCopy}
-  (importée par Admin.tsx) ; canCopy=false = footer entièrement omis.
+  (importée par Admin.tsx) ; canCopy=false = footer entièrement omis ; badge
+  « Perso » (bot owner_user_id) ou nom d'équipe. « Mes chatbots » liste TOUS
+  mes bots via GET /api/bots (perso + toutes les équipes).
   Décision actée v4 : PAS de badge « live » (human_requested) sur les cards —
   la liste des bots ne porte pas l'info et l'ajouter exigerait un endpoint
   dédié ou un N+1 ; la pastille de l'onglet Inbox (BotPage) couvre le besoin.
@@ -786,8 +789,10 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
 - Aperçu live du widget : components/WidgetPreview.tsx (réplique React du
   widget, navigue le vrai tree_json en local, IA simulée) dans PreviewFrame
   (faux site client). Le widget réel (widget/widget.js) suit les mêmes specs.
-- Wizard 5 étapes : Les bases → Intelligence → Apparence → Sécurité (Turnstile
-  imposé, affinable ensuite) → Intégration. Création réelle au passage 4→5.
+- Wizard 5 étapes : Les bases (+ sélecteur de destination Perso/équipe-admin,
+  Perso par défaut → POST /api/bots ou POST /api/orgs/{id}/bots) → Intelligence
+  → Apparence → Sécurité (Turnstile imposé, affinable ensuite) → Intégration.
+  Création réelle au passage 4→5.
   Étape Arbre (mode tree UNIQUEMENT — hybrid/ai gardent STARTER_TREE sans
   étape, limitation actée) : galerie « Partir d'un modèle » (TREE_TEMPLATES,
   botConstants.ts : 4 arbres sectoriels e-commerce/services/restaurant/SaaS,
@@ -853,12 +858,10 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   « Enregistrer » (BotPage) / libellés TreeBuilder (cf. Design), OrgSwitcher,
   clés localStorage cbsaas_token / cbsaas_org / kc_no_autologin ; save bar =
   `role="status"` (sélecteur des specs savebar/actions) ; messages assertés
-  VERBATIM : « Mot de passe actuel incorrect », préfixe « Changement de plan
-  impossible : », « Paiement en ligne non configuré », « Paiement annulé —
-  aucun changement effectué. », « Facturation en ligne non configurée ».
-- Stripe : le plan payé n'est appliqué QUE par le webhook — sans
-  `stripe listen` (ou endpoint joignable), un checkout réussi ne change
-  jamais le plan. Une config STRIPE_* partielle refuse de démarrer en prod.
+  VERBATIM : « Mot de passe actuel incorrect ».
+- Stripe DORMANT : aucun endpoint ne l'utilise (facturation retirée). La config
+  STRIPE_* reste lue et `validate_production` refuse TOUJOURS une config Stripe
+  PARTIELLE en prod (garde-fou conservé) — vider les STRIPE_* pour les runs e2e.
 - Overlay RDV (nœud appointment) en mode script : si le site client a une
   CSP, il lui faut frame-src https://calendly.com https://*.calendly.com
   https://cal.com https://*.cal.com ; le mode /widget-frame n'est pas affecté.
@@ -873,7 +876,9 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   b3c04b0ad8f6 (stripe sur organizations) ← e5e1b937aba6 (actions_json +
   table leads) ← e2c624608aa0 (kb pgvector) ← 00b96197eb23 (live chat) ←
   f4a91c27d3b8 (FTS unaccent) ← 0a25919f448f (connecteur MCP) ←
-  960e241f162a (analytics et growth) = head. Les révisions v4 sont ÉCRITES À
+  960e241f162a (analytics et growth) ← a1b2c3d4e5f6 (drop organizations.plan) ←
+  b2c3d4e5f6a7 (bot ownership polymorphe owner_user_id XOR organization_id +
+  drop organizations.type) = head. Les révisions v4 sont ÉCRITES À
   LA MAIN (Vector custom, colonne GÉNÉRÉE, index HNSW/GIN : non générables) ;
   kb_chunks.embedding/tsv sont mal compris d'Alembic → tout futur
   --autogenerate peut produire du BRUIT sur ces colonnes, relire la révision
@@ -893,9 +898,9 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
   (préfixés) sont les noms canoniques.
 - Nouvelles env (compose + .env.example) : SMTP_HOST/PORT/USER/PASSWORD/FROM
   (HOST vide = fallback log, jamais bloquant), STRIPE_SECRET_KEY /
-  STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_STARTER|PRO|AGENCE (les 5 vides en dev
-  = billing désactivé), FASTEMBED_CACHE_PATH / EMBEDDINGS_MODEL (RAG, défauts
-  sains — ne toucher qu'en connaissance de cause, cf. piège embeddings).
+  STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_STARTER|PRO|AGENCE (DORMANTES, lues mais
+  inutilisées ; vider pour les runs e2e), FASTEMBED_CACHE_PATH / EMBEDDINGS_MODEL
+  (RAG, défauts sains — ne toucher qu'en connaissance de cause, cf. piège embeddings).
 - db = image `pgvector/pgvector:pg15` (bascule depuis postgres:15, MÊME PG 15,
   volume de données conservé). Piège vécu : mismatch de collation glibc
   (2.41 → 2.36) au changement d'image — corrigé en dev par `REINDEX DATABASE`
@@ -933,13 +938,11 @@ L'UI implémente le prototype « Kertios Chat » exporté de claude.ai/design
 - GET /api/bots/{id}/conversations : pour « toutes », le paramètre `status`
   doit être OMIS — `status=` vide renvoie 422 « Statut inconnu » (InboxPanel
   construit l'URL conditionnellement).
-- Le 403 « réservé aux plans payants » de insights/generate ET tree/generate
-  est BYPASSÉ pour les superadmins (bots.py `if not user.is_superadmin`),
-  alors que les limiteurs (insights 3/jour/org, treegen 10/24h/org)
-  s'appliquent à tous : un superadmin sur une org free obtient 422/429,
-  jamais 403 — en MOCK_AI=false il peut donc déclencher une VRAIE analyse
-  sur une org free si le bot a des messages ai (le gating UI treeOnly est la
-  seule barrière dashboard).
+- insights/generate ET tree/generate n'ont PLUS de gating de plan (app
+  gratuite), mais leurs limiteurs Redis sont CONSERVÉS (insights 3/jour/org,
+  treegen 10/24h/org) et vérifiés AVANT tout appel IA, superadmin inclus — un
+  422 « aucune question » consomme un crédit insights. En MOCK_AI=false ces
+  endpoints déclenchent une VRAIE analyse dès que le bot a des messages ai.
 - Bot 181 (org 36) = playground des vérifications visuelles v4 en dev : peut
   porter des triggers/données de test — toute vérification doit photographier
   PUIS restaurer son état (tree_json/triggers_json/design_json).

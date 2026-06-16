@@ -30,12 +30,10 @@ class MemberPatch(BaseModel):
 
 class OrgPatch(BaseModel):
     name: Optional[str] = None
-    type: Optional[str] = Field(None, pattern="^(perso|entreprise)$")
 
 
 class OrgCreate(BaseModel):
     name: str
-    type: str = Field("entreprise", pattern="^(perso|entreprise)$")
 
 
 def _clean_permissions(perms: dict[str, Any]) -> dict[str, list[str]]:
@@ -61,12 +59,12 @@ async def create_org(body: OrgCreate, db: AsyncSession = Depends(get_db),
     name = body.name.strip()
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nom d'organisation requis")
-    org = Organization(name=name[:120], type=body.type)
+    org = Organization(name=name[:120])
     db.add(org)
     await db.flush()
     db.add(Membership(user_id=user.id, organization_id=org.id, role="admin", permissions={}))
     await db.commit()
-    return {"id": org.id, "name": org.name, "type": org.type, "role": "admin"}
+    return {"id": org.id, "name": org.name, "role": "admin"}
 
 
 @router.post("/{org_id}/leave")
@@ -94,20 +92,15 @@ async def leave_org(org_id: int, db: AsyncSession = Depends(get_db),
 
 @router.patch("/{org_id}")
 async def patch_org(org_id: int, body: OrgPatch, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Renommer l'org, ou convertir perso -> entreprise (jamais l'inverse :
-    une entreprise peut avoir plusieurs membres)."""
+    """Renommer l'org (une organisation est toujours une equipe : plus de
+    notion de type ni de conversion)."""
     await require_org_admin(org_id, user, db)
     org = await _get_org(db, org_id)
     data = body.model_dump(exclude_unset=True)
-    if data.get("type") == "perso" and org.type == "entreprise":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "Une entreprise ne peut pas repasser en compte personnel")
     if "name" in data and data["name"]:
         org.name = data["name"].strip()
-    if "type" in data and data["type"]:
-        org.type = data["type"]
     await db.commit()
-    return {"id": org.id, "name": org.name, "type": org.type}
+    return {"id": org.id, "name": org.name}
 
 
 # ---------- Équipe ----------
@@ -141,10 +134,7 @@ async def invite_member(org_id: int, body: MemberAdd, db: AsyncSession = Depends
     """Compte existant -> membre direct ; sinon invitation en attente,
     consommee quand la personne cree son compte avec cet email."""
     await require_org_admin(org_id, user, db)
-    org = await _get_org(db, org_id)
-    if org.type == "perso":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "Compte personnel : convertissez l'espace en entreprise pour inviter")
+    await _get_org(db, org_id)
 
     email = body.email.lower()
     target = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()

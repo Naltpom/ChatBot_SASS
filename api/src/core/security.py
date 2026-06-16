@@ -133,7 +133,7 @@ async def require_org_access(org_id: int, user, db: AsyncSession):
 
 async def require_org_admin(org_id: int, user, db: AsyncSession):
     """Admin de l'organisation OU superadmin. Pour la gestion d'equipe,
-    le changement de type/nom d'org, la suppression de bots."""
+    le changement de nom d'org, la suppression de bots."""
     if user.is_superadmin:
         return None
     membership = await get_membership(org_id, user, db)
@@ -142,3 +142,35 @@ async def require_org_admin(org_id: int, user, db: AsyncSession):
     if membership.role != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé aux administrateurs de l'organisation")
     return membership
+
+
+async def require_bot_access(bot, user, db: AsyncSession):
+    """Acces en LECTURE/usage a un bot, ownership polymorphe.
+
+    Retourne la Membership pertinente (None = « tous droits » : owner perso ou
+    superadmin non membre — _check_bot_perm/_mask_bot_out interpretent None
+    comme un acces total).
+    - Bot d'EQUIPE (organization_id) : delegue a require_org_access.
+    - Bot PERSO (owner_user_id) : seul l'owner (ou un superadmin) y accede,
+      404 anti-enumeration sinon. Le superadmin n'a pas de membership perso ->
+      None (tous droits)."""
+    if user.is_superadmin:
+        return await get_membership(bot.organization_id, user, db) if bot.organization_id else None
+    if bot.owner_user_id is not None:
+        if user.id == bot.owner_user_id:
+            return None
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    return await require_org_access(bot.organization_id, user, db)
+
+
+async def require_bot_admin(bot, user, db: AsyncSession):
+    """Acces ADMIN a un bot (suppression, deplacement), ownership polymorphe.
+    - Bot d'EQUIPE : admin de l'org (ou superadmin).
+    - Bot PERSO : l'owner (ou superadmin)."""
+    if user.is_superadmin:
+        return None
+    if bot.owner_user_id is not None:
+        if user.id == bot.owner_user_id:
+            return None
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    return await require_org_admin(bot.organization_id, user, db)

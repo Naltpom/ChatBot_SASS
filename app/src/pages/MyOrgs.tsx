@@ -1,11 +1,12 @@
-// Page « Mes organisations » — liste des orgs de l'utilisateur (rôle, plan,
-// type), bascule d'org active, renommage / conversion perso→entreprise
-// (admins), quitter une org (garde-fou dernier admin côté API), création.
+// Page « Mes équipes » — liste des équipes de l'utilisateur (rôle, statut),
+// bascule d'équipe active, renommage (admins), quitter une équipe (garde-fou
+// dernier admin côté API), création. Le type perso/entreprise n'existe plus :
+// une organisation = une équipe, et ne pas en avoir est normal.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { Org, useAuth } from '../AuthContext'
-import { Btn, Card, Chip, Field, InfoBox, SectionTitle, Seg, orgColor, orgInitials } from '../ui'
+import { Btn, Card, Chip, Field, InfoBox, SectionTitle, orgColor, orgInitials } from '../ui'
 
 export default function MyOrgs() {
   const { user, activeOrg, setActiveOrg, refreshUser } = useAuth()
@@ -14,7 +15,6 @@ export default function MyOrgs() {
   const [renamingId, setRenamingId] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [newName, setNewName] = useState('')
-  const [newType, setNewType] = useState('entreprise')
   const [creating, setCreating] = useState(false)
 
   if (!user) return null
@@ -34,23 +34,12 @@ export default function MyOrgs() {
     }
   }
 
-  async function convert(o: Org) {
-    if (!window.confirm('Conversion définitive — une entreprise ne peut pas redevenir un compte personnel.')) return
-    setError('')
-    try {
-      await api(`/api/orgs/${o.id}`, { method: 'PATCH', body: { type: 'entreprise' } })
-      await refreshUser()
-    } catch (err: any) {
-      setError(err.message)
-    }
-  }
-
   async function leave(o: Org) {
     if (!window.confirm(`Quitter « ${o.name} » ? Vous perdrez l'accès à ses chatbots.`)) return
     setError('')
     try {
       await api(`/api/orgs/${o.id}/leave`, { method: 'POST' })
-      await refreshUser() // si l'org quittée était active, pickActiveOrg rebascule
+      await refreshUser() // si l'équipe quittée était active, pickActiveOrg rebascule
     } catch (err: any) {
       setError(err.message)
     }
@@ -62,10 +51,10 @@ export default function MyOrgs() {
     setError('')
     setCreating(true)
     try {
-      const res = await api<{ id: number }>('/api/orgs', { method: 'POST', body: { name, type: newType } })
+      const res = await api<{ id: number }>('/api/orgs', { method: 'POST', body: { name } })
       localStorage.setItem('cbsaas_org', String(res.id))
-      await refreshUser() // pickActiveOrg lit la clé → la nouvelle org devient active
-      navigate('/app')
+      await refreshUser() // pickActiveOrg lit la clé → la nouvelle équipe devient active
+      navigate('/app/team')
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -75,25 +64,23 @@ export default function MyOrgs() {
 
   const createCard = (
     <Card style={empty ? { maxWidth: 460 } : undefined}>
-      <div className="card-title">Créer une organisation</div>
+      <div className="card-title">Créer une équipe</div>
       {empty && (
         <p style={{ fontSize: 12.5, color: 'var(--mut)', lineHeight: 1.55, margin: '0 0 12px' }}>
-          Vous n'appartenez à aucune organisation pour l'instant. Créez la vôtre ci-dessous —
-          ou attendez qu'un collègue vous invite : l'invitation s'applique au compte portant
-          votre email.
+          Vous ne faites partie d'aucune équipe — ce n'est pas obligatoire. Vous pouvez créer et
+          gérer des chatbots personnels sans équipe. Créez-en une pour collaborer, ou attendez
+          qu'un collègue vous invite : l'invitation s'applique au compte portant votre email.
         </p>
       )}
       <div className="col" style={{ gap: 11 }}>
-        <Field label="Nom" hint="Personnel = un seul membre, convertible en entreprise plus tard.">
+        <Field label="Nom de l'équipe">
           <input type="text" value={newName} placeholder="ex. Studio Horizon"
                  onChange={e => setNewName(e.target.value)}
                  onKeyDown={e => e.key === 'Enter' && !creating && create()} />
         </Field>
-        <div className="row g10" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-          <Seg value={newType} onChange={setNewType}
-               options={[{ value: 'perso', label: 'Personnel' }, { value: 'entreprise', label: 'Entreprise' }]} />
+        <div className="row g10" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <Btn onClick={create} disabled={creating || !newName.trim()}>
-            {creating ? 'Création…' : 'Créer l\'organisation'}
+            {creating ? 'Création…' : 'Créer l\'équipe'}
           </Btn>
         </div>
       </div>
@@ -102,11 +89,11 @@ export default function MyOrgs() {
 
   return (
     <div className="col g18">
-      <SectionTitle sub={`${orgs.length} organisation${orgs.length > 1 ? 's' : ''}`}>Mes organisations</SectionTitle>
+      <SectionTitle sub={`${orgs.length} équipe${orgs.length > 1 ? 's' : ''}`}>Mes équipes</SectionTitle>
 
       {user.is_superadmin && (
         <InfoBox tone="info">
-          Vue staff : vous voyez toutes les organisations de la plateforme. La gestion des
+          Vue staff : vous voyez toutes les équipes de la plateforme. La gestion des
           clients se fait dans le back-office.
         </InfoBox>
       )}
@@ -137,21 +124,16 @@ export default function MyOrgs() {
                   ) : (
                     <>
                       <div style={{ fontSize: 13.5, fontWeight: 700 }}>{o.name}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>
-                        {o.type === 'perso' ? 'Personnel' : 'Entreprise'}
-                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Équipe</div>
                     </>
                   )}
                 </div>
                 <Chip tone={isAdmin ? 'warn' : 'mut'}>{isAdmin ? 'Admin' : 'Membre'}</Chip>
                 {isActive
                   ? <Chip tone="acc">active</Chip>
-                  : <Btn kind="soft" small onClick={() => { setActiveOrg(o); navigate('/app') }}>Utiliser</Btn>}
+                  : <Btn kind="soft" small onClick={() => { setActiveOrg(o); navigate('/app/team') }}>Utiliser</Btn>}
                 {isAdmin && !renaming && (
                   <Btn kind="ghost" small onClick={() => { setRenamingId(o.id); setRenameValue(o.name) }}>Renommer</Btn>
-                )}
-                {isAdmin && o.type === 'perso' && !renaming && (
-                  <Btn kind="ghost" small onClick={() => convert(o)}>Passer en entreprise</Btn>
                 )}
                 {!user.is_superadmin && (
                   <Btn kind="danger" small onClick={() => leave(o)}>Quitter</Btn>

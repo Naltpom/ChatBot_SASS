@@ -33,22 +33,33 @@ async def count_ai_messages_today(db: AsyncSession, bot_id: int) -> int:
 async def bots_week_stats(db: AsyncSession, org_id: int) -> dict[int, dict]:
     """Par bot de l'org : messages utilisateur et visiteurs uniques sur 7 jours
     (pour les cards de la liste)."""
+    ids = (await db.execute(
+        select(Bot.id).where(Bot.organization_id == org_id)
+    )).scalars().all()
+    return await bots_week_stats_for_ids(db, set(ids))
+
+
+async def bots_week_stats_for_ids(db: AsyncSession, bot_ids: set[int]) -> dict[int, dict]:
+    """Par bot_id (set quelconque : bots perso + bots d'equipes) : messages
+    utilisateur et visiteurs uniques sur 7 jours, pour les cards de la liste
+    « Mes chatbots » qui melange ownership perso et equipe."""
     from src.models.conversation import Conversation
 
+    if not bot_ids:
+        return {}
+    ids = list(bot_ids)
     since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
     # Whitelist source : exclut les marqueurs systeme ([lead]...) qui
     # gonfleraient les compteurs de messages visiteurs
     msg_rows = (await db.execute(
         select(Message.bot_id, func.count(Message.id))
-        .join(Bot, Bot.id == Message.bot_id)
-        .where(Bot.organization_id == org_id, Message.role == "user",
+        .where(Message.bot_id.in_(ids), Message.role == "user",
                Message.source.in_(["ai", "tree"]), Message.created_at >= since)
         .group_by(Message.bot_id)
     )).all()
     visitor_rows = (await db.execute(
         select(Conversation.bot_id, func.count(func.distinct(Conversation.visitor_id)))
-        .join(Bot, Bot.id == Conversation.bot_id)
-        .where(Bot.organization_id == org_id, Conversation.started_at >= since)
+        .where(Conversation.bot_id.in_(ids), Conversation.started_at >= since)
         .group_by(Conversation.bot_id)
     )).all()
     out: dict[int, dict] = {}

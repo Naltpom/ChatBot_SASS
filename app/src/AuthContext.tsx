@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { api, getToken, setToken } from './api'
 
+// Une organisation = une ÉQUIPE. Le type « perso » n'existe plus : un
+// utilisateur peut n'appartenir à aucune équipe (organizations: []), c'est le
+// cas normal d'un compte solo.
 export interface Org {
   id: number
   name: string
-  type: string                              // perso | entreprise
   role: string                              // admin | member
   permissions: Record<string, string[]>     // perms par bot (member)
 }

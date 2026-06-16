@@ -1,6 +1,12 @@
 // Inscription UI d'un compte Personnel — SEUL test qui consomme une
 // inscription via l'UI (rate-limit auth : 10 login+register / 15 min / IP).
 // Email unique à chaque exécution (timestamp epoch).
+//
+// Nouveau modèle d'appartenance : un compte « Personnel » n'a PLUS d'org
+// « Espace de … ». Il arrive sur /app sans aucune équipe (organizations vide)
+// → l'OrgSwitcher du shell affiche l'encart « Espace perso / Aucune équipe »
+// (Layout.tsx, orgs.length === 0). Le bot perso se crée via le wizard.
+//
 // Design Chapote (pages/Register.tsx) : carte centrée + stepper.
 //   Étape 0 « Créez votre compte » : cartes Personnel / Entreprise.
 //   Étape 1 (perso) : Prénom / Nom / E-mail professionnel / Mot de passe,
@@ -14,8 +20,7 @@ test.beforeEach(async ({ page }) => {
   await blockAutoLogin(page)
 })
 
-test('inscription compte Personnel : arrivée sur /app avec l\'org « Espace de … »', async ({ page }) => {
-  // Le prénom devient le nom complet (Nom laissé vide) → org « Espace de <prénom> ».
+test('inscription compte Personnel : arrivée sur /app sans équipe (« Espace perso »)', async ({ page }) => {
   const prenom = 'Testeur'
   const email = `e2e.perso.${Date.now()}@e2e-chapote.fr`
 
@@ -40,6 +45,9 @@ test('inscription compte Personnel : arrivée sur /app avec l\'org « Espace de 
   await expect(page).toHaveURL(/\/app$/)
   await expect(page.getByText('Mes chatbots').first()).toBeVisible()
 
-  // L'org perso « Espace de <prénom> » est visible dans le sélecteur d'org
-  await expect(page.getByText(`Espace de ${prenom}`).first()).toBeVisible()
+  // Aucune équipe (organizations vide) : l'OrgSwitcher rend l'encart « Espace
+  // perso / Aucune équipe » et JAMAIS d'org « Espace de … » (plus créée).
+  await expect(page.locator('.orgsw-name')).toHaveText('Espace perso')
+  await expect(page.locator('.orgsw-sub')).toHaveText('Aucune équipe')
+  await expect(page.getByText(`Espace de ${prenom}`)).toHaveCount(0)
 })

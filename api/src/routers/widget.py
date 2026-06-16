@@ -116,10 +116,12 @@ async def _get_active_bot(db: AsyncSession, public_key: str) -> Bot:
     bot = result.scalar_one_or_none()
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    # Organisation suspendue (impayé, abus...) -> tous ses widgets coupés
-    org = await db.get(Organization, bot.organization_id)
-    if org is None or not org.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    # Bot d'equipe : organisation suspendue (impayé, abus...) -> widgets coupés.
+    # Bot perso (organization_id null) : pas de suspension d'org applicable.
+    if bot.organization_id is not None:
+        org = await db.get(Organization, bot.organization_id)
+        if org is None or not org.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     return bot
 
 
@@ -619,9 +621,10 @@ async def submit_lead(
     bot = await db.get(Bot, session["bot_id"])
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    org = await db.get(Organization, bot.organization_id)
-    if org is None or not org.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    if bot.organization_id is not None:
+        org = await db.get(Organization, bot.organization_id)
+        if org is None or not org.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     _check_session_origin(request, session)
 
     if not _bot_collects_leads(bot):
@@ -672,9 +675,10 @@ async def submit_feedback(
     bot = await db.get(Bot, session["bot_id"])
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    org = await db.get(Organization, bot.organization_id)
-    if org is None or not org.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    if bot.organization_id is not None:
+        org = await db.get(Organization, bot.organization_id)
+        if org is None or not org.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     _check_session_origin(request, session)
 
     # UN SEUL message d'erreur quel que soit le cas (introuvable, autre
@@ -708,9 +712,10 @@ async def request_handoff(
     bot = await db.get(Bot, session["bot_id"])
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    org = await db.get(Organization, bot.organization_id)
-    if org is None or not org.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    if bot.organization_id is not None:
+        org = await db.get(Organization, bot.organization_id)
+        if org is None or not org.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     _check_session_origin(request, session)
 
     if not _bot_has_handoff(bot):
@@ -768,9 +773,10 @@ async def poll_messages(
     bot = await db.get(Bot, session["bot_id"])
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    org = await db.get(Organization, bot.organization_id)
-    if org is None or not org.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    if bot.organization_id is not None:
+        org = await db.get(Organization, bot.organization_id)
+        if org is None or not org.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     _check_session_origin(request, session)
 
     conversation = await db.get(Conversation, session["sub"])

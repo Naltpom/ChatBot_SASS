@@ -115,6 +115,8 @@ export default function BotPage() {
   const [genError, setGenError] = useState('')
   const treeFileRef = useRef<HTMLInputElement>(null)
   const [newDomain, setNewDomain] = useState('')
+  const [moveTarget, setMoveTarget] = useState<number | ''>('')   // équipe cible du déplacement
+  const [moveBusy, setMoveBusy] = useState(false)
   const [previewDegraded, setPreviewDegraded] = useState(false)
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [integType, setIntegType] = useState('html')
@@ -138,10 +140,13 @@ export default function BotPage() {
   }, [botId, loadTry])
 
   // Permissions par bot : admins d'org et superadmins ont tout, les members
-  // voient uniquement les onglets couverts par leurs permissions
+  // voient uniquement les onglets couverts par leurs permissions. Un bot PERSO
+  // (owner_user_id, pas d'organization_id) donne tous les droits à son
+  // propriétaire — pas de notion d'org/de membership.
   const botOrg = user?.organizations.find(o => o.id === bot?.organization_id)
   const orgName = botOrg?.name || ''
-  const isOrgAdmin = !!user?.is_superadmin || botOrg?.role === 'admin'
+  const isPersonalScope = !!bot && (bot.scope === 'personal' || (bot.owner_user_id != null && bot.organization_id == null))
+  const isOrgAdmin = !!user?.is_superadmin || isPersonalScope || botOrg?.role === 'admin'
   const hasPerm = (perm: string | null) =>
     perm === null || isOrgAdmin || (botOrg?.permissions?.[String(botId)] || []).includes(perm)
   // Mode arbre pur : les onglets IA et Actions n'ont pas lieu d'être
@@ -368,6 +373,28 @@ export default function BotPage() {
     }
   }
 
+  // Déplacement d'un bot PERSO vers une équipe (sens unique). Immédiat (hors
+  // save bar) : POST /api/bots/{id}/move puis on remplace bot + savedBot par le
+  // BotOut renvoyé (scope devient team).
+  async function moveToTeam() {
+    if (moveTarget === '' ) return
+    const org = (user?.organizations || []).find(o => o.id === moveTarget)
+    if (!org) return
+    if (!window.confirm(`Déplacer « ${bot.name} » vers l'équipe « ${org.name} » ? Ce transfert est définitif (un bot d'équipe ne peut pas redevenir perso).`)) return
+    setMoveBusy(true)
+    setPageError('')
+    try {
+      const updated = await api(`/api/bots/${botId}/move`, { method: 'POST', body: { organization_id: moveTarget } })
+      setBot(updated)
+      setSavedBot(updated)
+      setMoveTarget('')
+    } catch (err: any) {
+      setPageError(`Déplacement échoué : ${err.message}`)
+    } finally {
+      setMoveBusy(false)
+    }
+  }
+
   async function deleteBot() {
     if (!window.confirm(`Supprimer définitivement « ${bot.name} » ?\n\nLe widget cessera de fonctionner sur tous les sites où il est installé, et les conversations seront perdues.`)) return
     try {
@@ -509,6 +536,10 @@ export default function BotPage() {
   const actions: any[] = bot.actions_json || []
   const mcpServers: any[] = bot.mcp_servers_json || []
   const canActivate = !bot.is_active && hasPerm('security')
+  // Bot perso déplaçable vers une équipe si l'utilisateur en a au moins une
+  // (POST /move réservé serveur au propriétaire). isPersonalScope défini plus haut.
+  const myTeams = user?.organizations || []
+  const canMoveToTeam = isPersonalScope && myTeams.length > 0
 
   return (
     <div className="col" style={{ gap: 16, paddingBottom: dirty || saved || error ? 76 : 0 }}>
@@ -1409,6 +1440,28 @@ export default function BotPage() {
                   ))}
                 </div>
               </Card>
+
+              {canMoveToTeam && (
+                <Card>
+                  <div className="card-title">Déplacer vers une équipe</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 10 }}>
+                    Ce chatbot est personnel. Transférez-le à une équipe pour le partager avec ses
+                    membres. <strong>Transfert définitif</strong> : un bot d'équipe ne peut pas redevenir
+                    personnel.
+                  </div>
+                  <div className="row g8" style={{ flexWrap: 'wrap' }}>
+                    <select value={moveTarget === '' ? '' : String(moveTarget)}
+                            onChange={e => setMoveTarget(e.target.value === '' ? '' : Number(e.target.value))}
+                            style={{ flex: 1, minWidth: 180 }}>
+                      <option value="">Choisir une équipe…</option>
+                      {myTeams.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                    <Btn kind="soft" onClick={moveToTeam} disabled={moveTarget === '' || moveBusy}>
+                      {moveBusy ? 'Déplacement…' : 'Déplacer'}
+                    </Btn>
+                  </div>
+                </Card>
+              )}
 
               {isOrgAdmin && (
                 <Card style={{ borderColor: 'var(--danger-bd)' }}>

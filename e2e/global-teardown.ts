@@ -6,8 +6,10 @@
 // Marqueur fiable : tous les comptes e2e utilisent le domaine d'email
 // @e2e-chapote.fr (global-setup : e2e.setup.* / e2e.member.* ; register-perso :
 // e2e.perso.*). On supprime donc :
-//  - les organisations préfixées « E2E » OU ayant au moins un membre
-//    @e2e-chapote.fr (couvre « E2E Corp », « E2E Org … », « Espace de … »)
+//  - les organisations (équipes) préfixées « E2E » OU ayant au moins un membre
+//    @e2e-chapote.fr (couvre « E2E Corp », « E2E Org … »). Note : un compte
+//    perso ne crée plus d'org « Espace de … » — seuls les bots perso restent,
+//    purgés par leur owner @e2e-chapote.fr ci-dessous.
 //  - leurs bots (CASCADE FK → conversations/messages/leads/kb_*/tree_events/
 //    insights_reports), memberships et invitations
 //  - les utilisateurs @e2e-chapote.fr
@@ -38,6 +40,9 @@ const SQL = [
   "  SELECT id FROM organizations WHERE name LIKE 'E2E%'",
   "   OR id IN (SELECT organization_id FROM memberships WHERE user_id IN (SELECT id FROM _e2e_users));",
   "DELETE FROM bots        WHERE organization_id IN (SELECT id FROM _e2e_orgs);",
+  // Bots PERSO (organization_id NULL) appartenant à un user e2e — sinon la FK
+  // bots.owner_user_id (NO ACTION) bloquerait la suppression du user.
+  "DELETE FROM bots        WHERE owner_user_id IN (SELECT id FROM _e2e_users);",
   "DELETE FROM memberships WHERE organization_id IN (SELECT id FROM _e2e_orgs) OR user_id IN (SELECT id FROM _e2e_users);",
   "DELETE FROM invitations WHERE organization_id IN (SELECT id FROM _e2e_orgs);",
   "DELETE FROM organizations WHERE id IN (SELECT id FROM _e2e_orgs);",

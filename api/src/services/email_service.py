@@ -52,9 +52,18 @@ async def send_email(to: list[str], subject: str, body: str) -> bool:
 
 
 async def lead_notification_recipients(db, bot) -> list[str]:
-    """Emails des admins de l'org du bot (max 5). A appeler AVANT le
-    create_task : la tache de fond ne doit jamais toucher la session db."""
+    """Destinataires des notifications (leads, handoff, tickets) du bot, max 5.
+
+    - Bot d'EQUIPE (organization_id) : emails des admins de l'org.
+    - Bot PERSO (owner_user_id, pas d'org) : l'email du proprietaire.
+
+    A appeler AVANT le create_task : la tache de fond ne doit jamais toucher la
+    session db."""
     from src.models.user import Membership, User
+
+    if bot.owner_user_id is not None:
+        owner = await db.get(User, bot.owner_user_id)
+        return [owner.email] if owner else []
 
     result = await db.execute(
         select(User.email)

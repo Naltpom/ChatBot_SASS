@@ -54,18 +54,18 @@ export async function devLoginToken(request: APIRequestContext, apiUrl: string):
   return (await res.json()).access_token
 }
 
-// Org jetable (POST /api/orgs, non rate-limité, « tout ouvert ») au nom du compte
-// principal du state. Préfixer les noms par « E2E » (pas de DELETE /orgs :
+// Équipe jetable (POST /api/orgs, non rate-limité, « tout ouvert ») au nom du
+// compte principal du state. Une organisation = une ÉQUIPE (plus de notion de
+// type perso/entreprise). Préfixer les noms par « E2E » (pas de DELETE /orgs :
 // accumulation en DB dev acceptée, reset via docker compose down -v).
 export async function createOrg(
   request: APIRequestContext,
   state: E2EState,
   name: string,
-  type: 'perso' | 'entreprise' = 'entreprise',
 ): Promise<{ id: number; name: string }> {
   const res = await request.post(`${state.apiUrl}/api/orgs`, {
     headers: authHeaders(state.token),
-    data: { name, type },
+    data: { name },
   })
   if (!res.ok()) {
     throw new Error(`POST /api/orgs (${name}) : HTTP ${res.status()} ${await res.text().catch(() => '')}`)
@@ -105,6 +105,35 @@ export async function createBot(
     throw new Error(`PATCH /api/bots/${bot.id} (${opts.name}) : HTTP ${patched.status()} ${await patched.text().catch(() => '')}`)
   }
   return { id: bot.id, publicKey: bot.public_key }
+}
+
+// Bot PERSO jetable : POST /api/bots (appartient directement au compte du
+// state, aucune org). Renvoie le BotOut brut (scope='personal',
+// organization_id=null, owner_user_id=moi) pour que les specs assertent
+// l'appartenance. PATCH léger derrière (captcha off, localhost) comme createBot
+// pour rester utilisable côté widget.
+export async function createPersonalBot(
+  request: APIRequestContext,
+  state: E2EState,
+  opts: { name: string; mode?: 'tree' | 'hybrid' },
+): Promise<{ bot: any; publicKey: string }> {
+  const headers = authHeaders(state.token)
+  const created = await request.post(`${state.apiUrl}/api/bots`, {
+    headers,
+    data: { name: opts.name, mode: opts.mode ?? 'tree' },
+  })
+  if (!created.ok()) {
+    throw new Error(`POST /api/bots (${opts.name}) : HTTP ${created.status()} ${await created.text().catch(() => '')}`)
+  }
+  const bot = await created.json()
+  const patched = await request.patch(`${state.apiUrl}/api/bots/${bot.id}`, {
+    headers,
+    data: { captcha_provider: 'disabled', allowed_domains: ['localhost'] },
+  })
+  if (!patched.ok()) {
+    throw new Error(`PATCH /api/bots/${bot.id} (${opts.name}) : HTTP ${patched.status()} ${await patched.text().catch(() => '')}`)
+  }
+  return { bot, publicKey: bot.public_key }
 }
 
 // Suppression d'un bot jetable (afterAll des specs des lots v4) : DELETE

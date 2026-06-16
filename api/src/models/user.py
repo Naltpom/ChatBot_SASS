@@ -1,7 +1,8 @@
 """Multi-tenant : User (personne) <-> Organization (client SaaS) via Membership.
 
-Une personne peut appartenir a PLUSIEURS organisations. Une organisation est de
-type "perso" (une seule personne, meme architecture) ou "entreprise" (equipe).
+Une personne peut appartenir a PLUSIEURS organisations. Une organisation est
+toujours une equipe (la notion de type « perso » a disparu : un bot perso
+appartient directement a un user via Bot.owner_user_id, sans org).
 Roles : admin (tout gerer) / member (permissions fines PAR BOT : copy, test,
 appearance, context, security, inbox). Les superadmins (staff) voient tout.
 
@@ -50,7 +51,6 @@ class Organization(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    type = Column(String, default="entreprise", nullable=False)  # perso | entreprise
     is_active = Column(Boolean, default=True, nullable=False)
     # --- Stripe (facturation) ---
     stripe_customer_id = Column(String, nullable=True, index=True)   # cus_... (lookup webhook)
@@ -107,7 +107,6 @@ class UserLogin(BaseModel):
 class OrgOut(BaseModel):
     id: int
     name: str
-    type: str = "entreprise"
     role: str = "member"                       # role du user courant
     permissions: dict[str, Any] = {}           # ses permissions par bot (member)
 

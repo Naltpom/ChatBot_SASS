@@ -126,11 +126,11 @@ export default function Analytics() {
       <Card style={{ textAlign: 'center', padding: '44px 24px' }}>
         <div className="col" style={{ alignItems: 'center', gap: 10 }}>
           <Building2 size={24} style={{ color: 'var(--faint)' }} />
-          <div style={{ fontSize: 15, fontWeight: 800 }}>Vous n'appartenez à aucune organisation</div>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>Aucune équipe active</div>
           <div style={{ fontSize: 12.5, color: 'var(--mut)', maxWidth: 400, lineHeight: 1.55 }}>
-            Rejoignez ou créez une organisation pour suivre les statistiques de vos chatbots.
+            Sélectionnez une équipe pour suivre les statistiques de ses chatbots.
           </div>
-          <Btn onClick={() => navigate('/app/orgs')}>Mes organisations</Btn>
+          <Btn onClick={() => navigate('/app/orgs')}>Mes équipes</Btn>
         </div>
       </Card>
     )

@@ -142,7 +142,6 @@ async def list_organizations(db: AsyncSession = Depends(get_db)):
         out.append({
             "id": org.id,
             "name": org.name,
-            "type": org.type,
             "is_active": org.is_active,
             "created_at": org.created_at.isoformat(),
             "contact": owners.get(org.id),

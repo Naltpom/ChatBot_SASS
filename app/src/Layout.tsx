@@ -20,27 +20,41 @@ function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | 
     return () => document.removeEventListener('mousedown', close)
   }, [])
 
-  if (!current) return null
+  // Aucune équipe (compte solo) : encart « Perso » non cliquable. La création
+  // de bot perso ne dépend pas d'une équipe active.
+  if (orgs.length === 0) {
+    return (
+      <div className="orgsw">
+        <div className="orgsw-btn" style={{ cursor: 'default' }}>
+          <span className="org-avatar" style={{ background: 'var(--acc-soft)', color: 'var(--mint)' }}>P</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span className="orgsw-name">Espace perso</span>
+            <span className="orgsw-sub">Aucune équipe</span>
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div ref={ref} className="orgsw">
       <button className="orgsw-btn" onClick={() => setOpen(o => !o)}>
-        <span className="org-avatar" style={{ background: orgColor(current.name) }}>{orgInitials(current.name)}</span>
+        <span className="org-avatar" style={{ background: orgColor(current?.name || '') }}>{orgInitials(current?.name || '?')}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
-          <span className="orgsw-name">{current.name}</span>
-          <span className="orgsw-sub">{current.type === 'perso' ? 'Personnel' : 'Entreprise'}</span>
+          <span className="orgsw-name">{current?.name || 'Choisir une équipe'}</span>
+          <span className="orgsw-sub">Équipe active</span>
         </span>
         <ChevronDown size={12} style={{ color: 'var(--faint)', flexShrink: 0 }} />
       </button>
       {open && (
         <div className="orgsw-menu">
-          <div className="orgsw-menu-title">Vos organisations</div>
+          <div className="orgsw-menu-title">Vos équipes</div>
           {orgs.map(o => (
-            <button key={o.id} className={`orgsw-item ${o.id === current.id ? 'current' : ''}`}
+            <button key={o.id} className={`orgsw-item ${o.id === current?.id ? 'current' : ''}`}
                     onClick={() => { onSwitch(o); setOpen(false) }}>
               <span className="org-avatar" style={{ background: orgColor(o.name) }}>{orgInitials(o.name)}</span>
               <span className="nm">{o.name}</span>
-              {o.id === current.id && <Check size={12} className="ck" />}
+              {o.id === current?.id && <Check size={12} className="ck" />}
             </button>
           ))}
         </div>
@@ -97,7 +111,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </Link>
 
-        {!inAdmin && user && user.organizations.length > 0 && (
+        {!inAdmin && user && (
           <OrgSwitcher orgs={user.organizations} current={activeOrg}
                        onSwitch={o => { setActiveOrg(o); navigate('/app') }} />
         )}
@@ -105,30 +119,31 @@ export default function Layout({ children }: { children: ReactNode }) {
         <nav className="col" style={{ gap: 4 }}>
           {!inAdmin && (
             <>
-              {user && user.organizations.length > 0 && (
-                <>
-                  <button className={`nav-item ${path === '/app' || path.startsWith('/app/bots') ? 'active' : ''}`}
-                          onClick={() => navigate('/app')}>
-                    <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
-                  </button>
-                  <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
-                          onClick={() => navigate('/app/analytics')}>
-                    <span className="nav-ico"><BarChart3 size={16} /></span>Analytics
-                  </button>
-                  <button className={`nav-item ${path.startsWith('/app/inbox') ? 'active' : ''}`}
-                          onClick={() => navigate('/app/inbox')}>
-                    <span className="nav-ico"><Inbox size={16} /></span>Inbox
-                  </button>
-                  <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
-                          onClick={() => navigate('/app/team')}>
-                    <span className="nav-ico"><Users size={16} /></span>Équipe
-                  </button>
-                  <div className="nav-divider" />
-                </>
+              {/* Toujours visibles (solo ou en équipe) : ses chatbots (perso +
+                  équipes via GET /api/bots), l'analytics et l'inbox. */}
+              <button className={`nav-item ${path === '/app' || path.startsWith('/app/bots') ? 'active' : ''}`}
+                      onClick={() => navigate('/app')}>
+                <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
+              </button>
+              <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
+                      onClick={() => navigate('/app/analytics')}>
+                <span className="nav-ico"><BarChart3 size={16} /></span>Analytics
+              </button>
+              <button className={`nav-item ${path.startsWith('/app/inbox') ? 'active' : ''}`}
+                      onClick={() => navigate('/app/inbox')}>
+                <span className="nav-ico"><Inbox size={16} /></span>Inbox
+              </button>
+              {/* Lien team-scoped : visible seulement avec une équipe active. */}
+              {activeOrg && (
+                <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
+                        onClick={() => navigate('/app/team')}>
+                  <span className="nav-ico"><Users size={16} /></span>Équipe
+                </button>
               )}
+              <div className="nav-divider" />
               <button className={`nav-item ${path.startsWith('/app/orgs') ? 'active' : ''}`}
                       onClick={() => navigate('/app/orgs')}>
-                <span className="nav-ico"><Layers size={16} /></span>Mes organisations
+                <span className="nav-ico"><Layers size={16} /></span>Mes équipes
               </button>
               <button className={`nav-item ${path.startsWith('/app/profile') ? 'active' : ''}`}
                       onClick={() => navigate('/app/profile')}>
@@ -176,7 +191,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 {user?.name}
                 {user?.is_superadmin && <ShieldCheck size={12} style={{ color: 'var(--mint)', flexShrink: 0 }} />}
               </span>
-              <span className="org">{activeOrg?.name || (inAdmin ? 'Back-office' : '')}</span>
+              <span className="org">{activeOrg?.name || (inAdmin ? 'Back-office' : 'Espace perso')}</span>
             </span>
           </button>
           <button className="sidebar-user-logout" onClick={logout} title="Déconnexion" aria-label="Déconnexion">

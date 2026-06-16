@@ -166,14 +166,14 @@ export default function Register() {
     <Shell step={0} total={totalDots} caption={stepCaption(0)} maxWidth={680}>
       <h1 style={{ fontFamily: CLASH, fontSize: 26, fontWeight: 600, textAlign: 'center', margin: '6px 0 6px' }}>Créez votre compte</h1>
       <p style={{ textAlign: 'center', color: '#6B7B8D', fontSize: 14.5, margin: '0 0 24px' }}>
-        Même produit dans les deux cas — vous pourrez passer en entreprise plus tard.
+        Même produit dans les deux cas — vous pourrez créer une équipe plus tard.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
         {[
           {
             v: 'perso' as const, icon: <UserIcon size={24} />, t: 'Personnel',
             d: 'Vous travaillez seul·e. Freelance, indépendant, side-project.',
-            pts: ['Tous les plans disponibles', "Juste vous dans l'espace", 'Convertible en entreprise'],
+            pts: ['Chatbots personnels', 'Aucune équipe à gérer', 'Créez une équipe quand vous voulez'],
           },
           {
             v: 'entreprise' as const, icon: <Building2 size={24} />, t: 'Entreprise',
@@ -214,7 +214,7 @@ export default function Register() {
       <p style={{ color: '#6B7B8D', fontSize: 14, margin: '0 0 22px', textAlign: 'center' }}>
         {type === 'entreprise'
           ? "Vous serez administrateur — vous inviterez l'équipe à l'étape suivante."
-          : 'Votre espace personnel sera créé avec vous comme administrateur.'}
+          : 'Vous pourrez créer des chatbots personnels tout de suite — une équipe n\'est pas nécessaire.'}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
         {type === 'entreprise' && (
@@ -317,7 +317,7 @@ export default function Register() {
         <p style={{ color: '#6B7B8D', fontSize: 14.5, margin: '10px auto 0', maxWidth: 400, lineHeight: 1.55 }}>
           {type === 'entreprise'
             ? <span>L'espace <strong>{form.org || 'entreprise'}</strong> est prêt{invites.length > 0 ? ` — ${invites.length} invitation${invites.length > 1 ? 's' : ''} en attente` : ''}. Configurez votre premier bot, puis récupérez votre balise dans l'onglet Intégration.</span>
-            : <span>Votre espace est prêt. Configurez votre premier bot — arbre, IA, apparence — puis récupérez votre balise dans l'onglet Intégration.</span>}
+            : <span>Votre compte est prêt. Configurez votre premier bot personnel — arbre, IA, apparence — puis récupérez votre balise dans l'onglet Intégration.</span>}
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11, marginTop: 26 }}>
           <button style={{ ...btnPrimary, padding: '15px', fontSize: 15.5 }} onClick={() => navigate('/app/bots/new')}>
