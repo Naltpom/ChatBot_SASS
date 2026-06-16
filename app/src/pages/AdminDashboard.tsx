@@ -10,7 +10,6 @@ interface AdminStats {
   orgs_total: number
   orgs_active: number
   orgs_suspended: number
-  stripe_subscriptions: number
   users_total: number
   bots_total: number
   msgs_7d: number

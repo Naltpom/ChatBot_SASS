@@ -36,7 +36,6 @@ interface Props {
   tree: any
   onChange: (tree: any) => void
   allowAI?: boolean
-  maxNodes?: number | null
 }
 
 // Couleurs (bord-gauche carte + pastille + badge) et libellés des badges.
@@ -67,7 +66,7 @@ function branchType(t: Tree, next: string): BranchType {
   return 'q'
 }
 
-export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = null }: Props) {
+export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
   const [orient, setOrient] = useState<'vert' | 'horiz'>('vert')
 
   const t = asTree(tree)
@@ -76,9 +75,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
   const root = nodes[start] || { message: '', options: [] }
   const rootOptions = root.options || []
   const welcome = root.message || ''
-
-  const nodeCount = Object.keys(nodes).length
-  const atNodeLimit = maxNodes != null && nodeCount >= maxNodes
 
   function mutate(fn: (draft: Tree) => void) {
     const copy = clone(tree)
@@ -190,7 +186,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
     })
   }
   function addBranch() {
-    if (atNodeLimit) return
     mutate(d => {
       const nd = d.nodes!
       const id = newNodeId(nd)
@@ -202,7 +197,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
 
   // ----- Sous-étapes -----
   function addSub(branchIdx: number) {
-    if (atNodeLimit) return
     mutate(d => {
       const nd = d.nodes!
       const opt = nd[start].options?.[branchIdx]
@@ -337,8 +331,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
     editorCard: { background: '#fff', border: '1px solid #E8ECF0', borderRadius: 16, padding: 24 },
     addBtn: {
       background: '#fff', color: '#1C3F5C', border: '1px dashed #CBD5DF', borderRadius: 10,
-      padding: '8px 14px', fontSize: 13.5, fontWeight: 600, cursor: atNodeLimit ? 'not-allowed' : 'pointer',
-      opacity: atNodeLimit ? .5 : 1,
+      padding: '8px 14px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
     },
     row: {
       display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const,
@@ -491,7 +484,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
           <h3 style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontWeight: 700, fontSize: 17, margin: 0 }}>
             Arbre de conversation
           </h3>
-          <button type="button" onClick={addBranch} disabled={atNodeLimit} style={S.addBtn}>+ Branche</button>
+          <button type="button" onClick={addBranch} style={S.addBtn}>+ Branche</button>
         </div>
         <p style={{ fontSize: 13, color: '#9AA7B4', margin: '0 0 16px' }}>
           Choisissez le type (couleur), l'intitulé de la réponse et sa destination : question, IA, conseiller ou action.
@@ -517,8 +510,8 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
                        disabled={b.isAI} style={{ ...S.destInput, opacity: b.isAI ? .6 : 1 }}
                        onChange={e => setBranchTitle(b.idx, e.target.value)} />
                 <button type="button" title="Ajouter une sous-étape" onClick={() => addSub(b.idx)}
-                        disabled={atNodeLimit || b.isAI}
-                        style={{ ...S.iconBtn, opacity: (atNodeLimit || b.isAI) ? .5 : 1, cursor: (atNodeLimit || b.isAI) ? 'not-allowed' : 'pointer' }}>
+                        disabled={b.isAI}
+                        style={{ ...S.iconBtn, opacity: b.isAI ? .5 : 1, cursor: b.isAI ? 'not-allowed' : 'pointer' }}>
                   +
                 </button>
                 <button type="button" onClick={() => removeBranch(b.idx)} style={S.delBtn}>✕</button>
@@ -550,11 +543,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
           ))}
         </div>
 
-        {maxNodes != null && (
-          <div style={{ fontSize: 12, color: atNodeLimit ? '#C4524A' : '#9AA7B4', marginTop: 14 }}>
-            {nodeCount} / {maxNodes} bulles{atNodeLimit ? ' — quota atteint, supprimez des branches ou passez au plan supérieur.' : ''}
-          </div>
-        )}
       </div>
     </div>
   )

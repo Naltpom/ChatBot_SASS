@@ -1,21 +1,19 @@
 // Constantes partagées — wording porté du prototype Chapote.
 
-// Modèles proposés en radio-cards (design pages-bot.jsx), avec le multiplicateur
-// de coût en crédits affiché en chip.
+// Modèles proposés en radio-cards (design pages-bot.jsx).
 export interface ModelOption {
   provider: string
   model: string
   name: string
   desc: string
-  price: string
   recommended?: boolean
 }
 
 export const MODEL_OPTIONS: ModelOption[] = [
-  { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', name: 'Claude Haiku', desc: 'Rapide et économique — FAQ simples', price: '×0,5' },
-  { provider: 'anthropic', model: 'claude-sonnet-4-6', name: 'Claude Sonnet', desc: 'Recommandé — meilleur équilibre qualité/coût', price: '×1', recommended: true },
-  { provider: 'openai', model: 'gpt-4o-mini', name: 'GPT-4o mini', desc: 'Alternative OpenAI', price: '×0,6' },
-  { provider: 'gemini', model: 'gemini-2.0-flash', name: 'Gemini Flash', desc: 'Alternative Google', price: '×0,5' },
+  { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', name: 'Claude Haiku', desc: 'Rapide et économique — FAQ simples' },
+  { provider: 'anthropic', model: 'claude-sonnet-4-6', name: 'Claude Sonnet', desc: 'Meilleur équilibre qualité/rapidité', recommended: true },
+  { provider: 'openai', model: 'gpt-4o-mini', name: 'GPT-4o mini', desc: 'Alternative OpenAI' },
+  { provider: 'gemini', model: 'gemini-2.0-flash', name: 'Gemini Flash', desc: 'Alternative Google' },
 ]
 
 export function findModelOption(provider: string, model: string) {

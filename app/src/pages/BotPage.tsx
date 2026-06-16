@@ -348,7 +348,7 @@ export default function BotPage() {
       .catch(err => setPageError(`Import échoué : ${err.message}`))
   }
 
-  // Génération d'arbre par l'IA (plans payants, treegen_limiter 10/24h/org) :
+  // Génération d'arbre par l'IA (perm contexte, treegen_limiter 10/24h/org) :
   // POST /tree/generate renvoie un tree_json NON sauvegardé → on le pose dans
   // l'arbre A local (la save bar apparaît, l'utilisateur prévisualise puis
   // enregistre). Réservée à la vue A : la variante B n'a pas de génération.
@@ -871,7 +871,7 @@ export default function BotPage() {
                         <span className="rc-name">{m.name}</span>
                         <span className="rc-desc">{m.desc}</span>
                       </span>
-                      <Chip tone={m.recommended ? 'acc' : 'mut'}>{m.price}</Chip>
+                      {m.recommended && <Chip tone="acc">Recommandé</Chip>}
                     </button>
                   )
                 })}

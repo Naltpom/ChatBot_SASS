@@ -2,7 +2,7 @@
 // au format tree_json de l'API : { start, nodes: { id: { message, options: [{label, next}] } } }.
 // Un "choix" = une option ; sa cible est un nœud (nouveau ou EXISTANT -> boucle),
 // ou "__ai__". Drag & drop natif : réordonner les bulles et les déplacer d'une
-// branche à l'autre. Génération par IA depuis un texte/URL (plans payants).
+// branche à l'autre. Génération par IA depuis un texte/URL (perm contexte).
 import { useRef, useState } from 'react'
 import { Check, Download, GripVertical, MessageSquare, Plus, Sparkles, Upload } from 'lucide-react'
 import { api } from '../api'
@@ -30,9 +30,8 @@ interface Props {
   onExport?: () => void
   onImport?: (file: File) => void
   botId?: number              // requis pour la génération IA
-  canGenerate?: boolean       // plans payants + permission contexte
-  maxNodes?: number | null    // quota de bulles du plan (null = illimité)
-  allowAI?: boolean           // false en mode arbre pur / plan free : pas d'escalade IA
+  canGenerate?: boolean       // permission contexte (génération IA)
+  allowAI?: boolean           // false en mode arbre pur : pas d'escalade IA
 }
 
 type Sel = { parent: string; idx: number } | 'welcome' | null
@@ -45,7 +44,7 @@ function newNodeId(nodes: Record<string, any>) {
   return id
 }
 
-export default function TreeBuilder({ tree, onChange, onExport, onImport, botId, canGenerate = false, maxNodes = null, allowAI = true }: Props) {
+export default function TreeBuilder({ tree, onChange, onExport, onImport, botId, canGenerate = false, allowAI = true }: Props) {
   const [sel, setSel] = useState<Sel>('welcome')
   const [dragSrc, setDragSrc] = useState<DragSrc>(null)
   const [dropHint, setDropHint] = useState<{ key: string; pos: 'before' | 'after' | 'into' } | null>(null)
@@ -60,7 +59,6 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
   const start = tree.start || 'root'
   const root = nodes[start] || { message: '', options: [] }
   const nodeCount = Object.keys(nodes).length
-  const atNodeLimit = maxNodes != null && nodeCount >= maxNodes
 
   function mutate(fn: (t: Tree) => void) {
     const copy: Tree = JSON.parse(JSON.stringify(tree))
@@ -306,7 +304,6 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
   }
 
   function addChoice(parentId: string) {
-    if (atNodeLimit) return
     mutate(t => {
       const id = newNodeId(t.nodes)
       t.nodes[id] = { message: 'Réponse à compléter…', options: [] }
@@ -433,9 +430,6 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
         sub="Le menu guidé affiché avant l'IA. Glissez-déposez les bulles pour réorganiser ou imbriquer les branches."
         right={
           <div className="row g8" style={{ flexWrap: 'wrap' }}>
-            {maxNodes != null && (
-              <Chip tone={atNodeLimit ? 'warn' : 'mut'}>{nodeCount} / {maxNodes} bulles</Chip>
-            )}
             {onExport && <Btn kind="ghost" small onClick={onExport}><Download size={13} /> Exporter JSON</Btn>}
             {onImport && (
               <>
@@ -448,13 +442,6 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
         }>
         Arbre de décision
       </SectionTitle>
-
-      {atNodeLimit && (
-        <InfoBox tone="warn" title="Quota de bulles atteint">
-          Votre plan est limité à {maxNodes} bulles. Supprimez des nœuds ou passez au plan supérieur pour
-          agrandir l'arbre.
-        </InfoBox>
-      )}
 
       <div className="grid-controls" style={{ gridTemplateColumns: '1fr 320px' }}>
         {/* Canvas */}
@@ -480,8 +467,8 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
                 <OptionCard key={i} parent={start} idx={i} depth={0} path={new Set([start])} />
               ))}
             </div>
-            <button className="tree-add-root" onClick={() => addChoice(start)} disabled={atNodeLimit}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: atNodeLimit ? .5 : 1 }}>
+            <button className="tree-add-root" onClick={() => addChoice(start)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Plus size={13} /> Ajouter un choix racine
             </button>
           </Card>
@@ -576,8 +563,7 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
               )}
               {opt.next === '__ai__' && allowAI && (
                 <InfoBox tone="warn" title="Bascule vers l'IA">
-                  Ce choix bascule la conversation en mode IA texte libre. En mode dégradé (cap budget), il
-                  affiche un message de repli à la place.
+                  Ce choix bascule la conversation en mode IA texte libre.
                 </InfoBox>
               )}
               {opt.next === '__ai__' && !allowAI && (
@@ -589,7 +575,7 @@ export default function TreeBuilder({ tree, onChange, onExport, onImport, botId,
 
               <div className="row g8" style={{ flexWrap: 'wrap' }}>
                 {opt.next !== '__ai__' && !targetIsShared && (
-                  <Btn kind="soft" small onClick={() => addChoice(opt.next)} disabled={atNodeLimit}>
+                  <Btn kind="soft" small onClick={() => addChoice(opt.next)}>
                     <Plus size={13} /> Ajouter un sous-choix
                   </Btn>
                 )}

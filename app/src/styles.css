@@ -95,21 +95,6 @@ button { font-family: inherit; }
 
 .nav-divider { height: 1px; background: var(--border); margin: 8px 6px; }
 
-/* Carte plan/crédits — fond #F9F9FB, radius 14, bordure subtile */
-.sidebar-plan {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
-  padding: 14px; margin-bottom: 14px; cursor: pointer;
-}
-.sidebar-plan-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.sidebar-plan-row .lbl { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; }
-.sidebar-plan-pill {
-  font-size: 11px; font-weight: 600; color: var(--ia);
-  background: rgba(140, 109, 255, .12); padding: 2px 8px; border-radius: 999px;
-  white-space: nowrap;
-}
-.sidebar-usage { margin-top: 8px; }
-.sidebar-usage .sub { font-size: 12px; line-height: 1.45; color: var(--mut); margin-top: 6px; }
-
 /* Bloc utilisateur — avatar navy rond 34px + nom + organisation */
 .sidebar-user { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
 .sidebar-user-main {
