@@ -22,7 +22,9 @@ interface AuthState {
 const AuthContext = createContext<AuthState>(null as any)
 
 function pickActiveOrg(user: User): Org | null {
-  const savedId = Number(localStorage.getItem('cbsaas_org') || 0)
+  // Garde SSR : pas de localStorage côté Node (prérendu). N'est de toute façon
+  // atteint que via des effets/handlers, jamais au rendu serveur.
+  const savedId = typeof window === 'undefined' ? 0 : Number(localStorage.getItem('cbsaas_org') || 0)
   return user.organizations.find(o => o.id === savedId) || user.organizations[0] || null
 }
 
@@ -43,13 +45,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           applyUser(await api<User>('/api/auth/me'))
           return
         }
-        // Auto-login admin en dev : l'endpoint n'existe qu'avec
-        // AUTO_LOGIN_ADMIN_DEV=true et ENV=dev, sinon 404 silencieux.
-        // Opt-out (tests E2E) : la clé localStorage kc_no_autologin le neutralise.
-        if (localStorage.getItem('kc_no_autologin')) return
-        const data = await api<AuthResponse>('/api/auth/dev-login', { method: 'POST' })
-        setToken(data.access_token)
-        applyUser(data.user)
+        // Auto-login admin : convenance DEV, tentée UNIQUEMENT sur un hôte LOCAL.
+        // En prod (chapote.fr) la condition est fausse à l'EXÉCUTION -> aucune
+        // requête dev-login, donc aucun 404 console (Best Practices).
+        // NB : on NE se fie PAS à import.meta.env.DEV — le build de prod sous Bun
+        // le laisse à `true` (quirk vite+bun), un test d'hôte runtime est fiable.
+        // Opt-out (tests E2E) : localStorage kc_no_autologin.
+        const host = typeof window === 'undefined' ? '' : window.location.hostname
+        if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
+          if (localStorage.getItem('kc_no_autologin')) return
+          const data = await api<AuthResponse>('/api/auth/dev-login', { method: 'POST' })
+          setToken(data.access_token)
+          applyUser(data.user)
+        }
       } catch {
         setToken(null)
       } finally {
@@ -60,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   function setActiveOrg(org: Org) {
-    localStorage.setItem('cbsaas_org', String(org.id))
+    if (typeof window !== 'undefined') localStorage.setItem('cbsaas_org', String(org.id))
     setActive(org)
   }
 

@@ -4,7 +4,6 @@ __pycache__/
 node_modules/
 dist/
 .vite/
-bun.lockb
 .DS_Store
 *.log
 .claude/settings.local.json

@@ -450,6 +450,8 @@
       "display:grid;place-items:center;flex-shrink:0;transition:background .15s}",
       ".kc-send:disabled{background:#e3e8e6;cursor:default}",
       ".kc-powered{text-align:center;font-size:10px;color:" + (dark ? "#6b7a76" : "#9aa7a3") + ";padding:0 0 7px;background:" + panelBg + "}",
+      ".kc-powered a{color:inherit;text-decoration:none}",
+      ".kc-powered a:hover{text-decoration:underline}",
       ".kc-powered b{font-weight:700;color:#0d9488}",
       // Formulaire de contact (noeud d'arbre type "lead")
       ".kc-lead{background:" + botBg + ";border:1px solid " + botBorder + ";border-radius:" + (square ? 10 : r14) + "px;padding:12px;display:flex;flex-direction:column;gap:6px;max-width:86%;box-shadow:0 1px 2px rgba(0,0,0,.04)}",
@@ -531,8 +533,23 @@
     ui.inputRow = inputRow;
 
     if (d.poweredBy !== false) {
+      // Attribution = vrai lien VISIBLE vers le site Chapote (acquisition :
+      // trafic de référence + notoriété). utm_source = domaine du site hôte
+      // pour mesurer quels clients nous envoient des visiteurs. rel nofollow +
+      // noopener : conforme aux consignes Google (lien de widget) et sûr
+      // (anti tabnabbing). Le plan gratuit garde ce lien (moteur de croissance).
       const powered = el("div", "kc-powered");
-      powered.innerHTML = t("powered_by") + " <b>Chapote</b>";
+      const a = document.createElement("a");
+      a.href = "https://chapote.fr/?utm_source=" + encodeURIComponent(location.hostname || "site")
+        + "&utm_medium=widget&utm_campaign=powered_by";
+      a.target = "_blank";
+      a.rel = "noopener nofollow";
+      // Construction DOM (pas d'innerHTML) : "Propulsé par " + <b>Chapote</b>.
+      a.appendChild(document.createTextNode(t("powered_by") + " "));
+      const brandB = document.createElement("b");
+      brandB.textContent = "Chapote";
+      a.appendChild(brandB);
+      powered.appendChild(a);
       ui.panel.appendChild(powered);
     }
     root.appendChild(ui.panel);
