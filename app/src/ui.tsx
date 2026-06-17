@@ -1,7 +1,8 @@
 // Primitives UI portées du prototype Chapote (primitives.jsx + widget.jsx).
 // Icônes : lucide-react, même librairie qu'ao_scrapping.
 import { Children, Fragment, isValidElement, ReactNode, useId } from 'react'
-import { AlertTriangle, Pause } from 'lucide-react'
+import { Pause } from 'lucide-react'
+import type { DesignJson } from './types/bot'
 
 export function Card({ children, className = '', nopad = false, style, onClick }: {
   children: ReactNode; className?: string; nopad?: boolean; style?: React.CSSProperties; onClick?: () => void
@@ -38,7 +39,8 @@ export function SectionTitle({ children, sub, right }: { children: ReactNode; su
   )
 }
 
-export type Tone = 'acc' | 'go' | 'warn' | 'danger' | 'mut' | 'info'
+// Local au module (aucun import externe) — gouverne tone/deltaTone des Chip/Stat.
+type Tone = 'acc' | 'go' | 'warn' | 'danger' | 'mut' | 'info'
 
 export function Chip({ children, tone = 'acc' }: { children: ReactNode; tone?: Tone }) {
   return <span className={`chip chip-${tone}`}>{children}</span>
@@ -145,7 +147,7 @@ export function Stat({ label, value, delta, deltaTone = 'go', sub, icon }: {
 
 export function Meter({ pct, tone = 'acc', height = 8 }: { pct: number; tone?: 'acc' | 'warn' | 'danger'; height?: number }) {
   return (
-    <div className={`meter ${tone !== 'acc' ? tone : ''} ${height === 5 ? 'h5' : height === 6 ? 'h6' : ''}`}>
+    <div className={`meter ${tone !== 'acc' ? tone : ''} ${height === 6 ? 'h6' : ''}`}>
       <div style={{ width: `${Math.min(100, pct)}%` }} />
     </div>
   )
@@ -220,9 +222,8 @@ export function BubbleIcon({ kind, size = 26, avatarImg }: { kind?: string; size
 }
 
 // ---------- Chips de statut / mode (pages-bots-list.jsx) ----------
-export function statusChip(isActive: boolean, degraded = false) {
+export function statusChip(isActive: boolean) {
   if (!isActive) return <Chip tone="mut"><Pause size={11} /> En pause</Chip>
-  if (degraded) return <Chip tone="warn"><AlertTriangle size={11} /> Dégradé</Chip>
   return <Chip tone="go">● En ligne</Chip>
 }
 
@@ -233,7 +234,7 @@ export function modeChip(mode: string) {
 }
 
 // Dégradé de marque d'un bot (design_json)
-export function brandBg(design: Record<string, any>) {
+export function brandBg(design: DesignJson | null | undefined) {
   const c1 = design?.primaryColor || '#1C3F5C'
   const c2 = design?.secondaryColor
   return c2 ? `linear-gradient(135deg, ${c1}, ${c2})` : c1

@@ -31,8 +31,8 @@ test.beforeEach(async ({ page }) => {
 
 test('les 7 onglets de l\'éditeur en mode arbre (IA et Actions masqués)', async ({ page }) => {
   const tabs = page.locator('.tabs')
-  // Bot mode arbre sur un plan non tree_only → aiTabRelevant=false : les
-  // onglets « IA » et « Actions » n'ont pas lieu d'être.
+  // Bot en mode arbre → aiTabRelevant=false : les onglets « IA » et
+  // « Actions » n'ont pas lieu d'être (ils n'apparaissent que si mode !== 'tree').
   for (const label of ['Apparence', 'Arbre', 'Humain', 'Intégration', 'Sécurité']) {
     await expect(tabs.getByRole('button', { name: label, exact: true })).toBeVisible()
   }

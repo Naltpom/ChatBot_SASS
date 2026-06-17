@@ -1,26 +1,14 @@
 // Shell sidebar — porté du prototype Chapote (sidebar 222px, logo, org
-// switcher, nav, bloc plan/crédits). Deux modes déduits du pathname :
-// /app/* = espace client (OrgSwitcher + usage), /admin/* = back-office staff.
+// switcher, nav). Deux modes déduits du pathname :
+// /app/* = espace client (OrgSwitcher), /admin/* = back-office staff.
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Bot, Building2, Check, ChevronDown, CircleUser,
-  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ReceiptText,
-  ShieldCheck, Users,
+  Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Users,
 } from 'lucide-react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
-import { api } from './api'
-import { Meter, orgColor, orgInitials } from './ui'
-import { PLAN_LABELS } from './botConstants'
-
-interface Usage {
-  plan: string
-  plan_price: number
-  ai_messages_used: number
-  ai_messages_quota: number
-  bots_used: number
-  bots_quota: number
-}
+import { orgColor, orgInitials } from './ui'
 
 function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | null; onSwitch: (o: Org) => void }) {
   const [open, setOpen] = useState(false)
@@ -32,27 +20,41 @@ function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | 
     return () => document.removeEventListener('mousedown', close)
   }, [])
 
-  if (!current) return null
+  // Aucune équipe (compte solo) : encart « Perso » non cliquable. La création
+  // de bot perso ne dépend pas d'une équipe active.
+  if (orgs.length === 0) {
+    return (
+      <div className="orgsw">
+        <div className="orgsw-btn" style={{ cursor: 'default' }}>
+          <span className="org-avatar" style={{ background: 'var(--acc-soft)', color: 'var(--mint)' }}>P</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span className="orgsw-name">Espace perso</span>
+            <span className="orgsw-sub">Aucune équipe</span>
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div ref={ref} className="orgsw">
       <button className="orgsw-btn" onClick={() => setOpen(o => !o)}>
-        <span className="org-avatar" style={{ background: orgColor(current.name) }}>{orgInitials(current.name)}</span>
+        <span className="org-avatar" style={{ background: orgColor(current?.name || '') }}>{orgInitials(current?.name || '?')}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
-          <span className="orgsw-name">{current.name}</span>
-          <span className="orgsw-sub">Plan {PLAN_LABELS[current.plan] || current.plan}</span>
+          <span className="orgsw-name">{current?.name || 'Choisir une équipe'}</span>
+          <span className="orgsw-sub">Équipe active</span>
         </span>
         <ChevronDown size={12} style={{ color: 'var(--faint)', flexShrink: 0 }} />
       </button>
       {open && (
         <div className="orgsw-menu">
-          <div className="orgsw-menu-title">Vos organisations</div>
+          <div className="orgsw-menu-title">Vos équipes</div>
           {orgs.map(o => (
-            <button key={o.id} className={`orgsw-item ${o.id === current.id ? 'current' : ''}`}
+            <button key={o.id} className={`orgsw-item ${o.id === current?.id ? 'current' : ''}`}
                     onClick={() => { onSwitch(o); setOpen(false) }}>
               <span className="org-avatar" style={{ background: orgColor(o.name) }}>{orgInitials(o.name)}</span>
               <span className="nm">{o.name}</span>
-              {o.id === current.id && <Check size={12} className="ck" />}
+              {o.id === current?.id && <Check size={12} className="ck" />}
             </button>
           ))}
         </div>
@@ -62,37 +64,29 @@ function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | 
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { user, activeOrg, setActiveOrg, logout, refreshUser } = useAuth()
-  const [usage, setUsage] = useState<Usage | null>(null)
+  const { user, activeOrg, setActiveOrg, logout } = useAuth()
   // Drawer mobile (off-canvas) — desktop n'utilise jamais cet état.
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  // Org déjà resynchronisée après un 404 (anti-boucle : une fois par org)
-  const resyncedOrgId = useRef<number | null>(null)
 
   const path = location.pathname
   const inAdmin = path.startsWith('/admin')
+  // Le wizard de création (/app/bots/new) a son propre en-tête plein écran
+  // (logo + étapes + « Quitter ») : on masque le chrome du tableau de bord
+  // (sidebar + topbar mobile) et on le rend pleine largeur, sans padding.
+  const chromeless = path === '/app/bots/new'
 
   // Fermeture auto du drawer à chaque changement de route.
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
 
-  useEffect(() => {
-    if (!activeOrg || inAdmin) return
-    api<Usage>(`/api/orgs/${activeOrg.id}/usage`)
-      .then(setUsage)
-      .catch((err: any) => {
-        setUsage(null)
-        // Membre retiré de l'org pendant sa session : l'usage renvoie 404 →
-        // on recharge /me pour retirer l'org disparue et re-sélectionner.
-        if (err?.status === 404 && resyncedOrgId.current !== activeOrg.id) {
-          resyncedOrgId.current = activeOrg.id
-          refreshUser().catch(() => {})
-        }
-      })
-  }, [activeOrg, location.pathname])
-
-  const creditsPct = usage ? Math.round((usage.ai_messages_used / Math.max(1, usage.ai_messages_quota)) * 100) : 0
+  if (chromeless) {
+    return (
+      <div className="shell">
+        <main className="main" style={{ padding: 0 }}>{children}</main>
+      </div>
+    )
+  }
 
   return (
     <div className="shell">
@@ -129,7 +123,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </Link>
 
-        {!inAdmin && user && user.organizations.length > 0 && (
+        {!inAdmin && user && (
           <OrgSwitcher orgs={user.organizations} current={activeOrg}
                        onSwitch={o => { setActiveOrg(o); navigate('/app') }} />
         )}
@@ -137,34 +131,31 @@ export default function Layout({ children }: { children: ReactNode }) {
         <nav className="col" style={{ gap: 4 }}>
           {!inAdmin && (
             <>
-              {user && user.organizations.length > 0 && (
-                <>
-                  <button className={`nav-item ${path === '/app' || path.startsWith('/app/bots') ? 'active' : ''}`}
-                          onClick={() => navigate('/app')}>
-                    <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
-                  </button>
-                  <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
-                          onClick={() => navigate('/app/analytics')}>
-                    <span className="nav-ico"><BarChart3 size={16} /></span>Analytics
-                  </button>
-                  <button className={`nav-item ${path.startsWith('/app/inbox') ? 'active' : ''}`}
-                          onClick={() => navigate('/app/inbox')}>
-                    <span className="nav-ico"><Inbox size={16} /></span>Inbox
-                  </button>
-                  <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
-                          onClick={() => navigate('/app/team')}>
-                    <span className="nav-ico"><Users size={16} /></span>Équipe
-                  </button>
-                  <button className={`nav-item ${path.startsWith('/app/billing') ? 'active' : ''}`}
-                          onClick={() => navigate('/app/billing')}>
-                    <span className="nav-ico"><CreditCard size={16} /></span>Facturation
-                  </button>
-                  <div className="nav-divider" />
-                </>
+              {/* Toujours visibles (solo ou en équipe) : ses chatbots (perso +
+                  équipes via GET /api/bots), l'analytics et l'inbox. */}
+              <button className={`nav-item ${path === '/app' || path.startsWith('/app/bots') ? 'active' : ''}`}
+                      onClick={() => navigate('/app')}>
+                <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
+              </button>
+              <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
+                      onClick={() => navigate('/app/analytics')}>
+                <span className="nav-ico"><BarChart3 size={16} /></span>Analytics
+              </button>
+              <button className={`nav-item ${path.startsWith('/app/inbox') ? 'active' : ''}`}
+                      onClick={() => navigate('/app/inbox')}>
+                <span className="nav-ico"><Inbox size={16} /></span>Inbox
+              </button>
+              {/* Lien team-scoped : visible seulement avec une équipe active. */}
+              {activeOrg && (
+                <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
+                        onClick={() => navigate('/app/team')}>
+                  <span className="nav-ico"><Users size={16} /></span>Équipe
+                </button>
               )}
+              <div className="nav-divider" />
               <button className={`nav-item ${path.startsWith('/app/orgs') ? 'active' : ''}`}
                       onClick={() => navigate('/app/orgs')}>
-                <span className="nav-ico"><Layers size={16} /></span>Mes organisations
+                <span className="nav-ico"><Layers size={16} /></span>Mes équipes
               </button>
               <button className={`nav-item ${path.startsWith('/app/profile') ? 'active' : ''}`}
                       onClick={() => navigate('/app/profile')}>
@@ -190,10 +181,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                       onClick={() => navigate('/admin/clients')}>
                 <span className="nav-ico"><Building2 size={16} /></span>Clients
               </button>
-              <button className={`nav-item ${path.startsWith('/admin/invoices') ? 'active' : ''}`}
-                      onClick={() => navigate('/admin/invoices')}>
-                <span className="nav-ico"><ReceiptText size={16} /></span>Factures
-              </button>
               <button className={`nav-item ${path.startsWith('/admin/users') ? 'active' : ''}`}
                       onClick={() => navigate('/admin/users')}>
                 <span className="nav-ico"><Users size={16} /></span>Utilisateurs
@@ -208,24 +195,6 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <div style={{ flex: 1 }} />
 
-        {!inAdmin && usage && (
-          <div className="sidebar-plan" role="button" tabIndex={0} title="Gérer la facturation"
-               onClick={() => navigate('/app/billing')}
-               onKeyDown={e => e.key === 'Enter' && navigate('/app/billing')}>
-            <div className="sidebar-plan-row">
-              <span className="lbl">Plan {PLAN_LABELS[usage.plan] || usage.plan}</span>
-              <span className="sidebar-plan-pill">{usage.bots_used}/{usage.bots_quota} bots</span>
-            </div>
-            <div className="sidebar-usage">
-              <Meter pct={creditsPct} tone={creditsPct > 95 ? 'danger' : creditsPct > 70 ? 'warn' : 'acc'} height={5} />
-              <div className="sub">
-                {usage.ai_messages_used.toLocaleString('fr-FR')} / {usage.ai_messages_quota.toLocaleString('fr-FR')} crédits IA
-                · {usage.plan_price} €/mois
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="sidebar-user">
           <button className="sidebar-user-main" onClick={() => navigate('/app/profile')} title="Mon profil">
             <span className="sidebar-user-avatar" aria-hidden="true">{orgInitials(user?.name || '?')}</span>
@@ -234,7 +203,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 {user?.name}
                 {user?.is_superadmin && <ShieldCheck size={12} style={{ color: 'var(--mint)', flexShrink: 0 }} />}
               </span>
-              <span className="org">{activeOrg?.name || (inAdmin ? 'Back-office' : '')}</span>
+              <span className="org">{activeOrg?.name || (inAdmin ? 'Back-office' : 'Espace perso')}</span>
             </span>
           </button>
           <button className="sidebar-user-logout" onClick={logout} title="Déconnexion" aria-label="Déconnexion">

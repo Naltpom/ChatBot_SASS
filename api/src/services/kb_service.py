@@ -20,6 +20,8 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import AsyncSessionLocal
 from src.models.kb import KbChunk, KbSource
@@ -145,9 +147,68 @@ def pdf_to_text(data: bytes) -> tuple[str, int]:
         reader = PdfReader(BytesIO(data))
         pages = reader.pages[:MAX_PDF_PAGES]
         parts = [(page.extract_text() or "") for page in pages]
-    except Exception:
+    except Exception as exc:
+        # pypdf leve des sous-classes maison (PdfReadError) ET des erreurs
+        # bas-niveau (struct/zlib) : on ne peut pas les enumerer -> on garde un
+        # except large mais on loggue la cause reelle avant de masquer en FR
+        logger.warning("KB PDF illisible : %s", exc)
         raise FetchError("PDF illisible")
     return "\n\n".join(parts), len(pages)
+
+
+async def _resolve_sitemap_page_urls(source: KbSource) -> list[str]:
+    """URLs de pages HTML d'un sitemap (gere l'INDEX WordPress/Yoast : recursion
+    d'UN seul niveau, cap global MAX_SITEMAP_PAGES). Leve FetchError si le
+    sitemap racine est inaccessible ; les sous-sitemaps/pages en echec sont
+    seulement logges (n'invalident pas le sitemap entier)."""
+    try:
+        xml_content = await safe_get(source.ref, MAX_FETCH_BYTES)
+    except FetchError as exc:
+        raise FetchError(f"Sitemap inaccessible : {exc}")
+    is_index, urls = parse_sitemap_urls(xml_content, source.ref)
+    if not is_index:
+        return urls
+    # Sitemap INDEX : chaque sous-sitemap repasse par safe_get, un index
+    # imbrique est ignore, cap global MAX_SITEMAP_PAGES conserve.
+    page_urls: list[str] = []
+    for sub_url in urls:
+        if len(page_urls) >= MAX_SITEMAP_PAGES:
+            break
+        try:
+            sub_xml = await safe_get(sub_url, MAX_FETCH_BYTES)
+        except FetchError:
+            logger.warning("KB sitemap %s : sous-sitemap %s ignoré", source.id, sub_url)
+            continue
+        sub_is_index, sub_urls = parse_sitemap_urls(sub_xml, sub_url)
+        if sub_is_index:
+            continue
+        for page_url in sub_urls:
+            if page_url not in page_urls:
+                page_urls.append(page_url)
+            if len(page_urls) >= MAX_SITEMAP_PAGES:
+                break
+    return page_urls
+
+
+async def _extract_sitemap(source: KbSource) -> list[tuple[str, Optional[str]]]:
+    """Liste de (texte de page, url) d'un sitemap. Leve FetchError si le sitemap
+    est vide/invalide ou si aucune page n'a pu etre lue."""
+    urls = await _resolve_sitemap_page_urls(source)
+    if not urls:
+        raise FetchError("Sitemap invalide ou vide")
+    results: list[tuple[str, Optional[str]]] = []
+    for url in urls:
+        # chaque page repasse par safe_get (re-validation IP) ; une page
+        # en echec n'invalide pas le sitemap entier
+        try:
+            page = await safe_get(url, MAX_FETCH_BYTES)
+        except FetchError:
+            logger.warning("KB sitemap %s : page %s ignorée", source.id, url)
+            continue
+        results.append((html_to_text(page), url))
+    if not results:
+        raise FetchError("Sitemap invalide ou vide")
+    return results
 
 
 async def _extract(source: KbSource, text_content: Optional[str],
@@ -168,52 +229,28 @@ async def _extract(source: KbSource, text_content: Optional[str],
             raise FetchError(f"Page inaccessible : {exc}")
         return [(html_to_text(page), None)], 1
     if source.type == "sitemap":
-        try:
-            xml_content = await safe_get(source.ref, MAX_FETCH_BYTES)
-        except FetchError as exc:
-            raise FetchError(f"Sitemap inaccessible : {exc}")
-        is_index, urls = parse_sitemap_urls(xml_content, source.ref)
-        if is_index:
-            # Sitemap INDEX (defaut WordPress/Yoast) : recursion d'UN seul
-            # niveau — chaque sous-sitemap repasse par safe_get, un index
-            # imbrique est ignore, cap global MAX_SITEMAP_PAGES conserve.
-            page_urls: list[str] = []
-            for sub_url in urls:
-                if len(page_urls) >= MAX_SITEMAP_PAGES:
-                    break
-                try:
-                    sub_xml = await safe_get(sub_url, MAX_FETCH_BYTES)
-                except FetchError:
-                    logger.warning("KB sitemap %s : sous-sitemap %s ignoré", source.id, sub_url)
-                    continue
-                sub_is_index, sub_urls = parse_sitemap_urls(sub_xml, sub_url)
-                if sub_is_index:
-                    continue
-                for page_url in sub_urls:
-                    if page_url not in page_urls:
-                        page_urls.append(page_url)
-                    if len(page_urls) >= MAX_SITEMAP_PAGES:
-                        break
-            urls = page_urls
-        if not urls:
-            raise FetchError("Sitemap invalide ou vide")
-        results: list[tuple[str, Optional[str]]] = []
-        for url in urls:
-            # chaque page repasse par safe_get (re-validation IP) ; une page
-            # en echec n'invalide pas le sitemap entier
-            try:
-                page = await safe_get(url, MAX_FETCH_BYTES)
-            except FetchError:
-                logger.warning("KB sitemap %s : page %s ignorée", source.id, url)
-                continue
-            results.append((html_to_text(page), url))
-        if not results:
-            raise FetchError("Sitemap invalide ou vide")
+        results = await _extract_sitemap(source)
         return results, len(results)
     raise FetchError("Type de source inconnu")
 
 
 # --- Ingestion (tache de fond) ---
+
+def _build_rows(source_id: int, bot_id: int,
+                pieces: list[tuple[str, Optional[str]]],
+                vectors: Optional[list[list[float]]]) -> list[dict]:
+    """Lignes a INSERT (une par chunk) : embedding au format pgvector texte si
+    le modele etait disponible, sinon None (degradation FTS seule). Pur (pas
+    d'I/O) : separe le mapping ORM/SQL de l'orchestration d'ingestion."""
+    return [
+        {
+            "s": source_id, "b": bot_id, "i": index,
+            "c": piece, "p": page_url,
+            "e": to_pgvector(vectors[index]) if vectors else None,
+        }
+        for index, (piece, page_url) in enumerate(pieces)
+    ]
+
 
 async def ingest_source(source_id: int, *, text_content: Optional[str] = None,
                         pdf_bytes: Optional[bytes] = None) -> None:
@@ -267,14 +304,7 @@ async def ingest_source(source_id: int, *, text_content: Optional[str] = None,
                 logger.warning("KB source %s : embeddings indisponibles, indexation FTS seule",
                                source_id)
 
-            rows = [
-                {
-                    "s": source_id, "b": source.bot_id, "i": index,
-                    "c": piece, "p": page_url,
-                    "e": to_pgvector(vectors[index]) if vectors else None,
-                }
-                for index, (piece, page_url) in enumerate(pieces)
-            ]
+            rows = _build_rows(source_id, source.bot_id, pieces, vectors)
             # SQL textuel : CAST(:e AS vector) evite tout binding de type
             # vector cote ORM/asyncpg ; tsv = colonne generee (rien a fournir)
             await db.execute(text(
@@ -287,10 +317,13 @@ async def ingest_source(source_id: int, *, text_content: Optional[str] = None,
             source.chunk_count = len(rows)
             source.page_count = page_count
             await db.commit()
-        except Exception:
-            # Source supprimee pendant l'ingestion (FK violee) ou imprevu :
-            # rollback puis statut error si la source existe encore
-            logger.exception("KB source %s : erreur interne d'ingestion", source_id)
+        except Exception as exc:
+            # Cas attendu : source supprimee pendant l'ingestion -> FK violee
+            # (IntegrityError, sous-classe de SQLAlchemyError). Filet de
+            # securite large conserve (la tache de fond ne doit JAMAIS laisser
+            # le statut bloque sur 'processing'), mais on loggue le type reel.
+            kind = "SQL" if isinstance(exc, SQLAlchemyError) else type(exc).__name__
+            logger.exception("KB source %s : erreur interne d'ingestion (%s)", source_id, kind)
             await db.rollback()
             source = await db.get(KbSource, source_id)
             if source is not None:
@@ -316,7 +349,8 @@ LIMIT 10
 """)
 
 
-async def search_chunks(db, bot_id: int, query: str, k: int = 5) -> tuple[str, list[dict]]:
+async def search_chunks(db: AsyncSession, bot_id: int, query: str,
+                        k: int = 5) -> tuple[str, list[dict]]:
     """(mode, resultats) : mode 'hybrid' (vecteur + FTS, fusion RRF) ou 'fts'
     (modele d'embeddings indisponible). Resultats tries par score RRF
     decroissant puis id croissant (determinisme), top k."""

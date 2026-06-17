@@ -6,7 +6,7 @@ L'ingestion part en tache de fond (asyncio.create_task) : la requete repond
 immediatement avec status='pending', le front poll GET /kb/sources.
 """
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Coroutine
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
@@ -14,10 +14,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
+from src.core.time import utcnow
 from src.core.security import get_current_user
 from src.models.kb import KbSearchRequest, KbSource, KbSourceCreate, KbSourceOut
 from src.models.user import User
-from src.routers.bots import _check_bot_perm, _get_accessible_bot
+from src.routers.bots_helpers import _check_bot_perm, _get_accessible_bot
 from src.services.kb_service import (
     MAX_PDF_BYTES,
     MAX_SOURCES_PER_BOT,
@@ -137,7 +138,7 @@ async def list_sources(
         select(KbSource).where(KbSource.bot_id == bot.id)
         .order_by(KbSource.created_at.desc(), KbSource.id.desc())
     )).scalars().all()
-    cutoff = datetime.utcnow() - timedelta(minutes=STALE_PENDING_MINUTES)
+    cutoff = utcnow() - timedelta(minutes=STALE_PENDING_MINUTES)
     stale = [r for r in rows if r.status == "pending" and r.created_at < cutoff]
     if stale:
         for row in stale:

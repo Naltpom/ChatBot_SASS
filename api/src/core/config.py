@@ -1,5 +1,4 @@
-from pydantic_settings import BaseSettings
-from typing import Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -16,19 +15,19 @@ class Settings(BaseSettings):
     # Fernet : chiffre les secrets clients en base (BYOK, secret reCAPTCHA).
     # Vide en dev -> une cle ephemere est generee au demarrage (les secrets
     # stockes deviennent illisibles au restart, acceptable en dev uniquement).
-    ENCRYPTION_KEY: Optional[str] = None
+    ENCRYPTION_KEY: str | None = None
 
     # Cles "managed" : utilisees quand le bot est en api_key_mode=managed
-    ANTHROPIC_API_KEY: Optional[str] = None
-    OPENAI_API_KEY: Optional[str] = None
-    GEMINI_API_KEY: Optional[str] = None
+    ANTHROPIC_API_KEY: str | None = None
+    OPENAI_API_KEY: str | None = None
+    GEMINI_API_KEY: str | None = None
 
     # true = aucune API IA appelee, reponses simulees (dev / demo)
     MOCK_AI: bool = True
 
-    # Turnstile par defaut (nos cles, incluses dans les plans)
-    TURNSTILE_SITE_KEY: Optional[str] = None
-    TURNSTILE_SECRET_KEY: Optional[str] = None
+    # Turnstile par defaut (nos cles)
+    TURNSTILE_SITE_KEY: str | None = None
+    TURNSTILE_SECRET_KEY: str | None = None
 
     # --- Auth intranet (meme flux qu'ao_scrapping) ---
     # Les comptes @kertios.com authentifies via l'intranet deviennent
@@ -52,7 +51,7 @@ class Settings(BaseSettings):
 
     # Redis : backend partage des rate-limiters (prerequis multi-worker).
     # Vide = limiteurs en memoire process -> 1 seul worker uvicorn obligatoire.
-    REDIS_URL: Optional[str] = None
+    REDIS_URL: str | None = None
 
     # --- Embeddings locaux (RAG base de connaissances) ---
     # Modele fastembed ONNX (CPU), multilingue, 384 dims = vector(384) en base.
@@ -67,19 +66,21 @@ class Settings(BaseSettings):
     # --- SMTP (notification email des leads). SMTP_HOST absent => fallback
     # log, l'envoi n'est jamais bloquant. Noms prefixes SMTP_ (le piege
     # $USER/$PASSWORD sous Linux est ainsi evite).
-    SMTP_HOST: Optional[str] = None
+    SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
-    SMTP_USER: Optional[str] = None
-    SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM: Optional[str] = None
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM: str | None = None
 
-    # --- Stripe (facturation self-serve). TOUTES vides => billing desactive :
-    # changement de plan immediat, garde-fous conserves (comportement historique).
-    STRIPE_SECRET_KEY: Optional[str] = None
-    STRIPE_WEBHOOK_SECRET: Optional[str] = None
-    STRIPE_PRICE_STARTER: Optional[str] = None
-    STRIPE_PRICE_PRO: Optional[str] = None
-    STRIPE_PRICE_AGENCE: Optional[str] = None
+    # --- Stripe (facturation DORMANTE). L'application est actuellement 100 %
+    # gratuite : AUCUNE route ne consomme ces settings. Le provider Stripe est
+    # conserve pour un futur modele de tarification. TOUTES vides en dev/prod
+    # actuelle => billing desactive.
+    STRIPE_SECRET_KEY: str | None = None
+    STRIPE_WEBHOOK_SECRET: str | None = None
+    STRIPE_PRICE_STARTER: str | None = None
+    STRIPE_PRICE_PRO: str | None = None
+    STRIPE_PRICE_AGENCE: str | None = None
 
     # Garde-fous widget
     MAX_MESSAGE_CHARS: int = 4000
@@ -103,8 +104,10 @@ class Settings(BaseSettings):
                 "JWT_SECRET_KEY/ENCRYPTION_KEY doivent être définies en production "
                 "(secret JWT par défaut ou clé de chiffrement absente)"
             )
-        # Stripe : tout-ou-rien. Une config partielle donnerait un billing
-        # semi-actif silencieux (ex : checkout sans webhook -> plan jamais applique).
+        # Stripe : tout-ou-rien. Billing actuellement DORMANT (aucune route ne
+        # l'utilise), mais on conserve ce garde-fou pour le futur modele de
+        # tarification : une config partielle donnerait un billing semi-actif
+        # silencieux (ex : checkout sans webhook -> changement jamais applique).
         stripe_vars = {
             "STRIPE_SECRET_KEY": self.STRIPE_SECRET_KEY,
             "STRIPE_WEBHOOK_SECRET": self.STRIPE_WEBHOOK_SECRET,
@@ -119,9 +122,10 @@ class Settings(BaseSettings):
                 "variables manquantes : " + ", ".join(missing)
             )
 
-    class Config:
-        env_file = ".env"
-        extra = "allow"
+    # extra="ignore" : une variable d'env inconnue (typo) est silencieusement
+    # ignoree plutot que d'etre absorbee en attribut fantome ("allow"), ce qui
+    # masquait les fautes de frappe de config.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

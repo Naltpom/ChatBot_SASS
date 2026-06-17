@@ -5,8 +5,10 @@
 // setError de la save bar.
 import { useEffect, useRef, useState } from 'react'
 import { Send, ThumbsDown, ThumbsUp } from 'lucide-react'
-import { api } from '../api'
+import { ApiError, api } from '../api'
 import { Btn, Card, Chip, SectionTitle, Seg } from '../ui'
+import { errMsg } from '../utils/errors'
+import { minutesSince, pathnameOf, timeAgo } from '../utils/time'
 
 interface LastMessage { role: string; source: string; content: string; created_at: string }
 
@@ -46,17 +48,6 @@ const FILTERS = [
   { value: 'closed', label: 'Clôturées' },
 ]
 
-function minutesSince(iso: string) {
-  return Math.max(0, Math.round((Date.now() - new Date(iso + 'Z').getTime()) / 60000))
-}
-
-function timeAgo(iso: string) {
-  const mins = minutesSince(iso)
-  if (mins < 60) return `il y a ${mins} min`
-  if (mins < 60 * 24) return `il y a ${Math.round(mins / 60)} h`
-  return `il y a ${Math.round(mins / 1440)} j`
-}
-
 function statusChipOf(status: string) {
   if (status === 'human_requested') return <Chip tone="warn">À prendre</Chip>
   if (status === 'human') return <Chip tone="acc">En cours</Chip>
@@ -68,11 +59,6 @@ function msgPrefix(m: LastMessage) {
   if (m.role === 'user') return 'Visiteur : '
   if (m.source === 'human') return 'Conseiller : '
   return 'Bot : '
-}
-
-function pathnameOf(url: string | null) {
-  if (!url) return ''
-  try { return new URL(url).pathname } catch { return url }
 }
 
 export default function InboxPanel({ botId, onPending }: { botId: number; onPending?: (n: number) => void }) {
@@ -93,7 +79,8 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
   async function loadList(silent: boolean) {
     try {
       // « Toutes » = paramètre status OMIS (status= vide → 422 « Statut inconnu »)
-      const d = await api(`/api/bots/${botId}/conversations?${filter ? `status=${filter}&` : ''}limit=50`)
+      const d = await api<{ conversations: ConvSummary[]; total: number }>(
+        `/api/bots/${botId}/conversations?${filter ? `status=${filter}&` : ''}limit=50`)
       setConvs(d.conversations)
       setListError('')
       // Pastille « à prendre » : TOUJOURS un total exact côté serveur — jamais
@@ -104,21 +91,21 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
       } else if (filter === '') {
         // Filtre « Toutes » : requête de comptage dédiée (limit=1, on ne lit
         // que total) pour garder l'affinage 5 s. Échec silencieux.
-        api(`/api/bots/${botId}/conversations?status=human_requested&limit=1`)
-          .then((dd: any) => onPending?.(dd.total))
+        api<{ total: number }>(`/api/bots/${botId}/conversations?status=human_requested&limit=1`)
+          .then(dd => onPending?.(dd.total))
           .catch(() => {})
       }
-    } catch (err: any) {
-      if (!silent) setListError(err.message)
+    } catch (err) {
+      if (!silent) setListError(errMsg(err))
     }
   }
 
   async function loadTranscript(cid: string, silent: boolean) {
     try {
-      const d = await api(`/api/bots/${botId}/conversations/${cid}`)
+      const d = await api<Transcript>(`/api/bots/${botId}/conversations/${cid}`)
       if (selRef.current === cid) setTranscript(d)
-    } catch (err: any) {
-      if (!silent) setActionError(err.message)
+    } catch (err) {
+      if (!silent) setActionError(errMsg(err))
     }
   }
 
@@ -169,9 +156,9 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
       await api(`/api/bots/${botId}/conversations/${selectedId}/${verb}`, { method: 'POST' })
       await loadTranscript(selectedId, false)
       loadList(true)
-    } catch (err: any) {
-      setActionError(err.message)
-      if (err.status === 409) resync()
+    } catch (err) {
+      setActionError(errMsg(err))
+      if (err instanceof ApiError && err.status === 409) resync()
     } finally {
       setBusy(false)
     }
@@ -187,9 +174,9 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
       setReply('')
       await loadTranscript(selectedId, false)
       loadList(true)
-    } catch (err: any) {
-      setActionError(err.message)
-      if (err.status === 409) resync()
+    } catch (err) {
+      setActionError(errMsg(err))
+      if (err instanceof ApiError && err.status === 409) resync()
     } finally {
       setBusy(false)
     }

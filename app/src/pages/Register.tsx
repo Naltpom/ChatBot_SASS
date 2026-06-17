@@ -2,42 +2,20 @@
 // Conserve la fonctionnalité réelle : type perso/entreprise, invitations
 // d'équipe (entreprise), register(RegisterPayload). L'étape de succès propose
 // « Configurer mon premier bot » (→ /app/bots/new), comme demandé.
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Building2, Check, User as UserIcon, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
+import { useIsMobile } from '../hooks/useMediaQuery'
+import { errMsg } from '../utils/errors'
+import HatIcon from '../components/HatIcon'
 
 interface Invite { email: string; role: 'admin' | 'member' }
-
-// Responsive mobile : breakpoint contenu <=760px (cartes/grilles empilées,
-// paddings réduits). matchMedia + listener resize — media queries impossibles
-// en styles inline. SSR-safe (window peut être absent au 1er rendu).
-function useIsMobile(maxWidth = 760): boolean {
-  const query = `(max-width:${maxWidth}px)`
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
-  )
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const mql = window.matchMedia(query)
-    const onChange = () => setIsMobile(mql.matches)
-    onChange()
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [query])
-  return isMobile
-}
+interface RegisterForm { prenom: string; nom: string; email: string; pwd: string; org: string }
 
 const CLASH = "'Clash Display',sans-serif"
 const NAVY = '#1C3F5C'
 const MINT = '#2F9E79'
-
-const HatIcon = ({ size = 19, color = '#fff' }: { size?: number; color?: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
-    <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
 
 const inputStyle: React.CSSProperties = {
   width: '100%', height: 46, border: '1px solid #D8DEE6', borderRadius: 12,
@@ -68,7 +46,7 @@ function StepDot({ on, n }: { on: boolean; n: number }) {
 function Shell({ children, step, total, caption, maxWidth = 560 }: {
   children: React.ReactNode; step?: number; total?: number; caption?: string; maxWidth?: number
 }) {
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(760)
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -81,7 +59,7 @@ function Shell({ children, step, total, caption, maxWidth = 560 }: {
         padding: isMobile ? '26px 20px 24px' : '40px 40px 36px',
       }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, textDecoration: 'none' }}>
-          <span style={{ width: 34, height: 34, borderRadius: 10, background: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon /></span>
+          <span style={{ width: 34, height: 34, borderRadius: 10, background: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon size={19} color="#fff" /></span>
           <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 20, color: '#1E2A32' }}>Chapote</span>
         </Link>
         {step != null && total != null && (
@@ -110,17 +88,17 @@ function Shell({ children, step, total, caption, maxWidth = 560 }: {
 export default function Register() {
   const { register } = useAuth()
   const navigate = useNavigate()
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(760)
 
   const [step, setStep] = useState(0)
   const [type, setType] = useState<'perso' | 'entreprise' | null>(null)
-  const [form, setForm] = useState({ prenom: '', nom: '', email: '', pwd: '', org: '' })
+  const [form, setForm] = useState<RegisterForm>({ prenom: '', nom: '', email: '', pwd: '', org: '' })
   const [invites, setInvites] = useState<Invite[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+  const set = (k: keyof RegisterForm, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   // Stepper (dots numérotés, façon template) : on compte le choix du type, les
   // informations, [l'invitation équipe] puis l'écran « C'est prêt ! ».
@@ -150,8 +128,8 @@ export default function Register() {
         invites: type === 'entreprise' ? invites : [],
       })
       setStep(3)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err, 'Inscription impossible.'))
     } finally {
       setBusy(false)
     }
@@ -166,14 +144,14 @@ export default function Register() {
     <Shell step={0} total={totalDots} caption={stepCaption(0)} maxWidth={680}>
       <h1 style={{ fontFamily: CLASH, fontSize: 26, fontWeight: 600, textAlign: 'center', margin: '6px 0 6px' }}>Créez votre compte</h1>
       <p style={{ textAlign: 'center', color: '#6B7B8D', fontSize: 14.5, margin: '0 0 24px' }}>
-        Même produit dans les deux cas — vous pourrez passer en entreprise plus tard.
+        Même produit dans les deux cas — vous pourrez créer une équipe plus tard.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
         {[
           {
             v: 'perso' as const, icon: <UserIcon size={24} />, t: 'Personnel',
             d: 'Vous travaillez seul·e. Freelance, indépendant, side-project.',
-            pts: ['Tous les plans disponibles', "Juste vous dans l'espace", 'Convertible en entreprise'],
+            pts: ['Chatbots personnels', 'Aucune équipe à gérer', 'Créez une équipe quand vous voulez'],
           },
           {
             v: 'entreprise' as const, icon: <Building2 size={24} />, t: 'Entreprise',
@@ -214,7 +192,7 @@ export default function Register() {
       <p style={{ color: '#6B7B8D', fontSize: 14, margin: '0 0 22px', textAlign: 'center' }}>
         {type === 'entreprise'
           ? "Vous serez administrateur — vous inviterez l'équipe à l'étape suivante."
-          : 'Votre espace personnel sera créé avec vous comme administrateur.'}
+          : 'Vous pourrez créer des chatbots personnels tout de suite — une équipe n\'est pas nécessaire.'}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
         {type === 'entreprise' && (
@@ -317,7 +295,7 @@ export default function Register() {
         <p style={{ color: '#6B7B8D', fontSize: 14.5, margin: '10px auto 0', maxWidth: 400, lineHeight: 1.55 }}>
           {type === 'entreprise'
             ? <span>L'espace <strong>{form.org || 'entreprise'}</strong> est prêt{invites.length > 0 ? ` — ${invites.length} invitation${invites.length > 1 ? 's' : ''} en attente` : ''}. Configurez votre premier bot, puis récupérez votre balise dans l'onglet Intégration.</span>
-            : <span>Votre espace est prêt. Configurez votre premier bot — arbre, IA, apparence — puis récupérez votre balise dans l'onglet Intégration.</span>}
+            : <span>Votre compte est prêt. Configurez votre premier bot personnel — arbre, IA, apparence — puis récupérez votre balise dans l'onglet Intégration.</span>}
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11, marginTop: 26 }}>
           <button style={{ ...btnPrimary, padding: '15px', fontSize: 15.5 }} onClick={() => navigate('/app/bots/new')}>

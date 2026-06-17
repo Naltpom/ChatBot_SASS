@@ -8,32 +8,15 @@
 // on n'affiche pas non plus de badge « N déclencheurs actifs » (même raison :
 // l'aperçu reste épuré, l'info vit dans l'éditeur).
 import { ReactNode, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CalendarDays, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
+import type { DesignJson, Tree, TreeNode } from '../types/bot'
 import { BubbleIcon, brandBg } from '../ui'
-
-interface Msg {
-  from: 'bot' | 'user'
-  text: string
-  ai?: boolean
-  sys?: boolean      // bulle système du flux LIVE (attente conseiller) : italique, sans CSAT
-  advisor?: boolean  // réponse « Conseiller » simulée : étiquette, sans CSAT (parité : jamais sur human)
-}
-
-// Formulaire de contact simulé (nœud d'arbre type 'lead') — mêmes clés que
-// widget.js : fields filtrés sur le référentiel, email forcé en tête.
-interface LeadSim { fields: string[]; after: { label: string; next: string }[] }
-
-const LEAD_FIELD_KEYS = ['email', 'name', 'phone', 'message']
-
-function leadFieldsOf(fields?: string[]): string[] {
-  const f = (fields || ['email', 'message']).filter(x => LEAD_FIELD_KEYS.includes(x))
-  if (!f.includes('email')) f.unshift('email')
-  return f
-}
-
-function hostnameOf(url: string): string {
-  try { return new URL(url).hostname } catch { return url }
-}
+import PreviewBubble from './widget-preview/PreviewBubble'
+import PreviewTyping from './widget-preview/PreviewTyping'
+import PreviewLeadForm from './widget-preview/PreviewLeadForm'
+import PreviewAppointmentOverlay from './widget-preview/PreviewAppointmentOverlay'
+import PreviewLauncher from './widget-preview/PreviewLauncher'
+import { FONT_STACKS, clampInt, leadFieldsOf } from './widget-preview/shared'
+import type { Msg, LeadSim, PreviewStyle } from './widget-preview/shared'
 
 // Dictionnaire UI miroir de I18N (widget/widget.js) pour les clés réellement
 // rendues par l'aperçu. Les valeurs FR sont les chaînes historiques À L'OCTET
@@ -48,7 +31,6 @@ const PREVIEW_I18N: Record<'fr' | 'en', Record<string, string>> = {
     close: 'Fermer',
     send: 'Envoyer',
     open_chat: 'Ouvrir le chat',
-    degraded_banner: ' Assistant IA momentanément indisponible — le menu guidé reste actif.',
     placeholder: 'Écrivez votre message…',
     placeholder_advisor: 'Écrivez au conseiller…',
     placeholder_pick: 'Choisissez une option ci-dessus',
@@ -79,7 +61,6 @@ const PREVIEW_I18N: Record<'fr' | 'en', Record<string, string>> = {
     close: 'Close',
     send: 'Send',
     open_chat: 'Open chat',
-    degraded_banner: ' AI assistant temporarily unavailable — the guided menu is still active.',
     placeholder: 'Type your message…',
     placeholder_advisor: 'Write to the advisor…',
     placeholder_pick: 'Pick an option above',
@@ -105,11 +86,10 @@ const PREVIEW_I18N: Record<'fr' | 'en', Record<string, string>> = {
 }
 
 interface Props {
-  design: Record<string, any>
+  design: DesignJson
   mode: string             // tree | ai | hybrid
-  tree: Record<string, any>
+  tree: Tree
   botName: string
-  degraded?: boolean
   defaultOpen?: boolean    // false : bulle fermée au départ (démo landing)
 }
 
@@ -119,19 +99,7 @@ const AI_PREVIEW_REPLIES = [
   "Voici un exemple de réponse IA. Les réponses arbre, elles, sont gratuites et illimitées.",
 ]
 
-// Polices SANS chargement externe — mêmes stacks que widget.js (FONTS)
-const FONT_STACKS: Record<string, string> = {
-  system: "'Public Sans',-apple-system,sans-serif",
-  serif: "Georgia,'Times New Roman',serif",
-  mono: 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace',
-}
-
-function clampInt(v: any, min: number, max: number, fallback: number): number {
-  const n = parseInt(v, 10)
-  return isNaN(n) ? fallback : Math.min(max, Math.max(min, n))
-}
-
-export default function WidgetPreview({ design, mode, tree, botName, degraded = false, defaultOpen = true }: Props) {
+export default function WidgetPreview({ design, mode, tree, botName, defaultOpen = true }: Props) {
   const d = design || {}
   const brand = d.primaryColor || '#0d9488'
   const bg = brandBg(d)
@@ -139,7 +107,7 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
   const bubblePx = d.size === 'sm' ? 48 : d.size === 'lg' ? 68 : 58
   const anim = d.loadingAnimation || 'dots'
   // Personnalisation étendue — mêmes défauts/whitelists que widget.js (css(d))
-  const font = FONT_STACKS[d.font] || FONT_STACKS.system
+  const font = FONT_STACKS[d.font || 'system'] || FONT_STACKS.system
   const ox = clampInt(d.offsetX, 0, 120, 18)
   const oy = clampInt(d.offsetY, 0, 120, 18)
   const side = d.position === 'left' ? { left: ox } : { right: ox }
@@ -205,13 +173,15 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
   const nodes = tree?.nodes || {}
   const start = tree?.start || 'root'
 
-  function nodeOf(id: string) {
+  function nodeOf(id: string): TreeNode {
     return nodes[id] || nodes[start] || { message: 'Bonjour !', options: [] }
   }
+  // message d'un nœud, jamais undefined (parité widget.js : '' rend une bulle vide).
+  const msgOf = (n: TreeNode): string => n.message || ''
 
   // reset à chaque changement structurel
   useEffect(() => {
-    const isIA = mode === 'ai' && !degraded
+    const isIA = mode === 'ai'
     setAiMode(isIA)
     setAppt(null)
     setLead(null)
@@ -225,13 +195,13 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
       setOptions([])
     } else {
       const root = nodeOf(start)
-      setMsgs([{ from: 'bot', text: root.message }])
+      setMsgs([{ from: 'bot', text: msgOf(root) }])
       if (root.type === 'lead') {
         setOptions([])
         setLead({ fields: leadFieldsOf(root.fields), after: root.options || [] })
       } else {
         setOptions(root.options || [])
-        if (root.type === 'appointment' && /^https:\/\//.test(root.url || '')) setAppt(root.url)
+        if (root.type === 'appointment' && /^https:\/\//.test(root.url || '')) setAppt(root.url || null)
       }
     }
     setTyping(false)
@@ -239,7 +209,9 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
     // démontage (sinon une réponse « Conseiller » différée resurgirait dans
     // l'aperçu fraîchement réinitialisé)
     return clearPendingTimers
-  }, [mode, degraded, lang, JSON.stringify(tree)])
+    // d.welcomeMessage : utilisé par la branche IA (1er message). Sans cette dép,
+    // l'aperçu ne se rafraîchissait pas à l'édition du message d'accueil.
+  }, [mode, lang, JSON.stringify(tree), d.welcomeMessage])
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
@@ -264,10 +236,27 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
     }, delay)
   }
 
+  // Rendu d'un nœud arbre (lead / appointment-https / défaut) via botSay, au
+  // délai voulu. Partagé par pick (delay 700) et backToTree (root, delay 450) ;
+  // les cas __ai__ et handoff restent gérés à part (logique propre).
+  function enterNode(node: TreeNode, delay: number) {
+    // Parité widget.js (renderResponse) : mêmes clés type / url / fields
+    if (node.type === 'lead') {
+      botSay(msgOf(node), null, delay, false,
+             { lead: { fields: leadFieldsOf(node.fields), after: node.options || [] } })
+      return
+    }
+    if (node.type === 'appointment' && /^https:\/\//.test(node.url || '')) {
+      botSay(msgOf(node), node.options || [], delay, false, { appt: node.url })
+      return
+    }
+    botSay(msgOf(node), node.options || [], delay)
+  }
+
   function pick(opt: { label: string; next: string }) {
     setMsgs(m => [...m, { from: 'user', text: opt.label.replace(/^[^\p{L}\p{N}↩]*\s*/u, '') }])
     if (opt.next === '__ai__') {
-      if (degraded || mode === 'tree') {
+      if (mode === 'tree') {
         const root = nodeOf(start)
         botSay(t('ai_unavailable'), root.options || [], 500)
         return
@@ -277,12 +266,11 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
       return
     }
     const node = nodeOf(opt.next)
-    // Parité widget.js (renderResponse) : mêmes clés type / url / fields
     if (node.type === 'handoff') {
       // LIVE simulé : intro du nœud, bulle système d'attente, puis UNE réponse
       // « Conseiller » factice ~1,6 s plus tard. Aucune autre logique.
       setLive(true)
-      botSay(node.message, null, 700)
+      botSay(msgOf(node), null, 700)
       schedule(() => {
         setMsgs(m => [...m, { from: 'bot', text: t('advisor_wait'), sys: true }])
       }, 760)
@@ -294,16 +282,7 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
       }, 760 + 1600)
       return
     }
-    if (node.type === 'lead') {
-      botSay(node.message, null, 700, false,
-             { lead: { fields: leadFieldsOf(node.fields), after: node.options || [] } })
-      return
-    }
-    if (node.type === 'appointment' && /^https:\/\//.test(node.url || '')) {
-      botSay(node.message, node.options || [], 700, false, { appt: node.url })
-      return
-    }
-    botSay(node.message, node.options || [], 700)
+    enterNode(node, 700)
   }
 
   function submitLead() {
@@ -341,21 +320,17 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
     setLive(false)
     setAiMode(false)
     setMsgs(m => [...m, { from: 'user', text: t('back_to_menu_user') }])
-    const root = nodeOf(start)
-    if (root.type === 'lead') {
-      botSay(root.message, null, 450, false,
-             { lead: { fields: leadFieldsOf(root.fields), after: root.options || [] } })
-      return
-    }
-    if (root.type === 'appointment' && /^https:\/\//.test(root.url || '')) {
-      botSay(root.message, root.options || [], 450, false, { appt: root.url })
-      return
-    }
-    botSay(root.message, root.options || [], 450)
+    enterNode(nodeOf(start), 450)
   }
 
-  const inputDisabled = live ? false : (!aiMode || degraded)
+  const inputDisabled = live ? false : !aiMode
   const r14 = Math.min(R, 14)
+
+  // Tokens visuels résolus une fois, passés aux sous-composants présentationnels.
+  const st: PreviewStyle = {
+    brand, bg, r14, compact, square, dark,
+    botBg, botBorder, botText, inputBg, inputBorder, mutedText, panelBg, anim,
+  }
 
   return (
     <div style={{ fontFamily: font }}>
@@ -395,73 +370,14 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
             <button onClick={() => setOpen(false)} aria-label={t('close')} style={{ background: 'none', border: 'none', color: headText, cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4, opacity: .85 }}>×</button>
           </div>
 
-          {degraded && (
-            <div style={{ background: '#fdf3e0', borderBottom: '1px solid #ecd6a8', color: '#8a5a0a', fontSize: 11.5, padding: '7px 13px', display: 'flex', gap: 7, alignItems: 'center' }}>
-              <AlertTriangle size={13} style={{ flexShrink: 0 }} />{t('degraded_banner')}
-            </div>
-          )}
-
           {/* Messages */}
           <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: compact ? 10 : '14px 13px', display: 'flex', flexDirection: 'column', gap: compact ? 6 : 9, background: msgsBg }}>
             {msgs.map((m, i) => (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
-                <div style={{
-                  maxWidth: '82%', padding: compact ? '7px 10px' : '9px 12px', fontSize: compact ? 12.5 : 13.5, lineHeight: 1.5,
-                  borderRadius: square ? 8 : (m.from === 'user' ? `${r14}px ${r14}px 4px ${r14}px` : `4px ${r14}px ${r14}px ${r14}px`),
-                  background: m.from === 'user' ? brand : botBg,
-                  color: m.from === 'user' ? '#fff' : (m.sys ? mutedText : botText),
-                  fontStyle: m.sys ? 'italic' : undefined,
-                  border: m.from === 'user' ? 'none' : `1px solid ${botBorder}`,
-                  boxShadow: m.from === 'user' ? 'none' : '0 1px 2px rgba(0,0,0,.04)',
-                }}>
-                  {m.ai && (
-                    <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .5, color: brand, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <Sparkles size={10} /> {t('tag_ai').trim()}
-                    </div>
-                  )}
-                  {m.advisor && (
-                    <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .5, color: brand, marginBottom: 3 }}>
-                      {t('tag_advisor').trim()}
-                    </div>
-                  )}
-                  {m.text}
-                </div>
-                {/* CSAT simulé — HORS de la bulle (parité .kc-rate hors .kc-msg),
-                    jamais sur les bulles système/Conseiller (parité : le widget
-                    ne propose le vote que sur les réponses ai|tree) */}
-                {m.from === 'bot' && !m.sys && !m.advisor && (
-                  <div style={{ display: 'flex', gap: 4, marginTop: 2, paddingLeft: 4 }}>
-                    <button onClick={() => setRatings(r => ({ ...r, [i]: 1 }))}
-                            title={t('rate_up')} aria-label={t('rate_up')}
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 2, lineHeight: 0,
-                                     color: ratings[i] === 1 ? 'var(--go)' : 'var(--faint)' }}>
-                      <ThumbsUp size={12} />
-                    </button>
-                    <button onClick={() => setRatings(r => ({ ...r, [i]: -1 }))}
-                            title={t('rate_down')} aria-label={t('rate_down')}
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 2, lineHeight: 0,
-                                     color: ratings[i] === -1 ? 'var(--danger)' : 'var(--faint)' }}>
-                      <ThumbsDown size={12} />
-                    </button>
-                  </div>
-                )}
-              </div>
+              <PreviewBubble key={i} m={m} i={i} st={st} t={t}
+                             rating={ratings[i]}
+                             onRate={(idx, v) => setRatings(r => ({ ...r, [idx]: v }))} />
             ))}
-            {typing && (
-              <div style={{ display: 'flex' }}>
-                <div style={{ padding: '10px 14px', borderRadius: '4px 14px 14px 14px', background: botBg, border: `1px solid ${botBorder}`, display: 'flex', gap: 4, alignItems: 'center' }}>
-                  {anim === 'pulse' ? (
-                    <span style={{ width: 10, height: 10, borderRadius: 9, background: brand, display: 'inline-block', animation: 'kcPulse 1s infinite ease-in-out' }} />
-                  ) : [0, 1, 2].map(i => (
-                    <span key={i} style={{
-                      width: 6, height: 6, borderRadius: 9,
-                      background: anim === 'wave' ? brand : '#b9c4c0', display: 'inline-block',
-                      animation: anim === 'wave' ? `kcWave 1s ${i * .14}s infinite ease-in-out` : `kcBlink 1.2s ${i * .18}s infinite`,
-                    }} />
-                  ))}
-                </div>
-              </div>
-            )}
+            {typing && <PreviewTyping st={st} />}
             {!typing && (options.length > 0 || appt) && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 2 }}>
                 {appt && (
@@ -471,7 +387,9 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
                   }}>{t('appointment')}</button>
                 )}
                 {options.map((o, i) => (
-                  <button key={i} onClick={() => pick(o)} style={{
+                  // Clé = identité de l'option (cible + libellé) plutôt que l'index,
+                  // suffixée par i pour rester unique si deux options coïncident.
+                  <button key={`${o.next}|${o.label}|${i}`} onClick={() => pick(o)} style={{
                     fontSize: compact ? 11.5 : 12.5, fontWeight: 600, padding: compact ? '6px 10px' : '8px 12px', whiteSpace: 'nowrap',
                     borderRadius: square ? 10 : 99, border: `1.5px solid ${brand}`, background: '#fff', color: brand, cursor: 'pointer',
                   }}>{o.label}</button>
@@ -479,38 +397,9 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
               </div>
             )}
             {!typing && lead && (
-              <div style={{
-                background: botBg, border: `1px solid ${botBorder}`, borderRadius: square ? 10 : r14, padding: 12,
-                display: 'flex', flexDirection: 'column', gap: 6, maxWidth: '86%',
-                boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-              }}>
-                {lead.fields.map(f => (
-                  <div key={f} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: mutedText }}>{t('lead_' + f)}</label>
-                    {f === 'message' ? (
-                      <textarea rows={3} value={leadVals[f] || ''}
-                                onChange={e => setLeadVals(v => ({ ...v, [f]: e.target.value }))}
-                                style={{
-                                  fontFamily: 'inherit', fontSize: 13, padding: '8px 11px', borderRadius: 10,
-                                  border: `1px solid ${inputBorder}`, outline: 'none', background: inputBg, color: botText, resize: 'vertical',
-                                }} />
-                    ) : (
-                      <input type={f === 'email' ? 'email' : 'text'} required={f === 'email'}
-                             value={leadVals[f] || ''}
-                             onChange={e => setLeadVals(v => ({ ...v, [f]: e.target.value }))}
-                             style={{
-                               fontFamily: 'inherit', fontSize: 13, padding: '8px 11px', borderRadius: 10,
-                               border: `1px solid ${inputBorder}`, outline: 'none', background: inputBg, color: botText,
-                             }} />
-                    )}
-                  </div>
-                ))}
-                {leadErr && <div style={{ fontSize: 11.5, color: '#c0392b' }}>{t('lead_invalid_email')}</div>}
-                <button onClick={submitLead} style={{
-                  fontFamily: 'inherit', fontSize: 13, fontWeight: 700, padding: 9, borderRadius: 99,
-                  border: 'none', cursor: 'pointer', background: brand, color: '#fff', marginTop: 4,
-                }}>{t('send')}</button>
-              </div>
+              <PreviewLeadForm lead={lead} vals={leadVals} err={leadErr} st={st} t={t}
+                               onChange={(f, val) => setLeadVals(v => ({ ...v, [f]: val }))}
+                               onSubmit={submitLead} />
             )}
             {(live || (aiMode && mode !== 'ai')) && !typing && (
               <button onClick={backToTree} style={{
@@ -548,55 +437,15 @@ export default function WidgetPreview({ design, mode, tree, botName, degraded = 
             </div>
           )}
 
-          {/* Overlay rendez-vous simulé : pas de vraie iframe Calendly dans le
-              dashboard — le widget réel embarque le calendrier (hôtes whitelistés) */}
           {overlay && (
-            <div style={{ position: 'absolute', inset: 0, background: panelBg, zIndex: 50, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ background: bg, color: '#fff', padding: '12px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontWeight: 700, fontSize: 14 }}>{t('appointment_title')}</span>
-                <button onClick={() => setOverlay(null)} aria-label={t('close')} style={{
-                  background: 'none', border: 'none', color: '#fff', cursor: 'pointer',
-                  fontSize: 18, lineHeight: 1, padding: 4, opacity: .85,
-                }}>×</button>
-              </div>
-              <div style={{
-                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-                justifyContent: 'center', gap: 10, padding: 20, textAlign: 'center',
-              }}>
-                <CalendarDays size={22} style={{ color: '#93a8a2' }} />
-                <div style={{ fontSize: 12.5, color: mutedText, lineHeight: 1.55, maxWidth: 250 }}>
-                  Aperçu : le calendrier ({hostnameOf(overlay)}) s'affiche ici dans le widget réel.
-                </div>
-                <a href={overlay} target="_blank" rel="noopener noreferrer" style={{
-                  fontSize: 12.5, fontWeight: 700, color: brand, textDecoration: 'underline',
-                }}>{t('open_new_tab')}</a>
-              </div>
-            </div>
+            <PreviewAppointmentOverlay url={overlay} st={st} t={t} onClose={() => setOverlay(null)} />
           )}
         </div>
       )}
 
-      {/* Bulle — launcherText non vide et fermée : pilule [icône + libellé] ;
-          ouverte : redevient un rond avec la croix (comportement widget.js) */}
-      <button onClick={() => setOpen(o => !o)} aria-label={t('open_chat')} style={{
-        position: 'absolute', bottom: oy, ...side, height: bubblePx, borderRadius: launcherText && !open ? 99 : '50%',
-        width: launcherText && !open ? 'auto' : bubblePx,
-        border: d.bordered ? '3px solid rgba(255,255,255,.95)' : 'none', cursor: 'pointer',
-        background: bg, color: '#fff', boxShadow: '0 8px 26px rgba(10,30,25,.3)',
-        zIndex: 41, transform: open ? 'scale(.92)' : 'scale(1)', transition: 'transform .18s ease',
-        ...(launcherText && !open
-          ? { padding: '0 16px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }
-          : { padding: 0, display: 'grid', placeItems: 'center' }),
-      }}>
-        {open
-          ? <svg width={bubblePx * .38} height={bubblePx * .38} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-          : (
-            <>
-              <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? bubblePx * .58 : bubblePx * .44} avatarImg={d.avatarImage} />
-              {launcherText && <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{launcherText}</span>}
-            </>
-          )}
-      </button>
+      <PreviewLauncher d={d} bg={bg} bubblePx={bubblePx} oy={oy} side={side}
+                       launcherText={launcherText} open={open} t={t}
+                       onToggle={() => setOpen(o => !o)} />
     </div>
   )
 }

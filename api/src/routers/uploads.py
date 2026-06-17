@@ -20,16 +20,34 @@ ALLOWED_TYPES = {
 }
 
 
+def _too_large() -> HTTPException:
+    return HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                         f"Image trop lourde (max {settings.MAX_UPLOAD_BYTES // 1000} Ko)")
+
+
 @router.post("")
 async def upload_image(file: UploadFile, user=Depends(get_current_user)):
     ext = ALLOWED_TYPES.get(file.content_type or "")
     if ext is None:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                             "Formats acceptés : PNG, JPEG, GIF, WebP")
-    content = await file.read()
-    if len(content) > settings.MAX_UPLOAD_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            f"Image trop lourde (max {settings.MAX_UPLOAD_BYTES // 1000} Ko)")
+
+    # Garde-fou taille AVANT de tout charger en memoire. Starlette renseigne
+    # `UploadFile.size` (Content-Length du part multipart) -> rejet immediat.
+    # Sinon (size None), lecture par chunks avec coupe-circuit des le depassement.
+    if file.size is not None:
+        if file.size > settings.MAX_UPLOAD_BYTES:
+            raise _too_large()
+        content = await file.read()
+    else:
+        chunks: list[bytes] = []
+        total = 0
+        while chunk := await file.read(64 * 1024):
+            total += len(chunk)
+            if total > settings.MAX_UPLOAD_BYTES:
+                raise _too_large()
+            chunks.append(chunk)
+        content = b"".join(chunks)
 
     # Nom aleatoire : pas de path traversal possible, pas de collision
     name = secrets.token_urlsafe(16) + ext

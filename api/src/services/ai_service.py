@@ -4,34 +4,36 @@ Le widget ne parle jamais directement a Anthropic/OpenAI/Gemini — meme en
 BYOK la cle du client est dechiffree ici et utilisee depuis l'API.
 
 Resolution de la cle :
-- api_key_mode=managed -> cle du SaaS (env), conso decomptee du quota du plan
+- api_key_mode=managed -> cle du SaaS (env)
 - api_key_mode=byok    -> cle du client (chiffree en base)
 """
 import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 
+from src.core.anthropic import call_messages
 from src.core.config import settings
 from src.models.bot import Bot
-from src.services.action_executor import ActionError, execute_action
+from src.services.action_executor import ActionError
+from src.services.ai_actions import (
+    MAX_TOOL_TURNS,
+    SEARCH_DOCS_TOOL,
+    TOOL_EXHAUSTED_MESSAGE,
+    _action_schema,
+    _anthropic_tool,
+    _eligible_actions,
+    _object_schema,
+    _openai_tool,
+    _run_action,
+    _run_search_docs,
+)
 from src.services.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)
-
-# Boucle tool-use bornee : au-dela, on rend le dernier texte disponible.
-# ATTENTION cout : chaque tour = un appel provider facture, alors que le quota
-# du plan compte UNE reponse par message visiteur (count des Message ai) —
-# borne a 2 pour limiter le ratio appels/reponse a 2x maximum (documente).
-# Decision RAG : 2 tours suffisent aussi a search_docs (recherche puis
-# reponse). Au dernier tour autorise, les tool_use ne sont PAS executes :
-# aucun effet de bord (lead, webhook) qui serait ensuite annonce en echec au
-# visiteur — et pas de recherche dont le resultat serait jete.
-MAX_TOOL_TURNS = 2
-TOOL_EXHAUSTED_MESSAGE = "Je n'ai pas pu effectuer cette action, pouvez-vous reformuler votre demande ?"
 
 # MOCK_AI : "!action nom {...}" simule un appel d'action de facon deterministe
 _MOCK_ACTION_RE = re.compile(r"^!action (\w+)(?:\s+(\{.*\}))?$")
@@ -43,14 +45,17 @@ _MOCK_SEARCH_RE = re.compile(r"^!search\s+(.+)$", re.DOTALL)
 # isolement ; pas de couverture automatisee a ce jour)
 _MOCK_MCP_RE = re.compile(r"^!mcp ([a-z0-9_]+)(?:\s+(\{.*\}))?$")
 
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+# L'endpoint Anthropic vit dans core.anthropic (transport partagé via
+# call_messages) ; OpenAI/Gemini gardent leur appel httpx direct ici.
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+# provider -> nom de l'attribut settings (lu PARESSEUSEMENT au call-time via
+# getattr dans resolve_api_key : indispensable au monkeypatch des tests).
 MANAGED_KEYS = {
-    "anthropic": lambda: settings.ANTHROPIC_API_KEY,
-    "openai": lambda: settings.OPENAI_API_KEY,
-    "gemini": lambda: settings.GEMINI_API_KEY,
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
 }
 
 
@@ -68,159 +73,8 @@ class AIServiceError(Exception):
 def resolve_api_key(bot: Bot) -> Optional[str]:
     if bot.api_key_mode == "byok":
         return decrypt_secret(bot.byok_key_encrypted)
-    getter = MANAGED_KEYS.get(bot.ai_provider)
-    return getter() if getter else None
-
-
-# --- Actions IA (tool-use) ---
-
-# Schema impose pour capture_lead : les champs configures cote dashboard sont
-# ignores, le modele recoit toujours le quadruplet standard.
-CAPTURE_LEAD_PROPS = {
-    "email": {"type": "string", "description": "Adresse email du visiteur"},
-    "name": {"type": "string", "description": "Nom du visiteur"},
-    "phone": {"type": "string", "description": "Numéro de téléphone du visiteur"},
-    "message": {"type": "string", "description": "Message ou demande du visiteur"},
-}
-
-# Schema impose pour create_ticket : memes regles que capture_lead (les champs
-# configures cote dashboard sont ignores)
-CREATE_TICKET_PROPS = {
-    "subject": {"type": "string", "description": "Sujet court du ticket"},
-    "summary": {"type": "string", "description": "Résumé détaillé de la demande du visiteur"},
-    "email": {"type": "string", "description": "Email du visiteur s'il l'a communiqué"},
-    "name": {"type": "string", "description": "Nom du visiteur"},
-    "phone": {"type": "string", "description": "Téléphone du visiteur"},
-}
-
-
-def _action_schema(action: dict) -> tuple[dict, list[str]]:
-    """(properties, required) du schema JSON d'une action configuree."""
-    if action.get("type") == "capture_lead":
-        return dict(CAPTURE_LEAD_PROPS), ["email"]
-    if action.get("type") == "create_ticket":
-        return dict(CREATE_TICKET_PROPS), ["subject", "summary"]
-    if action.get("type") == "calendar_slots":
-        # Aucun argument : l'executor calcule les 7 prochains jours, la
-        # description du tool est celle redigee par le client sur l'action
-        return {}, []
-    props: dict = {}
-    required: list[str] = []
-    for field in action.get("fields") or []:
-        props[field["name"]] = {
-            "type": field.get("type", "string"),
-            "description": field.get("description", ""),
-        }
-        if field.get("required"):
-            required.append(field["name"])
-    return props, required
-
-
-def build_tools_anthropic(actions: list[dict]) -> list[dict]:
-    tools = []
-    for action in actions:
-        props, required = _action_schema(action)
-        tools.append({
-            "name": action["name"],
-            "description": action.get("description", ""),
-            "input_schema": {"type": "object", "properties": props, "required": required},
-        })
-    return tools
-
-
-def build_tools_openai(actions: list[dict]) -> list[dict]:
-    tools = []
-    for action in actions:
-        props, required = _action_schema(action)
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": action["name"],
-                "description": action.get("description", ""),
-                "parameters": {"type": "object", "properties": props, "required": required},
-            },
-        })
-    return tools
-
-
-async def _run_action(bot: Bot, name: Optional[str], args: dict,
-                      db, conversation_id: Optional[str]):
-    """Retrouve l'action configuree par son nom et l'execute."""
-    for action in bot.actions_json or []:
-        if action.get("name") == name:
-            return await execute_action(action, args, bot, db=db,
-                                        conversation_id=conversation_id)
-    raise ActionError(f"Action inconnue : {name}")
-
-
-def _eligible_actions(bot: Bot) -> list[dict]:
-    """Actions exposables en tools au modele. Ecartees (heritage d'avant les
-    reservations de noms, _check_actions ne revalide pas le stock existant) :
-    homonyme du tool interne 'search_docs' (deux tools de meme nom rejetes par
-    le provider) et prefixe 'mcp_' (le court-circuit MCP de la boucle tool-use
-    intercepterait l'appel AVANT _run_action -> action inexecutable)."""
-    out = []
-    for action in bot.actions_json or []:
-        name = str(action.get("name") or "")
-        if name == "search_docs":
-            continue
-        if name.startswith("mcp_"):
-            logger.info("Action héritée au nom réservé mcp_ ignorée (bot %s) : %s",
-                        bot.id, name)
-            continue
-        out.append(action)
-    return out
-
-
-# --- Tool interne search_docs (base de connaissances RAG) ---
-# Expose seulement si le bot a des extraits indexes (has_kb, calcule par
-# routers/widget.py). JAMAIS resolu via actions_json : court-circuite avant
-# _run_action ('search_docs' est un nom d'action interdit cote dashboard).
-
-SEARCH_DOCS_TOOL = {
-    "name": "search_docs",
-    "description": "Recherche dans la documentation et la base de connaissances du site. "
-                   "À utiliser pour toute question factuelle sur le site, ses produits ou services.",
-    "properties": {"query": {"type": "string", "description": "Question ou mots-clés de recherche"}},
-    "required": ["query"],
-}
-
-
-def _search_docs_tool_anthropic() -> dict:
-    return {
-        "name": SEARCH_DOCS_TOOL["name"],
-        "description": SEARCH_DOCS_TOOL["description"],
-        "input_schema": {"type": "object", "properties": SEARCH_DOCS_TOOL["properties"],
-                         "required": SEARCH_DOCS_TOOL["required"]},
-    }
-
-
-def _search_docs_tool_openai() -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": SEARCH_DOCS_TOOL["name"],
-            "description": SEARCH_DOCS_TOOL["description"],
-            "parameters": {"type": "object", "properties": SEARCH_DOCS_TOOL["properties"],
-                           "required": SEARCH_DOCS_TOOL["required"]},
-        },
-    }
-
-
-async def _run_search_docs(bot: Bot, args: dict, db) -> tuple[str, bool]:
-    """(tool_result, is_error). Top 5 extraits {content, ref} en JSON borne."""
-    if db is None:
-        return "Recherche documentaire indisponible dans ce contexte", True
-    from src.services.kb_service import search_chunks
-    query = str((args or {}).get("query", ""))[:500]
-    _, results = await search_chunks(db, bot.id, query, k=5)
-    if not results:
-        return "Aucun résultat dans la documentation", False
-    payload = json.dumps(
-        [{"content": r["content"][:600], "ref": r["ref"]} for r in results],
-        ensure_ascii=False,
-    )[:2000]
-    return payload, False
+    attr = MANAGED_KEYS.get(bot.ai_provider)
+    return getattr(settings, attr, None) if attr else None
 
 
 def build_system_prompt(bot: Bot, page_url: Optional[str],
@@ -285,71 +139,7 @@ async def generate_reply(
     `locale` (defaut None : appels existants inchanges) = design_json.locale ;
     seul 'auto' ajoute la consigne de langue au system prompt."""
     if settings.MOCK_AI:
-        last = history[-1]["content"] if history else ""
-        # Simulation deterministe d'un appel d'action : "!action nom {json}"
-        mock = _MOCK_ACTION_RE.match(last.strip())
-        if mock:
-            name = mock.group(1)
-            # Meme filtre que les vrais builders (noms reserves) : simulation fidele
-            actions = {a.get("name"): a for a in _eligible_actions(bot)}
-            if name in actions:
-                try:
-                    args = json.loads(mock.group(2)) if mock.group(2) else {}
-                except json.JSONDecodeError:
-                    args = {}
-                try:
-                    result = await _run_action(bot, name, args, db, conversation_id)
-                    return AIResult(
-                        content=f"[MOCK_AI] Action {name} exécutée : "
-                                + json.dumps(result, ensure_ascii=False)[:300],
-                        tokens_in=50, tokens_out=30,
-                    )
-                except ActionError as e:
-                    return AIResult(content=f"[MOCK_AI] Action {name} en échec : {e}",
-                                    tokens_in=50, tokens_out=30)
-        # Simulation deterministe d'un tool MCP : "!mcp mcp_<server>_<tool> {json}"
-        # — AUCUN appel reseau, on verifie seulement qu'un serveur configure
-        # correspond au prefixe du tool demande. Prefixe le PLUS LONG, comme
-        # le repli de routage de call_mcp_tool (noms en relation de prefixe).
-        mock_mcp = _MOCK_MCP_RE.match(last.strip())
-        if mock_mcp:
-            tool = mock_mcp.group(1)
-            try:
-                args = json.loads(mock_mcp.group(2)) if mock_mcp.group(2) else {}
-            except json.JSONDecodeError:
-                args = {}
-            matched = None
-            for server in (bot.mcp_servers_json or []):
-                prefix = f"mcp_{server.get('name')}_"
-                if tool.startswith(prefix) and (matched is None or len(prefix) > len(matched)):
-                    matched = prefix
-            if matched:
-                return AIResult(
-                    content=f"[MOCK_AI] Tool MCP {tool} simulé : "
-                            + json.dumps(args, ensure_ascii=False)[:200],
-                    tokens_in=50, tokens_out=30,
-                )
-            return AIResult(content="[MOCK_AI] Aucun serveur MCP configuré pour ce tool",
-                            tokens_in=50, tokens_out=30)
-        # Simulation deterministe de search_docs : "!search question" fait une
-        # VRAIE recherche KB locale (aucun provider appele). Sans kb -> fallback.
-        mock_search = _MOCK_SEARCH_RE.match(last.strip())
-        if mock_search and has_kb and db is not None:
-            from src.services.kb_service import search_chunks
-            mode, results = await search_chunks(db, bot.id, mock_search.group(1)[:500], k=5)
-            if results:
-                return AIResult(
-                    content=f"[MOCK_AI] search_docs ({len(results)} extraits, mode {mode}) : "
-                            + results[0]["content"][:160],
-                    tokens_in=50, tokens_out=30,
-                )
-            return AIResult(content="[MOCK_AI] search_docs : aucun résultat",
-                            tokens_in=50, tokens_out=30)
-        return AIResult(
-            content=f"[MOCK_AI] Réponse simulée à : « {last[:120]} » (provider={bot.ai_provider}, model={bot.ai_model})",
-            tokens_in=50,
-            tokens_out=30,
-        )
+        return await _mock_reply(bot, history, db, conversation_id, has_kb)
 
     api_key = resolve_api_key(bot)
     if not api_key:
@@ -375,54 +165,164 @@ async def generate_reply(
     raise AIServiceError(f"Provider inconnu : {bot.ai_provider}")
 
 
-async def _call_anthropic(api_key, bot, system, history, temperature,
-                          db=None, conversation_id=None, has_kb=False) -> AIResult:
-    """Boucle tool-use bornee : les echanges intermediaires (tool_use /
-    tool_result) vivent dans la requete, seul le texte final est persiste."""
-    # Actions heritees aux noms reserves (search_docs, prefixe mcp_) ecartees
-    actions = _eligible_actions(bot)
-    tools = build_tools_anthropic(actions) if actions else []
+async def _mock_reply(
+    bot: Bot,
+    history: list[dict[str, str]],
+    db,
+    conversation_id: Optional[str],
+    has_kb: bool,
+) -> AIResult:
+    """MOCK_AI : reponses simulees deterministes, AUCUN provider appele.
+    Comportement INCHANGE du bloc inline d'origine de generate_reply."""
+    last = history[-1]["content"] if history else ""
+    # Simulation deterministe d'un appel d'action : "!action nom {json}"
+    mock = _MOCK_ACTION_RE.match(last.strip())
+    if mock:
+        name = mock.group(1)
+        # Meme filtre que les vrais builders (noms reserves) : simulation fidele
+        actions = {a.get("name"): a for a in _eligible_actions(bot)}
+        if name in actions:
+            try:
+                args = json.loads(mock.group(2)) if mock.group(2) else {}
+            except json.JSONDecodeError:
+                args = {}
+            try:
+                result = await _run_action(bot, name, args, db, conversation_id)
+                return AIResult(
+                    content=f"[MOCK_AI] Action {name} exécutée : "
+                            + json.dumps(result, ensure_ascii=False)[:300],
+                    tokens_in=50, tokens_out=30,
+                )
+            except ActionError as e:
+                return AIResult(content=f"[MOCK_AI] Action {name} en échec : {e}",
+                                tokens_in=50, tokens_out=30)
+    # Simulation deterministe d'un tool MCP : "!mcp mcp_<server>_<tool> {json}"
+    # — AUCUN appel reseau, on verifie seulement qu'un serveur configure
+    # correspond au prefixe du tool demande. Prefixe le PLUS LONG, comme
+    # le repli de routage de call_mcp_tool (noms en relation de prefixe).
+    mock_mcp = _MOCK_MCP_RE.match(last.strip())
+    if mock_mcp:
+        tool = mock_mcp.group(1)
+        try:
+            args = json.loads(mock_mcp.group(2)) if mock_mcp.group(2) else {}
+        except json.JSONDecodeError:
+            args = {}
+        matched = None
+        for server in (bot.mcp_servers_json or []):
+            prefix = f"mcp_{server.get('name')}_"
+            if tool.startswith(prefix) and (matched is None or len(prefix) > len(matched)):
+                matched = prefix
+        if matched:
+            return AIResult(
+                content=f"[MOCK_AI] Tool MCP {tool} simulé : "
+                        + json.dumps(args, ensure_ascii=False)[:200],
+                tokens_in=50, tokens_out=30,
+            )
+        return AIResult(content="[MOCK_AI] Aucun serveur MCP configuré pour ce tool",
+                        tokens_in=50, tokens_out=30)
+    # Simulation deterministe de search_docs : "!search question" fait une
+    # VRAIE recherche KB locale (aucun provider appele). Sans kb -> fallback.
+    mock_search = _MOCK_SEARCH_RE.match(last.strip())
+    if mock_search and has_kb and db is not None:
+        from src.services.kb_service import search_chunks
+        mode, results = await search_chunks(db, bot.id, mock_search.group(1)[:500], k=5)
+        if results:
+            return AIResult(
+                content=f"[MOCK_AI] search_docs ({len(results)} extraits, mode {mode}) : "
+                        + results[0]["content"][:160],
+                tokens_in=50, tokens_out=30,
+            )
+        return AIResult(content="[MOCK_AI] search_docs : aucun résultat",
+                        tokens_in=50, tokens_out=30)
+    return AIResult(
+        content=f"[MOCK_AI] Réponse simulée à : « {last[:120]} » (provider={bot.ai_provider}, model={bot.ai_model})",
+        tokens_in=50,
+        tokens_out=30,
+    )
+
+
+async def _dispatch_tool_call(bot, name, args: dict, db,
+                              conversation_id) -> tuple[str, bool]:
+    """Resout UN tool-call demande par le modele, INDEPENDAMMENT du provider.
+
+    Retourne (content, is_error) — la chaine `content` est deja bornee et prete
+    a etre encapsulee au format du provider (tool_result Anthropic / message
+    role=tool OpenAI) par l'appelant. Ordre de priorite des branches identique a
+    l'original des deux boucles : tool interne search_docs, puis tools MCP
+    (prefixe reserve mcp_, court-circuites AVANT _run_action), puis actions
+    configurees (actions_json). Sur ActionError : (str(e), True) — c'est
+    l'appelant qui choisit l'encodage du message d'erreur selon son protocole."""
+    # Tool interne KB : court-circuite, jamais resolu via actions_json
+    if name == "search_docs":
+        return await _run_search_docs(bot, args, db)
+    # Tools MCP : court-circuites AVANT _run_action (jamais resolus via
+    # actions_json, prefixe mcp_ reserve)
+    if (name or "").startswith("mcp_"):
+        from src.services.mcp_client import call_mcp_tool
+        return await call_mcp_tool(bot, conversation_id, name, args)
+    try:
+        result = await _run_action(bot, name, args, db, conversation_id)
+        return json.dumps(result, ensure_ascii=False)[:2000], False
+    except ActionError as e:
+        return str(e), True
+
+
+async def _build_tools(bot, has_kb: bool, conversation_id,
+                       fmt: Callable[[str, str, dict], dict]) -> Optional[list[dict]]:
+    """Tools exposes au modele (actions + search_docs + MCP decouverts), chaque
+    entree encapsulee par `fmt(name, description, schema)` au format du provider
+    (_anthropic_tool / _openai_tool). None si aucun. Comportement INCHANGE des
+    deux builders par-provider d'origine.
+
+    Actions heritees aux noms reserves (search_docs, prefixe mcp_) ecartees par
+    _eligible_actions. Pour les tools MCP decouverts (cache par conversation),
+    le schema brut `input_schema` est passe tel quel a `fmt` ; echec serveur =
+    liste vide, jamais bloquant (contrat de mcp_client)."""
+    tools = [fmt(a["name"], a.get("description", ""), _object_schema(*_action_schema(a)))
+             for a in _eligible_actions(bot)]
     if has_kb:
-        tools.append(_search_docs_tool_anthropic())
-    # Tools MCP decouverts (cache par conversation) : echec serveur = liste
-    # vide, jamais bloquant (contrat de mcp_client)
+        tools.append(fmt(
+            SEARCH_DOCS_TOOL["name"], SEARCH_DOCS_TOOL["description"],
+            _object_schema(SEARCH_DOCS_TOOL["properties"], SEARCH_DOCS_TOOL["required"])))
     if getattr(bot, "mcp_servers_json", None) and conversation_id:
         from src.services.mcp_client import list_mcp_tools
         for t in await list_mcp_tools(bot, conversation_id):
-            tools.append({"name": t["name"], "description": t["description"],
-                          "input_schema": t["input_schema"]})
-    tools = tools or None
+            tools.append(fmt(t["name"], t["description"], t["input_schema"]))
+    return tools or None
+
+
+async def _call_anthropic(api_key: str, bot: Bot, system: str,
+                          history: list[dict], temperature: float,
+                          db=None, conversation_id: Optional[str] = None,
+                          has_kb: bool = False) -> AIResult:
+    """Boucle tool-use bornee : les echanges intermediaires (tool_use /
+    tool_result) vivent dans la requete, seul le texte final est persiste.
+
+    Transport delegue a core.anthropic.call_messages ; un seul httpx.AsyncClient
+    (timeout 60) est reutilise sur tous les tours de la boucle."""
+    tools = await _build_tools(bot, has_kb, conversation_id, _anthropic_tool)
     messages = list(history)
     tokens_in = tokens_out = 0
     last_text = ""
     async with httpx.AsyncClient(timeout=60) as client:
         for turn in range(MAX_TOOL_TURNS):
-            payload = {
-                "model": bot.ai_model,
-                "max_tokens": 1024,
-                "temperature": temperature,
-                "system": system,
-                "messages": messages,
-            }
-            if tools:
-                payload["tools"] = tools
-            resp = await client.post(
-                ANTHROPIC_URL,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json=payload,
+            result = await call_messages(
+                api_key=api_key,
+                model=bot.ai_model,
+                max_tokens=1024,
+                temperature=temperature,
+                system=system,
+                messages=messages,
+                tools=tools,
+                client=client,
             )
-            resp.raise_for_status()
-            data = resp.json()
-            tokens_in += data.get("usage", {}).get("input_tokens", 0)
-            tokens_out += data.get("usage", {}).get("output_tokens", 0)
-            text = "".join(b.get("text", "") for b in data.get("content", []))
+            tokens_in += result.tokens_in
+            tokens_out += result.tokens_out
+            content = result.content
+            text = "".join(b.get("text", "") for b in content)
             if text:
                 last_text = text
-            if data.get("stop_reason") != "tool_use":
+            if result.stop_reason != "tool_use":
                 return AIResult(content=text, tokens_in=tokens_in, tokens_out=tokens_out)
 
             # Dernier tour autorise : ne PAS executer les tool_use demandes
@@ -432,70 +332,30 @@ async def _call_anthropic(api_key, bot, system, history, temperature,
                 break
 
             # Tour d'outil : executer chaque tool_use, renvoyer les resultats
-            messages.append({"role": "assistant", "content": data["content"]})
+            messages.append({"role": "assistant", "content": content})
             results = []
-            for block in data.get("content", []):
+            for block in content:
                 if block.get("type") != "tool_use":
                     continue
-                # Tool interne KB : court-circuite, jamais resolu via actions_json
-                if block.get("name") == "search_docs":
-                    content, is_error = await _run_search_docs(bot, block.get("input") or {}, db)
-                    entry = {"type": "tool_result", "tool_use_id": block.get("id"),
-                             "content": content}
-                    if is_error:
-                        entry["is_error"] = True
-                    results.append(entry)
-                    continue
-                # Tools MCP : court-circuites AVANT _run_action (jamais
-                # resolus via actions_json, prefixe mcp_ reserve)
-                if (block.get("name") or "").startswith("mcp_"):
-                    from src.services.mcp_client import call_mcp_tool
-                    content, is_error = await call_mcp_tool(
-                        bot, conversation_id, block["name"], block.get("input") or {})
-                    entry = {"type": "tool_result", "tool_use_id": block.get("id"),
-                             "content": content}
-                    if is_error:
-                        entry["is_error"] = True
-                    results.append(entry)
-                    continue
-                try:
-                    result = await _run_action(bot, block.get("name"), block.get("input") or {},
-                                               db, conversation_id)
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.get("id"),
-                        "content": json.dumps(result, ensure_ascii=False)[:2000],
-                    })
-                except ActionError as e:
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.get("id"),
-                        "content": str(e),
-                        "is_error": True,
-                    })
+                tool_content, is_error = await _dispatch_tool_call(
+                    bot, block.get("name"), block.get("input") or {}, db, conversation_id)
+                entry = {"type": "tool_result", "tool_use_id": block.get("id"),
+                         "content": tool_content}
+                if is_error:
+                    entry["is_error"] = True
+                results.append(entry)
             messages.append({"role": "user", "content": results})
     return AIResult(content=last_text or TOOL_EXHAUSTED_MESSAGE,
                     tokens_in=tokens_in, tokens_out=tokens_out)
 
 
-async def _call_openai(api_key, bot, system, history, temperature,
-                       db=None, conversation_id=None, has_kb=False) -> AIResult:
+async def _call_openai(api_key: str, bot: Bot, system: str,
+                       history: list[dict], temperature: float,
+                       db=None, conversation_id: Optional[str] = None,
+                       has_kb: bool = False) -> AIResult:
     """Meme boucle tool-use bornee que _call_anthropic, au format OpenAI
     (tools / tool_calls / messages role=tool)."""
-    # Meme filtre que _call_anthropic : actions aux noms reserves ecartees
-    actions = _eligible_actions(bot)
-    tools = build_tools_openai(actions) if actions else []
-    if has_kb:
-        tools.append(_search_docs_tool_openai())
-    # Tools MCP decouverts (cache par conversation) : echec serveur = liste
-    # vide, jamais bloquant (contrat de mcp_client)
-    if getattr(bot, "mcp_servers_json", None) and conversation_id:
-        from src.services.mcp_client import list_mcp_tools
-        for t in await list_mcp_tools(bot, conversation_id):
-            tools.append({"type": "function",
-                          "function": {"name": t["name"], "description": t["description"],
-                                       "parameters": t["input_schema"]}})
-    tools = tools or None
+    tools = await _build_tools(bot, has_kb, conversation_id, _openai_tool)
     messages = [{"role": "system", "content": system}, *history]
     tokens_in = tokens_out = 0
     last_text = ""
@@ -540,38 +400,23 @@ async def _call_openai(api_key, bot, system, history, temperature,
                     args = json.loads(fn.get("arguments") or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                # Tool interne KB : court-circuite, jamais resolu via actions_json
-                # (pas de is_error au format OpenAI -> erreur encodee en JSON)
-                if fn.get("name") == "search_docs":
-                    content, is_error = await _run_search_docs(bot, args, db)
-                    if is_error:
-                        content = json.dumps({"error": content}, ensure_ascii=False)
-                    messages.append({"role": "tool", "tool_call_id": call.get("id"),
-                                     "content": content})
-                    continue
-                # Tools MCP : court-circuites AVANT _run_action (pas de
-                # is_error au format OpenAI -> erreur encodee en JSON)
-                if (fn.get("name") or "").startswith("mcp_"):
-                    from src.services.mcp_client import call_mcp_tool
-                    content, is_error = await call_mcp_tool(bot, conversation_id,
-                                                            fn["name"], args)
-                    if is_error:
-                        content = json.dumps({"error": content}, ensure_ascii=False)
-                    messages.append({"role": "tool", "tool_call_id": call.get("id"),
-                                     "content": content})
-                    continue
-                try:
-                    result = await _run_action(bot, fn.get("name"), args, db, conversation_id)
-                    content = json.dumps(result, ensure_ascii=False)[:2000]
-                except ActionError as e:
-                    content = json.dumps({"error": str(e)}, ensure_ascii=False)
+                # Dispatch provider-neutre (search_docs / mcp_ / action) ; au
+                # format OpenAI il n'y a pas de is_error -> erreur encapsulee en
+                # JSON {"error": ...} (search_docs, mcp et ActionError compris,
+                # comportement identique a l'original).
+                content, is_error = await _dispatch_tool_call(
+                    bot, fn.get("name"), args, db, conversation_id)
+                if is_error:
+                    content = json.dumps({"error": content}, ensure_ascii=False)
                 messages.append({"role": "tool", "tool_call_id": call.get("id"),
                                  "content": content})
     return AIResult(content=last_text or TOOL_EXHAUSTED_MESSAGE,
                     tokens_in=tokens_in, tokens_out=tokens_out)
 
 
-async def _call_gemini(api_key, bot, system, history, temperature, has_kb=False) -> AIResult:
+async def _call_gemini(api_key: str, bot: Bot, system: str,
+                       history: list[dict], temperature: float,
+                       has_kb: bool = False) -> AIResult:
     # Limitation documentee : le function-calling Gemini n'est pas branche
     # (format proprietaire) — iteration future. Les actions sont ignorees,
     # search_docs aussi (meme pattern, logge).

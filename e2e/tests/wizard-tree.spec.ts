@@ -4,11 +4,11 @@
 // mode ARBRE de bout en bout (aucun chemin IA exercé — MOCK_AI=false).
 //
 // Parcours sans IA : on choisit le secteur, un objectif, puis « Passer à un
-// conseiller » comme repli (fallback=human) — ce qui SAUTE la question budget et
-// force botMode='tree' (wantsAI=false). La création appelle l'API réelle ; on
-// récupère l'id du bot créé via l'URL de l'éditeur pour le supprimer (afterAll).
+// conseiller » comme repli (fallback=human, dernière question) → botMode='tree'
+// (wantsAI=false). La création appelle l'API réelle ; on récupère l'id du bot
+// créé via l'URL de l'éditeur pour le supprimer (afterAll).
 //
-// Auth : token du global-setup (compte entreprise, plan agence, org active)
+// Auth : token du global-setup (compte entreprise, org active)
 // injecté en localStorage avant le 1er chargement.
 import { expect, test } from '@playwright/test'
 import { authenticate, deleteBot, loadState } from '../helpers'
@@ -40,8 +40,8 @@ test('wizard conversationnel : création d\'un bot en mode arbre de bout en bout
   await page.getByRole('button', { name: '+ Capturer des contacts' }).click()
   await page.getByRole('button', { name: 'Continuer →' }).click()
 
-  // Q3 — repli : « Passer à un conseiller » → pas d'IA, saute la question budget,
-  // file directement à l'étape Proposition (botMode='tree').
+  // Q3 (dernière) — repli : « Passer à un conseiller » → pas d'IA, file
+  // directement à l'étape Proposition (botMode='tree').
   await expect(page.getByText(/Quand l'arbre guidé ne suffit pas/)).toBeVisible()
   await page.getByRole('button', { name: 'Passer à un conseiller', exact: true }).click()
 

@@ -1,6 +1,6 @@
 // Wizard de création — expérience conversationnelle Chapote (BotCreate.dc.html).
 // 5 étapes : CHAT (le bot interroge l'utilisateur) → PRESET (récap des
-// capacités + prix estimé) → APPARENCE (contrôles + widget live fixe) →
+// capacités, tout inclus/gratuit) → APPARENCE (contrôles + widget live fixe) →
 // ARBRE (composant PARTAGÉ TreeFlow) → DONE (bot créé).
 //
 // SOURCE UNIQUE de l'arbre : à l'entrée de l'étape ARBRE, les réponses du chat
@@ -11,14 +11,18 @@
 //
 // Câblage réel : à l'étape ARBRE, « Créer mon chatbot » crée vraiment le bot
 // via l'API existante (POST /api/orgs/{id}/bots puis PATCH /api/bots/{id}),
-// avec ce tree_json et un design_json valide. Le plan free (tree_only) force le
-// mode "tree" et masque l'option IA dans TreeFlow (allowAI=false).
-import { useEffect, useMemo, useState } from 'react'
+// avec ce tree_json et un design_json valide. Le mode "tree" (aucune IA voulue)
+// masque l'option IA dans TreeFlow (allowAI=false).
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { MODEL_OPTIONS } from '../botConstants'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import TreeFlow from '../components/TreeFlow'
+import HatIcon from '../components/HatIcon'
+import { errMsg } from '../utils/errors'
+import type { DesignJson, Tree, TreeNode } from '../types/bot'
 
 // ---------------------------------------------------------------------------
 // Palette Chapote (alignée styles.css / charte)
@@ -50,11 +54,6 @@ const QUESTIONS: Question[] = [
     q: "Quand l'arbre guidé ne suffit pas, que préférez-vous ?",
     opts: [['ia', "Laisser l'IA répondre"], ['human', 'Passer à un conseiller'], ['both', 'Les deux : IA puis humain']],
   },
-  {
-    key: 'budget', type: 'single',
-    q: 'Quel plafond de budget IA par mois ? Vous ne le dépasserez jamais.',
-    opts: [['10', '10 €'], ['30', '30 €'], ['50', '50 €'], ['none', "Pas d'IA"]],
-  },
 ]
 function optLabel(key: string, v: string): string {
   const q = QUESTIONS.find(x => x.key === key)
@@ -69,7 +68,7 @@ interface Branch { answer: string; type: string; title: string; subs: SubBranch[
 
 // Construit l'ébauche d'arbre à partir des réponses du chat.
 function rawBranches(answers: Record<string, string>, goals: string[]): Branch[] {
-  const ai = (answers.fallback === 'ia' || answers.fallback === 'both') && answers.budget !== 'none'
+  const ai = answers.fallback === 'ia' || answers.fallback === 'both'
   const human = answers.fallback === 'human' || answers.fallback === 'both'
   const out: Branch[] = []
   if (goals.includes('orders')) out.push({
@@ -100,8 +99,8 @@ function slug(s: string, fallback: string): string {
   return v || fallback
 }
 
-function buildTree(branches: Branch[], welcome: string, allowAI: boolean): Record<string, any> {
-  const nodes: Record<string, any> = {}
+function buildTree(branches: Branch[], welcome: string, allowAI: boolean): Tree {
+  const nodes: Record<string, TreeNode> = {}
   const used = new Set<string>(['root'])
   const uniq = (base: string): string => {
     let id = base, n = 2
@@ -184,7 +183,9 @@ function buildTree(branches: Branch[], welcome: string, allowAI: boolean): Recor
 // ---------------------------------------------------------------------------
 // Apparence : état interne -> design_json valide (clés du backend).
 const RADIUS_MAP: Record<string, number> = { sm: 10, md: 16, lg: 24 }
-const ICON_MAP: Record<string, string> = { chat: 'chat', bot: 'chat', spark: 'spark', head: 'help' }
+// Valeurs typées sur l'icône design_json (DesignJson['icon']) pour que
+// buildDesign() reste assignable à DesignJson sans cast.
+const ICON_MAP: Record<string, NonNullable<DesignJson['icon']>> = { chat: 'chat', bot: 'chat', spark: 'spark', head: 'help' }
 const ICON_GLYPH: Record<string, string> = { chat: '💬', bot: '🤖', spark: '✨', head: '🎧' }
 
 interface Look {
@@ -197,7 +198,7 @@ const DEFAULT_LOOK: Look = {
   welcome: 'Bonjour 👋 Comment puis-je vous aider ?',
 }
 
-function buildDesign(look: Look): Record<string, any> {
+function buildDesign(look: Look): DesignJson {
   return {
     primaryColor: look.color,
     secondaryColor: look.gradient ? (look.color2 || MINT) : null,
@@ -221,17 +222,6 @@ function buildDesign(look: Look): Record<string, any> {
 }
 
 // ---------------------------------------------------------------------------
-// Icône logo Chapote (en-tête widget + bulles bot)
-function ChapoteMark({ size = 18, color = '#fff' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-// ---------------------------------------------------------------------------
 type Step = 'chat' | 'preset' | 'appearance' | 'tree' | 'done'
 const STEP_ORDER: Step[] = ['chat', 'preset', 'appearance', 'tree']
 const STEP_CAPTION: Record<Step, string> = {
@@ -239,44 +229,24 @@ const STEP_CAPTION: Record<Step, string> = {
 }
 
 const RANDOM_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED', '#0EA5E9', '#D946A6']
-const PRIMARY_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
-const SECONDARY_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
+const SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
 
 // ---------------------------------------------------------------------------
-// Hook responsive (media queries impossibles en style inline) : matchMedia
-// + écoute du resize. SSR-safe (window absent -> false au 1er rendu).
-function useMediaQuery(query: string): boolean {
-  const get = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    ? window.matchMedia(query).matches : false)
-  const [match, setMatch] = useState<boolean>(get)
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-    const mql = window.matchMedia(query)
-    const on = () => setMatch(mql.matches)
-    on()
-    // addEventListener moderne ; addListener en repli (Safari ancien).
-    if (mql.addEventListener) mql.addEventListener('change', on)
-    else mql.addListener(on)
-    return () => {
-      if (mql.removeEventListener) mql.removeEventListener('change', on)
-      else mql.removeListener(on)
-    }
-  }, [query])
-  return match
-}
-
 export default function BotWizard() {
-  const { activeOrg } = useAuth()
+  const { user, activeOrg } = useAuth()
   const navigate = useNavigate()
+  // Équipes où l'utilisateur est admin = destinations possibles d'un bot
+  // d'équipe (POST /api/orgs/{id}/bots est réservé aux admins).
+  const adminOrgs = (user?.organizations || []).filter(o => o.role === 'admin')
+  // Destination du bot : 'perso' (POST /api/bots) ou un id d'équipe
+  // (POST /api/orgs/{id}/bots). Pré-sélectionne l'équipe active si elle fait
+  // partie des équipes admin, sinon « Perso ».
+  const [dest, setDest] = useState<'perso' | number>(
+    activeOrg && adminOrgs.some(o => o.id === activeOrg.id) ? activeOrg.id : 'perso',
+  )
   // Responsive : empilement du contenu en dessous de ~760px (mobile ~360-430px).
-  const mobile = useMediaQuery('(max-width: 760px)')
-  // Le shell (.main) réduit son padding à 16px 14px sous 860px : on aligne le
-  // breakout négatif de la page sur ce padding pour ne PAS provoquer d'overflow
-  // horizontal (le calcul -24 d'origine ne vaut qu'au padding desktop 22px/26px).
-  const shellNarrow = useMediaQuery('(max-width: 860px)')
-  const breakout: React.CSSProperties = shellNarrow
-    ? { marginLeft: -14, marginRight: -14, marginTop: -16, marginBottom: -56 }
-    : { margin: -24 }
+  // Breakpoint 760 conservé À L'IDENTIQUE (paramètre explicite, défaut du hook = 860).
+  const mobile = useIsMobile(760)
 
   const [step, setStep] = useState<Step>('chat')
   const [qi, setQi] = useState(0)
@@ -287,36 +257,23 @@ export default function BotWizard() {
   // Arbre RÉEL (tree_json) édité via le composant partagé TreeFlow. Construit à
   // l'entrée de l'étape ARBRE depuis les réponses du chat (buildTree). null tant
   // qu'on n'a pas atteint cette étape.
-  const [treeJson, setTreeJson] = useState<Record<string, any> | null>(null)
+  const [treeJson, setTreeJson] = useState<Tree | null>(null)
 
-  const [usage, setUsage] = useState<{ tree_only: boolean; max_tree_nodes: number | null } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [createdBotId, setCreatedBotId] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (!activeOrg) return
-    api(`/api/orgs/${activeOrg.id}/usage`).then(u => setUsage(u)).catch(() => {})
-  }, [activeOrg?.id])
-
-  const treeOnly = usage?.tree_only ?? false
-  // L'IA n'est réellement câblée que hors plan tree_only ET si l'utilisateur l'a
-  // choisie avec un budget.
-  const wantsAI = (answers.fallback === 'ia' || answers.fallback === 'both') && answers.budget !== 'none'
+  // L'IA est câblée si l'utilisateur l'a choisie (tout est gratuit, pas de budget).
+  const wantsAI = answers.fallback === 'ia' || answers.fallback === 'both'
   const wantsHuman = answers.fallback === 'human' || answers.fallback === 'both'
-  const allowAI = wantsAI && !treeOnly
-  // Mode réel du bot : tree_only force tree ; sinon hybride si IA voulue, sinon arbre.
-  const botMode = treeOnly ? 'tree' : (wantsAI ? 'hybrid' : 'tree')
+  const allowAI = wantsAI
+  // Mode réel du bot : hybride si IA voulue, sinon arbre.
+  const botMode = wantsAI ? 'hybrid' : 'tree'
 
   // -------------------------------------------------------------------------
   // Logique du chat
   function answerSingle(key: string, v: string) {
     const a = { ...answers, [key]: v }
-    if (key === 'fallback' && v === 'human') {
-      // Pas d'IA -> on saute la question budget.
-      a.budget = 'none'
-      setAnswers(a); setStep('preset'); return
-    }
     const next = qi + 1
     setAnswers(a)
     if (next >= QUESTIONS.length) setStep('preset')
@@ -332,18 +289,18 @@ export default function BotWizard() {
   }
 
   // -------------------------------------------------------------------------
-  // Capacités / prix (récap PRESET — données frontend pures, charte du design)
+  // Capacités activées (récap PRESET — données frontend pures, charte du design).
+  // Tout est gratuit : aucune notion de prix/quota.
   const caps = useMemo(() => {
-    const list: { icon: string; label: string; desc: string; price: string; priceCol: string; tint: string; cost: number }[] = [
-      { icon: '🌿', label: 'Arbre guidé illimité', desc: 'Branches & options sans limite', price: 'Inclus', priceCol: MINT, tint: 'rgba(47,158,121,.12)', cost: 0 },
+    const list: { icon: string; label: string; desc: string; tint: string }[] = [
+      { icon: '🌿', label: 'Arbre guidé illimité', desc: 'Branches & options sans limite', tint: 'rgba(47,158,121,.12)' },
     ]
-    if (allowAI) list.push({ icon: '✨', label: `IA plafonnée (${answers.budget}€/mois)`, desc: 'Répond aux questions ouvertes', price: '+19€', priceCol: INK, tint: 'rgba(140,109,255,.12)', cost: 19 })
-    if (wantsHuman) list.push({ icon: '💬', label: 'Relais humain', desc: 'Bascule vers un conseiller', price: '+15€', priceCol: INK, tint: 'rgba(232,106,95,.12)', cost: 15 })
-    if (goals.includes('leads')) list.push({ icon: '📥', label: 'Capture de contacts', desc: 'Collecte les leads qualifiés', price: '+9€', priceCol: INK, tint: 'rgba(37,99,235,.12)', cost: 9 })
-    if (goals.includes('rdv')) list.push({ icon: '📅', label: 'Prise de rendez-vous', desc: 'Intégration calendrier', price: '+12€', priceCol: INK, tint: 'rgba(224,168,46,.14)', cost: 12 })
+    if (allowAI) list.push({ icon: '✨', label: 'IA conversationnelle', desc: 'Répond aux questions ouvertes', tint: 'rgba(140,109,255,.12)' })
+    if (wantsHuman) list.push({ icon: '💬', label: 'Relais humain', desc: 'Bascule vers un conseiller', tint: 'rgba(232,106,95,.12)' })
+    if (goals.includes('leads')) list.push({ icon: '📥', label: 'Capture de contacts', desc: 'Collecte les leads qualifiés', tint: 'rgba(37,99,235,.12)' })
+    if (goals.includes('rdv')) list.push({ icon: '📅', label: 'Prise de rendez-vous', desc: 'Intégration calendrier', tint: 'rgba(224,168,46,.14)' })
     return list
-  }, [allowAI, wantsHuman, goals, answers.budget])
-  const total = caps.reduce((s, c) => s + c.cost, 0)
+  }, [allowAI, wantsHuman, goals])
   const draftBranchCount = useMemo(() => rawBranches(answers, goals).length, [answers, goals])
 
   // -------------------------------------------------------------------------
@@ -378,7 +335,6 @@ export default function BotWizard() {
   // -------------------------------------------------------------------------
   // Création réelle du bot (étape ARBRE -> DONE)
   async function createBot() {
-    if (!activeOrg) return
     setError('')
     setBusy(true)
     try {
@@ -388,8 +344,10 @@ export default function BotWizard() {
       const design = buildDesign(look)
       const name = sectorName(answers.sector)
 
-      // 1) création du bot (name + mode)
-      const bot = await api(`/api/orgs/${activeOrg.id}/bots`, {
+      // 1) création du bot (name + mode) — perso (POST /api/bots) ou équipe
+      // (POST /api/orgs/{id}/bots) selon la destination choisie.
+      const createPath = dest === 'perso' ? '/api/bots' : `/api/orgs/${dest}/bots`
+      const bot = await api(createPath, {
         method: 'POST', body: { name, mode: botMode },
       })
 
@@ -409,19 +367,11 @@ export default function BotWizard() {
 
       setCreatedBotId(bot.id)
       setStep('done')
-    } catch (err: any) {
-      setError(err?.message || 'La création a échoué.')
+    } catch (err: unknown) {
+      setError(errMsg(err, 'La création a échoué.'))
     } finally {
       setBusy(false)
     }
-  }
-
-  if (!activeOrg) {
-    return (
-      <div style={{ maxWidth: 520, margin: '80px auto', padding: 28, textAlign: 'center', color: MUT }}>
-        Sélectionnez d'abord une organisation.
-      </div>
-    )
   }
 
   const si = STEP_ORDER.indexOf(step)
@@ -429,13 +379,13 @@ export default function BotWizard() {
   const poolGoals = cur && cur.type === 'multi' ? cur.opts.filter(o => !goals.includes(o[0])) : []
 
   return (
-    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', minHeight: '100%', color: INK, ...breakout }}>
+    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', minHeight: '100%', color: INK }}>
       {/* ---- En-tête avec pastilles d'étape ---- */}
       <header style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(249,249,251,.92)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: mobile ? '11px 16px' : '13px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: mobile ? 10 : 20, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <span style={{ width: 32, height: 32, borderRadius: 10, background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <ChapoteMark size={18} />
+              <HatIcon size={18} color="#fff" />
             </span>
             <span style={{ fontWeight: 600, fontSize: 15 }}>Nouveau chatbot</span>
             <span style={{ fontSize: 13, color: FAINT, marginLeft: 6 }}>· {STEP_CAPTION[step]}</span>
@@ -462,56 +412,62 @@ export default function BotWizard() {
       {step === 'chat' && (
         <div style={{ maxWidth: 680, margin: '0 auto', padding: mobile ? '24px 16px 44px' : '40px 28px 60px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* feed des questions déjà répondues */}
-            {QUESTIONS.slice(0, qi).map((q, i) => {
-              const lbl = q.type === 'multi'
-                ? (goals.map(v => optLabel('goals', v)).join(', ') || '—')
-                : optLabel(q.key, answers[q.key])
-              return (
-                <div key={`feed-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <BotBubble text={q.q} />
-                  <UserBubble text={lbl} />
-                </div>
-              )
-            })}
-
-            {/* question courante */}
-            {cur && (
-              <>
-                <BotBubble text={cur.q} />
-                {cur.type === 'single' && (
-                  <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 2 }}>
-                    {cur.opts.map(o => (
-                      <ChatChip key={o[0]} fullWidth={mobile} onClick={() => answerSingle(cur.key, o[0])}>{o[1]}</ChatChip>
-                    ))}
+            {/* Historique + question courante dans UN SEUL tableau : les clés
+                (q-${i}) vivent dans le MÊME espace de noms React (une map et un
+                élément frère seraient namespacés différemment → remount). Quand on
+                répond, la question courante (dernier item) devient un item
+                d'historique au MÊME index/clé → React conserve son nœud DOM et ne
+                rejoue PAS l'animation d'entrée. Seules la réponse (nouveau nœud) et
+                la question suivante s'animent. */}
+            {[
+              ...QUESTIONS.slice(0, qi).map((q, i) => {
+                const lbl = q.type === 'multi'
+                  ? (goals.map(v => optLabel('goals', v)).join(', ') || '—')
+                  : optLabel(q.key, answers[q.key])
+                return (
+                  <div key={`q-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <BotBubble text={q.q} />
+                    <UserBubble text={lbl} />
                   </div>
-                )}
-                {cur.type === 'multi' && (
-                  <div style={{ marginTop: 2 }}>
-                    {goals.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', marginBottom: 10 }}>
-                        {goals.map(v => (
-                          <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: MINT, color: '#fff', borderRadius: 999, padding: '8px 12px', fontSize: 13.5, fontWeight: 600 }}>
-                            {optLabel('goals', v)}
-                            <button onClick={() => toggleGoal(v)} style={{ width: 17, height: 17, border: 'none', borderRadius: '50%', background: 'rgba(255,255,255,.25)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, lineHeight: 1 }}>×</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end' }}>
-                      {poolGoals.map(o => (
-                        <ChatChip key={o[0]} fullWidth={mobile} onClick={() => toggleGoal(o[0])}>+ {o[1]}</ChatChip>
+                )
+              }),
+              ...(cur ? [(
+                <div key={`q-${qi}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <BotBubble text={cur.q} />
+                  {cur.type === 'single' && (
+                    <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 2 }}>
+                      {cur.opts.map(o => (
+                        <ChatChip key={o[0]} fullWidth={mobile} onClick={() => answerSingle(cur.key, o[0])}>{o[1]}</ChatChip>
                       ))}
                     </div>
-                    {goals.length > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-                        <button onClick={nextMulti} style={{ ...primaryBtn, ...(mobile ? { width: '100%' } : null) }}>Continuer →</button>
+                  )}
+                  {cur.type === 'multi' && (
+                    <div style={{ marginTop: 2 }}>
+                      {goals.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', marginBottom: 10 }}>
+                          {goals.map(v => (
+                            <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: MINT, color: '#fff', borderRadius: 999, padding: '8px 12px', fontSize: 13.5, fontWeight: 600 }}>
+                              {optLabel('goals', v)}
+                              <button onClick={() => toggleGoal(v)} style={{ width: 17, height: 17, border: 'none', borderRadius: '50%', background: 'rgba(255,255,255,.25)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, lineHeight: 1 }}>×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end' }}>
+                        {poolGoals.map(o => (
+                          <ChatChip key={o[0]} fullWidth={mobile} onClick={() => toggleGoal(o[0])}>+ {o[1]}</ChatChip>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
+                      {goals.length > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+                          <button onClick={nextMulti} style={{ ...primaryBtn, ...(mobile ? { width: '100%' } : null) }}>Continuer →</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )] : []),
+            ]}
           </div>
         </div>
       )}
@@ -522,31 +478,21 @@ export default function BotWizard() {
           <div style={{ textAlign: 'center', marginBottom: 26 }}>
             <span style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>✨</span>
             <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 30, margin: '16px 0 0', letterSpacing: '-.02em' }}>Voici l'assistant de vos rêves</h1>
-            <p style={{ fontSize: 15, color: MUT, margin: '8px 0 0' }}>Construit d'après vos réponses. Chaque capacité est activable séparément.</p>
+            <p style={{ fontSize: 15, color: MUT, margin: '8px 0 0' }}>Construit d'après vos réponses — toutes les capacités sont incluses.</p>
           </div>
           <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 20, overflow: 'hidden', boxShadow: '0 18px 50px -28px rgba(28,63,92,.3)' }}>
             {caps.map((c, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderBottom: '1px solid #F4F6F8' }}>
+              // Clé = libellé de la capacité (identité stable) : la liste s'agrandit/
+              // se réduit selon les objectifs cochés, l'index glisserait d'une ligne.
+              <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderBottom: i < caps.length - 1 ? '1px solid #F4F6F8' : 'none' }}>
                 <span style={{ width: 40, height: 40, borderRadius: 11, background: c.tint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{c.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{c.label}</div>
                   <div style={{ fontSize: 13, color: FAINT }}>{c.desc}</div>
                 </div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: c.priceCol, whiteSpace: 'nowrap' }}>{c.price}</span>
               </div>
             ))}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', background: '#FBFCFD' }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: MUT }}>Total mensuel estimé</span>
-              <span style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 24, color: NAVY }}>
-                {total}€<span style={{ fontSize: 14, color: FAINT, fontFamily: "'Inter'", fontWeight: 500 }}>/mois</span>
-              </span>
-            </div>
           </div>
-          {treeOnly && (
-            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '14px 18px', marginTop: 14, fontSize: 13, color: MUT, lineHeight: 1.5 }}>
-              Votre plan actuel est limité à l'arbre guidé (sans IA). Les capacités IA seront ignorées tant que vous n'aurez pas changé de plan — l'arbre reste pleinement fonctionnel.
-            </div>
-          )}
           <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 16, display: 'flex', alignItems: 'center', gap: 13 }}>
             <span style={{ fontSize: 20 }}>🌿</span>
             <div style={{ flex: 1 }}>
@@ -576,7 +522,7 @@ export default function BotWizard() {
             <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 18, padding: mobile ? 16 : 24, marginTop: 20, maxWidth: 640 }}>
               <Label>Couleur principale</Label>
               <div style={{ display: 'flex', gap: 11, flexWrap: 'wrap' }}>
-                {PRIMARY_SWATCHES.map(c => (
+                {SWATCHES.map(c => (
                   <Swatch key={c} c={c} on={look.color === c} onClick={() => patchLook({ color: c })} size={34} />
                 ))}
               </div>
@@ -586,7 +532,7 @@ export default function BotWizard() {
                 <div>
                   <Label>Couleur secondaire</Label>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {SECONDARY_SWATCHES.map(c => (
+                    {SWATCHES.map(c => (
                       <Swatch key={c} c={c} on={look.color2 === c} onClick={() => patchLook({ color2: c })} size={26} />
                     ))}
                   </div>
@@ -643,8 +589,26 @@ export default function BotWizard() {
             tree={treeJson ?? buildTree(rawBranches(answers, goals), look.welcome, allowAI)}
             onChange={setTreeJson}
             allowAI={allowAI}
-            maxNodes={usage?.max_tree_nodes ?? null}
           />
+
+          {/* Destination du bot : perso (par défaut) ou une équipe où je suis
+              admin. Masqué si l'utilisateur n'a aucune équipe admin (perso seul). */}
+          {adminOrgs.length > 0 && (
+            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 22 }}>
+              <Label>Où créer ce chatbot ?</Label>
+              <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+                <button onClick={() => setDest('perso')} style={destChip(dest === 'perso')}>Perso</button>
+                {adminOrgs.map(o => (
+                  <button key={o.id} onClick={() => setDest(o.id)} style={destChip(dest === o.id)}>{o.name}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 12.5, color: FAINT, marginTop: 10, lineHeight: 1.5 }}>
+                {dest === 'perso'
+                  ? 'Bot personnel : vous en êtes le seul propriétaire. Vous pourrez le transférer à une équipe plus tard.'
+                  : 'Bot d\'équipe : partagé avec les membres de l\'équipe selon leurs permissions.'}
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>
             <button onClick={() => setStep('appearance')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }} disabled={busy}>← Retour</button>
@@ -698,7 +662,7 @@ function BotBubble({ text }: { text: string }) {
   return (
     <div style={{ display: 'flex', gap: 11, alignItems: 'flex-start', animation: 'cin .35s ease' }}>
       <span style={{ width: 34, height: 34, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <ChapoteMark size={18} />
+        <HatIcon size={18} color="#fff" />
       </span>
       <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: '4px 16px 16px 16px', padding: '12px 16px', fontSize: 15, lineHeight: 1.5, maxWidth: '85%', boxShadow: '0 3px 10px -6px rgba(28,63,92,.2)' }}>{text}</div>
     </div>
@@ -723,6 +687,14 @@ function ChatChip({ children, onClick, fullWidth }: { children: React.ReactNode;
 
 function Label({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, margin: '0 0 10px', ...style }}>{children}</label>
+}
+// Pilule de choix de destination (perso / équipe) — même look que ChatChip.
+function destChip(on: boolean): React.CSSProperties {
+  return {
+    border: `1.5px solid ${on ? MINT : '#D8DEE6'}`, background: on ? 'rgba(47,158,121,.08)' : '#fff',
+    color: on ? '#1C7A5C' : NAVY, borderRadius: 999, padding: '9px 16px', fontSize: 13.5, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  }
 }
 function Swatch({ c, on, onClick, size }: { c: string; on: boolean; onClick: () => void; size: number }) {
   return (

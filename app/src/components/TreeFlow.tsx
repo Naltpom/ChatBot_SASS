@@ -20,23 +20,14 @@
 //   (jamais de suppression de nœuds non concernés).
 
 import { useState } from 'react'
+import type { Tree } from '../types/bot'
 
 type BranchType = 'q' | 'ia' | 'hum' | 'act'
 
-type TreeNode = {
-  message?: string
-  options?: { label: string; next: string }[]
-  type?: 'message' | 'appointment' | 'lead' | 'handoff'
-  url?: string
-  fields?: string[]
-}
-type Tree = { start?: string; nodes?: Record<string, TreeNode> }
-
 interface Props {
-  tree: any
-  onChange: (tree: any) => void
+  tree: Tree
+  onChange: (tree: Tree) => void
   allowAI?: boolean
-  maxNodes?: number | null
 }
 
 // Couleurs (bord-gauche carte + pastille + badge) et libellés des badges.
@@ -50,10 +41,10 @@ function newNodeId(nodes: Record<string, unknown>): string {
   return id
 }
 
-function asTree(raw: any): Tree {
-  return raw && typeof raw === 'object' ? raw : {}
+function asTree(raw: unknown): Tree {
+  return raw && typeof raw === 'object' ? (raw as Tree) : {}
 }
-function clone(t: any): Tree {
+function clone(t: unknown): Tree {
   return JSON.parse(JSON.stringify(asTree(t)))
 }
 
@@ -67,7 +58,7 @@ function branchType(t: Tree, next: string): BranchType {
   return 'q'
 }
 
-export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = null }: Props) {
+export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
   const [orient, setOrient] = useState<'vert' | 'horiz'>('vert')
 
   const t = asTree(tree)
@@ -76,9 +67,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
   const root = nodes[start] || { message: '', options: [] }
   const rootOptions = root.options || []
   const welcome = root.message || ''
-
-  const nodeCount = Object.keys(nodes).length
-  const atNodeLimit = maxNodes != null && nodeCount >= maxNodes
 
   function mutate(fn: (draft: Tree) => void) {
     const copy = clone(tree)
@@ -97,15 +85,29 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
     return node.message || ''
   }
 
+  // Clé React STABLE pour une liste d'options : le nœud cible (o.next) est un id
+  // unique, donc une bonne clé qui SUIT le nœud lors d'un réordonnancement /
+  // suppression (l'index, lui, glisserait sur le voisin). Seul '__ai__' n'est
+  // pas unique -> on le désambiguïse par occurrence. (Pas l'index : il ne sert
+  // que de suffixe de secours sur les doublons __ai__.)
+  function optionKeys(opts: { next: string }[]): string[] {
+    const seen: Record<string, number> = {}
+    return opts.map(o => {
+      const n = seen[o.next] = (seen[o.next] || 0) + 1
+      return n === 1 ? o.next : `${o.next}#${n}`
+    })
+  }
+
   // ----- Vue : sous-étapes d'une branche (options du nœud cible) -----
-  type SubView = { answer: string; title: string; type: BranchType; color: string; badge: string }
+  type SubView = { key: string; answer: string; title: string; type: BranchType; color: string; badge: string }
   function subsOf(next: string): SubView[] {
     if (next === '__ai__') return []
     const node = nodes[next]
     if (!node || !node.options) return []
-    return node.options.map(o => {
+    const keys = optionKeys(node.options)
+    return node.options.map((o, j) => {
       const ty = branchType(t, o.next)
-      return { answer: o.label, title: destOf(o.next), type: ty, color: C[ty], badge: B[ty] }
+      return { key: keys[j], answer: o.label, title: destOf(o.next), type: ty, color: C[ty], badge: B[ty] }
     })
   }
 
@@ -190,7 +192,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
     })
   }
   function addBranch() {
-    if (atNodeLimit) return
     mutate(d => {
       const nd = d.nodes!
       const id = newNodeId(nd)
@@ -202,7 +203,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
 
   // ----- Sous-étapes -----
   function addSub(branchIdx: number) {
-    if (atNodeLimit) return
     mutate(d => {
       const nd = d.nodes!
       const opt = nd[start].options?.[branchIdx]
@@ -263,28 +263,27 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
   }
 
   // ----- View model des branches (mêmes champs que le template) -----
+  const branchKeys = optionKeys(rootOptions)
   const branches = rootOptions.map((o, i) => {
     const ty = branchType(t, o.next)
     const subs = subsOf(o.next)
     return {
+      key: branchKeys[i],
       idx: i, answer: o.label, title: destOf(o.next), type: ty, color: C[ty], badge: B[ty],
       hasSubs: subs.length > 0, subs, isAI: o.next === '__ai__',
     }
   })
 
-  // Options du <select> de type (IA masqué si allowAI===false).
-  const typeOptions: { value: BranchType; label: string }[] = [
-    { value: 'q', label: 'Question (arbre)' },
+  // Options du <select> de type (IA masqué si allowAI===false). Seul le libellé
+  // de la 1re option (« Question ») diffère entre branches et sous-étapes.
+  const typeOpts = (qLabel: string): { value: BranchType; label: string }[] => [
+    { value: 'q', label: qLabel },
     ...(allowAI ? [{ value: 'ia' as BranchType, label: 'IA' }] : []),
     { value: 'hum', label: 'Conseiller' },
     { value: 'act', label: 'Action' },
   ]
-  const subTypeOptions: { value: BranchType; label: string }[] = [
-    { value: 'q', label: 'Question' },
-    ...(allowAI ? [{ value: 'ia' as BranchType, label: 'IA' }] : []),
-    { value: 'hum', label: 'Conseiller' },
-    { value: 'act', label: 'Action' },
-  ]
+  const typeOptions = typeOpts('Question (arbre)')
+  const subTypeOptions = typeOpts('Question')
 
   const isVert = orient === 'vert'
 
@@ -337,8 +336,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
     editorCard: { background: '#fff', border: '1px solid #E8ECF0', borderRadius: 16, padding: 24 },
     addBtn: {
       background: '#fff', color: '#1C3F5C', border: '1px dashed #CBD5DF', borderRadius: 10,
-      padding: '8px 14px', fontSize: 13.5, fontWeight: 600, cursor: atNodeLimit ? 'not-allowed' : 'pointer',
-      opacity: atNodeLimit ? .5 : 1,
+      padding: '8px 14px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
     },
     row: {
       display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const,
@@ -417,7 +415,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
                 <span style={{ fontSize: 12.5, color: '#9AA7B4' }}>Aucune branche. Ajoutez-en une ci-dessous.</span>
               )}
               {branches.map(b => (
-                <div key={b.idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div key={b.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                   <div style={S.answerPill}>{b.answer}</div>
                   <div style={{ ...S.connV, height: 14 }} />
                   <div style={S.typedCard(b.color)}>
@@ -428,8 +426,8 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
                     <>
                       <div style={{ ...S.connV, height: 14 }} />
                       <div style={{ display: 'flex', gap: 12 }}>
-                        {b.subs.map((x, j) => (
-                          <div key={j} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        {b.subs.map(x => (
+                          <div key={x.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <div style={S.subPill}>{x.answer}</div>
                             <div style={{ ...S.connV, height: 12 }} />
                             <div style={S.subTypedCard(x.color)}>
@@ -454,7 +452,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
                 <span style={{ fontSize: 12.5, color: '#9AA7B4' }}>Aucune branche. Ajoutez-en une ci-dessous.</span>
               )}
               {branches.map(b => (
-                <div key={b.idx} style={{ display: 'flex', alignItems: 'center' }}>
+                <div key={b.key} style={{ display: 'flex', alignItems: 'center' }}>
                   <div style={S.answerPill}>{b.answer}</div>
                   <div style={{ ...S.connH, width: 14 }} />
                   <div style={S.typedCard(b.color)}>
@@ -465,8 +463,8 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
                     <>
                       <div style={{ ...S.connH, width: 14 }} />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {b.subs.map((x, j) => (
-                          <div key={j} style={{ display: 'flex', alignItems: 'center' }}>
+                        {b.subs.map(x => (
+                          <div key={x.key} style={{ display: 'flex', alignItems: 'center' }}>
                             <div style={S.subPill}>{x.answer}</div>
                             <div style={{ ...S.connH, width: 11 }} />
                             <div style={S.subTypedCard(x.color)}>
@@ -491,7 +489,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
           <h3 style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontWeight: 700, fontSize: 17, margin: 0 }}>
             Arbre de conversation
           </h3>
-          <button type="button" onClick={addBranch} disabled={atNodeLimit} style={S.addBtn}>+ Branche</button>
+          <button type="button" onClick={addBranch} style={S.addBtn}>+ Branche</button>
         </div>
         <p style={{ fontSize: 13, color: '#9AA7B4', margin: '0 0 16px' }}>
           Choisissez le type (couleur), l'intitulé de la réponse et sa destination : question, IA, conseiller ou action.
@@ -504,7 +502,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
             </div>
           )}
           {branches.map(b => (
-            <div key={b.idx} style={{ border: '1px solid #F0F2F5', borderRadius: 12, padding: '13px 14px' }}>
+            <div key={b.key} style={{ border: '1px solid #F0F2F5', borderRadius: 12, padding: '13px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span style={S.dot(b.color)} />
                 <select value={b.type} onChange={e => setBranchType(b.idx, e.target.value)} style={S.select}>
@@ -517,8 +515,8 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
                        disabled={b.isAI} style={{ ...S.destInput, opacity: b.isAI ? .6 : 1 }}
                        onChange={e => setBranchTitle(b.idx, e.target.value)} />
                 <button type="button" title="Ajouter une sous-étape" onClick={() => addSub(b.idx)}
-                        disabled={atNodeLimit || b.isAI}
-                        style={{ ...S.iconBtn, opacity: (atNodeLimit || b.isAI) ? .5 : 1, cursor: (atNodeLimit || b.isAI) ? 'not-allowed' : 'pointer' }}>
+                        disabled={b.isAI}
+                        style={{ ...S.iconBtn, opacity: b.isAI ? .5 : 1, cursor: b.isAI ? 'not-allowed' : 'pointer' }}>
                   +
                 </button>
                 <button type="button" onClick={() => removeBranch(b.idx)} style={S.delBtn}>✕</button>
@@ -527,7 +525,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
               {b.hasSubs && (
                 <div style={S.subWrap}>
                   {b.subs.map((x, j) => (
-                    <div key={j} style={S.subRow}>
+                    <div key={x.key} style={S.subRow}>
                       <span style={{ ...S.dot(x.color), width: 11, height: 11 }} />
                       <select value={x.type} onChange={e => setSubType(b.idx, j, e.target.value)}
                               style={{ ...S.select, height: 32, borderRadius: 8, padding: '0 7px', fontSize: 12 }}>
@@ -550,11 +548,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true, maxNodes = nu
           ))}
         </div>
 
-        {maxNodes != null && (
-          <div style={{ fontSize: 12, color: atNodeLimit ? '#C4524A' : '#9AA7B4', marginTop: 14 }}>
-            {nodeCount} / {maxNodes} bulles{atNodeLimit ? ' — quota atteint, supprimez des branches ou passez au plan supérieur.' : ''}
-          </div>
-        )}
       </div>
     </div>
   )

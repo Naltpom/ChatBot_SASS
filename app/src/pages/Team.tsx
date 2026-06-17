@@ -3,13 +3,14 @@
 // (copy / test / appearance / context / security / inbox), invitations en attente.
 // La matrice vit dans sa propre section, TOUJOURS rendue (découvrable dès le
 // 1er jour, même sans membre au rôle « member »).
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Btn, Card, Chip, InfoBox, SectionTitle, Seg, brandBg } from '../ui'
-import { BotSummary } from './BotList'
+import { BotSummary } from '../types/bot'
+import { errMsg } from '../utils/errors'
 
 // 'inbox' volontairement EN FIN (ordre aligné sur BOT_PERMS côté API ; le spec
 // e2e team-permissions toggle la 1re colonne = copy via .first())
@@ -18,7 +19,7 @@ const PERMS = [
   { id: 'test', label: 'Tester', desc: 'prévisualiser le widget' },
   { id: 'appearance', label: 'Apparence', desc: 'design, nom, mode' },
   { id: 'context', label: 'Contexte (arbre + IA)', desc: 'arbre, IA, actions, leads, exports' },
-  { id: 'security', label: 'Sécurité', desc: 'domaines, captcha, plafonds' },
+  { id: 'security', label: 'Sécurité', desc: 'domaines, captcha, activation' },
   { id: 'inbox', label: 'Boîte de réception (chat humain)', desc: 'voir et répondre aux conversations transmises à un conseiller' },
 ]
 
@@ -49,7 +50,7 @@ function PermLegend() {
 }
 
 export default function Team() {
-  const { activeOrg, refreshUser } = useAuth()
+  const { activeOrg } = useAuth()
   const [members, setMembers] = useState<Member[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [bots, setBots] = useState<BotSummary[]>([])
@@ -58,61 +59,43 @@ export default function Team() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
-  const [converting, setConverting] = useState(false)
   const matrixRef = useRef<HTMLDivElement | null>(null)
 
   const isAdmin = activeOrg?.role === 'admin'
 
-  function reload() {
+  // useCallback : reload est en dépendance de l'effet ci-dessous ; non mémoïsé
+  // (recréé à chaque rendu) l'effet bouclerait. Mémoïsé sur l'id de l'équipe
+  // active, il ne se recrée qu'au changement d'équipe (orgs/team couvrent) —
+  // pas à chaque refreshUser renvoyant un nouvel objet à id identique.
+  const reload = useCallback(() => {
     if (!activeOrg) return
     // .catch : sans lui, un échec afficherait « 0 membre » mensonger
     api(`/api/orgs/${activeOrg.id}/members`).then(d => {
       setMembers(d.members)
       setInvitations(d.invitations)
-    }).catch((err: any) => setError(`Chargement de l'équipe impossible : ${err.message}`))
+    }).catch((err: unknown) => setError(`Chargement de l'équipe impossible : ${errMsg(err)}`))
     api<BotSummary[]>(`/api/orgs/${activeOrg.id}/bots`).then(setBots)
-      .catch((err: any) => setError(`Chargement des bots impossible : ${err.message}`))
-  }
-  useEffect(reload, [activeOrg?.id])
+      .catch((err: unknown) => setError(`Chargement des bots impossible : ${errMsg(err)}`))
+    // activeOrg lu via closure ; seul son id pilote le rechargement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrg?.id])
+  useEffect(() => { reload() }, [reload])
 
-  if (!activeOrg) return <Card>Sélectionnez d'abord une organisation.</Card>
-
-  // ---------- Compte personnel ----------
-  if (activeOrg.type === 'perso') {
-    async function convert() {
-      setConverting(true)
-      try {
-        await api(`/api/orgs/${activeOrg!.id}`, { method: 'PATCH', body: { type: 'entreprise' } })
-        await refreshUser()
-      } catch (err: any) {
-        setError(err.message)
-      } finally {
-        setConverting(false)
-      }
-    }
+  if (!activeOrg) {
     return (
-      <div className="col g18">
-        <SectionTitle sub="Compte personnel — vous êtes le seul membre.">Équipe</SectionTitle>
-        {error && <div className="error">{error}</div>}
-        <InfoBox tone="info" title="Passer en entreprise">
-          Même architecture, plus de monde : convertissez cet espace pour inviter des collègues et gérer des
-          permissions par bot.
-        </InfoBox>
-        {isAdmin && (
-          <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-            <Btn onClick={convert} disabled={converting}>
-              {converting ? 'Conversion…' : 'Convertir en espace entreprise'}
-            </Btn>
-            <Link to="/app/orgs" style={{ fontSize: 12, fontWeight: 700, color: 'var(--acc)' }}>
-              ou gérez vos organisations
-            </Link>
+      <Card style={{ textAlign: 'center', padding: '36px 24px' }}>
+        <div className="col" style={{ alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 800 }}>Aucune équipe active</div>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)', maxWidth: 380, lineHeight: 1.55 }}>
+            Sélectionnez une équipe dans le menu latéral, ou créez-en une.
           </div>
-        )}
-      </div>
+          <Link to="/app/orgs" style={{ fontSize: 13, fontWeight: 700, color: 'var(--acc)' }}>Mes équipes</Link>
+        </div>
+      </Card>
     )
   }
 
-  // ---------- Entreprise ----------
+  // ---------- Membres & permissions ----------
   async function invite() {
     const email = inviteEmail.trim().toLowerCase()
     if (!email.includes('@')) return
@@ -127,8 +110,8 @@ export default function Team() {
         : `Invitation enregistrée : ${email} rejoindra l'espace en créant son compte.`)
       setInviteEmail('')
       reload()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     }
   }
 
@@ -137,8 +120,8 @@ export default function Team() {
     try {
       await api(`/api/orgs/${activeOrg!.id}/members/${m.id}`, { method: 'PATCH', body })
       reload()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     }
   }
 
@@ -154,8 +137,8 @@ export default function Team() {
     setError('')
     try {
       await api(`/api/orgs/${activeOrg!.id}/members/${m.id}`, { method: 'PATCH', body: { permissions: nextMap } })
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
       reload()
     }
   }
@@ -165,8 +148,8 @@ export default function Team() {
     try {
       await api(`/api/orgs/${activeOrg!.id}/members/${m.id}`, { method: 'DELETE' })
       reload()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     }
   }
 

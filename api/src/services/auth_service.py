@@ -4,8 +4,8 @@ Meme flux qu'ao_scrapping : POST {mail, mdp} sur INTRANET_AUTH_URL, succes si
 redirect vers /main ou JSON {"retour": "Ok"}. Les comptes intranet (staff)
 sont crees superadmins du SaaS : vue sur tous les clients.
 """
+import json
 import logging
-from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.security import hash_password, verify_password
+from src.core.time import utcnow
 from src.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,9 @@ async def authenticate_intranet(email: str, password: str) -> Optional[dict]:
                     if data.get("retour") == "Ok" or data.get("success") is True or data.get("authenticated") is True:
                         logger.info("Intranet auth success for %s", email)
                         return _user_info_from_email(email)
-                except Exception:
-                    pass
+                except (ValueError, json.JSONDecodeError) as e:
+                    # Reponse 200 non-JSON (ex : page HTML) -> echec d'auth, pas une erreur
+                    logger.debug("Intranet 200 non-JSON for %s : %s", email, e)
             logger.info("Intranet auth failed for %s (status=%s)", email, response.status_code)
             return None
     except httpx.RequestError as e:
@@ -84,7 +86,7 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> User:
     if user and verify_password(password, user.hashed_password):
         if not user.is_active:
             raise AuthenticationError("Votre compte a été désactivé. Contactez un administrateur.")
-        user.last_login = datetime.utcnow()
+        user.last_login = utcnow()
         await db.commit()
         return user
 
@@ -97,7 +99,7 @@ async def _get_or_create_intranet_user(db: AsyncSession, info: dict, password: s
     if user:
         user.auth_source = "intranet"
         user.is_superadmin = True
-        user.last_login = datetime.utcnow()
+        user.last_login = utcnow()
         user.hashed_password = hash_password(password)  # fallback local si intranet down
     else:
         user = User(
@@ -106,7 +108,7 @@ async def _get_or_create_intranet_user(db: AsyncSession, info: dict, password: s
             hashed_password=hash_password(password),
             auth_source="intranet",
             is_superadmin=True,
-            last_login=datetime.utcnow(),
+            last_login=utcnow(),
         )
         db.add(user)
     await db.commit()

@@ -2,8 +2,8 @@
 d'aide collé) ou d'une URL de page d'aide.
 
 Utilisé côté DASHBOARD (config-time, clé managée du SaaS) — jamais par le
-widget, donc pas décompté du quota IA des conversations. Réservé aux plans
-payants côté router.
+widget. Accessible à tous ; le treegen_limiter Redis (10/24h/org) côté router
+borne le COÛT provider (anti-abus), ce n'est pas un gating de plan.
 """
 import json
 import logging
@@ -11,12 +11,13 @@ import re
 
 import httpx
 
+from src.core.anthropic import call_messages
 from src.core.config import settings
+from src.core.constants import TREE_INSIGHTS_MODEL
 from src.services.tree_engine import TreeError, validate_tree
 
 logger = logging.getLogger(__name__)
 
-GENERATION_MODEL = "claude-sonnet-4-6"
 MAX_SOURCE_CHARS = 20_000
 
 SYSTEM_PROMPT = """Tu construis des arbres de décision pour des chatbots de sites web.
@@ -69,7 +70,7 @@ async def fetch_page_text(url: str) -> str:
             resp.raise_for_status()
             html = resp.text
     except httpx.HTTPError as e:
-        raise TreeGenerationError(f"Impossible de récupérer la page : {e}")
+        raise TreeGenerationError(f"Impossible de récupérer la page : {e}") from e
 
     # Extraction texte naïve : on retire scripts/styles puis toutes les balises
     html = re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>", " ", html)
@@ -94,31 +95,21 @@ async def generate_tree(source_text: str) -> dict:
         raise TreeGenerationError("Génération indisponible : aucune clé IA configurée côté serveur")
 
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": GENERATION_MODEL,
-                    "max_tokens": 4096,
-                    "system": SYSTEM_PROMPT,
-                    "messages": [{
-                        "role": "user",
-                        "content": f"Contenu source :\n\n{source_text}\n\nGénère l'arbre de décision JSON.",
-                    }],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        result = await call_messages(
+            api_key=api_key,
+            model=TREE_INSIGHTS_MODEL,
+            max_tokens=4096,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"Contenu source :\n\n{source_text}\n\nGénère l'arbre de décision JSON.",
+            }],
+        )
     except httpx.HTTPError as e:
         logger.error("Génération d'arbre : erreur API %s", e)
-        raise TreeGenerationError("Le service IA est momentanément indisponible, réessayez")
+        raise TreeGenerationError("Le service IA est momentanément indisponible, réessayez") from e
 
-    raw = "".join(b.get("text", "") for b in data.get("content", []))
+    raw = result.text
     # Tolère un éventuel bloc markdown malgré la consigne
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
     try:

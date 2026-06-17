@@ -1,8 +1,8 @@
 // Base de connaissances RAG — refonte Chapote. La KB n'est PLUS un onglet
 // « Connaissances » dédié : KbPanel vit désormais dans l'onglet « IA » de
 // l'éditeur de bot (BotPage.tsx, section « Base de connaissances »). L'onglet
-// IA n'est rendu que si l'IA est pertinente (aiTabRelevant) → bot DÉDIÉ en mode
-// hybrid (org agence du state, pas tree_only), créé/supprimé via l'API.
+// IA n'est rendu que si l'IA est pertinente (bot.mode !== 'tree') → bot DÉDIÉ
+// en mode hybrid, créé/supprimé via l'API.
 //
 // MOCK_AI=false : l'ingestion et la recherche KB sont 100 % LOCALES (fastembed
 // ONNX CPU) — AUCUN appel provider IA. Le widget n'est jamais ouvert. Le
@@ -32,14 +32,14 @@ test.afterAll(async ({ request }) => {
 
 test.beforeEach(async ({ page }) => {
   await authenticate(page, state)
-  // L'onglet IA dépend de aiTabRelevant (bot.mode !== 'tree' && !usage.tree_only).
-  // BotPage fetch /usage APRÈS le bot (effet chaîné) et son arrivée re-render les
-  // onglets : on attend cette réponse pour ne pas cliquer pendant le re-render.
-  const usageSeen = page.waitForResponse(
-    r => /\/api\/orgs\/\d+\/usage/.test(r.url()) && r.request().method() === 'GET',
+  // L'onglet IA dépend de aiTabRelevant (bot.mode !== 'tree'). On attend la
+  // réponse du bot (GET /api/bots/{id}) — son arrivée monte/rerender les onglets
+  // — pour ne pas cliquer pendant le re-render.
+  const botSeen = page.waitForResponse(
+    r => new RegExp(`/api/bots/${botId}(\\?|$)`).test(r.url()) && r.request().method() === 'GET',
   )
   await page.goto(`/app/bots/${botId}?tab=ai`)
-  await usageSeen
+  await botSeen
 })
 
 test('onglet IA → ajout source texte → Prête → recherche hybride/fts → suppression', async ({ page }) => {

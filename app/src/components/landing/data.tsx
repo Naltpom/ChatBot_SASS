@@ -1,0 +1,85 @@
+// Données & primitives partagées de la landing « Chapote » (extraction R4).
+// Tout le contenu statique (piliers, comparatif, témoignages, logos, nav,
+// tokens typographiques, icônes) vit ici pour alléger les sous-composants
+// présentationnels. Aucune logique d'état.
+import { API_URL } from '../../api'
+
+// ---- Tokens typographiques -------------------------------------------------
+export const CLASH = "'Clash Display',sans-serif"
+export const JAKARTA = "'Plus Jakarta Sans',sans-serif"
+export const MONO = "'JetBrains Mono',monospace"
+export const eyebrow = (color: string): React.CSSProperties => ({ fontSize: 13, fontWeight: 700, letterSpacing: '.12em', color })
+// Style de titre de section partagé par les 5 sections (Piliers/Temoignages/Comparatif/Install/Pricing).
+export const sectionH2: React.CSSProperties = { fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }
+
+// Boutons CTA réutilisés par plusieurs sections (hero, pricing).
+export const btnPrimary: React.CSSProperties = { background: '#1C3F5C', color: '#fff', border: 'none', borderRadius: 14, padding: '15px 26px', fontWeight: 600, fontSize: 16, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', boxShadow: '0 12px 26px -10px rgba(28,63,92,.6)' }
+export const btnSecondary: React.CSSProperties = { background: '#fff', color: '#1C3F5C', border: '1px solid #D8DEE6', borderRadius: 14, padding: '15px 24px', fontWeight: 600, fontSize: 16, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 9 }
+
+// ---- Snippet d'installation RÉEL (corrige §5.1 D13) ------------------------
+// Le widget lit l'attribut `data-bot-key` (clé publique pk_…) et se charge
+// depuis `{API_URL}/widget.js`. On reproduit fidèlement le `script_tag`
+// renvoyé par GET /api/bots/{id}/embed (api/src/routers/bots.py). La clé est
+// un exemple : l'utilisateur récupère la sienne dans l'onglet Intégration.
+export const WIDGET_SRC = `${API_URL}/widget.js`
+export const EXAMPLE_BOT_KEY = 'pk_votre_cle'
+export const SNIPPET = `<script src="${WIDGET_SRC}" data-bot-key="${EXAMPLE_BOT_KEY}" defer></script>`
+
+// ---- Icônes (SVG inline, tracés repris du design) --------------------------
+export const HatIcon = ({ size = 20 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+export const Check = ({ stroke = '#2F9E79', w = 2.2, size = 16 }: { stroke?: string; w?: number; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10.5" stroke={stroke} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" /></svg>
+)
+
+// ---- Piliers ---------------------------------------------------------------
+export type Pilier = { bg: string; co: string; t: string; d: string; icon: React.ReactNode }
+export const PILIERS: Pilier[] = [
+  { bg: 'rgba(47,158,121,.12)', co: '#2F9E79', t: '100% gratuit', d: 'Toutes les fonctionnalités incluses, sans carte bancaire ni facture surprise.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" /><path d="M14.5 9.4a3.2 3.2 0 100 5.2M8 11h4.5M8 13.2h3.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg> },
+  { bg: 'rgba(47,158,121,.12)', co: '#2F9E79', t: 'RGPD par défaut', d: 'Hébergement français, données locales. Conforme sans la moindre configuration.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 2.6v5.2c0 4.4-3 7.4-7 8.9-4-1.5-7-4.5-7-8.9V5.6z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><path d="M9 12l2 2 4-4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+  { bg: 'rgba(140,109,255,.12)', co: '#8C6DFF', t: 'Installation 1 minute', d: 'Une seule balise <script> à coller. Aucun autre réglage requis.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M9 7l-4.5 5L9 17M15 7l4.5 5L15 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+  { bg: 'rgba(232,106,95,.12)', co: '#E86A5F', t: 'Relais humain', d: "Bascule fluide vers un conseiller quand l'humain fait la différence.", icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 6h16v10H9l-4 3.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><circle cx="12" cy="11" r="2.2" stroke="currentColor" strokeWidth="1.8" /></svg> },
+]
+
+// ---- Comparatif ------------------------------------------------------------
+export type Cell = { kind: 'ok' | 'warn' | 'no'; label: string; strong?: boolean }
+export type CmpRow = { label: string; badge?: string; chapote: Cell; ia: Cell; classic: Cell }
+export const CMP_ROWS: CmpRow[] = [
+  { label: '100% gratuit', chapote: { kind: 'ok', label: 'Tout inclus' }, ia: { kind: 'warn', label: "Coût à l'usage" }, classic: { kind: 'no', label: 'Masse salariale' } },
+  { label: 'RGPD & hébergement FR', chapote: { kind: 'ok', label: 'Français, natif' }, ia: { kind: 'no', label: 'Souvent hors UE' }, classic: { kind: 'warn', label: "Selon l'outil" } },
+  { label: 'Installation', chapote: { kind: 'ok', label: '1 balise, 1 min' }, ia: { kind: 'warn', label: 'Config requise' }, classic: { kind: 'no', label: 'Projet long' } },
+  { label: 'Relais humain', chapote: { kind: 'ok', label: 'Bascule fluide' }, ia: { kind: 'no', label: 'Aucun' }, classic: { kind: 'ok', label: 'Oui, mais lent' } },
+  { label: 'Arbre guidé', badge: 'ILLIMITÉ', chapote: { kind: 'ok', label: 'Sans surcoût', strong: true }, ia: { kind: 'no', label: "Limité à l'IA" }, classic: { kind: 'no', label: 'Manuel' } },
+]
+
+// ---- Témoignages -----------------------------------------------------------
+export type Testi = { stars: number; q: string; av: string; bg: string; name: string; role: string }
+export const TESTIS: Testi[] = [
+  { stars: 5, q: '« On a divisé par 3 notre volume de tickets de niveau 1 — et c\'est gratuit. »', av: 'LM', bg: '#1C3F5C', name: 'Léa Mercier', role: 'Head of Support · Velobird' },
+  { stars: 5, q: '« L\'installation a pris deux minutes. Le relais humain reste fluide — nos clients ne voient pas la couture. »', av: 'KB', bg: '#2F9E79', name: 'Karim Benali', role: 'CTO · Maison Lou' },
+  { stars: 5, q: '« Enfin un chatbot gratuit ET conforme RGPD. L\'hébergement français a débloqué notre service juridique. »', av: 'SD', bg: '#E86A5F', name: 'Sophie Dubois', role: 'COO · Nordia' },
+]
+
+export const LOGOS = ['Velobird', 'Maison Lou', 'Nordia', 'Fika&Co', 'Atelier 9']
+
+// ---- Navigation (types explicites — §8 évite les as-casts) -----------------
+export type NavLink = { href: string; label: string }
+export const NAV: NavLink[] = [
+  { href: '#features', label: 'Fonctionnalités' },
+  { href: '#why', label: 'Pourquoi Chapote' },
+  { href: '#pricing', label: 'Tarifs' },
+  { href: '#testi', label: 'Blog' },
+]
+
+// ---- Colonnes de liens du footer (types explicites — §8) -------------------
+export type FooterColumn = { title: string; links: NavLink[] }
+export const FOOTER_COLUMNS: FooterColumn[] = [
+  { title: 'Produit', links: [{ href: '#features', label: 'Fonctionnalités' }, { href: '#why', label: 'Comparatif' }, { href: '#install', label: 'Tarifs' }, { href: '#demo', label: 'Démo' }] },
+  { title: 'Ressources', links: [{ href: '#', label: 'Documentation' }, { href: '#', label: 'Blog' }, { href: '#', label: 'Guides' }, { href: '#', label: 'Statut' }] },
+  { title: 'RGPD & Légal', links: [{ href: '#', label: 'Confidentialité' }, { href: '#', label: 'Hébergement FR' }, { href: '#', label: 'CGU' }, { href: '#', label: 'DPA' }] },
+  { title: 'Réseaux', links: [{ href: '#', label: 'LinkedIn' }, { href: '#', label: 'X / Twitter' }, { href: '#', label: 'GitHub' }] },
+]

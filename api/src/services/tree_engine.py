@@ -15,7 +15,7 @@ Format du tree_json (exportable/importable en fichier) :
 }
 
 `next: "__ai__"` est un noeud special : la conversation bascule en mode IA
-(texte libre). Les reponses tree ne comptent pas dans le quota IA.
+(texte libre). Les reponses tree n'appellent aucun provider IA (zero cout).
 """
 from typing import Any, Optional
 

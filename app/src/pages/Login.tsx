@@ -1,22 +1,9 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
-
-function useIsMobile(maxWidth = 760) {
-  const query = `(max-width: ${maxWidth}px)`
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
-  )
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const mql = window.matchMedia(query)
-    const onChange = () => setIsMobile(mql.matches)
-    onChange()
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [query])
-  return isMobile
-}
+import { useIsMobile } from '../hooks/useMediaQuery'
+import { errMsg } from '../utils/errors'
+import HatIcon from '../components/HatIcon'
 
 const NAVY = '#1C3F5C'
 const INPUT_BASE: React.CSSProperties = {
@@ -32,15 +19,6 @@ const INPUT_BASE: React.CSSProperties = {
   fontFamily: 'inherit',
 }
 
-function BrandMark() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 function Check() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
@@ -52,7 +30,7 @@ function Check() {
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(760)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
@@ -66,8 +44,8 @@ export default function Login() {
     try {
       await login(email, password)
       navigate('/app')
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err, 'Connexion impossible.'))
     } finally {
       setBusy(false)
     }
@@ -133,7 +111,7 @@ export default function Login() {
                 justifyContent: 'center',
               }}
             >
-              <BrandMark />
+              <HatIcon size={20} color="#fff" />
             </span>
             <span style={{ fontFamily: "'Clash Display', sans-serif", fontWeight: 600, fontSize: 21 }}>Chapote</span>
           </div>
@@ -149,14 +127,14 @@ export default function Login() {
             Bon retour 👋
           </h2>
           <p style={{ fontSize: 15, lineHeight: 1.55, color: '#A8C0D0', margin: '12px 0 0' }}>
-            Pilotez vos bots hybrides, vos plafonds IA et votre relais humain — depuis un seul endroit.
+            Pilotez vos bots hybrides, votre IA et votre relais humain — depuis un seul endroit.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 13, marginTop: 30 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#D6E2EA' }}>
               <Check />Arbre guidé illimité
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#D6E2EA' }}>
-              <Check />IA plafonnée, budget maîtrisé
+              <Check />IA incluse, 100% gratuit
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#D6E2EA' }}>
               <Check />Données 100% françaises
@@ -212,9 +190,9 @@ export default function Login() {
                 />
                 Se souvenir de moi
               </label>
-              <a href="#" style={{ fontSize: 13.5, color: NAVY, fontWeight: 600, textDecoration: 'none' }}>
+              <button type="button" style={{ background: 'none', border: 'none', padding: 0, fontSize: 13.5, color: NAVY, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                 Mot de passe oublié ?
-              </a>
+              </button>
             </div>
 
             {error && (

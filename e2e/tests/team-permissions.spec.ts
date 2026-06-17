@@ -8,7 +8,7 @@ const state = loadState()
 
 test('état vide : section toujours rendue, avec la légende des 5 permissions', async ({ page, request }) => {
   // Org entreprise fraîche : un seul membre (l'admin créateur) → état vide
-  const org = await createOrg(request, state, `E2E Team ${Date.now()}`, 'entreprise')
+  const org = await createOrg(request, state, `E2E Team ${Date.now()}`)
   await authenticateWithToken(page, state.token, org.id)
   await page.goto('/app/team')
 

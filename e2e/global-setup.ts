@@ -3,7 +3,7 @@
 // - FLUSHALL Redis en tête (les rate-limits y sont persistants — seule donnée
 //   stockée dans Redis, purge sans effet de bord)
 // - 1 compte ENTREPRISE (register API = 1 appel d'auth par run frais)
-// - plan « agence » (self-serve, non rate-limité) : pas de tree_only, marge de bots
+//   (plus aucune notion de plan : toute org est « tout ouvert » par défaut)
 // - 1 bot mode arbre avec un tree_json simple à 3 nœuds, captcha désactivé
 // - 1 compte MEMBER local jetable (« Membre E2E »), membre de l'org partagée,
 //   permissions remises à {} à chaque run (déterminisme team-permissions.spec)
@@ -208,12 +208,8 @@ async function tryReuse(ctx: APIRequestContext): Promise<boolean> {
   if (!botRes.ok()) return false
   const bot = await botRes.json()
   if (bot.public_key !== state.publicKey) return false
-
-  // L'état n'est réutilisable que si le plan agence est bien appliqué (un
-  // .state.json créé alors que Stripe était actif serait resté en free)
-  const usageRes = await ctx.get(`/api/orgs/${state.orgId}/usage`, { headers })
-  if (!usageRes.ok()) return false
-  if ((await usageRes.json()).plan !== 'agence') return false
+  // Le GET /api/bots/{id} ci-dessus (200) suffit à valider l'état : plus de
+  // notion de plan à vérifier (toute org est « tout ouvert » par défaut).
 
   // Remise à plat du bot partagé (l'arbre a pu être modifié par botpage.spec,
   // les domaines par savebar.spec)
@@ -277,21 +273,10 @@ export default async function globalSetup(_config: FullConfig) {
     const org = user.organizations[0]
     const headers = authHeaders(token)
 
-    // --- 2. Plan agence (self-serve org admin, non rate-limité) :
-    // pas de tree_only et 10 bots max -> marge pour les specs ---
-    const plan = await ctx.post(`/api/orgs/${org.id}/plan`, { headers, data: { plan: 'agence' } })
-    if (!plan.ok()) await fail('POST /api/orgs/{id}/plan', plan)
-    // Avec STRIPE_* configuré, le 200 peut être {applied:false, checkout_url}
-    // (le plan resterait free → wizard-tree/botpage casseraient de façon opaque)
-    const planBody = await plan.json()
-    if (!planBody.applied) {
-      throw new Error(
-        'POST /api/orgs/{id}/plan : applied=false (billing Stripe actif). ' +
-        'Videz les variables STRIPE_* du .env pour les runs e2e, puis `docker compose up -d api`.',
-      )
-    }
+    // (Plus aucune étape de plan : toute org est « tout ouvert » par défaut —
+    // pas de tree_only, pas de limite de bots, IA disponible selon le mode.)
 
-    // --- 3. Bot partagé : mode arbre, captcha désactivé (clés Turnstile
+    // --- 2. Bot partagé : mode arbre, captcha désactivé (clés Turnstile
     // absentes en dev), arbre à 3 nœuds ---
     const created = await ctx.post(`/api/orgs/${org.id}/bots`, {
       headers,
@@ -321,7 +306,7 @@ export default async function globalSetup(_config: FullConfig) {
       publicKey: bot.public_key,
     }
 
-    // --- 4. Compte member « Membre E2E » (2e et DERNIER appel d'auth) ---
+    // --- 3. Compte member « Membre E2E » (2e et DERNIER appel d'auth) ---
     await ensureMember(ctx, state)
 
     fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))

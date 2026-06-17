@@ -13,7 +13,8 @@ Niveaux :
 - par session (JWT)  : RATE_SESSION_MESSAGES / RATE_SESSION_WINDOW_SECONDS
 - par IP             : anti-flood large, RATE_IP_REQUESTS / RATE_IP_WINDOW_SECONDS
 - login/register     : anti-bruteforce, 10 tentatives / 15 min par IP
-- par bot (jour)     : cap IA quotidien -> gere dans usage_service (requete SQL)
+- outils IA (jour)   : treegen/insights, plafond quotidien par organisation
+                       (anti-abus coût provider, pas un gating de plan)
 """
 import logging
 import time

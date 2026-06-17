@@ -19,8 +19,7 @@ Base = declarative_base()
 
 
 async def get_db():
+    # `async with` ferme deja la session a la sortie (succes ou exception) ;
+    # un session.close() en finally serait un double-close no-op redondant.
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session

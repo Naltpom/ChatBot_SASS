@@ -3,7 +3,7 @@
 Une interface, trois implementations selon la config du bot :
 - turnstile    : defaut, nos cles (env), invisible, RGPD-friendly (defaut CNIL-ok)
 - recaptcha_v3 : cles du client (site key publique + secret chiffre en base)
-- disabled     : intranets / environnements fermes (les quotas protegent toujours)
+- disabled     : intranets / environnements fermes (les rate-limiters protegent toujours)
 """
 import logging
 

@@ -6,7 +6,7 @@ Deux types de tokens, distingues par le claim `scope` :
                       liee a un bot + un domaine + une conversation
 """
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -18,8 +18,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 
+if TYPE_CHECKING:
+    # Annotations seules : import differe (les modeles importent indirectement
+    # ce module au runtime — comme les imports paresseux des fonctions ci-dessous).
+    from src.models.bot import Bot
+    from src.models.user import User
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
+
+# Session glissante widget : le serveur joint un refresh_token quand le JWT
+# expire dans moins de ce seuil (10 min), pour ne pas couper le fil du visiteur.
+WIDGET_REFRESH_THRESHOLD_SECONDS = 600
 
 
 def hash_password(password: str) -> str:
@@ -31,10 +41,11 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def _encode(claims: dict, expires_delta: timedelta) -> str:
+    now = datetime.now(timezone.utc)
     payload = {
         **claims,
-        "exp": datetime.now(timezone.utc) + expires_delta,
-        "iat": datetime.now(timezone.utc),
+        "exp": now + expires_delta,
+        "iat": now,
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
@@ -65,7 +76,7 @@ def widget_token_needs_refresh(payload: dict) -> bool:
     exp = payload.get("exp")
     if not exp:
         return False
-    return exp - datetime.now(timezone.utc).timestamp() < 600
+    return exp - datetime.now(timezone.utc).timestamp() < WIDGET_REFRESH_THRESHOLD_SECONDS
 
 
 def decode_token(token: str, expected_scope: str) -> dict:
@@ -102,13 +113,13 @@ def get_widget_session(
     return decode_token(credentials.credentials, expected_scope="widget")
 
 
-async def require_superadmin(user=Depends(get_current_user)):
+async def require_superadmin(user: "User" = Depends(get_current_user)):
     if not user.is_superadmin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé aux administrateurs")
     return user
 
 
-async def get_membership(org_id: int, user, db: AsyncSession):
+async def get_membership(org_id: int, user: "User", db: AsyncSession):
     from src.models.user import Membership
 
     result = await db.execute(
@@ -120,7 +131,7 @@ async def get_membership(org_id: int, user, db: AsyncSession):
     return result.scalar_one_or_none()
 
 
-async def require_org_access(org_id: int, user, db: AsyncSession):
+async def require_org_access(org_id: int, user: "User", db: AsyncSession):
     """Membre de l'organisation OU superadmin (le staff peut tout configurer).
     Retourne la Membership (None pour un superadmin non membre)."""
     if user.is_superadmin:
@@ -131,9 +142,9 @@ async def require_org_access(org_id: int, user, db: AsyncSession):
     return membership
 
 
-async def require_org_admin(org_id: int, user, db: AsyncSession):
+async def require_org_admin(org_id: int, user: "User", db: AsyncSession):
     """Admin de l'organisation OU superadmin. Pour la gestion d'equipe,
-    le changement de type/nom d'org, la suppression de bots."""
+    le changement de nom d'org, la suppression de bots."""
     if user.is_superadmin:
         return None
     membership = await get_membership(org_id, user, db)
@@ -142,3 +153,35 @@ async def require_org_admin(org_id: int, user, db: AsyncSession):
     if membership.role != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé aux administrateurs de l'organisation")
     return membership
+
+
+async def require_bot_access(bot: "Bot", user: "User", db: AsyncSession):
+    """Acces en LECTURE/usage a un bot, ownership polymorphe.
+
+    Retourne la Membership pertinente (None = « tous droits » : owner perso ou
+    superadmin non membre — _check_bot_perm/_mask_bot_out interpretent None
+    comme un acces total).
+    - Bot d'EQUIPE (organization_id) : delegue a require_org_access.
+    - Bot PERSO (owner_user_id) : seul l'owner (ou un superadmin) y accede,
+      404 anti-enumeration sinon. Le superadmin n'a pas de membership perso ->
+      None (tous droits)."""
+    if user.is_superadmin:
+        return await get_membership(bot.organization_id, user, db) if bot.organization_id else None
+    if bot.owner_user_id is not None:
+        if user.id == bot.owner_user_id:
+            return None
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    return await require_org_access(bot.organization_id, user, db)
+
+
+async def require_bot_admin(bot: "Bot", user: "User", db: AsyncSession):
+    """Acces ADMIN a un bot (suppression, deplacement), ownership polymorphe.
+    - Bot d'EQUIPE : admin de l'org (ou superadmin).
+    - Bot PERSO : l'owner (ou superadmin)."""
+    if user.is_superadmin:
+        return None
+    if bot.owner_user_id is not None:
+        if user.id == bot.owner_user_id:
+            return None
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    return await require_org_admin(bot.organization_id, user, db)

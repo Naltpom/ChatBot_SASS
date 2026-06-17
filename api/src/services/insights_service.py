@@ -3,9 +3,9 @@ adressés à l'IA (30 derniers jours, échantillonnés côté router) en thèmes
 récurrents, avec suggestion de bulle d'arbre pour chacun.
 
 Utilisé côté DASHBOARD (config-time, clé managée du SaaS, UN appel par
-génération) — jamais par le widget, donc pas décompté du quota IA des
-conversations. Plans payants + limiteur Redis 3/jour/org côté router,
-vérifiés AVANT tout appel.
+génération) — jamais par le widget. Accessible à tous ; l'insights_limiter
+Redis (3/jour/org) côté router, vérifié AVANT tout appel, borne le COÛT
+provider (anti-abus), ce n'est pas un gating de plan.
 """
 import json
 import logging
@@ -13,11 +13,12 @@ import re
 
 import httpx
 
+from src.core.anthropic import call_messages
 from src.core.config import settings
+from src.core.constants import TREE_INSIGHTS_MODEL
 
 logger = logging.getLogger(__name__)
 
-INSIGHTS_MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 2048
 # Bornes de validation du rapport produit par le modele
 _MAX_CLUSTERS = 10
@@ -50,31 +51,31 @@ def _mock_report(messages: list[str]) -> dict:
     }]}
 
 
-def _validate_report(raw) -> dict:
+def _require(cond: bool) -> None:
+    """Garde de validation : leve l'InsightsError standard si la condition
+    n'est pas remplie. Une ligne par contrainte cote appelant (lisibilite)."""
+    if not cond:
+        raise InsightsError(_INVALID_MSG)
+
+
+def _validate_report(raw: dict) -> dict:
     """Validation stricte de la sortie modele -> rapport re-projete sur les
     seules cles attendues (rien d'autre ne sort vers le dashboard)."""
-    if not isinstance(raw, dict):
-        raise InsightsError(_INVALID_MSG)
+    _require(isinstance(raw, dict))
     clusters = raw.get("clusters")
-    if not isinstance(clusters, list) or len(clusters) > _MAX_CLUSTERS:
-        raise InsightsError(_INVALID_MSG)
+    _require(isinstance(clusters, list) and len(clusters) <= _MAX_CLUSTERS)
     out = []
     for cluster in clusters:
-        if not isinstance(cluster, dict):
-            raise InsightsError(_INVALID_MSG)
+        _require(isinstance(cluster, dict))
         theme = cluster.get("theme")
-        if not isinstance(theme, str) or not 1 <= len(theme.strip()) <= 120:
-            raise InsightsError(_INVALID_MSG)
+        _require(isinstance(theme, str) and 1 <= len(theme.strip()) <= 120)
         count = cluster.get("count")
-        if isinstance(count, bool) or not isinstance(count, int):
-            raise InsightsError(_INVALID_MSG)
+        _require(not isinstance(count, bool) and isinstance(count, int))
         examples = cluster.get("examples")
-        if (not isinstance(examples, list) or len(examples) > _MAX_EXAMPLES
-                or not all(isinstance(e, str) for e in examples)):
-            raise InsightsError(_INVALID_MSG)
+        _require(isinstance(examples, list) and len(examples) <= _MAX_EXAMPLES
+                 and all(isinstance(e, str) for e in examples))
         bubble = cluster.get("suggested_bubble")
-        if not isinstance(bubble, str):
-            raise InsightsError(_INVALID_MSG)
+        _require(isinstance(bubble, str))
         out.append({
             "theme": theme.strip(),
             "count": count,
@@ -95,36 +96,26 @@ async def generate_insights(messages: list[str]) -> dict:
 
     numbered = "\n".join(f"{i + 1}. {m[:300]}" for i, m in enumerate(messages))
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": INSIGHTS_MODEL,
-                    "max_tokens": MAX_TOKENS,
-                    "system": SYSTEM_PROMPT,
-                    "messages": [{
-                        "role": "user",
-                        "content": f"Questions des visiteurs :\n\n{numbered}\n\nGénère le rapport JSON.",
-                    }],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        result = await call_messages(
+            api_key=api_key,
+            model=TREE_INSIGHTS_MODEL,
+            max_tokens=MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"Questions des visiteurs :\n\n{numbered}\n\nGénère le rapport JSON.",
+            }],
+        )
     except httpx.HTTPError as e:
         logger.error("Insights : erreur API %s", e)
-        raise InsightsError("Le service IA est momentanément indisponible, réessayez")
+        raise InsightsError("Le service IA est momentanément indisponible, réessayez") from e
 
-    raw = "".join(b.get("text", "") for b in data.get("content", []))
+    raw = result.text
     # Tolère un éventuel bloc markdown malgré la consigne (regex tree_generator)
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
     try:
         report = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         logger.error("Insights : sortie non-JSON : %.300s", raw)
-        raise InsightsError(_INVALID_MSG)
+        raise InsightsError(_INVALID_MSG) from e
     return _validate_report(report)

@@ -16,13 +16,11 @@ test('superadmin : aller-retour Espace client ↔ Back-office (4 pages admin)', 
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.locator('.brand-sub')).toHaveText('Opérateur')
 
-  // Dashboard opérateur chargé (GET /api/admin/stats)
+  // Dashboard opérateur chargé (GET /api/admin/stats). La facturation/les plans
+  // ayant été supprimés, on n'assert plus de métrique « MRR » : seulement le
+  // titre de section et un bloc non-billing toujours présent.
   await expect(page.getByText('Chargement…')).toHaveCount(0)
   await expect(page.locator('.section-title')).toHaveText('Dashboard')
-  for (const label of ['MRR', 'Clients actifs', 'Conso IA du mois', 'Msgs / 7 jours']) {
-    await expect(page.getByText(label, { exact: true })).toBeVisible()
-  }
-  await expect(page.getByText('MRR par plan', { exact: true })).toBeVisible()
   await expect(page.getByText('Inscriptions (6 mois)', { exact: true })).toBeVisible()
 
   // --- Clients : table opérateur ---
@@ -30,11 +28,7 @@ test('superadmin : aller-retour Espace client ↔ Back-office (4 pages admin)', 
   await expect(page).toHaveURL(/\/admin\/clients$/)
   await expect(page.getByRole('columnheader', { name: 'Client', exact: true })).toBeVisible()
 
-  // --- Factures : bandeau billing off (STRIPE_* vides en dev) ---
-  await page.getByRole('button', { name: 'Factures', exact: true }).click()
-  await expect(page).toHaveURL(/\/admin\/invoices$/)
-  await expect(page.getByText('Facturation en ligne non configurée')).toBeVisible()
-  await expect(page.getByText('Les variables STRIPE_* ne sont pas renseignées — aucune facture à afficher.')).toBeVisible()
+  // (La page « Factures » a été supprimée avec la facturation : plus de bascule.)
 
   // --- Utilisateurs : lecture seule avec recherche ---
   await page.getByRole('button', { name: 'Utilisateurs', exact: true }).click()
@@ -54,7 +48,7 @@ test('non-superadmin forcé sur /admin → redirigé vers /app, sans lien Back-o
   await expect(page).toHaveURL(/\/app$/)
   await expect(page.getByText('Mes chatbots').first()).toBeVisible()
 
-  await page.goto('/admin/invoices')
+  await page.goto('/admin/users')
   await expect(page).toHaveURL(/\/app$/)
   await expect(page.getByText('Mes chatbots').first()).toBeVisible()
 

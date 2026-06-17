@@ -10,7 +10,8 @@ aucun redirect suivi, timeout 10 s, lecture bornee en stream.
 import asyncio
 import ipaddress
 import json
-from typing import Optional
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Optional
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -50,9 +51,14 @@ async def resolve_public_ip(url: str) -> str:
     return str(ips[0])
 
 
-def _pin(url: str, ip: str) -> tuple[str, str, str]:
+def pin_url(url: str, ip: str) -> tuple[str, str, str]:
     """(pinned_url, host_header, hostname) : l'hote de l'URL est remplace par
-    l'IP validee, le Host HTTP et le SNI TLS restent le hostname d'origine."""
+    l'IP validee, le Host HTTP et le SNI TLS restent le hostname d'origine.
+
+    Helper PARTAGE (anti DNS-rebinding) : utilise par les fetch de ce module
+    ET par action_executor._webhook (signature HMAC en plus). Toute requete
+    epinglee doit passer pinned_url + header Host=host_header +
+    extensions={"sni_hostname": hostname} a httpx."""
     parsed = urlparse(url)
     hostname = parsed.hostname
     host_header = hostname if parsed.port in (None, 443) else f"{hostname}:{parsed.port}"
@@ -62,32 +68,59 @@ def _pin(url: str, ip: str) -> tuple[str, str, str]:
     return urlunparse(parsed._replace(netloc=netloc)), host_header, hostname
 
 
-async def safe_get(url: str, max_bytes: int) -> str:
-    """GET borne : 3xx refusees, lecture en stream coupee a max_bytes,
-    decodage texte tolerant (le HTML/XML sera de toute facon re-nettoye)."""
+@asynccontextmanager
+async def _pinned_stream(method: str, url: str, *, headers: Optional[dict] = None,
+                         **stream_kwargs) -> AsyncIterator[httpx.Response]:
+    """Ouvre un stream httpx EPINGLE (anti DNS-rebinding), helper PARTAGE des
+    fetch sortants : resolution DNS unique avec rejet des IP non publiques,
+    connexion sur l'IP validee mais Host HTTP + SNI TLS = hostname d'origine,
+    aucun redirect, timeout 10 s. Le `Host` est toujours impose (ecrase tout
+    Host fourni dans `headers`), `extensions={"sni_hostname": ...}` ajoute.
+
+    L'appelant lit le corps (borne) DANS le `async with` ; toute httpx.HTTPError
+    est traduite en FetchError. NE filtre PAS le code de statut (chaque
+    appelant a ses propres regles : 3xx/non-200/non-2xx)."""
     ip = await resolve_public_ip(url)
-    pinned_url, host_header, hostname = _pin(url, ip)
+    pinned_url, host_header, hostname = pin_url(url, ip)
+    final_headers = dict(headers or {})
+    final_headers["Host"] = host_header
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
             async with client.stream(
-                "GET", pinned_url,
-                headers={"Host": host_header, "User-Agent": "Chapote-KB/1.0"},
+                method, pinned_url,
+                headers=final_headers,
                 extensions={"sni_hostname": hostname},
+                **stream_kwargs,
             ) as resp:
-                if 300 <= resp.status_code < 400:
-                    raise FetchError("Redirection refusée par sécurité")
-                if resp.status_code != 200:
-                    raise FetchError(f"réponse HTTP {resp.status_code}")
-                read = 0
-                parts: list[bytes] = []
-                async for part in resp.aiter_bytes():
-                    parts.append(part)
-                    read += len(part)
-                    if read >= max_bytes:
-                        break
+                yield resp
     except httpx.HTTPError:
         raise FetchError("hôte injoignable")
-    data = b"".join(parts)[:max_bytes]
+
+
+async def _read_bounded(resp: httpx.Response, max_bytes: int) -> bytes:
+    """Lecture en stream coupee a max_bytes (le corps reel peut etre plus gros :
+    on s'arrete des qu'on a assez, comme l'historique)."""
+    read = 0
+    parts: list[bytes] = []
+    async for part in resp.aiter_bytes():
+        parts.append(part)
+        read += len(part)
+        if read >= max_bytes:
+            break
+    return b"".join(parts)[:max_bytes]
+
+
+async def safe_get(url: str, max_bytes: int) -> str:
+    """GET borne : 3xx refusees, lecture en stream coupee a max_bytes,
+    decodage texte tolerant (le HTML/XML sera de toute facon re-nettoye)."""
+    async with _pinned_stream(
+        "GET", url, headers={"User-Agent": "Chapote-KB/1.0"},
+    ) as resp:
+        if 300 <= resp.status_code < 400:
+            raise FetchError("Redirection refusée par sécurité")
+        if resp.status_code != 200:
+            raise FetchError(f"réponse HTTP {resp.status_code}")
+        data = await _read_bounded(resp, max_bytes)
     return data.decode("utf-8", errors="replace")
 
 
@@ -97,34 +130,17 @@ async def safe_post_json_read(url: str, payload: dict, headers: Optional[dict] =
     safe_get, lecture bornee en stream, retour (corps texte, headers de
     reponse) — les headers servent a Mcp-Session-Id. 3xx refusees, statut
     hors 200-299 refuse (202 tolere : notifications MCP)."""
-    ip = await resolve_public_ip(url)
-    pinned_url, host_header, hostname = _pin(url, ip)
-    base_headers = {"Host": host_header, "Content-Type": "application/json"}
-    if headers:
-        base_headers.update(headers)
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
-            async with client.stream(
-                "POST", pinned_url,
-                content=json.dumps(payload).encode(),
-                headers=base_headers,
-                extensions={"sni_hostname": hostname},
-            ) as resp:
-                if 300 <= resp.status_code < 400:
-                    raise FetchError("Redirection refusée par sécurité")
-                if not 200 <= resp.status_code < 300:
-                    raise FetchError(f"réponse HTTP {resp.status_code}")
-                read = 0
-                parts: list[bytes] = []
-                async for part in resp.aiter_bytes():
-                    parts.append(part)
-                    read += len(part)
-                    if read >= max_bytes:
-                        break
-                resp_headers = dict(resp.headers)
-    except httpx.HTTPError:
-        raise FetchError("hôte injoignable")
-    data = b"".join(parts)[:max_bytes]
+    post_headers = {"Content-Type": "application/json", **(headers or {})}
+    async with _pinned_stream(
+        "POST", url, headers=post_headers,
+        content=json.dumps(payload).encode(),
+    ) as resp:
+        if 300 <= resp.status_code < 400:
+            raise FetchError("Redirection refusée par sécurité")
+        if not 200 <= resp.status_code < 300:
+            raise FetchError(f"réponse HTTP {resp.status_code}")
+        data = await _read_bounded(resp, max_bytes)
+        resp_headers = dict(resp.headers)
     return data.decode("utf-8", errors="replace"), resp_headers
 
 
@@ -133,15 +149,5 @@ async def safe_post_json(url: str, payload: dict) -> None:
     signature HMAC (notification simple), reponse ignoree. En stream comme
     safe_get : le corps de reponse (cible controlee par un tiers) n'est
     JAMAIS lu en memoire, le contexte ferme la connexion sans le charger."""
-    ip = await resolve_public_ip(url)
-    pinned_url, host_header, hostname = _pin(url, ip)
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
-            async with client.stream(
-                "POST", pinned_url, json=payload,
-                headers={"Host": host_header},
-                extensions={"sni_hostname": hostname},
-            ):
-                pass  # statut/corps ignores volontairement (notification)
-    except httpx.HTTPError:
-        raise FetchError("hôte injoignable")
+    async with _pinned_stream("POST", url, json=payload):
+        pass  # statut/corps ignores volontairement (notification)
