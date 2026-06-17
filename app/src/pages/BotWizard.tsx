@@ -1,25 +1,33 @@
 // Wizard de création — expérience conversationnelle Chapote (BotCreate.dc.html).
-// 5 étapes : CHAT (le bot interroge l'utilisateur) → PRESET (récap des
-// capacités, tout inclus/gratuit) → APPARENCE (contrôles + widget live fixe) →
-// ARBRE (composant PARTAGÉ TreeFlow) → DONE (bot créé).
+// 7 étapes : CHAT (le bot interroge l'utilisateur, Q&R enrichie + perso +
+// branchement conditionnel) → PRESET (récap des capacités, tout inclus/gratuit)
+// → APPARENCE (contrôles + palette réelle + widget live fixe) → SOURCES (URLs +
+// PDF du client, validés en direct) → PROCESSING (écran d'attente animé qui
+// appelle l'IA de génération d'arbre) → ARBRE (composant PARTAGÉ TreeFlow) →
+// DONE (bot créé).
 //
-// SOURCE UNIQUE de l'arbre : à l'entrée de l'étape ARBRE, les réponses du chat
-// produisent UN vrai tree_json (rawBranches → buildTree) stocké dans `treeJson`,
-// puis édité via <TreeFlow> — le MÊME composant que l'onglet « Arbre » de
+// SOURCE de l'arbre : à l'étape SOURCES, soit l'utilisateur passe (on construit
+// l'ébauche locale rawBranches → buildTree), soit il fournit des pages/PDF et
+// l'étape PROCESSING démarre un job (POST /api/tree/jobs) puis suit sa
+// progression en SSE (GET /api/tree/jobs/{id}/stream) jusqu'au tree_json généré
+// par l'IA. Dans TOUS les cas le résultat atterrit dans
+// `treeJson`, édité via <TreeFlow> — le MÊME composant que l'onglet « Arbre » de
 // l'éditeur, donc rendu strictement identique. La création finale envoie CE
-// tree_json édité (plus de double source brouillon/arbre).
+// tree_json édité. Toute erreur de génération retombe sur l'ébauche locale :
+// l'utilisateur n'est jamais bloqué.
 //
 // Câblage réel : à l'étape ARBRE, « Créer mon chatbot » crée vraiment le bot
 // via l'API existante (POST /api/orgs/{id}/bots puis PATCH /api/bots/{id}),
 // avec ce tree_json et un design_json valide. Le mode "tree" (aucune IA voulue)
 // masque l'option IA dans TreeFlow (allowAI=false).
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api'
+import { api, postForm, streamSSE } from '../api'
 import { useAuth } from '../AuthContext'
-import { MODEL_OPTIONS } from '../botConstants'
+import { MODEL_OPTIONS, WIDGET_BRAND_COLORS, GRADIENT_SECOND_COLORS } from '../botConstants'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import TreeFlow from '../components/TreeFlow'
+import WidgetPreview from '../components/WidgetPreview'
 import HatIcon from '../components/HatIcon'
 import { errMsg } from '../utils/errors'
 import type { DesignJson, Tree, TreeNode } from '../types/bot'
@@ -35,30 +43,76 @@ const FAINT = '#9AA7B4'
 const BORDER = '#E8ECF0'
 
 // ---------------------------------------------------------------------------
-// Questions du chat (portées de BotCreate.dc.html, Q())
-type QType = 'single' | 'multi'
-interface Question { key: string; type: QType; q: string; opts: [string, string][] }
+// Questions du chat — Q&R enrichie (portée de BotCreate.dc.html, Q()) :
+// personnalisation (nom d'entreprise + ton de voix) et UN branchement
+// conditionnel (la question de suivi n'apparaît que si 'orders' est coché).
+//   - 'single' : un choix parmi des chips.
+//   - 'multi'  : plusieurs choix (objectifs), avec un bouton « Continuer ».
+//   - 'text'   : saisie libre (input stylé + envoi), rendue en bulle utilisateur.
+// `when(answers, goals)` (optionnel) : prédicat de branchement — si présent et
+// faux, la question est SAUTÉE (ni posée, ni rendue dans l'historique).
+type QType = 'single' | 'multi' | 'text'
+interface Question {
+  key: string
+  type: QType
+  q: string
+  opts: [string, string][]            // vide pour 'text'
+  placeholder?: string                // 'text' uniquement
+  when?: (answers: Record<string, string>, goals: string[]) => boolean
+}
 const QUESTIONS: Question[] = [
   {
-    key: 'sector', type: 'single',
-    q: "Bonjour 👋 Je vais construire votre assistant sur-mesure. Quel est votre domaine d'activité ?",
-    opts: [['ecom', 'E-commerce'], ['saas', 'SaaS / Logiciel'], ['service', 'Service / Conseil'], ['other', 'Autre']],
+    key: 'company', type: 'text', opts: [],
+    q: "Bonjour 👋 Je vais construire votre assistant sur-mesure. Pour commencer, comment s'appelle votre entreprise ?",
+    placeholder: 'Ex. Maison Léna',
   },
   {
-    key: 'goals', type: 'multi',
+    key: 'sector', type: 'single', opts:
+      [['ecom', 'E-commerce'], ['local', 'Commerce local'], ['saas', 'SaaS / Logiciel'], ['service', 'Service / Conseil'], ['other', 'Autre']],
+    q: "Parfait. Quel est votre domaine d'activité ?",
+  },
+  {
+    key: 'goals', type: 'multi', opts:
+      [['faq', 'Répondre aux questions fréquentes'], ['orders', 'Suivre les commandes'], ['leads', 'Capturer des contacts'], ['rdv', 'Prendre des rendez-vous'], ['horaires', 'Donner horaires & infos pratiques']],
     q: 'Que doit-il faire en priorité ? Choisissez tout ce qui compte.',
-    opts: [['faq', 'Répondre aux questions fréquentes'], ['orders', 'Suivre les commandes'], ['leads', 'Capturer des contacts'], ['rdv', 'Prendre des rendez-vous']],
   },
   {
-    key: 'fallback', type: 'single',
+    // Branchement conditionnel : suivi de commande proposé UNIQUEMENT si
+    // l'objectif « Suivre les commandes » a été coché.
+    key: 'order_channel', type: 'single', opts:
+      [['site', 'Sur mon site (numéro de commande)'], ['transporteur', 'Via le transporteur'], ['email', "Par e-mail à l'équipe"]],
+    q: 'Comment vos clients suivent-ils leur commande aujourd\'hui ?',
+    when: (_a, goals) => goals.includes('orders'),
+  },
+  {
+    key: 'tone', type: 'single', opts:
+      [['tu', 'Tutoiement chaleureux'], ['vous', 'Vouvoiement professionnel'], ['neutre', 'Neutre']],
+    q: 'Quel ton de voix doit-il adopter ?',
+  },
+  {
+    key: 'fallback', type: 'single', opts:
+      [['ia', "Laisser l'IA répondre"], ['human', 'Passer à un conseiller'], ['both', 'Les deux : IA puis humain']],
     q: "Quand l'arbre guidé ne suffit pas, que préférez-vous ?",
-    opts: [['ia', "Laisser l'IA répondre"], ['human', 'Passer à un conseiller'], ['both', 'Les deux : IA puis humain']],
   },
 ]
 function optLabel(key: string, v: string): string {
   const q = QUESTIONS.find(x => x.key === key)
   const o = q && q.opts.find(p => p[0] === v)
   return o ? o[1] : v
+}
+
+// Liste des questions RÉELLEMENT actives selon les réponses (branchement when()).
+function activeQuestions(answers: Record<string, string>, goals: string[]): Question[] {
+  return QUESTIONS.filter(q => !q.when || q.when(answers, goals))
+}
+
+// Message d'accueil personnalisé dérivé du nom d'entreprise + du ton de voix.
+function deriveWelcome(company: string, tone: string): string {
+  const c = (company || '').trim()
+  const chez = c ? ` chez ${c}` : ''
+  if (tone === 'vous') return `Bonjour 👋 Bienvenue${chez}, comment puis-je vous aider ?`
+  if (tone === 'tu') return `Salut 👋 Bienvenue${chez} ! Comment je peux t'aider ?`
+  return `Bonjour 👋 Bienvenue${chez}. Comment vous aider ?`
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +135,7 @@ function rawBranches(answers: Record<string, string>, goals: string[]): Branch[]
   if (goals.includes('faq')) out.push({ answer: 'Une question', type: ai ? 'ia' : 'q', title: ai ? 'Réponse IA' : 'FAQ guidée', subs: [] })
   if (goals.includes('rdv')) out.push({ answer: 'Prendre RDV', type: 'act', title: 'Ouvrir le calendrier', subs: [] })
   if (goals.includes('leads')) out.push({ answer: 'Être recontacté', type: 'act', title: 'Capturer le contact', subs: [] })
+  if (goals.includes('horaires')) out.push({ answer: 'Horaires & infos', type: 'q', title: 'Nos horaires et coordonnées', subs: [] })
   out.push({
     answer: 'Autre / parler', type: human ? 'hum' : (ai ? 'ia' : 'q'),
     title: human ? 'Relais conseiller' : (ai ? 'IA plafonnée' : 'Reformuler'), subs: [],
@@ -222,14 +277,66 @@ function buildDesign(look: Look): DesignJson {
 }
 
 // ---------------------------------------------------------------------------
-type Step = 'chat' | 'preset' | 'appearance' | 'tree' | 'done'
-const STEP_ORDER: Step[] = ['chat', 'preset', 'appearance', 'tree']
+// Machine d'étapes. 'processing' est un écran TRANSITOIRE (génération IA) : il
+// n'a PAS sa propre pastille (les dots restent calés sur SOURCES) pour ne pas
+// alourdir l'en-tête — voir headerDot()/STEP_DOTS.
+type Step = 'chat' | 'preset' | 'appearance' | 'sources' | 'processing' | 'tree' | 'done'
+// Pastilles d'en-tête : 5 étapes « visibles » (processing/done exclus).
+const STEP_DOTS: Step[] = ['chat', 'preset', 'appearance', 'sources', 'tree']
 const STEP_CAPTION: Record<Step, string> = {
-  chat: 'Discussion', preset: 'Proposition', appearance: 'Apparence', tree: 'Arbre', done: 'Terminé',
+  chat: 'Discussion', preset: 'Proposition', appearance: 'Apparence',
+  sources: 'Vos contenus', processing: 'Génération', tree: 'Arbre', done: 'Terminé',
+}
+// Index « visible » d'une étape pour l'avancement des pastilles : processing se
+// situe entre sources et tree, done est tout au bout.
+function dotIndex(step: Step): number {
+  if (step === 'processing') return STEP_DOTS.indexOf('sources')
+  if (step === 'done') return STEP_DOTS.length
+  return STEP_DOTS.indexOf(step)
 }
 
 const RANDOM_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED', '#0EA5E9', '#D946A6']
-const SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
+
+// Sources : types de page proposés + libellé d'en-tête FR utilisé côté backend.
+type SourceType = 'site' | 'contact' | 'aide' | 'qr' | 'autre'
+const SOURCE_TYPE_OPTS: [SourceType, string][] = [
+  ['site', 'Site'], ['contact', 'Contact'], ['aide', 'Aide'], ['qr', 'Q&R'], ['autre', 'Autre'],
+]
+interface SourceRow { url: string; type: SourceType; status: 'idle' | 'checking' | 'ok' | 'err'; reason: string | null }
+const newRow = (): SourceRow => ({ url: '', type: 'site', status: 'idle', reason: null })
+const MAX_SOURCES = 5
+const MAX_PDFS = 2
+// Note douce affichée à l'étape arbre quand on retombe sur l'ébauche par défaut.
+const GEN_FALLBACK = "Nous n'avons pas pu générer depuis vos pages, voici un modèle de départ."
+
+// Brouillon localStorage : reprend la config du wizard après un rafraîchissement,
+// une coupure de courant ou de réseau. Les PDF (objets File) ne sont pas
+// sérialisables -> à re-déposer. Effacé à la création du bot (étape 'done').
+const DRAFT_KEY = 'cbsaas_wizard_draft_v1'
+function loadDraft(): any | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const d = JSON.parse(raw)
+    return d && d.v === 1 && d.step !== 'done' ? d : null
+  } catch { return null }
+}
+
+const MAX_PDF_BYTES = 10 * 1024 * 1024 // 10 Mo (parité MAX_PDF_BYTES backend)
+
+// reason backend -> indication FR pour l'utilisateur.
+const REASON_FR: Record<string, string> = {
+  not_https: 'https:// requis',
+  redirect: "cette URL redirige, indiquez l'URL finale",
+  http_error: 'page introuvable',
+  unreachable: 'site injoignable',
+}
+function reasonFr(r: string | null): string {
+  return (r && REASON_FR[r]) || 'URL non valide'
+}
+function fmtSize(bytes: number): string {
+  return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} Ko` : `${(bytes / 1024 / 1024).toFixed(1)} Mo`
+}
 
 // ---------------------------------------------------------------------------
 export default function BotWizard() {
@@ -238,26 +345,41 @@ export default function BotWizard() {
   // Équipes où l'utilisateur est admin = destinations possibles d'un bot
   // d'équipe (POST /api/orgs/{id}/bots est réservé aux admins).
   const adminOrgs = (user?.organizations || []).filter(o => o.role === 'admin')
+  // Brouillon restauré (coupure/refresh) : lu UNE fois au montage, sert à
+  // initialiser les états ci-dessous. draftRestored pilote la bannière.
+  const draft0 = useRef(loadDraft()).current
+  const [draftRestored, setDraftRestored] = useState(!!draft0)
   // Destination du bot : 'perso' (POST /api/bots) ou un id d'équipe
   // (POST /api/orgs/{id}/bots). Pré-sélectionne l'équipe active si elle fait
   // partie des équipes admin, sinon « Perso ».
   const [dest, setDest] = useState<'perso' | number>(
-    activeOrg && adminOrgs.some(o => o.id === activeOrg.id) ? activeOrg.id : 'perso',
+    draft0?.dest !== undefined ? draft0.dest
+      : (activeOrg && adminOrgs.some(o => o.id === activeOrg.id) ? activeOrg.id : 'perso'),
   )
   // Responsive : empilement du contenu en dessous de ~760px (mobile ~360-430px).
   // Breakpoint 760 conservé À L'IDENTIQUE (paramètre explicite, défaut du hook = 860).
   const mobile = useIsMobile(760)
 
-  const [step, setStep] = useState<Step>('chat')
-  const [qi, setQi] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [goals, setGoals] = useState<string[]>([])
-  const [look, setLook] = useState<Look>({ ...DEFAULT_LOOK })
+  // États initialisés depuis le brouillon si présent ('processing' -> 'sources'
+  // car la tâche de génération ne survit pas à un rechargement).
+  const [step, setStep] = useState<Step>(draft0 ? (draft0.step === 'processing' ? 'sources' : draft0.step) : 'chat')
+  const [qi, setQi] = useState(draft0?.qi ?? 0)
+  const [answers, setAnswers] = useState<Record<string, string>>(draft0?.answers ?? {})
+  const [goals, setGoals] = useState<string[]>(draft0?.goals ?? [])
+  const [textDraft, setTextDraft] = useState('')   // saisie en cours d'une question 'text'
+  const [look, setLook] = useState<Look>(draft0?.look ?? { ...DEFAULT_LOOK })
   const [collapsed, setCollapsed] = useState(false)
+  // Sources (étape SOURCES) : lignes d'URL + PDF importés.
+  const [rows, setRows] = useState<SourceRow[]>(draft0?.rows ?? [newRow()])
+  const [pdfs, setPdfs] = useState<File[]>([])
+  const [genNote, setGenNote] = useState('')   // note douce si repli sur ébauche
+  // Progression réelle de la génération (flux SSE) affichée par ProcessingScreen.
+  const [genStage, setGenStage] = useState<{ label: string; pct: number }>({ label: 'Préparation…', pct: 3 })
+  const genAbort = useRef<AbortController | null>(null)
   // Arbre RÉEL (tree_json) édité via le composant partagé TreeFlow. Construit à
   // l'entrée de l'étape ARBRE depuis les réponses du chat (buildTree). null tant
   // qu'on n'a pas atteint cette étape.
-  const [treeJson, setTreeJson] = useState<Tree | null>(null)
+  const [treeJson, setTreeJson] = useState<Tree | null>(draft0?.treeJson ?? null)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -271,21 +393,52 @@ export default function BotWizard() {
   const botMode = wantsAI ? 'hybrid' : 'tree'
 
   // -------------------------------------------------------------------------
-  // Logique du chat
+  // Logique du chat. Le branchement conditionnel (when()) modifie la liste des
+  // questions actives EN FONCTION des réponses : on recalcule donc la liste à
+  // partir des réponses MISES À JOUR avant de décider de l'étape suivante.
+  function advance(a: Record<string, string>, g: string[]) {
+    const list = activeQuestions(a, g)
+    const next = qi + 1
+    if (next >= list.length) {
+      // Fin du chat : on personnalise le message d'accueil (entreprise + ton).
+      patchLook({ welcome: deriveWelcome(a.company, a.tone) })
+      setStep('preset')
+    } else {
+      setQi(next)
+    }
+  }
   function answerSingle(key: string, v: string) {
     const a = { ...answers, [key]: v }
-    const next = qi + 1
     setAnswers(a)
-    if (next >= QUESTIONS.length) setStep('preset')
-    else setQi(next)
+    advance(a, goals)
+  }
+  // Question 'text' validée -> enregistre la réponse + (si entreprise) amorce le
+  // nom du bot et le message d'accueil, puis avance.
+  function answerText(key: string, raw: string) {
+    const v = raw.trim()
+    if (!v) return
+    const a = { ...answers, [key]: v }
+    setAnswers(a)
+    setTextDraft('')
+    advance(a, goals)
   }
   function toggleGoal(v: string) {
     setGoals(g => g.includes(v) ? g.filter(x => x !== v) : [...g, v])
   }
   function nextMulti() {
-    const next = qi + 1
-    if (next >= QUESTIONS.length) setStep('preset')
-    else setQi(next)
+    advance(answers, goals)
+  }
+  // Revient à la question précédente (si on s'est trompé). On efface la réponse
+  // de cette question pour la re-poser ; pour une 'multi' (objectifs) on garde
+  // la sélection (l'UI multi permet déjà de la corriger).
+  function goBack() {
+    if (qi === 0) return
+    const prev = qList[qi - 1]
+    if (prev.type !== 'multi') {
+      setAnswers(a => { const c = { ...a }; delete c[prev.key]; return c })
+      setTextDraft(prev.type === 'text' ? (answers[prev.key] || '') : '')
+    }
+    setQi(qi - 1)
   }
 
   // -------------------------------------------------------------------------
@@ -302,15 +455,147 @@ export default function BotWizard() {
     return list
   }, [allowAI, wantsHuman, goals])
   const draftBranchCount = useMemo(() => rawBranches(answers, goals).length, [answers, goals])
+  // design_json dérivé de l'apparence : mémorisé pour stabiliser l'identité du
+  // prop passé à <WidgetPreview> (sinon l'aperçu live se re-rend à chaque render)
+  // et éviter de reconstruire l'objet en double (aperçu + création).
+  const design = useMemo(() => buildDesign(look), [look])
 
   // -------------------------------------------------------------------------
-  // Entrée dans l'étape ARBRE : on matérialise le tree_json réel à partir des
-  // réponses du chat (UNE seule fois), puis TreeFlow l'édite en place.
-  function goToTree() {
-    if (!treeJson) {
-      setTreeJson(buildTree(rawBranches(answers, goals), look.welcome, allowAI))
+  // Construit l'ébauche LOCALE d'arbre (repli systématique : passage de l'étape
+  // sources, erreur de génération, parcours direct).
+  function presetTree(): Tree {
+    return buildTree(rawBranches(answers, goals), look.welcome, allowAI)
+  }
+
+  // -------------------------------------------------------------------------
+  // SOURCES : lignes d'URL + PDF.
+  // URLs « ok » = celles que la validation a confirmées en HTTP 200.
+  const okRows = rows.filter(r => r.url.trim() && r.status === 'ok')
+  const canGenerate = okRows.length > 0 || pdfs.length > 0
+
+  function patchRow(i: number, p: Partial<SourceRow>) {
+    setRows(rs => rs.map((r, j) => (j === i ? { ...r, ...p } : r)))
+  }
+  function addRow() { setRows(rs => (rs.length >= MAX_SOURCES ? rs : [...rs, newRow()])) }
+  function removeRow(i: number) { setRows(rs => (rs.length <= 1 ? rs : rs.filter((_, j) => j !== i))) }
+
+  // Validation d'une URL non vide via POST /api/tree/validate-url (toujours 200,
+  // { ok, status, reason }). Déclenchée au blur ET en debounce (cf. URLRow).
+  async function validateRow(i: number, url: string) {
+    const u = url.trim()
+    if (!u) { patchRow(i, { status: 'idle', reason: null }); return }
+    patchRow(i, { status: 'checking', reason: null })
+    try {
+      const res = await api<{ ok: boolean; status: number | null; reason: string | null }>(
+        '/api/tree/validate-url', { method: 'POST', body: { url: u } },
+      )
+      patchRow(i, res.ok ? { status: 'ok', reason: null } : { status: 'err', reason: res.reason })
+    } catch {
+      // Erreur réseau/serveur côté validation : on signale « injoignable ».
+      patchRow(i, { status: 'err', reason: 'unreachable' })
     }
+  }
+
+  function onPdfPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files || [])
+    e.target.value = '' // permet de re-sélectionner le même fichier après retrait
+    setPdfs(prev => {
+      const out = [...prev]
+      for (const f of picked) {
+        if (out.length >= MAX_PDFS) break
+        if (f.size > MAX_PDF_BYTES) { setGenNote(`« ${f.name} » dépasse 10 Mo et a été ignoré.`); continue }
+        out.push(f)
+      }
+      return out
+    })
+  }
+  function removePdf(i: number) { setPdfs(ps => ps.filter((_, j) => j !== i)) }
+
+  // Construit le contexte FR court (<=500 c.) prepended au texte des sources.
+  function buildContext(): string {
+    const parts: string[] = []
+    if (answers.company) parts.push(`Entreprise : ${answers.company}.`)
+    if (answers.sector) parts.push(`Secteur : ${sectorLabel(answers.sector)}.`)
+    if (goals.length) parts.push(`Objectifs : ${goals.map(g => optLabel('goals', g)).join(', ')}.`)
+    if (answers.tone) parts.push(`Ton : ${optLabel('tone', answers.tone)}.`)
+    return parts.join(' ').slice(0, 500)
+  }
+
+  // Passe l'étape sources : ébauche locale -> arbre.
+  function skipSources() {
+    setTreeJson(presetTree())
     setStep('tree')
+  }
+
+  // Génération RÉELLE avec progression SSE. Déclenchée par le clic « Générer »
+  // (un gestionnaire d'événement, donc PAS rejoué par le double-montage
+  // StrictMode — contrairement à un effet). Étapes : POST /jobs (démarre la
+  // tâche de fond) -> streamSSE (progression temps réel) -> dès le tree prêt on
+  // passe AUTOMATIQUEMENT à l'étape arbre. Tout échec/skip -> ébauche par défaut.
+  async function startGeneration() {
+    setGenNote('')
+    setGenStage({ label: 'Préparation…', pct: 4 })
+    setStep('processing')
+    if (!canGenerate) {  // garde-fou : aucune source exploitable
+      setGenNote(GEN_FALLBACK); setTreeJson(presetTree()); setStep('tree'); return
+    }
+    const form = new FormData()
+    form.append('sources', JSON.stringify(okRows.map(r => ({ url: r.url.trim(), type: r.type }))))
+    form.append('context', buildContext())
+    pdfs.forEach(f => form.append('files', f))
+
+    const ctrl = new AbortController()
+    genAbort.current = ctrl
+    const safety = setTimeout(() => ctrl.abort(), 150_000)  // jamais bloqué > 2,5 min
+    let resolved = false
+    try {
+      const { job_id } = await postForm<{ job_id: string }>('/api/tree/jobs', form)
+      await streamSSE(`/api/tree/jobs/${job_id}/stream`, ev => {
+        if (ev.type === 'progress') setGenStage({ label: ev.stage || '…', pct: ev.pct ?? 0 })
+        else if (ev.type === 'done') { resolved = true; setGenStage({ label: 'Terminé', pct: 100 }); setTreeJson(ev.tree_json) }
+        else if (ev.type === 'error') { resolved = true; setGenNote(GEN_FALLBACK); setTreeJson(presetTree()) }
+      }, ctrl.signal)
+      // Flux fermé sans verdict (réseau coupé, abort) -> ébauche.
+      if (!resolved) { setGenNote(GEN_FALLBACK); setTreeJson(presetTree()) }
+    } catch {
+      setGenNote(GEN_FALLBACK); setTreeJson(presetTree())
+    } finally {
+      clearTimeout(safety)
+      genAbort.current = null
+      setStep('tree')  // on enchaîne TOUJOURS sur l'arbre
+    }
+  }
+
+  // Coupe un flux SSE en cours si on quitte le wizard pendant la génération.
+  useEffect(() => () => { genAbort.current?.abort() }, [])
+
+  // Sauvegarde du brouillon à chaque changement (reprise après coupure). On ne
+  // persiste pas l'étape transitoire 'processing' (re-jouée), et on efface tout
+  // à la création du bot ('done'). Les PDF (File) ne sont pas sérialisables.
+  useEffect(() => {
+    // Wizard vierge ou bot créé : aucun brouillon à conserver.
+    const pristine = step === 'chat' && qi === 0 && Object.keys(answers).length === 0 && goals.length === 0 && !treeJson
+    if (step === 'done' || pristine) { try { localStorage.removeItem(DRAFT_KEY) } catch { /* quota/private */ } return }
+    // Debounce 500 ms : une rafale de frappes (chat/URL/apparence) ne déclenche
+    // qu'une seule sérialisation+écriture (le JSON.stringify de tout l'état, arbre
+    // inclus, est lui-même différé hors du chemin de frappe).
+    const h = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          v: 1, step: step === 'processing' ? 'sources' : step,
+          qi, answers, goals, look, rows, treeJson, dest, savedAt: Date.now(),
+        }))
+      } catch { /* quota dépassé / mode privé : on ignore */ }
+    }, 500)
+    return () => clearTimeout(h)
+  }, [step, qi, answers, goals, look, rows, treeJson, dest])
+
+  // « Recommencer à zéro » : efface le brouillon et remet le wizard au départ.
+  function discardDraft() {
+    try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+    setDraftRestored(false)
+    setStep('chat'); setQi(0); setAnswers({}); setGoals([]); setTextDraft('')
+    setLook({ ...DEFAULT_LOOK }); setRows([newRow()]); setPdfs([]); setTreeJson(null); setGenNote('')
   }
 
   // -------------------------------------------------------------------------
@@ -340,9 +625,8 @@ export default function BotWizard() {
     try {
       // Source UNIQUE : l'arbre édité dans TreeFlow. Repli sur une construction
       // fraîche si l'étape ARBRE n'a jamais été ouverte (parcours direct improbable).
-      const tree = treeJson ?? buildTree(rawBranches(answers, goals), look.welcome, allowAI)
-      const design = buildDesign(look)
-      const name = sectorName(answers.sector)
+      const tree = treeJson ?? presetTree()
+      const name = botName(answers.company, answers.sector)
 
       // 1) création du bot (name + mode) — perso (POST /api/bots) ou équipe
       // (POST /api/orgs/{id}/bots) selon la destination choisie.
@@ -374,8 +658,11 @@ export default function BotWizard() {
     }
   }
 
-  const si = STEP_ORDER.indexOf(step)
-  const cur = qi < QUESTIONS.length ? QUESTIONS[qi] : null
+  // Liste des questions actives (branchement when()) recalculée à chaque rendu :
+  // l'historique et la question courante s'indexent dedans (cf. render CHAT).
+  const qList = activeQuestions(answers, goals)
+  const si = dotIndex(step)
+  const cur = qi < qList.length ? qList[qi] : null
   const poolGoals = cur && cur.type === 'multi' ? cur.opts.filter(o => !goals.includes(o[0])) : []
 
   return (
@@ -391,7 +678,7 @@ export default function BotWizard() {
             <span style={{ fontSize: 13, color: FAINT, marginLeft: 6 }}>· {STEP_CAPTION[step]}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {STEP_ORDER.map((s, i) => (
+            {STEP_DOTS.map((s, i) => (
               <span key={s} style={{
                 width: 8, height: 8, borderRadius: '50%', transition: 'background .3s',
                 background: i < si ? MINT : (i === si ? NAVY : '#D8DEE6'),
@@ -408,6 +695,24 @@ export default function BotWizard() {
         </div>
       )}
 
+      {/* Reprise après coupure/rafraîchissement : POPUP modale (plus visible
+          qu'un bandeau) proposant de reprendre le brouillon ou de repartir. */}
+      {draftRestored && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(28,63,92,.45)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, animation: 'cin .2s ease' }}>
+          <div style={{ background: '#fff', borderRadius: 18, padding: mobile ? '24px 20px' : '30px 28px', maxWidth: 440, width: '100%', boxShadow: '0 30px 80px -20px rgba(28,63,92,.5)', textAlign: 'center' }}>
+            <span style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>↩</span>
+            <h2 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 22, margin: '16px 0 0', letterSpacing: '-.02em' }}>Reprendre votre configuration ?</h2>
+            <p style={{ fontSize: 14.5, color: MUT, margin: '10px 0 0', lineHeight: 1.55 }}>
+              Nous avons retrouvé un chatbot en cours de création{answers.company ? <> pour <strong>{answers.company}</strong></> : null} (étape «&nbsp;{STEP_CAPTION[step]}&nbsp;»). Voulez-vous continuer là où vous en étiez ?
+            </p>
+            <div style={{ display: 'flex', flexDirection: mobile ? 'column-reverse' : 'row', gap: 11, marginTop: 24 }}>
+              <button onClick={discardDraft} style={{ ...ghostBtn, flex: 1 }}>Recommencer à zéro</button>
+              <button onClick={() => setDraftRestored(false)} style={{ ...primaryBtnLg, flex: 1, background: MINT }}>Reprendre</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ============================ ÉTAPE 1 : CHAT ============================ */}
       {step === 'chat' && (
         <div style={{ maxWidth: 680, margin: '0 auto', padding: mobile ? '24px 16px 44px' : '40px 28px 60px' }}>
@@ -420,19 +725,23 @@ export default function BotWizard() {
                 rejoue PAS l'animation d'entrée. Seules la réponse (nouveau nœud) et
                 la question suivante s'animent. */}
             {[
-              ...QUESTIONS.slice(0, qi).map((q, i) => {
+              // Historique : on parcourt la liste ACTIVE (qList) — ainsi une
+              // question sautée par when() n'apparaît jamais dans l'historique.
+              ...qList.slice(0, qi).map((q, i) => {
                 const lbl = q.type === 'multi'
                   ? (goals.map(v => optLabel('goals', v)).join(', ') || '—')
-                  : optLabel(q.key, answers[q.key])
+                  : q.type === 'text'
+                    ? (answers[q.key] || '—')
+                    : optLabel(q.key, answers[q.key])
                 return (
-                  <div key={`q-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div key={`q-${q.key}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                     <BotBubble text={q.q} />
                     <UserBubble text={lbl} />
                   </div>
                 )
               }),
               ...(cur ? [(
-                <div key={`q-${qi}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div key={`q-${cur.key}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <BotBubble text={cur.q} />
                   {cur.type === 'single' && (
                     <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 2 }}>
@@ -440,6 +749,20 @@ export default function BotWizard() {
                         <ChatChip key={o[0]} fullWidth={mobile} onClick={() => answerSingle(cur.key, o[0])}>{o[1]}</ChatChip>
                       ))}
                     </div>
+                  )}
+                  {/* Question 'text' : saisie libre stylée + envoi (Entrée ou bouton). */}
+                  {cur.type === 'text' && (
+                    <form onSubmit={e => { e.preventDefault(); answerText(cur.key, textDraft) }}
+                          style={{ display: 'flex', gap: 9, justifyContent: 'flex-end', marginTop: 2, flexDirection: mobile ? 'column' : 'row' }}>
+                      <input
+                        autoFocus value={textDraft} placeholder={cur.placeholder || 'Votre réponse…'}
+                        onChange={e => setTextDraft(e.target.value)}
+                        style={{ flex: mobile ? undefined : 1, maxWidth: mobile ? '100%' : 360, height: 44, border: '1px solid #D8DEE6', borderRadius: 12, padding: '0 14px', fontSize: 14.5, fontFamily: 'inherit' }} />
+                      <button type="submit" disabled={!textDraft.trim()}
+                              style={{ ...primaryBtn, opacity: textDraft.trim() ? 1 : 0.5, cursor: textDraft.trim() ? 'pointer' : 'not-allowed', ...(mobile ? { width: '100%' } : null) }}>
+                        Valider →
+                      </button>
+                    </form>
                   )}
                   {cur.type === 'multi' && (
                     <div style={{ marginTop: 2 }}>
@@ -468,6 +791,12 @@ export default function BotWizard() {
                 </div>
               )] : []),
             ]}
+            {/* Revenir à la question précédente (correction d'une réponse). */}
+            {cur && qi > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 2 }}>
+                <button onClick={goBack} style={{ background: 'none', border: 'none', color: FAINT, fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: 0 }}>← Question précédente</button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -520,22 +849,17 @@ export default function BotWizard() {
             </div>
 
             <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 18, padding: mobile ? 16 : 24, marginTop: 20, maxWidth: 640 }}>
+              {/* Palette principale : swatches de marque (WIDGET_BRAND_COLORS) +
+                  pioche personnalisée native (mirroir de ColorDots). */}
               <Label>Couleur principale</Label>
-              <div style={{ display: 'flex', gap: 11, flexWrap: 'wrap' }}>
-                {SWATCHES.map(c => (
-                  <Swatch key={c} c={c} on={look.color === c} onClick={() => patchLook({ color: c })} size={34} />
-                ))}
-              </div>
+              <ColorPalette colors={WIDGET_BRAND_COLORS} value={look.color} onPick={c => patchLook({ color: c })} size={34} />
 
               <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: '16px 18px', marginTop: 20 }}>
                 <SegBlock label="Style de fond" value={look.gradient ? 'grad' : 'solid'} opts={[['solid', 'Uni'], ['grad', 'Dégradé']]} onPick={v => patchLook({ gradient: v === 'grad' })} />
-                <div>
+                {/* Couleur secondaire : utilisée seulement si dégradé activé. */}
+                <div style={{ opacity: look.gradient ? 1 : 0.5 }}>
                   <Label>Couleur secondaire</Label>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {SWATCHES.map(c => (
-                      <Swatch key={c} c={c} on={look.color2 === c} onClick={() => patchLook({ color2: c })} size={26} />
-                    ))}
-                  </div>
+                  <ColorPalette colors={GRADIENT_SECOND_COLORS} value={look.color2 || ''} onPick={c => patchLook({ color2: c })} size={28} />
                 </div>
                 <SegBlock label="Arrondi" value={look.radius} opts={[['sm', 'Léger'], ['md', 'Moyen'], ['lg', 'Rond']]} onPick={v => patchLook({ radius: v })} />
                 <SegBlock label="Taille du texte" value={look.fontSize} opts={[['sm', 'Petit'], ['md', 'Normal'], ['lg', 'Grand']]} onPick={v => patchLook({ fontSize: v })} />
@@ -566,7 +890,7 @@ export default function BotWizard() {
 
             <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24, maxWidth: 640 }}>
               <button onClick={() => setStep('preset')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Retour</button>
-              <button onClick={goToTree} style={{ ...primaryBtnLg, flex: 1, ...(mobile ? { width: '100%' } : null) }}>Continuer vers l'arbre →</button>
+              <button onClick={() => setStep('sources')} style={{ ...primaryBtnLg, flex: 1, ...(mobile ? { width: '100%' } : null) }}>Continuer →</button>
             </div>
           </div>
 
@@ -575,7 +899,83 @@ export default function BotWizard() {
         </>
       )}
 
-      {/* ============================ ÉTAPE 4 : ARBRE ============================ */}
+      {/* ============================ ÉTAPE 4 : SOURCES ============================ */}
+      {step === 'sources' && (
+        <div style={{ maxWidth: 720, margin: '0 auto', padding: mobile ? '24px 16px 48px' : '40px 28px 64px', animation: 'cin .35s ease' }}>
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <span style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(140,109,255,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🪄</span>
+            <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 28, margin: '14px 0 0', letterSpacing: '-.02em' }}>Construisons l'arbre depuis vos contenus</h1>
+            <p style={{ fontSize: 15, color: MUT, margin: '10px auto 0', maxWidth: 520, lineHeight: 1.55 }}>
+              Indiquez vos vraies pages (site, contact, aide, Q&R) ou importez des PDF : notre IA lit tout et propose un arbre de conversation prêt à l'emploi. Étape facultative — vous pouvez la passer.
+            </p>
+          </div>
+
+          <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 18, padding: mobile ? 16 : 24 }}>
+            <Label>Pages à analyser (jusqu'à {MAX_SOURCES})</Label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {rows.map((r, i) => (
+                <URLRow
+                  key={i} row={r} mobile={mobile} canRemove={rows.length > 1}
+                  onUrl={u => patchRow(i, { url: u, status: 'idle', reason: null })}
+                  onType={ty => patchRow(i, { type: ty })}
+                  onValidate={() => validateRow(i, r.url)}
+                  onRemove={() => removeRow(i)}
+                />
+              ))}
+            </div>
+            {rows.length < MAX_SOURCES && (
+              <button onClick={addRow} style={{ marginTop: 12, background: '#fff', color: NAVY, border: '1px dashed #CBD5DF', borderRadius: 10, padding: '9px 14px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>
+                + Ajouter une page
+              </button>
+            )}
+
+            <Label style={{ marginTop: 24 }}>Documents PDF (jusqu'à {MAX_PDFS}, 10 Mo max)</Label>
+            {pdfs.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                {pdfs.map((f, i) => (
+                  <div key={`${f.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${BORDER}`, borderRadius: 11, padding: '9px 12px' }}>
+                    <span style={{ fontSize: 18 }}>📄</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</div>
+                      <div style={{ fontSize: 12, color: FAINT }}>{fmtSize(f.size)}</div>
+                    </div>
+                    <button onClick={() => removePdf(i)} style={{ width: 30, height: 30, border: 'none', borderRadius: 8, background: '#F4F6F8', color: FAINT, fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {pdfs.length < MAX_PDFS && (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 15px', border: '1px dashed #CBD5DF', borderRadius: 11, fontSize: 13.5, fontWeight: 600, color: NAVY, cursor: 'pointer' }}>
+                📎 Importer un PDF
+                <input type="file" accept="application/pdf,.pdf" multiple onChange={onPdfPick} style={{ display: 'none' }} />
+              </label>
+            )}
+          </div>
+
+          {genNote && (
+            <div style={{ marginTop: 14, fontSize: 13, color: MUT, background: 'rgba(232,168,46,.1)', border: '1px solid rgba(232,168,46,.3)', borderRadius: 12, padding: '10px 14px' }}>{genNote}</div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>
+            <button onClick={() => setStep('appearance')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Retour</button>
+            <button onClick={skipSources} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>Passer cette étape</button>
+            <button onClick={startGeneration} disabled={!canGenerate}
+                    style={{ ...primaryBtnLg, flex: 1, background: MINT, opacity: canGenerate ? 1 : 0.5, cursor: canGenerate ? 'pointer' : 'not-allowed', ...(mobile ? { width: '100%' } : null) }}>
+              Générer mon arbre →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================ ÉTAPE 5 : PROCESSING ============================ */}
+      {/* Écran piloté par la progression SSE (genStage) — la logique réseau vit
+          dans startGeneration (clic « Générer »), pas dans un effet (anti
+          StrictMode). On enchaîne tout seul vers l'arbre dès la fin. */}
+      {step === 'processing' && (
+        <ProcessingScreen mobile={mobile} stage={genStage.label} pct={genStage.pct} />
+      )}
+
+      {/* ============================ ÉTAPE 6 : ARBRE ============================ */}
       {step === 'tree' && (
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: mobile ? '22px 16px 56px' : '34px 28px 70px', animation: 'cin .35s ease' }}>
           <div style={{ marginBottom: 18 }}>
@@ -583,10 +983,24 @@ export default function BotWizard() {
             <p style={{ fontSize: 15, color: MUT, margin: '8px 0 0', maxWidth: 560 }}>Chaque réponse route vers une autre question, l'IA, un conseiller ou une action. Personnalisez tout ci-dessous — c'est exactement l'arbre que vous retrouverez dans l'éditeur.</p>
           </div>
 
+          {/* Note douce si la génération a échoué et qu'on a basculé sur le modèle. */}
+          {genNote && (
+            <div style={{ marginBottom: 16, fontSize: 13.5, color: MUT, background: 'rgba(232,168,46,.1)', border: '1px solid rgba(232,168,46,.3)', borderRadius: 12, padding: '11px 14px' }}>{genNote}</div>
+          )}
+
+          {/* Le vrai widget configuré est posé DIRECTEMENT sur cette page (bloc
+              fixe en bas à droite, comme sur le site du client) — voir plus bas. */}
+          <div style={{ marginBottom: 22, display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(47,158,121,.07)', border: '1px solid rgba(47,158,121,.25)', borderRadius: 12, padding: '11px 14px' }}>
+            <span style={{ fontSize: 18 }}>👉</span>
+            <span style={{ fontSize: 13.5, color: '#1C7A5C', fontWeight: 600 }}>
+              Votre chatbot est posé en bas à droite de cette page, comme sur votre site. Ouvrez-le pour tester le parcours — l'IA et le passage à un conseiller sont simulés.
+            </span>
+          </div>
+
           {/* Arbre partagé : MÊME composant que l'onglet « Arbre » de l'éditeur.
               treeJson est la source unique envoyée à la création. */}
           <TreeFlow
-            tree={treeJson ?? buildTree(rawBranches(answers, goals), look.welcome, allowAI)}
+            tree={treeJson ?? presetTree()}
             onChange={setTreeJson}
             allowAI={allowAI}
           />
@@ -616,6 +1030,16 @@ export default function BotWizard() {
               {busy ? 'Création…' : 'Créer mon chatbot ✓'}
             </button>
           </div>
+
+          {/* Widget RÉEL posé DIRECTEMENT sur la page (ancre position:fixed 0×0
+              en bas à droite -> ne bloque aucun clic du wizard). Fermé par défaut
+              comme une vraie intégration ; l'apparence + l'arbre sont les vrais,
+              l'IA et le passage conseiller sont simulés (aucun appel réseau). */}
+          <div style={{ position: 'fixed', right: 0, bottom: 0, width: 0, height: 0, zIndex: 60 }}>
+            <WidgetPreview design={design} mode={botMode}
+                           tree={treeJson ?? presetTree()} botName={botName(answers.company, answers.sector)}
+                           defaultOpen={false} />
+          </div>
         </div>
       )}
 
@@ -636,20 +1060,28 @@ export default function BotWizard() {
         </div>
       )}
 
-      <style>{`@keyframes cin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}@keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}`}</style>
+      <style>{`@keyframes cin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}@keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}`}</style>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Nom du bot dérivé du secteur choisi.
-function sectorName(sector?: string): string {
+// Nom du bot. Priorité au nom d'entreprise saisi (« Assistant {entreprise} »),
+// sinon repli sur un libellé dérivé du secteur.
+function botName(company?: string, sector?: string): string {
+  const c = (company || '').trim()
+  if (c) return `Assistant ${c}`.slice(0, 60)
   switch (sector) {
     case 'ecom': return 'Assistant boutique'
+    case 'local': return 'Assistant boutique'
     case 'saas': return 'Assistant produit'
     case 'service': return 'Assistant conseil'
     default: return 'Mon assistant'
   }
+}
+// Libellé lisible du secteur (pour le contexte FR envoyé à la génération).
+function sectorLabel(sector?: string): string {
+  return optLabel('sector', sector || '') || 'Autre'
 }
 
 // ---------------------------------------------------------------------------
@@ -702,6 +1134,102 @@ function Swatch({ c, on, onClick, size }: { c: string; on: boolean; onClick: () 
       width: size, height: size, borderRadius: '50%', background: c, border: 'none', cursor: 'pointer',
       boxShadow: on ? `0 0 0 2px #fff,0 0 0 ${size > 30 ? 4 : 3}px ${c}` : 'inset 0 0 0 1px rgba(0,0,0,.08)', transition: 'box-shadow .2s',
     }} />
+  )
+}
+// Palette réelle : swatches preset + pioche personnalisée native (mirroir de
+// ColorDots / AppearanceForm). Le <input type=color> reflète la valeur courante
+// et permet n'importe quelle teinte hors-preset.
+function ColorPalette({ colors, value, onPick, size }: { colors: string[]; value: string; onPick: (c: string) => void; size: number }) {
+  const v = (value || '').toLowerCase()
+  return (
+    <div style={{ display: 'flex', gap: size > 30 ? 11 : 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {colors.map(c => (
+        <Swatch key={c} c={c} on={v === c.toLowerCase()} onClick={() => onPick(c)} size={size} />
+      ))}
+      <input type="color" value={value || '#1C3F5C'} onChange={e => onPick(e.target.value)}
+             title="Couleur personnalisée"
+             style={{ width: size, height: size, padding: 0, border: '1px solid #D8DEE6', borderRadius: '50%', cursor: 'pointer', background: 'none' }} />
+    </div>
+  )
+}
+// Une ligne de l'étape SOURCES : input URL + select de type + statut de
+// validation. La validation est déclenchée au blur ET en debounce (700 ms) après
+// la dernière frappe, sur une URL non vide.
+function URLRow({ row, mobile, canRemove, onUrl, onType, onValidate, onRemove }: {
+  row: SourceRow; mobile?: boolean; canRemove: boolean
+  onUrl: (u: string) => void; onType: (t: SourceType) => void; onValidate: () => void; onRemove: () => void
+}) {
+  const url = row.url
+  // Debounce : revalide automatiquement 700 ms après la dernière frappe.
+  useEffect(() => {
+    if (!url.trim()) return
+    const t = setTimeout(onValidate, 700)
+    return () => clearTimeout(t)
+    // onValidate capture l'URL courante via le parent ; on ne le met pas en dép.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url])
+
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: mobile ? 'wrap' : 'nowrap', alignItems: 'center' }}>
+      <div style={{ flex: 1, minWidth: mobile ? '100%' : 180, position: 'relative' }}>
+        <input
+          type="url" inputMode="url" value={row.url} placeholder="https://exemple.fr/aide"
+          onChange={e => onUrl(e.target.value)} onBlur={onValidate}
+          style={{
+            width: '100%', height: 42, border: `1px solid ${row.status === 'err' ? 'rgba(232,106,95,.55)' : row.status === 'ok' ? 'rgba(47,158,121,.55)' : '#D8DEE6'}`,
+            borderRadius: 11, padding: '0 38px 0 13px', fontSize: 14, fontFamily: 'inherit',
+          }} />
+        {/* Indicateur de statut dans l'input. */}
+        <span style={{ position: 'absolute', right: 12, top: 0, height: 42, display: 'flex', alignItems: 'center', fontSize: 15 }}>
+          {row.status === 'checking' && <span style={{ width: 14, height: 14, border: '2px solid #CBD5DF', borderTopColor: NAVY, borderRadius: '50%', display: 'inline-block', animation: 'spin .7s linear infinite' }} />}
+          {row.status === 'ok' && <span style={{ color: MINT, fontWeight: 700 }}>✓</span>}
+          {row.status === 'err' && <span style={{ color: CORAL, fontWeight: 700 }}>✗</span>}
+        </span>
+      </div>
+      <select value={row.type} onChange={e => onType(e.target.value as SourceType)}
+              style={{ height: 42, border: '1px solid #D8DEE6', borderRadius: 11, padding: '0 8px', fontSize: 13.5, fontWeight: 600, background: '#fff', color: NAVY, cursor: 'pointer' }}>
+        {SOURCE_TYPE_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+      <button onClick={onRemove} disabled={!canRemove}
+              style={{ width: 38, height: 42, border: 'none', borderRadius: 10, background: '#F4F6F8', color: FAINT, fontSize: 14, cursor: canRemove ? 'pointer' : 'not-allowed', opacity: canRemove ? 1 : 0.4, flexShrink: 0 }}>✕</button>
+      {row.status === 'err' && (
+        <div style={{ width: '100%', fontSize: 12.5, color: CORAL, fontWeight: 600, marginTop: -2 }}>{reasonFr(row.reason)}</div>
+      )}
+    </div>
+  )
+}
+// Écran de génération PRÉSENTIEL : reçoit la progression réelle (libellé + %)
+// publiée par le flux SSE via startGeneration. Aucune logique réseau ici (donc
+// pas de piège StrictMode) : c'est le parent qui pilote l'état et enchaîne sur
+// l'arbre dès la fin.
+function ProcessingScreen({ mobile, stage, pct }: { mobile?: boolean; stage: string; pct: number }) {
+  const width = Math.max(4, Math.min(100, pct))
+  return (
+    <div style={{ maxWidth: 520, margin: '0 auto', padding: mobile ? '60px 16px' : '88px 28px', textAlign: 'center', animation: 'cin .35s ease' }}>
+      {/* Robot inline (palette Chapote) — antennes + yeux qui clignotent. */}
+      <div style={{ display: 'inline-flex', position: 'relative' }}>
+        <svg width="120" height="120" viewBox="0 0 120 120" fill="none" style={{ animation: 'bob 2.4s ease-in-out infinite' }}>
+          <line x1="60" y1="20" x2="60" y2="34" stroke={MINT} strokeWidth="3" strokeLinecap="round" />
+          <circle cx="60" cy="16" r="5" fill={CORAL} style={{ animation: 'blink 1.4s infinite' }} />
+          <rect x="26" y="34" width="68" height="56" rx="16" fill="#fff" stroke={NAVY} strokeWidth="3" />
+          <rect x="34" y="42" width="52" height="40" rx="11" fill={NAVY} />
+          <circle cx="50" cy="62" r="6" fill="#fff" style={{ animation: 'blink 1.8s infinite' }} />
+          <circle cx="70" cy="62" r="6" fill="#fff" style={{ animation: 'blink 1.8s infinite .2s' }} />
+          <rect x="22" y="52" width="6" height="20" rx="3" fill={MINT} />
+          <rect x="92" y="52" width="6" height="20" rx="3" fill={MINT} />
+          <rect x="44" y="94" width="32" height="10" rx="5" fill={MINT} />
+        </svg>
+      </div>
+      <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 26, margin: '18px 0 0', letterSpacing: '-.02em' }}>Notre IA construit votre arbre</h1>
+      <p style={{ fontSize: 16, color: MINT, fontWeight: 600, margin: '14px 0 0', minHeight: 24 }}>{stage}</p>
+      {/* Barre de progression RÉELLE (pct renvoyé par le flux SSE). */}
+      <div style={{ height: 6, background: '#E8ECF0', borderRadius: 3, overflow: 'hidden', maxWidth: 320, margin: '22px auto 0' }}>
+        <div style={{ height: '100%', width: `${width}%`, background: MINT, borderRadius: 3, transition: 'width .4s ease' }} />
+      </div>
+      <p style={{ fontSize: 13, color: FAINT, margin: '20px auto 0', maxWidth: 360, lineHeight: 1.5 }}>
+        Nous lisons vos pages et documents pour proposer un arbre pertinent — quelques secondes.
+      </p>
+    </div>
   )
 }
 function SegBlock({ label, value, opts, onPick }: { label: string; value: string; opts: [string, string][]; onPick: (v: string) => void }) {

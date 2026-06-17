@@ -124,6 +124,18 @@ async def safe_get(url: str, max_bytes: int) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+async def safe_probe(url: str) -> int:
+    """Probe de statut HTTP : ouvre le MEME stream epingle que safe_get (anti
+    SSRF : https + IP publique imposes par resolve_public_ip, Host/SNI =
+    hostname d'origine, aucun redirect SUIVI) mais NE rejette PAS les 3xx —
+    retourne le code de statut tel quel sans lire le corps. Leve FetchError
+    pour non-https / DNS / connexion / IP non publique."""
+    async with _pinned_stream(
+        "GET", url, headers={"User-Agent": "Chapote-KB/1.0"},
+    ) as resp:
+        return resp.status_code
+
+
 async def safe_post_json_read(url: str, payload: dict, headers: Optional[dict] = None,
                               max_bytes: int = 100_000) -> tuple[str, dict]:
     """POST JSON dont la REPONSE est lue (client MCP) : meme pinning que

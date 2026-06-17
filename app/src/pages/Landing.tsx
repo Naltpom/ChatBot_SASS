@@ -27,14 +27,17 @@ export default function Landing() {
   return (
     <div className="chapote" style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', color: '#1E2A32', WebkitFontSmoothing: 'antialiased' }}>
       <Header user={user} ctaTo={ctaTo} />
-      <Hero ctaTo={ctaTo} />
-      <Piliers />
-      <Comparatif />
-      <Install />
-      <Logos />
-      <Pricing ctaTo={ctaTo} />
-      <Temoignages />
-      <CtaFinal ctaTo={ctaTo} />
+      {/* Repère principal (a11y : « main landmark ») englobant le contenu. */}
+      <main>
+        <Hero ctaTo={ctaTo} />
+        <Piliers />
+        <Comparatif />
+        <Install />
+        <Logos />
+        <Pricing ctaTo={ctaTo} />
+        <Temoignages />
+        <CtaFinal ctaTo={ctaTo} />
+      </main>
       <Footer />
     </div>
   )

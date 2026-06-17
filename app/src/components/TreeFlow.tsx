@@ -9,18 +9,25 @@
 //
 // Mapping vue <-> tree_json réel (sans perte de données) :
 //   tree = { start, nodes: { <id>: { message, options:[{label,next}], type?, url?, fields? } } }
-//   Une BRANCHE = une option de la racine : tree.nodes[start].options[i] = { label, next }.
+//   Une OPTION (réponse) = tree.nodes[parentId].options[i] = { label, next }.
 //     - type dérivé de la cible : IA si next==="__ai__" ; "hum" si node.type==="handoff" ;
 //       "act" si node.type==="appointment"||"lead" ; sinon "q".
 //     - answer = option.label · title/destination = message du nœud cible (ou son libellé).
-//     - subs = options du nœud cible (mêmes règles, sans récursion plus profonde dans l'éditeur).
+//   Seules les options de type "q" (message simple) portent des sous-réponses : la vue
+//   et l'éditeur DESCENDENT RÉCURSIVEMENT, à profondeur ILLIMITÉE, dans le nœud cible.
 //   Éditer met à jour le label de l'option ET le message/type du nœud cible.
 //   Changer de type RECONSTRUIT proprement le nœud cible (message/handoff/appointment/lead),
 //   ou bascule l'option sur next="__ai__" pour IA — en PRÉSERVANT tout le reste du tree_json
 //   (jamais de suppression de nœuds non concernés).
+//
+// SÉCURITÉ CYCLES : les arbres réels contiennent des RETOURS (« ↩ Retour au menu »
+// next==="root", sous-branches pointant vers un ancêtre). On descend toujours en
+// portant le CHEMIN d'ancêtres (ids) : si une cible est déjà sur le chemin (back-edge)
+// ou absente / non-"q", c'est une FEUILLE — on l'affiche sans récurser. Aucune
+// récursion infinie possible.
 
-import { useState } from 'react'
-import type { Tree } from '../types/bot'
+import { useEffect, useRef, useState } from 'react'
+import type { Tree, TreeNode } from '../types/bot'
 
 type BranchType = 'q' | 'ia' | 'hum' | 'act'
 
@@ -61,11 +68,43 @@ function branchType(t: Tree, next: string): BranchType {
 export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
   const [orient, setOrient] = useState<'vert' | 'horiz'>('vert')
 
+  // ----- Zoom / déplacement (pan) du canvas flowchart -----
+  // Viewport à overflow caché : le flowchart est translaté/zoomé via transform.
+  // Glisser = pan (pointer events, souris + tactile), molette = zoom, boutons +/−.
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [grabbing, setGrabbing] = useState(false)
+  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
+  const clampZoom = (z: number) => Math.min(2, Math.max(0.4, Math.round(z * 100) / 100))
+  function resetView() { setZoom(1); setPan({ x: 0, y: 0 }) }
+  function onPanDown(e: React.PointerEvent) {
+    drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }
+    setGrabbing(true)
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  function onPanMove(e: React.PointerEvent) {
+    if (!drag.current) return
+    setPan({ x: drag.current.px + (e.clientX - drag.current.x), y: drag.current.py + (e.clientY - drag.current.y) })
+  }
+  function endPan() { drag.current = null; setGrabbing(false) }
+  // Molette = zoom : listener NON-passif (addEventListener) pour pouvoir
+  // preventDefault sans le warning React sur les handlers passifs.
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      setZoom(z => clampZoom(z * (e.deltaY < 0 ? 1.1 : 0.9)))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
   const t = asTree(tree)
   const nodes = t.nodes || {}
   const start = t.start || 'root'
   const root = nodes[start] || { message: '', options: [] }
-  const rootOptions = root.options || []
   const welcome = root.message || ''
 
   function mutate(fn: (draft: Tree) => void) {
@@ -95,19 +134,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     return opts.map(o => {
       const n = seen[o.next] = (seen[o.next] || 0) + 1
       return n === 1 ? o.next : `${o.next}#${n}`
-    })
-  }
-
-  // ----- Vue : sous-étapes d'une branche (options du nœud cible) -----
-  type SubView = { key: string; answer: string; title: string; type: BranchType; color: string; badge: string }
-  function subsOf(next: string): SubView[] {
-    if (next === '__ai__') return []
-    const node = nodes[next]
-    if (!node || !node.options) return []
-    const keys = optionKeys(node.options)
-    return node.options.map((o, j) => {
-      const ty = branchType(t, o.next)
-      return { key: keys[j], answer: o.label, title: destOf(o.next), type: ty, color: C[ty], badge: B[ty] }
     })
   }
 
@@ -167,112 +193,110 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     children.forEach(c => gc(draft, c))
   }
 
-  function setBranchType(idx: number, raw: string) {
-    const ty = raw as BranchType
-    if (ty === 'ia' && !allowAI) return
-    mutate(d => applyType(d, start, idx, ty))
-  }
-  function setBranchAnswer(idx: number, v: string) {
-    mutate(d => { const o = d.nodes![start].options![idx]; if (o) o.label = v })
-  }
-  function setBranchTitle(idx: number, v: string) {
-    mutate(d => {
-      const o = d.nodes![start].options![idx]
-      if (!o || o.next === '__ai__') return
-      const node = d.nodes![o.next]
-      if (node) node.message = v
-    })
-  }
-  function removeBranch(idx: number) {
-    mutate(d => {
-      const opts = d.nodes![start].options
-      if (!opts) return
-      const [removed] = opts.splice(idx, 1)
-      if (removed) gc(d, removed.next)
-    })
-  }
-  function addBranch() {
-    mutate(d => {
-      const nd = d.nodes!
-      const id = newNodeId(nd)
-      nd[id] = { message: 'Nouvelle destination', options: [] }
-      if (!nd[start].options) nd[start].options = []
-      nd[start].options!.push({ label: 'Nouvelle réponse', next: id })
-    })
+  // ----- Primitives GÉNÉRIQUES par id de nœud parent + index d'option -----
+  // Un seul jeu d'opérations, réutilisé à toute profondeur (racine incluse :
+  // parentId === start). addOption convertit d'abord le parent en vrai « q ».
+
+  // Garantit que `parentId` est un nœud « q » porteur d'options (neutralise un
+  // éventuel type appointment/lead/handoff), comme l'ancien addSub. Renvoie le nœud.
+  function ensureQ(nd: Record<string, TreeNode>, parentId: string) {
+    const parent = nd[parentId]
+    if (!parent) return null
+    delete parent.type
+    delete parent.url
+    delete parent.fields
+    if (!parent.options) parent.options = []
+    return parent
   }
 
-  // ----- Sous-étapes -----
-  function addSub(branchIdx: number) {
+  // Ajoute une sous-réponse sous l'option d'id cible `targetNext` du parent (ou
+  // sous la racine pour « + Branche »). Si la cible n'est pas un vrai nœud
+  // (__ai__ / manquant), on en crée un et on repointe l'option.
+  function addOption(parentId: string, optIdx: number | null) {
     mutate(d => {
       const nd = d.nodes!
-      const opt = nd[start].options?.[branchIdx]
-      if (!opt) return
-      // Une sous-étape n'a de sens que sous un vrai nœud (type message/Question).
-      let parentId = opt.next
-      if (parentId === '__ai__' || !nd[parentId]) {
-        parentId = newNodeId(nd)
-        nd[parentId] = { message: 'Nouvelle destination', options: [] }
-        opt.next = parentId
+      let containerId = parentId
+      if (optIdx !== null) {
+        const opt = nd[parentId]?.options?.[optIdx]
+        if (!opt) return
+        if (opt.next === '__ai__' || !nd[opt.next]) {
+          const nid = newNodeId(nd)
+          nd[nid] = { message: 'Nouvelle destination', options: [] }
+          opt.next = nid
+        }
+        containerId = opt.next
       }
-      const parent = nd[parentId]
-      // Un nœud typé (appointment/lead/handoff) ne porte pas de sous-options : on le neutralise.
-      delete parent.type
-      delete parent.url
-      delete parent.fields
-      if (!parent.options) parent.options = []
+      const parent = ensureQ(nd, containerId)
+      if (!parent) return
       const sid = newNodeId(nd)
       nd[sid] = { message: 'Destination', options: [] }
-      parent.options.push({ label: 'Réponse', next: sid })
+      parent.options!.push({ label: 'Réponse', next: sid })
     })
   }
-  function subOptionAt(d: Tree, branchIdx: number, subIdx: number) {
-    const parentNext = d.nodes![start].options?.[branchIdx]?.next
-    if (!parentNext || parentNext === '__ai__') return null
-    const parent = d.nodes![parentNext]
-    return parent?.options?.[subIdx] || null
-  }
-  function setSubType(branchIdx: number, subIdx: number, raw: string) {
+
+  function setType(parentId: string, optIdx: number, raw: string) {
     const ty = raw as BranchType
     if (ty === 'ia' && !allowAI) return
-    mutate(d => {
-      const parentNext = d.nodes![start].options?.[branchIdx]?.next
-      if (!parentNext || parentNext === '__ai__' || !d.nodes![parentNext]) return
-      applyType(d, parentNext, subIdx, ty)
-    })
+    mutate(d => { if (d.nodes![parentId]) applyType(d, parentId, optIdx, ty) })
   }
-  function setSubAnswer(branchIdx: number, subIdx: number, v: string) {
-    mutate(d => { const o = subOptionAt(d, branchIdx, subIdx); if (o) o.label = v })
+  function setLabel(parentId: string, optIdx: number, v: string) {
+    mutate(d => { const o = d.nodes![parentId]?.options?.[optIdx]; if (o) o.label = v })
   }
-  function setSubTitle(branchIdx: number, subIdx: number, v: string) {
+  function setTitle(parentId: string, optIdx: number, v: string) {
     mutate(d => {
-      const o = subOptionAt(d, branchIdx, subIdx)
+      const o = d.nodes![parentId]?.options?.[optIdx]
       if (!o || o.next === '__ai__') return
       const node = d.nodes![o.next]
       if (node) node.message = v
     })
   }
-  function removeSub(branchIdx: number, subIdx: number) {
+  function removeOption(parentId: string, optIdx: number) {
     mutate(d => {
-      const parentNext = d.nodes![start].options?.[branchIdx]?.next
-      if (!parentNext || parentNext === '__ai__') return
-      const parent = d.nodes![parentNext]
-      if (!parent?.options) return
-      const [removed] = parent.options.splice(subIdx, 1)
+      const opts = d.nodes![parentId]?.options
+      if (!opts) return
+      const [removed] = opts.splice(optIdx, 1)
       if (removed) gc(d, removed.next)
     })
   }
+  function addBranch() { addOption(start, null) }
 
-  // ----- View model des branches (mêmes champs que le template) -----
-  const branchKeys = optionKeys(rootOptions)
-  const branches = rootOptions.map((o, i) => {
-    const ty = branchType(t, o.next)
-    const subs = subsOf(o.next)
-    return {
-      key: branchKeys[i],
-      idx: i, answer: o.label, title: destOf(o.next), type: ty, color: C[ty], badge: B[ty],
-      hasSubs: subs.length > 0, subs, isAI: o.next === '__ai__',
-    }
-  })
+  // ----- View model RÉCURSIF d'une option -----
+  // `ancestors` = ids des nœuds du chemin courant (parent inclus). Une option
+  // dont la cible y figure (back-edge) ou est __ai__/typée est une FEUILLE.
+  interface OptView {
+    key: string
+    parentId: string
+    idx: number
+    answer: string
+    title: string
+    type: BranchType
+    color: string
+    badge: string
+    isAI: boolean
+    backEdge: boolean      // pointe vers un ancêtre (boucle) -> feuille, pas d'expansion
+    expandable: boolean    // 'q' non-feuille -> peut recevoir des sous-réponses + récursion
+    children: OptView[]
+  }
+  function optionsOf(parentId: string, ancestors: string[]): OptView[] {
+    const node = nodes[parentId]
+    if (!node || !node.options) return []
+    const keys = optionKeys(node.options)
+    return node.options.map((o, j) => {
+      const ty = branchType(t, o.next)
+      const isAI = o.next === '__ai__'
+      const target = isAI ? null : nodes[o.next]
+      const backEdge = !isAI && ancestors.includes(o.next)
+      // Expandable uniquement si vrai nœud « q » existant, hors back-edge.
+      const expandable = !isAI && !!target && !backEdge && ty === 'q'
+      return {
+        key: keys[j], parentId, idx: j,
+        answer: o.label, title: destOf(o.next), type: ty, color: C[ty], badge: B[ty],
+        isAI, backEdge, expandable,
+        children: expandable ? optionsOf(o.next, [...ancestors, o.next]) : [],
+      }
+    })
+  }
+  const branches = optionsOf(start, [start])
 
   // Options du <select> de type (IA masqué si allowAI===false). Seul le libellé
   // de la 1re option (« Question ») diffère entre branches et sous-étapes.
@@ -301,7 +325,13 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     canvas: {
       border: '1px solid #E8ECF0', borderRadius: 14, background: '#FBFCFD',
       backgroundImage: 'radial-gradient(#E8ECF0 1px,transparent 1px)', backgroundSize: '22px 22px',
-      padding: '28px 22px', overflow: 'auto', marginBottom: 22,
+      position: 'relative' as const, overflow: 'hidden', height: 440, marginBottom: 22,
+      touchAction: 'none' as const, userSelect: 'none' as const,
+    },
+    zoomBtn: {
+      width: 28, height: 28, border: 'none', borderRadius: 7, background: '#F4F6F8',
+      color: '#1C3F5C', fontSize: 16, fontWeight: 700, cursor: 'pointer',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     },
     rootCard: {
       background: '#1C3F5C', color: '#fff', borderRadius: 11, padding: '11px 18px',
@@ -338,10 +368,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
       background: '#fff', color: '#1C3F5C', border: '1px dashed #CBD5DF', borderRadius: 10,
       padding: '8px 14px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
     },
-    row: {
-      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const,
-      border: '1px solid #F0F2F5', borderRadius: 12, padding: '13px 14px',
-    },
     dot: (c: string) => ({ width: 12, height: 12, borderRadius: '50%', background: c, flexShrink: 0 }),
     select: {
       height: 36, border: '1px solid #E2E8F0', borderRadius: 9, padding: '0 8px',
@@ -376,6 +402,110 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     </svg>
   )
 
+  // ===================== ÉDITEUR : ligne d'option RÉCURSIVE =====================
+  // depth=0 = branche racine (carte épaisse), depth>=1 = sous-réponse (compacte).
+  // Le bouton « + sous-réponse » n'apparaît que sur une option non-IA, non-feuille
+  // boucle (back-edge) : cliquer = addOption(option.next). La récursion s'arrête
+  // d'elle-même (children non vides seulement si `expandable`).
+  function renderEditorRow(o: OptView, depth: number) {
+    const compact = depth > 0
+    const canChild = !o.isAI && !o.backEdge   // hum/act/q éditables ouvrent une sous-réponse (conversion en « q »)
+    return (
+      <div key={o.key} style={depth === 0
+        ? { border: '1px solid #F0F2F5', borderRadius: 12, padding: '13px 14px' }
+        : undefined}>
+        <div style={compact ? S.subRow : { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={compact ? { ...S.dot(o.color), width: 11, height: 11 } : S.dot(o.color)} />
+          <select value={o.type} onChange={e => setType(o.parentId, o.idx, e.target.value)}
+                  style={compact ? { ...S.select, height: 32, borderRadius: 8, padding: '0 7px', fontSize: 12 } : S.select}>
+            {(compact ? subTypeOptions : typeOptions).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+          <input type="text" value={o.answer} placeholder="Réponse"
+                 style={compact
+                   ? { ...S.answerInput, width: 120, height: 32, borderRadius: 8, padding: '0 10px', fontSize: 12.5 }
+                   : S.answerInput}
+                 onChange={e => setLabel(o.parentId, o.idx, e.target.value)} />
+          {arrow}
+          <input type="text" value={o.isAI ? '' : o.title}
+                 placeholder={o.isAI ? "L'IA prend le relais" : 'Destination'}
+                 disabled={o.isAI}
+                 style={compact
+                   ? { ...S.destInput, minWidth: 120, height: 32, borderRadius: 8, padding: '0 10px', fontSize: 12.5, opacity: o.isAI ? .6 : 1 }
+                   : { ...S.destInput, opacity: o.isAI ? .6 : 1 }}
+                 onChange={e => setTitle(o.parentId, o.idx, e.target.value)} />
+          <button type="button" title={o.backEdge ? 'Lien retour (boucle) — pas de sous-réponse' : 'Ajouter une sous-réponse'}
+                  onClick={() => addOption(o.parentId, o.idx)} disabled={!canChild}
+                  style={compact
+                    ? { ...S.iconBtn, width: 30, height: 30, borderRadius: 8, fontSize: 14, opacity: canChild ? 1 : .5, cursor: canChild ? 'pointer' : 'not-allowed' }
+                    : { ...S.iconBtn, opacity: canChild ? 1 : .5, cursor: canChild ? 'pointer' : 'not-allowed' }}>
+            +
+          </button>
+          <button type="button" onClick={() => removeOption(o.parentId, o.idx)}
+                  style={compact ? { ...S.delBtn, width: 30, height: 30, borderRadius: 8, fontSize: 13 } : S.delBtn}>✕</button>
+        </div>
+        {o.children.length > 0 && (
+          <div style={S.subWrap}>
+            {o.children.map(c => renderEditorRow(c, depth + 1))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ===================== CANVAS : nœud RÉCURSIF (vert + horiz) =====================
+  // Rend la pile « pastille réponse -> carte typée -> (récursivement) ses enfants ».
+  // depth>=1 réutilise les variantes « sub » (pills/cartes plus petites). Une
+  // option back-edge ou non-expandable n'affiche QUE sa pastille (feuille).
+  function renderCanvasOpt(o: OptView, depth: number) {
+    const pill = depth === 0 ? S.answerPill : S.subPill
+    const card = depth === 0 ? S.typedCard(o.color) : S.subTypedCard(o.color)
+    const badge = depth === 0 ? S.badge(o.color) : { ...S.badge(o.color), fontSize: 9 }
+    const titleStyle = depth === 0 ? S.title : { fontSize: 11.5, fontWeight: 600 as const, marginTop: 2 }
+    const connLen = depth === 0 ? 14 : 12
+    // Back-edge : feuille terminale = juste la pastille (lien de retour/boucle).
+    if (o.backEdge) {
+      return <div key={o.key} style={pill}>{o.answer}</div>
+    }
+    if (isVert) {
+      return (
+        <div key={o.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={pill}>{o.answer}</div>
+          <div style={{ ...S.connV, height: connLen }} />
+          <div style={card}>
+            <div style={badge}>{o.badge}</div>
+            <div style={titleStyle}>{o.title}</div>
+          </div>
+          {o.children.length > 0 && (
+            <>
+              <div style={{ ...S.connV, height: connLen }} />
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                {o.children.map(c => renderCanvasOpt(c, depth + 1))}
+              </div>
+            </>
+          )}
+        </div>
+      )
+    }
+    return (
+      <div key={o.key} style={{ display: 'flex', alignItems: 'center' }}>
+        <div style={pill}>{o.answer}</div>
+        <div style={{ ...S.connH, width: connLen }} />
+        <div style={card}>
+          <div style={badge}>{o.badge}</div>
+          <div style={titleStyle}>{o.title}</div>
+        </div>
+        {o.children.length > 0 && (
+          <>
+            <div style={{ ...S.connH, width: connLen }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {o.children.map(c => renderCanvasOpt(c, depth + 1))}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* ===== Légende + toggle orientation ===== */}
@@ -404,8 +534,34 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
         </div>
       </div>
 
-      {/* ===== Canvas flowchart ===== */}
-      <div style={S.canvas}>
+      {/* ===== Canvas flowchart (zoom + déplacement) ===== */}
+      <div
+        ref={viewportRef}
+        onPointerDown={onPanDown}
+        onPointerMove={onPanMove}
+        onPointerUp={endPan}
+        onPointerLeave={endPan}
+        style={{ ...S.canvas, cursor: grabbing ? 'grabbing' : 'grab' }}
+      >
+        {/* Contrôles de zoom (ne déclenchent pas le pan) */}
+        <div onPointerDown={e => e.stopPropagation()} style={{
+          position: 'absolute', top: 10, right: 10, zIndex: 5, display: 'flex', gap: 6, alignItems: 'center',
+          background: '#fff', border: '1px solid #E8ECF0', borderRadius: 10, padding: 4,
+          boxShadow: '0 6px 16px -10px rgba(28,63,92,.4)',
+        }}>
+          <button type="button" title="Dézoomer" onClick={() => setZoom(z => clampZoom(z * 0.9))} style={S.zoomBtn}>−</button>
+          <button type="button" title="Réinitialiser la vue" onClick={resetView}
+                  style={{ ...S.zoomBtn, width: 'auto', padding: '0 8px', fontSize: 11.5 }}>{Math.round(zoom * 100)}%</button>
+          <button type="button" title="Zoomer" onClick={() => setZoom(z => clampZoom(z * 1.1))} style={S.zoomBtn}>+</button>
+        </div>
+        <div style={{ position: 'absolute', left: 12, bottom: 8, zIndex: 5, fontSize: 11, color: '#9AA7B4', pointerEvents: 'none' }}>
+          Glissez pour déplacer · molette pour zoomer
+        </div>
+        {/* Contenu zoomé/déplacé */}
+        <div style={{
+          padding: '28px 22px', width: 'fit-content', willChange: 'transform',
+          transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: '0 0',
+        }}>
         {isVert ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 560 }}>
             <div style={S.rootCard}>🌿 Message d'accueil</div>
@@ -414,33 +570,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
               {branches.length === 0 && (
                 <span style={{ fontSize: 12.5, color: '#9AA7B4' }}>Aucune branche. Ajoutez-en une ci-dessous.</span>
               )}
-              {branches.map(b => (
-                <div key={b.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={S.answerPill}>{b.answer}</div>
-                  <div style={{ ...S.connV, height: 14 }} />
-                  <div style={S.typedCard(b.color)}>
-                    <div style={S.badge(b.color)}>{b.badge}</div>
-                    <div style={S.title}>{b.title}</div>
-                  </div>
-                  {b.hasSubs && (
-                    <>
-                      <div style={{ ...S.connV, height: 14 }} />
-                      <div style={{ display: 'flex', gap: 12 }}>
-                        {b.subs.map(x => (
-                          <div key={x.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={S.subPill}>{x.answer}</div>
-                            <div style={{ ...S.connV, height: 12 }} />
-                            <div style={S.subTypedCard(x.color)}>
-                              <div style={{ ...S.badge(x.color), fontSize: 9 }}>{x.badge}</div>
-                              <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 2 }}>{x.title}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))}
+              {branches.map(b => renderCanvasOpt(b, 0))}
             </div>
           </div>
         ) : (
@@ -451,36 +581,11 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
               {branches.length === 0 && (
                 <span style={{ fontSize: 12.5, color: '#9AA7B4' }}>Aucune branche. Ajoutez-en une ci-dessous.</span>
               )}
-              {branches.map(b => (
-                <div key={b.key} style={{ display: 'flex', alignItems: 'center' }}>
-                  <div style={S.answerPill}>{b.answer}</div>
-                  <div style={{ ...S.connH, width: 14 }} />
-                  <div style={S.typedCard(b.color)}>
-                    <div style={S.badge(b.color)}>{b.badge}</div>
-                    <div style={S.title}>{b.title}</div>
-                  </div>
-                  {b.hasSubs && (
-                    <>
-                      <div style={{ ...S.connH, width: 14 }} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {b.subs.map(x => (
-                          <div key={x.key} style={{ display: 'flex', alignItems: 'center' }}>
-                            <div style={S.subPill}>{x.answer}</div>
-                            <div style={{ ...S.connH, width: 11 }} />
-                            <div style={S.subTypedCard(x.color)}>
-                              <div style={{ ...S.badge(x.color), fontSize: 9 }}>{x.badge}</div>
-                              <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 2 }}>{x.title}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))}
+              {branches.map(b => renderCanvasOpt(b, 0))}
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* ===== Éditeur de branches ===== */}
@@ -501,51 +606,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
               Aucune branche pour l'instant.
             </div>
           )}
-          {branches.map(b => (
-            <div key={b.key} style={{ border: '1px solid #F0F2F5', borderRadius: 12, padding: '13px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={S.dot(b.color)} />
-                <select value={b.type} onChange={e => setBranchType(b.idx, e.target.value)} style={S.select}>
-                  {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <input type="text" value={b.answer} placeholder="Réponse" style={S.answerInput}
-                       onChange={e => setBranchAnswer(b.idx, e.target.value)} />
-                {arrow}
-                <input type="text" value={b.isAI ? '' : b.title} placeholder={b.isAI ? "L'IA prend le relais" : 'Destination'}
-                       disabled={b.isAI} style={{ ...S.destInput, opacity: b.isAI ? .6 : 1 }}
-                       onChange={e => setBranchTitle(b.idx, e.target.value)} />
-                <button type="button" title="Ajouter une sous-étape" onClick={() => addSub(b.idx)}
-                        disabled={b.isAI}
-                        style={{ ...S.iconBtn, opacity: b.isAI ? .5 : 1, cursor: b.isAI ? 'not-allowed' : 'pointer' }}>
-                  +
-                </button>
-                <button type="button" onClick={() => removeBranch(b.idx)} style={S.delBtn}>✕</button>
-              </div>
-
-              {b.hasSubs && (
-                <div style={S.subWrap}>
-                  {b.subs.map((x, j) => (
-                    <div key={x.key} style={S.subRow}>
-                      <span style={{ ...S.dot(x.color), width: 11, height: 11 }} />
-                      <select value={x.type} onChange={e => setSubType(b.idx, j, e.target.value)}
-                              style={{ ...S.select, height: 32, borderRadius: 8, padding: '0 7px', fontSize: 12 }}>
-                        {subTypeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
-                      <input type="text" value={x.answer} placeholder="Réponse"
-                             style={{ ...S.answerInput, width: 120, height: 32, borderRadius: 8, padding: '0 10px', fontSize: 12.5 }}
-                             onChange={e => setSubAnswer(b.idx, j, e.target.value)} />
-                      <input type="text" value={x.type === 'ia' ? '' : x.title} placeholder={x.type === 'ia' ? "L'IA prend le relais" : 'Destination'}
-                             disabled={x.type === 'ia'}
-                             style={{ ...S.destInput, minWidth: 120, height: 32, borderRadius: 8, padding: '0 10px', fontSize: 12.5, opacity: x.type === 'ia' ? .6 : 1 }}
-                             onChange={e => setSubTitle(b.idx, j, e.target.value)} />
-                      <button type="button" onClick={() => removeSub(b.idx, j)}
-                              style={{ ...S.delBtn, width: 30, height: 30, borderRadius: 8, fontSize: 13 }}>✕</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+          {branches.map(b => renderEditorRow(b, 0))}
         </div>
 
       </div>

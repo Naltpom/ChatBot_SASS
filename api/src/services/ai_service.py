@@ -437,7 +437,11 @@ async def _call_gemini(api_key: str, bot: Bot, system: str,
             json={
                 "system_instruction": {"parts": [{"text": system}]},
                 "contents": contents,
-                "generationConfig": {"temperature": temperature, "maxOutputTokens": 1024},
+                # thinkingConfig=0 : gemini-2.5-flash est un modele "thinking",
+                # sans ca le raisonnement interne mange les 1024 tokens et la
+                # reponse chat revient vide.
+                "generationConfig": {"temperature": temperature, "maxOutputTokens": 1024,
+                                     "thinkingConfig": {"thinkingBudget": 0}},
             },
         )
         resp.raise_for_status()
