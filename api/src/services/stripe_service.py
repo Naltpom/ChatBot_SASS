@@ -1,9 +1,16 @@
 """Stripe via l'API REST (httpx exclusivement, pas de SDK).
 
-Billing DORMANT : l'application est actuellement 100 % gratuite et AUCUNE
-route n'appelle ce service. Module conserve pour un futur modele de
-tarification. Logique "tout-ou-rien" : ne serait actif que si les 5 variables
-STRIPE_* etaient definies (cle secrete, secret webhook, 3 price IDs).
+DORMANT / parking-lot : la facturation est DESACTIVEE (application 100 %
+gratuite) et AUCUNE route n'appelle ce service. Module, settings STRIPE_* et
+colonnes stripe_* sont CONSERVES a dessein : le billing reviendra sous la forme
+d'un modele « 1 plan + quota usage » (roadmap). Logique "tout-ou-rien" : ne
+serait actif que si les 5 variables STRIPE_* etaient definies (cle secrete,
+secret webhook, 3 price IDs).
+
+ATTENTION — les plans starter/pro/agence n'existent PLUS : `price_id_for` /
+`plan_for_price` les referencent encore comme PLACEHOLDERS inertes (jamais
+appeles, ne plantent pas a l'import) et seront recables sur le futur plan
+unique le jour ou la facturation est reactivee.
 
 La verification de signature webhook (Stripe-Signature) est faite a la main :
 HMAC-SHA256 sur "{timestamp}.{corps brut}" avec STRIPE_WEBHOOK_SECRET.
@@ -37,7 +44,12 @@ def billing_enabled() -> bool:
 
 
 def price_id_for(plan: str) -> Optional[str]:
-    """Price ID Stripe d'un plan payant (None pour free / plan inconnu)."""
+    """Price ID Stripe d'un plan payant (None pour free / plan inconnu).
+
+    PLACEHOLDER (parking-lot) : starter/pro/agence sont des plans SUPPRIMES, ce
+    mapping est inerte (settings STRIPE_PRICE_* a None tant que billing dormant)
+    et sera recable sur le plan unique a la reactivation. Aucun appelant cable.
+    """
     return {
         "starter": settings.STRIPE_PRICE_STARTER,
         "pro": settings.STRIPE_PRICE_PRO,
@@ -46,7 +58,11 @@ def price_id_for(plan: str) -> Optional[str]:
 
 
 def plan_for_price(price_id: str) -> Optional[str]:
-    """Inverse de price_id_for (sync webhook customer.subscription.updated)."""
+    """Inverse de price_id_for (sync webhook customer.subscription.updated).
+
+    PLACEHOLDER (parking-lot) : itere sur les plans SUPPRIMES starter/pro/agence
+    — inerte tant que la facturation est dormante. Aucun appelant cable.
+    """
     for plan in ("starter", "pro", "agence"):
         if price_id_for(plan) == price_id:
             return plan

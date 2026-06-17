@@ -9,18 +9,19 @@ import { Inbox as InboxIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, Card, InfoBox, SectionTitle } from '../ui'
+import { useApiResource } from '../hooks/useApiResource'
+import { ErrorRetry } from '../components/ErrorRetry'
+import { Btn, Card, SectionTitle } from '../ui'
 import InboxPanel from '../components/InboxPanel'
 import BotSelector from '../components/BotSelector'
 import { canAccessBotPerm } from '../utils/permissions'
-import { BotSummary } from './BotList'
+import { BotSummary } from '../types/bot'
 
 export default function Inbox() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [bots, setBots] = useState<BotSummary[] | null>(null)
-  const [error, setError] = useState('')
-  const [retry, setRetry] = useState(0)
+  // Liste de TOUS mes bots — perso + équipes (même endpoint que BotList).
+  const { data: bots, loading, error, reload } = useApiResource<BotSummary[]>('/api/bots')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   // Compteur « à prendre » par bot (alimenté par onPending de l'InboxPanel monté
   // ET, pour les bots non sélectionnés, par un sondage léger au chargement).
@@ -36,27 +37,19 @@ export default function Inbox() {
     return bots.filter(b => canAccessBotPerm(user, b, 'inbox'))
   }, [bots, user])
 
-  // Liste de TOUS mes bots — perso + équipes (même endpoint que BotList)
-  useEffect(() => {
-    setBots(null)
-    setError('')
-    setSelectedId(null)
-    setPending({})
-    api<BotSummary[]>(`/api/bots`)
-      .then(setBots)
-      .catch((err: any) => setError(err.message))
-  }, [retry])
-
   // Sélection par défaut + pré-comptage des demandes en attente sur TOUS les
   // bots accessibles (sondage léger limit=1 : on ne lit que le total). Le bot
   // sélectionné est ensuite affiné en continu par l'InboxPanel via onPending.
+  // On repart d'un pending vierge à chaque (re)chargement de la liste pour ne
+  // pas conserver le compteur d'un bot qui aurait disparu.
   useEffect(() => {
     if (accessibleBots.length === 0) return
     setSelectedId(prev => (prev && accessibleBots.some(b => b.id === prev) ? prev : accessibleBots[0].id))
+    setPending({})
     let alive = true
     accessibleBots.forEach(b => {
       api(`/api/bots/${b.id}/conversations?status=human_requested&limit=1`)
-        .then((d: any) => { if (alive) setPending(p => ({ ...p, [b.id]: d.total })) })
+        .then((d: { total: number }) => { if (alive) setPending(p => ({ ...p, [b.id]: d.total })) })
         .catch(() => {})
     })
     return () => { alive = false }
@@ -67,13 +60,12 @@ export default function Inbox() {
     return (
       <div className="col g18">
         <SectionTitle sub="Conversations en direct de vos chatbots.">Inbox</SectionTitle>
-        <InfoBox tone="danger" title="Impossible de charger vos chatbots">{error}</InfoBox>
-        <div><Btn kind="soft" onClick={() => setRetry(n => n + 1)}>Réessayer</Btn></div>
+        <ErrorRetry message={error} onRetry={reload} />
       </div>
     )
   }
 
-  if (bots === null) return <div className="center-page">Chargement…</div>
+  if (loading || bots === null) return <div className="center-page">Chargement…</div>
 
   const totalPending = accessibleBots.reduce((s, b) => s + (pending[b.id] || 0), 0)
 

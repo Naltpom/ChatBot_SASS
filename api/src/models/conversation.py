@@ -7,9 +7,8 @@ limiting en memoire, jamais en base.
 """
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import (
     JSON,
     Column,
@@ -24,6 +23,7 @@ from sqlalchemy import (
 )
 
 from src.core.database import Base
+from src.core.time import utcnow
 
 # Cycle de vie live chat (handoff conseiller) :
 # ai -> human_requested (demande visiteur) -> human (staff a pris la main)
@@ -56,8 +56,8 @@ class Conversation(Base):
     # pour toute la conversation), NULL = pas d'A/B actif a la creation.
     # JAMAIS renvoye au widget (aucune fuite du variant au visiteur).
     variant = Column(String, nullable=True)
-    started_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    last_activity_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, default=utcnow, nullable=False, index=True)
+    last_activity_at = Column(DateTime, default=utcnow, nullable=False)
     # --- Live chat (handoff conseiller) ---
     # status : voir CONVERSATION_STATUSES. server_default = backfill des lignes
     # existantes par la migration. Le timeout 15 min (human_requested sans
@@ -77,7 +77,8 @@ class Message(Base):
     role = Column(String, nullable=False)    # user | assistant
     # tree | ai | system | human (visiteur en mode conseiller OU reponse staff,
     # selon role). Convention : human/system sont EXCLUS de l'historique IA,
-    # des quotas (usage_service compte source='ai') et des stats (whitelists).
+    # du decompte d'usage (usage_service compte source='ai') et des stats
+    # (whitelists).
     source = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     tokens_in = Column(Integer, default=0, nullable=False)
@@ -86,7 +87,7 @@ class Message(Base):
     # POST /api/widget/feedback — uniquement sur role=assistant source ai|tree
     # (garanti par l'endpoint). NULL = pas de retour visiteur.
     rating = Column(SmallInteger, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False, index=True)
 
 
 # --- Schemas Pydantic (inbox live chat) ---
@@ -97,14 +98,13 @@ class ConversationOut(BaseModel):
     status: str
     visitor_id: str
     domain: str
-    page_url: Optional[str] = None
+    page_url: str | None = None
     started_at: datetime
     last_activity_at: datetime
-    human_requested_at: Optional[datetime] = None
-    closed_at: Optional[datetime] = None
+    human_requested_at: datetime | None = None
+    closed_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MessageOut(BaseModel):
@@ -112,8 +112,7 @@ class MessageOut(BaseModel):
     role: str
     source: str
     content: str
-    rating: Optional[int] = None
+    rating: int | None = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

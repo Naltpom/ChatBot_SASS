@@ -34,10 +34,3 @@ def decrypt_secret(token: Optional[str]) -> Optional[str]:
     except InvalidToken:
         logger.error("Secret indéchiffrable (ENCRYPTION_KEY changée ?)")
         return None
-
-
-def mask_secret(plain_or_token: Optional[str]) -> Optional[str]:
-    """Représentation safe pour le dashboard : 'sk-a***f3' ou None."""
-    if not plain_or_token:
-        return None
-    return "•••• configurée"

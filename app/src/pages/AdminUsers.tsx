@@ -1,9 +1,11 @@
 // Utilisateurs (back-office) — GET /api/admin/users, page LECTURE SEULE
 // (aucun endpoint de mutation utilisateur n'existe). Recherche client-side.
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ShieldCheck } from 'lucide-react'
-import { api } from '../api'
-import { Btn, Card, Chip, SectionTitle } from '../ui'
+import { useApiResource } from '../hooks/useApiResource'
+import { ErrorRetry } from '../components/ErrorRetry'
+import { Card, Chip, SectionTitle } from '../ui'
+import { formatFr } from '../utils/time'
 
 interface AdminUser {
   id: number
@@ -17,20 +19,14 @@ interface AdminUser {
 
 function lastLogin(iso: string | null) {
   if (!iso) return <span style={{ color: 'var(--faint)' }}>jamais</span>
-  const d = new Date(iso)
-  return <>{d.toLocaleDateString('fr-FR')} {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</>
+  // L'API renvoie un datetime UTC naïf : formatFr l'interprète comme UTC
+  // (corrige le décalage de fuseau du new Date(iso) historique).
+  return <>{formatFr(iso)}</>
 }
 
 export default function AdminUsers() {
-  const [users, setUsers] = useState<AdminUser[] | null>(null)
+  const { data: users, loading, error, reload } = useApiResource<AdminUser[]>('/api/admin/users')
   const [query, setQuery] = useState('')
-  const [error, setError] = useState('')
-  const [retry, setRetry] = useState(0)
-
-  useEffect(() => {
-    setError('')
-    api<AdminUser[]>('/api/admin/users').then(setUsers).catch((err: any) => setError(err.message))
-  }, [retry])
 
   const filtered = useMemo(() => {
     if (!users) return []
@@ -43,12 +39,11 @@ export default function AdminUsers() {
     return (
       <div className="col g18">
         <SectionTitle>Utilisateurs</SectionTitle>
-        <div className="error">{error}</div>
-        <div><Btn kind="soft" onClick={() => setRetry(n => n + 1)}>Réessayer</Btn></div>
+        <ErrorRetry message={error} onRetry={reload} title="Impossible de charger les utilisateurs" />
       </div>
     )
   }
-  if (!users) return <div className="center-page">Chargement…</div>
+  if (loading || !users) return <div className="center-page">Chargement…</div>
 
   return (
     <div className="col g18">

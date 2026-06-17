@@ -8,6 +8,7 @@
 // on n'affiche pas non plus de badge « N déclencheurs actifs » (même raison :
 // l'aperçu reste épuré, l'info vit dans l'éditeur).
 import { ReactNode, useEffect, useRef, useState } from 'react'
+import type { DesignJson, Tree, TreeNode } from '../types/bot'
 import { BubbleIcon, brandBg } from '../ui'
 import PreviewBubble from './widget-preview/PreviewBubble'
 import PreviewTyping from './widget-preview/PreviewTyping'
@@ -85,9 +86,9 @@ const PREVIEW_I18N: Record<'fr' | 'en', Record<string, string>> = {
 }
 
 interface Props {
-  design: Record<string, any>
+  design: DesignJson
   mode: string             // tree | ai | hybrid
-  tree: Record<string, any>
+  tree: Tree
   botName: string
   defaultOpen?: boolean    // false : bulle fermée au départ (démo landing)
 }
@@ -106,7 +107,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
   const bubblePx = d.size === 'sm' ? 48 : d.size === 'lg' ? 68 : 58
   const anim = d.loadingAnimation || 'dots'
   // Personnalisation étendue — mêmes défauts/whitelists que widget.js (css(d))
-  const font = FONT_STACKS[d.font] || FONT_STACKS.system
+  const font = FONT_STACKS[d.font || 'system'] || FONT_STACKS.system
   const ox = clampInt(d.offsetX, 0, 120, 18)
   const oy = clampInt(d.offsetY, 0, 120, 18)
   const side = d.position === 'left' ? { left: ox } : { right: ox }
@@ -172,9 +173,11 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
   const nodes = tree?.nodes || {}
   const start = tree?.start || 'root'
 
-  function nodeOf(id: string) {
+  function nodeOf(id: string): TreeNode {
     return nodes[id] || nodes[start] || { message: 'Bonjour !', options: [] }
   }
+  // message d'un nœud, jamais undefined (parité widget.js : '' rend une bulle vide).
+  const msgOf = (n: TreeNode): string => n.message || ''
 
   // reset à chaque changement structurel
   useEffect(() => {
@@ -192,13 +195,13 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
       setOptions([])
     } else {
       const root = nodeOf(start)
-      setMsgs([{ from: 'bot', text: root.message }])
+      setMsgs([{ from: 'bot', text: msgOf(root) }])
       if (root.type === 'lead') {
         setOptions([])
         setLead({ fields: leadFieldsOf(root.fields), after: root.options || [] })
       } else {
         setOptions(root.options || [])
-        if (root.type === 'appointment' && /^https:\/\//.test(root.url || '')) setAppt(root.url)
+        if (root.type === 'appointment' && /^https:\/\//.test(root.url || '')) setAppt(root.url || null)
       }
     }
     setTyping(false)
@@ -206,7 +209,9 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     // démontage (sinon une réponse « Conseiller » différée resurgirait dans
     // l'aperçu fraîchement réinitialisé)
     return clearPendingTimers
-  }, [mode, lang, JSON.stringify(tree)])
+    // d.welcomeMessage : utilisé par la branche IA (1er message). Sans cette dép,
+    // l'aperçu ne se rafraîchissait pas à l'édition du message d'accueil.
+  }, [mode, lang, JSON.stringify(tree), d.welcomeMessage])
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
@@ -249,7 +254,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
       // LIVE simulé : intro du nœud, bulle système d'attente, puis UNE réponse
       // « Conseiller » factice ~1,6 s plus tard. Aucune autre logique.
       setLive(true)
-      botSay(node.message, null, 700)
+      botSay(msgOf(node), null, 700)
       schedule(() => {
         setMsgs(m => [...m, { from: 'bot', text: t('advisor_wait'), sys: true }])
       }, 760)
@@ -262,15 +267,15 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
       return
     }
     if (node.type === 'lead') {
-      botSay(node.message, null, 700, false,
+      botSay(msgOf(node), null, 700, false,
              { lead: { fields: leadFieldsOf(node.fields), after: node.options || [] } })
       return
     }
     if (node.type === 'appointment' && /^https:\/\//.test(node.url || '')) {
-      botSay(node.message, node.options || [], 700, false, { appt: node.url })
+      botSay(msgOf(node), node.options || [], 700, false, { appt: node.url })
       return
     }
-    botSay(node.message, node.options || [], 700)
+    botSay(msgOf(node), node.options || [], 700)
   }
 
   function submitLead() {
@@ -310,15 +315,15 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     setMsgs(m => [...m, { from: 'user', text: t('back_to_menu_user') }])
     const root = nodeOf(start)
     if (root.type === 'lead') {
-      botSay(root.message, null, 450, false,
+      botSay(msgOf(root), null, 450, false,
              { lead: { fields: leadFieldsOf(root.fields), after: root.options || [] } })
       return
     }
     if (root.type === 'appointment' && /^https:\/\//.test(root.url || '')) {
-      botSay(root.message, root.options || [], 450, false, { appt: root.url })
+      botSay(msgOf(root), root.options || [], 450, false, { appt: root.url })
       return
     }
-    botSay(root.message, root.options || [], 450)
+    botSay(msgOf(root), root.options || [], 450)
   }
 
   const inputDisabled = live ? false : !aiMode
@@ -385,7 +390,9 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
                   }}>{t('appointment')}</button>
                 )}
                 {options.map((o, i) => (
-                  <button key={i} onClick={() => pick(o)} style={{
+                  // Clé = identité de l'option (cible + libellé) plutôt que l'index,
+                  // suffixée par i pour rester unique si deux options coïncident.
+                  <button key={`${o.next}|${o.label}|${i}`} onClick={() => pick(o)} style={{
                     fontSize: compact ? 11.5 : 12.5, fontWeight: 600, padding: compact ? '6px 10px' : '8px 12px', whiteSpace: 'nowrap',
                     borderRadius: square ? 10 : 99, border: `1.5px solid ${brand}`, background: '#fff', color: brand, cursor: 'pointer',
                   }}>{o.label}</button>

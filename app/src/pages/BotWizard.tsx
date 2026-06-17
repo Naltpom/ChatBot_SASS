@@ -13,12 +13,14 @@
 // via l'API existante (POST /api/orgs/{id}/bots puis PATCH /api/bots/{id}),
 // avec ce tree_json et un design_json valide. Le mode "tree" (aucune IA voulue)
 // masque l'option IA dans TreeFlow (allowAI=false).
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { MODEL_OPTIONS } from '../botConstants'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import TreeFlow from '../components/TreeFlow'
+import type { DesignJson, Tree, TreeNode } from '../types/bot'
 
 // ---------------------------------------------------------------------------
 // Palette Chapote (alignée styles.css / charte)
@@ -95,8 +97,8 @@ function slug(s: string, fallback: string): string {
   return v || fallback
 }
 
-function buildTree(branches: Branch[], welcome: string, allowAI: boolean): Record<string, any> {
-  const nodes: Record<string, any> = {}
+function buildTree(branches: Branch[], welcome: string, allowAI: boolean): Tree {
+  const nodes: Record<string, TreeNode> = {}
   const used = new Set<string>(['root'])
   const uniq = (base: string): string => {
     let id = base, n = 2
@@ -179,7 +181,9 @@ function buildTree(branches: Branch[], welcome: string, allowAI: boolean): Recor
 // ---------------------------------------------------------------------------
 // Apparence : état interne -> design_json valide (clés du backend).
 const RADIUS_MAP: Record<string, number> = { sm: 10, md: 16, lg: 24 }
-const ICON_MAP: Record<string, string> = { chat: 'chat', bot: 'chat', spark: 'spark', head: 'help' }
+// Valeurs typées sur l'icône design_json (DesignJson['icon']) pour que
+// buildDesign() reste assignable à DesignJson sans cast.
+const ICON_MAP: Record<string, NonNullable<DesignJson['icon']>> = { chat: 'chat', bot: 'chat', spark: 'spark', head: 'help' }
 const ICON_GLYPH: Record<string, string> = { chat: '💬', bot: '🤖', spark: '✨', head: '🎧' }
 
 interface Look {
@@ -192,7 +196,7 @@ const DEFAULT_LOOK: Look = {
   welcome: 'Bonjour 👋 Comment puis-je vous aider ?',
 }
 
-function buildDesign(look: Look): Record<string, any> {
+function buildDesign(look: Look): DesignJson {
   return {
     primaryColor: look.color,
     secondaryColor: look.gradient ? (look.color2 || MINT) : null,
@@ -238,28 +242,6 @@ const PRIMARY_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E',
 const SECONDARY_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
 
 // ---------------------------------------------------------------------------
-// Hook responsive (media queries impossibles en style inline) : matchMedia
-// + écoute du resize. SSR-safe (window absent -> false au 1er rendu).
-function useMediaQuery(query: string): boolean {
-  const get = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    ? window.matchMedia(query).matches : false)
-  const [match, setMatch] = useState<boolean>(get)
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-    const mql = window.matchMedia(query)
-    const on = () => setMatch(mql.matches)
-    on()
-    // addEventListener moderne ; addListener en repli (Safari ancien).
-    if (mql.addEventListener) mql.addEventListener('change', on)
-    else mql.addListener(on)
-    return () => {
-      if (mql.removeEventListener) mql.removeEventListener('change', on)
-      else mql.removeListener(on)
-    }
-  }, [query])
-  return match
-}
-
 export default function BotWizard() {
   const { user, activeOrg } = useAuth()
   const navigate = useNavigate()
@@ -273,7 +255,8 @@ export default function BotWizard() {
     activeOrg && adminOrgs.some(o => o.id === activeOrg.id) ? activeOrg.id : 'perso',
   )
   // Responsive : empilement du contenu en dessous de ~760px (mobile ~360-430px).
-  const mobile = useMediaQuery('(max-width: 760px)')
+  // Breakpoint 760 conservé À L'IDENTIQUE (paramètre explicite, défaut du hook = 860).
+  const mobile = useIsMobile(760)
 
   const [step, setStep] = useState<Step>('chat')
   const [qi, setQi] = useState(0)
@@ -284,7 +267,7 @@ export default function BotWizard() {
   // Arbre RÉEL (tree_json) édité via le composant partagé TreeFlow. Construit à
   // l'entrée de l'étape ARBRE depuis les réponses du chat (buildTree). null tant
   // qu'on n'a pas atteint cette étape.
-  const [treeJson, setTreeJson] = useState<Record<string, any> | null>(null)
+  const [treeJson, setTreeJson] = useState<Tree | null>(null)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -394,8 +377,8 @@ export default function BotWizard() {
 
       setCreatedBotId(bot.id)
       setStep('done')
-    } catch (err: any) {
-      setError(err?.message || 'La création a échoué.')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'La création a échoué.')
     } finally {
       setBusy(false)
     }
@@ -509,7 +492,9 @@ export default function BotWizard() {
           </div>
           <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 20, overflow: 'hidden', boxShadow: '0 18px 50px -28px rgba(28,63,92,.3)' }}>
             {caps.map((c, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderBottom: i < caps.length - 1 ? '1px solid #F4F6F8' : 'none' }}>
+              // Clé = libellé de la capacité (identité stable) : la liste s'agrandit/
+              // se réduit selon les objectifs cochés, l'index glisserait d'une ligne.
+              <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderBottom: i < caps.length - 1 ? '1px solid #F4F6F8' : 'none' }}>
                 <span style={{ width: 40, height: 40, borderRadius: 11, background: c.tint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{c.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{c.label}</div>

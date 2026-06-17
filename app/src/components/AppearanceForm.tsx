@@ -1,19 +1,20 @@
 // Contrôles d'apparence du widget — portés d'AppearanceControls (pages-bot.jsx).
-// Réutilisés par la page bot ET le wizard (compact : sections affinables masquées).
-// Parité STRICTE : chaque clé écrite ici est lue par WidgetPreview ET
-// widget/widget.js, et bornée côté serveur (routers/widget.py _sanitize_design).
+// Montés par la page bot (AppearanceTab). Parité STRICTE : chaque clé écrite ici
+// est lue par WidgetPreview ET widget/widget.js, et bornée côté serveur
+// (routers/widget.py _sanitize_design).
 import { ReactNode, useRef, useState } from 'react'
 import { Image as ImageIcon } from 'lucide-react'
 import { uploadImage } from '../api'
 import { BubbleIcon, Field, Seg, Toggle } from '../ui'
 import { APPEARANCE_PRESETS, AppearancePreset, GRADIENT_SECOND_COLORS, WIDGET_BRAND_COLORS } from '../botConstants'
+import type { DesignJson } from '../types/bot'
+import { errMsg } from '../utils/errors'
 
 interface Props {
-  design: Record<string, any>
+  design: DesignJson
   botName: string
-  onChange: (partial: Record<string, any>) => void
+  onChange: (partial: Partial<DesignJson>) => void
   onNameChange: (name: string) => void
-  compact?: boolean
 }
 
 function ColorDots({ colors, value, onPick }: { colors: string[]; value: string; onPick: (c: string) => void }) {
@@ -36,21 +37,21 @@ function SectionLabel({ children }: { children: ReactNode }) {
 
 // Le preset est « sélectionné » si toutes ses clés matchent le design courant
 // (avec les mêmes défauts que le widget pour les clés absentes).
-function presetMatches(d: Record<string, any>, p: AppearancePreset): boolean {
-  const current: Record<string, any> = {
+function presetMatches(d: DesignJson, p: AppearancePreset): boolean {
+  const current: Record<string, unknown> = {
     primaryColor: d.primaryColor || '#0d9488',
     secondaryColor: d.secondaryColor || null,
     headerStyle: d.headerStyle === 'soft' ? 'soft' : 'solid',
     darkMode: d.darkMode === true,
     bubbleStyle: d.bubbleStyle === 'square' ? 'square' : 'rounded',
-    font: ['system', 'serif', 'mono'].includes(d.font) ? d.font : 'system',
+    font: d.font && ['system', 'serif', 'mono'].includes(d.font) ? d.font : 'system',
     bordered: !!d.bordered,
-    loadingAnimation: ['dots', 'wave', 'pulse'].includes(d.loadingAnimation) ? d.loadingAnimation : 'dots',
+    loadingAnimation: d.loadingAnimation && ['dots', 'wave', 'pulse'].includes(d.loadingAnimation) ? d.loadingAnimation : 'dots',
   }
   return Object.entries(p.values).every(([k, v]) => current[k] === (v ?? null))
 }
 
-export default function AppearanceForm({ design, botName, onChange, onNameChange, compact = false }: Props) {
+export default function AppearanceForm({ design, botName, onChange, onNameChange }: Props) {
   const d = design || {}
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
@@ -67,15 +68,15 @@ export default function AppearanceForm({ design, botName, onChange, onNameChange
     try {
       const url = await uploadImage(f)
       onChange({ avatarImage: url, icon: 'image' })
-    } catch (err: any) {
-      setUploadError(err.message)
+    } catch (err: unknown) {
+      setUploadError(errMsg(err))
     } finally {
       setUploading(false)
     }
   }
 
   return (
-    <div className="col" style={{ gap: compact ? 12 : 14 }}>
+    <div className="col" style={{ gap: 14 }}>
       {/* ---------- Thèmes : presets à fort impact (merge partiel) ---------- */}
       <SectionLabel>Thèmes</SectionLabel>
       <div className="preset-grid">
@@ -98,15 +99,13 @@ export default function AppearanceForm({ design, botName, onChange, onNameChange
         <input type="text" value={botName} onChange={e => onNameChange(e.target.value)} />
       </Field>
 
-      {!compact && (
-        <Field label="Titre du widget" hint="Vide : le nom du bot est affiché.">
-          <input type="text" maxLength={100} value={d.title || ''} placeholder={botName}
-                 onChange={e => onChange({ title: e.target.value })} />
-        </Field>
-      )}
+      <Field label="Titre du widget" hint="Vide : le nom du bot est affiché.">
+        <input type="text" maxLength={100} value={d.title || ''} placeholder={botName}
+               onChange={e => onChange({ title: e.target.value })} />
+      </Field>
 
       <Field label="Couleur de marque">
-        <ColorDots colors={WIDGET_BRAND_COLORS} value={d.primaryColor} onPick={c => onChange({ primaryColor: c })} />
+        <ColorDots colors={WIDGET_BRAND_COLORS} value={d.primaryColor || ''} onPick={c => onChange({ primaryColor: c })} />
       </Field>
 
       <div className="toggle-row">
@@ -122,7 +121,7 @@ export default function AppearanceForm({ design, botName, onChange, onNameChange
       <Field label="Icône de la bulle">
         <div className="row g8" style={{ flexWrap: 'wrap' }}>
           {['chat', 'spark', 'help'].map(k => (
-            <button key={k} className={`icon-pick ${d.icon === k ? 'selected' : ''}`} onClick={() => onChange({ icon: k })}>
+            <button key={k} className={`icon-pick ${d.icon === k ? 'selected' : ''}`} onClick={() => onChange({ icon: k as DesignJson['icon'] })}>
               <BubbleIcon kind={k} size={19} />
             </button>
           ))}
@@ -145,11 +144,11 @@ export default function AppearanceForm({ design, botName, onChange, onNameChange
       <SectionLabel>Bulle de lancement</SectionLabel>
       <div className="grid2" style={{ gap: 10 }}>
         <Field label="Taille">
-          <Seg small value={d.size || 'md'} onChange={v => onChange({ size: v })}
+          <Seg small value={d.size || 'md'} onChange={v => onChange({ size: v as DesignJson['size'] })}
                options={[{ value: 'sm', label: 'S' }, { value: 'md', label: 'M' }, { value: 'lg', label: 'L' }]} />
         </Field>
         <Field label="Emplacement">
-          <Seg small value={d.position || 'right'} onChange={v => onChange({ position: v })}
+          <Seg small value={d.position || 'right'} onChange={v => onChange({ position: v as DesignJson['position'] })}
                options={[{ value: 'left', label: 'Gauche' }, { value: 'right', label: 'Droite' }]} />
         </Field>
       </div>
@@ -167,18 +166,16 @@ export default function AppearanceForm({ design, botName, onChange, onNameChange
         <Toggle on={!!d.bordered} onChange={v => onChange({ bordered: v })} />
       </div>
 
-      {!compact && (
-        <div className="grid2" style={{ gap: 10 }}>
-          <Field label={`Marge latérale — ${ox} px`}>
-            <input type="range" min={0} max={120} value={ox}
-                   onChange={e => onChange({ offsetX: Number(e.target.value) })} />
-          </Field>
-          <Field label={`Marge basse — ${oy} px`}>
-            <input type="range" min={0} max={120} value={oy}
-                   onChange={e => onChange({ offsetY: Number(e.target.value) })} />
-          </Field>
-        </div>
-      )}
+      <div className="grid2" style={{ gap: 10 }}>
+        <Field label={`Marge latérale — ${ox} px`}>
+          <input type="range" min={0} max={120} value={ox}
+                 onChange={e => onChange({ offsetX: Number(e.target.value) })} />
+        </Field>
+        <Field label={`Marge basse — ${oy} px`}>
+          <input type="range" min={0} max={120} value={oy}
+                 onChange={e => onChange({ offsetY: Number(e.target.value) })} />
+        </Field>
+      </div>
 
       {/* ---------- Fenêtre ---------- */}
       <SectionLabel>Fenêtre</SectionLabel>
@@ -187,59 +184,51 @@ export default function AppearanceForm({ design, botName, onChange, onNameChange
                onChange={e => onChange({ borderRadius: Number(e.target.value) })} />
       </Field>
 
-      {!compact && (
-        <>
-          <Field label="Style d'en-tête">
-            <Seg small value={d.headerStyle === 'soft' ? 'soft' : 'solid'} onChange={v => onChange({ headerStyle: v })}
-                 options={[{ value: 'solid', label: 'Couleur' }, { value: 'soft', label: 'Clair' }]} />
-          </Field>
-          <div className="toggle-row">
-            <div>
-              <div className="tl">Mode sombre</div>
-              <div className="ts">Surfaces sombres, votre couleur conservée</div>
-            </div>
-            <Toggle on={d.darkMode === true} onChange={v => onChange({ darkMode: v })} />
-          </div>
-          <Field label="Densité">
-            <Seg small value={d.density === 'compact' ? 'compact' : 'cozy'} onChange={v => onChange({ density: v })}
-                 options={[{ value: 'cozy', label: 'Normale' }, { value: 'compact', label: 'Compacte' }]} />
-          </Field>
-          <Field label="Police">
-            <Seg small value={['serif', 'mono'].includes(d.font) ? d.font : 'system'} onChange={v => onChange({ font: v })}
-                 options={[{ value: 'system', label: 'Standard' }, { value: 'serif', label: 'Serif' }, { value: 'mono', label: 'Mono' }]} />
-          </Field>
-          <Field label="Style des bulles">
-            <Seg small value={d.bubbleStyle === 'square' ? 'square' : 'rounded'} onChange={v => onChange({ bubbleStyle: v })}
-                 options={[{ value: 'rounded', label: 'Arrondies' }, { value: 'square', label: 'Carrées' }]} />
-          </Field>
-        </>
-      )}
+      <Field label="Style d'en-tête">
+        <Seg small value={d.headerStyle === 'soft' ? 'soft' : 'solid'} onChange={v => onChange({ headerStyle: v as DesignJson['headerStyle'] })}
+             options={[{ value: 'solid', label: 'Couleur' }, { value: 'soft', label: 'Clair' }]} />
+      </Field>
+      <div className="toggle-row">
+        <div>
+          <div className="tl">Mode sombre</div>
+          <div className="ts">Surfaces sombres, votre couleur conservée</div>
+        </div>
+        <Toggle on={d.darkMode === true} onChange={v => onChange({ darkMode: v })} />
+      </div>
+      <Field label="Densité">
+        <Seg small value={d.density === 'compact' ? 'compact' : 'cozy'} onChange={v => onChange({ density: v as DesignJson['density'] })}
+             options={[{ value: 'cozy', label: 'Normale' }, { value: 'compact', label: 'Compacte' }]} />
+      </Field>
+      <Field label="Police">
+        <Seg small value={d.font && ['serif', 'mono'].includes(d.font) ? d.font : 'system'} onChange={v => onChange({ font: v as DesignJson['font'] })}
+             options={[{ value: 'system', label: 'Standard' }, { value: 'serif', label: 'Serif' }, { value: 'mono', label: 'Mono' }]} />
+      </Field>
+      <Field label="Style des bulles">
+        <Seg small value={d.bubbleStyle === 'square' ? 'square' : 'rounded'} onChange={v => onChange({ bubbleStyle: v as DesignJson['bubbleStyle'] })}
+             options={[{ value: 'rounded', label: 'Arrondies' }, { value: 'square', label: 'Carrées' }]} />
+      </Field>
 
       {/* ---------- Messages ---------- */}
       <SectionLabel>Messages</SectionLabel>
-      {!compact && (
-        <>
-          {/* locale : clé HORS presets (presetMatches ne la considère pas) — le
-              BotOut sert design_json BRUT, souvent sans la clé → lecture
-              défensive, défaut fr (= rendu historique du widget). */}
-          <Field label="Langue du widget"
-                 hint={'Traduit les textes d\'interface du widget (placeholders, formulaire de contact, erreurs). Le contenu de l\'arbre et les messages des déclencheurs restent dans la langue où vous les avez écrits. "Auto" suit la langue du navigateur et demande aussi à l\'IA de répondre dans la langue du visiteur.'}>
-            <Seg small value={['auto', 'en'].includes(d.locale) ? d.locale : 'fr'} onChange={v => onChange({ locale: v })}
-                 options={[{ value: 'auto', label: 'Auto' }, { value: 'fr', label: 'Français' }, { value: 'en', label: 'English' }]} />
-          </Field>
-          <Field label="Message d'accueil (mode IA)"
-                 hint="Premier message quand le bot est en mode IA pur. En mode arbre/hybride, c'est le message d'accueil de l'arbre.">
-            <textarea rows={2} maxLength={500} value={d.welcomeMessage || ''}
-                      onChange={e => onChange({ welcomeMessage: e.target.value })} />
-          </Field>
-          <Field label="Placeholder de saisie">
-            <input type="text" maxLength={100} value={d.placeholder || ''} placeholder="Écrivez votre message…"
-                   onChange={e => onChange({ placeholder: e.target.value })} />
-          </Field>
-        </>
-      )}
+      {/* locale : clé HORS presets (presetMatches ne la considère pas) — le
+          BotOut sert design_json BRUT, souvent sans la clé → lecture
+          défensive, défaut fr (= rendu historique du widget). */}
+      <Field label="Langue du widget"
+             hint={'Traduit les textes d\'interface du widget (placeholders, formulaire de contact, erreurs). Le contenu de l\'arbre et les messages des déclencheurs restent dans la langue où vous les avez écrits. "Auto" suit la langue du navigateur et demande aussi à l\'IA de répondre dans la langue du visiteur.'}>
+        <Seg small value={d.locale && ['auto', 'en'].includes(d.locale) ? d.locale : 'fr'} onChange={v => onChange({ locale: v as DesignJson['locale'] })}
+             options={[{ value: 'auto', label: 'Auto' }, { value: 'fr', label: 'Français' }, { value: 'en', label: 'English' }]} />
+      </Field>
+      <Field label="Message d'accueil (mode IA)"
+             hint="Premier message quand le bot est en mode IA pur. En mode arbre/hybride, c'est le message d'accueil de l'arbre.">
+        <textarea rows={2} maxLength={500} value={d.welcomeMessage || ''}
+                  onChange={e => onChange({ welcomeMessage: e.target.value })} />
+      </Field>
+      <Field label="Placeholder de saisie">
+        <input type="text" maxLength={100} value={d.placeholder || ''} placeholder="Écrivez votre message…"
+               onChange={e => onChange({ placeholder: e.target.value })} />
+      </Field>
       <Field label="Animation de chargement">
-        <Seg small value={d.loadingAnimation || 'dots'} onChange={v => onChange({ loadingAnimation: v })}
+        <Seg small value={d.loadingAnimation || 'dots'} onChange={v => onChange({ loadingAnimation: v as DesignJson['loadingAnimation'] })}
              options={[
                { value: 'dots', label: 'Points' },
                { value: 'wave', label: 'Vague' },

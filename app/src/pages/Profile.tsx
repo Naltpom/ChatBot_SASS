@@ -6,9 +6,12 @@ import { Check, ShieldCheck } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Btn, Card, Chip, Field, InfoBox, SectionTitle } from '../ui'
+import { formatFr } from '../utils/time'
 
+// §5.1 D9 : l'API renvoie des datetimes UTC naïfs. formatFr() les interprète
+// comme UTC (au lieu de `new Date(iso)` qui les lisait en heure locale).
 function fmtDate(iso?: string | null) {
-  return iso ? new Date(iso).toLocaleDateString('fr-FR') : '—'
+  return iso ? formatFr(iso, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
 }
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -47,8 +50,8 @@ export default function Profile() {
       await refreshUser()
       setNameSaved(true)
       setTimeout(() => setNameSaved(false), 2000)
-    } catch (err: any) {
-      setNameError(err.message)
+    } catch (err: unknown) {
+      setNameError(err instanceof Error ? err.message : 'Échec de la mise à jour.')
     } finally {
       setSavingName(false)
     }
@@ -64,8 +67,8 @@ export default function Profile() {
       await api('/api/auth/password', { method: 'POST', body: { current_password: curPw, new_password: newPw } })
       setPwDone(true)
       setCurPw(''); setNewPw(''); setConfirmPw('')
-    } catch (err: any) {
-      setPwError(err.message)
+    } catch (err: unknown) {
+      setPwError(err instanceof Error ? err.message : 'Échec du changement de mot de passe.')
     } finally {
       setSavingPw(false)
     }

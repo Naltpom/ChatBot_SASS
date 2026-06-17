@@ -3,13 +3,14 @@
 // (copy / test / appearance / context / security / inbox), invitations en attente.
 // La matrice vit dans sa propre section, TOUJOURS rendue (découvrable dès le
 // 1er jour, même sans membre au rôle « member »).
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Btn, Card, Chip, InfoBox, SectionTitle, Seg, brandBg } from '../ui'
-import { BotSummary } from './BotList'
+import { BotSummary } from '../types/bot'
+import { errMsg } from '../utils/errors'
 
 // 'inbox' volontairement EN FIN (ordre aligné sur BOT_PERMS côté API ; le spec
 // e2e team-permissions toggle la 1re colonne = copy via .first())
@@ -18,7 +19,7 @@ const PERMS = [
   { id: 'test', label: 'Tester', desc: 'prévisualiser le widget' },
   { id: 'appearance', label: 'Apparence', desc: 'design, nom, mode' },
   { id: 'context', label: 'Contexte (arbre + IA)', desc: 'arbre, IA, actions, leads, exports' },
-  { id: 'security', label: 'Sécurité', desc: 'domaines, captcha, plafonds' },
+  { id: 'security', label: 'Sécurité', desc: 'domaines, captcha, activation' },
   { id: 'inbox', label: 'Boîte de réception (chat humain)', desc: 'voir et répondre aux conversations transmises à un conseiller' },
 ]
 
@@ -62,17 +63,23 @@ export default function Team() {
 
   const isAdmin = activeOrg?.role === 'admin'
 
-  function reload() {
+  // useCallback : reload est en dépendance de l'effet ci-dessous ; non mémoïsé
+  // (recréé à chaque rendu) l'effet bouclerait. Mémoïsé sur l'id de l'équipe
+  // active, il ne se recrée qu'au changement d'équipe (orgs/team couvrent) —
+  // pas à chaque refreshUser renvoyant un nouvel objet à id identique.
+  const reload = useCallback(() => {
     if (!activeOrg) return
     // .catch : sans lui, un échec afficherait « 0 membre » mensonger
     api(`/api/orgs/${activeOrg.id}/members`).then(d => {
       setMembers(d.members)
       setInvitations(d.invitations)
-    }).catch((err: any) => setError(`Chargement de l'équipe impossible : ${err.message}`))
+    }).catch((err: unknown) => setError(`Chargement de l'équipe impossible : ${errMsg(err)}`))
     api<BotSummary[]>(`/api/orgs/${activeOrg.id}/bots`).then(setBots)
-      .catch((err: any) => setError(`Chargement des bots impossible : ${err.message}`))
-  }
-  useEffect(reload, [activeOrg?.id])
+      .catch((err: unknown) => setError(`Chargement des bots impossible : ${errMsg(err)}`))
+    // activeOrg lu via closure ; seul son id pilote le rechargement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrg?.id])
+  useEffect(() => { reload() }, [reload])
 
   if (!activeOrg) {
     return (
@@ -103,8 +110,8 @@ export default function Team() {
         : `Invitation enregistrée : ${email} rejoindra l'espace en créant son compte.`)
       setInviteEmail('')
       reload()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     }
   }
 
@@ -113,8 +120,8 @@ export default function Team() {
     try {
       await api(`/api/orgs/${activeOrg!.id}/members/${m.id}`, { method: 'PATCH', body })
       reload()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     }
   }
 
@@ -130,8 +137,8 @@ export default function Team() {
     setError('')
     try {
       await api(`/api/orgs/${activeOrg!.id}/members/${m.id}`, { method: 'PATCH', body: { permissions: nextMap } })
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
       reload()
     }
   }
@@ -141,8 +148,8 @@ export default function Team() {
     try {
       await api(`/api/orgs/${activeOrg!.id}/members/${m.id}`, { method: 'DELETE' })
       reload()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     }
   }
 

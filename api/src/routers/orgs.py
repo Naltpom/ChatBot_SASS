@@ -8,12 +8,13 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.security import get_current_user, require_org_access, require_org_admin
 from src.models.user import BOT_PERMS, Invitation, Membership, Organization, User
+from src.services.org_service import ensure_not_last_admin
 
 router = APIRouter(prefix="/api/orgs", tags=["organizations"])
 
@@ -78,13 +79,8 @@ async def leave_org(org_id: int, db: AsyncSession = Depends(get_db),
     if membership is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organisation introuvable")
     if membership.role == "admin":
-        admins = (await db.execute(
-            select(func.count(Membership.id)).where(
-                Membership.organization_id == org_id, Membership.role == "admin")
-        )).scalar() or 0
-        if admins <= 1:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                                "Impossible de quitter l'organisation : vous en êtes le dernier admin — nommez d'abord un autre admin")
+        await ensure_not_last_admin(db, org_id,
+            "Impossible de quitter l'organisation : vous en êtes le dernier admin — nommez d'abord un autre admin")
     await db.delete(membership)
     await db.commit()
     return {"left": True}
@@ -168,13 +164,8 @@ async def update_member(org_id: int, user_id: int, body: MemberPatch,
 
     data = body.model_dump(exclude_unset=True)
     if data.get("role") == "member" and membership.role == "admin":
-        admins = (await db.execute(
-            select(func.count(Membership.id)).where(
-                Membership.organization_id == org_id, Membership.role == "admin")
-        )).scalar() or 0
-        if admins <= 1:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                                "Impossible : il faut au moins un admin dans l'organisation")
+        await ensure_not_last_admin(db, org_id,
+            "Impossible : il faut au moins un admin dans l'organisation")
     if "role" in data and data["role"]:
         membership.role = data["role"]
     if "permissions" in data and data["permissions"] is not None:
@@ -191,13 +182,7 @@ async def remove_member(org_id: int, user_id: int, db: AsyncSession = Depends(ge
     if membership is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Membre introuvable")
     if membership.role == "admin":
-        admins = (await db.execute(
-            select(func.count(Membership.id)).where(
-                Membership.organization_id == org_id, Membership.role == "admin")
-        )).scalar() or 0
-        if admins <= 1:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                                "Impossible de retirer le dernier admin")
+        await ensure_not_last_admin(db, org_id, "Impossible de retirer le dernier admin")
     await db.delete(membership)
     await db.commit()
     return {"removed": True}

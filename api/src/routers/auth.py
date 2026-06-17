@@ -27,6 +27,7 @@ from src.models.user import (
     UserRegister,
 )
 from src.services.auth_service import AuthenticationError, authenticate
+from src.services.org_service import consume_invitations
 from src.services.rate_limit import auth_limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -62,18 +63,6 @@ async def _user_out(db: AsyncSession, user: User) -> UserOut:
             for o, m in rows
         ]
     return out
-
-
-async def _consume_invitations(db: AsyncSession, user: User) -> None:
-    """A l'inscription : les invitations en attente pour cet email deviennent
-    des memberships."""
-    invitations = (await db.execute(
-        select(Invitation).where(Invitation.email == user.email)
-    )).scalars().all()
-    for inv in invitations:
-        db.add(Membership(user_id=user.id, organization_id=inv.organization_id,
-                          role=inv.role, permissions={}))
-        await db.delete(inv)
 
 
 @router.post("/register", response_model=TokenOut)
@@ -116,7 +105,7 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
 
     # Un perso peut aussi avoir des invitations en attente vers des equipes :
     # consommees dans LES DEUX cas
-    await _consume_invitations(db, user)
+    await consume_invitations(db, user)
     await db.commit()
     await db.refresh(user)
     return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))

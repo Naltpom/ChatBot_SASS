@@ -1,22 +1,7 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
-
-function useIsMobile(maxWidth = 760) {
-  const query = `(max-width: ${maxWidth}px)`
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
-  )
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const mql = window.matchMedia(query)
-    const onChange = () => setIsMobile(mql.matches)
-    onChange()
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [query])
-  return isMobile
-}
+import { useIsMobile } from '../hooks/useMediaQuery'
 
 const NAVY = '#1C3F5C'
 const INPUT_BASE: React.CSSProperties = {
@@ -52,7 +37,7 @@ function Check() {
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(760)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
@@ -66,8 +51,8 @@ export default function Login() {
     try {
       await login(email, password)
       navigate('/app')
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Connexion impossible.')
     } finally {
       setBusy(false)
     }
@@ -149,14 +134,14 @@ export default function Login() {
             Bon retour 👋
           </h2>
           <p style={{ fontSize: 15, lineHeight: 1.55, color: '#A8C0D0', margin: '12px 0 0' }}>
-            Pilotez vos bots hybrides, vos plafonds IA et votre relais humain — depuis un seul endroit.
+            Pilotez vos bots hybrides, votre IA et votre relais humain — depuis un seul endroit.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 13, marginTop: 30 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#D6E2EA' }}>
               <Check />Arbre guidé illimité
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#D6E2EA' }}>
-              <Check />IA plafonnée, budget maîtrisé
+              <Check />IA incluse, 100% gratuit
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#D6E2EA' }}>
               <Check />Données 100% françaises
@@ -212,9 +197,9 @@ export default function Login() {
                 />
                 Se souvenir de moi
               </label>
-              <a href="#" style={{ fontSize: 13.5, color: NAVY, fontWeight: 600, textDecoration: 'none' }}>
+              <button type="button" style={{ background: 'none', border: 'none', padding: 0, fontSize: 13.5, color: NAVY, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                 Mot de passe oublié ?
-              </a>
+              </button>
             </div>
 
             {error && (

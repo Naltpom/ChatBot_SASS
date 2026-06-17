@@ -2,14 +2,13 @@
 // l'état/les handlers définis dans BotPage (aucune logique de save ici).
 import { Check, Clipboard } from 'lucide-react'
 import { Btn, Card, InfoBox, SectionTitle } from '../../ui'
-
-interface Integration { id: string; label: string; icon: string; description: string; snippet: string }
+import type { Bot, Integration } from '../../types/bot'
 
 export default function IntegrationTab({
   bot, integrations, integType, setIntegType, currentInteg, copied, setCopied,
   hasPerm, activateBot, isMobile,
 }: {
-  bot: any
+  bot: Bot
   integrations: Integration[]
   integType: string
   setIntegType: (v: string) => void
@@ -85,7 +84,7 @@ export default function IntegrationTab({
               ['2', 'Handshake POST /session', 'clé publique + jeton Turnstile invisible'],
               ['3', 'Vérif. Origin + captcha', 'côté serveur, liste de domaines'],
               ['4', 'Émission du JWT éphémère', '30 min, lié au domaine + conversation'],
-              ['5', 'Chat prêt', 'arbre gratuit / IA décomptée'],
+              ['5', 'Chat prêt', '100 % gratuit, sans quota'],
             ].map(([n, t, dsc], i, arr) => (
               <div key={n} className="timeline-step">
                 <div className="col" style={{ alignItems: 'center' }}>

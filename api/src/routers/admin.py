@@ -5,6 +5,7 @@ Pour CONFIGURER un bot client, l'admin utilise les memes endpoints /api/bots/*
 que les clients (require_org_access laisse passer les superadmins) — le
 frontend ouvre simplement la page bot normale.
 """
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,8 +13,10 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.constants import VISITOR_SOURCES
 from src.core.database import get_db
 from src.core.security import require_superadmin
+from src.core.time import utcnow
 from src.models.bot import Bot, BotOut
 from src.models.conversation import Message
 from src.models.user import Membership, Organization, User
@@ -21,50 +24,28 @@ from src.models.user import Membership, Organization, User
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_superadmin)])
 
 
-class OrgPatch(BaseModel):
+class AdminOrgPatch(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
 
 
-@router.get("/stats")
-async def admin_stats(db: AsyncSession = Depends(get_db)):
-    """Agregats du dashboard operateur : orgs/users/bots, messages 7 jours,
-    abonnements Stripe (dormant), inscriptions sur 6 mois. Tout en GROUP BY
-    (jamais de N+1). Miroir factuel de la base."""
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    orgs_total = (await db.execute(select(func.count(Organization.id)))).scalar() or 0
-    orgs_active = (await db.execute(
-        select(func.count(Organization.id)).where(Organization.is_active.is_(True))
-    )).scalar() or 0
-
-    stripe_subscriptions = (await db.execute(
-        select(func.count(Organization.id))
-        .where(Organization.stripe_subscription_id.isnot(None))
-    )).scalar() or 0
-    users_total = (await db.execute(select(func.count(User.id)))).scalar() or 0
-    bots_total = (await db.execute(select(func.count(Bot.id)))).scalar() or 0
-
-    # Messages visiteurs 7 jours (whitelist source : exclut les marqueurs [lead])
-    since = now - timedelta(days=7)
-    msgs_7d = (await db.execute(
-        select(func.count(Message.id))
-        .join(Bot, Bot.id == Message.bot_id)
-        .where(Message.role == "user", Message.source.in_(["ai", "tree"]),
-               Message.created_at >= since)
-    )).scalar() or 0
-
-    # Inscriptions par mois calendaire — 6 mois glissants, mois courant inclus
+def _last_n_months(now: datetime, n: int = 6) -> list[tuple[int, int]]:
+    """Les `n` derniers mois calendaires (couples (annee, mois)), du plus ancien
+    au plus recent, mois courant inclus."""
     months: list[tuple[int, int]] = []
     y, m = now.year, now.month
-    for _ in range(6):
+    for _ in range(n):
         months.append((y, m))
         m -= 1
         if m == 0:
             y, m = y - 1, 12
     months.reverse()
+    return months
+
+
+async def _signups_by_month(db: AsyncSession, months: list[tuple[int, int]]) -> list[dict]:
+    """Inscriptions orgs/users agregees par mois calendaire (GROUP BY, pas de
+    N+1), alignees sur `months` (zero pour les mois sans inscription)."""
     six_start = datetime(months[0][0], months[0][1], 1)
 
     async def _by_month(model) -> dict[str, int]:
@@ -78,18 +59,44 @@ async def admin_stats(db: AsyncSession = Depends(get_db)):
 
     org_signups = await _by_month(Organization)
     user_signups = await _by_month(User)
-    signups_by_month = [
+    return [
         {"month": f"{y:04d}-{m:02d}",
          "orgs": org_signups.get(f"{y:04d}-{m:02d}", 0),
          "users": user_signups.get(f"{y:04d}-{m:02d}", 0)}
         for y, m in months
     ]
 
+
+@router.get("/stats")
+async def admin_stats(db: AsyncSession = Depends(get_db)):
+    """Agregats du dashboard operateur : orgs/users/bots, messages 7 jours,
+    inscriptions sur 6 mois. Tout en GROUP BY (jamais de N+1). Miroir factuel
+    de la base."""
+    now = utcnow()
+
+    orgs_total = (await db.execute(select(func.count(Organization.id)))).scalar() or 0
+    orgs_active = (await db.execute(
+        select(func.count(Organization.id)).where(Organization.is_active.is_(True))
+    )).scalar() or 0
+
+    users_total = (await db.execute(select(func.count(User.id)))).scalar() or 0
+    bots_total = (await db.execute(select(func.count(Bot.id)))).scalar() or 0
+
+    # Messages visiteurs 7 jours (whitelist source : exclut les marqueurs [lead])
+    since = now - timedelta(days=7)
+    msgs_7d = (await db.execute(
+        select(func.count(Message.id))
+        .join(Bot, Bot.id == Message.bot_id)
+        .where(Message.role == "user", Message.source.in_(VISITOR_SOURCES),
+               Message.created_at >= since)
+    )).scalar() or 0
+
+    signups_by_month = await _signups_by_month(db, _last_n_months(now))
+
     return {
         "orgs_total": orgs_total,
         "orgs_active": orgs_active,
         "orgs_suspended": orgs_total - orgs_active,
-        "stripe_subscriptions": stripe_subscriptions,
         "users_total": users_total,
         "bots_total": bots_total,
         "msgs_7d": msgs_7d,
@@ -100,10 +107,6 @@ async def admin_stats(db: AsyncSession = Depends(get_db)):
 @router.get("/organizations")
 async def list_organizations(db: AsyncSession = Depends(get_db)):
     """Tous les clients avec compteurs : membres, bots, msgs 7j."""
-    from datetime import datetime, timedelta, timezone
-
-    from src.models.conversation import Message
-
     orgs = (await db.execute(select(Organization).order_by(Organization.created_at))).scalars().all()
 
     member_counts = dict((await db.execute(
@@ -118,12 +121,12 @@ async def list_organizations(db: AsyncSession = Depends(get_db)):
         .where(Bot.api_key_mode == "byok")
         .group_by(Bot.organization_id)
     )).all())
-    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
+    since = utcnow() - timedelta(days=7)
     # Whitelist source : exclut les marqueurs systeme ([lead]...) des compteurs
     msgs7 = dict((await db.execute(
         select(Bot.organization_id, func.count(Message.id))
         .join(Bot, Bot.id == Message.bot_id)
-        .where(Message.role == "user", Message.source.in_(["ai", "tree"]),
+        .where(Message.role == "user", Message.source.in_(VISITOR_SOURCES),
                Message.created_at >= since)
         .group_by(Bot.organization_id)
     )).all())
@@ -154,7 +157,7 @@ async def list_organizations(db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/organizations/{org_id}")
-async def patch_organization(org_id: int, body: OrgPatch, db: AsyncSession = Depends(get_db)):
+async def patch_organization(org_id: int, body: AdminOrgPatch, db: AsyncSession = Depends(get_db)):
     org = await db.get(Organization, org_id)
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organisation introuvable")
@@ -166,16 +169,14 @@ async def patch_organization(org_id: int, body: OrgPatch, db: AsyncSession = Dep
 
 @router.get("/organizations/{org_id}/bots", response_model=list[BotOut])
 async def org_bots(org_id: int, db: AsyncSession = Depends(get_db)):
+    from src.routers.bots_helpers import attach_week_stats
     from src.services.usage_service import bots_week_stats
 
     result = await db.execute(select(Bot).where(Bot.organization_id == org_id).order_by(Bot.created_at))
     week = await bots_week_stats(db, org_id)
     out = []
     for b in result.scalars().all():
-        bo = BotOut.from_bot(b)
-        bo.msgs_7d = week.get(b.id, {}).get("msgs_7d", 0)
-        bo.visitors_7d = week.get(b.id, {}).get("visitors_7d", 0)
-        out.append(bo)
+        out.append(attach_week_stats(BotOut.from_bot(b), b.id, week))
     return out
 
 

@@ -2,10 +2,11 @@
 // ouverte : redevient un rond avec la croix (comportement widget.js). Pur
 // présentationnel : l'état `open` et son toggle vivent dans WidgetPreview.
 import { BubbleIcon } from '../../ui'
+import type { DesignJson } from '../../types/bot'
 import type { T } from './shared'
 
 export default function PreviewLauncher({ d, bg, bubblePx, oy, side, launcherText, open, t, onToggle }: {
-  d: Record<string, any>
+  d: DesignJson
   bg: string
   bubblePx: number
   oy: number

@@ -4,6 +4,7 @@
 import { Plus } from 'lucide-react'
 import { Btn, Card, Chip, Divider, Field, InfoBox, SectionTitle, Seg, Toggle } from '../../ui'
 import { ACTION_TEMPLATES } from '../../botConstants'
+import type { Bot, BotAction, BotActionField, McpServer, BotUpdate } from '../../types/bot'
 
 const ACTION_NAME_RE = /^[a-z][a-z0-9_]{0,63}$/
 // Nom de serveur MCP : règle serveur _check_mcp_servers (31 caractères max)
@@ -24,21 +25,21 @@ export default function ActionsTab({
   updateAction, addAction, removeAction, updateActionField, updateActionType,
   updateMcpServer, addMcpServer, removeMcpServer,
 }: {
-  bot: any
-  savedBot: any
-  patch: (fields: Record<string, any>) => void
-  actions: any[]
-  mcpServers: any[]
+  bot: Bot
+  savedBot: Bot | null
+  patch: (fields: BotUpdate) => void
+  actions: BotAction[]
+  mcpServers: McpServer[]
   actionSecrets: Record<number, string>
   setActionSecrets: React.Dispatch<React.SetStateAction<Record<number, string>>>
   mcpTokens: Record<number, string>
   setMcpTokens: React.Dispatch<React.SetStateAction<Record<number, string>>>
-  updateAction: (i: number, fields: Record<string, any>) => void
+  updateAction: (i: number, fields: Partial<BotAction>) => void
   addAction: () => void
   removeAction: (i: number) => void
-  updateActionField: (ai: number, fi: number, fields: Record<string, any>) => void
+  updateActionField: (ai: number, fi: number, fields: Record<string, unknown>) => void
   updateActionType: (i: number, v: string) => void
-  updateMcpServer: (i: number, fields: Record<string, any>) => void
+  updateMcpServer: (i: number, fields: Partial<McpServer>) => void
   addMcpServer: () => void
   removeMcpServer: (i: number) => void
 }) {
@@ -77,16 +78,16 @@ export default function ActionsTab({
         </div>
       </Card>
 
-      {actions.map((a: any, i: number) => {
+      {actions.map((a, i) => {
         const nameBad = !ACTION_NAME_RE.test(a.name || '')
-          || actions.filter((x: any) => x.name === a.name).length > 1
+          || actions.filter(x => x.name === a.name).length > 1
         // Le secret (HMAC ou clé Cal.com) est rattaché au NOM côté serveur
         // (_merge_action_secrets) : on compare donc la photo serveur sous le
         // nom COURANT — jamais par index, les index glissent après une
         // suppression locale non sauvegardée. Le flag *_set de l'action live
         // vient du serveur et survit aux édits : warning ssi l'action croit
         // avoir un secret qu'aucune action sauvegardée du même nom ne porte.
-        const savedByName = (savedBot?.actions_json || []).find((x: any) => x.name === a.name)
+        const savedByName = (savedBot?.actions_json || []).find(x => x.name === a.name)
         const renameWarn = ((a.type === 'webhook' && a.secret_set)
           || (a.type === 'calendar_slots' && a.api_key_set))
           && !(savedByName?.secret_set || savedByName?.api_key_set) && !actionSecrets[i]
@@ -156,7 +157,7 @@ export default function ActionsTab({
                   <div>
                     <div className="field-label">Champs transmis</div>
                     <div className="col g6">
-                      {(a.fields || []).map((f: any, fi: number) => (
+                      {(a.fields || []).map((f: BotActionField, fi: number) => (
                         <div key={fi} className="row g8" style={{ flexWrap: 'wrap' }}>
                           <input type="text" className="mono" style={{ width: 130 }} placeholder="nom"
                                  value={f.name || ''}
@@ -174,7 +175,7 @@ export default function ActionsTab({
                             requis <Toggle on={!!f.required} onChange={v => updateActionField(i, fi, { required: v })} />
                           </span>
                           <button aria-label="Retirer le champ"
-                                  onClick={() => updateAction(i, { fields: (a.fields || []).filter((_: any, j: number) => j !== fi) })}
+                                  onClick={() => updateAction(i, { fields: (a.fields || []).filter((_, j) => j !== fi) })}
                                   style={{ border: 'none', background: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: 14, padding: 2 }}>×</button>
                         </div>
                       ))}
@@ -214,7 +215,9 @@ export default function ActionsTab({
                            : undefined}>
                     <input type="number" className="mono"
                            value={a.event_type_id ?? ''}
-                           onChange={e => updateAction(i, { event_type_id: e.target.value === '' ? '' : Number(e.target.value) })} />
+                           // '' transitoire toléré (input vidé) ; le filet etidBad + le
+                           // 422 serveur restent les gardes — d'où le cast du patch.
+                           onChange={e => updateAction(i, { event_type_id: e.target.value === '' ? '' : Number(e.target.value) } as Partial<BotAction>)} />
                   </Field>
                   <Field label="Fuseau horaire" hint="Identifiant IANA, ex. Europe/Paris.">
                     <input type="text" className="mono"
@@ -270,9 +273,9 @@ export default function ActionsTab({
         outils sont simplement absents, le chat n'est jamais bloqué.
       </InfoBox>
 
-      {mcpServers.map((s: any, i: number) => {
+      {mcpServers.map((s, i) => {
         const nameBad = !MCP_NAME_RE.test(s.name || '')
-          || mcpServers.filter((x: any) => x.name === s.name).length > 1
+          || mcpServers.filter(x => x.name === s.name).length > 1
         const urlBad = !/^https:\/\//.test(s.url || '')
         // Divergence voulue avec le webhook : le jeton Bearer est un
         // credential ENVOYÉ au serveur — il n'est hérité par nom qu'à URL
@@ -280,7 +283,7 @@ export default function ActionsTab({
         // Comparaison par nom+URL contre la photo serveur (jamais par index,
         // les index glissent après une suppression locale non sauvegardée).
         const tokenWarn = s.auth_token_set
-          && !((savedBot?.mcp_servers_json || []).find((x: any) => x.name === s.name && x.url === s.url)?.auth_token_set)
+          && !((savedBot?.mcp_servers_json || []).find(x => x.name === s.name && x.url === s.url)?.auth_token_set)
           && !mcpTokens[i]
         return (
           <Card key={i}>

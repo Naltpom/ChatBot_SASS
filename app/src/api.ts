@@ -17,10 +17,15 @@ export function setToken(token: string | null) {
   else localStorage.removeItem('cbsaas_token')
 }
 
-export async function api<T = any>(path: string, options: { method?: string; body?: any } = {}): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+// En-tête d'authentification commun (Bearer). Vide si pas de token : on laisse
+// le serveur répondre 401 plutôt que d'envoyer un header malformé.
+function authHeaders(): Record<string, string> {
   const token = getToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+export async function api<T = any>(path: string, options: { method?: string; body?: any } = {}): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...authHeaders() }
 
   const res = await fetch(`${API_URL}${path}`, {
     method: options.method || 'GET',
@@ -42,14 +47,14 @@ export async function api<T = any>(path: string, options: { method?: string; bod
   return res.json()
 }
 
-// Upload multipart générique (PDF de la base de connaissances, …) — calqué sur
-// uploadImage : pas de Content-Type manuel (le navigateur pose le boundary).
+// Upload multipart générique (PDF de la base de connaissances, image…) — pas de
+// Content-Type manuel (le navigateur pose le boundary), juste le Bearer.
 export async function postFile<T = any>(path: string, file: File, field = 'file'): Promise<T> {
   const form = new FormData()
   form.append(field, file)
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${getToken()}` },
+    headers: authHeaders(),
     body: form,
   })
   if (!res.ok) {
@@ -59,19 +64,11 @@ export async function postFile<T = any>(path: string, file: File, field = 'file'
   return res.json()
 }
 
+// Upload d'image -> renvoie l'URL publique. Délègue à postFile (même endpoint
+// multipart, champ `file`).
 export async function uploadImage(file: File): Promise<string> {
-  const form = new FormData()
-  form.append('file', file)
-  const res = await fetch(`${API_URL}/api/uploads`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${getToken()}` },
-    body: form,
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, data.detail || `Upload échoué (${res.status})`)
-  }
-  return (await res.json()).url
+  const { url } = await postFile<{ url: string }>('/api/uploads', file)
+  return url
 }
 
 export { API_URL }

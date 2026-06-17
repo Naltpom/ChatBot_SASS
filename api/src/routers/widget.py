@@ -1,12 +1,14 @@
 """Endpoints PUBLICS consommes par le widget embarque (<script>).
 
-Archi : widget JS -> cette API (origin + captcha + JWT + rate limit + caps)
+Archi : widget JS -> cette API (origin + captcha + JWT + rate limit)
 -> provider IA avec cle serveur. Le widget ne touche jamais une cle IA.
+Application 100% gratuite : pas de plafond d'usage ; les gardes sont
+purement anti-abus (origine, captcha, rate limits).
 
 Flux :
 1. GET  /api/widget/bootstrap?key=pk_xxx  -> design + provider captcha (public)
 2. POST /api/widget/session               -> verif origin + captcha -> JWT 30 min
-3. POST /api/widget/message (Bearer JWT)  -> tree ou IA, rate-limite, cape
+3. POST /api/widget/message (Bearer JWT)  -> tree ou IA, rate-limite
 
 Live chat (handoff conseiller) — pas de WebSocket, polling DB (robuste
 multi-worker) :
@@ -16,7 +18,7 @@ multi-worker) :
 import asyncio
 import logging
 import random
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -28,18 +30,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import create_widget_token, get_widget_session
+from src.core.time import utcnow
 from src.models.bot import Bot
 from src.models.conversation import Conversation, Message
 from src.models.kb import KbChunk
 from src.models.lead import Lead
-from src.models.user import Organization
 from src.routers.widget_helpers import (
     _active_tree,
+    _assert_message_len,
     _bot_collects_leads,
     _bot_has_handoff,
     _check_ip_flood,
     _check_origin,
-    _check_session_origin,
     _client_ip,
     _get_active_bot,
     _maybe_refresh,
@@ -47,6 +49,7 @@ from src.routers.widget_helpers import (
     _sanitize_design,
     _sanitize_journey,
     _sanitize_triggers,
+    _session_active_bot,
 )
 from src.services import tree_engine
 from src.services.ai_service import AIServiceError, generate_reply
@@ -72,8 +75,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/widget", tags=["widget"])
 
 # --- Live chat (handoff conseiller) ---
-# Messages serveur (role=assistant, source=system) : exclus de l'historique IA,
-# des quotas et des stats par convention de source.
+# Messages serveur (role=assistant, source=system) : exclus de l'historique IA
+# et des stats par convention de source (source != ai/tree).
 HANDOFF_WAIT_MESSAGE = (
     "Votre demande a été transmise. Un conseiller va vous répondre ici dès que possible."
 )
@@ -90,10 +93,12 @@ HANDOFF_CLOSED_MESSAGE = (
 HANDOFF_TIMEOUT_MINUTES = 15
 
 
-# Helpers PURS extraits dans routers/widget_helpers.py (importes ci-dessus) :
+# Helpers extraits dans routers/widget_helpers.py (importes ci-dessus) :
 # _client_ip, _check_ip_flood, _check_origin, _check_session_origin,
-# _get_active_bot, _sanitize_design/_journey/_triggers, _active_tree,
-# _record_tree_event, _bot_collects_leads, _bot_has_handoff, _maybe_refresh.
+# _get_active_bot, _session_active_bot (revalidation bot+org des endpoints de
+# session), _assert_message_len, _sanitize_design/_journey/_triggers,
+# _active_tree, _record_tree_event, _bot_collects_leads, _bot_has_handoff,
+# _maybe_refresh.
 # Restent ICI : trigger_handoff, _lazy_timeout, _post_handoff_webhook et les
 # messages de live chat (HANDOFF_*) — couples a la transition handoff et
 # importes par inbox.py (HANDOFF_CLOSED_MESSAGE) / action_executor.py
@@ -231,7 +236,7 @@ async def _lazy_timeout(conversation: Conversation, db: AsyncSession) -> bool:
     /take ou /reply staff concurrent serait silencieusement ecrase."""
     if conversation.status != "human_requested":
         return False
-    cutoff = datetime.utcnow() - timedelta(minutes=HANDOFF_TIMEOUT_MINUTES)
+    cutoff = utcnow() - timedelta(minutes=HANDOFF_TIMEOUT_MINUTES)
     # human_requested_at None = etat incoherent : on debloque aussi (anti-zombie)
     if conversation.human_requested_at is not None and conversation.human_requested_at >= cutoff:
         return False
@@ -239,7 +244,7 @@ async def _lazy_timeout(conversation: Conversation, db: AsyncSession) -> bool:
         update(Conversation)
         .where(Conversation.id == conversation.id,
                Conversation.status == "human_requested")
-        .values(status="ai", last_activity_at=datetime.utcnow())
+        .values(status="ai", last_activity_at=utcnow())
     )
     if result.rowcount != 1:
         # Course perdue (autre poll/message, ou staff entre-temps) : no-op,
@@ -275,7 +280,7 @@ async def trigger_handoff(bot: Bot, conversation: Conversation, db: AsyncSession
     simultanes (avant le premier commit) ne doublent ni le message d'attente
     ni les notifications. Retourne l'id du message d'attente, ou None si une
     transition concurrente a gagne (conversation rechargee)."""
-    now = datetime.utcnow()
+    now = utcnow()
     result = await db.execute(
         update(Conversation)
         .where(Conversation.id == conversation.id,
@@ -327,15 +332,7 @@ async def submit_lead(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de demandes de contact, réessayez plus tard")
 
-    # Memes checks actifs que _get_active_bot (bot + org), via l'id de session
-    bot = await db.get(Bot, session["bot_id"])
-    if bot is None or not bot.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    if bot.organization_id is not None:
-        org = await db.get(Organization, bot.organization_id)
-        if org is None or not org.is_active:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    _check_session_origin(request, session)
+    bot = await _session_active_bot(db, request, session)
 
     if not _bot_collects_leads(bot):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Ce bot ne collecte pas de demandes de contact")
@@ -381,15 +378,7 @@ async def submit_feedback(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de retours envoyés, réessayez plus tard")
 
-    # Memes checks actifs que _get_active_bot (bot + org), via l'id de session
-    bot = await db.get(Bot, session["bot_id"])
-    if bot is None or not bot.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    if bot.organization_id is not None:
-        org = await db.get(Organization, bot.organization_id)
-        if org is None or not org.is_active:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    _check_session_origin(request, session)
+    bot = await _session_active_bot(db, request, session)
 
     # UN SEUL message d'erreur quel que soit le cas (introuvable, autre
     # conversation, role/source non notables) : pas de fuite d'information
@@ -418,15 +407,7 @@ async def request_handoff(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de demandes de mise en relation, réessayez plus tard")
 
-    # Memes checks actifs que _get_active_bot (bot + org), via l'id de session
-    bot = await db.get(Bot, session["bot_id"])
-    if bot is None or not bot.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    if bot.organization_id is not None:
-        org = await db.get(Organization, bot.organization_id)
-        if org is None or not org.is_active:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    _check_session_origin(request, session)
+    bot = await _session_active_bot(db, request, session)
 
     if not _bot_has_handoff(bot):
         raise HTTPException(status.HTTP_404_NOT_FOUND,
@@ -480,14 +461,7 @@ async def poll_messages(
     if not await poll_limiter.check(session["sub"]):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de requêtes")
 
-    bot = await db.get(Bot, session["bot_id"])
-    if bot is None or not bot.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    if bot.organization_id is not None:
-        org = await db.get(Organization, bot.organization_id)
-        if org is None or not org.is_active:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    _check_session_origin(request, session)
+    bot = await _session_active_bot(db, request, session)
 
     conversation = await db.get(Conversation, session["sub"])
     if conversation is None:
@@ -514,88 +488,78 @@ async def poll_messages(
     return _maybe_refresh({"status": conversation.status, "messages": messages}, bot, session)
 
 
-@router.post("/message")
-async def post_message(
-    body: MessageRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    session: dict = Depends(get_widget_session),
-):
-    await _check_ip_flood(request)
-
-    bot = await db.get(Bot, session["bot_id"])
-    if bot is None or not bot.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget désactivé")
-    _check_session_origin(request, session)
-
-    conversation = await db.get(Conversation, session["sub"])
-    if conversation is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation introuvable")
-
-    # Timeout paresseux du live chat AVANT le choix du limiteur (une demande
-    # expiree redevient un message ai normal)
-    await _lazy_timeout(conversation, db)
-
-    # Choix du limiteur : cadence plus fluide en mode conseiller, limiteur
-    # historique sinon. NB documente : le limiteur passe APRES le fetch bot/
-    # conversation (cout db sur requete limitee, acceptable).
-    in_human = conversation.status in ("human_requested", "human")
-    limiter = human_msg_limiter if in_human else session_limiter
-    if not await limiter.check(session["sub"]):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Limite de messages atteinte, réessayez dans quelques minutes")
-
-    # --- Mode conseiller (live chat) : persiste, JAMAIS d'IA ---
-    if in_human:
-        if body.node:
-            # UI desynchronisee (defensif) : pas de navigation d'arbre pendant
-            # un echange avec un conseiller
-            raise HTTPException(status.HTTP_409_CONFLICT, "Conversation en cours avec un conseiller")
-        text = (body.text or "").strip()
-        if not text:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Message vide")
-        if len(text) > settings.MAX_MESSAGE_CHARS:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                                f"Message trop long (max {settings.MAX_MESSAGE_CHARS} caractères)")
-        msg = Message(conversation_id=conversation.id, bot_id=bot.id,
-                      role="user", source="human", content=text)
-        db.add(msg)
-        conversation.last_activity_at = datetime.utcnow()
-        await db.commit()
-        # message null = simple accuse (le widget n'affiche rien, la reponse
-        # du conseiller arrivera par /poll)
-        return _maybe_refresh({
-            "source": "human", "status": conversation.status,
-            "message": None, "options": [], "last_message_id": msg.id,
-        }, bot, session)
-
-    # Conversation cloturee + nouveau message texte -> bascule paresseuse en
-    # flux normal (closed_at conserve pour l'historique, seul status change)
-    if conversation.status == "closed" and not body.node and (body.text or "").strip():
-        conversation.status = "ai"
-
-    # --- Navigation dans l'arbre (clic option) : gratuit, illimite ---
+async def _handle_human_message(
+    body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict,
+) -> dict:
+    """Mode conseiller (live chat) : persiste le message visiteur, JAMAIS d'IA.
+    Comportement inchange (extrait de post_message)."""
     if body.node:
-        node_id, node = tree_engine.get_node(_active_tree(bot, conversation), body.node)
-        response = tree_engine.format_node_response(node_id, node)
-        db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
-                       role="user", source="tree", content=f"[option] {body.node}"))
-        msg = Message(conversation_id=conversation.id, bot_id=bot.id,
-                      role="assistant", source="tree", content=response["message"])
-        db.add(msg)
-        _record_tree_event(db, bot, conversation, node_id)
-        await db.commit()
-        response["status"] = conversation.status
-        # message_id : cle additive CSAT (reponse tree notables par le widget)
-        response["message_id"] = msg.id
-        return _maybe_refresh(response, bot, session)
-
-    # --- Message libre -> IA ---
+        # UI desynchronisee (defensif) : pas de navigation d'arbre pendant
+        # un echange avec un conseiller
+        raise HTTPException(status.HTTP_409_CONFLICT, "Conversation en cours avec un conseiller")
     text = (body.text or "").strip()
     if not text:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Message vide")
-    if len(text) > settings.MAX_MESSAGE_CHARS:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            f"Message trop long (max {settings.MAX_MESSAGE_CHARS} caractères)")
+    _assert_message_len(text)
+    msg = Message(conversation_id=conversation.id, bot_id=bot.id,
+                  role="user", source="human", content=text)
+    db.add(msg)
+    conversation.last_activity_at = utcnow()
+    await db.commit()
+    # message null = simple accuse (le widget n'affiche rien, la reponse
+    # du conseiller arrivera par /poll)
+    return _maybe_refresh({
+        "source": "human", "status": conversation.status,
+        "message": None, "options": [], "last_message_id": msg.id,
+    }, bot, session)
+
+
+async def _handle_tree_node(
+    body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict,
+) -> dict:
+    """Navigation dans l'arbre (clic option) : gratuit, illimite.
+    Comportement inchange (extrait de post_message)."""
+    node_id, node = tree_engine.get_node(_active_tree(bot, conversation), body.node)
+    response = tree_engine.format_node_response(node_id, node)
+    db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
+                   role="user", source="tree", content=f"[option] {body.node}"))
+    msg = Message(conversation_id=conversation.id, bot_id=bot.id,
+                  role="assistant", source="tree", content=response["message"])
+    db.add(msg)
+    _record_tree_event(db, bot, conversation, node_id)
+    await db.commit()
+    response["status"] = conversation.status
+    # message_id : cle additive CSAT (reponse tree notables par le widget)
+    response["message_id"] = msg.id
+    return _maybe_refresh(response, bot, session)
+
+
+async def _build_ai_history(conversation: Conversation, text: str, db: AsyncSession) -> list[dict]:
+    """Historique tronque (limite de payload vers le modele), normalise pour les
+    APIs (alternance commencant par 'user'). Comportement inchange (extrait de
+    post_message)."""
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation.id, Message.source.in_(["ai", "tree"]))
+        .order_by(Message.created_at.desc())
+        .limit(settings.MAX_HISTORY_MESSAGES)
+    )
+    rows = list(reversed(result.scalars().all()))
+    history = [{"role": m.role, "content": m.content} for m in rows if m.role in ("user", "assistant")]
+    # Les APIs exigent une alternance commencant par "user"
+    while history and history[0]["role"] != "user":
+        history.pop(0)
+    if not history:
+        history = [{"role": "user", "content": text}]
+    return history
+
+
+async def _handle_ai_message(
+    body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict, text: str,
+) -> dict:
+    """Message libre : mode tree (réponse de redirection) ou IA. Comportement
+    EXACT inchange (extrait de post_message — le chemin IA n'est pas couvert par
+    e2e, logique preservee a l'octet pres)."""
     if bot.mode == "tree":
         node_id, node = tree_engine.get_node(_active_tree(bot, conversation))
         db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
@@ -614,20 +578,7 @@ async def post_message(
                    role="user", source="ai", content=text))
     await db.commit()
 
-    # Historique tronque (limite de payload vers le modele)
-    result = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation.id, Message.source.in_(["ai", "tree"]))
-        .order_by(Message.created_at.desc())
-        .limit(settings.MAX_HISTORY_MESSAGES)
-    )
-    rows = list(reversed(result.scalars().all()))
-    history = [{"role": m.role, "content": m.content} for m in rows if m.role in ("user", "assistant")]
-    # Les APIs exigent une alternance commencant par "user"
-    while history and history[0]["role"] != "user":
-        history.pop(0)
-    if not history:
-        history = [{"role": "user", "content": text}]
+    history = await _build_ai_history(conversation, text, db)
 
     page_url = body.page_url or conversation.page_url
     # Base de connaissances : le tool search_docs n'est expose au modele que
@@ -653,7 +604,7 @@ async def post_message(
         tokens_in=ai.tokens_in, tokens_out=ai.tokens_out,
     )
     db.add(msg)
-    conversation.last_activity_at = datetime.utcnow()
+    conversation.last_activity_at = utcnow()
     await db.commit()
 
     # status relu APRES generate_reply : l'action IA handoff a pu le muter via
@@ -661,3 +612,54 @@ async def post_message(
     # message_id : cle additive CSAT.
     return _maybe_refresh({"source": "ai", "message": ai.content, "options": [],
                            "status": conversation.status, "message_id": msg.id}, bot, session)
+
+
+@router.post("/message")
+async def post_message(
+    body: MessageRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    session: dict = Depends(get_widget_session),
+):
+    await _check_ip_flood(request)
+
+    # Revalidation bot+org (CHANTIER A) : alignee sur lead/feedback/handoff/poll
+    # via _session_active_bot. Corrige la faille ou /message acceptait encore les
+    # bots d'une org suspendue (et consommait l'IA). Message d'erreur aligne.
+    bot = await _session_active_bot(db, request, session)
+
+    conversation = await db.get(Conversation, session["sub"])
+    if conversation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation introuvable")
+
+    # Timeout paresseux du live chat AVANT le choix du limiteur (une demande
+    # expiree redevient un message ai normal)
+    await _lazy_timeout(conversation, db)
+
+    # Choix du limiteur : cadence plus fluide en mode conseiller, limiteur
+    # historique sinon. NB documente : le limiteur passe APRES le fetch bot/
+    # conversation (cout db sur requete limitee, acceptable).
+    in_human = conversation.status in ("human_requested", "human")
+    limiter = human_msg_limiter if in_human else session_limiter
+    if not await limiter.check(session["sub"]):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Limite de messages atteinte, réessayez dans quelques minutes")
+
+    # --- Mode conseiller (live chat) : persiste, JAMAIS d'IA ---
+    if in_human:
+        return await _handle_human_message(body, bot, conversation, db, session)
+
+    # Conversation cloturee + nouveau message texte -> bascule paresseuse en
+    # flux normal (closed_at conserve pour l'historique, seul status change)
+    if conversation.status == "closed" and not body.node and (body.text or "").strip():
+        conversation.status = "ai"
+
+    # --- Navigation dans l'arbre (clic option) : gratuit, illimite ---
+    if body.node:
+        return await _handle_tree_node(body, bot, conversation, db, session)
+
+    # --- Message libre -> tree (redirection) ou IA ---
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Message vide")
+    _assert_message_len(text)
+    return await _handle_ai_message(body, bot, conversation, db, session, text)

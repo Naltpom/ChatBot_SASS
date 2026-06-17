@@ -5,6 +5,7 @@ masquage des champs sensibles, et validation metier des champs riches
 Extrait de routers/bots.py pour casser le couplage : inbox.py et kb.py
 importent les helpers d'acces depuis ce module (et non plus depuis bots.py).
 Ce module ne doit JAMAIS importer routers.bots (cycle)."""
+import logging
 import re
 import zoneinfo
 from typing import Any
@@ -14,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import require_bot_access
 from src.models.bot import Bot, BotOut
-from src.models.user import User
+from src.models.user import Membership, User
 from src.services.crypto import encrypt_secret
+
+logger = logging.getLogger(__name__)
 
 # Champs de config exportes dans le fichier JSON (jamais de secrets)
 CONFIG_FIELDS = ["name", "mode", "ai_provider", "ai_model", "system_prompt",
@@ -48,7 +51,7 @@ FIELD_PERMS = {
 }
 
 
-async def _get_accessible_bot(db: AsyncSession, bot_id: int, user: User) -> tuple[Bot, Any]:
+async def _get_accessible_bot(db: AsyncSession, bot_id: int, user: User) -> tuple[Bot, "Membership | None"]:
     """(bot, membership). membership=None pour un superadmin non membre."""
     bot = await db.get(Bot, bot_id)
     if bot is None:
@@ -57,11 +60,11 @@ async def _get_accessible_bot(db: AsyncSession, bot_id: int, user: User) -> tupl
     return bot, membership
 
 
-def _member_perms(membership, bot: Bot) -> list[str]:
+def _member_perms(membership: "Membership | None", bot: Bot) -> list[str]:
     return (membership.permissions or {}).get(str(bot.id), [])
 
 
-def _check_bot_perm(user: User, membership, bot: Bot, perm: str) -> None:
+def _check_bot_perm(user: User, membership: "Membership | None", bot: Bot, perm: str) -> None:
     """Members : permission par bot requise. Admins d'org + superadmins : tout."""
     if user.is_superadmin or membership is None or membership.role == "admin":
         return
@@ -70,7 +73,7 @@ def _check_bot_perm(user: User, membership, bot: Bot, perm: str) -> None:
                             f"Permission « {perm} » requise sur ce bot — demandez à un admin de votre organisation")
 
 
-def _mask_bot_out(out: BotOut, user: User, membership, bot: Bot) -> BotOut:
+def _mask_bot_out(out: BotOut, user: User, membership: "Membership | None", bot: Bot) -> BotOut:
     """Champs sensibles en LECTURE : handoff_webhook_url (un webhook entrant
     Slack/Teams est un credential) n'est renvoyee qu'aux ayants droit de la
     perm 'context' — la meme que pour l'ecrire (FIELD_PERMS). Les autres
@@ -79,6 +82,18 @@ def _mask_bot_out(out: BotOut, user: User, membership, bot: Bot) -> BotOut:
         return out
     if "context" not in _member_perms(membership, bot):
         out.handoff_webhook_url = None
+    return out
+
+
+def attach_week_stats(out: BotOut, bot_id: int, week: dict[int, dict]) -> BotOut:
+    """Recopie les compteurs hebdomadaires (msgs_7d / visitors_7d) issus de
+    usage_service.bots_week_stats* dans un BotOut de carte. Source unique du
+    mapping (utilise par les endpoints de liste de bots.py ; exposé pour
+    admin.py qui sert la meme structure). 0 par defaut si le bot n'a aucune
+    activite sur la fenetre."""
+    stats = week.get(bot_id) or {}
+    out.msgs_7d = stats.get("msgs_7d", 0)
+    out.visitors_7d = stats.get("visitors_7d", 0)
     return out
 
 
@@ -153,9 +168,13 @@ def _check_actions(actions: Any) -> None:
             if tz is not None:
                 if not isinstance(tz, str) or len(tz) > 50:
                     _bad(f"Fuseau horaire invalide dans l'action {name}")
+                # ZoneInfo lève ZoneInfoNotFoundError (sous-classe de KeyError)
+                # pour une zone inconnue, ValueError pour une clé malformée
+                # (ex. composant '..'). On ne masque que ces deux cas attendus.
                 try:
                     zoneinfo.ZoneInfo(tz)
-                except Exception:
+                except (zoneinfo.ZoneInfoNotFoundError, ValueError) as e:
+                    logger.info("Fuseau horaire rejeté (action %s): %r — %s", name, tz, e)
                     _bad(f"Fuseau horaire invalide dans l'action {name}")
             api_key = action.get("api_key")
             if api_key is not None and (not isinstance(api_key, str) or len(api_key) > 200):

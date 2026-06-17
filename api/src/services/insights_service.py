@@ -13,11 +13,12 @@ import re
 
 import httpx
 
+from src.core.anthropic import call_messages
 from src.core.config import settings
+from src.core.constants import TREE_INSIGHTS_MODEL
 
 logger = logging.getLogger(__name__)
 
-INSIGHTS_MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 2048
 # Bornes de validation du rapport produit par le modele
 _MAX_CLUSTERS = 10
@@ -50,7 +51,7 @@ def _mock_report(messages: list[str]) -> dict:
     }]}
 
 
-def _validate_report(raw) -> dict:
+def _validate_report(raw: dict) -> dict:
     """Validation stricte de la sortie modele -> rapport re-projete sur les
     seules cles attendues (rien d'autre ne sort vers le dashboard)."""
     if not isinstance(raw, dict):
@@ -95,36 +96,26 @@ async def generate_insights(messages: list[str]) -> dict:
 
     numbered = "\n".join(f"{i + 1}. {m[:300]}" for i, m in enumerate(messages))
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": INSIGHTS_MODEL,
-                    "max_tokens": MAX_TOKENS,
-                    "system": SYSTEM_PROMPT,
-                    "messages": [{
-                        "role": "user",
-                        "content": f"Questions des visiteurs :\n\n{numbered}\n\nGénère le rapport JSON.",
-                    }],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        result = await call_messages(
+            api_key=api_key,
+            model=TREE_INSIGHTS_MODEL,
+            max_tokens=MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"Questions des visiteurs :\n\n{numbered}\n\nGénère le rapport JSON.",
+            }],
+        )
     except httpx.HTTPError as e:
         logger.error("Insights : erreur API %s", e)
-        raise InsightsError("Le service IA est momentanément indisponible, réessayez")
+        raise InsightsError("Le service IA est momentanément indisponible, réessayez") from e
 
-    raw = "".join(b.get("text", "") for b in data.get("content", []))
+    raw = result.text
     # Tolère un éventuel bloc markdown malgré la consigne (regex tree_generator)
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
     try:
         report = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         logger.error("Insights : sortie non-JSON : %.300s", raw)
-        raise InsightsError(_INVALID_MSG)
+        raise InsightsError(_INVALID_MSG) from e
     return _validate_report(report)

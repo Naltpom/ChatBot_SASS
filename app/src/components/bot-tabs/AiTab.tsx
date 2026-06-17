@@ -1,17 +1,18 @@
 // Onglet « IA » de BotPage — présentationnel. KbPanel (RAG) vit HORS save bar et
 // reste monté ici comme dans l'original.
 import { Card, Chip, Divider, InfoBox, SectionTitle, Seg } from '../../ui'
-import { MODEL_OPTIONS } from '../../botConstants'
+import { MODEL_OPTIONS, ModelOption } from '../../botConstants'
 import KbPanel from '../KbPanel'
+import type { AiProvider, ApiKeyMode, Bot, BotUpdate } from '../../types/bot'
 
 export default function AiTab({
   bot, patch, byokKey, setByokKey, currentModel, botId, aiTabRelevant,
 }: {
-  bot: any
-  patch: (fields: Record<string, any>) => void
+  bot: Bot
+  patch: (fields: BotUpdate) => void
   byokKey: string
   setByokKey: (v: string) => void
-  currentModel: any
+  currentModel: ModelOption | undefined
   botId: number
   aiTabRelevant: boolean
 }) {
@@ -28,7 +29,7 @@ export default function AiTab({
               const selected = currentModel?.model === m.model
               return (
                 <button key={m.model} className={`radio-card ${selected ? 'selected' : ''}`}
-                        onClick={() => patch({ ai_provider: m.provider, ai_model: m.model })}>
+                        onClick={() => patch({ ai_provider: m.provider as AiProvider, ai_model: m.model })}>
                   <span className="radio-dot" />
                   <span style={{ flex: 1 }}>
                     <span className="rc-name">{m.name}</span>
@@ -44,14 +45,13 @@ export default function AiTab({
           <div className="card-title" style={{ marginBottom: 8 }}>Clé API</div>
           <div>
             <Seg value={bot.api_key_mode}
-                 onChange={v => patch({ api_key_mode: v })}
+                 onChange={v => patch({ api_key_mode: v as ApiKeyMode })}
                  options={[{ value: 'managed', label: 'Clé Chapote (managée)' }, { value: 'byok', label: 'Ma propre clé (BYOK)' }]} />
           </div>
           <div style={{ marginTop: 10 }}>
             {bot.api_key_mode === 'managed' ? (
               <InfoBox tone="go" title="Clé managée">
-                L'IA utilise la clé Chapote managée. Aucune clé à gérer, les plafonds
-                protègent votre budget.
+                L'IA utilise la clé Chapote managée. Aucune clé à gérer — Chapote est 100 % gratuit.
               </InfoBox>
             ) : (
               <div className="col g8">

@@ -1,35 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { api, getToken, setToken } from './api'
+import type { AuthResponse, Org, RegisterPayload, User } from './types/auth'
 
-// Une organisation = une ÉQUIPE. Le type « perso » n'existe plus : un
-// utilisateur peut n'appartenir à aucune équipe (organizations: []), c'est le
-// cas normal d'un compte solo.
-export interface Org {
-  id: number
-  name: string
-  role: string                              // admin | member
-  permissions: Record<string, string[]>     // perms par bot (member)
-}
-
-export interface RegisterPayload {
-  email: string
-  password: string
-  name: string
-  account_type: 'perso' | 'entreprise'
-  organization_name?: string
-  invites?: { email: string; role: string }[]
-}
-
-export interface User {
-  id: number
-  email: string
-  name: string
-  is_superadmin: boolean
-  auth_source: string                       // local | intranet
-  created_at?: string
-  last_login?: string | null
-  organizations: Org[]
-}
+// Source de vérité des formes auth = types/auth (fidèles à l'API). On les
+// re-exporte pour les consommateurs historiques (Layout/MyOrgs : `Org` ;
+// permissions/Header : `User`). Une organisation = une ÉQUIPE ; un compte solo
+// a organizations: [].
+export type { AuthResponse, Org, RegisterPayload, User }
 
 interface AuthState {
   user: User | null
@@ -70,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // AUTO_LOGIN_ADMIN_DEV=true et ENV=dev, sinon 404 silencieux.
         // Opt-out (tests E2E) : la clé localStorage kc_no_autologin le neutralise.
         if (localStorage.getItem('kc_no_autologin')) return
-        const data = await api('/api/auth/dev-login', { method: 'POST' })
+        const data = await api<AuthResponse>('/api/auth/dev-login', { method: 'POST' })
         setToken(data.access_token)
         applyUser(data.user)
       } catch {
@@ -88,13 +65,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function login(email: string, password: string) {
-    const data = await api('/api/auth/login', { method: 'POST', body: { email, password } })
+    const data = await api<AuthResponse>('/api/auth/login', { method: 'POST', body: { email, password } })
     setToken(data.access_token)
     applyUser(data.user)
   }
 
   async function register(payload: RegisterPayload) {
-    const data = await api('/api/auth/register', { method: 'POST', body: payload })
+    const data = await api<AuthResponse>('/api/auth/register', { method: 'POST', body: payload })
     setToken(data.access_token)
     applyUser(data.user)
   }

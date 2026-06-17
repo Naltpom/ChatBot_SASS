@@ -3,10 +3,20 @@
 //
 // Modèle d'appartenance : un bot est SOIT perso (owner_user_id, scope
 // 'personal', pas d'organization_id) SOIT d'équipe (organization_id, scope
-// 'team'). Les règles ci-dessous reproduisent À L'IDENTIQUE les implémentations
-// locales historiques (Inbox.accessibleBots, BotList.canCopyBot/ownerLabel,
-// BotPage.hasPerm) pour préserver le comportement (e2e team-permissions).
+// 'team'). La règle d'enforcement ci-dessous est garde-fou par e2e
+// (team-permissions.spec, strict) — NE PAS la réécrire.
+//
+// La LISTE des permissions reconnues est figée côté backend
+// (api/src/models/user.py::BOT_PERMS) et exposée par GET /api/meta/permissions.
+// Le front n'a pas à la consommer au runtime : la non-dérive entre ce miroir
+// (BOT_PERMS ci-dessous) et la source backend est vérifiée par le test de
+// parité permissions-parity.spec.
 import type { User } from '../AuthContext'
+import type { BotPerm } from '../types/auth'
+
+// Miroir front (lisibilité) des permissions par bot. Source canonique =
+// backend BOT_PERMS ; parité garantie par permissions-parity.spec.
+export const BOT_PERMS: readonly BotPerm[] = ['copy', 'test', 'appearance', 'context', 'security', 'inbox']
 
 // Forme minimale d'un bot attendue par ces helpers — compatible BotSummary
 // (BotList) et l'objet bot détaillé de BotPage.

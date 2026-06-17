@@ -15,6 +15,7 @@ from typing import Optional
 
 import httpx
 
+from src.core.anthropic import call_messages
 from src.core.config import settings
 from src.models.bot import Bot
 from src.services.action_executor import ActionError
@@ -43,7 +44,8 @@ _MOCK_SEARCH_RE = re.compile(r"^!search\s+(.+)$", re.DOTALL)
 # isolement ; pas de couverture automatisee a ce jour)
 _MOCK_MCP_RE = re.compile(r"^!mcp ([a-z0-9_]+)(?:\s+(\{.*\}))?$")
 
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+# L'endpoint Anthropic vit dans core.anthropic (transport partagé via
+# call_messages) ; OpenAI/Gemini gardent leur appel httpx direct ici.
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -224,10 +226,35 @@ async def generate_reply(
     raise AIServiceError(f"Provider inconnu : {bot.ai_provider}")
 
 
-async def _call_anthropic(api_key, bot, system, history, temperature,
-                          db=None, conversation_id=None, has_kb=False) -> AIResult:
-    """Boucle tool-use bornee : les echanges intermediaires (tool_use /
-    tool_result) vivent dans la requete, seul le texte final est persiste."""
+async def _dispatch_tool_call(bot, name, args: dict, db,
+                              conversation_id) -> tuple[str, bool]:
+    """Resout UN tool-call demande par le modele, INDEPENDAMMENT du provider.
+
+    Retourne (content, is_error) — la chaine `content` est deja bornee et prete
+    a etre encapsulee au format du provider (tool_result Anthropic / message
+    role=tool OpenAI) par l'appelant. Ordre de priorite des branches identique a
+    l'original des deux boucles : tool interne search_docs, puis tools MCP
+    (prefixe reserve mcp_, court-circuites AVANT _run_action), puis actions
+    configurees (actions_json). Sur ActionError : (str(e), True) — c'est
+    l'appelant qui choisit l'encodage du message d'erreur selon son protocole."""
+    # Tool interne KB : court-circuite, jamais resolu via actions_json
+    if name == "search_docs":
+        return await _run_search_docs(bot, args, db)
+    # Tools MCP : court-circuites AVANT _run_action (jamais resolus via
+    # actions_json, prefixe mcp_ reserve)
+    if (name or "").startswith("mcp_"):
+        from src.services.mcp_client import call_mcp_tool
+        return await call_mcp_tool(bot, conversation_id, name, args)
+    try:
+        result = await _run_action(bot, name, args, db, conversation_id)
+        return json.dumps(result, ensure_ascii=False)[:2000], False
+    except ActionError as e:
+        return str(e), True
+
+
+async def _build_anthropic_tools(bot, has_kb: bool, conversation_id) -> Optional[list[dict]]:
+    """Tools exposes au modele au format Anthropic (actions + search_docs + MCP
+    decouverts). None si aucun. Comportement INCHANGE de l'inline d'origine."""
     # Actions heritees aux noms reserves (search_docs, prefixe mcp_) ecartees
     actions = _eligible_actions(bot)
     tools = build_tools_anthropic(actions) if actions else []
@@ -240,98 +267,13 @@ async def _call_anthropic(api_key, bot, system, history, temperature,
         for t in await list_mcp_tools(bot, conversation_id):
             tools.append({"name": t["name"], "description": t["description"],
                           "input_schema": t["input_schema"]})
-    tools = tools or None
-    messages = list(history)
-    tokens_in = tokens_out = 0
-    last_text = ""
-    async with httpx.AsyncClient(timeout=60) as client:
-        for turn in range(MAX_TOOL_TURNS):
-            payload = {
-                "model": bot.ai_model,
-                "max_tokens": 1024,
-                "temperature": temperature,
-                "system": system,
-                "messages": messages,
-            }
-            if tools:
-                payload["tools"] = tools
-            resp = await client.post(
-                ANTHROPIC_URL,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            tokens_in += data.get("usage", {}).get("input_tokens", 0)
-            tokens_out += data.get("usage", {}).get("output_tokens", 0)
-            text = "".join(b.get("text", "") for b in data.get("content", []))
-            if text:
-                last_text = text
-            if data.get("stop_reason") != "tool_use":
-                return AIResult(content=text, tokens_in=tokens_in, tokens_out=tokens_out)
-
-            # Dernier tour autorise : ne PAS executer les tool_use demandes
-            # (l'action aurait lieu — lead persiste, webhook poste — puis
-            # serait annoncee en echec au visiteur -> doublons garantis)
-            if turn == MAX_TOOL_TURNS - 1:
-                break
-
-            # Tour d'outil : executer chaque tool_use, renvoyer les resultats
-            messages.append({"role": "assistant", "content": data["content"]})
-            results = []
-            for block in data.get("content", []):
-                if block.get("type") != "tool_use":
-                    continue
-                # Tool interne KB : court-circuite, jamais resolu via actions_json
-                if block.get("name") == "search_docs":
-                    content, is_error = await _run_search_docs(bot, block.get("input") or {}, db)
-                    entry = {"type": "tool_result", "tool_use_id": block.get("id"),
-                             "content": content}
-                    if is_error:
-                        entry["is_error"] = True
-                    results.append(entry)
-                    continue
-                # Tools MCP : court-circuites AVANT _run_action (jamais
-                # resolus via actions_json, prefixe mcp_ reserve)
-                if (block.get("name") or "").startswith("mcp_"):
-                    from src.services.mcp_client import call_mcp_tool
-                    content, is_error = await call_mcp_tool(
-                        bot, conversation_id, block["name"], block.get("input") or {})
-                    entry = {"type": "tool_result", "tool_use_id": block.get("id"),
-                             "content": content}
-                    if is_error:
-                        entry["is_error"] = True
-                    results.append(entry)
-                    continue
-                try:
-                    result = await _run_action(bot, block.get("name"), block.get("input") or {},
-                                               db, conversation_id)
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.get("id"),
-                        "content": json.dumps(result, ensure_ascii=False)[:2000],
-                    })
-                except ActionError as e:
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.get("id"),
-                        "content": str(e),
-                        "is_error": True,
-                    })
-            messages.append({"role": "user", "content": results})
-    return AIResult(content=last_text or TOOL_EXHAUSTED_MESSAGE,
-                    tokens_in=tokens_in, tokens_out=tokens_out)
+    return tools or None
 
 
-async def _call_openai(api_key, bot, system, history, temperature,
-                       db=None, conversation_id=None, has_kb=False) -> AIResult:
-    """Meme boucle tool-use bornee que _call_anthropic, au format OpenAI
-    (tools / tool_calls / messages role=tool)."""
-    # Meme filtre que _call_anthropic : actions aux noms reserves ecartees
+async def _build_openai_tools(bot, has_kb: bool, conversation_id) -> Optional[list[dict]]:
+    """Tools exposes au modele au format OpenAI (actions + search_docs + MCP
+    decouverts). None si aucun. Comportement INCHANGE de l'inline d'origine."""
+    # Meme filtre que la version Anthropic : actions aux noms reserves ecartees
     actions = _eligible_actions(bot)
     tools = build_tools_openai(actions) if actions else []
     if has_kb:
@@ -344,7 +286,74 @@ async def _call_openai(api_key, bot, system, history, temperature,
             tools.append({"type": "function",
                           "function": {"name": t["name"], "description": t["description"],
                                        "parameters": t["input_schema"]}})
-    tools = tools or None
+    return tools or None
+
+
+async def _call_anthropic(api_key: str, bot: Bot, system: str,
+                          history: list[dict], temperature: float,
+                          db=None, conversation_id: Optional[str] = None,
+                          has_kb: bool = False) -> AIResult:
+    """Boucle tool-use bornee : les echanges intermediaires (tool_use /
+    tool_result) vivent dans la requete, seul le texte final est persiste.
+
+    Transport delegue a core.anthropic.call_messages ; un seul httpx.AsyncClient
+    (timeout 60) est reutilise sur tous les tours de la boucle."""
+    tools = await _build_anthropic_tools(bot, has_kb, conversation_id)
+    messages = list(history)
+    tokens_in = tokens_out = 0
+    last_text = ""
+    async with httpx.AsyncClient(timeout=60) as client:
+        for turn in range(MAX_TOOL_TURNS):
+            result = await call_messages(
+                api_key=api_key,
+                model=bot.ai_model,
+                max_tokens=1024,
+                temperature=temperature,
+                system=system,
+                messages=messages,
+                tools=tools,
+                client=client,
+            )
+            tokens_in += result.tokens_in
+            tokens_out += result.tokens_out
+            content = result.content
+            text = "".join(b.get("text", "") for b in content)
+            if text:
+                last_text = text
+            if result.stop_reason != "tool_use":
+                return AIResult(content=text, tokens_in=tokens_in, tokens_out=tokens_out)
+
+            # Dernier tour autorise : ne PAS executer les tool_use demandes
+            # (l'action aurait lieu — lead persiste, webhook poste — puis
+            # serait annoncee en echec au visiteur -> doublons garantis)
+            if turn == MAX_TOOL_TURNS - 1:
+                break
+
+            # Tour d'outil : executer chaque tool_use, renvoyer les resultats
+            messages.append({"role": "assistant", "content": content})
+            results = []
+            for block in content:
+                if block.get("type") != "tool_use":
+                    continue
+                tool_content, is_error = await _dispatch_tool_call(
+                    bot, block.get("name"), block.get("input") or {}, db, conversation_id)
+                entry = {"type": "tool_result", "tool_use_id": block.get("id"),
+                         "content": tool_content}
+                if is_error:
+                    entry["is_error"] = True
+                results.append(entry)
+            messages.append({"role": "user", "content": results})
+    return AIResult(content=last_text or TOOL_EXHAUSTED_MESSAGE,
+                    tokens_in=tokens_in, tokens_out=tokens_out)
+
+
+async def _call_openai(api_key: str, bot: Bot, system: str,
+                       history: list[dict], temperature: float,
+                       db=None, conversation_id: Optional[str] = None,
+                       has_kb: bool = False) -> AIResult:
+    """Meme boucle tool-use bornee que _call_anthropic, au format OpenAI
+    (tools / tool_calls / messages role=tool)."""
+    tools = await _build_openai_tools(bot, has_kb, conversation_id)
     messages = [{"role": "system", "content": system}, *history]
     tokens_in = tokens_out = 0
     last_text = ""
@@ -389,38 +398,23 @@ async def _call_openai(api_key, bot, system, history, temperature,
                     args = json.loads(fn.get("arguments") or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                # Tool interne KB : court-circuite, jamais resolu via actions_json
-                # (pas de is_error au format OpenAI -> erreur encodee en JSON)
-                if fn.get("name") == "search_docs":
-                    content, is_error = await _run_search_docs(bot, args, db)
-                    if is_error:
-                        content = json.dumps({"error": content}, ensure_ascii=False)
-                    messages.append({"role": "tool", "tool_call_id": call.get("id"),
-                                     "content": content})
-                    continue
-                # Tools MCP : court-circuites AVANT _run_action (pas de
-                # is_error au format OpenAI -> erreur encodee en JSON)
-                if (fn.get("name") or "").startswith("mcp_"):
-                    from src.services.mcp_client import call_mcp_tool
-                    content, is_error = await call_mcp_tool(bot, conversation_id,
-                                                            fn["name"], args)
-                    if is_error:
-                        content = json.dumps({"error": content}, ensure_ascii=False)
-                    messages.append({"role": "tool", "tool_call_id": call.get("id"),
-                                     "content": content})
-                    continue
-                try:
-                    result = await _run_action(bot, fn.get("name"), args, db, conversation_id)
-                    content = json.dumps(result, ensure_ascii=False)[:2000]
-                except ActionError as e:
-                    content = json.dumps({"error": str(e)}, ensure_ascii=False)
+                # Dispatch provider-neutre (search_docs / mcp_ / action) ; au
+                # format OpenAI il n'y a pas de is_error -> erreur encapsulee en
+                # JSON {"error": ...} (search_docs, mcp et ActionError compris,
+                # comportement identique a l'original).
+                content, is_error = await _dispatch_tool_call(
+                    bot, fn.get("name"), args, db, conversation_id)
+                if is_error:
+                    content = json.dumps({"error": content}, ensure_ascii=False)
                 messages.append({"role": "tool", "tool_call_id": call.get("id"),
                                  "content": content})
     return AIResult(content=last_text or TOOL_EXHAUSTED_MESSAGE,
                     tokens_in=tokens_in, tokens_out=tokens_out)
 
 
-async def _call_gemini(api_key, bot, system, history, temperature, has_kb=False) -> AIResult:
+async def _call_gemini(api_key: str, bot: Bot, system: str,
+                       history: list[dict], temperature: float,
+                       has_kb: bool = False) -> AIResult:
     # Limitation documentee : le function-calling Gemini n'est pas branche
     # (format proprietaire) — iteration future. Les actions sont ignorees,
     # search_docs aussi (meme pattern, logge).

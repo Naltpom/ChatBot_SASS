@@ -4,28 +4,11 @@ import { AlertTriangle, Bot, Check, ChevronDown, Clipboard, Plus } from 'lucide-
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, BubbleIcon, Card, Chip, InfoBox, brandBg, statusChip } from '../ui'
+import { useApiResource } from '../hooks/useApiResource'
+import { ErrorRetry } from '../components/ErrorRetry'
+import { Btn, BubbleIcon, Card, Chip, brandBg, statusChip } from '../ui'
 import { botOwnerLabel, canAccessBotPerm } from '../utils/permissions'
-
-export interface BotSummary {
-  id: number
-  name: string
-  public_key: string
-  is_active: boolean
-  mode: string
-  ai_provider: string
-  allowed_domains: string[]
-  design_json: Record<string, any>
-  msgs_7d: number
-  visitors_7d: number
-  // Nouveau modèle d'appartenance : un bot est SOIT perso (owner_user_id) SOIT
-  // d'une équipe (organization_id). scope = "personal" | "team".
-  owner_user_id?: number | null
-  organization_id?: number | null
-  scope?: 'personal' | 'team'
-}
-
-interface Integration { id: string; label: string; icon: string; description: string; snippet: string }
+import { BotSummary, Integration } from '../types/bot'
 
 function IntegrationMenu({ botId, onCopied }: { botId: number; onCopied: () => void }) {
   const [open, setOpen] = useState(false)
@@ -179,19 +162,8 @@ export default function BotList() {
   // organization_id → nom d'équipe pour le badge d'appartenance.
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [bots, setBots] = useState<BotSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [retry, setRetry] = useState(0)
-
-  useEffect(() => {
-    setLoading(true)
-    setError('')
-    api<BotSummary[]>('/api/bots')
-      .then(setBots)
-      .catch((err: any) => setError(err.message))
-      .finally(() => setLoading(false))
-  }, [retry])
+  const { data, loading, error, reload } = useApiResource<BotSummary[]>('/api/bots')
+  const bots = data ?? []
 
   if (loading) return <div className="center-page">Chargement…</div>
 
@@ -206,8 +178,7 @@ export default function BotList() {
             <p className="botlist-sub">Vos chatbots personnels et d'équipe.</p>
           </div>
         </div>
-        <InfoBox tone="danger" title="Impossible de charger vos chatbots">{error}</InfoBox>
-        <div><Btn kind="soft" onClick={() => setRetry(n => n + 1)}>Réessayer</Btn></div>
+        <ErrorRetry message={error} onRetry={reload} />
       </div>
     )
   }

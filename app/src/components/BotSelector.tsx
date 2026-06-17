@@ -4,11 +4,12 @@
 // uniquement). Conserve les classes .inbox-bot-* pour un rendu identique.
 import type { ReactNode } from 'react'
 import { BubbleIcon, brandBg } from '../ui'
+import type { DesignJson } from '../types/bot'
 
 interface BotItem {
   id: number
   name: string
-  design_json?: Record<string, any> | null
+  design_json?: DesignJson | null
 }
 
 export default function BotSelector({ bots, selectedId, onSelect, pending, extra }: {

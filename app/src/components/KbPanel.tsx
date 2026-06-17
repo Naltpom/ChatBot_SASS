@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BookOpen, Plus, RefreshCw, Search, Trash2, Upload } from 'lucide-react'
 import { api, postFile } from '../api'
 import { Btn, Card, Chip, Field, InfoBox, SectionTitle, Seg } from '../ui'
+import { errMsg } from '../utils/errors'
 
 interface KbSource {
   id: number
@@ -64,10 +65,10 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
           setLoadError('')
           if (d.sources.some(s => s.status === 'pending')) h = setTimeout(() => tick(true), 4000)
         })
-        .catch((err: any) => {
+        .catch((err: unknown) => {
           if (!alive) return
           if (silent) h = setTimeout(() => tick(true), 4000) // tick de poll raté : silencieux, on retente
-          else setLoadError(err.message)
+          else setLoadError(errMsg(err))
         })
     }
     tick(false)
@@ -96,8 +97,8 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
       setTitle('')
       setContent('')
       setRefreshKey(k => k + 1)
-    } catch (err: any) {
-      setAddError(err.message)
+    } catch (err: unknown) {
+      setAddError(errMsg(err))
     } finally {
       setAddBusy(false)
     }
@@ -113,8 +114,8 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
     try {
       await postFile(`/api/bots/${botId}/kb/sources/pdf`, file)
       setRefreshKey(k => k + 1)
-    } catch (err: any) {
-      setAddError(err.message)
+    } catch (err: unknown) {
+      setAddError(errMsg(err))
     } finally {
       setAddBusy(false)
     }
@@ -126,8 +127,8 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
     try {
       await api(`/api/bots/${botId}/kb/sources/${s.id}`, { method: 'DELETE' })
       setRefreshKey(k => k + 1)
-    } catch (err: any) {
-      setListError(err.message)
+    } catch (err: unknown) {
+      setListError(errMsg(err))
     }
   }
 
@@ -137,9 +138,10 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
     setSearchBusy(true)
     setSearchError('')
     try {
-      setSearchRes(await api(`/api/bots/${botId}/kb/search`, { method: 'POST', body: { query: q } }))
-    } catch (err: any) {
-      setSearchError(err.message)
+      setSearchRes(await api<{ mode: 'hybrid' | 'fts'; results: KbSearchResult[] }>(
+        `/api/bots/${botId}/kb/search`, { method: 'POST', body: { query: q } }))
+    } catch (err: unknown) {
+      setSearchError(errMsg(err))
     } finally {
       setSearchBusy(false)
     }
@@ -352,7 +354,7 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{
                       fontSize: 12, lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box',
-                      WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' as any,
+                      WebkitLineClamp: 4, WebkitBoxOrient: 'vertical',
                     }}>{r.content}</div>
                     {r.ref && (
                       <div className="mono" style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.ref}</div>

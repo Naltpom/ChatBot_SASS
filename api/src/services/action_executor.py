@@ -27,10 +27,12 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.bot import Bot
 from src.services.safe_fetch import FetchError, pin_url, resolve_public_ip
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,30 @@ logger = logging.getLogger(__name__)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MAX_ARGS_CHARS = 4000
 _MAX_RESULT_CHARS = 2000
+
+# Notifications email envoyees en fire-and-forget (la reponse au modele ne doit
+# pas attendre l'email). asyncio.create_task ne garde qu'une weakref sur la
+# tache : sans reference forte, le GC peut la collecter avant la fin et ses
+# exceptions seraient avalees en silence. On retient donc chaque tache dans ce
+# set (auto-retire a la fin) et on logge tout echec via add_done_callback.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_email(coro) -> None:
+    """Planifie l'envoi d'un email en tache de fond, reference forte conservee
+    + log de l'eventuelle exception (sinon avalee). Ne leve jamais."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    task.add_done_callback(_log_task_exception)
+
+
+def _log_task_exception(task: "asyncio.Task") -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Notification email en échec (tâche de fond) : %s", exc)
 
 
 class ActionError(Exception):
@@ -62,7 +88,8 @@ async def _resolve_public_ip(url: str) -> str:
         raise ActionError("Adresse du webhook non publique (refusée)")
 
 
-async def execute_action(action: dict, args: dict, bot, db=None,
+async def execute_action(action: dict, args: dict, bot: Bot,
+                         db: Optional[AsyncSession] = None,
                          conversation_id: Optional[str] = None) -> dict:
     """Execute une action demandee par le modele. Leve ActionError (message FR
     renvoye au modele en tool_result is_error) sur toute entree/issue invalide."""
@@ -82,7 +109,8 @@ async def execute_action(action: dict, args: dict, bot, db=None,
     raise ActionError(f"Type d'action inconnu : {atype}")
 
 
-async def _capture_lead(args: dict, bot, db, conversation_id: Optional[str]) -> dict:
+async def _capture_lead(args: dict, bot: Bot, db: Optional[AsyncSession],
+                        conversation_id: Optional[str]) -> dict:
     from src.models.lead import Lead
     from src.services.email_service import (
         build_lead_email,
@@ -115,11 +143,12 @@ async def _capture_lead(args: dict, bot, db, conversation_id: Optional[str]) -> 
     # Destinataires recuperes AVANT le create_task (la tache ne touche pas la db)
     recipients = await lead_notification_recipients(db, bot)
     subject, body = build_lead_email(bot, lead)
-    asyncio.create_task(send_email(recipients, subject, body))
+    _spawn_email(send_email(recipients, subject, body))
     return {"ok": True, "lead_id": lead.id}
 
 
-async def _handoff(bot, db, conversation_id: Optional[str]) -> dict:
+async def _handoff(bot: Bot, db: Optional[AsyncSession],
+                   conversation_id: Optional[str]) -> dict:
     """Action IA handoff : la conversation passe en attente d'un conseiller.
 
     La transition + notifications vivent dans routers/widget.py
@@ -146,7 +175,8 @@ async def _handoff(bot, db, conversation_id: Optional[str]) -> dict:
     return {"ok": True, "status": conversation.status}
 
 
-async def _create_ticket(action: dict, args: dict, bot, db,
+async def _create_ticket(action: dict, args: dict, bot: Bot,
+                         db: Optional[AsyncSession],
                          conversation_id: Optional[str]) -> dict:
     """Ticket support v1 : email structure (fallback log) aux admins de l'org
     ou a l'adresse to_email configuree sur l'action. Trace dans le transcript
@@ -180,8 +210,9 @@ async def _create_ticket(action: dict, args: dict, bot, db,
     phone = _trunc("phone", 40)
     ref = "TK-" + uuid.uuid4().hex[:8].upper()
 
-    # Trace transcript (source=system : exclue de l'historique IA, des quotas
-    # et des stats par convention). Import paresseux : pas de cycle.
+    # Trace transcript (source=system : par convention exclue de l'historique
+    # IA et du comptage des questions visiteur — seules les sources de
+    # VISITOR_SOURCES, "ai"/"tree", y entrent). Import paresseux : pas de cycle.
     if conversation_id:
         from src.models.conversation import Message
         db.add(Message(conversation_id=conversation_id, bot_id=bot.id,
@@ -194,7 +225,7 @@ async def _create_ticket(action: dict, args: dict, bot, db,
         await lead_notification_recipients(db, bot)
     subject_mail, body = build_ticket_email(bot, ref, subject, summary,
                                             email or None, name, phone, conversation_id)
-    asyncio.create_task(send_email(to, subject_mail, body))
+    _spawn_email(send_email(to, subject_mail, body))
     return {"ok": True, "ticket_ref": ref}
 
 
@@ -210,7 +241,10 @@ def _compact_slots(data: dict, tz: str) -> dict:
         raw = {}
     try:
         zone = ZoneInfo(tz)
-    except Exception:
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        # timezone mal configurée (clé IANA inconnue, ou caractères invalides
+        # type path-traversal) -> repli Europe/Paris, non bloquant
+        logger.warning("Timezone Cal.com invalide (%r) : repli Europe/Paris (%s)", tz, exc)
         zone = ZoneInfo("Europe/Paris")
     days: dict[str, list[str]] = {}
     total = 0
@@ -244,7 +278,7 @@ def _compact_slots(data: dict, tz: str) -> dict:
             "days": [{"date": d, "slots": slots} for d, slots in sorted(days.items())]}
 
 
-async def _calendar_slots(action: dict, bot) -> dict:
+async def _calendar_slots(action: dict, bot: Bot) -> dict:
     """Disponibilites Cal.com (~7 prochains jours). Hote FIXE https://api.cal.com
     (decision : pas de SSRF dynamique -> httpx direct autorise), cle en header
     uniquement (JAMAIS dans l'URL ni les logs), timeout 10 s, no redirect."""
@@ -292,7 +326,8 @@ async def _calendar_slots(action: dict, bot) -> dict:
     return _compact_slots(payload, tz)
 
 
-async def _webhook(action: dict, args: dict, bot, conversation_id: Optional[str]) -> Any:
+async def _webhook(action: dict, args: dict, bot: Bot,
+                   conversation_id: Optional[str]) -> Any:
     from src.services.crypto import decrypt_secret
 
     url = action.get("url") or ""

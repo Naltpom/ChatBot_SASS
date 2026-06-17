@@ -8,9 +8,9 @@ Les vraies cles IA restent cote serveur (env managed ou BYOK chiffree).
 """
 import secrets
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -25,6 +25,7 @@ from sqlalchemy import (
 )
 
 from src.core.database import Base
+from src.core.time import utcnow
 
 DEFAULT_TREE = {
     "start": "root",
@@ -165,52 +166,52 @@ class Bot(Base):
     captcha_site_key = Column(String, nullable=True)        # si reCAPTCHA client
     captcha_secret_encrypted = Column(Text, nullable=True)  # si reCAPTCHA client
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 # --- Schemas Pydantic ---
 
 class BotCreate(BaseModel):
     name: str
-    mode: Optional[str] = Field("hybrid", pattern="^(tree|ai|hybrid)$")
+    mode: str | None = Field("hybrid", pattern="^(tree|ai|hybrid)$")
 
 
 class BotUpdate(BaseModel):
-    name: Optional[str] = None
-    is_active: Optional[bool] = None
-    mode: Optional[str] = Field(None, pattern="^(tree|ai|hybrid)$")
-    ai_provider: Optional[str] = Field(None, pattern="^(anthropic|openai|gemini)$")
-    ai_model: Optional[str] = None
-    system_prompt: Optional[str] = None
-    temperature: Optional[int] = Field(None, ge=0, le=100)
-    api_key_mode: Optional[str] = Field(None, pattern="^(managed|byok)$")
-    byok_key: Optional[str] = None  # en clair a l'entree, chiffree au stockage
-    tree_json: Optional[dict[str, Any]] = None
-    design_json: Optional[dict[str, Any]] = None
+    name: str | None = None
+    is_active: bool | None = None
+    mode: str | None = Field(None, pattern="^(tree|ai|hybrid)$")
+    ai_provider: str | None = Field(None, pattern="^(anthropic|openai|gemini)$")
+    ai_model: str | None = None
+    system_prompt: str | None = None
+    temperature: int | None = Field(None, ge=0, le=100)
+    api_key_mode: str | None = Field(None, pattern="^(managed|byok)$")
+    byok_key: str | None = None  # en clair a l'entree, chiffree au stockage
+    tree_json: dict[str, Any] | None = None
+    design_json: dict[str, Any] | None = None
     # A/B : null EXPLICITE = desactiver la variante (distingue d'« absent »
     # par exclude_unset dans routers/bots.py)
-    tree_variant_json: Optional[dict[str, Any]] = None
-    ab_split_pct: Optional[int] = Field(None, ge=0, le=100)
+    tree_variant_json: dict[str, Any] | None = None
+    ab_split_pct: int | None = Field(None, ge=0, le=100)
     # Validation metier (types, bornes par type) dans routers/bots.py
-    triggers_json: Optional[list[dict[str, Any]]] = None
+    triggers_json: list[dict[str, Any]] | None = None
     # Validation metier (formats, types, secrets) dans routers/bots.py
-    actions_json: Optional[list[dict[str, Any]]] = None
+    actions_json: list[dict[str, Any]] | None = None
     # https:// + <=500 chars (valide dans routers/bots.py), "" = effacer
-    handoff_webhook_url: Optional[str] = None
+    handoff_webhook_url: str | None = None
     # Validation metier (noms, urls https, jetons) dans routers/bots.py
-    mcp_servers_json: Optional[list[dict[str, Any]]] = None
-    allowed_domains: Optional[list[str]] = None
-    captcha_provider: Optional[str] = Field(None, pattern="^(turnstile|recaptcha_v3|disabled)$")
-    captcha_site_key: Optional[str] = None
-    captcha_secret: Optional[str] = None  # en clair a l'entree, chiffree au stockage
+    mcp_servers_json: list[dict[str, Any]] | None = None
+    allowed_domains: list[str] | None = None
+    captcha_provider: str | None = Field(None, pattern="^(turnstile|recaptcha_v3|disabled)$")
+    captcha_site_key: str | None = None
+    captcha_secret: str | None = None  # en clair a l'entree, chiffree au stockage
 
 
 class BotOut(BaseModel):
     id: int
     # Ownership polymorphe : exactement l'un des deux est renseigne
-    organization_id: Optional[int] = None
-    owner_user_id: Optional[int] = None
+    organization_id: int | None = None
+    owner_user_id: int | None = None
     scope: str = "team"            # "personal" (owner_user_id) | "team" (organization_id)
     name: str
     public_key: str
@@ -224,20 +225,20 @@ class BotOut(BaseModel):
     byok_key_set: bool = False
     tree_json: dict[str, Any]
     design_json: dict[str, Any]
-    tree_variant_json: Optional[dict[str, Any]] = None
+    tree_variant_json: dict[str, Any] | None = None
     ab_split_pct: int = 0
-    triggers_json: list[dict[str, Any]] = []
-    actions_json: list[dict[str, Any]] = []
+    triggers_json: list[dict[str, Any]] = Field(default_factory=list)
+    actions_json: list[dict[str, Any]] = Field(default_factory=list)
     # URL masquee (None) pour les members sans la perm 'context' — le flag
     # handoff_webhook_set permet au dashboard de distinguer « configure » de
     # « vide » (masquage applique dans routers/bots.py)
-    handoff_webhook_url: Optional[str] = None
+    handoff_webhook_url: str | None = None
     handoff_webhook_set: bool = False
     # Serveurs MCP : jeton jamais en sortie, flag auth_token_set uniquement
-    mcp_servers_json: list[dict[str, Any]] = []
+    mcp_servers_json: list[dict[str, Any]] = Field(default_factory=list)
     allowed_domains: list[str]
     captcha_provider: str
-    captcha_site_key: Optional[str] = None
+    captcha_site_key: str | None = None
     captcha_secret_set: bool = False
     created_at: datetime
     updated_at: datetime
@@ -245,8 +246,7 @@ class BotOut(BaseModel):
     msgs_7d: int = 0
     visitors_7d: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     @classmethod
     def from_bot(cls, bot: "Bot") -> "BotOut":

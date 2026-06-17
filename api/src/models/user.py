@@ -10,9 +10,9 @@ Invitation : membre invite par email sans compte existant -> rejoint
 automatiquement l'organisation a la creation de son compte.
 """
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -25,6 +25,7 @@ from sqlalchemy import (
 )
 
 from src.core.database import Base
+from src.core.time import utcnow
 
 # Permissions par bot accordables aux membres (les admins ont tout).
 # 'inbox' (live chat conseiller) volontairement EN FIN de liste : la matrice
@@ -43,7 +44,7 @@ class User(Base):
     is_superadmin = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     last_login = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 class Organization(Base):
@@ -55,7 +56,7 @@ class Organization(Base):
     # --- Stripe (facturation DORMANTE : conservee pour un futur modele) ---
     stripe_customer_id = Column(String, nullable=True, index=True)   # cus_... (lookup webhook)
     stripe_subscription_id = Column(String, nullable=True)           # sub_... (abonnement actif)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 class Membership(Base):
@@ -68,7 +69,7 @@ class Membership(Base):
     role = Column(String, default="member", nullable=False)  # admin | member
     # Permissions par bot pour les members : {"<bot_id>": ["copy", "test", ...]}
     permissions = Column(JSON, default=dict, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 class Invitation(Base):
@@ -80,7 +81,7 @@ class Invitation(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     email = Column(String, nullable=False, index=True)
     role = Column(String, default="member", nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 # --- Schemas Pydantic ---
@@ -95,8 +96,8 @@ class UserRegister(BaseModel):
     password: str
     name: str
     account_type: str = Field("perso", pattern="^(perso|entreprise)$")
-    organization_name: Optional[str] = None  # requis si entreprise
-    invites: list[InvitePayload] = []        # entreprise uniquement
+    organization_name: str | None = None                       # requis si entreprise
+    invites: list[InvitePayload] = Field(default_factory=list)  # entreprise uniquement
 
 
 class UserLogin(BaseModel):
@@ -107,11 +108,10 @@ class UserLogin(BaseModel):
 class OrgOut(BaseModel):
     id: int
     name: str
-    role: str = "member"                       # role du user courant
-    permissions: dict[str, Any] = {}           # ses permissions par bot (member)
+    role: str = "member"                                  # role du user courant
+    permissions: dict[str, Any] = Field(default_factory=dict)  # ses permissions par bot (member)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserOut(BaseModel):
@@ -120,12 +120,11 @@ class UserOut(BaseModel):
     name: str
     auth_source: str = "local"          # local | intranet
     is_superadmin: bool
-    created_at: Optional[datetime] = None
-    last_login: Optional[datetime] = None
-    organizations: list[OrgOut] = []
+    created_at: datetime | None = None
+    last_login: datetime | None = None
+    organizations: list[OrgOut] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TokenOut(BaseModel):

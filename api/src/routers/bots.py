@@ -4,12 +4,14 @@ snippets d'integration (script HTML, iframe, GTM).
 
 Les helpers d'acces/permission et la validation metier des champs riches sont
 factorises dans routers/bots_helpers.py (partages avec inbox.py et kb.py)."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel as _BaseModel
-from sqlalchemy import func, select
+from pydantic import ValidationError
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -20,11 +22,12 @@ from src.core.security import (
     require_org_access,
     require_org_admin,
 )
+from src.core.time import utcnow
 from src.models.analytics import InsightsReport, InsightsReportOut
 from src.models.bot import Bot, BotCreate, BotOut, BotUpdate
-from src.models.conversation import Message
+from src.models.conversation import Conversation, Message
 from src.models.lead import Lead, LeadOut
-from src.models.user import Membership, Organization, User
+from src.models.user import BOT_PERMS, Membership, Organization, User
 from src.routers.bots_helpers import (
     CONFIG_FIELDS,
     FIELD_PERMS,
@@ -36,6 +39,7 @@ from src.routers.bots_helpers import (
     _mask_bot_out,
     _merge_action_secrets,
     _merge_mcp_secrets,
+    attach_week_stats,
 )
 from src.services.crypto import encrypt_secret
 from src.services.rate_limit import insights_limiter, treegen_limiter
@@ -51,6 +55,19 @@ def _bot_limiter_key(bot: Bot) -> str:
     return f"org:{bot.organization_id}" if bot.organization_id else f"user:{bot.owner_user_id}"
 
 
+# --- Meta : sources canoniques des permissions (lecture seule) ---
+
+@router.get("/meta/permissions")
+async def permissions_meta(user: User = Depends(get_current_user)):
+    """Expose les deux sources de verite backend des permissions, en lecture
+    seule (aucun effet sur l'enforcement) :
+    - bot_perms : permissions par bot accordables aux members (models/user.py)
+    - field_perms : permission requise par champ modifiable (bots_helpers.py)
+    Sert au front a verifier la parite avec ses propres tables (anti-divergence).
+    Auth dashboard requise, comme les autres routes du router."""
+    return {"bot_perms": BOT_PERMS, "field_perms": FIELD_PERMS}
+
+
 # --- Mes bots (ownership polymorphe : perso + equipes) ---
 
 @router.get("/bots", response_model=list[BotOut])
@@ -64,7 +81,6 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
     conditions = [Bot.owner_user_id == user.id]
     if my_org_ids:
         conditions.append(Bot.organization_id.in_(list(my_org_ids)))
-    from sqlalchemy import or_
     bots = (await db.execute(
         select(Bot).where(or_(*conditions)).order_by(Bot.created_at)
     )).scalars().all()
@@ -85,9 +101,7 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
         else:
             membership = None if user.is_superadmin else by_org.get(b.organization_id)
         bo = _mask_bot_out(BotOut.from_bot(b), user, membership, b)
-        bo.msgs_7d = week.get(b.id, {}).get("msgs_7d", 0)
-        bo.visitors_7d = week.get(b.id, {}).get("visitors_7d", 0)
-        out.append(bo)
+        out.append(attach_week_stats(bo, b.id, week))
     return out
 
 
@@ -95,7 +109,7 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
 async def create_personal_bot(body: BotCreate, db: AsyncSession = Depends(get_db),
                               user: User = Depends(get_current_user)):
     """Cree un bot PERSO (appartient directement a l'utilisateur, aucune org).
-    Memes defauts que la creation d'equipe. Aucune contrainte de plan."""
+    Memes defauts que la creation d'equipe."""
     bot = Bot(owner_user_id=user.id, organization_id=None,
               name=body.name, mode=body.mode or "hybrid")
     db.add(bot)
@@ -148,9 +162,7 @@ async def list_bots(org_id: int, db: AsyncSession = Depends(get_db), user: User 
     out = []
     for b in result.scalars().all():
         bo = _mask_bot_out(BotOut.from_bot(b), user, membership, b)
-        bo.msgs_7d = week.get(b.id, {}).get("msgs_7d", 0)
-        bo.visitors_7d = week.get(b.id, {}).get("visitors_7d", 0)
-        out.append(bo)
+        out.append(attach_week_stats(bo, b.id, week))
     return out
 
 
@@ -178,45 +190,50 @@ async def get_bot(bot_id: int, db: AsyncSession = Depends(get_db), user: User = 
     return _mask_bot_out(BotOut.from_bot(bot), user, membership, bot)
 
 
-@router.patch("/bots/{bot_id}", response_model=BotOut)
-async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    bot, membership = await _get_accessible_bot(db, bot_id, user)
-    data = body.model_dump(exclude_unset=True)
+# Colonnes JSON/int NOT NULL : un null explicite serait persiste (JSON null) ou
+# violerait l'integrite -> bot illisible (tous les GET en 500). tree_variant_json
+# n'y figure PAS : null explicite = desactivation voulue de la variante A/B.
+_NOTNULL_NO_NULL_FIELDS = ("actions_json", "tree_json", "design_json", "allowed_domains",
+                           "mcp_servers_json", "triggers_json", "ab_split_pct")
 
-    # Colonnes JSON/int NOT NULL : un null explicite serait persiste (JSON
-    # null) ou violerait l'integrite -> bot illisible (tous les GET en 500).
-    # On ignore ces null AVANT la boucle setattr. tree_variant_json n'y figure
-    # PAS : null explicite = desactivation voulue de la variante A/B.
-    for field in ("actions_json", "tree_json", "design_json", "allowed_domains",
-                  "mcp_servers_json", "triggers_json", "ab_split_pct"):
+
+def _strip_notnull_nulls(data: dict) -> None:
+    """Retire (in place) les null explicites visant des colonnes NOT NULL,
+    AVANT la boucle setattr (sinon JSON null persiste / integrite violee)."""
+    for field in _NOTNULL_NO_NULL_FIELDS:
         if field in data and data[field] is None:
             data.pop(field)
 
-    # Permissions par bot : chaque champ modifie doit etre couvert
+
+def _enforce_field_perms(user: User, membership: "Membership | None", bot: Bot, data: dict) -> None:
+    """Permissions par bot : chaque champ effectivement modifie doit etre couvert."""
     for field in data:
         perm = FIELD_PERMS.get(field)
         if perm:
             _check_bot_perm(user, membership, bot, perm)
 
+
+def _validate_trees(bot: Bot, data: dict) -> None:
+    """Validation structurelle des arbres modifies (principal + variante A/B).
+    null variante = desactiver (deja gere : non valide). 422 sur arbre invalide."""
     # Variante A/B : validation structurelle de l'arbre. null = desactiver.
     variant_changed = "tree_variant_json" in data and data["tree_variant_json"] != bot.tree_variant_json
     if variant_changed and data["tree_variant_json"] is not None:
         try:
             validate_tree(data["tree_variant_json"])
         except TreeError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
     if "tree_json" in data and data["tree_json"] is not None:
         try:
             validate_tree(data["tree_json"])
         except TreeError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
-    # Triggers proactifs : validation metier (types, bornes, messages)
-    if "triggers_json" in data and data["triggers_json"] is not None:
-        _check_triggers(data["triggers_json"])
 
-    # Webhook de notification handoff : https:// + borne, chaine vide = effacer
+def _normalize_handoff_url(data: dict) -> None:
+    """Webhook de notification handoff : https:// + borne, chaine vide = effacer.
+    Normalise (in place) data['handoff_webhook_url'] ou leve 422."""
     if "handoff_webhook_url" in data and data["handoff_webhook_url"] is not None:
         url = data["handoff_webhook_url"].strip()
         if not url:
@@ -227,23 +244,45 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
         else:
             data["handoff_webhook_url"] = url
 
-    # Secrets : chiffres au stockage, jamais renvoyes en clair
+
+def _apply_secrets(bot: Bot, data: dict) -> None:
+    """Secrets en clair a l'entree : chiffres au stockage, jamais renvoyes en
+    clair. Retires (pop) de data pour ne pas finir dans la boucle setattr."""
     if "byok_key" in data:
         bot.byok_key_encrypted = encrypt_secret(data.pop("byok_key"))
     if "captcha_secret" in data:
         bot.captcha_secret_encrypted = encrypt_secret(data.pop("captcha_secret"))
 
-    # Actions IA : validation metier + fusion des secrets (chiffres au
-    # stockage, omis = conserves)
+
+def _merge_rich_collections(bot: Bot, data: dict) -> None:
+    """Actions IA et serveurs MCP : validation metier + fusion des secrets
+    (chiffres au stockage, omis = conserves par nom). Remplace (in place) les
+    listes de data par leurs versions fusionnees/projetees."""
     if "actions_json" in data and data["actions_json"] is not None:
         _check_actions(data["actions_json"])
         data["actions_json"] = _merge_action_secrets(bot.actions_json or [], data["actions_json"])
 
-    # Serveurs MCP : validation metier + fusion des jetons (chiffres au
-    # stockage, omis = conserves par nom)
     if "mcp_servers_json" in data and data["mcp_servers_json"] is not None:
         _check_mcp_servers(data["mcp_servers_json"])
         data["mcp_servers_json"] = _merge_mcp_secrets(bot.mcp_servers_json or [], data["mcp_servers_json"])
+
+
+@router.patch("/bots/{bot_id}", response_model=BotOut)
+async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    bot, membership = await _get_accessible_bot(db, bot_id, user)
+    data = body.model_dump(exclude_unset=True)
+
+    _strip_notnull_nulls(data)
+    _enforce_field_perms(user, membership, bot, data)
+    _validate_trees(bot, data)
+
+    # Triggers proactifs : validation metier (types, bornes, messages)
+    if "triggers_json" in data and data["triggers_json"] is not None:
+        _check_triggers(data["triggers_json"])
+
+    _normalize_handoff_url(data)
+    _apply_secrets(bot, data)
+    _merge_rich_collections(bot, data)
 
     for field, value in data.items():
         setattr(bot, field, value)
@@ -255,10 +294,6 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
 
 @router.delete("/bots/{bot_id}")
 async def delete_bot(bot_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    from sqlalchemy import delete as sa_delete
-
-    from src.models.conversation import Conversation, Message
-
     bot, _ = await _get_accessible_bot(db, bot_id, user)
     await require_bot_admin(bot, user, db)
     # Purge explicite des donnees liees (la cascade FK est aussi ajoutee au
@@ -297,6 +332,13 @@ async def export_config(bot_id: int, db: AsyncSession = Depends(get_db), user: U
     return {field: getattr(bot, field) for field in CONFIG_FIELDS}
 
 
+# Scalaires de CONFIG_FIELDS portant des contraintes Pydantic (mode/provider/
+# temperature/...) : valides via BotUpdate a l'import (l'arbre et le design
+# restent valides separement, comme aujourd'hui).
+_CONFIG_SCALAR_FIELDS = ("name", "mode", "ai_provider", "ai_model",
+                         "system_prompt", "temperature")
+
+
 @router.put("/bots/{bot_id}/config.json", response_model=BotOut)
 async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Import d'un fichier de config exporte (les champs inconnus sont ignores)."""
@@ -311,23 +353,30 @@ async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = 
         try:
             validate_tree(config["tree_json"])
         except TreeError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    # Scalaires : memes contraintes que le PATCH (BotUpdate). On ne valide que
+    # les champs presents et non-null (un null importe est ignore comme avant) ;
+    # les valeurs coercees/validees ecrasent les brutes pour ces seuls champs.
+    scalar_in = {f: config[f] for f in _CONFIG_SCALAR_FIELDS
+                 if f in config and config[f] is not None}
+    try:
+        validated = BotUpdate(**scalar_in).model_dump(exclude_unset=True) if scalar_in else {}
+    except ValidationError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"Configuration invalide : {e.errors()[0].get('msg', 'champ invalide')}") from e
     for field in CONFIG_FIELDS:
         # Toutes les colonnes de CONFIG_FIELDS sont NOT NULL : un null importe
         # est ignore (meme regle que le PATCH)
         if field in config and config[field] is not None:
-            setattr(bot, field, config[field])
+            setattr(bot, field, validated.get(field, config[field]))
     await db.commit()
     await db.refresh(bot)
     return _mask_bot_out(BotOut.from_bot(bot), user, membership, bot)
 
 
-from typing import Optional as _Optional
-
-
 class TreeGenerateRequest(_BaseModel):
-    source_text: _Optional[str] = None
-    url: _Optional[str] = None
+    source_text: str | None = None
+    url: str | None = None
 
 
 @router.post("/bots/{bot_id}/tree/generate")
@@ -356,7 +405,7 @@ async def generate_tree_endpoint(bot_id: int, body: TreeGenerateRequest,
             raise TreeGenerationError("Fournissez un texte ou une URL")
         tree = await generate_tree(source)
     except TreeGenerationError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
     return {"tree_json": tree}
 
@@ -381,7 +430,7 @@ async def generate_insights_endpoint(bot_id: int, db: AsyncSession = Depends(get
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Limite d'analyses atteinte pour aujourd'hui — réessayez demain")
 
-    since = datetime.utcnow() - timedelta(days=30)
+    since = utcnow() - timedelta(days=30)
     samples = (await db.execute(
         select(Message.content)
         .where(Message.bot_id == bot.id, Message.role == "user",
@@ -396,7 +445,7 @@ async def generate_insights_endpoint(bot_id: int, db: AsyncSession = Depends(get
     try:
         report = await generate_insights(list(samples))
     except InsightsError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
     record = InsightsReport(bot_id=bot.id, report_json=report, message_count=len(samples))
     db.add(record)

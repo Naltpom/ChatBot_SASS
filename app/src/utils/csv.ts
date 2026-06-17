@@ -2,7 +2,7 @@
 // valeurs viennent de visiteurs anonymes : on préfixe ' si la cellule commence
 // par = + - @ tab ou CR, sinon elle serait interprétée comme formule.
 
-export function csvEsc(v: any): string {
+export function csvEsc(v: unknown): string {
   let s = String(v ?? '')
   if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
   return `"${s.replace(/"/g, '""')}"`
@@ -10,7 +10,13 @@ export function csvEsc(v: any): string {
 
 // Construit un CSV (header + lignes, chaque cellule échappée) et déclenche le
 // téléchargement. `rows` = tableau de tableaux de valeurs, alignés sur headers.
-export function downloadCsv(filename: string, headers: string[], rows: any[][]): void {
+// Générique sur la clé de colonne (K) pour que l'appelant passe `(keyof T)[]`
+// comme en-têtes et indexe ses lignes via cette même clé — sans `as any`.
+export function downloadCsv<K extends string = string>(
+  filename: string,
+  headers: readonly K[],
+  rows: ReadonlyArray<readonly unknown[]>,
+): void {
   const csv = [headers.join(','), ...rows.map(r => r.map(csvEsc).join(','))].join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const a = document.createElement('a')

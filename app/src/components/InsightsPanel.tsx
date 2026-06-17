@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { api } from '../api'
 import { Btn, Card, Chip, InfoBox, SectionTitle } from '../ui'
+import { formatFr } from '../utils/time'
 
 interface Cluster { theme: string; count: number; examples: string[]; suggested_bubble: string }
 
@@ -36,7 +37,7 @@ export default function InsightsPanel({ botId, onPrefill }: {
     setError('')
     api<Report | null>(`/api/bots/${botId}/insights`)
       .then(r => { if (alive) { setReport(r); setLoaded(true) } })
-      .catch((err: any) => { if (alive) { setError(err.message); setLoaded(true) } })
+      .catch((err: unknown) => { if (alive) { setError(err instanceof Error ? err.message : 'Erreur'); setLoaded(true) } })
     return () => { alive = false }
   }, [botId])
 
@@ -46,8 +47,9 @@ export default function InsightsPanel({ botId, onPrefill }: {
     setError('')
     try {
       setReport(await api<Report>(`/api/bots/${botId}/insights/generate`, { method: 'POST' }))
-    } catch (err: any) {
-      setError(err.message)   // 403 / 422 / 429 : detail serveur verbatim
+    } catch (err: unknown) {
+      // 403 / 422 / 429 : detail serveur verbatim
+      setError(err instanceof Error ? err.message : 'Erreur')
     } finally {
       setBusy(false)
     }
@@ -89,7 +91,7 @@ export default function InsightsPanel({ botId, onPrefill }: {
       ) : (
         <>
           <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>
-            Dernière analyse : {new Date(report.created_at + 'Z').toLocaleString('fr-FR')} ·{' '}
+            Dernière analyse : {formatFr(report.created_at)} ·{' '}
             {report.message_count} messages analysés
           </div>
           {clusters.length === 0 ? (
@@ -98,7 +100,7 @@ export default function InsightsPanel({ botId, onPrefill }: {
             </Card>
           ) : (
             clusters.map((c, i) => (
-              <Card key={i}>
+              <Card key={`${c.theme}-${i}`}>
                 <div className="row g10" style={{ flexWrap: 'wrap', marginBottom: 8 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 800, flex: 1, minWidth: 180 }}>{c.theme}</div>
                   <Chip tone="mut">{c.count} question{c.count > 1 ? 's' : ''}</Chip>
@@ -106,7 +108,7 @@ export default function InsightsPanel({ botId, onPrefill }: {
                 {(c.examples || []).length > 0 && (
                   <div className="col" style={{ gap: 5, marginBottom: 10 }}>
                     {(c.examples || []).slice(0, 3).map((ex, j) => (
-                      <div key={j} style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--faint)', lineHeight: 1.5 }}>
+                      <div key={`${ex}-${j}`} style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--faint)', lineHeight: 1.5 }}>
                         « {ex} »
                       </div>
                     ))}

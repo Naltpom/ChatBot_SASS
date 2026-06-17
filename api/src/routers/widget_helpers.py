@@ -24,6 +24,10 @@ from src.models.conversation import Conversation
 from src.models.user import Organization
 from src.services.rate_limit import ip_limiter
 
+# Application 100% gratuite : aucun plafond d'usage n'est appliqué. Les gardes
+# ci-dessous (origine, captcha, rate limits) sont purement anti-abus ;
+# ai_replies_today reste un simple compteur d'affichage informatif (dashboard).
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +48,7 @@ def _origin_host(request: Request) -> Optional[str]:
 def _domain_allowed(host: Optional[str], allowed: list[str]) -> bool:
     """Whitelist par bot. Les navigateurs ne laissent pas forger l'Origin :
     ca bloque l'embed sauvage sur d'autres sites. (Un script serveur peut le
-    spoofer -> c'est pour ca qu'on empile captcha + rate limits + caps.)"""
+    spoofer -> c'est pour ca qu'on empile captcha + rate limits anti-abus.)"""
     if not host:
         return False
     host = host.lower()
@@ -119,6 +123,42 @@ def _check_session_origin(request: Request, session: dict) -> None:
         or host == _api_host()
     ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Origine incohérente avec la session")
+
+
+async def _session_active_bot(db: AsyncSession, request: Request, session: dict) -> Bot:
+    """Revalidation post-handshake commune aux endpoints de session (lead,
+    feedback, handoff, poll, message) : recharge le bot via l'id signe dans le
+    JWT et verifie qu'il est toujours servable, PUIS controle l'origine.
+
+    Memes checks actifs que _get_active_bot (la porte d'entree bootstrap/session)
+    mais a partir de l'id de session :
+    - bot existe + actif ;
+    - bot d'equipe (organization_id non null) : organisation toujours active
+      (suspension impayé/abus -> widgets coupés) ;
+    - bot perso (organization_id null) : aucune suspension d'org applicable.
+
+    Source UNIQUE de cette garde : elle etait copiee-collee a l'identique dans
+    chaque endpoint, SAUF /message qui omettait le check org (faille : un bot
+    d'equipe dont l'org est suspendue continuait d'accepter /message et de
+    consommer l'IA). Le message d'erreur est aligne sur les autres endpoints."""
+    bot = await db.get(Bot, session["bot_id"])
+    if bot is None or not bot.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    if bot.organization_id is not None:
+        org = await db.get(Organization, bot.organization_id)
+        if org is None or not org.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    _check_session_origin(request, session)
+    return bot
+
+
+def _assert_message_len(text: str) -> None:
+    """Borne la longueur d'un message texte (413 si depassement). Factorise les
+    deux occurrences de /message (mode conseiller + mode IA). MAX_MESSAGE_CHARS
+    est partage avec inbox.py (HORS ZONE -> signale en issues)."""
+    if len(text) > settings.MAX_MESSAGE_CHARS:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            f"Message trop long (max {settings.MAX_MESSAGE_CHARS} caractères)")
 
 
 # --- Sanitisation des entrees client (toutes SILENCIEUSES) ---
@@ -298,8 +338,12 @@ def _record_tree_event(db: AsyncSession, bot: Bot, conversation: Optional[Conver
             node_key=str(node_id)[:80],
             variant=conversation.variant if conversation else None,
         ))
-    except Exception:
-        logger.debug("tree_event ignoré", exc_info=True)
+    except (AttributeError, TypeError, ValueError) as exc:
+        # Best-effort funnel : seules les erreurs de construction de l'event
+        # (attribut manquant, valeur invalide) sont avalees, jamais bloquantes
+        # pour le visiteur. Les erreurs db reelles surviennent au commit, hors
+        # de ce try -> elles remontent normalement.
+        logger.warning("tree_event ignoré : %s", exc, exc_info=True)
 
 
 # --- Gardes anti-abus par bot ---

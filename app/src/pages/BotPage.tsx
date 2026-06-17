@@ -2,31 +2,34 @@
 // Apparence / Arbre / IA / Humain / Actions / Intégration / Sécurité.
 // Header bot (avatar navy, nom éditable inline, pills statut+mode, domaine · pk
 // mono, bouton « Activer le bot » si inactif). L'état dirty est suivi PAR ONGLET
-// (comparaison à savedBot, la photo du dernier état serveur) et matérialisé par
-// une SAVE BAR SOMBRE fixée en bas (left:248px right:0) avec pills des onglets
-// dirty + Annuler/Enregistrer + indication Ctrl/Cmd S.
+// (comparaison à savedBot, la photo du dernier état serveur, via useBotEditor) et
+// matérialisé par une SAVE BAR SOMBRE fixée en bas (left:248px right:0) avec pills
+// des onglets dirty + Annuler/Enregistrer + indication Ctrl/Cmd S.
 // Stats / Insights / Leads / Inbox sont désormais des pages dédiées (les
 // composants StatsPanel/InsightsPanel/InboxPanel restent dans components/ et
 // sont importés ailleurs — ils ne sont plus montés ici).
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Download, Plus, Sparkles, Upload } from 'lucide-react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { Check } from 'lucide-react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
+import { useIsMobile } from '../hooks/useMediaQuery'
+import { useBotEditor } from '../hooks/useBotEditor'
 import {
-  Btn, BubbleIcon, Card, Chip, Field, InfoBox, SectionTitle, Seg, Toggle,
+  Btn, BubbleIcon, Card, InfoBox,
   brandBg, modeChip, statusChip,
 } from '../ui'
 import { findModelOption } from '../botConstants'
 import { canAccessBotPerm, isPersonalBot } from '../utils/permissions'
-import AppearanceForm from '../components/AppearanceForm'
-import TreeFlow from '../components/TreeFlow'
-import WidgetPreview, { PreviewFrame } from '../components/WidgetPreview'
+import { errMsg } from '../utils/errors'
+import AppearanceTab from '../components/bot-tabs/AppearanceTab'
+import TreeTab from '../components/bot-tabs/TreeTab'
 import AiTab from '../components/bot-tabs/AiTab'
 import HumanTab from '../components/bot-tabs/HumanTab'
 import ActionsTab from '../components/bot-tabs/ActionsTab'
 import IntegrationTab from '../components/bot-tabs/IntegrationTab'
 import SecurityTab from '../components/bot-tabs/SecurityTab'
+import type { Bot, Integration, Tree } from '../types/bot'
 
 // perm = permission par bot requise pour un MEMBER (admins : tout). Libellés
 // EXACTS de la charte Chapote. L'onglet 'appearance' reste PREMIER (fallback
@@ -41,60 +44,32 @@ const TABS = [
   { id: 'security', label: 'Sécurité', perm: 'security' },
 ]
 
-// Groupes de champs par onglet, alignés sur FIELD_PERMS (API) et sur le body
-// de save() : ils pilotent le dirty tracking par onglet.
-const TAB_FIELDS: Record<string, string[]> = {
-  // triggers_json : perm serveur = appearance (FIELD_PERMS), même onglet
-  appearance: ['name', 'design_json', 'mode', 'triggers_json'],
-  tree: ['tree_json', 'tree_variant_json', 'ab_split_pct'],
-  ai: ['system_prompt', 'ai_provider', 'ai_model', 'temperature', 'api_key_mode'],
-  // handoff_webhook_url : perm serveur = context (credential) — l'API la masque
-  // à null dans bot ET savedBot pour un member sans context → jamais de faux dirty.
-  human: ['handoff_webhook_url'],
-  actions: ['actions_json', 'mcp_servers_json'],
-  security: ['allowed_domains', 'captcha_provider', 'captcha_site_key', 'is_active'],
-}
-
-interface Integration { id: string; label: string; icon: string; description: string; snippet: string }
-
-// Responsive : le shell passe la sidebar en drawer sous 860px (contrat burger).
-// La save bar sombre est fixée et alignée sur la sidebar (left:248px) — en mobile
-// la sidebar n'occupe plus la colonne de gauche, la barre doit donc passer à
-// left:0. styles.css est réservé à l'agent shell → on détecte le breakpoint via
-// matchMedia (les media queries sont impossibles en style inline) et on bascule
-// les styles concernés. Même breakpoint que le shell (860px).
-const MOBILE_MQ = '(max-width: 860px)'
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(MOBILE_MQ).matches,
-  )
-  useEffect(() => {
-    const mql = window.matchMedia(MOBILE_MQ)
-    const onChange = () => setIsMobile(mql.matches)
-    onChange()
-    // addEventListener('change') sur MediaQueryList (large support) ; pas de
-    // dépendance nouvelle, cleanup obligatoire.
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
-  return isMobile
-}
-
 export default function BotPage() {
   const { id } = useParams()
   const botId = Number(id)
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const { user } = useAuth()
+  // Responsive : le shell passe la sidebar en drawer sous 860px (contrat
+  // burger). La save bar sombre est fixée et alignée sur la sidebar (left:248px) ;
+  // en mobile elle doit passer à left:0. Même breakpoint que le shell (860px).
   const isMobile = useIsMobile()
 
-  const [bot, setBot] = useState<any>(null)
-  const [savedBot, setSavedBot] = useState<any>(null)   // photo du dernier état serveur
+  // Éditeur : bot/savedBot, dirty-tracking par onglet, save/cancel, patchs,
+  // CRUD listes JSON (actions/mcp/triggers), secrets write-only, Ctrl+S.
+  const editor = useBotEditor(botId, user)
+  const {
+    bot, savedBot, setBot, setSavedBot, loadError, reload,
+    byokKey, setByokKey, captchaSecret, setCaptchaSecret,
+    actionSecrets, setActionSecrets, mcpTokens, setMcpTokens,
+    dirtyTabs, dirty, saved, setSaved, error, setError, save, cancelChanges,
+    patch, patchDesign, hasPerm,
+    updateAction, addAction, removeAction, updateActionField, updateActionType,
+    updateMcpServer, addMcpServer, removeMcpServer,
+    updateTrigger, updateTriggerType, addTrigger, removeTrigger,
+  } = editor
+
   const [tab, setTab] = useState(params.get('tab') || 'appearance')
-  const [byokKey, setByokKey] = useState('')
-  const [captchaSecret, setCaptchaSecret] = useState('')
-  const [actionSecrets, setActionSecrets] = useState<Record<number, string>>({})
-  const [mcpTokens, setMcpTokens] = useState<Record<number, string>>({})    // jetons Bearer MCP, par INDEX (pattern actionSecrets)
   const [treeView, setTreeView] = useState<'a' | 'b'>('a')                  // arbre affiché par TreeFlow (A/B)
   const [genOpen, setGenOpen] = useState(false)                            // panneau « Générer avec l'IA » (arbre A)
   const [genMode, setGenMode] = useState<'text' | 'url'>('text')
@@ -109,23 +84,15 @@ export default function BotPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [integType, setIntegType] = useState('html')
   const [copied, setCopied] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')           // erreurs de SAUVEGARDE uniquement (save bar)
   const [pageError, setPageError] = useState('')   // erreurs hors save (import, delete) — dismissable
-  const [loadError, setLoadError] = useState('')   // échec du chargement initial (403/404, réseau)
-  const [loadTry, setLoadTry] = useState(0)
 
   const fromAdmin = params.get('from') === 'admin'
   const isAdminView = !!user?.is_superadmin && fromAdmin
 
   useEffect(() => {
-    setLoadError('')
-    api(`/api/bots/${botId}`).then((b: any) => {
-      setBot(b)
-      setSavedBot(b)
-    }).catch((err: any) => setLoadError(err.message))
-    api(`/api/bots/${botId}/embed`).then(d => setIntegrations(d.integrations)).catch(() => {})
-  }, [botId, loadTry])
+    api<{ integrations: Integration[] }>(`/api/bots/${botId}/embed`)
+      .then(d => setIntegrations(d.integrations)).catch(() => {})
+  }, [botId])
 
   // Permissions par bot : admins d'org et superadmins ont tout, les members
   // voient uniquement les onglets couverts par leurs permissions. Un bot PERSO
@@ -138,10 +105,6 @@ export default function BotPage() {
   // « admin » n'est jamais accordée par bot → canAccessBotPerm ne renvoie true
   // que pour superadmin / propriétaire / role admin (équivalent à l'ancien calcul).
   const isOrgAdmin = !!bot && canAccessBotPerm(user, bot, 'admin')
-  // hasPerm délègue à canAccessBotPerm (source unique) — perm null = onglet
-  // public, et tant que le bot n'est pas chargé on refuse (état de chargement).
-  const hasPerm = (perm: string | null) =>
-    perm === null || (!!bot && canAccessBotPerm(user, bot, perm))
   // Mode arbre pur : les onglets IA et Actions n'ont pas lieu d'être
   const aiTabRelevant = !!bot && bot.mode !== 'tree'
   const visibleTabs = TABS.filter(t => hasPerm(t.perm) && ((t.id !== 'ai' && t.id !== 'actions') || aiTabRelevant))
@@ -154,166 +117,24 @@ export default function BotPage() {
     if (bot && !bot.tree_variant_json && treeView === 'b') setTreeView('a')
   }, [bot, treeView])
 
-  // ---------- Dirty tracking par onglet ----------
-  const dirtyTabs = useMemo(() => {
-    if (!bot || !savedBot) return [] as string[]
-    const pick = (obj: any, fields: string[]) => JSON.stringify(fields.map(f => obj?.[f]))
-    const extras: Record<string, boolean> = {
-      ai: byokKey !== '',
-      actions: Object.keys(actionSecrets).length > 0 || Object.keys(mcpTokens).length > 0,
-      security: captchaSecret !== '',
-    }
-    return Object.keys(TAB_FIELDS).filter(t =>
-      extras[t] || pick(bot, TAB_FIELDS[t]) !== pick(savedBot, TAB_FIELDS[t]))
-  }, [bot, savedBot, byokKey, captchaSecret, actionSecrets, mcpTokens])
-  const dirty = dirtyTabs.length > 0
-
-  // Ctrl+S / Cmd+S -> save() si dirty (refs : pas de listener périmé)
-  const saveRef = useRef<{ dirty: boolean; save: () => void }>({ dirty: false, save: () => {} })
-  saveRef.current = { dirty, save: () => save() }
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault()
-        if (saveRef.current.dirty) saveRef.current.save()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
-  function patch(fields: Record<string, any>) {
-    setBot((b: any) => ({ ...b, ...fields }))
-  }
-  function patchDesign(fields: Record<string, any>) {
-    setBot((b: any) => ({ ...b, design_json: { ...b.design_json, ...fields } }))
-  }
-
   function switchTab(t: string) {
     setTab(t)
     params.set('tab', t)
     setParams(params, { replace: true })
   }
 
-  function serializeActions() {
-    // Secret tapé : envoyé pour (re)poser (api_key sur calendar_slots, secret
-    // HMAC sinon — 1 secret max par action), omis pour conserver. Les flags
-    // secret_set/api_key_set (posés par BotOut sur TOUTES les actions) ne
-    // repartent jamais au PATCH.
-    return ((bot?.actions_json || []) as any[]).map((a, i) => {
-      const { secret_set, api_key_set, ...rest } = a
-      // create_ticket : to_email vide = « envoi aux admins » → clé OMISE. Le
-      // serveur valide AVANT sa normalisation `or None` et rejette '' en 422 ;
-      // seuls null/clé absente passent. Couvre le template, le changement de
-      // type et le champ vidé à la main.
-      if (rest.type === 'create_ticket' && !(typeof rest.to_email === 'string' && rest.to_email.trim())) {
-        delete rest.to_email
-      }
-      // calendar_slots : timezone vidée → clé omise, le serveur retombe sur
-      // Europe/Paris — cohérent avec le fallback d'affichage de l'input.
-      if (rest.type === 'calendar_slots' && !(typeof rest.timezone === 'string' && rest.timezone.trim())) {
-        delete rest.timezone
-      }
-      if (!actionSecrets[i]) return rest
-      return rest.type === 'calendar_slots'
-        ? { ...rest, api_key: actionSecrets[i] }
-        : { ...rest, secret: actionSecrets[i] }
-    })
-  }
-
-  function serializeMcpServers() {
-    // Jeton Bearer : même mécanique write-only (envoyé = posé, omis = conservé
-    // par nom à URL inchangée côté serveur) ; auth_token_set jamais renvoyé.
-    return ((bot?.mcp_servers_json || []) as any[]).map((s, i) => {
-      const { auth_token_set, ...rest } = s
-      return mcpTokens[i] ? { ...rest, auth_token: mcpTokens[i] } : rest
-    })
-  }
-
-  async function save() {
-    setError('')
-    // Body limité aux groupes des onglets DIRTY (TAB_FIELDS), croisés avec les
-    // permissions (FIELD_PERMS côté API vérifie chaque champ présent). Le PATCH
-    // est partiel (exclude_unset serveur) : un changement de design seul
-    // n'envoie ni mode/tree_json ni api_key_mode inchangés — les contraintes de
-    // plan d'un bot hors plan (downgrade webhook, BYOK posé par un superadmin)
-    // ne re-tournent donc pas à chaque save.
-    const body: Record<string, any> = {}
-    const dirtySet = new Set(dirtyTabs)
-    if (hasPerm('appearance') && dirtySet.has('appearance')) {
-      body.name = bot.name
-      body.design_json = bot.design_json
-      body.triggers_json = bot.triggers_json || []
-      if (bot.mode !== savedBot?.mode) body.mode = bot.mode
-    }
-    if (hasPerm('context')) {
-      if (dirtySet.has('tree')) {
-        body.tree_json = bot.tree_json
-        // null EXPLICITE = désactivation de la variante A/B — seul champ où le
-        // PATCH serveur ne l'ignore pas (vérifié bots.py). Les 422 (validate_tree
-        // sur la variante) et 403 plan sont affichés tels quels par la save bar.
-        body.tree_variant_json = bot.tree_variant_json ?? null
-        body.ab_split_pct = bot.ab_split_pct
-      }
-      if (dirtySet.has('ai')) {
-        body.system_prompt = bot.system_prompt
-        body.ai_provider = bot.ai_provider
-        body.ai_model = bot.ai_model
-        body.temperature = bot.temperature
-        if (bot.api_key_mode !== savedBot?.api_key_mode) body.api_key_mode = bot.api_key_mode
-        if (byokKey) body.byok_key = byokKey
-      }
-      if (dirtySet.has('actions')) {
-        body.actions_json = serializeActions()
-        body.mcp_servers_json = serializeMcpServers()
-      }
-      // handoff_webhook_url : perm serveur = context (credential), onglet Humain.
-      if (dirtySet.has('human') && bot.handoff_webhook_url !== savedBot?.handoff_webhook_url) {
-        body.handoff_webhook_url = bot.handoff_webhook_url || null
-      }
-    }
-    if (hasPerm('security') && dirtySet.has('security')) {
-      body.allowed_domains = bot.allowed_domains
-      body.captcha_provider = bot.captcha_provider
-      body.captcha_site_key = bot.captcha_site_key || null
-      body.is_active = bot.is_active
-      if (captchaSecret) body.captcha_secret = captchaSecret
-    }
-    try {
-      const updated = await api(`/api/bots/${botId}`, { method: 'PATCH', body })
-      setBot(updated)
-      setSavedBot(updated)
-      setByokKey('')
-      setCaptchaSecret('')
-      setActionSecrets({})
-      setMcpTokens({})
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
-    } catch (err: any) {
-      setError(err.message)
-    }
-  }
-
-  function cancelChanges() {
-    setBot(JSON.parse(JSON.stringify(savedBot)))
-    setByokKey('')
-    setCaptchaSecret('')
-    setActionSecrets({})
-    setMcpTokens({})
-    setError('')
-  }
-
   // Activer le bot depuis le header / la zone de danger. is_active est en
-  // TAB_FIELDS.security : un PATCH direct (immédiat, hors save bar) est plus
-  // sain ici — mais pour respecter le pattern savedBot, on passe par patch()
-  // qui rend l'onglet Sécurité dirty (la save bar apparaît, l'utilisateur
-  // confirme). Le header n'apparaît que pour un bot inactif et n'est rendu que
-  // si l'utilisateur peut sauver la sécurité.
+  // TAB_FIELDS.security : un PATCH direct (immédiat, hors save bar) serait plus
+  // sain — mais pour respecter le pattern savedBot, on passe par patch() qui
+  // rend l'onglet Sécurité dirty (la save bar apparaît, l'utilisateur confirme).
+  // Le header n'apparaît que pour un bot inactif et n'est rendu que si
+  // l'utilisateur peut sauver la sécurité.
   function activateBot() {
     patch({ is_active: true })
   }
 
   function exportConfig() {
+    if (!bot) return
     api(`/api/bots/${botId}/config.json`).then(config => {
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
       const a = document.createElement('a')
@@ -321,18 +142,18 @@ export default function BotPage() {
       a.download = `bot-${bot.name.toLowerCase().replace(/\s+/g, '-')}.json`
       a.click()
       URL.revokeObjectURL(a.href)
-    })
+    }).catch((err: unknown) => setPageError(`Export échoué : ${errMsg(err, 'erreur')}`))
   }
 
   function importConfig(file: File) {
-    file.text().then(text => api(`/api/bots/${botId}/config.json`, { method: 'PUT', body: JSON.parse(text) }))
+    file.text().then(text => api<Bot>(`/api/bots/${botId}/config.json`, { method: 'PUT', body: JSON.parse(text) }))
       .then(updated => {
         setBot(updated)
         setSavedBot(updated)
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
       })
-      .catch(err => setPageError(`Import échoué : ${err.message}`))
+      .catch((err: unknown) => setPageError(`Import échoué : ${err instanceof Error ? err.message : 'erreur'}`))
   }
 
   // Génération d'arbre par l'IA (perm contexte, treegen_limiter 10/24h/org) :
@@ -340,21 +161,23 @@ export default function BotPage() {
   // l'arbre A local (la save bar apparaît, l'utilisateur prévisualise puis
   // enregistre). Réservée à la vue A : la variante B n'a pas de génération.
   async function generateTree() {
+    if (!bot) return
     setGenError('')
     setGenBusy(true)
     try {
       const body = genMode === 'url' ? { url: genUrl.trim() } : { source_text: genText }
-      const res = await api(`/api/bots/${botId}/tree/generate`, { method: 'POST', body })
+      const res = await api<{ tree_json: Tree }>(`/api/bots/${botId}/tree/generate`, { method: 'POST', body })
       const nodeCount = Object.keys(bot.tree_json?.nodes || {}).length
       if (nodeCount > 2 && !window.confirm("Remplacer l'arbre actuel par l'arbre généré ?")) return
       patch({ tree_json: res.tree_json })
       setGenText('')
       setGenUrl('')
       setGenOpen(false)
-    } catch (err: any) {
-      setGenError(err.status === 429
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status
+      setGenError(status === 429
         ? "Limite quotidienne atteinte : 10 générations d'arbre par jour et par organisation. Réessayez demain."
-        : err.message)
+        : (err instanceof Error ? err.message : 'Erreur'))
     } finally {
       setGenBusy(false)
     }
@@ -364,133 +187,40 @@ export default function BotPage() {
   // save bar) : POST /api/bots/{id}/move puis on remplace bot + savedBot par le
   // BotOut renvoyé (scope devient team).
   async function moveToTeam() {
-    if (moveTarget === '' ) return
+    if (moveTarget === '' || !bot) return
     const org = (user?.organizations || []).find(o => o.id === moveTarget)
     if (!org) return
     if (!window.confirm(`Déplacer « ${bot.name} » vers l'équipe « ${org.name} » ? Ce transfert est définitif (un bot d'équipe ne peut pas redevenir perso).`)) return
     setMoveBusy(true)
     setPageError('')
     try {
-      const updated = await api(`/api/bots/${botId}/move`, { method: 'POST', body: { organization_id: moveTarget } })
+      const updated = await api<Bot>(`/api/bots/${botId}/move`, { method: 'POST', body: { organization_id: moveTarget } })
       setBot(updated)
       setSavedBot(updated)
       setMoveTarget('')
-    } catch (err: any) {
-      setPageError(`Déplacement échoué : ${err.message}`)
+    } catch (err: unknown) {
+      setPageError(`Déplacement échoué : ${err instanceof Error ? err.message : 'erreur'}`)
     } finally {
       setMoveBusy(false)
     }
   }
 
   async function deleteBot() {
+    if (!bot) return
     if (!window.confirm(`Supprimer définitivement « ${bot.name} » ?\n\nLe widget cessera de fonctionner sur tous les sites où il est installé, et les conversations seront perdues.`)) return
     try {
       await api(`/api/bots/${botId}`, { method: 'DELETE' })
       navigate(isAdminView ? `/admin/clients/${bot.organization_id}` : '/app')
-    } catch (err: any) {
-      setPageError(err.message)
+    } catch (err: unknown) {
+      setPageError(err instanceof Error ? err.message : 'Erreur')
     }
   }
 
   function addDomain() {
+    if (!bot) return
     const dd = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
     if (dd && !bot.allowed_domains.includes(dd)) patch({ allowed_domains: [...bot.allowed_domains, dd] })
     setNewDomain('')
-  }
-
-  // ---------- Actions IA ----------
-  function updateAction(i: number, fields: Record<string, any>) {
-    patch({ actions_json: (bot.actions_json || []).map((a: any, j: number) => (j === i ? { ...a, ...fields } : a)) })
-  }
-  function addAction() {
-    const list = bot.actions_json || []
-    if (list.length >= 5) return
-    patch({ actions_json: [...list, { name: '', description: '', type: 'webhook', url: '', fields: [], secret_set: false }] })
-  }
-  function removeAction(i: number) {
-    patch({ actions_json: (bot.actions_json || []).filter((_: any, j: number) => j !== i) })
-    setActionSecrets(prev => {
-      const next: Record<number, string> = {}
-      Object.entries(prev).forEach(([k, v]) => {
-        const idx = Number(k)
-        if (idx < i) next[idx] = v
-        else if (idx > i) next[idx - 1] = v
-      })
-      return next
-    })
-  }
-  function updateActionField(ai: number, fi: number, fields: Record<string, any>) {
-    const a = (bot.actions_json || [])[ai]
-    updateAction(ai, { fields: (a.fields || []).map((f: any, j: number) => (j === fi ? { ...f, ...fields } : f)) })
-  }
-  // Changement de type = reconstruction propre : nom/description conservés,
-  // défauts du type posés, flags *_set remis à plat et secret tapé jeté (un
-  // secret HMAC ne doit jamais partir comme api_key Cal.com, ni l'inverse).
-  function updateActionType(i: number, v: string) {
-    const a = (bot.actions_json || [])[i] || {}
-    if (a.type === v) return
-    const next: Record<string, any> = {
-      name: a.name || '', description: a.description || '', type: v,
-      secret_set: false, api_key_set: false,
-    }
-    if (v === 'webhook') { next.url = ''; next.fields = [] }
-    // create_ticket : PAS de to_email seedé — clé absente = envoi aux admins
-    // (le serveur rejette la chaîne vide ; serializeActions l'omet de toute façon)
-    else if (v === 'calendar_slots') { next.event_type_id = ''; next.timezone = 'Europe/Paris' }
-    patch({ actions_json: (bot.actions_json || []).map((x: any, j: number) => (j === i ? next : x)) })
-    setActionSecrets(prev => {
-      const rest = { ...prev }
-      delete rest[i]
-      return rest
-    })
-  }
-
-  // ---------- Serveurs MCP ----------
-  function updateMcpServer(i: number, fields: Record<string, any>) {
-    patch({ mcp_servers_json: (bot.mcp_servers_json || []).map((s: any, j: number) => (j === i ? { ...s, ...fields } : s)) })
-  }
-  function addMcpServer() {
-    const list = bot.mcp_servers_json || []
-    if (list.length >= 2) return
-    patch({ mcp_servers_json: [...list, { name: '', url: '', auth_token_set: false }] })
-  }
-  function removeMcpServer(i: number) {
-    patch({ mcp_servers_json: (bot.mcp_servers_json || []).filter((_: any, j: number) => j !== i) })
-    // Ré-indexation des jetons tapés (même mécanique que removeAction)
-    setMcpTokens(prev => {
-      const next: Record<number, string> = {}
-      Object.entries(prev).forEach(([k, v]) => {
-        const idx = Number(k)
-        if (idx < i) next[idx] = v
-        else if (idx > i) next[idx - 1] = v
-      })
-      return next
-    })
-  }
-
-  // ---------- Déclencheurs proactifs ----------
-  function updateTrigger(i: number, fields: Record<string, any>) {
-    patch({ triggers_json: (bot.triggers_json || []).map((t: any, j: number) => (j === i ? { ...t, ...fields } : t)) })
-  }
-  // Changement de type = reconstruction (message/once conservés, value remise
-  // au défaut du type) ; exit_intent = SANS clé value (le serveur l'ignore mais
-  // on reste aligné sur ce qu'il stocke).
-  function updateTriggerType(i: number, v: string) {
-    const tr = (bot.triggers_json || [])[i] || {}
-    if (tr.type === v) return
-    const next: Record<string, any> = { type: v, message: tr.message || '', once_per_session: tr.once_per_session ?? true }
-    if (v === 'time_on_page') next.value = 30
-    else if (v === 'scroll_depth') next.value = 50
-    else if (v === 'url_pattern') next.value = ''
-    patch({ triggers_json: (bot.triggers_json || []).map((t: any, j: number) => (j === i ? next : t)) })
-  }
-  function addTrigger() {
-    const list = bot.triggers_json || []
-    if (list.length >= 5) return
-    patch({ triggers_json: [...list, { type: 'time_on_page', value: 30, message: '', once_per_session: true }] })
-  }
-  function removeTrigger(i: number) {
-    patch({ triggers_json: (bot.triggers_json || []).filter((_: any, j: number) => j !== i) })
   }
 
   if (!bot) {
@@ -502,7 +232,7 @@ export default function BotPage() {
               <div style={{ fontSize: 14.5, fontWeight: 800 }}>Impossible de charger ce chatbot</div>
               <div style={{ fontSize: 12.5, color: 'var(--mut)', lineHeight: 1.55 }}>{loadError}</div>
               <div className="row g8" style={{ marginTop: 4 }}>
-                <Btn kind="soft" onClick={() => setLoadTry(n => n + 1)}>Réessayer</Btn>
+                <Btn kind="soft" onClick={reload}>Réessayer</Btn>
                 <Btn kind="ghost" onClick={() => navigate(fromAdmin ? '/admin/clients' : '/app')}>
                   {fromAdmin ? 'Retour aux clients' : 'Retour à mes chatbots'}
                 </Btn>
@@ -519,8 +249,8 @@ export default function BotPage() {
   const site = bot.allowed_domains[0] || 'votre-site.fr'
   const currentModel = findModelOption(bot.ai_provider, bot.ai_model)
   const currentInteg = integrations.find(i => i.id === integType) || integrations[0]
-  const actions: any[] = bot.actions_json || []
-  const mcpServers: any[] = bot.mcp_servers_json || []
+  const actions = bot.actions_json || []
+  const mcpServers = bot.mcp_servers_json || []
   const canActivate = !bot.is_active && hasPerm('security')
   // Bot perso déplaçable vers une équipe si l'utilisateur en a au moins une
   // (POST /move réservé serveur au propriétaire). isPersonalScope défini plus haut.
@@ -599,235 +329,20 @@ export default function BotPage() {
 
       {/* ================= APPARENCE ================= */}
       {activeTab === 'appearance' && (
-        <div className="col g18">
-          <SectionTitle sub="Personnalisez le widget aux couleurs du site client. Aperçu en direct à droite.">
-            Apparence du widget
-          </SectionTitle>
-          {/* Apparence : contrôles + aperçu live. En mobile on force 1 colonne
-              (aperçu sous les contrôles, 100% de large) sans dépendre de la media
-              query de styles.css (réservée à l'agent shell). En desktop : grille
-              .grid-controls native (330px + 1fr). */}
-          <div className="grid-controls" style={isMobile ? { gridTemplateColumns: '1fr' } : undefined}>
-            <div className="col g14">
-              <Card>
-                <AppearanceForm design={d} botName={bot.name}
-                                onChange={patchDesign} onNameChange={v => patch({ name: v })} />
-              </Card>
-              <Card>
-                <div className="card-title">Comportement</div>
-                <div className="col" style={{ gap: 12 }}>
-                  <Field label="Mode" hint="Hybride : arbre guidé d'abord, IA à la demande. Les réponses arbre sont gratuites.">
-                    <Seg value={bot.mode} onChange={v => patch({ mode: v })}
-                         options={[{ value: 'tree', label: 'Arbre' }, { value: 'hybrid', label: 'Hybride' }, { value: 'ai', label: 'IA' }]} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card>
-                <div className="card-title">Déclencheurs proactifs</div>
-                <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 4 }}>
-                  Ouvre le panneau avec un message local (aucun appel serveur), au plus un déclenchement
-                  par chargement de page, jamais en mode iframe. 5 déclencheurs max.
-                </div>
-                <div className="field-hint" style={{ marginBottom: 10 }}>
-                  Les déclencheurs ne sont pas simulés dans l'aperçu ci-contre.
-                </div>
-                <div className="col" style={{ gap: 10 }}>
-                  {((bot.triggers_json || []) as any[]).map((tr: any, i: number) => (
-                    <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 11, padding: '11px 13px' }}>
-                      <div className="col" style={{ gap: 10 }}>
-                        <Field label="Type">
-                          <select value={tr.type} onChange={e => updateTriggerType(i, e.target.value)}>
-                            <option value="time_on_page">Temps passé sur la page</option>
-                            <option value="scroll_depth">Profondeur de défilement</option>
-                            <option value="exit_intent">Intention de sortie</option>
-                            <option value="url_pattern">Adresse de la page</option>
-                          </select>
-                        </Field>
-                        {/* value : Number strict côté serveur (_check_triggers) — un
-                            string numérique ferait 422. Input vide = '' conservé +
-                            hint rouge, le 422 verbatim de la save bar reste le filet. */}
-                        {tr.type === 'time_on_page' && (
-                          <Field label="Après (secondes)"
-                                 hint={typeof tr.value !== 'number'
-                                   ? <span style={{ color: 'var(--danger)' }}>Valeur requise (1-600)</span>
-                                   : undefined}>
-                            <input type="number" min={1} max={600}
-                                   value={typeof tr.value === 'number' ? tr.value : ''}
-                                   onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
-                          </Field>
-                        )}
-                        {tr.type === 'scroll_depth' && (
-                          <Field label="À partir de (% de page)"
-                                 hint={typeof tr.value !== 'number'
-                                   ? <span style={{ color: 'var(--danger)' }}>Valeur requise (1-100)</span>
-                                   : undefined}>
-                            <input type="number" min={1} max={100}
-                                   value={typeof tr.value === 'number' ? tr.value : ''}
-                                   onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
-                          </Field>
-                        )}
-                        {tr.type === 'url_pattern' && (
-                          <Field label="Le chemin de la page contient">
-                            <input type="text" className="mono" maxLength={200} placeholder="/tarifs"
-                                   value={tr.value || ''}
-                                   onChange={e => updateTrigger(i, { value: e.target.value })} />
-                          </Field>
-                        )}
-                        {tr.type === 'exit_intent' && (
-                          <div className="field-hint">
-                            Souris quittant la page par le haut. Désactivé sur mobile.
-                          </div>
-                        )}
-                        <Field label="Message"
-                               hint={!tr.message
-                                 ? <span style={{ color: 'var(--danger)' }}>Message requis (1 à 300 caractères)</span>
-                                 : undefined}>
-                          <textarea rows={2} maxLength={300} value={tr.message || ''}
-                                    onChange={e => updateTrigger(i, { message: e.target.value })} />
-                        </Field>
-                        {/* once_per_session peut être ABSENT du JSON stocké → défaut true */}
-                        <div className="toggle-row">
-                          <div className="tl">Une seule fois par session</div>
-                          <Toggle on={tr.once_per_session ?? true}
-                                  onChange={v => updateTrigger(i, { once_per_session: v })} />
-                        </div>
-                        <div>
-                          <Btn kind="danger" small onClick={() => removeTrigger(i)}>Retirer</Btn>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="row g10" style={{ marginTop: 10 }}>
-                  <Btn kind="soft" small onClick={addTrigger} disabled={(bot.triggers_json || []).length >= 5}>
-                    <Plus size={13} /> Ajouter un déclencheur
-                  </Btn>
-                  {(bot.triggers_json || []).length >= 5 && <Chip tone="warn">5/5</Chip>}
-                </div>
-              </Card>
-            </div>
-            <Card nopad>
-              <PreviewFrame site={site} siteName={orgName || site} brandColor={d.primaryColor || '#1C3F5C'}>
-                <WidgetPreview design={d} mode={bot.mode} tree={bot.tree_json}
-                               botName={bot.name} />
-              </PreviewFrame>
-            </Card>
-          </div>
-        </div>
+        <AppearanceTab bot={bot} patch={patch} patchDesign={patchDesign} isMobile={isMobile}
+                       site={site} orgName={orgName}
+                       updateTrigger={updateTrigger} updateTriggerType={updateTriggerType}
+                       addTrigger={addTrigger} removeTrigger={removeTrigger} />
       )}
 
       {/* ================= ARBRE ================= */}
       {activeTab === 'tree' && (
-        <div className="col g14">
-          {bot.tree_variant_json == null ? (
-            <Card>
-              <div className="card-title">Test A/B de l'arbre</div>
-              <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 10 }}>
-                Servez une variante B à une partie des nouvelles conversations et comparez conversations
-                et satisfaction dans vos statistiques. L'affectation est tirée au sort à l'ouverture et
-                reste stable pour toute la conversation.
-              </div>
-              <Btn kind="soft" onClick={() => {
-                patch({ tree_variant_json: JSON.parse(JSON.stringify(bot.tree_json)), ab_split_pct: bot.ab_split_pct || 50 })
-                setTreeView('b')
-              }}>Activer une variante B</Btn>
-            </Card>
-          ) : (
-            <Card>
-              <div className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-                <div className="card-title" style={{ marginBottom: 0 }}>Test A/B de l'arbre</div>
-                <Chip tone="acc">A/B actif</Chip>
-              </div>
-              <div className="col" style={{ gap: 12 }}>
-                <Seg value={treeView} onChange={v => setTreeView(v as 'a' | 'b')}
-                     options={[{ value: 'a', label: 'Variante A (originale)' }, { value: 'b', label: 'Variante B' }]} />
-                <Field label={`Répartition — ${bot.ab_split_pct ?? 0} % des nouvelles conversations voient la variante B`}
-                       hint="0 % = variante en pause (aucun nouveau visiteur ne la voit). Les conversations déjà affectées gardent leur arbre.">
-                  <input type="range" min={0} max={100} value={bot.ab_split_pct ?? 0}
-                         onChange={e => patch({ ab_split_pct: Number(e.target.value) })} />
-                </Field>
-                <div>
-                  <Btn kind="danger" small onClick={() => {
-                    if (!window.confirm('Désactiver la variante B ? Son contenu sera perdu à l\'enregistrement.')) return
-                    patch({ tree_variant_json: null, ab_split_pct: 0 })
-                    setTreeView('a')
-                  }}>Désactiver la variante B</Btn>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* Barre d'outils config-as-code + génération IA (arbre A uniquement).
-              TreeFlow ne porte plus l'export/import ni la génération : on les
-              garde ici en boutons discrets. La variante B n'a ni export/import
-              (config.json l'exclut) ni génération IA (elle remplacerait la
-              variante : coût + confusion). */}
-          {treeView === 'a' && (
-            <div className="col g14">
-              <div className="row g8" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <Btn kind="ghost" small onClick={() => setGenOpen(o => !o)}>
-                  <Sparkles size={13} /> Générer avec l'IA
-                </Btn>
-                <Btn kind="ghost" small onClick={exportConfig}>
-                  <Download size={13} /> Exporter JSON
-                </Btn>
-                {hasPerm('context') && hasPerm('appearance') && (
-                  <>
-                    <Btn kind="ghost" small onClick={() => treeFileRef.current?.click()}>
-                      <Upload size={13} /> Importer
-                    </Btn>
-                    <input ref={treeFileRef} type="file" accept=".json" hidden
-                           onChange={e => { if (e.target.files?.[0]) importConfig(e.target.files[0]); e.target.value = '' }} />
-                  </>
-                )}
-              </div>
-
-              {genOpen && (
-                <Card>
-                  <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <Sparkles size={14} style={{ color: 'var(--acc)' }} /> Générer l'arbre avec l'IA
-                  </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--mut)', marginBottom: 10, lineHeight: 1.5 }}>
-                    Collez votre FAQ / documentation, ou indiquez l'URL d'une page d'aide : l'IA construit un
-                    arbre de décision complet que vous pourrez retoucher avant d'enregistrer.
-                  </div>
-                  <div className="col g10">
-                    <Seg small value={genMode} onChange={v => setGenMode(v as 'text' | 'url')}
-                         options={[{ value: 'text', label: 'Texte collé' }, { value: 'url', label: "URL d'une page" }]} />
-                    {genMode === 'text' ? (
-                      <textarea rows={5} value={genText} onChange={e => setGenText(e.target.value)}
-                                placeholder={'Q : Quels sont vos horaires ?\nR : Du lundi au vendredi, 9h-18h…\n\nQ : Comment prendre rendez-vous ?\nR : …'} />
-                    ) : (
-                      <input type="text" className="mono" value={genUrl} onChange={e => setGenUrl(e.target.value)}
-                             placeholder="https://votre-site.fr/faq" />
-                    )}
-                    {genError && <div className="error">{genError}</div>}
-                    <div>
-                      <Btn kind="soft" onClick={generateTree}
-                           disabled={genBusy || (genMode === 'text' ? genText.trim().length < 50 : !genUrl.trim())}>
-                        {genBusy ? 'Génération en cours…' : "Générer l'arbre"}
-                      </Btn>
-                    </div>
-                  </div>
-                </Card>
-              )}
-            </div>
-          )}
-
-          {/* UN SEUL TreeFlow monté à la fois (la variante absente ne reste
-              jamais affichée — garde useEffect treeView). key force le remount
-              au switch A/B. */}
-          {treeView === 'b' && bot.tree_variant_json ? (
-            <TreeFlow key="b" tree={bot.tree_variant_json}
-                      onChange={t => patch({ tree_variant_json: t })}
-                      allowAI={aiTabRelevant} />
-          ) : (
-            <TreeFlow key="a" tree={bot.tree_json}
-                      onChange={t => patch({ tree_json: t })}
-                      allowAI={aiTabRelevant} />
-          )}
-        </div>
+        <TreeTab bot={bot} patch={patch} hasPerm={hasPerm} aiTabRelevant={aiTabRelevant}
+                 treeView={treeView} setTreeView={setTreeView}
+                 genOpen={genOpen} setGenOpen={setGenOpen} genMode={genMode} setGenMode={setGenMode}
+                 genText={genText} setGenText={setGenText} genUrl={genUrl} setGenUrl={setGenUrl}
+                 genBusy={genBusy} genError={genError} generateTree={generateTree}
+                 exportConfig={exportConfig} importConfig={importConfig} treeFileRef={treeFileRef} />
       )}
 
       {/* ================= IA ================= */}

@@ -2,31 +2,14 @@
 // Conserve la fonctionnalité réelle : type perso/entreprise, invitations
 // d'équipe (entreprise), register(RegisterPayload). L'étape de succès propose
 // « Configurer mon premier bot » (→ /app/bots/new), comme demandé.
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Building2, Check, User as UserIcon, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
+import { useIsMobile } from '../hooks/useMediaQuery'
 
 interface Invite { email: string; role: 'admin' | 'member' }
-
-// Responsive mobile : breakpoint contenu <=760px (cartes/grilles empilées,
-// paddings réduits). matchMedia + listener resize — media queries impossibles
-// en styles inline. SSR-safe (window peut être absent au 1er rendu).
-function useIsMobile(maxWidth = 760): boolean {
-  const query = `(max-width:${maxWidth}px)`
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
-  )
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const mql = window.matchMedia(query)
-    const onChange = () => setIsMobile(mql.matches)
-    onChange()
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [query])
-  return isMobile
-}
+interface RegisterForm { prenom: string; nom: string; email: string; pwd: string; org: string }
 
 const CLASH = "'Clash Display',sans-serif"
 const NAVY = '#1C3F5C'
@@ -68,7 +51,7 @@ function StepDot({ on, n }: { on: boolean; n: number }) {
 function Shell({ children, step, total, caption, maxWidth = 560 }: {
   children: React.ReactNode; step?: number; total?: number; caption?: string; maxWidth?: number
 }) {
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(760)
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -110,17 +93,17 @@ function Shell({ children, step, total, caption, maxWidth = 560 }: {
 export default function Register() {
   const { register } = useAuth()
   const navigate = useNavigate()
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(760)
 
   const [step, setStep] = useState(0)
   const [type, setType] = useState<'perso' | 'entreprise' | null>(null)
-  const [form, setForm] = useState({ prenom: '', nom: '', email: '', pwd: '', org: '' })
+  const [form, setForm] = useState<RegisterForm>({ prenom: '', nom: '', email: '', pwd: '', org: '' })
   const [invites, setInvites] = useState<Invite[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+  const set = (k: keyof RegisterForm, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   // Stepper (dots numérotés, façon template) : on compte le choix du type, les
   // informations, [l'invitation équipe] puis l'écran « C'est prêt ! ».
@@ -150,8 +133,8 @@ export default function Register() {
         invites: type === 'entreprise' ? invites : [],
       })
       setStep(3)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Inscription impossible.')
     } finally {
       setBusy(false)
     }

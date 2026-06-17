@@ -1,11 +1,12 @@
 // Onglet « Humain » (relais / handoff) de BotPage — présentationnel.
 import { Btn, Card, Field, InfoBox, SectionTitle } from '../../ui'
+import type { Bot, BotUpdate } from '../../types/bot'
 
 export default function HumanTab({
   bot, patch, hasPerm, switchTab, aiTabRelevant,
 }: {
-  bot: any
-  patch: (fields: Record<string, any>) => void
+  bot: Bot
+  patch: (fields: BotUpdate) => void
   hasPerm: (perm: string | null) => boolean
   switchTab: (t: string) => void
   aiTabRelevant: boolean

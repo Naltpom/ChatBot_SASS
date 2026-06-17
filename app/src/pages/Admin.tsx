@@ -1,11 +1,13 @@
 // Vue ADMIN (opérateur du SaaS) — portée de pages-admin.jsx : KPIs, table de
 // tous les clients, drill-down avec cards de bots paramétrables.
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Bot as BotIcon, Building2, ChevronRight, MessageSquare } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Btn, Card, Chip, InfoBox, SectionTitle, Stat, orgColor, orgInitials } from '../ui'
-import { BotCard, BotSummary } from './BotList'
+import { BotCard } from './BotList'
+import { BotSummary } from '../types/bot'
+import { errMsg } from '../utils/errors'
 
 interface AdminOrg {
   id: number
@@ -34,9 +36,13 @@ export default function AdminHome() {
   const navigate = useNavigate()
   const [orgs, setOrgs] = useState<AdminOrg[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    api<AdminOrg[]>('/api/admin/organizations').then(setOrgs).finally(() => setLoading(false))
+    // .catch : sans lui, un échec afficherait « 0 client » mensonger.
+    api<AdminOrg[]>('/api/admin/organizations').then(setOrgs)
+      .catch((err: unknown) => setError(`Chargement des clients impossible : ${errMsg(err)}`))
+      .finally(() => setLoading(false))
   }, [])
 
   if (loading) return <div className="center-page">Chargement…</div>
@@ -47,6 +53,8 @@ export default function AdminHome() {
   return (
     <div className="col g18">
       <SectionTitle sub="Tous les clients Chapote — vue opérateur.">Clients</SectionTitle>
+
+      {error && <div className="error">{error}</div>}
 
       <div className="stat-row">
         <Stat label="Clients" value={orgs.length} icon={<Building2 size={15} />} sub="organisations" />
@@ -106,20 +114,31 @@ export function AdminClient() {
   const navigate = useNavigate()
   const [org, setOrg] = useState<AdminOrg | null>(null)
   const [bots, setBots] = useState<BotSummary[]>([])
+  const [error, setError] = useState('')
 
-  function reload() {
+  // useCallback : reload est référencé en dépendance de l'effet ci-dessous ;
+  // sans mémoïsation (recréé à chaque rendu) l'effet boucle. Mémoïsé sur orgId,
+  // il ne change qu'au changement de client (admin-split couvre).
+  const reload = useCallback(() => {
+    // .catch : sans lui, un échec laisserait la page bloquée sur « Chargement… »
+    // (org reste null) sans rien signaler.
     api<AdminOrg[]>('/api/admin/organizations').then(list => {
       setOrg(list.find(o => o.id === Number(orgId)) || null)
-    })
+    }).catch((err: unknown) => setError(`Chargement du client impossible : ${errMsg(err)}`))
     api<BotSummary[]>(`/api/admin/organizations/${orgId}/bots`).then(setBots)
-  }
-  useEffect(reload, [orgId])
+      .catch((err: unknown) => setError(`Chargement des bots impossible : ${errMsg(err)}`))
+  }, [orgId])
+  useEffect(() => { reload() }, [reload])
 
-  if (!org) return <div className="center-page">Chargement…</div>
+  if (!org) return <div className="center-page">{error || 'Chargement…'}</div>
 
   async function toggleActive() {
-    await api(`/api/admin/organizations/${org!.id}`, { method: 'PATCH', body: { is_active: !org!.is_active } })
-    reload()
+    try {
+      await api(`/api/admin/organizations/${org!.id}`, { method: 'PATCH', body: { is_active: !org!.is_active } })
+      reload()
+    } catch (err: unknown) {
+      setError(`Changement de statut impossible : ${errMsg(err)}`)
+    }
   }
 
   return (
@@ -157,6 +176,7 @@ export function AdminClient() {
 
       <div>
         <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 11 }}>Ses chatbots</div>
+        {error && <div className="error" style={{ marginBottom: 11 }}>{error}</div>}
         {bots.length === 0 && <Card style={{ color: 'var(--faint)' }}>Aucun bot.</Card>}
         <div className="bot-grid">
           {bots.map(b => (

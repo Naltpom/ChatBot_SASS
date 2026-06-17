@@ -9,12 +9,19 @@ send_email(...)) — la tache de fond ne touche jamais la db.
 import asyncio
 import logging
 import smtplib
-from datetime import datetime
 from email.message import EmailMessage
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.time import utcnow
+
+if TYPE_CHECKING:  # imports type-only (pas de cout/cycle a l'import runtime)
+    from src.models.bot import Bot
+    from src.models.conversation import Conversation
+    from src.models.lead import Lead
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +58,7 @@ async def send_email(to: list[str], subject: str, body: str) -> bool:
         return False
 
 
-async def lead_notification_recipients(db, bot) -> list[str]:
+async def lead_notification_recipients(db: AsyncSession, bot: "Bot") -> list[str]:
     """Destinataires des notifications (leads, handoff, tickets) du bot, max 5.
 
     - Bot d'EQUIPE (organization_id) : emails des admins de l'org.
@@ -77,7 +84,7 @@ async def lead_notification_recipients(db, bot) -> list[str]:
     return [row[0] for row in result.all()]
 
 
-def build_lead_email(bot, lead) -> tuple[str, str]:
+def build_lead_email(bot: "Bot", lead: "Lead") -> tuple[str, str]:
     """(sujet, corps texte brut FR) de la notification d'un nouveau lead."""
     lines = [
         f"Un visiteur a laissé ses coordonnées via le chatbot « {bot.name} ».",
@@ -95,8 +102,10 @@ def build_lead_email(bot, lead) -> tuple[str, str]:
     return (f"Nouveau contact via votre chatbot {bot.name}", "\n".join(lines))
 
 
-def build_ticket_email(bot, ref, subject, summary, email, name, phone,
-                       conversation_id) -> tuple[str, str]:
+def build_ticket_email(bot: "Bot", ref: str, subject: str, summary: str,
+                       email: Optional[str], name: Optional[str],
+                       phone: Optional[str],
+                       conversation_id: Optional[int]) -> tuple[str, str]:
     """(sujet, corps texte brut FR) d'un ticket ouvert par l'IA
     (action create_ticket). Destinataires : to_email de l'action ou
     lead_notification_recipients."""
@@ -115,14 +124,14 @@ def build_ticket_email(bot, ref, subject, summary, email, name, phone,
         lines.append(f"Téléphone : {phone}")
     if conversation_id:
         lines.append(f"Conversation : {conversation_id}")
-    lines.append(f"Date : {datetime.utcnow():%d/%m/%Y %H:%M} UTC")
+    lines.append(f"Date : {utcnow():%d/%m/%Y %H:%M} UTC")
     return (f"Nouveau ticket via votre chatbot {bot.name} — {subject}", "\n".join(lines))
 
 
-def build_handoff_email(bot, conversation) -> tuple[str, str]:
+def build_handoff_email(bot: "Bot", conversation: "Conversation") -> tuple[str, str]:
     """(sujet, corps texte brut FR) quand un visiteur demande un conseiller
     (live chat). Memes destinataires que les leads : lead_notification_recipients."""
-    when = conversation.human_requested_at or datetime.utcnow()
+    when = conversation.human_requested_at or utcnow()
     lines = [
         f"Un visiteur demande à parler à un conseiller via le chatbot « {bot.name} ».",
         "",

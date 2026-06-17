@@ -6,7 +6,7 @@ Deux types de tokens, distingues par le claim `scope` :
                       liee a un bot + un domaine + une conversation
 """
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,6 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
+
+if TYPE_CHECKING:
+    # Annotations seules : import differe (les modeles importent indirectement
+    # ce module au runtime — comme les imports paresseux des fonctions ci-dessous).
+    from src.models.bot import Bot
+    from src.models.user import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -102,13 +108,13 @@ def get_widget_session(
     return decode_token(credentials.credentials, expected_scope="widget")
 
 
-async def require_superadmin(user=Depends(get_current_user)):
+async def require_superadmin(user: "User" = Depends(get_current_user)):
     if not user.is_superadmin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé aux administrateurs")
     return user
 
 
-async def get_membership(org_id: int, user, db: AsyncSession):
+async def get_membership(org_id: int, user: "User", db: AsyncSession):
     from src.models.user import Membership
 
     result = await db.execute(
@@ -120,7 +126,7 @@ async def get_membership(org_id: int, user, db: AsyncSession):
     return result.scalar_one_or_none()
 
 
-async def require_org_access(org_id: int, user, db: AsyncSession):
+async def require_org_access(org_id: int, user: "User", db: AsyncSession):
     """Membre de l'organisation OU superadmin (le staff peut tout configurer).
     Retourne la Membership (None pour un superadmin non membre)."""
     if user.is_superadmin:
@@ -131,7 +137,7 @@ async def require_org_access(org_id: int, user, db: AsyncSession):
     return membership
 
 
-async def require_org_admin(org_id: int, user, db: AsyncSession):
+async def require_org_admin(org_id: int, user: "User", db: AsyncSession):
     """Admin de l'organisation OU superadmin. Pour la gestion d'equipe,
     le changement de nom d'org, la suppression de bots."""
     if user.is_superadmin:
@@ -144,7 +150,7 @@ async def require_org_admin(org_id: int, user, db: AsyncSession):
     return membership
 
 
-async def require_bot_access(bot, user, db: AsyncSession):
+async def require_bot_access(bot: "Bot", user: "User", db: AsyncSession):
     """Acces en LECTURE/usage a un bot, ownership polymorphe.
 
     Retourne la Membership pertinente (None = « tous droits » : owner perso ou
@@ -163,7 +169,7 @@ async def require_bot_access(bot, user, db: AsyncSession):
     return await require_org_access(bot.organization_id, user, db)
 
 
-async def require_bot_admin(bot, user, db: AsyncSession):
+async def require_bot_admin(bot: "Bot", user: "User", db: AsyncSession):
     """Acces ADMIN a un bot (suppression, deplacement), ownership polymorphe.
     - Bot d'EQUIPE : admin de l'org (ou superadmin).
     - Bot PERSO : l'owner (ou superadmin)."""

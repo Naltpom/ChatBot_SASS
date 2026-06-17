@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { Org, useAuth } from '../AuthContext'
 import { Btn, Card, Chip, Field, InfoBox, SectionTitle, orgColor, orgInitials } from '../ui'
+import { errMsg } from '../utils/errors'
 
 export default function MyOrgs() {
   const { user, activeOrg, setActiveOrg, refreshUser } = useAuth()
@@ -29,8 +30,8 @@ export default function MyOrgs() {
       await api(`/api/orgs/${o.id}`, { method: 'PATCH', body: { name } })
       setRenamingId(null)
       await refreshUser()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     }
   }
 
@@ -40,8 +41,8 @@ export default function MyOrgs() {
     try {
       await api(`/api/orgs/${o.id}/leave`, { method: 'POST' })
       await refreshUser() // si l'équipe quittée était active, pickActiveOrg rebascule
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     }
   }
 
@@ -55,8 +56,8 @@ export default function MyOrgs() {
       localStorage.setItem('cbsaas_org', String(res.id))
       await refreshUser() // pickActiveOrg lit la clé → la nouvelle équipe devient active
       navigate('/app/team')
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(errMsg(err))
     } finally {
       setCreating(false)
     }

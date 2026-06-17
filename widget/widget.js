@@ -15,20 +15,20 @@
 (function () {
   "use strict";
 
-  var script = document.currentScript;
+  let script = document.currentScript;
   if (!script) {
-    var scripts = document.querySelectorAll("script[data-bot-key]");
+    const scripts = document.querySelectorAll("script[data-bot-key]");
     script = scripts[scripts.length - 1];
   }
   if (!script) return;
-  var BOT_KEY = script.getAttribute("data-bot-key");
+  const BOT_KEY = script.getAttribute("data-bot-key");
   if (!BOT_KEY) return;
   // Anti double-initialisation : un seul widget par clé même si le script est inclus deux fois
   window.__chapoteChat = window.__chapoteChat || {};
   if (window.__chapoteChat[BOT_KEY]) return;
   window.__chapoteChat[BOT_KEY] = true;
-  var INLINE = script.getAttribute("data-inline") === "true";
-  var API = script.src.replace(/\/widget\.js.*$/, "");
+  const INLINE = script.getAttribute("data-inline") === "true";
+  const API = script.src.replace(/\/widget\.js.*$/, "");
 
   // Garde-fous anti-injection : le design_json vient du serveur mais le widget
   // se défend seul — seules des valeurs sûres entrent dans la feuille de style.
@@ -41,7 +41,7 @@
 
   function visitorId() {
     try {
-      var id = localStorage.getItem("kc_vid");
+      let id = localStorage.getItem("kc_vid");
       if (!id) {
         id = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
         localStorage.setItem("kc_vid", id);
@@ -69,12 +69,12 @@
   }
 
   function recordJourney() {
-    var path = currentPath();
+    const path = currentPath();
     if (!path) return;
     try {
-      var list = JSON.parse(sessionStorage.getItem("kc_journey") || "[]");
+      let list = JSON.parse(sessionStorage.getItem("kc_journey") || "[]");
       if (!Array.isArray(list)) list = [];
-      var last = list[list.length - 1];
+      const last = list[list.length - 1];
       if (last && last.p === path) return;
       list.push({ p: path, t: Math.floor(Date.now() / 1000) });
       if (list.length > 10) list = list.slice(-10);
@@ -84,7 +84,7 @@
 
   function getJourney() {
     try {
-      var list = JSON.parse(sessionStorage.getItem("kc_journey") || "null");
+      const list = JSON.parse(sessionStorage.getItem("kc_journey") || "null");
       return Array.isArray(list) && list.length ? list : null;
     } catch (e) {
       return null;
@@ -95,7 +95,7 @@
   // | human) — aiMode est un sous-état du mode ai. Le token vit en mémoire
   // seule : un reload de page = nouvelle conversation (limitation documentée,
   // couverte par le timeout 15 min serveur + la clôture staff).
-  var state = { config: null, token: null, open: false, busy: false, aiMode: false, unread: 1,
+  const state = { config: null, token: null, open: false, busy: false, aiMode: false,
     chatStatus: "ai", lastMsgId: 0, pollTimer: null,
     // Triggers proactifs : interacted = le visiteur a déjà touché au widget
     // (plus aucun tir possible) ; pendingTriggerMsg = bulle locale à afficher
@@ -109,7 +109,7 @@
   // --- HTTP ---
   function api(path, opts) {
     opts = opts || {};
-    var headers = { "Content-Type": "application/json" };
+    const headers = { "Content-Type": "application/json" };
     if (opts.auth && state.token) headers["Authorization"] = "Bearer " + state.token;
     return fetch(API + path, {
       method: opts.method || "GET",
@@ -117,7 +117,7 @@
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     }).then(function (r) {
       if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) {
-        var err = new Error(d.detail || "HTTP " + r.status);
+        const err = new Error(d.detail || "HTTP " + r.status);
         err.status = r.status;
         throw err;
       });
@@ -125,14 +125,35 @@
     });
   }
 
+  // Rotation du JWT widget : le serveur renvoie parfois un refresh_token
+  // (session glissante). On l'adopte et on le retire de la réponse pour ne pas
+  // le propager aux consommateurs. Factorisé (était dupliqué 5× : poll,
+  // handoff, feedback, lead, message).
+  function applyTokenRotation(resp) {
+    if (resp && resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
+    return resp;
+  }
+
+  // Retry-401 commun : sur un 401 non encore réessayé, on rejoue un handshake
+  // de session propre puis on relance la requête (flag retried -> une seule
+  // fois). Factorisé (était dupliqué 3× : handoff, lead, message). Le poll et
+  // le feedback n'utilisent PAS ce helper (cf. leurs commentaires : un
+  // re-handshake y créerait une nouvelle conversation).
+  function retryAfterSession(err, retried, replay) {
+    if (err.status === 401 && !retried) {
+      return openSession().then(function () { return replay(); });
+    }
+    throw err;
+  }
+
   // --- Captcha (au handshake uniquement, invisible) ---
   // Pas de SRI : Turnstile/reCAPTCHA sont des scripts mutables mis à jour par
   // Cloudflare/Google (leurs docs officielles chargent sans integrity).
-  var loadedScripts = {}; // src -> Promise, évite la double injection au re-handshake
+  const loadedScripts = {}; // src -> Promise, évite la double injection au re-handshake
   function loadScript(src) {
     if (loadedScripts[src]) return loadedScripts[src];
     loadedScripts[src] = new Promise(function (resolve, reject) {
-      var s = document.createElement("script");
+      const s = document.createElement("script");
       s.src = src; s.async = true;
       s.onload = resolve;
       s.onerror = function (e) { delete loadedScripts[src]; reject(e); };
@@ -142,13 +163,13 @@
   }
 
   function getCaptchaToken() {
-    var cfg = state.config.captcha || {};
+    const cfg = state.config.captcha || {};
     if (cfg.provider === "disabled" || !cfg.site_key) return Promise.resolve(null);
     if (cfg.provider === "turnstile") {
       return loadScript("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit")
         .then(function () {
           return new Promise(function (resolve) {
-            var holder = document.createElement("div");
+            const holder = document.createElement("div");
             holder.style.cssText = "position:fixed;bottom:-9999px;";
             document.body.appendChild(holder);
             window.turnstile.render(holder, {
@@ -194,7 +215,7 @@
   }
 
   // --- Icônes (SVG du design) ---
-  var SVG = {
+  const SVG = {
     chat: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3C7 3 3 6.6 3 11c0 2.2 1 4.2 2.7 5.6-.1 1-.5 2.1-1.4 3 1.7-.1 3.1-.7 4.1-1.4 1.1.4 2.3.7 3.6.7 5 0 9-3.6 9-7.9S17 3 12 3z"></path></svg>',
     spark: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"></path><circle cx="19" cy="5" r="1.6"></circle></svg>',
     help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9.2"></circle><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.9c-.8.35-1 .9-1 1.7"></path><circle cx="12" cy="16.8" r="1.15" fill="currentColor" stroke="none"></circle></svg>',
@@ -212,13 +233,13 @@
   // Les SVG sont des constantes statiques du script.
   function iconNode(d, size) {
     if (d.icon === "image" && d.avatarImage) {
-      var img = document.createElement("img");
+      const img = document.createElement("img");
       img.src = String(d.avatarImage);
       img.alt = "";
       img.style.cssText = "width:" + size + "px;height:" + size + "px;border-radius:35%;object-fit:cover;display:block";
       return img;
     }
-    var span = document.createElement("span");
+    const span = document.createElement("span");
     span.style.cssText = "width:" + size + "px;height:" + size + "px;display:block";
     span.innerHTML = SVG[d.icon] || SVG.chat;
     return span;
@@ -230,11 +251,11 @@
   }
 
   // --- UI ---
-  var ui = {};
-  var SIZES = { sm: 48, md: 58, lg: 68 };
+  const ui = {};
+  const SIZES = { sm: 48, md: 58, lg: 68 };
 
   // Polices SANS chargement externe (perf/RGPD) : stacks système uniquement.
-  var FONTS = {
+  const FONTS = {
     system: "'Public Sans',-apple-system,sans-serif",
     serif: "Georgia,'Times New Roman',serif",
     mono: "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
@@ -246,7 +267,7 @@
   // traduits : les badges (.kc-mode TREE/IA/LIVE, "1", "×"), le contenu
   // d'arbre, les messages serveur (accueil, dégradé, handoff, confirmation
   // lead côté API) et les messages de triggers restent tels quels.
-  var I18N = {
+  const I18N = {
     fr: {
       online_tree: "En ligne · Menu guidé",
       online_ai: "En ligne · Mode IA",
@@ -320,43 +341,43 @@
       rate_down: "Not helpful",
     },
   };
-  var LOCALE = "fr"; // résolu au bootstrap (avant build) depuis design.locale
+  let LOCALE = "fr"; // résolu au bootstrap (avant build) depuis design.locale
   function t(key) {
     return (I18N[LOCALE] && I18N[LOCALE][key]) || I18N.fr[key] || "";
   }
 
   function css(d) {
-    var brand = safeColor(d.primaryColor, "#0d9488");
-    var color2 = d.secondaryColor ? safeColor(d.secondaryColor, brand) : null;
-    var bg = color2 ? "linear-gradient(135deg," + brand + "," + color2 + ")" : brand;
-    var side = d.position === "left" ? "left" : "right";
-    var bubble = SIZES[d.size] || SIZES.md;
-    var R = safeInt(d.borderRadius, 0, 40, 16);
-    var r14 = Math.min(R, 14);
+    const brand = safeColor(d.primaryColor, "#0d9488");
+    const color2 = d.secondaryColor ? safeColor(d.secondaryColor, brand) : null;
+    const bg = color2 ? "linear-gradient(135deg," + brand + "," + color2 + ")" : brand;
+    const side = d.position === "left" ? "left" : "right";
+    const bubble = SIZES[d.size] || SIZES.md;
+    const R = safeInt(d.borderRadius, 0, 40, 16);
+    const r14 = Math.min(R, 14);
     // Personnalisation étendue — whitelists/bornes LOCALES (défense en
     // profondeur : le widget ne fait jamais confiance au serveur). Les
     // défauts reproduisent le rendu historique à l'identique.
-    var font = FONTS[d.font] || FONTS.system;
-    var ox = safeInt(d.offsetX, 0, 120, 18);
-    var oy = safeInt(d.offsetY, 0, 120, 18);
-    var dark = d.darkMode === true;
-    var soft = d.headerStyle === "soft";
-    var square = d.bubbleStyle === "square";
-    var compact = d.density === "compact";
+    const font = FONTS[d.font] || FONTS.system;
+    const ox = safeInt(d.offsetX, 0, 120, 18);
+    const oy = safeInt(d.offsetY, 0, 120, 18);
+    const dark = d.darkMode === true;
+    const soft = d.headerStyle === "soft";
+    const square = d.bubbleStyle === "square";
+    const compact = d.density === "compact";
     // Surfaces du panneau : palette sombre si darkMode, littéraux actuels sinon.
     // Bulle user et options : brand inchangé (contraste OK sur les deux fonds).
-    var panelBg = dark ? "#101816" : "#fff";
-    var msgsBg = dark ? "#0c1311" : "#fafbfb";
-    var botBg = dark ? "#1b2624" : "#fff";
-    var botBorder = dark ? "#233330" : "#e6eae8";
-    var botText = dark ? "#e8efed" : "#1d2b27";
-    var lineBorder = dark ? "#233330" : "#e9edec";
-    var inputBg = dark ? "#18221f" : "#fff";
-    var inputBorder = dark ? "#233330" : "#dde3e1";
-    var mutedText = dark ? "#9fb0ab" : "#5f7873";
+    const panelBg = dark ? "#101816" : "#fff";
+    const msgsBg = dark ? "#0c1311" : "#fafbfb";
+    const botBg = dark ? "#1b2624" : "#fff";
+    const botBorder = dark ? "#233330" : "#e6eae8";
+    const botText = dark ? "#e8efed" : "#1d2b27";
+    const lineBorder = dark ? "#233330" : "#e9edec";
+    const inputBg = dark ? "#18221f" : "#fff";
+    const inputBorder = dark ? "#233330" : "#dde3e1";
+    const mutedText = dark ? "#9fb0ab" : "#5f7873";
     // En-tête : solid = couleur de marque (actuel) ; soft = clair (surface)
-    var headText = soft ? (dark ? "#e8efed" : "#1d2b27") : "#fff";
-    var panelPos = INLINE
+    const headText = soft ? (dark ? "#e8efed" : "#1d2b27") : "#fff";
+    const panelPos = INLINE
       ? "position:fixed;inset:0;width:100%;height:100%;max-height:none;border-radius:0;"
       : "position:fixed;bottom:" + (bubble + oy + 12) + "px;" + side + ":" + ox + "px;width:338px;max-width:calc(100vw - 36px);height:" + (compact ? 420 : 460) + "px;max-height:70vh;border-radius:" + R + "px;";
     return [
@@ -443,28 +464,28 @@
   }
 
   function el(tag, cls, text) {
-    var e = document.createElement(tag);
+    const e = document.createElement(tag);
     if (cls) e.className = cls;
     if (text != null) e.textContent = text;
     return e;
   }
 
   function build(d) {
-    var style = document.createElement("style");
+    const style = document.createElement("style");
     style.textContent = css(d);
     document.head.appendChild(style);
 
-    var root = el("div", "kc-root");
+    const root = el("div", "kc-root");
     document.body.appendChild(root);
     ui.root = root;
 
     // Panneau
     ui.panel = el("div", "kc-panel");
-    var head = el("div", "kc-head");
-    var hIco = el("div", "kc-head-ico");
+    const head = el("div", "kc-head");
+    const hIco = el("div", "kc-head-ico");
     setIcon(hIco, d, d.icon === "image" && d.avatarImage ? 34 : 19);
     head.appendChild(hIco);
-    var hMid = el("div");
+    const hMid = el("div");
     hMid.style.cssText = "flex:1;min-width:0";
     hMid.appendChild(el("div", "kc-head-name", d.title || "Assistant"));
     ui.headSub = el("div", "kc-head-sub");
@@ -476,7 +497,7 @@
     ui.modeBadge = el("span", "kc-mode", "TREE");
     head.appendChild(ui.modeBadge);
     if (!INLINE) {
-      var x = el("button", "kc-x", "×");
+      const x = el("button", "kc-x", "×");
       x.setAttribute("aria-label", t("close"));
       x.addEventListener("click", toggle);
       head.appendChild(x);
@@ -486,7 +507,7 @@
     ui.msgs = el("div", "kc-msgs");
     ui.panel.appendChild(ui.msgs);
 
-    var inputRow = el("div", "kc-inputrow");
+    const inputRow = el("div", "kc-inputrow");
     ui.input = document.createElement("input");
     ui.input.className = "kc-input";
     ui.input.maxLength = 4000;
@@ -504,7 +525,7 @@
     ui.inputRow = inputRow;
 
     if (d.poweredBy !== false) {
-      var powered = el("div", "kc-powered");
+      const powered = el("div", "kc-powered");
       powered.innerHTML = t("powered_by") + " <b>Chapote</b>";
       ui.panel.appendChild(powered);
     }
@@ -518,7 +539,7 @@
       setIcon(ui.bubbleIcon, d, d.icon === "image" && d.avatarImage ? Math.round((SIZES[d.size] || 58) * .58) : Math.round((SIZES[d.size] || 58) * .44));
       ui.bubble.appendChild(ui.bubbleIcon);
       // launcherText : bulle -> pilule [icône + libellé] (textContent, anti-XSS)
-      var lt = (typeof d.launcherText === "string" ? d.launcherText : "").slice(0, 40);
+      const lt = (typeof d.launcherText === "string" ? d.launcherText : "").slice(0, 40);
       if (lt.trim()) {
         ui.bubble.classList.add("kc-bubble-pill");
         ui.bubbleLabel = el("span", "kc-bubble-label", lt);
@@ -538,14 +559,14 @@
   }
 
   function updateModeUI() {
-    var human = isHuman();
-    var ai = state.aiMode;
+    const human = isHuman();
+    const ai = state.aiMode;
     ui.headSubText.textContent = human
       ? (state.chatStatus === "human" ? t("advisor_online") : t("advisor_wait"))
       : (ai ? t("online_ai") : t("online_tree"));
     ui.modeBadge.textContent = human ? "LIVE" : (ai ? "IA" : "TREE");
     // Mode humain : saisie toujours active, même sur un bot tree
-    var canType = human || (ai && state.config.mode !== "tree");
+    const canType = human || (ai && state.config.mode !== "tree");
     ui.input.disabled = !canType;
     ui.input.placeholder = human
       ? t("placeholder_advisor")
@@ -566,14 +587,14 @@
   // ajouté, SVG + title localisé uniquement). Jamais de msgId pour les
   // messages human/system (poll), locaux, d'erreur ou de trigger.
   function addMsg(role, text, tag, msgId) {
-    var row = el("div", "kc-row " + role);
-    var m = el("div", "kc-msg");
+    const row = el("div", "kc-row " + role);
+    const m = el("div", "kc-msg");
     if (tag === "ai") {
-      var tg = el("div", "kc-ai-tag");
+      const tg = el("div", "kc-ai-tag");
       tg.innerHTML = SVG.sparkSmall + t("tag_ai"); // constantes statiques
       m.appendChild(tg);
     } else if (tag === "human") {
-      var th = el("div", "kc-human-tag");
+      const th = el("div", "kc-human-tag");
       th.innerHTML = SVG.userSmall + t("tag_advisor"); // constantes statiques
       m.appendChild(th);
     }
@@ -586,23 +607,23 @@
 
   // --- CSAT (pouce haut/bas sous les réponses assistant ai|tree) ---
   function rateRow(msgId) {
-    var rate = el("div", "kc-rate");
-    var current = null; // "up" | "down" (état local, le serveur écrase)
-    var pending = false; // garde anti double-envoi pendant le POST
-    var up, down;
+    const rate = el("div", "kc-rate");
+    let current = null; // "up" | "down" (état local, le serveur écrase)
+    let pending = false; // garde anti double-envoi pendant le POST
+    let up, down;
     function paint() {
       up.classList.toggle("kc-on", current === "up");
       down.classList.toggle("kc-on", current === "down");
     }
     function mkBtn(kind) {
-      var b = el("button");
+      const b = el("button");
       b.type = "button";
       b.innerHTML = SVG[kind === "up" ? "thumbUp" : "thumbDown"]; // constantes statiques
       b.title = kind === "up" ? t("rate_up") : t("rate_down");
       b.setAttribute("aria-label", b.title);
       b.addEventListener("click", function () {
         if (pending) return;
-        var prev = current;
+        const prev = current;
         if (prev === kind) return; // déjà noté pareil : rien à renvoyer
         pending = true;
         current = kind;
@@ -621,22 +642,22 @@
   }
 
   function clearOptions() {
-    var olds = ui.msgs.querySelectorAll(".kc-opts,.kc-back,.kc-lead");
-    for (var i = 0; i < olds.length; i++) olds[i].remove();
+    const olds = ui.msgs.querySelectorAll(".kc-opts,.kc-back,.kc-lead");
+    for (let i = 0; i < olds.length; i++) olds[i].remove();
   }
 
   function addOptions(options, apptUrl) {
     clearOptions();
     if ((options && options.length) || apptUrl) {
-      var wrap = el("div", "kc-opts");
+      const wrap = el("div", "kc-opts");
       if (apptUrl) {
         // Bouton rendez-vous : ouvre l'overlay calendrier (URL https validée)
-        var rdv = el("button", "kc-opt", t("appointment"));
+        const rdv = el("button", "kc-opt", t("appointment"));
         rdv.addEventListener("click", function () { openAppointmentOverlay(apptUrl); });
         wrap.appendChild(rdv);
       }
       (options || []).forEach(function (o) {
-        var b = el("button", "kc-opt", o.label);
+        const b = el("button", "kc-opt", o.label);
         b.addEventListener("click", function () { sendNode(o.next, o.label); });
         wrap.appendChild(b);
       });
@@ -644,7 +665,7 @@
     }
     // Lien retour au menu en mode IA (hybride uniquement, jamais en mode humain)
     if (state.aiMode && state.config.mode === "hybrid" && !isHuman()) {
-      var back = el("button", "kc-back", t("back_to_menu"));
+      const back = el("button", "kc-back", t("back_to_menu"));
       back.addEventListener("click", backToTree);
       ui.msgs.appendChild(back);
     }
@@ -652,12 +673,12 @@
   }
 
   function setTyping(on) {
-    var t = ui.msgs.querySelector(".kc-typing");
+    const t = ui.msgs.querySelector(".kc-typing");
     if (on && !t) {
-      var anim = (state.config.design || {}).loadingAnimation || "dots";
+      let anim = (state.config.design || {}).loadingAnimation || "dots";
       if (anim !== "wave" && anim !== "pulse") anim = "dots"; // whitelist (valeur libre -> className)
-      var wrap = el("div", "kc-typing" + (anim !== "dots" ? " " + anim : ""));
-      var inner = el("div");
+      const wrap = el("div", "kc-typing" + (anim !== "dots" ? " " + anim : ""));
+      const inner = el("div");
       inner.appendChild(el("span", "kc-td"));
       inner.appendChild(el("span", "kc-td"));
       inner.appendChild(el("span", "kc-td"));
@@ -695,7 +716,7 @@
     api("/api/widget/poll?after=" + state.lastMsgId, { auth: true })
       .then(function (resp) {
         // Session glissante : critique pendant l'attente passive
-        if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
+        applyTokenRotation(resp);
         (resp.messages || []).forEach(function (m) {
           // Messages système (clôture, excuse timeout) : bulle bot sans tag
           addMsg("bot", m.content, m.source === "human" ? "human" : null);
@@ -722,9 +743,9 @@
   // Le statut serveur est AUTORITAIRE : appelé sur chaque réponse qui le porte
   // (session/message/handoff/poll).
   function applyStatus(resp) {
-    var s = resp && resp.status;
+    const s = resp && resp.status;
     if (!s) return;
-    var wasHuman = isHuman();
+    const wasHuman = isHuman();
     if (s === "human" || s === "human_requested") {
       state.chatStatus = s;
       maybeStartPolling();
@@ -748,7 +769,7 @@
   function requestHandoff(retried) {
     return api("/api/widget/handoff", { method: "POST", auth: true })
       .then(function (resp) {
-        if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
+        applyTokenRotation(resp);
         clearOptions();
         if (resp.message) addMsg("bot", resp.message);
         // Curseur de polling : jamais de retour en arrière (cas idempotent
@@ -769,7 +790,7 @@
   function renderResponse(resp) {
     // CSAT : uniquement les réponses assistant ai|tree porteuses d'un id
     // serveur (jamais human/system, jamais les bulles locales/erreurs)
-    var msgId = (resp.source === "ai" || resp.source === "tree") && resp.message_id
+    const msgId = (resp.source === "ai" || resp.source === "tree") && resp.message_id
       ? resp.message_id : null;
     // message null = accusé du mode humain (la réponse arrive par /poll)
     if (resp.message != null) addMsg("bot", resp.message, resp.source === "ai" ? "ai" : null, msgId);
@@ -795,7 +816,7 @@
   // https://cal.com https://*.cal.com ; le mode /widget-frame n'est pas affecté.
   function embeddableCalendarHost(url) {
     try {
-      var h = new URL(url).hostname;
+      const h = new URL(url).hostname;
       return h === "calendly.com" || h.endsWith(".calendly.com")
         || h === "cal.com" || h.endsWith(".cal.com");
     } catch (e) { return false; }
@@ -803,24 +824,24 @@
 
   function openAppointmentOverlay(url) {
     if (!/^https:\/\//.test(url)) return;
-    var old = ui.panel.querySelector(".kc-overlay");
+    const old = ui.panel.querySelector(".kc-overlay");
     if (old) old.remove();
-    var overlay = el("div", "kc-overlay");
-    var head = el("div", "kc-overlay-head");
+    const overlay = el("div", "kc-overlay");
+    const head = el("div", "kc-overlay-head");
     head.appendChild(el("span", null, t("appointment")));
-    var x = el("button", "kc-overlay-x");
+    const x = el("button", "kc-overlay-x");
     x.innerHTML = SVG.close; // constante statique
     x.setAttribute("aria-label", t("close"));
     x.addEventListener("click", function () { overlay.remove(); });
     head.appendChild(x);
     overlay.appendChild(head);
     if (embeddableCalendarHost(url)) {
-      var frame = document.createElement("iframe");
+      const frame = document.createElement("iframe");
       frame.src = url; // posé en PROPRIÉTÉ après validation, jamais en HTML
       frame.title = t("appointment_title");
       overlay.appendChild(frame);
     }
-    var link = document.createElement("a");
+    const link = document.createElement("a");
     link.href = url; // propriété
     link.target = "_blank";
     link.rel = "noopener";
@@ -831,8 +852,10 @@
   }
 
   // --- Formulaire de contact (noeud "lead") ---
-  var LEAD_LABELS = { email: "Email", name: "Nom", phone: "Téléphone", message: "Message" };
-  var LEAD_MAXLEN = { email: 254, name: 120, phone: 40, message: 2000 }; // alignés serveur
+  // Seules les CLÉS servent (whitelist des champs autorisés) : les libellés
+  // affichés viennent de t("lead_"+f). On garde donc un simple jeu de clés.
+  const LEAD_FIELDS = { email: true, name: true, phone: true, message: true };
+  const LEAD_MAXLEN = { email: 254, name: 120, phone: 40, message: 2000 }; // alignés serveur
 
   // CSAT : POST du pouce. SANS retry-401 (contrat « jamais de re-handshake »
   // hors envoi de message : un re-handshake créerait une NOUVELLE conversation
@@ -842,36 +865,27 @@
     return api("/api/widget/feedback", {
       method: "POST", auth: true,
       body: { message_id: messageId, rating: rating },
-    }).then(function (resp) {
-      if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
-      return resp;
-    });
+    }).then(applyTokenRotation);
   }
 
   // Miroir de postMessage : même retry-401 + refresh_token
   function postLead(body, retried) {
     return api("/api/widget/lead", { method: "POST", auth: true, body: body })
-      .then(function (resp) {
-        if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
-        return resp;
-      })
+      .then(applyTokenRotation)
       .catch(function (err) {
-        if (err.status === 401 && !retried) {
-          return openSession().then(function () { return postLead(body, true); });
-        }
-        throw err;
+        return retryAfterSession(err, retried, function () { return postLead(body, true); });
       });
   }
 
   function addLeadForm(fields, options) {
     clearOptions();
-    fields = (fields || ["email", "message"]).filter(function (f) { return LEAD_LABELS[f]; });
+    fields = (fields || ["email", "message"]).filter(function (f) { return LEAD_FIELDS[f]; });
     if (fields.indexOf("email") === -1) fields.unshift("email");
-    var form = el("div", "kc-lead");
-    var inputs = {};
+    const form = el("div", "kc-lead");
+    const inputs = {};
     fields.forEach(function (f) {
       form.appendChild(el("label", "kc-lead-label", t("lead_" + f)));
-      var input;
+      let input;
       if (f === "message") {
         input = document.createElement("textarea");
         input.rows = 3;
@@ -885,20 +899,20 @@
       inputs[f] = input;
       form.appendChild(input);
     });
-    var err = el("div", "kc-lead-err");
+    const err = el("div", "kc-lead-err");
     err.style.display = "none";
     form.appendChild(err);
-    var submit = el("button", "kc-lead-send", t("send"));
+    const submit = el("button", "kc-lead-send", t("send"));
     submit.addEventListener("click", function () {
       if (state.busy) return;
-      var email = (inputs.email.value || "").trim();
+      const email = (inputs.email.value || "").trim();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
         err.textContent = t("lead_invalid_email");
         err.style.display = "block";
         return;
       }
       err.style.display = "none";
-      var body = { email: email };
+      const body = { email: email };
       ["name", "phone", "message"].forEach(function (f) {
         if (inputs[f] && inputs[f].value.trim()) body[f] = inputs[f].value.trim();
       });
@@ -927,18 +941,12 @@
   // --- Envoi ---
   function postMessage(body, retried) {
     return api("/api/widget/message", { method: "POST", auth: true, body: body })
-      .then(function (resp) {
-        // Sliding session : le serveur renouvelle le JWT quand l'expiration approche
-        if (resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
-        return resp;
-      })
+      // Sliding session : le serveur renouvelle le JWT quand l'expiration approche
+      .then(applyTokenRotation)
       .catch(function (err) {
-        if (err.status === 401 && !retried) {
-          // Re-handshake silencieux : on ignore le message d'accueil (first)
-          // pour ne pas l'empiler sur la conversation, et on rejoue la requête.
-          return openSession().then(function () { return postMessage(body, true); });
-        }
-        throw err;
+        // Re-handshake silencieux : on ignore le message d'accueil (first)
+        // pour ne pas l'empiler sur la conversation, et on rejoue la requête.
+        return retryAfterSession(err, retried, function () { return postMessage(body, true); });
       });
   }
 
@@ -974,7 +982,7 @@
   function sendNodeSilent(node) {
     postMessage({ node: node, page_url: pageUrl() })
       .then(function (resp) { addOptions(resp.options); })
-      .catch(function () { });
+      .catch(function () { /* best-effort: analytics de nœud, échec ignoré */ });
   }
 
   function backToTree() {
@@ -991,7 +999,7 @@
   }
 
   function sendText() {
-    var text = ui.input.value.trim();
+    const text = ui.input.value.trim();
     if (!text || state.busy || ui.input.disabled) return;
     state.busy = true;
     addMsg("user", text);
@@ -1044,7 +1052,7 @@
     ui.panel.classList.toggle("open", state.open);
     if (ui.bubble) {
       ui.bubble.classList.toggle("open", state.open);
-      var dsg = state.config.design;
+      const dsg = state.config.design;
       if (state.open) {
         ui.bubbleIcon.innerHTML = SVG.close; // constante statique
         // Pilule (launcherText) : ouvert -> croix seule, redevient un rond
@@ -1081,25 +1089,25 @@
   // visiteur a déjà interagi. Dédup once_per_session via sessionStorage
   // kc_triggers (même try/catch que kc_journey). Jamais initialisés en mode
   // INLINE (panneau déjà ouvert, scroll/souris de la page parente invisibles).
-  var triggerCleanups = [];
+  let triggerCleanups = [];
 
   function firedTriggers() {
     try {
-      var list = JSON.parse(sessionStorage.getItem("kc_triggers") || "[]");
+      const list = JSON.parse(sessionStorage.getItem("kc_triggers") || "[]");
       return Array.isArray(list) ? list : [];
     } catch (e) { return []; }
   }
 
   function markTriggerFired(id) {
     try {
-      var list = firedTriggers();
+      const list = firedTriggers();
       if (list.indexOf(id) === -1) list.push(id);
       sessionStorage.setItem("kc_triggers", JSON.stringify(list));
     } catch (e) { /* sessionStorage indisponible (navigation privée…) */ }
   }
 
   function cancelTriggers() {
-    for (var i = 0; i < triggerCleanups.length; i++) {
+    for (let i = 0; i < triggerCleanups.length; i++) {
       try { triggerCleanups[i](); } catch (e) { /* déjà nettoyé */ }
     }
     triggerCleanups = [];
@@ -1118,8 +1126,8 @@
     // Sans wildcard : match par sous-chaîne ; avec '*' : wildcard simple
     if (pattern.indexOf("*") === -1) return path.indexOf(pattern) !== -1;
     try {
-      var parts = pattern.split("*");
-      for (var i = 0; i < parts.length; i++) {
+      const parts = pattern.split("*");
+      for (let i = 0; i < parts.length; i++) {
         parts[i] = parts[i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       }
       return new RegExp("^" + parts.join(".*") + "$").test(path);
@@ -1128,17 +1136,17 @@
 
   function initTriggers(triggers) {
     if (!triggers || !triggers.length) return;
-    var fired = firedTriggers();
+    const fired = firedTriggers();
     triggers.forEach(function (trg) {
-      var id = String(trg.type) + ":" + String(trg.value == null ? "" : trg.value);
+      const id = String(trg.type) + ":" + String(trg.value == null ? "" : trg.value);
       if (trg.once_per_session !== false && fired.indexOf(id) !== -1) return;
       if (trg.type === "time_on_page") {
-        var timer = setTimeout(function () { fireTrigger(trg, id); },
+        const timer = setTimeout(function () { fireTrigger(trg, id); },
           Math.max(1, trg.value | 0) * 1000);
         triggerCleanups.push(function () { clearTimeout(timer); });
       } else if (trg.type === "scroll_depth") {
-        var onScroll = function () {
-          var h = document.documentElement.scrollHeight || 1;
+        const onScroll = function () {
+          const h = document.documentElement.scrollHeight || 1;
           if ((window.scrollY + window.innerHeight) / h * 100 >= trg.value) fireTrigger(trg, id);
         };
         window.addEventListener("scroll", onScroll, { passive: true });
@@ -1146,7 +1154,7 @@
       } else if (trg.type === "exit_intent") {
         // Pas de mouseleave fiable sur mobile (pointeur grossier) : désactivé
         if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) return;
-        var onLeave = function (e) { if (e.clientY <= 0) fireTrigger(trg, id); };
+        const onLeave = function (e) { if (e.clientY <= 0) fireTrigger(trg, id); };
         document.addEventListener("mouseleave", onLeave);
         triggerCleanups.push(function () { document.removeEventListener("mouseleave", onLeave); });
       } else if (trg.type === "url_pattern") {
@@ -1166,7 +1174,7 @@
       config.design = config.design || {};
       // Locale de l'UI : résolue AVANT build ('auto' = langue du navigateur,
       // anglais sinon français ; toute autre valeur retombe sur fr)
-      var loc = config.design.locale;
+      let loc = config.design.locale;
       if (loc === "auto") {
         loc = (navigator.language || "fr").toLowerCase().indexOf("en") === 0 ? "en" : "fr";
       }

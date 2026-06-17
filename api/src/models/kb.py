@@ -7,14 +7,14 @@ GENEREE tsvector) sont mal compris d'Alembic -> toute future revision
 avant sauvegarde (le --reload applique immediatement toute revision ecrite).
 """
 from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Column, Computed, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.types import UserDefinedType
 
 from src.core.database import Base
+from src.core.time import utcnow
 
 
 class Vector(UserDefinedType):
@@ -41,7 +41,7 @@ class KbSource(Base):
     error = Column(Text, nullable=True)
     chunk_count = Column(Integer, default=0, server_default="0", nullable=False)
     page_count = Column(Integer, default=0, server_default="0", nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 class KbChunk(Base):
@@ -57,7 +57,7 @@ class KbChunk(Base):
     # Config french_unaccent (unaccent + french_stem, creee par la migration) :
     # le FTS matche sans tenir compte des accents (saisie chat)
     tsv = Column(TSVECTOR, Computed("to_tsvector('french_unaccent', content)", persisted=True), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 # --- Schemas Pydantic ---
@@ -68,21 +68,20 @@ class KbSourceOut(BaseModel):
     type: str
     ref: str
     status: str
-    error: Optional[str] = None
+    error: str | None = None
     chunk_count: int
     page_count: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class KbSourceCreate(BaseModel):
     # pdf passe par l'endpoint multipart dedie, pas par ce schema
     type: str = Field(pattern="^(url|sitemap|text)$")
-    ref: Optional[str] = Field(None, max_length=500)          # url | sitemap
-    content: Optional[str] = Field(None, max_length=200_000)  # text
-    title: Optional[str] = Field(None, max_length=120)        # text (libelle)
+    ref: str | None = Field(None, max_length=500)          # url | sitemap
+    content: str | None = Field(None, max_length=200_000)  # text
+    title: str | None = Field(None, max_length=120)        # text (libelle)
 
 
 class KbSearchRequest(BaseModel):

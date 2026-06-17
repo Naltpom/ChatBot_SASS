@@ -1,9 +1,9 @@
 // Dashboard opérateur — agrégats GET /api/admin/stats : clients
 // actifs/suspendus, utilisateurs, bots, messages 7 jours, inscriptions 6 mois.
-import { useEffect, useState } from 'react'
 import { Bot, Building2, MessageSquare, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api'
+import { useApiResource } from '../hooks/useApiResource'
+import { ErrorRetry } from '../components/ErrorRetry'
 import { Bars, Btn, Card, SectionTitle, Stat } from '../ui'
 
 interface AdminStats {
@@ -23,25 +23,17 @@ function monthLabel(ym: string) {
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
-  const [stats, setStats] = useState<AdminStats | null>(null)
-  const [error, setError] = useState('')
-  const [retry, setRetry] = useState(0)
-
-  useEffect(() => {
-    setError('')
-    api<AdminStats>('/api/admin/stats').then(setStats).catch((err: any) => setError(err.message))
-  }, [retry])
+  const { data: stats, loading, error, reload } = useApiResource<AdminStats>('/api/admin/stats')
 
   if (error) {
     return (
       <div className="col g18">
         <SectionTitle sub="Vue d'ensemble de la plateforme.">Dashboard</SectionTitle>
-        <div className="error">{error}</div>
-        <div><Btn kind="soft" onClick={() => setRetry(n => n + 1)}>Réessayer</Btn></div>
+        <ErrorRetry message={error} onRetry={reload} title="Impossible de charger le dashboard" />
       </div>
     )
   }
-  if (!stats) return <div className="center-page">Chargement…</div>
+  if (loading || !stats) return <div className="center-page">Chargement…</div>
 
   return (
     <div className="col g18">

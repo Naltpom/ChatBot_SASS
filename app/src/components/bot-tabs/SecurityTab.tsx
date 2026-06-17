@@ -3,14 +3,15 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { Btn, Card, Chip, InfoBox, SectionTitle, Toggle } from '../../ui'
 import { CAPTCHA_OPTIONS } from '../../botConstants'
+import type { Bot, BotUpdate, CaptchaProvider } from '../../types/bot'
 
 export default function SecurityTab({
   bot, patch, newDomain, setNewDomain, addDomain, captchaSecret, setCaptchaSecret,
   canMoveToTeam, myTeams, moveTarget, setMoveTarget, moveBusy, moveToTeam,
   isOrgAdmin, deleteBot,
 }: {
-  bot: any
-  patch: (fields: Record<string, any>) => void
+  bot: Bot
+  patch: (fields: BotUpdate) => void
   newDomain: string
   setNewDomain: (v: string) => void
   addDomain: () => void
@@ -130,11 +131,26 @@ export default function SecurityTab({
             Vérifié une seule fois à l'ouverture de session — invisible pour le visiteur, jamais à chaque
             message.
           </div>
-          <div className="col g10">
+          {/* role=radiogroup + radios accessibles au clavier (Enter/Space). On
+              garde des <div> (et non des <button>) car l'option sélectionnée
+              imbrique des inputs : un bouton contenant des champs serait du HTML
+              invalide. Libellé/texte cliquable strictement inchangés. */}
+          <div className="col g10" role="radiogroup" aria-label="Vérification anti-bot (captcha)">
             {CAPTCHA_OPTIONS.map(o => {
               const selected = bot.captcha_provider === o.value
+              const pick = () => patch({ captcha_provider: o.value as CaptchaProvider })
               return (
-                <div key={o.value} onClick={() => patch({ captcha_provider: o.value })}
+                <div key={o.value} role="radio" aria-checked={selected} tabIndex={0}
+                     aria-label={o.name}
+                     onClick={pick}
+                     onKeyDown={e => {
+                       // Enter/Space n'activent l'option QUE si la carte elle-même a le
+                       // focus — un appui dans un input imbriqué (site/secret key)
+                       // bubble jusqu'ici, on ne l'intercepte pas (la saisie d'espace
+                       // dans les clés doit passer).
+                       if (e.target !== e.currentTarget) return
+                       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick() }
+                     }}
                      style={{
                        borderRadius: 11, cursor: 'pointer', padding: '11px 13px',
                        border: `1.5px solid ${selected ? 'var(--acc)' : 'var(--border)'}`,

@@ -14,10 +14,11 @@ InsightsReport : sortie de l'analyse IA « questions sans reponse »
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String
 
 from src.core.database import Base
+from src.core.time import utcnow
 
 
 class TreeEvent(Base):
@@ -31,7 +32,7 @@ class TreeEvent(Base):
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
     node_key = Column(String(80), nullable=False)
     variant = Column(String, nullable=True)   # 'a' | 'b' | NULL (pas d'A/B)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False, index=True)
 
 
 class InsightsReport(Base):
@@ -41,7 +42,7 @@ class InsightsReport(Base):
     bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"), nullable=False, index=True)
     report_json = Column(JSON, nullable=False)
     message_count = Column(Integer, default=0, server_default="0", nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 # --- Schemas Pydantic ---
@@ -53,5 +54,4 @@ class InsightsReportOut(BaseModel):
     created_at: datetime
     report_json: dict[str, Any]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

@@ -9,8 +9,6 @@ Anonymat du staff : la reponse est un Message(role='assistant', source='human')
 SANS auteur — le widget affiche le label constant « Conseiller », jamais le
 nom/email du conseiller.
 """
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi import status as http_status
 from pydantic import BaseModel
@@ -19,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
+from src.core.time import utcnow
 from src.core.security import get_current_user
 from src.models.bot import Bot
 from src.models.conversation import (
@@ -49,6 +48,34 @@ async def _get_inbox_conversation(db: AsyncSession, bot: Bot, user: User,
     if conversation is None or conversation.bot_id != bot.id:
         raise HTTPException(http_status.HTTP_404_NOT_FOUND, "Conversation introuvable")
     return conversation
+
+
+async def _guarded_transition(db: AsyncSession, conversation: Conversation,
+                              from_statuses: tuple[str, ...], **values) -> bool:
+    """Transition de statut GARDEE en SQL (anti-écrasement concurrent).
+
+    UPDATE conditionnel sur (id, status IN from_statuses) avec `values`. Si une
+    autre requête (timeout paresseux /poll, autre conseiller) a déjà fait bouger
+    le statut, le WHERE ne matche pas : rowcount != 1.
+
+    Retour :
+      - True  : la transition a eu lieu (rowcount == 1). PAS de commit ici —
+        l'appelant commit après ses propres écritures (message, etc.).
+      - False : transition ratée. On a déjà fait `rollback` + `refresh` pour
+        que l'appelant ré-inspecte `conversation.status` (re-check idempotent)
+        et décide (retour idempotent vs HTTPException).
+    """
+    result = await db.execute(
+        update(Conversation)
+        .where(Conversation.id == conversation.id,
+               Conversation.status.in_(from_statuses))
+        .values(**values)
+    )
+    if result.rowcount != 1:
+        await db.rollback()
+        await db.refresh(conversation)
+        return False
+    return True
 
 
 @router.get("/bots/{bot_id}/conversations")
@@ -178,15 +205,8 @@ async def take_conversation(
     if conversation.status != "human_requested":
         raise HTTPException(http_status.HTTP_409_CONFLICT,
                             "Cette conversation n'est pas en attente d'un conseiller")
-    result = await db.execute(
-        update(Conversation)
-        .where(Conversation.id == conversation.id,
-               Conversation.status == "human_requested")
-        .values(status="human", human_taken_at=datetime.utcnow())
-    )
-    if result.rowcount != 1:
-        await db.rollback()
-        await db.refresh(conversation)
+    if not await _guarded_transition(db, conversation, ("human_requested",),
+                                     status="human", human_taken_at=utcnow()):
         if conversation.status == "human":
             return {"ok": True, "status": "human"}  # pris par un collegue
         raise HTTPException(http_status.HTTP_409_CONFLICT,
@@ -221,21 +241,14 @@ async def reply_conversation(
     if conversation.status == "human_requested":
         # Take implicite GARDE : si un timeout paresseux concurrent a repasse
         # la conversation en ai, la reponse part en 409 (pas de message fantome)
-        result = await db.execute(
-            update(Conversation)
-            .where(Conversation.id == conversation.id,
-                   Conversation.status == "human_requested")
-            .values(status="human", human_taken_at=datetime.utcnow())
-        )
-        if result.rowcount != 1:
-            await db.rollback()
-            await db.refresh(conversation)
+        if not await _guarded_transition(db, conversation, ("human_requested",),
+                                         status="human", human_taken_at=utcnow()):
             if conversation.status != "human":  # repassee en ai/closed entre-temps
                 raise HTTPException(http_status.HTTP_409_CONFLICT, NOT_IN_HUMAN_MODE)
     msg = Message(conversation_id=conversation.id, bot_id=bot.id,
                   role="assistant", source="human", content=content)
     db.add(msg)
-    conversation.last_activity_at = datetime.utcnow()
+    conversation.last_activity_at = utcnow()
     await db.commit()
     await db.refresh(conversation)
     return {"ok": True, "status": "human",
@@ -259,16 +272,9 @@ async def close_conversation(
     if conversation.status == "ai":
         raise HTTPException(http_status.HTTP_409_CONFLICT, NOT_IN_HUMAN_MODE)
     # Transition GARDEE : double close concurrent = un seul message de cloture
-    now = datetime.utcnow()
-    result = await db.execute(
-        update(Conversation)
-        .where(Conversation.id == conversation.id,
-               Conversation.status.in_(("human_requested", "human")))
-        .values(status="closed", closed_at=now, last_activity_at=now)
-    )
-    if result.rowcount != 1:
-        await db.rollback()
-        await db.refresh(conversation)
+    now = utcnow()
+    if not await _guarded_transition(db, conversation, ("human_requested", "human"),
+                                     status="closed", closed_at=now, last_activity_at=now):
         if conversation.status == "closed":
             return {"ok": True, "status": "closed"}  # clos par un collegue
         raise HTTPException(http_status.HTTP_409_CONFLICT, NOT_IN_HUMAN_MODE)

@@ -1,20 +1,25 @@
-"""Compteurs d'usage : cap IA quotidien par bot, statistiques hebdomadaires.
+"""Compteurs d'usage : reponses IA du jour par bot, statistiques hebdomadaires.
 
-Les reponses TREE sont illimitees. Seules les reponses IA comptent pour le cap
-quotidien par bot (protection cash-flow). Il n'y a plus de quota mensuel ni de
-notion de plan : l'application est entierement ouverte.
+Il n'y a PLUS de cap IA ni de quota mensuel ni de notion de plan : l'application
+est entierement ouverte. `count_ai_messages_today` n'est plus un garde-fou
+cash-flow mais un simple COMPTEUR D'AFFICHAGE (ai_replies_today) montre dans le
+dashboard ; aucune logique ne bloque sur cette valeur.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.constants import VISITOR_SOURCES
+from src.core.time import utcnow
 from src.models.bot import Bot
 from src.models.conversation import Message
 
 
 def _today_start() -> datetime:
-    now = datetime.now(timezone.utc)
+    # Minuit UTC du jour courant, en datetime NAÏF (comme les colonnes DateTime
+    # sans timezone) : utcnow() est naïf UTC -> mêmes year/month/day qu'avant.
+    now = utcnow()
     return datetime(now.year, now.month, now.day)
 
 
@@ -48,13 +53,13 @@ async def bots_week_stats_for_ids(db: AsyncSession, bot_ids: set[int]) -> dict[i
     if not bot_ids:
         return {}
     ids = list(bot_ids)
-    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
+    since = utcnow() - timedelta(days=7)
     # Whitelist source : exclut les marqueurs systeme ([lead]...) qui
     # gonfleraient les compteurs de messages visiteurs
     msg_rows = (await db.execute(
         select(Message.bot_id, func.count(Message.id))
         .where(Message.bot_id.in_(ids), Message.role == "user",
-               Message.source.in_(["ai", "tree"]), Message.created_at >= since)
+               Message.source.in_(VISITOR_SOURCES), Message.created_at >= since)
         .group_by(Message.bot_id)
     )).all()
     visitor_rows = (await db.execute(
