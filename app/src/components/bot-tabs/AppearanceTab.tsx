@@ -60,7 +60,20 @@ export default function AppearanceTab({
               Les déclencheurs ne sont pas simulés dans l'aperçu ci-contre.
             </div>
             <div className="col" style={{ gap: 10 }}>
-              {triggers.map((tr, i) => (
+              {triggers.map((tr, i) => {
+                // Déclencheur numérique (time_on_page / scroll_depth) : même
+                // champ à 3 littéraux près (label, bornes input, plage du hint).
+                const numTriggerField = (label: string, min: number, max: number, range: string) => (
+                  <Field label={label}
+                         hint={typeof tr.value !== 'number'
+                           ? <span style={{ color: 'var(--danger)' }}>Valeur requise ({range})</span>
+                           : undefined}>
+                    <input type="number" min={min} max={max}
+                           value={typeof tr.value === 'number' ? tr.value : ''}
+                           onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
+                  </Field>
+                )
+                return (
                 // Clé = type + index : plus stable que l'index nu quand un
                 // déclencheur du milieu est retiré (l'index seul décale tout le
                 // reste). On n'inclut PAS le message (il remonterait la ligne à
@@ -78,26 +91,8 @@ export default function AppearanceTab({
                     {/* value : Number strict côté serveur (_check_triggers) — un
                         string numérique ferait 422. Input vide = '' conservé +
                         hint rouge, le 422 verbatim de la save bar reste le filet. */}
-                    {tr.type === 'time_on_page' && (
-                      <Field label="Après (secondes)"
-                             hint={typeof tr.value !== 'number'
-                               ? <span style={{ color: 'var(--danger)' }}>Valeur requise (1-600)</span>
-                               : undefined}>
-                        <input type="number" min={1} max={600}
-                               value={typeof tr.value === 'number' ? tr.value : ''}
-                               onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
-                      </Field>
-                    )}
-                    {tr.type === 'scroll_depth' && (
-                      <Field label="À partir de (% de page)"
-                             hint={typeof tr.value !== 'number'
-                               ? <span style={{ color: 'var(--danger)' }}>Valeur requise (1-100)</span>
-                               : undefined}>
-                        <input type="number" min={1} max={100}
-                               value={typeof tr.value === 'number' ? tr.value : ''}
-                               onChange={e => updateTrigger(i, { value: e.target.value === '' ? '' : Number(e.target.value) })} />
-                      </Field>
-                    )}
+                    {tr.type === 'time_on_page' && numTriggerField('Après (secondes)', 1, 600, '1-600')}
+                    {tr.type === 'scroll_depth' && numTriggerField('À partir de (% de page)', 1, 100, '1-100')}
                     {tr.type === 'url_pattern' && (
                       <Field label="Le chemin de la page contient">
                         <input type="text" className="mono" maxLength={200} placeholder="/tarifs"
@@ -128,7 +123,8 @@ export default function AppearanceTab({
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
             <div className="row g10" style={{ marginTop: 10 }}>
               <Btn kind="soft" small onClick={addTrigger} disabled={triggers.length >= 5}>

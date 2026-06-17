@@ -5,7 +5,7 @@ import { Btn, Card, InfoBox, SectionTitle } from '../../ui'
 import type { Bot, Integration } from '../../types/bot'
 
 export default function IntegrationTab({
-  bot, integrations, integType, setIntegType, currentInteg, copied, setCopied,
+  bot, integrations, integType, setIntegType, currentInteg, copied, copySnippet,
   hasPerm, activateBot, isMobile,
 }: {
   bot: Bot
@@ -14,7 +14,7 @@ export default function IntegrationTab({
   setIntegType: (v: string) => void
   currentInteg: Integration | undefined
   copied: boolean
-  setCopied: (v: boolean) => void
+  copySnippet: () => void
   hasPerm: (perm: string | null) => boolean
   activateBot: () => void
   isMobile: boolean
@@ -43,11 +43,9 @@ export default function IntegrationTab({
         <Card>
           <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
             <div className="card-title" style={{ marginBottom: 0 }}>Extrait à insérer</div>
-            <Btn kind={copied ? 'soft' : 'primary'} small onClick={() => {
-              navigator.clipboard.writeText(currentInteg?.snippet || '').catch(() => {})
-              setCopied(true)
-              setTimeout(() => setCopied(false), 1600)
-            }}>{copied ? <><Check size={13} /> Copié</> : <><Clipboard size={13} /> Copier</>}</Btn>
+            <Btn kind={copied ? 'soft' : 'primary'} small onClick={copySnippet}>
+              {copied ? <><Check size={13} /> Copié</> : <><Clipboard size={13} /> Copier</>}
+            </Btn>
           </div>
           <div className="snippet-pills" style={{ marginBottom: 10 }}>
             {integrations.map(it => (

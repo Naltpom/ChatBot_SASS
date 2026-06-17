@@ -5,10 +5,11 @@
 // peut être null pour un bot perso) pour alimenter StatsPanel et InsightsPanel.
 // Les Leads sont délégués à LeadsSection (tableau date/email/nom/tel/message/
 // source + export CSV anti-injection). Style Chapote.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Inbox } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { errMsg } from '../utils/errors'
 import { Btn, Card, Chip, InfoBox, SectionTitle } from '../ui'
 import { useApiResource } from '../hooks/useApiResource'
 import type { BotSummary, DesignJson, Tree } from '../types/bot'
@@ -59,7 +60,7 @@ export default function Analytics() {
     setDetailError('')
     api<BotDetail>(`/api/bots/${selectedId}`)
       .then(b => { if (alive) setDetail(b) })
-      .catch((err: unknown) => { if (alive) setDetailError(err instanceof Error ? err.message : 'Erreur') })
+      .catch((err: unknown) => { if (alive) setDetailError(errMsg(err, 'Erreur')) })
     loadLeads(selectedId, () => alive)
     return () => { alive = false }
   }, [selectedId])
@@ -70,11 +71,9 @@ export default function Analytics() {
     setLeads(null)
     api<LeadsData>(`/api/bots/${botId}/leads?limit=100`)
       .then(d => { if (alive()) setLeads(d) })
-      .catch((err: unknown) => { if (alive()) setLeadsError(err instanceof Error ? err.message : 'Erreur') })
+      .catch((err: unknown) => { if (alive()) setLeadsError(errMsg(err, 'Erreur')) })
       .finally(() => { if (alive()) setLeadsBusy(false) })
   }
-
-  const selectedBot = useMemo(() => bots.find(b => b.id === selectedId) || null, [bots, selectedId])
 
   // ---------- États de page ----------
   if (botsLoading) return <div className="center-page">Chargement…</div>
@@ -144,12 +143,10 @@ export default function Analytics() {
                         onReload={() => loadLeads(detail.id, () => true)}
                         onOpenTree={() => navigate(`/app/bots/${detail.id}?tab=tree`)} />
 
-          {selectedBot && (
-            <div className="field-hint">
-              Notification email : sans SMTP configuré côté serveur, les nouveaux leads sont uniquement
-              journalisés. Détail et configuration sur la page du chatbot.
-            </div>
-          )}
+          <div className="field-hint">
+            Notification email : sans SMTP configuré côté serveur, les nouveaux leads sont uniquement
+            journalisés. Détail et configuration sur la page du chatbot.
+          </div>
         </>
       )}
     </div>

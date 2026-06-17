@@ -6,7 +6,7 @@ import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { useApiResource } from '../hooks/useApiResource'
 import { ErrorRetry } from '../components/ErrorRetry'
-import { Btn, BubbleIcon, Card, Chip, brandBg, statusChip } from '../ui'
+import { Btn, BubbleIcon, Card, Chip, brandBg, orgInitials, statusChip } from '../ui'
 import { botOwnerLabel, canAccessBotPerm } from '../utils/permissions'
 import { BotSummary, Integration } from '../types/bot'
 
@@ -73,7 +73,7 @@ export function BotCard({ bot, onOpen, canCopy = true, ownerLabel }: {
 }) {
   const [copied, setCopied] = useState(false)
   const d = bot.design_json || {}
-  const initials = bot.name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join('') || '?'
+  const initials = orgInitials(bot.name)
 
   async function copyMain(e: React.MouseEvent) {
     e.stopPropagation()

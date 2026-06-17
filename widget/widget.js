@@ -250,6 +250,13 @@
     container.appendChild(iconNode(d, size));
   }
 
+  // Taille de l'icône de bulle (lanceur flottant) : avatar image plus grand
+  // (.58) que l'icône SVG (.44), proportionnelle à la taille de bulle.
+  function bubbleIconSize(d) {
+    const bubble = SIZES[d.size] || 58;
+    return Math.round(bubble * (d.icon === "image" && d.avatarImage ? .58 : .44));
+  }
+
   // --- UI ---
   const ui = {};
   const SIZES = { sm: 48, md: 58, lg: 68 };
@@ -410,9 +417,8 @@
       ".kc-msg{max-width:82%;padding:" + (compact ? "7px 10px" : "9px 12px") + ";font-size:" + (compact ? "12.5" : "13.5") + "px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}",
       ".kc-row.bot .kc-msg{border-radius:" + (square ? "8px" : "4px " + r14 + "px " + r14 + "px " + r14 + "px") + ";background:" + botBg + ";color:" + botText + ";border:1px solid " + botBorder + ";box-shadow:0 1px 2px rgba(0,0,0,.04)}",
       ".kc-row.user .kc-msg{border-radius:" + (square ? "8px" : r14 + "px " + r14 + "px 4px " + r14 + "px") + ";background:" + brand + ";color:#fff}",
-      ".kc-ai-tag{font-size:9.5px;font-weight:800;letter-spacing:.5px;color:" + brand + ";margin-bottom:3px}",
-      // Tag « Conseiller » (live chat) : même gabarit que le tag IA
-      ".kc-human-tag{font-size:9.5px;font-weight:800;letter-spacing:.5px;color:" + brand + ";margin-bottom:3px}",
+      // Tag « IA » et tag « Conseiller » (live chat) : même gabarit
+      ".kc-ai-tag,.kc-human-tag{font-size:9.5px;font-weight:800;letter-spacing:.5px;color:" + brand + ";margin-bottom:3px}",
       // CSAT : pouces discrets SOUS la bulle assistant (élément séparé de
       // .kc-msg — aucun texte ajouté aux bulles, contrat e2e)
       ".kc-rate{display:flex;gap:2px;margin:-5px 0 0 4px}",
@@ -536,7 +542,7 @@
       ui.bubble = el("button", "kc-bubble");
       ui.bubble.setAttribute("aria-label", t("open_chat"));
       ui.bubbleIcon = el("span");
-      setIcon(ui.bubbleIcon, d, d.icon === "image" && d.avatarImage ? Math.round((SIZES[d.size] || 58) * .58) : Math.round((SIZES[d.size] || 58) * .44));
+      setIcon(ui.bubbleIcon, d, bubbleIconSize(d));
       ui.bubble.appendChild(ui.bubbleIcon);
       // launcherText : bulle -> pilule [icône + libellé] (textContent, anti-XSS)
       const lt = (typeof d.launcherText === "string" ? d.launcherText : "").slice(0, 40);
@@ -673,8 +679,8 @@
   }
 
   function setTyping(on) {
-    const t = ui.msgs.querySelector(".kc-typing");
-    if (on && !t) {
+    const typing = ui.msgs.querySelector(".kc-typing");
+    if (on && !typing) {
       let anim = (state.config.design || {}).loadingAnimation || "dots";
       if (anim !== "wave" && anim !== "pulse") anim = "dots"; // whitelist (valeur libre -> className)
       const wrap = el("div", "kc-typing" + (anim !== "dots" ? " " + anim : ""));
@@ -685,7 +691,7 @@
       wrap.appendChild(inner);
       ui.msgs.appendChild(wrap);
       ui.msgs.scrollTop = ui.msgs.scrollHeight;
-    } else if (!on && t) t.remove();
+    } else if (!on && typing) typing.remove();
   }
 
   // --- Live chat (handoff conseiller) : statut serveur + polling ---
@@ -1061,9 +1067,7 @@
           ui.bubble.classList.remove("kc-bubble-pill");
         }
       } else {
-        setIcon(ui.bubbleIcon, dsg, dsg.icon === "image" && dsg.avatarImage
-          ? Math.round((SIZES[dsg.size] || 58) * .58)
-          : Math.round((SIZES[dsg.size] || 58) * .44));
+        setIcon(ui.bubbleIcon, dsg, bubbleIconSize(dsg));
         if (ui.bubbleLabel) {
           ui.bubbleLabel.style.display = "";
           ui.bubble.classList.add("kc-bubble-pill");

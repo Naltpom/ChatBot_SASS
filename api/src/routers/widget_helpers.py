@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.security import create_widget_token, widget_token_needs_refresh
+from src.core.triggers import _MAX_TRIGGERS, _TRIGGER_TYPES, _trigger_value_valid
 from src.models.analytics import TreeEvent
 from src.models.bot import Bot
 from src.models.conversation import Conversation
@@ -64,18 +65,26 @@ def _domain_allowed(host: Optional[str], allowed: list[str]) -> bool:
     return False
 
 
-async def _get_active_bot(db: AsyncSession, public_key: str) -> Bot:
-    result = await db.execute(select(Bot).where(Bot.public_key == public_key))
-    bot = result.scalar_one_or_none()
+async def _assert_bot_servable(db: AsyncSession, bot: Optional[Bot]) -> Bot:
+    """Garde commune : le bot existe, est actif, et — s'il est d'équipe — son
+    organisation est active. Sinon 404 (anti-enumeration). Source UNIQUE de la
+    garde de servabilité, appelée après résolution du bot (bootstrap via
+    public_key dans _get_active_bot, session via id signé dans _session_active_bot).
+
+    Bot d'équipe : organisation suspendue (impayé, abus...) -> widgets coupés.
+    Bot perso (organization_id null) : pas de suspension d'org applicable."""
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    # Bot d'equipe : organisation suspendue (impayé, abus...) -> widgets coupés.
-    # Bot perso (organization_id null) : pas de suspension d'org applicable.
     if bot.organization_id is not None:
         org = await db.get(Organization, bot.organization_id)
         if org is None or not org.is_active:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     return bot
+
+
+async def _get_active_bot(db: AsyncSession, public_key: str) -> Bot:
+    result = await db.execute(select(Bot).where(Bot.public_key == public_key))
+    return await _assert_bot_servable(db, result.scalar_one_or_none())
 
 
 def _api_host() -> Optional[str]:
@@ -141,13 +150,7 @@ async def _session_active_bot(db: AsyncSession, request: Request, session: dict)
     chaque endpoint, SAUF /message qui omettait le check org (faille : un bot
     d'equipe dont l'org est suspendue continuait d'accepter /message et de
     consommer l'IA). Le message d'erreur est aligne sur les autres endpoints."""
-    bot = await db.get(Bot, session["bot_id"])
-    if bot is None or not bot.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    if bot.organization_id is not None:
-        org = await db.get(Organization, bot.organization_id)
-        if org is None or not org.is_active:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    bot = await _assert_bot_servable(db, await db.get(Bot, session["bot_id"]))
     _check_session_origin(request, session)
     return bot
 
@@ -267,10 +270,9 @@ def _sanitize_journey(journey: Any) -> Optional[list[dict]]:
     return out[-_JOURNEY_MAX_ENTRIES:] or None
 
 
-# Triggers proactifs servis au bootstrap : bornes (miroir de _check_triggers
-# dans routers/bots.py, mais SILENCIEUX — pattern _sanitize_journey)
-_TRIGGER_TYPES = ("time_on_page", "scroll_depth", "exit_intent", "url_pattern")
-_MAX_TRIGGERS = 5
+# Triggers proactifs servis au bootstrap : bornes (miroir de _check_triggers,
+# mais SILENCIEUX — pattern _sanitize_journey). Constantes + prédicat de
+# validité factorisés dans src.core.triggers (raise vs continue chez l'appelant).
 
 
 def _sanitize_triggers(triggers: Any) -> list[dict]:
@@ -290,16 +292,8 @@ def _sanitize_triggers(triggers: Any) -> list[dict]:
         if ttype not in _TRIGGER_TYPES:
             continue
         value = entry.get("value")
-        # bool est une sous-classe d'int : exclu explicitement des bornes int
-        if ttype == "time_on_page":
-            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 600:
-                continue
-        elif ttype == "scroll_depth":
-            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 100:
-                continue
-        elif ttype == "url_pattern":
-            if not isinstance(value, str) or not 1 <= len(value) <= 200:
-                continue
+        if not _trigger_value_valid(ttype, value):
+            continue
         message = entry.get("message")
         if not isinstance(message, str) or not message.strip():
             continue

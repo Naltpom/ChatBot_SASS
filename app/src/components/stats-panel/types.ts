@@ -12,6 +12,11 @@ export interface DailyRow {
 
 export interface Satisfaction { up: number; down: number; total: number }
 
+// % d'avis positifs (up / up+down), arrondi — partagé par SatisfactionCard et
+// AbTestCard. Le diviseur min(1, …) évite la division par zéro (renvoie 0).
+export const satPct = (s: Satisfaction): number =>
+  Math.round((s.up / Math.max(1, s.up + s.down)) * 100)
+
 export interface Stats {
   days: number
   conversations: number

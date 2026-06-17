@@ -61,7 +61,8 @@ export default function BotPage() {
   const {
     bot, savedBot, setBot, setSavedBot, loadError, reload,
     byokKey, setByokKey, captchaSecret, setCaptchaSecret,
-    actionSecrets, setActionSecrets, mcpTokens, setMcpTokens,
+    actionSecrets, mcpTokens,
+    setActionSecretAt, setMcpTokenAt,
     dirtyTabs, dirty, saved, setSaved, error, setError, save, cancelChanges,
     patch, patchDesign, hasPerm,
     updateAction, addAction, removeAction, updateActionField, updateActionType,
@@ -153,7 +154,15 @@ export default function BotPage() {
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
       })
-      .catch((err: unknown) => setPageError(`Import échoué : ${err instanceof Error ? err.message : 'erreur'}`))
+      .catch((err: unknown) => setPageError(`Import échoué : ${errMsg(err, 'erreur')}`))
+  }
+
+  // Copie de l'extrait d'intégration courant (clipboard + flag « Copié »
+  // 1,6 s). Passé en prop à IntegrationTab.
+  function copySnippet() {
+    navigator.clipboard.writeText(currentInteg?.snippet || '').catch(() => {})
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
   }
 
   // Génération d'arbre par l'IA (perm contexte, treegen_limiter 10/24h/org) :
@@ -177,7 +186,7 @@ export default function BotPage() {
       const status = (err as { status?: number })?.status
       setGenError(status === 429
         ? "Limite quotidienne atteinte : 10 générations d'arbre par jour et par organisation. Réessayez demain."
-        : (err instanceof Error ? err.message : 'Erreur'))
+        : errMsg(err, 'Erreur'))
     } finally {
       setGenBusy(false)
     }
@@ -199,7 +208,7 @@ export default function BotPage() {
       setSavedBot(updated)
       setMoveTarget('')
     } catch (err: unknown) {
-      setPageError(`Déplacement échoué : ${err instanceof Error ? err.message : 'erreur'}`)
+      setPageError(`Déplacement échoué : ${errMsg(err, 'erreur')}`)
     } finally {
       setMoveBusy(false)
     }
@@ -212,7 +221,7 @@ export default function BotPage() {
       await api(`/api/bots/${botId}`, { method: 'DELETE' })
       navigate(isAdminView ? `/admin/clients/${bot.organization_id}` : '/app')
     } catch (err: unknown) {
-      setPageError(err instanceof Error ? err.message : 'Erreur')
+      setPageError(errMsg(err, 'Erreur'))
     }
   }
 
@@ -360,8 +369,8 @@ export default function BotPage() {
       {/* ================= ACTIONS IA ================= */}
       {activeTab === 'actions' && (
         <ActionsTab bot={bot} savedBot={savedBot} patch={patch} actions={actions} mcpServers={mcpServers}
-                    actionSecrets={actionSecrets} setActionSecrets={setActionSecrets}
-                    mcpTokens={mcpTokens} setMcpTokens={setMcpTokens}
+                    actionSecrets={actionSecrets} setActionSecretAt={setActionSecretAt}
+                    mcpTokens={mcpTokens} setMcpTokenAt={setMcpTokenAt}
                     updateAction={updateAction} addAction={addAction} removeAction={removeAction}
                     updateActionField={updateActionField} updateActionType={updateActionType}
                     updateMcpServer={updateMcpServer} addMcpServer={addMcpServer} removeMcpServer={removeMcpServer} />
@@ -371,7 +380,7 @@ export default function BotPage() {
       {activeTab === 'install' && (
         <IntegrationTab bot={bot} integrations={integrations} integType={integType}
                         setIntegType={setIntegType} currentInteg={currentInteg}
-                        copied={copied} setCopied={setCopied} hasPerm={hasPerm}
+                        copied={copied} copySnippet={copySnippet} hasPerm={hasPerm}
                         activateBot={activateBot} isMobile={isMobile} />
       )}
 

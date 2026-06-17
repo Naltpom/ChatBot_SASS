@@ -16,10 +16,10 @@ export interface ApiResource<T> {
 //   - error = err.message (ApiError porte déjà un message FR exploitable) ;
 //   - reload() relance la requête (équivalent du `setRetry(n => n + 1)`).
 // Course conditions : une réponse n'est appliquée que si le hook est toujours
-// monté ET que la requête n'a pas été relancée entre-temps (path/deps changés
-// ou reload()). Le drapeau `alive` par effet garantit qu'une réponse obsolète
-// est ignorée.
-export function useApiResource<T>(path: string, deps: unknown[] = []): ApiResource<T> {
+// monté ET que la requête n'a pas été relancée entre-temps (path changé ou
+// reload()). Le drapeau `alive` par effet garantit qu'une réponse obsolète est
+// ignorée.
+export function useApiResource<T>(path: string): ApiResource<T> {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -34,8 +34,7 @@ export function useApiResource<T>(path: string, deps: unknown[] = []): ApiResour
       .catch((err: unknown) => { if (alive) setError(errMsg(err, 'Erreur')) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, tick, ...deps])
+  }, [path, tick])
 
   return { data, loading, error, reload: () => setTick(n => n + 1) }
 }

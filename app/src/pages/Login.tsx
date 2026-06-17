@@ -2,6 +2,8 @@ import { FormEvent, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import { useIsMobile } from '../hooks/useMediaQuery'
+import { errMsg } from '../utils/errors'
+import HatIcon from '../components/HatIcon'
 
 const NAVY = '#1C3F5C'
 const INPUT_BASE: React.CSSProperties = {
@@ -15,15 +17,6 @@ const INPUT_BASE: React.CSSProperties = {
   background: '#fff',
   transition: 'border-color .2s, box-shadow .2s',
   fontFamily: 'inherit',
-}
-
-function BrandMark() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
 }
 
 function Check() {
@@ -52,7 +45,7 @@ export default function Login() {
       await login(email, password)
       navigate('/app')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Connexion impossible.')
+      setError(errMsg(err, 'Connexion impossible.'))
     } finally {
       setBusy(false)
     }
@@ -118,7 +111,7 @@ export default function Login() {
                 justifyContent: 'center',
               }}
             >
-              <BrandMark />
+              <HatIcon size={20} color="#fff" />
             </span>
             <span style={{ fontFamily: "'Clash Display', sans-serif", fontWeight: 600, fontSize: 21 }}>Chapote</span>
           </div>

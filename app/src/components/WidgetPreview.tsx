@@ -236,6 +236,23 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     }, delay)
   }
 
+  // Rendu d'un nœud arbre (lead / appointment-https / défaut) via botSay, au
+  // délai voulu. Partagé par pick (delay 700) et backToTree (root, delay 450) ;
+  // les cas __ai__ et handoff restent gérés à part (logique propre).
+  function enterNode(node: TreeNode, delay: number) {
+    // Parité widget.js (renderResponse) : mêmes clés type / url / fields
+    if (node.type === 'lead') {
+      botSay(msgOf(node), null, delay, false,
+             { lead: { fields: leadFieldsOf(node.fields), after: node.options || [] } })
+      return
+    }
+    if (node.type === 'appointment' && /^https:\/\//.test(node.url || '')) {
+      botSay(msgOf(node), node.options || [], delay, false, { appt: node.url })
+      return
+    }
+    botSay(msgOf(node), node.options || [], delay)
+  }
+
   function pick(opt: { label: string; next: string }) {
     setMsgs(m => [...m, { from: 'user', text: opt.label.replace(/^[^\p{L}\p{N}↩]*\s*/u, '') }])
     if (opt.next === '__ai__') {
@@ -249,7 +266,6 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
       return
     }
     const node = nodeOf(opt.next)
-    // Parité widget.js (renderResponse) : mêmes clés type / url / fields
     if (node.type === 'handoff') {
       // LIVE simulé : intro du nœud, bulle système d'attente, puis UNE réponse
       // « Conseiller » factice ~1,6 s plus tard. Aucune autre logique.
@@ -266,16 +282,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
       }, 760 + 1600)
       return
     }
-    if (node.type === 'lead') {
-      botSay(msgOf(node), null, 700, false,
-             { lead: { fields: leadFieldsOf(node.fields), after: node.options || [] } })
-      return
-    }
-    if (node.type === 'appointment' && /^https:\/\//.test(node.url || '')) {
-      botSay(msgOf(node), node.options || [], 700, false, { appt: node.url })
-      return
-    }
-    botSay(msgOf(node), node.options || [], 700)
+    enterNode(node, 700)
   }
 
   function submitLead() {
@@ -313,17 +320,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     setLive(false)
     setAiMode(false)
     setMsgs(m => [...m, { from: 'user', text: t('back_to_menu_user') }])
-    const root = nodeOf(start)
-    if (root.type === 'lead') {
-      botSay(msgOf(root), null, 450, false,
-             { lead: { fields: leadFieldsOf(root.fields), after: root.options || [] } })
-      return
-    }
-    if (root.type === 'appointment' && /^https:\/\//.test(root.url || '')) {
-      botSay(msgOf(root), root.options || [], 450, false, { appt: root.url })
-      return
-    }
-    botSay(msgOf(root), root.options || [], 450)
+    enterNode(nodeOf(start), 450)
   }
 
   const inputDisabled = live ? false : !aiMode

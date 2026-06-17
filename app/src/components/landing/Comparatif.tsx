@@ -1,5 +1,5 @@
 // Section comparatif : tableau Chapote vs IA seule vs support classique.
-import { CLASH, CMP_ROWS, eyebrow } from './data'
+import { CLASH, CMP_ROWS, eyebrow, sectionH2 } from './data'
 import type { Cell } from './data'
 
 const CmpOk = ({ strong }: { strong?: boolean }) => <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill={strong ? 'rgba(47,158,121,.2)' : 'rgba(47,158,121,.14)'} /><path d="M7.5 12.4l3 3 6-6.6" stroke="#2F9E79" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -12,7 +12,7 @@ export function Comparatif() {
       <div className="ch-pad" style={{ maxWidth: 1080, margin: '0 auto', padding: '0 32px' }}>
         <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 46px' }}>
           <span style={eyebrow('#2F9E79')}>COMPARATIF</span>
-          <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Ni Intercom, ni Chatbase.</h2>
+          <h2 className="ch-section-h2" style={sectionH2}>Ni Intercom, ni Chatbase.</h2>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px 0 0' }}>L'hybride qui prend le meilleur de chaque modèle, sans en payer les défauts.</p>
         </div>
         <div className="ch-reveal ch-cmp-scroll" style={{ overflowX: 'auto', padding: '4px 0 26px' }}>

@@ -20,6 +20,8 @@ import { useAuth } from '../AuthContext'
 import { MODEL_OPTIONS } from '../botConstants'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import TreeFlow from '../components/TreeFlow'
+import HatIcon from '../components/HatIcon'
+import { errMsg } from '../utils/errors'
 import type { DesignJson, Tree, TreeNode } from '../types/bot'
 
 // ---------------------------------------------------------------------------
@@ -220,17 +222,6 @@ function buildDesign(look: Look): DesignJson {
 }
 
 // ---------------------------------------------------------------------------
-// Icône logo Chapote (en-tête widget + bulles bot)
-function ChapoteMark({ size = 18, color = '#fff' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-// ---------------------------------------------------------------------------
 type Step = 'chat' | 'preset' | 'appearance' | 'tree' | 'done'
 const STEP_ORDER: Step[] = ['chat', 'preset', 'appearance', 'tree']
 const STEP_CAPTION: Record<Step, string> = {
@@ -238,8 +229,7 @@ const STEP_CAPTION: Record<Step, string> = {
 }
 
 const RANDOM_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED', '#0EA5E9', '#D946A6']
-const PRIMARY_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
-const SECONDARY_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
+const SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED']
 
 // ---------------------------------------------------------------------------
 export default function BotWizard() {
@@ -378,7 +368,7 @@ export default function BotWizard() {
       setCreatedBotId(bot.id)
       setStep('done')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'La création a échoué.')
+      setError(errMsg(err, 'La création a échoué.'))
     } finally {
       setBusy(false)
     }
@@ -395,7 +385,7 @@ export default function BotWizard() {
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: mobile ? '11px 16px' : '13px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: mobile ? 10 : 20, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <span style={{ width: 32, height: 32, borderRadius: 10, background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <ChapoteMark size={18} />
+              <HatIcon size={18} color="#fff" />
             </span>
             <span style={{ fontWeight: 600, fontSize: 15 }}>Nouveau chatbot</span>
             <span style={{ fontSize: 13, color: FAINT, marginLeft: 6 }}>· {STEP_CAPTION[step]}</span>
@@ -532,7 +522,7 @@ export default function BotWizard() {
             <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 18, padding: mobile ? 16 : 24, marginTop: 20, maxWidth: 640 }}>
               <Label>Couleur principale</Label>
               <div style={{ display: 'flex', gap: 11, flexWrap: 'wrap' }}>
-                {PRIMARY_SWATCHES.map(c => (
+                {SWATCHES.map(c => (
                   <Swatch key={c} c={c} on={look.color === c} onClick={() => patchLook({ color: c })} size={34} />
                 ))}
               </div>
@@ -542,7 +532,7 @@ export default function BotWizard() {
                 <div>
                   <Label>Couleur secondaire</Label>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {SECONDARY_SWATCHES.map(c => (
+                    {SWATCHES.map(c => (
                       <Swatch key={c} c={c} on={look.color2 === c} onClick={() => patchLook({ color2: c })} size={26} />
                     ))}
                   </div>
@@ -672,7 +662,7 @@ function BotBubble({ text }: { text: string }) {
   return (
     <div style={{ display: 'flex', gap: 11, alignItems: 'flex-start', animation: 'cin .35s ease' }}>
       <span style={{ width: 34, height: 34, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <ChapoteMark size={18} />
+        <HatIcon size={18} color="#fff" />
       </span>
       <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: '4px 16px 16px 16px', padding: '12px 16px', fontSize: 15, lineHeight: 1.5, maxWidth: '85%', boxShadow: '0 3px 10px -6px rgba(28,63,92,.2)' }}>{text}</div>
     </div>

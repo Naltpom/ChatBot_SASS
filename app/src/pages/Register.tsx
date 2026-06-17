@@ -7,6 +7,8 @@ import { Building2, Check, User as UserIcon, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import { useIsMobile } from '../hooks/useMediaQuery'
+import { errMsg } from '../utils/errors'
+import HatIcon from '../components/HatIcon'
 
 interface Invite { email: string; role: 'admin' | 'member' }
 interface RegisterForm { prenom: string; nom: string; email: string; pwd: string; org: string }
@@ -14,13 +16,6 @@ interface RegisterForm { prenom: string; nom: string; email: string; pwd: string
 const CLASH = "'Clash Display',sans-serif"
 const NAVY = '#1C3F5C'
 const MINT = '#2F9E79'
-
-const HatIcon = ({ size = 19, color = '#fff' }: { size?: number; color?: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
-    <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
 
 const inputStyle: React.CSSProperties = {
   width: '100%', height: 46, border: '1px solid #D8DEE6', borderRadius: 12,
@@ -64,7 +59,7 @@ function Shell({ children, step, total, caption, maxWidth = 560 }: {
         padding: isMobile ? '26px 20px 24px' : '40px 40px 36px',
       }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, textDecoration: 'none' }}>
-          <span style={{ width: 34, height: 34, borderRadius: 10, background: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon /></span>
+          <span style={{ width: 34, height: 34, borderRadius: 10, background: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon size={19} color="#fff" /></span>
           <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 20, color: '#1E2A32' }}>Chapote</span>
         </Link>
         {step != null && total != null && (
@@ -134,7 +129,7 @@ export default function Register() {
       })
       setStep(3)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Inscription impossible.')
+      setError(errMsg(err, 'Inscription impossible.'))
     } finally {
       setBusy(false)
     }

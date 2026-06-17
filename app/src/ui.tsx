@@ -147,7 +147,7 @@ export function Stat({ label, value, delta, deltaTone = 'go', sub, icon }: {
 
 export function Meter({ pct, tone = 'acc', height = 8 }: { pct: number; tone?: 'acc' | 'warn' | 'danger'; height?: number }) {
   return (
-    <div className={`meter ${tone !== 'acc' ? tone : ''} ${height === 5 ? 'h5' : height === 6 ? 'h6' : ''}`}>
+    <div className={`meter ${tone !== 'acc' ? tone : ''} ${height === 6 ? 'h6' : ''}`}>
       <div style={{ width: `${Math.min(100, pct)}%` }} />
     </div>
   )

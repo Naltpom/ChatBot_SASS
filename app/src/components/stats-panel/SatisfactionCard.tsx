@@ -3,9 +3,10 @@
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import { Card, Chip, Meter } from '../../ui'
 import type { Satisfaction } from './types'
+import { satPct } from './types'
 
 export default function SatisfactionCard({ sat }: { sat: Satisfaction }) {
-  const satPct = Math.round((sat.up / Math.max(1, sat.up + sat.down)) * 100)
+  const pct = satPct(sat)
   return (
     <Card>
       <div className="card-title">Satisfaction visiteurs (CSAT)</div>
@@ -28,9 +29,9 @@ export default function SatisfactionCard({ sat }: { sat: Satisfaction }) {
             <Chip tone="mut">{sat.total} avis</Chip>
           </div>
           <div style={{ margin: '10px 0 6px' }}>
-            <Meter pct={satPct} tone={satPct < 50 ? 'warn' : 'acc'} />
+            <Meter pct={pct} tone={pct < 50 ? 'warn' : 'acc'} />
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--mut)' }}>{satPct} % d'avis positifs</div>
+          <div style={{ fontSize: 11.5, color: 'var(--mut)' }}>{pct} % d'avis positifs</div>
         </>
       )}
       <div className="field-hint" style={{ marginTop: 10 }}>

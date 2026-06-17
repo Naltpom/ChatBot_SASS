@@ -274,19 +274,16 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     }
   })
 
-  // Options du <select> de type (IA masqué si allowAI===false).
-  const typeOptions: { value: BranchType; label: string }[] = [
-    { value: 'q', label: 'Question (arbre)' },
+  // Options du <select> de type (IA masqué si allowAI===false). Seul le libellé
+  // de la 1re option (« Question ») diffère entre branches et sous-étapes.
+  const typeOpts = (qLabel: string): { value: BranchType; label: string }[] => [
+    { value: 'q', label: qLabel },
     ...(allowAI ? [{ value: 'ia' as BranchType, label: 'IA' }] : []),
     { value: 'hum', label: 'Conseiller' },
     { value: 'act', label: 'Action' },
   ]
-  const subTypeOptions: { value: BranchType; label: string }[] = [
-    { value: 'q', label: 'Question' },
-    ...(allowAI ? [{ value: 'ia' as BranchType, label: 'IA' }] : []),
-    { value: 'hum', label: 'Conseiller' },
-    { value: 'act', label: 'Action' },
-  ]
+  const typeOptions = typeOpts('Question (arbre)')
+  const subTypeOptions = typeOpts('Question')
 
   const isVert = orient === 'vert'
 

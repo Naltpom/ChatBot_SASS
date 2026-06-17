@@ -73,31 +73,23 @@ def _action_schema(action: dict) -> tuple[dict, list[str]]:
     return props, required
 
 
-def build_tools_anthropic(actions: list[dict]) -> list[dict]:
-    tools = []
-    for action in actions:
-        props, required = _action_schema(action)
-        tools.append({
-            "name": action["name"],
-            "description": action.get("description", ""),
-            "input_schema": {"type": "object", "properties": props, "required": required},
-        })
-    return tools
+def _object_schema(props: dict, required: list[str]) -> dict:
+    return {"type": "object", "properties": props, "required": required}
 
 
-def build_tools_openai(actions: list[dict]) -> list[dict]:
-    tools = []
-    for action in actions:
-        props, required = _action_schema(action)
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": action["name"],
-                "description": action.get("description", ""),
-                "parameters": {"type": "object", "properties": props, "required": required},
-            },
-        })
-    return tools
+def _anthropic_tool(name: str, description: str, schema: dict) -> dict:
+    """Enveloppe tool au format Anthropic (input_schema = schema JSON complet).
+    Formateur par-entree utilise par ai_service (actions, search_docs ET MCP)."""
+    return {"name": name, "description": description, "input_schema": schema}
+
+
+def _openai_tool(name: str, description: str, schema: dict) -> dict:
+    """Enveloppe tool au format OpenAI (parameters = schema JSON complet).
+    Formateur par-entree utilise par ai_service (actions, search_docs ET MCP)."""
+    return {
+        "type": "function",
+        "function": {"name": name, "description": description, "parameters": schema},
+    }
 
 
 async def _run_action(bot: Bot, name: Optional[str], args: dict,
@@ -141,27 +133,6 @@ SEARCH_DOCS_TOOL = {
     "properties": {"query": {"type": "string", "description": "Question ou mots-clés de recherche"}},
     "required": ["query"],
 }
-
-
-def _search_docs_tool_anthropic() -> dict:
-    return {
-        "name": SEARCH_DOCS_TOOL["name"],
-        "description": SEARCH_DOCS_TOOL["description"],
-        "input_schema": {"type": "object", "properties": SEARCH_DOCS_TOOL["properties"],
-                         "required": SEARCH_DOCS_TOOL["required"]},
-    }
-
-
-def _search_docs_tool_openai() -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": SEARCH_DOCS_TOOL["name"],
-            "description": SEARCH_DOCS_TOOL["description"],
-            "parameters": {"type": "object", "properties": SEARCH_DOCS_TOOL["properties"],
-                           "required": SEARCH_DOCS_TOOL["required"]},
-        },
-    }
 
 
 async def _run_search_docs(bot: Bot, args: dict, db) -> tuple[str, bool]:

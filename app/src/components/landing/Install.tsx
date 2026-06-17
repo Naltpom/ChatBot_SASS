@@ -3,7 +3,7 @@
 // `data-bot-key` (clé publique pk_…) et src `{API_URL}/widget.js`. Voir
 // data.tsx (SNIPPET) et GET /api/bots/{id}/embed côté backend.
 import { useState } from 'react'
-import { CLASH, MONO, SNIPPET, WIDGET_SRC, EXAMPLE_BOT_KEY, eyebrow } from './data'
+import { MONO, SNIPPET, WIDGET_SRC, EXAMPLE_BOT_KEY, eyebrow, sectionH2 } from './data'
 
 // Snippet colorisé (repris du design). Doit rester cohérent avec SNIPPET :
 // même src, même attribut data-bot-key, même defer.
@@ -27,7 +27,7 @@ export function Install() {
     <section id="install" style={{ background: '#F9F9FB', padding: '88px 0' }}>
       <div className="ch-pad" style={{ maxWidth: 920, margin: '0 auto', padding: '0 32px', textAlign: 'center' }}>
         <span style={eyebrow('#2F9E79')}>INSTALLATION</span>
-        <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Une balise. Une minute. C'est tout.</h2>
+        <h2 className="ch-section-h2" style={sectionH2}>Une balise. Une minute. C'est tout.</h2>
         <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px auto 0', maxWidth: 560 }}>Copiez-collez cette balise dans votre page — aucun autre réglage.</p>
         <div className="ch-reveal" style={{ marginTop: 36, textAlign: 'left', background: '#1E2A32', borderRadius: 20, overflow: 'hidden', boxShadow: '0 34px 64px -28px rgba(28,63,92,.55)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '13px 18px', borderBottom: '1px solid rgba(255,255,255,.07)' }}>

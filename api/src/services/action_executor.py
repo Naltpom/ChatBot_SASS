@@ -70,6 +70,12 @@ class ActionError(Exception):
     pass
 
 
+def _trunc(args: dict, key: str, maxlen: int) -> Optional[str]:
+    """Champ optionnel des args du modele, borne a maxlen ; None si absent/vide."""
+    value = args.get(key)
+    return str(value)[:maxlen] if value else None
+
+
 async def _resolve_public_ip(url: str) -> str:
     """Resolution + validation anti-SSRF FACTORISEE dans safe_fetch.resolve_public_ip
     (logique UNIQUE : https://, resolution DNS unique, rejet des IP non
@@ -124,18 +130,14 @@ async def _capture_lead(args: dict, bot: Bot, db: Optional[AsyncSession],
     if len(email) > 254 or not _EMAIL_RE.fullmatch(email):
         raise ActionError("Email invalide")
 
-    def _trunc(key: str, maxlen: int) -> Optional[str]:
-        value = args.get(key)
-        return str(value)[:maxlen] if value else None
-
     lead = Lead(
         bot_id=bot.id,
         conversation_id=conversation_id,
         source="ai",
         email=email.lower(),
-        name=_trunc("name", 120),
-        phone=_trunc("phone", 40),
-        message=_trunc("message", 2000),
+        name=_trunc(args, "name", 120),
+        phone=_trunc(args, "phone", 40),
+        message=_trunc(args, "message", 2000),
     )
     db.add(lead)
     await db.commit()
@@ -202,12 +204,8 @@ async def _create_ticket(action: dict, args: dict, bot: Bot,
     if email and (len(email) > 254 or not _EMAIL_RE.fullmatch(email)):
         raise ActionError("Email invalide")
 
-    def _trunc(key: str, maxlen: int) -> Optional[str]:
-        value = args.get(key)
-        return str(value)[:maxlen] if value else None
-
-    name = _trunc("name", 120)
-    phone = _trunc("phone", 40)
+    name = _trunc(args, "name", 120)
+    phone = _trunc(args, "phone", 40)
     ref = "TK-" + uuid.uuid4().hex[:8].upper()
 
     # Trace transcript (source=system : par convention exclue de l'historique

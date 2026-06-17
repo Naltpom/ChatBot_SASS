@@ -47,7 +47,7 @@ export default function StatsPanel({ botId, botName, tree, variantTree, abSplit 
     setFunnelError('')
     api<Funnel>(`/api/stats/bots/${botId}/funnel?days=${days}`)
       .then(f => { if (alive) setFunnel(f) })
-      .catch((err: unknown) => { if (alive) setFunnelError(err instanceof Error ? err.message : 'Erreur') })
+      .catch((err: unknown) => { if (alive) setFunnelError(errMsg(err, 'Erreur')) })
     return () => { alive = false }
   }, [botId, days])
 

@@ -51,31 +51,31 @@ def _mock_report(messages: list[str]) -> dict:
     }]}
 
 
+def _require(cond: bool) -> None:
+    """Garde de validation : leve l'InsightsError standard si la condition
+    n'est pas remplie. Une ligne par contrainte cote appelant (lisibilite)."""
+    if not cond:
+        raise InsightsError(_INVALID_MSG)
+
+
 def _validate_report(raw: dict) -> dict:
     """Validation stricte de la sortie modele -> rapport re-projete sur les
     seules cles attendues (rien d'autre ne sort vers le dashboard)."""
-    if not isinstance(raw, dict):
-        raise InsightsError(_INVALID_MSG)
+    _require(isinstance(raw, dict))
     clusters = raw.get("clusters")
-    if not isinstance(clusters, list) or len(clusters) > _MAX_CLUSTERS:
-        raise InsightsError(_INVALID_MSG)
+    _require(isinstance(clusters, list) and len(clusters) <= _MAX_CLUSTERS)
     out = []
     for cluster in clusters:
-        if not isinstance(cluster, dict):
-            raise InsightsError(_INVALID_MSG)
+        _require(isinstance(cluster, dict))
         theme = cluster.get("theme")
-        if not isinstance(theme, str) or not 1 <= len(theme.strip()) <= 120:
-            raise InsightsError(_INVALID_MSG)
+        _require(isinstance(theme, str) and 1 <= len(theme.strip()) <= 120)
         count = cluster.get("count")
-        if isinstance(count, bool) or not isinstance(count, int):
-            raise InsightsError(_INVALID_MSG)
+        _require(not isinstance(count, bool) and isinstance(count, int))
         examples = cluster.get("examples")
-        if (not isinstance(examples, list) or len(examples) > _MAX_EXAMPLES
-                or not all(isinstance(e, str) for e in examples)):
-            raise InsightsError(_INVALID_MSG)
+        _require(isinstance(examples, list) and len(examples) <= _MAX_EXAMPLES
+                 and all(isinstance(e, str) for e in examples))
         bubble = cluster.get("suggested_bubble")
-        if not isinstance(bubble, str):
-            raise InsightsError(_INVALID_MSG)
+        _require(isinstance(bubble, str))
         out.append({
             "theme": theme.strip(),
             "count": count,

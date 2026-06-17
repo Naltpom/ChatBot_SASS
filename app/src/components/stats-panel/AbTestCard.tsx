@@ -3,6 +3,7 @@
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import { Card, Chip, Meter } from '../../ui'
 import type { Stats } from './types'
+import { satPct } from './types'
 
 export default function AbTestCard({ variants, variantActive, showAb, abSplit }: {
   variants: Stats['variants']
@@ -29,8 +30,8 @@ export default function AbTestCard({ variants, variantActive, showAb, abSplit }:
         <div className="grid2" style={{ marginTop: 12 }}>
           {(['a', 'b'] as const).map(k => {
             const v = variants[k]
-            const tot = v.satisfaction.up + v.satisfaction.down
-            const pct = tot ? Math.round((v.satisfaction.up / tot) * 100) : 0
+            const tot = v.satisfaction.total
+            const pct = satPct(v.satisfaction)
             return (
               <div key={k} className="col" style={{ gap: 7 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--mut)' }}>
@@ -52,7 +53,7 @@ export default function AbTestCard({ variants, variantActive, showAb, abSplit }:
                 </div>
                 <div className="row g8">
                   <div style={{ flex: 1 }}>
-                    <Meter pct={tot ? pct : 0} height={6} />
+                    <Meter pct={pct} height={6} />
                   </div>
                   <span className="num" style={{ fontSize: 11, fontWeight: 700, color: 'var(--mut)', width: 34, textAlign: 'right' }}>
                     {tot ? `${pct} %` : '—'}

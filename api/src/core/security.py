@@ -27,6 +27,10 @@ if TYPE_CHECKING:
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
+# Session glissante widget : le serveur joint un refresh_token quand le JWT
+# expire dans moins de ce seuil (10 min), pour ne pas couper le fil du visiteur.
+WIDGET_REFRESH_THRESHOLD_SECONDS = 600
+
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -37,10 +41,11 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def _encode(claims: dict, expires_delta: timedelta) -> str:
+    now = datetime.now(timezone.utc)
     payload = {
         **claims,
-        "exp": datetime.now(timezone.utc) + expires_delta,
-        "iat": datetime.now(timezone.utc),
+        "exp": now + expires_delta,
+        "iat": now,
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
@@ -71,7 +76,7 @@ def widget_token_needs_refresh(payload: dict) -> bool:
     exp = payload.get("exp")
     if not exp:
         return False
-    return exp - datetime.now(timezone.utc).timestamp() < 600
+    return exp - datetime.now(timezone.utc).timestamp() < WIDGET_REFRESH_THRESHOLD_SECONDS
 
 
 def decode_token(token: str, expected_scope: str) -> dict:

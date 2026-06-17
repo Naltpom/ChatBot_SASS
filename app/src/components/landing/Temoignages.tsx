@@ -1,5 +1,5 @@
 // Section témoignages clients.
-import { CLASH, TESTIS, eyebrow } from './data'
+import { TESTIS, eyebrow, sectionH2 } from './data'
 
 export function Temoignages() {
   return (
@@ -7,7 +7,7 @@ export function Temoignages() {
       <div className="ch-pad" style={{ maxWidth: 1180, margin: '0 auto', padding: '0 32px' }}>
         <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 46px' }}>
           <span style={eyebrow('#8C6DFF')}>TÉMOIGNAGES</span>
-          <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>Moins de tickets, plus de marge.</h2>
+          <h2 className="ch-section-h2" style={sectionH2}>Moins de tickets, plus de marge.</h2>
         </div>
         <div className="ch-testi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
           {TESTIS.map(t => (

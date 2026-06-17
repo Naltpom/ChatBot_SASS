@@ -1,5 +1,5 @@
 // Section « 4 piliers » : promesses produit (gratuit, RGPD, install, humain).
-import { CLASH, JAKARTA, PILIERS, eyebrow } from './data'
+import { JAKARTA, PILIERS, eyebrow, sectionH2 } from './data'
 
 export function Piliers() {
   return (
@@ -7,7 +7,7 @@ export function Piliers() {
       <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
         <div className="ch-reveal" style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto 50px' }}>
           <span style={eyebrow('#2F9E79')}>POURQUOI CHAPOTE</span>
-          <h2 className="ch-section-h2" style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }}>L'hybride frugal, sans compromis</h2>
+          <h2 className="ch-section-h2" style={sectionH2}>L'hybride frugal, sans compromis</h2>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: '#6B7B8D', margin: '14px 0 0' }}>Quatre promesses tenues par design — toutes gratuites.</p>
         </div>
         <div className="ch-piliers-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 24 }}>

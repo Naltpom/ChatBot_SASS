@@ -9,6 +9,8 @@ export const CLASH = "'Clash Display',sans-serif"
 export const JAKARTA = "'Plus Jakarta Sans',sans-serif"
 export const MONO = "'JetBrains Mono',monospace"
 export const eyebrow = (color: string): React.CSSProperties => ({ fontSize: 13, fontWeight: 700, letterSpacing: '.12em', color })
+// Style de titre de section partagé par les 5 sections (Piliers/Temoignages/Comparatif/Install/Pricing).
+export const sectionH2: React.CSSProperties = { fontFamily: CLASH, fontWeight: 600, fontSize: 40, lineHeight: 1.15, letterSpacing: '-.02em', color: '#1E2A32', margin: '12px 0 0' }
 
 // Boutons CTA réutilisés par plusieurs sections (hero, pricing).
 export const btnPrimary: React.CSSProperties = { background: '#1C3F5C', color: '#fff', border: 'none', borderRadius: 14, padding: '15px 26px', fontWeight: 600, fontSize: 16, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', boxShadow: '0 12px 26px -10px rgba(28,63,92,.6)' }

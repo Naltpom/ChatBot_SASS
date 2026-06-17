@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { canAccessBotPerm } from '../utils/permissions'
+import { errMsg } from '../utils/errors'
 import type {
   Bot, BotAction, BotUpdate, McpServer, Trigger, Tree,
 } from '../types/bot'
@@ -70,8 +71,10 @@ export interface BotEditor {
   setCaptchaSecret: (v: string) => void
   actionSecrets: Record<number, string>
   setActionSecrets: React.Dispatch<React.SetStateAction<Record<number, string>>>
+  setActionSecretAt: (i: number, v: string) => void
   mcpTokens: Record<number, string>
   setMcpTokens: React.Dispatch<React.SetStateAction<Record<number, string>>>
+  setMcpTokenAt: (i: number, v: string) => void
   // dirty / save
   dirtyTabs: string[]
   dirty: boolean
@@ -119,7 +122,7 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
     api<Bot>(`/api/bots/${botId}`).then(b => {
       setBot(b)
       setSavedBot(b)
-    }).catch((err: unknown) => setLoadError(err instanceof Error ? err.message : 'Erreur'))
+    }).catch((err: unknown) => setLoadError(errMsg(err, 'Erreur')))
   }, [botId, loadTry])
 
   // hasPerm délègue à canAccessBotPerm (source unique) — perm null = onglet
@@ -147,6 +150,22 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
   function patchDesign(fields: Record<string, unknown>) {
     setBot(b => (b ? { ...b, design_json: { ...b.design_json, ...fields } } : b))
   }
+
+  // Secrets write-only par INDEX : valeur saisie → posée à l'index, vidée →
+  // index retiré (omis du payload = conservé côté serveur). Clé React = index :
+  // ne jamais désaligner (les secrets sont indexés par position).
+  function setSecretAt(
+    setMap: React.Dispatch<React.SetStateAction<Record<number, string>>>, i: number, v: string,
+  ) {
+    setMap(prev => {
+      const next = { ...prev }
+      if (v) next[i] = v
+      else delete next[i]
+      return next
+    })
+  }
+  const setActionSecretAt = (i: number, v: string) => setSecretAt(setActionSecrets, i, v)
+  const setMcpTokenAt = (i: number, v: string) => setSecretAt(setMcpTokens, i, v)
 
   function serializeActions(): BotUpdate['actions_json'] {
     // Secret tapé : envoyé pour (re)poser (api_key sur calendar_slots, secret
@@ -244,7 +263,7 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Erreur')
+      setError(errMsg(err, 'Erreur'))
     }
   }
 
@@ -353,7 +372,8 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
   return {
     bot, savedBot, setBot, setSavedBot, loadError, reload: () => setLoadTry(n => n + 1),
     byokKey, setByokKey, captchaSecret, setCaptchaSecret,
-    actionSecrets, setActionSecrets, mcpTokens, setMcpTokens,
+    actionSecrets, setActionSecrets, setActionSecretAt,
+    mcpTokens, setMcpTokens, setMcpTokenAt,
     dirtyTabs, dirty, saved, setSaved, error, setError, save, cancelChanges,
     patch, patchDesign, hasPerm,
     updateAction, addAction, removeAction, updateActionField, updateActionType,

@@ -14,6 +14,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import require_bot_access
+from src.core.triggers import _MAX_TRIGGERS, _TRIGGER_TYPES, _trigger_value_valid
 from src.models.bot import Bot, BotOut
 from src.models.user import Membership, User
 from src.services.crypto import encrypt_secret
@@ -282,9 +283,8 @@ def _check_mcp_servers(servers: Any) -> None:
             _bad(f"Le jeton du serveur MCP {name} est invalide (500 caractères max)")
 
 
-# Triggers proactifs : bornes de validation (PATCH, perm 'appearance')
-_TRIGGER_TYPES = ("time_on_page", "scroll_depth", "exit_intent", "url_pattern")
-_MAX_TRIGGERS = 5
+# Triggers proactifs : bornes de validation (PATCH, perm 'appearance').
+# Constantes + prédicat de validité factorisés dans src.core.triggers.
 
 
 def _check_triggers(triggers: Any) -> None:
@@ -304,17 +304,8 @@ def _check_triggers(triggers: Any) -> None:
         ttype = trigger.get("type")
         if ttype not in _TRIGGER_TYPES:
             _bad(f"Type de déclencheur inconnu : {ttype}")
-        value = trigger.get("value")
-        # bool est une sous-classe d'int : exclu explicitement des bornes int
-        if ttype == "time_on_page":
-            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 600:
-                _bad(f"Valeur invalide pour le déclencheur {ttype}")
-        elif ttype == "scroll_depth":
-            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 100:
-                _bad(f"Valeur invalide pour le déclencheur {ttype}")
-        elif ttype == "url_pattern":
-            if not isinstance(value, str) or not 1 <= len(value) <= 200:
-                _bad(f"Valeur invalide pour le déclencheur {ttype}")
+        if not _trigger_value_valid(ttype, trigger.get("value")):
+            _bad(f"Valeur invalide pour le déclencheur {ttype}")
         message = trigger.get("message")
         if not isinstance(message, str) or not 1 <= len(message) <= 300:
             _bad("Chaque déclencheur doit avoir un message (1 à 300 caractères)")

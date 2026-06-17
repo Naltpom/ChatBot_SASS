@@ -21,19 +21,16 @@ export type BotPerm = 'copy' | 'test' | 'appearance' | 'context' | 'security' | 
 export type BotPermissions = Record<string, string[]>
 
 // ============================================================================
-// Organization (OrgOut) : une organisation = une ÉQUIPE. `role`/`permissions`
-// décrivent la position du user COURANT dans cette org.
+// Org (OrgOut) : une organisation = une ÉQUIPE. `role`/`permissions` décrivent
+// la position du user COURANT dans cette org.
 // ============================================================================
 
-export interface Organization {
+export interface Org {
   id: number
   name: string
   role: string // admin | member (role du user courant)
   permissions: BotPermissions // perms par bot (pertinent pour un member)
 }
-
-// Alias rétro-compatible avec AuthContext.tsx (interface `Org`).
-export type Org = Organization
 
 // ============================================================================
 // User (UserOut) — forme renvoyée par GET /api/auth/me et imbriquée dans
@@ -48,7 +45,7 @@ export interface User {
   is_superadmin: boolean
   created_at?: string | null
   last_login?: string | null
-  organizations: Organization[]
+  organizations: Org[]
 }
 
 // ============================================================================

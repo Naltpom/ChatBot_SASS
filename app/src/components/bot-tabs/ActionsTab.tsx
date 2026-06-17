@@ -19,9 +19,39 @@ const ACTION_TYPE_CHIPS: Record<string, { tone: 'info' | 'go' | 'acc'; label: st
   calendar_slots: { tone: 'info', label: 'Créneaux Cal.com' },
 }
 
+// Champ secret write-only (secret HMAC webhook, clé Cal.com) : input password +
+// avertissement de renommage partagé mot-pour-mot entre les deux blocs. La
+// valeur est indexée par position (clé React = index) et écrite via
+// setActionSecretAt(i, v) exposé par useBotEditor.
+function ActionSecretField({
+  label, hint, placeholder, i, value, onChange, warn,
+}: {
+  label: string
+  hint: React.ReactNode
+  placeholder: string
+  i: number
+  value: string
+  onChange: (i: number, v: string) => void
+  warn: boolean | undefined
+}) {
+  return (
+    <Field label={label} hint={hint}>
+      <input type="password" className="mono"
+             placeholder={placeholder}
+             value={value}
+             onChange={e => onChange(i, e.target.value)} />
+      {warn && (
+        <div className="field-hint" style={{ color: 'var(--warn)' }}>
+          Renommer sans ressaisir le secret le supprimera (le secret est rattaché au nom).
+        </div>
+      )}
+    </Field>
+  )
+}
+
 export default function ActionsTab({
   bot, savedBot, patch, actions, mcpServers,
-  actionSecrets, setActionSecrets, mcpTokens, setMcpTokens,
+  actionSecrets, setActionSecretAt, mcpTokens, setMcpTokenAt,
   updateAction, addAction, removeAction, updateActionField, updateActionType,
   updateMcpServer, addMcpServer, removeMcpServer,
 }: {
@@ -31,9 +61,9 @@ export default function ActionsTab({
   actions: BotAction[]
   mcpServers: McpServer[]
   actionSecrets: Record<number, string>
-  setActionSecrets: React.Dispatch<React.SetStateAction<Record<number, string>>>
+  setActionSecretAt: (i: number, v: string) => void
   mcpTokens: Record<number, string>
-  setMcpTokens: React.Dispatch<React.SetStateAction<Record<number, string>>>
+  setMcpTokenAt: (i: number, v: string) => void
   updateAction: (i: number, fields: Partial<BotAction>) => void
   addAction: () => void
   removeAction: (i: number) => void
@@ -138,22 +168,10 @@ export default function ActionsTab({
                     <input type="text" className="mono" placeholder="https://api.votre-site.fr/hooks/chapote"
                            value={a.url || ''} onChange={e => updateAction(i, { url: e.target.value })} />
                   </Field>
-                  <Field label="Secret HMAC" hint="Signature HMAC-SHA256 dans l'en-tête X-Chapote-Signature.">
-                    <input type="password" className="mono"
-                           placeholder={a.secret_set ? '•••• (laisser vide pour conserver)' : 'Optionnel — signe chaque appel'}
-                           value={actionSecrets[i] || ''}
-                           onChange={e => setActionSecrets(prev => {
-                             const next = { ...prev }
-                             if (e.target.value) next[i] = e.target.value
-                             else delete next[i]
-                             return next
-                           })} />
-                    {renameWarn && (
-                      <div className="field-hint" style={{ color: 'var(--warn)' }}>
-                        Renommer sans ressaisir le secret le supprimera (le secret est rattaché au nom).
-                      </div>
-                    )}
-                  </Field>
+                  <ActionSecretField label="Secret HMAC"
+                    hint="Signature HMAC-SHA256 dans l'en-tête X-Chapote-Signature."
+                    placeholder={a.secret_set ? '•••• (laisser vide pour conserver)' : 'Optionnel — signe chaque appel'}
+                    i={i} value={actionSecrets[i] || ''} onChange={setActionSecretAt} warn={renameWarn} />
                   <div>
                     <div className="field-label">Champs transmis</div>
                     <div className="col g6">
@@ -224,23 +242,10 @@ export default function ActionsTab({
                            value={a.timezone || 'Europe/Paris'}
                            onChange={e => updateAction(i, { timezone: e.target.value })} />
                   </Field>
-                  <Field label="Clé API Cal.com"
-                         hint="Stockée chiffrée, jamais réaffichée. L'IA consultera les disponibilités des 7 prochains jours (40 créneaux max).">
-                    <input type="password" className="mono"
-                           placeholder={a.api_key_set ? '•••• (laisser vide pour conserver)' : 'cal_live_…'}
-                           value={actionSecrets[i] || ''}
-                           onChange={e => setActionSecrets(prev => {
-                             const next = { ...prev }
-                             if (e.target.value) next[i] = e.target.value
-                             else delete next[i]
-                             return next
-                           })} />
-                    {renameWarn && (
-                      <div className="field-hint" style={{ color: 'var(--warn)' }}>
-                        Renommer sans ressaisir le secret le supprimera (le secret est rattaché au nom).
-                      </div>
-                    )}
-                  </Field>
+                  <ActionSecretField label="Clé API Cal.com"
+                    hint="Stockée chiffrée, jamais réaffichée. L'IA consultera les disponibilités des 7 prochains jours (40 créneaux max)."
+                    placeholder={a.api_key_set ? '•••• (laisser vide pour conserver)' : 'cal_live_…'}
+                    i={i} value={actionSecrets[i] || ''} onChange={setActionSecretAt} warn={renameWarn} />
                 </>
               ) : (
                 <InfoBox tone="info">
@@ -309,12 +314,7 @@ export default function ActionsTab({
                 <input type="password" className="mono"
                        placeholder={s.auth_token_set ? '•••• (laisser vide pour conserver le jeton)' : 'Jeton Bearer — optionnel'}
                        value={mcpTokens[i] || ''}
-                       onChange={e => setMcpTokens(prev => {
-                         const next = { ...prev }
-                         if (e.target.value) next[i] = e.target.value
-                         else delete next[i]
-                         return next
-                       })} />
+                       onChange={e => setMcpTokenAt(i, e.target.value)} />
                 {tokenWarn && (
                   <div className="field-hint" style={{ color: 'var(--warn)' }}>
                     Renommer le serveur ou changer son URL invalide le jeton enregistré — ressaisissez-le.

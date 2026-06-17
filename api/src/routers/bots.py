@@ -75,22 +75,20 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
     """Tous les bots accessibles : mes bots perso + ceux des organisations dont
     je suis membre. Un superadmin voit SES bots perso + ceux de SES orgs (pas
     tout le parc — la vue back-office est dans /api/admin)."""
-    my_org_ids = (await db.execute(
-        select(Membership.organization_id).where(Membership.user_id == user.id)
+    # Une SEULE requete Membership : my_org_ids (filtre des bots d'equipe) et
+    # by_org (masquage des champs selon la perm) en sont tous deux derives.
+    memberships = (await db.execute(
+        select(Membership).where(Membership.user_id == user.id)
     )).scalars().all()
+    by_org = {m.organization_id: m for m in memberships}
     conditions = [Bot.owner_user_id == user.id]
-    if my_org_ids:
-        conditions.append(Bot.organization_id.in_(list(my_org_ids)))
+    if by_org:
+        conditions.append(Bot.organization_id.in_(list(by_org)))
     bots = (await db.execute(
         select(Bot).where(or_(*conditions)).order_by(Bot.created_at)
     )).scalars().all()
 
     week = await bots_week_stats_for_ids(db, {b.id for b in bots})
-    # Membership par org (pour le masquage des bots d'equipe selon la perm)
-    memberships = (await db.execute(
-        select(Membership).where(Membership.user_id == user.id)
-    )).scalars().all()
-    by_org = {m.organization_id: m for m in memberships}
 
     out = []
     for b in bots:
@@ -213,22 +211,27 @@ def _enforce_field_perms(user: User, membership: "Membership | None", bot: Bot, 
             _check_bot_perm(user, membership, bot, perm)
 
 
+def _vt(value: Any) -> None:
+    """Validation structurelle d'un arbre -> 422 si invalide. PAS de garde None
+    interne (volontaire) : import_config valide tree_json meme quand null (le
+    moteur leve 422), contrairement a _validate_trees. La garde `is not None`
+    reste donc chez chaque appelant."""
+    try:
+        validate_tree(value)
+    except TreeError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+
 def _validate_trees(bot: Bot, data: dict) -> None:
     """Validation structurelle des arbres modifies (principal + variante A/B).
     null variante = desactiver (deja gere : non valide). 422 sur arbre invalide."""
     # Variante A/B : validation structurelle de l'arbre. null = desactiver.
     variant_changed = "tree_variant_json" in data and data["tree_variant_json"] != bot.tree_variant_json
     if variant_changed and data["tree_variant_json"] is not None:
-        try:
-            validate_tree(data["tree_variant_json"])
-        except TreeError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+        _vt(data["tree_variant_json"])
 
     if "tree_json" in data and data["tree_json"] is not None:
-        try:
-            validate_tree(data["tree_json"])
-        except TreeError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+        _vt(data["tree_json"])
 
 
 def _normalize_handoff_url(data: dict) -> None:
@@ -343,17 +346,11 @@ _CONFIG_SCALAR_FIELDS = ("name", "mode", "ai_provider", "ai_model",
 async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Import d'un fichier de config exporte (les champs inconnus sont ignores)."""
     bot, membership = await _get_accessible_bot(db, bot_id, user)
-    # Permission par champ effectivement importe (meme mapping que le PATCH)
-    for field in CONFIG_FIELDS:
-        if field in config:
-            perm = FIELD_PERMS.get(field)
-            if perm:
-                _check_bot_perm(user, membership, bot, perm)
+    # Permission par champ effectivement importe (meme mapping/boucle que le PATCH)
+    _enforce_field_perms(user, membership, bot, {f: config[f] for f in CONFIG_FIELDS if f in config})
     if "tree_json" in config:
-        try:
-            validate_tree(config["tree_json"])
-        except TreeError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+        # null inclus -> 422 (comme avant : _vt sans garde None interne)
+        _vt(config["tree_json"])
     # Scalaires : memes contraintes que le PATCH (BotUpdate). On ne valide que
     # les champs presents et non-null (un null importe est ignore comme avant) ;
     # les valeurs coercees/validees ecrasent les brutes pour ces seuls champs.

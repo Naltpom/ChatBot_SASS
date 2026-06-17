@@ -28,7 +28,7 @@ export function ChapoteWidget() {
   const [phase, setPhase] = useState(0)
   const [seq, setSeq] = useState(0)
   useEffect(() => {
-    const t = setInterval(() => { setPhase(p => (p + 1) % 3); setSeq(s => s + 1) }, 5000)
+    const t = setInterval(() => { setPhase(p => (p + 1) % WIDGET_PHASES.length); setSeq(s => s + 1) }, 5000)
     return () => clearInterval(t)
   }, [])
 
