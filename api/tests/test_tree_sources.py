@@ -6,6 +6,7 @@ app.dependency_overrides et on monkeypatch safe_get / safe_probe. MOCK_AI=true
 
 Lancement : pytest tests/test_tree_sources.py -q  (depuis api/).
 """
+import asyncio
 import io
 import json
 
@@ -194,3 +195,31 @@ async def test_validate_url_malformed_body_422(client):
     async with client as c:
         resp = await c.post("/api/tree/validate-url", json={})
     assert resp.status_code == 422
+
+
+# --- jobs + SSE : la tâche de fond produit MOCK_TREE (couvre run_generation) ---
+
+@pytest.mark.asyncio
+async def test_job_flow_produces_mock_tree(client, monkeypatch):
+    async def fake_get(url, max_bytes):
+        return "<html><body>" + "Contenu d'aide riche et exploitable. " * 5 + "</body></html>"
+
+    monkeypatch.setattr("src.services.tree_jobs.safe_get", fake_get)
+    from src.services import tree_jobs
+
+    sources = json.dumps([{"url": "https://example.com/aide", "type": "aide"}])
+    async with client as c:
+        resp = await c.post("/api/tree/jobs", data={"sources": sources})
+        assert resp.status_code == 200, resp.text
+        job_id = resp.json()["job_id"]
+        assert job_id
+        # La tâche de fond (asyncio.create_task) tourne dans la même loop : on
+        # rend la main jusqu'à son aboutissement (MOCK_AI -> MOCK_TREE), borné.
+        job = None
+        for _ in range(60):
+            job = await tree_jobs.get(job_id)
+            if job and job["status"] in ("done", "error"):
+                break
+            await asyncio.sleep(0.05)
+    assert job is not None and job["status"] == "done", job
+    assert job["tree_json"] == MOCK_TREE

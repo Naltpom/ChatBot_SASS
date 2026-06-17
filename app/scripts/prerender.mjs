@@ -7,8 +7,8 @@
 // un SEO propre par page. Les autres routes restent client-only (fallback SPA).
 //
 // Lancé après `vite build` par le script "build" (sous bun en prod, node en local).
-// La liste ROUTES doit rester alignée avec PRERENDERED (main.tsx) et le script
-// anti-flash de index.html.
+// La liste des routes vient de src/prerenderRoutes.ts (source UNIQUE partagée
+// avec main.tsx) ; le script anti-flash inline de index.html en garde une copie.
 import { createServer } from 'vite'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -22,17 +22,6 @@ const ROOT_DIV = '<div id="root"></div>'
 // Valeurs du <head> de base (index.html) — remplacées par page si surchargées.
 const BASE_TITLE = 'Chapote — Le chatbot hybride français'
 const BASE_SHORT_DESC = 'Arbre guidé illimité + IA plafonnée + relais humain, en une seule balise. RGPD par défaut, hébergement français.'
-
-const ROUTES = [
-  // « / » : on garde le <head> par défaut de index.html.
-  { path: '/', out: 'index.html' },
-  {
-    path: '/showcase', out: 'showcase/index.html',
-    title: 'Ils utilisent Chapote — le chatbot hybride français',
-    description: 'Chapote, le chatbot hybride français (arbre guidé, IA plafonnée, relais humain), s’installe en une balise sur les sites e-commerce, services, commerces locaux et SaaS. RGPD par défaut, hébergement français.',
-    canonical: 'https://chapote.fr/showcase',
-  },
-]
 
 // Surcharge ciblée du <head> (remplacements exacts — index.html est sous notre
 // contrôle). Idempotent : une route sans surcharge laisse le <head> intact.
@@ -66,11 +55,12 @@ async function main() {
 
   try {
     const { render } = await vite.ssrLoadModule('/src/entry-server.tsx')
+    const { PRERENDER_ROUTES } = await vite.ssrLoadModule('/src/prerenderRoutes.ts')
     const base = readFileSync(resolve(dist, 'index.html'), 'utf-8')
     if (!base.includes(ROOT_DIV)) {
       throw new Error(`Marqueur "${ROOT_DIV}" introuvable dans dist/index.html — prérendu impossible.`)
     }
-    for (const r of ROUTES) {
+    for (const r of PRERENDER_ROUTES) {
       const appHtml = render(r.path)
       let html = base.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`)
       html = applyMeta(html, r)
