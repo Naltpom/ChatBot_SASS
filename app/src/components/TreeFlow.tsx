@@ -28,6 +28,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { Tree, TreeNode } from '../types/bot'
+import { renderMarkdown } from './widget-preview/markdown'
 
 // 'link' = l'option NE possède pas de nœud : elle pointe (next) vers un nœud
 // EXISTANT (retour menu "root", ou saut vers une autre branche partagée). C'est
@@ -513,10 +514,18 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     const badge = depth === 0 ? S.badge(o.color) : { ...S.badge(o.color), fontSize: 9 }
     const titleStyle = depth === 0 ? S.title : { fontSize: 11.5, fontWeight: 600 as const, marginTop: 2 }
     const connLen = depth === 0 ? 14 : 12
-    // Lien (retour/boucle ou saut vers un nœud existant) : feuille terminale =
-    // juste la pastille, jamais ré-étendue.
+    // Lien (retour/boucle ou saut vers un nœud existant) : feuille terminale,
+    // jamais ré-étendue. Pastille DISTINCTE (couleur « Lien », bord pointillé,
+    // flèche ↪) pour rendre le type visible ; tooltip = destination.
     if (o.isLink) {
-      return <div key={o.key} style={pill}>{o.answer}</div>
+      const lbl = o.answer.replace(/^[↩↪←]\s*/, '')
+      return (
+        <div key={o.key} title={'↪ ' + destOf(o.next)}
+             style={{ ...pill, color: C.link, borderColor: C.link, borderStyle: 'dashed',
+                      display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+          <span style={{ fontWeight: 800 }}>↪</span>{lbl}
+        </div>
+      )
     }
     if (isVert) {
       return (
@@ -525,7 +534,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
           <div style={{ ...S.connV, height: connLen }} />
           <div style={card}>
             <div style={badge}>{o.badge}</div>
-            <div style={titleStyle}>{o.title}</div>
+            <div style={titleStyle}>{renderMarkdown(o.title)}</div>
           </div>
           {o.children.length > 0 && (
             <>
@@ -544,7 +553,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
         <div style={{ ...S.connH, width: connLen }} />
         <div style={card}>
           <div style={badge}>{o.badge}</div>
-          <div style={titleStyle}>{o.title}</div>
+          <div style={titleStyle}>{renderMarkdown(o.title)}</div>
         </div>
         {o.children.length > 0 && (
           <>
@@ -566,7 +575,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
         gap: 16, flexWrap: 'wrap',
       }}>
         <div style={S.legendWrap}>
-          {(['q', 'ia', 'hum', 'act'] as BranchType[]).map(k => (
+          {(['q', 'ia', 'hum', 'act', 'link'] as BranchType[]).map(k => (
             <span key={k} style={S.legendItem}>
               <span style={S.legendDot(C[k])} />{B[k]}
             </span>
