@@ -29,7 +29,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Tree, TreeNode } from '../types/bot'
 
-type BranchType = 'q' | 'ia' | 'hum' | 'act'
+// 'link' = l'option NE possède pas de nœud : elle pointe (next) vers un nœud
+// EXISTANT (retour menu "root", ou saut vers une autre branche partagée). C'est
+// une FEUILLE dans la vue (jamais ré-étendue) + un sélecteur de destination.
+type BranchType = 'q' | 'ia' | 'hum' | 'act' | 'link'
 
 interface Props {
   tree: Tree
@@ -38,8 +41,8 @@ interface Props {
 }
 
 // Couleurs (bord-gauche carte + pastille + badge) et libellés des badges.
-const C: Record<BranchType, string> = { q: '#2F9E79', ia: '#8C6DFF', hum: '#E86A5F', act: '#2563EB' }
-const B: Record<BranchType, string> = { q: 'Question', ia: 'IA', hum: 'Conseiller', act: 'Action' }
+const C: Record<BranchType, string> = { q: '#2F9E79', ia: '#8C6DFF', hum: '#E86A5F', act: '#2563EB', link: '#64748B' }
+const B: Record<BranchType, string> = { q: 'Question', ia: 'IA', hum: 'Conseiller', act: 'Action', link: 'Lien' }
 
 let _seq = 1
 function newNodeId(nodes: Record<string, unknown>): string {
@@ -155,10 +158,23 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
       return
     }
 
-    // Pour les types non-IA : il faut un VRAI nœud cible. Si l'option pointe
-    // actuellement vers l'IA, on crée un nœud dédié.
+    if (ty === 'link') {
+      // L'option devient un simple lien : par défaut retour au menu d'accueil.
+      // L'utilisateur choisit ensuite la vraie destination via setLinkTarget.
+      const old = opt.next
+      opt.next = draft.start || 'root'
+      gc(draft, old)
+      return
+    }
+
+    // Pour les types non-IA : il faut un VRAI nœud cible POSSÉDÉ par cette option.
+    // Si l'option pointe vers l'IA, un nœud inexistant, la racine, ou un nœud
+    // PARTAGÉ (référencé ailleurs : c'était un lien), on FORKE un nœud dédié —
+    // jamais muter la racine ni un nœud partagé.
     let targetId = opt.next
-    if (targetId === '__ai__' || !nd[targetId]) {
+    const refCount = Object.values(nd).reduce(
+      (c, n) => c + (n.options || []).filter(o => o.next === targetId).length, 0)
+    if (targetId === '__ai__' || !nd[targetId] || targetId === draft.start || refCount > 1) {
       targetId = newNodeId(nd)
       nd[targetId] = { message: '', options: [] }
       opt.next = targetId
@@ -251,6 +267,17 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
       if (node) node.message = v
     })
   }
+  // Repointe une option-LIEN vers un autre nœud EXISTANT (destination choisie
+  // dans le menu déroulant). GC l'ancienne cible si elle devient orpheline.
+  function setLinkTarget(parentId: string, optIdx: number, targetId: string) {
+    mutate(d => {
+      const o = d.nodes![parentId]?.options?.[optIdx]
+      if (!o || !d.nodes![targetId]) return
+      const old = o.next
+      o.next = targetId
+      if (old !== targetId) gc(d, old)
+    })
+  }
   function removeOption(parentId: string, optIdx: number) {
     mutate(d => {
       const opts = d.nodes![parentId]?.options
@@ -270,29 +297,43 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     idx: number
     answer: string
     title: string
+    next: string           // cible brute (pour le sélecteur de destination d'un lien)
     type: BranchType
     color: string
     badge: string
     isAI: boolean
     backEdge: boolean      // pointe vers un ancêtre (boucle) -> feuille, pas d'expansion
+    isLink: boolean        // pointe vers un nœud EXISTANT possédé ailleurs / ancêtre -> feuille + sélecteur
     expandable: boolean    // 'q' non-feuille -> peut recevoir des sous-réponses + récursion
     children: OptView[]
   }
+  // POSSESSION : un nœud est « possédé » (éditable + étendu) par la PREMIÈRE
+  // option qui l'atteint en parcours DFS. Toute référence ULTÉRIEURE au même
+  // nœud (ou un retour vers un ancêtre) est un LIEN — feuille, jamais ré-étendue.
+  // Évite la duplication d'un sous-arbre partagé et toute récursion infinie.
+  const claimed = new Set<string>()
   function optionsOf(parentId: string, ancestors: string[]): OptView[] {
     const node = nodes[parentId]
     if (!node || !node.options) return []
     const keys = optionKeys(node.options)
     return node.options.map((o, j) => {
-      const ty = branchType(t, o.next)
       const isAI = o.next === '__ai__'
       const target = isAI ? null : nodes[o.next]
+      const exists = !!target
       const backEdge = !isAI && ancestors.includes(o.next)
-      // Expandable uniquement si vrai nœud « q » existant, hors back-edge.
-      const expandable = !isAI && !!target && !backEdge && ty === 'q'
+      // Lien = cible existante déjà possédée ailleurs (vérifié AVANT de réclamer)
+      // ou retour vers un ancêtre. Sinon, 1re rencontre -> on la réclame.
+      const isLink = !isAI && exists && (backEdge || claimed.has(o.next))
+      if (!isAI && exists && !isLink) claimed.add(o.next)
+      const contentTy = branchType(t, o.next)
+      const ty: BranchType = isAI ? 'ia' : isLink ? 'link' : contentTy
+      // Expandable uniquement si vrai nœud « q » possédé (ni IA, ni lien).
+      const expandable = !isAI && exists && !isLink && contentTy === 'q'
       return {
         key: keys[j], parentId, idx: j,
-        answer: o.label, title: destOf(o.next), type: ty, color: C[ty], badge: B[ty],
-        isAI, backEdge, expandable,
+        answer: o.label, title: destOf(o.next), next: o.next,
+        type: ty, color: C[ty], badge: B[ty],
+        isAI, backEdge, isLink, expandable,
         children: expandable ? optionsOf(o.next, [...ancestors, o.next]) : [],
       }
     })
@@ -306,6 +347,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     ...(allowAI ? [{ value: 'ia' as BranchType, label: 'IA' }] : []),
     { value: 'hum', label: 'Conseiller' },
     { value: 'act', label: 'Action' },
+    { value: 'link', label: '↪ Lien (nœud existant)' },
   ]
   const typeOptions = typeOpts('Question (arbre)')
   const subTypeOptions = typeOpts('Question')
@@ -405,10 +447,12 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
   // d'elle-même (children non vides seulement si `expandable`).
   function renderEditorRow(o: OptView, depth: number) {
     const compact = depth > 0
-    const canChild = !o.isAI && !o.backEdge   // q/hum/act éditables -> sous-réponse
-    // Message affiché quand on clique : seulement pour un vrai nœud cible éditable
-    // (ni IA, ni lien de retour qui ne fait que renvoyer vers un nœud existant).
-    const showMsg = !o.isAI && !o.backEdge
+    const canChild = !o.isAI && !o.isLink     // q/hum/act éditables -> sous-réponse
+    // Message affiché quand on clique : seulement pour un vrai nœud cible POSSÉDÉ
+    // (ni IA, ni lien qui ne fait que renvoyer vers un nœud existant).
+    const showMsg = !o.isAI && !o.isLink
+    // Destinations possibles d'un lien : tous les nœuds existants (root inclus).
+    const linkChoices = o.isLink ? Object.keys(nodes).filter(id => id !== '__ai__') : []
     return (
       <div key={o.key} style={depth === 0
         ? { border: '1px solid #F0F2F5', borderRadius: 12, padding: '13px 14px' }
@@ -417,21 +461,33 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
         <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 9 : 10, flexWrap: 'wrap' }}>
           <span style={compact ? { ...S.dot(o.color), width: 11, height: 11 } : S.dot(o.color)} />
           <select value={o.type} onChange={e => setType(o.parentId, o.idx, e.target.value)}
-                  disabled={o.backEdge}
-                  title={o.backEdge ? 'Lien de retour — type non modifiable' : undefined}
-                  style={{ ...S.select, ...(compact ? { height: 32, borderRadius: 8, padding: '0 7px', fontSize: 12 } : null), opacity: o.backEdge ? 0.6 : 1 }}>
+                  style={{ ...S.select, ...(compact ? { height: 32, borderRadius: 8, padding: '0 7px', fontSize: 12 } : null) }}>
             {(compact ? subTypeOptions : typeOptions).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
           <input type="text" value={o.answer} placeholder="Intitulé du bouton"
                  style={{ ...S.answerInput, flex: 1, minWidth: 120, width: 'auto', ...(compact ? { height: 32, borderRadius: 8, fontSize: 12.5 } : null) }}
                  onChange={e => setLabel(o.parentId, o.idx, e.target.value)} />
-          <button type="button" title={o.backEdge ? 'Lien retour (boucle) — pas de sous-réponse' : 'Ajouter une sous-réponse'}
+          <button type="button" title={o.isLink ? 'Lien (renvoie vers un nœud existant) — pas de sous-réponse' : 'Ajouter une sous-réponse'}
                   onClick={() => addOption(o.parentId, o.idx)} disabled={!canChild}
                   style={{ ...S.iconBtn, ...(compact ? { width: 30, height: 30, borderRadius: 8, fontSize: 14 } : null), opacity: canChild ? 1 : .5, cursor: canChild ? 'pointer' : 'not-allowed' }}>+</button>
           <button type="button" onClick={() => removeOption(o.parentId, o.idx)}
                   style={{ ...S.delBtn, ...(compact ? { width: 30, height: 30, borderRadius: 8, fontSize: 13 } : null) }}>✕</button>
         </div>
-        {/* Ligne 2 : MESSAGE affiché (textarea, markdown léger). */}
+        {/* Ligne 2a : LIEN -> sélecteur de destination (nœud existant). */}
+        {o.isLink && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: '#6B7B8D', fontWeight: 600 }}>↪ Va vers&nbsp;:</span>
+            <select value={o.next} onChange={e => setLinkTarget(o.parentId, o.idx, e.target.value)}
+                    style={{ ...S.select, flex: 1, minWidth: 180, fontWeight: 500 }}>
+              {linkChoices.map(id => (
+                <option key={id} value={id}>
+                  {id === start ? '🏠 Menu d’accueil (root)' : (nodes[id]?.message?.slice(0, 50) || id)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {/* Ligne 2b : MESSAGE affiché (textarea, markdown léger). */}
         {showMsg && (
           <textarea value={o.title}
                     placeholder="Message affiché quand on clique — markdown : **gras**, *italique*, [lien](https://…), sauts de ligne"
@@ -457,8 +513,9 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     const badge = depth === 0 ? S.badge(o.color) : { ...S.badge(o.color), fontSize: 9 }
     const titleStyle = depth === 0 ? S.title : { fontSize: 11.5, fontWeight: 600 as const, marginTop: 2 }
     const connLen = depth === 0 ? 14 : 12
-    // Back-edge : feuille terminale = juste la pastille (lien de retour/boucle).
-    if (o.backEdge) {
+    // Lien (retour/boucle ou saut vers un nœud existant) : feuille terminale =
+    // juste la pastille, jamais ré-étendue.
+    if (o.isLink) {
       return <div key={o.key} style={pill}>{o.answer}</div>
     }
     if (isVert) {
@@ -592,7 +649,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
           <button type="button" onClick={addBranch} style={S.addBtn}>+ Branche</button>
         </div>
         <p style={{ fontSize: 13, color: '#9AA7B4', margin: '0 0 16px' }}>
-          Pour chaque réponse : choisissez le type (couleur), l'intitulé du bouton, et le message affiché. Le message accepte du markdown léger (**gras**, *italique*, [lien](https://…), sauts de ligne). Les nouvelles réponses incluent déjà un « ↩ Retour au menu ».
+          Pour chaque réponse : choisissez le type (couleur), l'intitulé du bouton, et le message affiché. Le message accepte du markdown léger (**gras**, *italique*, [lien](https://…), sauts de ligne). Le type <strong>↪ Lien</strong> renvoie le bouton vers un nœud <em>déjà existant</em> (retour au menu, ou saut vers une autre branche) — pas de nouveau message. Les nouvelles réponses incluent déjà un « ↩ Retour au menu ».
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

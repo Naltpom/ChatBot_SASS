@@ -92,15 +92,57 @@
   }
 
   // chatStatus : statut SERVEUR autoritaire du live chat (ai | human_requested
-  // | human) — aiMode est un sous-état du mode ai. Le token vit en mémoire
-  // seule : un reload de page = nouvelle conversation (limitation documentée,
-  // couverte par le timeout 15 min serveur + la clôture staff).
+  // | human) — aiMode est un sous-état du mode ai. La session (token + fil) est
+  // PERSISTÉE en localStorage (cf. SESS_KEY) : un reload / une navigation
+  // restaure la conversation, rouvrable pendant 2 h après la dernière activité.
   const state = { config: null, token: null, open: false, busy: false, aiMode: false,
     chatStatus: "ai", lastMsgId: 0, pollTimer: null,
     // Triggers proactifs : interacted = le visiteur a déjà touché au widget
     // (plus aucun tir possible) ; pendingTriggerMsg = bulle locale à afficher
     // après l'accueil de la session ouverte par un trigger.
-    interacted: false, pendingTriggerMsg: null };
+    interacted: false, pendingTriggerMsg: null,
+    // Persistance : history = fil mémorisé [{r,t,g}] ; restored/restoredOpen =
+    // une session valide a été retrouvée au chargement (à ré-afficher).
+    history: [], restored: false, restoredOpen: false };
+
+  // --- Persistance de session (localStorage, fenêtre 2 h) -------------------
+  // On mémorise le token de session + l'historique du fil pour que la
+  // conversation SURVIVE à un reload / une navigation et reste rouvrable
+  // pendant 2 h après la dernière activité (au-delà : on repart de zéro =
+  // « cooldown »). Le token est un JWT bas-privilège (30 min, une seule
+  // conversation, session glissante) — stockage local accepté, comme kc_vid.
+  const SESS_KEY = "kc_sess_" + BOT_KEY;
+  const SESS_TTL = 2 * 60 * 60 * 1000; // 2 h
+  function persistSession() {
+    if (!state.token) return; // rien à mémoriser sans session serveur
+    try {
+      localStorage.setItem(SESS_KEY, JSON.stringify({
+        token: state.token, status: state.chatStatus, lastMsgId: state.lastMsgId,
+        aiMode: state.aiMode, open: state.open, ts: Date.now(),
+        msgs: (state.history || []).slice(-50), // borne anti-quota
+      }));
+    } catch (e) { /* quota / navigation privée : abandon silencieux */ }
+  }
+  function clearSession() {
+    state.history = [];
+    try { localStorage.removeItem(SESS_KEY); } catch (e) { /* ignore */ }
+  }
+  function loadSession() {
+    try {
+      const raw = localStorage.getItem(SESS_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      // Token absent ou fenêtre 2 h dépassée -> on oublie (cooldown écoulé).
+      if (!s || !s.token || !s.ts || (Date.now() - s.ts) > SESS_TTL) { clearSession(); return; }
+      state.token = s.token;
+      state.chatStatus = s.status || "ai";
+      state.aiMode = !!s.aiMode;
+      state.lastMsgId = s.lastMsgId || 0;
+      state.history = Array.isArray(s.msgs) ? s.msgs.slice() : [];
+      state.restored = true;
+      state.restoredOpen = !!s.open;
+    } catch (e) { clearSession(); }
+  }
 
   function isHuman() {
     return state.chatStatus === "human" || state.chatStatus === "human_requested";
@@ -130,7 +172,7 @@
   // le propager aux consommateurs. Factorisé (était dupliqué 5× : poll,
   // handoff, feedback, lead, message).
   function applyTokenRotation(resp) {
-    if (resp && resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; }
+    if (resp && resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; persistSession(); }
     return resp;
   }
 
@@ -210,6 +252,7 @@
       });
     }).then(function (data) {
       state.token = data.token;
+      persistSession(); // mémorise la nouvelle session (token frais)
       return data.first;
     });
   }
@@ -280,6 +323,8 @@
       online_ai: "En ligne · Mode IA",
       advisor_online: "Conseiller en ligne",
       advisor_wait: "En attente d'un conseiller…",
+      advisor_joined: "Un conseiller a rejoint le chat.",
+      reset_chat: "Réinitialiser la conversation",
       close: "Fermer",
       send: "Envoyer",
       open_chat: "Ouvrir le chat",
@@ -316,6 +361,8 @@
       online_ai: "Online · AI mode",
       advisor_online: "Advisor online",
       advisor_wait: "Waiting for an advisor…",
+      advisor_joined: "An advisor has joined the chat.",
+      reset_chat: "Reset conversation",
       close: "Close",
       send: "Send",
       open_chat: "Open chat",
@@ -508,6 +555,12 @@
     ui.modeBadge = el("span", "kc-mode", "TREE");
     head.appendChild(ui.modeBadge);
     if (!INLINE) {
+      const rst = el("button", "kc-x", "↻");
+      rst.style.fontSize = "16px";
+      rst.setAttribute("aria-label", t("reset_chat"));
+      rst.title = t("reset_chat");
+      rst.addEventListener("click", resetChat);
+      head.appendChild(rst);
       const x = el("button", "kc-x", "×");
       x.setAttribute("aria-label", t("close"));
       x.addEventListener("click", toggle);
@@ -635,7 +688,9 @@
     if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
   }
 
-  function addMsg(role, text, tag, msgId) {
+  // restore=true : re-rendu d'un message PERSISTÉ au boot -> ne pas le ré-empiler
+  // dans l'historique ni re-persister (et pas de CSAT, msgId non rejoué).
+  function addMsg(role, text, tag, msgId, restore) {
     const row = el("div", "kc-row " + role);
     const m = el("div", "kc-msg");
     if (tag === "ai") {
@@ -652,6 +707,11 @@
     ui.msgs.appendChild(row);
     if (msgId) ui.msgs.appendChild(rateRow(msgId));
     ui.msgs.scrollTop = ui.msgs.scrollHeight;
+    if (!restore) {
+      if (!state.history) state.history = [];
+      state.history.push({ r: role, t: text, g: tag || null });
+      persistSession();
+    }
   }
 
   // --- CSAT (pouce haut/bas sous les réponses assistant ai|tree) ---
@@ -796,7 +856,11 @@
     if (!s) return;
     const wasHuman = isHuman();
     if (s === "human" || s === "human_requested") {
+      // Transition vers "human" = un conseiller vient de PRENDRE la conversation
+      // (depuis "human_requested" en attente, ou directement). Message une fois.
+      if (s === "human" && state.chatStatus !== "human") addMsg("bot", t("advisor_joined"));
       state.chatStatus = s;
+      persistSession();
       maybeStartPolling();
       updateModeUI();
       return;
@@ -810,6 +874,7 @@
       if (state.config.mode !== "ai" && !state.aiMode) sendNodeSilent("__root__");
       updateModeUI();
     }
+    persistSession();
   }
 
   // Demande de mise en relation (enchaînée après un nœud d'arbre type
@@ -1065,8 +1130,28 @@
       .finally(function () { setTyping(false); state.busy = false; });
   }
 
+  // Restaure le fil PERSISTÉ (au lieu d'ouvrir une nouvelle session) : re-rend
+  // les bulles mémorisées puis reprend le cours (live chat ou menu d'accueil).
+  function renderRestored() {
+    state.restored = false;
+    (state.history || []).forEach(function (h) { addMsg(h.r, h.t, h.g, null, true); });
+    updateModeUI();
+    if (isHuman()) {
+      maybeStartPolling(); // reprend l'attente / l'échange conseiller en cours
+    } else if (state.aiMode || state.config.mode === "ai") {
+      if (ui.input) ui.input.focus(); // mode IA : saisie libre, pas de menu
+    } else {
+      // Bot à menu : ré-affiche les options racine pour CONTINUER. Best-effort —
+      // token expiré -> postMessage re-handshake une session serveur fraîche,
+      // le fil visible restant préservé.
+      sendNodeSilent("__root__");
+    }
+  }
+
   function startSession() {
-    if (state.token || state.busy) return;
+    if (state.busy) return;
+    if (state.restored) { renderRestored(); return; }
+    if (state.token) return;
     state.busy = true;
     state.aiMode = state.config.mode === "ai";
     updateModeUI();
@@ -1091,6 +1176,21 @@
           state.pendingTriggerMsg = null;
         }
       });
+  }
+
+  // Réinitialise la conversation : coupe le live chat, oublie la session serveur
+  // (token + statut), vide le fil et relance une session fraîche (menu d'accueil).
+  function resetChat() {
+    stopPolling();
+    clearSession(); // oublie la session persistée (token + fil)
+    state.token = null;
+    state.chatStatus = "ai";
+    state.aiMode = state.config && state.config.mode === "ai";
+    state.lastMsgId = 0;
+    state.busy = false;
+    state.restored = false;
+    if (ui.msgs) ui.msgs.textContent = "";
+    startSession();
   }
 
   function toggle() {
@@ -1125,6 +1225,7 @@
     } else {
       stopPolling(); // panneau fermé : arrêt propre du polling
     }
+    persistSession(); // mémorise l'état ouvert/fermé (démarre le cooldown 2 h à la fermeture)
   }
 
   // --- Triggers proactifs ---
@@ -1226,7 +1327,14 @@
         loc = (navigator.language || "fr").toLowerCase().indexOf("en") === 0 ? "en" : "fr";
       }
       LOCALE = loc === "en" ? "en" : "fr";
+      // Session persistée (< 2 h) : restaure token + statut + fil AVANT build
+      // (l'INLINE ouvre la session immédiatement -> doit voir state.restored).
+      loadSession();
       build(config.design);
+      // Bubble : si la session restaurée était OUVERTE, on rouvre le panneau
+      // (toggle -> startSession -> renderRestored). Sinon le fil se restaure au
+      // prochain clic. (INLINE : déjà ouvert + startSession appelé dans build.)
+      if (!INLINE && state.restored && state.restoredOpen) toggle();
       // Triggers proactifs : jamais en INLINE (panneau déjà ouvert, les
       // scroll/mouseleave de la page parente sont invisibles depuis l'iframe)
       if (!INLINE) initTriggers(config.triggers || []);
