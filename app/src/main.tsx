@@ -11,7 +11,7 @@ const root = document.getElementById('root')!
 const app = (
   <React.StrictMode>
     <AuthProvider>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_relativeSplatPath: true }}>
         <AppRoutes />
       </BrowserRouter>
     </AuthProvider>

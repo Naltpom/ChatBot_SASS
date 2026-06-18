@@ -1031,14 +1031,18 @@ export default function BotWizard() {
             </button>
           </div>
 
-          {/* Widget RÉEL posé DIRECTEMENT sur la page (ancre position:fixed 0×0
-              en bas à droite -> ne bloque aucun clic du wizard). Fermé par défaut
-              comme une vraie intégration ; l'apparence + l'arbre sont les vrais,
-              l'IA et le passage conseiller sont simulés (aucun appel réseau). */}
-          <div style={{ position: 'fixed', right: 0, bottom: 0, width: 0, height: 0, zIndex: 60 }}>
-            <WidgetPreview design={design} mode={botMode}
-                           tree={treeJson ?? presetTree()} botName={botName(answers.company, answers.sector)}
-                           defaultOpen={false} />
+          {/* Widget RÉEL posé DIRECTEMENT sur la page. Calque plein écran fixe :
+              le panneau du widget (hauteur en %) se cale ainsi sur la hauteur du
+              viewport — un wrapper 0×0 le réduisait à 0 (« ne s'ouvrait pas »).
+              pointer-events:none sur le calque -> il ne bloque AUCUN clic du
+              wizard ; le wrap interne (auto) ré-active les clics sur le widget.
+              Fermé par défaut ; apparence + arbre réels, IA/conseiller simulés. */}
+          <div style={{ position: 'fixed', inset: 0, zIndex: 60, pointerEvents: 'none' }}>
+            <div style={{ pointerEvents: 'auto' }}>
+              <WidgetPreview design={design} mode={botMode}
+                             tree={treeJson ?? presetTree()} botName={botName(answers.company, answers.sector)}
+                             defaultOpen={false} />
+            </div>
           </div>
         </div>
       )}
