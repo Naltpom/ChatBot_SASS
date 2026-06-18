@@ -9,3 +9,4 @@ dist/
 # Page de test locale du widget (racine) — ne pas versionner.
 /index.html
 .claude/settings.local.json
+bot-assistant-kertios.json

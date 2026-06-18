@@ -40,7 +40,7 @@ SYSTEM_PROMPT = """Tu construis des arbres de décision pour des chatbots de sit
 
 Règles :
 - Chaque option "next" pointe vers un nœud existant, vers "root" (retour au menu), ou vers "__ai__" (bascule vers l'IA pour les questions libres).
-- Ids de nœuds courts en snake_case. Messages concis (2-3 phrases max), ton chaleureux, en français, en texte brut : pas de markdown, pas d'emoji.
+- Ids de nœuds courts en snake_case. Messages concis (2-3 phrases max), ton chaleureux, en français. Markdown LÉGER autorisé (**gras**, *italique*, [libellé](https://…), sauts de ligne) ; pas de titres, pas de HTML, pas d'emoji.
 - Regroupe les sujets en 3 à 6 choix racine maximum. Ajoute une option "Autre question" -> "__ai__" sur le nœud racine.
 - N'ajoute JAMAIS de clé "type" aux nœuds : ce sont tous des messages avec options. Le nœud "root" est TOUJOURS un menu d'accueil (jamais une mise en relation/un formulaire).
 - Les nœuds terminaux proposent une option de retour vers "root".

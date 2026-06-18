@@ -229,7 +229,8 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
       const parent = ensureQ(nd, containerId)
       if (!parent) return
       const sid = newNodeId(nd)
-      nd[sid] = { message: 'Destination', options: [] }
+      // Nouveau nœud créé AVEC un « Retour au menu » d'office (vers la racine).
+      nd[sid] = { message: 'Destination', options: [{ label: '↩ Retour au menu', next: start }] }
       parent.options!.push({ label: 'Réponse', next: sid })
     })
   }
@@ -396,11 +397,6 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
     subRow: { display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' as const },
   }
 
-  const arrow = (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M5 12h14M13 6l6 6-6 6" stroke="#CBD5DF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
 
   // ===================== ÉDITEUR : ligne d'option RÉCURSIVE =====================
   // depth=0 = branche racine (carte épaisse), depth>=1 = sous-réponse (compacte).
@@ -409,40 +405,39 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
   // d'elle-même (children non vides seulement si `expandable`).
   function renderEditorRow(o: OptView, depth: number) {
     const compact = depth > 0
-    const canChild = !o.isAI && !o.backEdge   // hum/act/q éditables ouvrent une sous-réponse (conversion en « q »)
+    const canChild = !o.isAI && !o.backEdge   // q/hum/act éditables -> sous-réponse
+    // Message affiché quand on clique : seulement pour un vrai nœud cible éditable
+    // (ni IA, ni lien de retour qui ne fait que renvoyer vers un nœud existant).
+    const showMsg = !o.isAI && !o.backEdge
     return (
       <div key={o.key} style={depth === 0
         ? { border: '1px solid #F0F2F5', borderRadius: 12, padding: '13px 14px' }
-        : undefined}>
-        <div style={compact ? S.subRow : { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        : { borderLeft: '2px solid #F0F2F5', paddingLeft: 12 }}>
+        {/* Ligne 1 : TYPE (couleur) + INTITULÉ du bouton (CTA) côte à côte + actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 9 : 10, flexWrap: 'wrap' }}>
           <span style={compact ? { ...S.dot(o.color), width: 11, height: 11 } : S.dot(o.color)} />
           <select value={o.type} onChange={e => setType(o.parentId, o.idx, e.target.value)}
-                  style={compact ? { ...S.select, height: 32, borderRadius: 8, padding: '0 7px', fontSize: 12 } : S.select}>
+                  disabled={o.backEdge}
+                  title={o.backEdge ? 'Lien de retour — type non modifiable' : undefined}
+                  style={{ ...S.select, ...(compact ? { height: 32, borderRadius: 8, padding: '0 7px', fontSize: 12 } : null), opacity: o.backEdge ? 0.6 : 1 }}>
             {(compact ? subTypeOptions : typeOptions).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
-          <input type="text" value={o.answer} placeholder="Réponse"
-                 style={compact
-                   ? { ...S.answerInput, width: 120, height: 32, borderRadius: 8, padding: '0 10px', fontSize: 12.5 }
-                   : S.answerInput}
+          <input type="text" value={o.answer} placeholder="Intitulé du bouton"
+                 style={{ ...S.answerInput, flex: 1, minWidth: 120, width: 'auto', ...(compact ? { height: 32, borderRadius: 8, fontSize: 12.5 } : null) }}
                  onChange={e => setLabel(o.parentId, o.idx, e.target.value)} />
-          {arrow}
-          <input type="text" value={o.isAI ? '' : o.title}
-                 placeholder={o.isAI ? "L'IA prend le relais" : 'Destination'}
-                 disabled={o.isAI}
-                 style={compact
-                   ? { ...S.destInput, minWidth: 120, height: 32, borderRadius: 8, padding: '0 10px', fontSize: 12.5, opacity: o.isAI ? .6 : 1 }
-                   : { ...S.destInput, opacity: o.isAI ? .6 : 1 }}
-                 onChange={e => setTitle(o.parentId, o.idx, e.target.value)} />
           <button type="button" title={o.backEdge ? 'Lien retour (boucle) — pas de sous-réponse' : 'Ajouter une sous-réponse'}
                   onClick={() => addOption(o.parentId, o.idx)} disabled={!canChild}
-                  style={compact
-                    ? { ...S.iconBtn, width: 30, height: 30, borderRadius: 8, fontSize: 14, opacity: canChild ? 1 : .5, cursor: canChild ? 'pointer' : 'not-allowed' }
-                    : { ...S.iconBtn, opacity: canChild ? 1 : .5, cursor: canChild ? 'pointer' : 'not-allowed' }}>
-            +
-          </button>
+                  style={{ ...S.iconBtn, ...(compact ? { width: 30, height: 30, borderRadius: 8, fontSize: 14 } : null), opacity: canChild ? 1 : .5, cursor: canChild ? 'pointer' : 'not-allowed' }}>+</button>
           <button type="button" onClick={() => removeOption(o.parentId, o.idx)}
-                  style={compact ? { ...S.delBtn, width: 30, height: 30, borderRadius: 8, fontSize: 13 } : S.delBtn}>✕</button>
+                  style={{ ...S.delBtn, ...(compact ? { width: 30, height: 30, borderRadius: 8, fontSize: 13 } : null) }}>✕</button>
         </div>
+        {/* Ligne 2 : MESSAGE affiché (textarea, markdown léger). */}
+        {showMsg && (
+          <textarea value={o.title}
+                    placeholder="Message affiché quand on clique — markdown : **gras**, *italique*, [lien](https://…), sauts de ligne"
+                    onChange={e => setTitle(o.parentId, o.idx, e.target.value)}
+                    style={{ width: '100%', marginTop: 8, minHeight: compact ? 44 : 58, border: '1px solid #E2E8F0', borderRadius: 9, padding: '8px 11px', fontSize: compact ? 12.5 : 13, fontFamily: 'inherit', lineHeight: 1.45, resize: 'vertical', color: '#1C3F5C', boxSizing: 'border-box' }} />
+        )}
         {o.children.length > 0 && (
           <div style={S.subWrap}>
             {o.children.map(c => renderEditorRow(c, depth + 1))}
@@ -597,7 +592,7 @@ export default function TreeFlow({ tree, onChange, allowAI = true }: Props) {
           <button type="button" onClick={addBranch} style={S.addBtn}>+ Branche</button>
         </div>
         <p style={{ fontSize: 13, color: '#9AA7B4', margin: '0 0 16px' }}>
-          Choisissez le type (couleur), l'intitulé de la réponse et sa destination : question, IA, conseiller ou action.
+          Pour chaque réponse : choisissez le type (couleur), l'intitulé du bouton, et le message affiché. Le message accepte du markdown léger (**gras**, *italique*, [lien](https://…), sauts de ligne). Les nouvelles réponses incluent déjà un « ↩ Retour au menu ».
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
