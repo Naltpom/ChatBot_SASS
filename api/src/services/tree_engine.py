@@ -77,8 +77,17 @@ def get_node(tree: dict[str, Any], node_id: Optional[str] = None) -> tuple[str, 
     nodes = tree.get("nodes", {})
     start = tree.get("start", "root")
     if node_id and node_id in nodes:
-        return node_id, nodes[node_id]
-    return start, nodes.get(start, {"message": "Bonjour !", "options": []})
+        rid, node = node_id, nodes[node_id]
+    else:
+        rid, node = start, nodes.get(start, {"message": "Bonjour !", "options": []})
+    # Le noeud de DEPART est toujours un menu d'entree : on neutralise un type
+    # TERMINAL (handoff/lead/appointment) qui declencherait une action des
+    # l'ouverture du chat (ex. arbre genere par IA ayant halluciné
+    # "type":"handoff" sur la racine -> mise en relation conseiller immediate).
+    # Read-only : on sert une copie nettoyee, la donnee stockee n'est pas touchee.
+    if rid == start and isinstance(node, dict) and node.get("type") in ("handoff", "lead", "appointment"):
+        node = {k: v for k, v in node.items() if k not in ("type", "url", "fields")}
+    return rid, node
 
 
 def format_node_response(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
