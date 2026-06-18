@@ -42,6 +42,7 @@ Règles :
 - Chaque option "next" pointe vers un nœud existant, vers "root" (retour au menu), ou vers "__ai__" (bascule vers l'IA pour les questions libres).
 - Ids de nœuds courts en snake_case. Messages concis (2-3 phrases max), ton chaleureux, en français, en texte brut : pas de markdown, pas d'emoji.
 - Regroupe les sujets en 3 à 6 choix racine maximum. Ajoute une option "Autre question" -> "__ai__" sur le nœud racine.
+- N'ajoute JAMAIS de clé "type" aux nœuds : ce sont tous des messages avec options. Le nœud "root" est TOUJOURS un menu d'accueil (jamais une mise en relation/un formulaire).
 - Les nœuds terminaux proposent une option de retour vers "root".
 - Réponds UNIQUEMENT avec le JSON, sans markdown, sans commentaire."""
 
@@ -150,4 +151,13 @@ async def generate_tree(source_text: str) -> dict:
     except (json.JSONDecodeError, TreeError) as e:
         logger.error("Génération d'arbre : sortie invalide (%s) : %.300s", e, raw)
         raise TreeGenerationError("L'IA a produit un arbre invalide, relancez la génération")
+
+    # Garde-fou : le nœud de départ doit être un MENU (jamais terminal). L'IA
+    # ajoute parfois un "type" parasite sur la racine -> handoff/formulaire dès
+    # l'ouverture. On le retire à la source (en plus du garde-fou au service).
+    start = tree.get("start", "root")
+    snode = (tree.get("nodes") or {}).get(start)
+    if isinstance(snode, dict) and snode.get("type") in ("handoff", "lead", "appointment"):
+        for k in ("type", "url", "fields"):
+            snode.pop(k, None)
     return tree
