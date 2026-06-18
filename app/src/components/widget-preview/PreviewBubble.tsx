@@ -3,6 +3,7 @@
 // (état ratings, machine à états) reste dans WidgetPreview.
 import { Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 import type { Msg, PreviewStyle, T } from './shared'
+import { renderMarkdown } from './markdown'
 
 export default function PreviewBubble({ m, i, st, t, rating, onRate }: {
   m: Msg
@@ -34,7 +35,10 @@ export default function PreviewBubble({ m, i, st, t, rating, onRate }: {
             {t('tag_advisor').trim()}
           </div>
         )}
-        {m.text}
+        {/* Bulle bot : markdown léger (gras/italique/lien/sauts de ligne).
+            Bulle user (libellés cliqués) : texte brut. white-space pre-wrap pour
+            que les sauts de ligne s'affichent comme dans le widget. */}
+        <span style={{ whiteSpace: 'pre-wrap' }}>{m.from === 'bot' ? renderMarkdown(m.text) : m.text}</span>
       </div>
       {/* CSAT simulé — HORS de la bulle (parité .kc-rate hors .kc-msg),
           jamais sur les bulles système/Conseiller (parité : le widget

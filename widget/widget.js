@@ -417,6 +417,9 @@
       ".kc-msg{max-width:82%;padding:" + (compact ? "7px 10px" : "9px 12px") + ";font-size:" + (compact ? "12.5" : "13.5") + "px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}",
       ".kc-row.bot .kc-msg{border-radius:" + (square ? "8px" : "4px " + r14 + "px " + r14 + "px " + r14 + "px") + ";background:" + botBg + ";color:" + botText + ";border:1px solid " + botBorder + ";box-shadow:0 1px 2px rgba(0,0,0,.04)}",
       ".kc-row.user .kc-msg{border-radius:" + (square ? "8px" : r14 + "px " + r14 + "px 4px " + r14 + "px") + ";background:" + brand + ";color:#fff}",
+      // Markdown léger rendu dans les bulles (liens cliquables, gras/italique).
+      ".kc-msg a{color:inherit;text-decoration:underline;font-weight:600}",
+      ".kc-msg strong{font-weight:700}",".kc-msg em{font-style:italic}",
       // Tag « IA » et tag « Conseiller » (live chat) : même gabarit
       ".kc-ai-tag,.kc-human-tag{font-size:9.5px;font-weight:800;letter-spacing:.5px;color:" + brand + ";margin-bottom:3px}",
       // CSAT : pouces discrets SOUS la bulle assistant (élément séparé de
@@ -609,6 +612,29 @@
   // sélecteurs e2e font des toHaveText exacts sur les bulles : zéro texte
   // ajouté, SVG + title localisé uniquement). Jamais de msgId pour les
   // messages human/system (poll), locaux, d'erreur ou de trigger.
+  // Markdown LÉGER et SÛR (parité app/.../widget-preview/markdown.tsx) :
+  // **gras**, *italique* / _italique_, [libellé](url http/https). Construit des
+  // nœuds DOM (JAMAIS innerHTML) -> anti-XSS. Les \n restent en texte (rendus par
+  // white-space:pre-wrap). Un texte sans token markdown ressort à l'identique
+  // (les sélecteurs e2e toHaveText exact restent valides).
+  var MD_RE = /\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_|\[([^\]]+)\]\(([^)\s]+)\)/g;
+  function renderMd(parent, text) {
+    text = String(text == null ? "" : text);
+    MD_RE.lastIndex = 0;
+    var last = 0, m;
+    while ((m = MD_RE.exec(text)) !== null) {
+      if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+      if (m[1] != null) { var b = document.createElement("strong"); b.textContent = m[1]; parent.appendChild(b); }
+      else if (m[2] != null || m[3] != null) { var it = document.createElement("em"); it.textContent = m[2] != null ? m[2] : m[3]; parent.appendChild(it); }
+      else if (m[4] != null) {
+        if (/^https?:\/\//i.test(m[5])) { var a = document.createElement("a"); a.href = m[5]; a.target = "_blank"; a.rel = "noopener nofollow"; a.textContent = m[4]; parent.appendChild(a); }
+        else parent.appendChild(document.createTextNode(m[4]));
+      }
+      last = MD_RE.lastIndex;
+    }
+    if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+  }
+
   function addMsg(role, text, tag, msgId) {
     const row = el("div", "kc-row " + role);
     const m = el("div", "kc-msg");
@@ -621,7 +647,7 @@
       th.innerHTML = SVG.userSmall + t("tag_advisor"); // constantes statiques
       m.appendChild(th);
     }
-    m.appendChild(document.createTextNode(text));
+    renderMd(m, text);
     row.appendChild(m);
     ui.msgs.appendChild(row);
     if (msgId) ui.msgs.appendChild(rateRow(msgId));
