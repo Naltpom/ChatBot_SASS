@@ -15,7 +15,7 @@ export function render(url = '/'): string {
   return renderToString(
     <React.StrictMode>
       <AuthProvider>
-        <StaticRouter location={url}>
+        <StaticRouter location={url} future={{ v7_relativeSplatPath: true }}>
           <AppRoutes />
         </StaticRouter>
       </AuthProvider>
