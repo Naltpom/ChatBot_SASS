@@ -47,14 +47,14 @@ test('onglet Arbre : ajouter une branche, voir le flowchart, enregistrer puis pe
   await expect(page.getByText('Arbre de conversation', { exact: true })).toBeVisible()
   await expect(page.getByText("Message d'accueil")).toBeVisible()
 
-  // Ajout d'une branche -> une ligne d'édition apparaît (input « Réponse »
-  // pré-rempli « Nouvelle réponse ») et la branche se reflète dans le canvas.
+  // Ajout d'une branche -> une ligne d'édition apparaît (intitulé du bouton
+  // pré-rempli « Réponse ») et la branche se reflète dans le canvas.
   await page.getByRole('button', { name: '+ Branche' }).click()
-  const answerInput = page.locator('input[placeholder="Réponse"]').last()
+  const answerInput = page.locator('input[placeholder="Intitulé du bouton"]').last()
   await expect(answerInput).toBeVisible()
   await answerInput.fill('Choix E2E')
-  // La destination du nœud cible (placeholder « Destination »)
-  const destInput = page.locator('input[placeholder="Destination"]').last()
+  // Le message du nœud cible est une <textarea> (markdown léger)
+  const destInput = page.locator('textarea[placeholder^="Message affiché"]').last()
   await destInput.fill('Réponse E2E')
 
   // Le flowchart reflète la nouvelle branche (pastille de réponse dans le canvas)
