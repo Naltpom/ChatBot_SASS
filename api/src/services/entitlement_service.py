@@ -169,12 +169,19 @@ def _net_modules_quota(
     - Un item `kind='ai_tier'` active le module IA et pose le quota = included_replies
       (illimité si included_replies est None — variante BYOK forfait).
     - Un item `kind='module'` active le module mappé via CODE_TO_MODULE.
-    - status : 'active' si au moins une sub active couvre le bot, sinon 'inactive'.
+    - status : 'active' si au moins une sub VRAIMENT active (active/trialing) couvre
+      le bot ; sinon 'past_due' si seule une sub en impayé le couvre ; sinon 'inactive'.
+      `past_due` dégrade tous les modules payants (has_module -> False, finding #4) :
+      un client en impayé ne garde PAS l'accès aux modules tant que le paiement n'est
+      pas régularisé. Les items past_due restent néanmoins comptés dans `modules`
+      (pour conserver l'historique de synchro / re-bascule rapide), c'est le `status`
+      qui gate l'accès effectif.
     """
     modules: set[str] = set()
     ai_quota: int | None = 0           # 0 = module IA absent par défaut
     ai_unlimited = False
-    has_active = False
+    has_active = False     # sub active/trialing couvrant le bot
+    has_past_due = False   # sub en impayé couvrant le bot
 
     for sub in subs:
         if sub.status not in _ACTIVE_SUB_STATUSES:
@@ -182,7 +189,10 @@ def _net_modules_quota(
         for item in _items_of(sub):
             if item.get("bot_id") != bot_id:
                 continue
-            has_active = True
+            if sub.status == "past_due":
+                has_past_due = True
+            else:
+                has_active = True
             code = item.get("code")
             product = products.get(item.get("price_id")) if item.get("price_id") else None
             kind = product.kind if product is not None else None
@@ -203,7 +213,14 @@ def _net_modules_quota(
                     ai_quota = max(ai_quota or 0, included)
 
     final_quota: int | None = None if ai_unlimited else ai_quota
-    status = "active" if has_active else "inactive"
+    # Priorité : une sub vraiment active prime sur un impayé ; sinon past_due
+    # (dégradation, finding #4) ; sinon plus rien -> inactive.
+    if has_active:
+        status = "active"
+    elif has_past_due:
+        status = "past_due"
+    else:
+        status = "inactive"
     return modules, final_quota, status
 
 
@@ -319,6 +336,24 @@ async def apply_subscription_event(db: AsyncSession, event: dict) -> None:
         ).scalars().all()
         affected_bot_ids |= await _bots_covered([target_sub])
         affected_bot_ids |= await _bots_covered(user_subs)
+
+    # Finding #5 — payeur non résolu : si le miroir local ne connaît pas encore
+    # la sub de l'event (target_sub is None), on n'a AUCUN bot à projeter et le
+    # `user_id` du payeur est inconnu. Marquer l'event comme traité (idempotence)
+    # ici perdrait l'activation : au replay (une fois le customer/sub lié), on
+    # zapperait l'event sans jamais reprojeter. On NE marque donc PAS, et on lève
+    # pour que Stripe retente le webhook (back-off) jusqu'à résolution du payeur.
+    if target_sub is None:
+        logger.warning(
+            "billing: event %s (sub %s) sans payeur résolu (miroir absent) -> "
+            "pas de marqueur d'idempotence, retry attendu",
+            event_id,
+            stripe_sub_id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "subscription_not_yet_mirrored", "event": event_id},
+        )
 
     for bot_id in affected_bot_ids:
         await _project_bot(db, bot_id, user_subs, products)

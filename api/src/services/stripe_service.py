@@ -323,17 +323,17 @@ async def list_invoices(customer_id: Optional[str] = None, limit: int = 24) -> l
     if customer_id:
         params["customer"] = customer_id
     data = await _stripe_request("GET", "/invoices", params=params)
+    # Clés du contrat Invoice (front) : amount_paid_cents (PAS amount_paid brut),
+    # created en epoch SECONDES. Stripe exprime déjà amount_paid en centimes.
     return [{
         "id": inv.get("id"),
         "number": inv.get("number"),
         "status": inv.get("status"),
-        "total": inv.get("total"),
-        "amount_paid": inv.get("amount_paid"),
+        "amount_paid_cents": inv.get("amount_paid") or 0,
         "currency": inv.get("currency"),
         "created": inv.get("created"),  # epoch SECONDES (brut Stripe), conforme au front
         "hosted_invoice_url": inv.get("hosted_invoice_url"),
         "invoice_pdf": inv.get("invoice_pdf"),
-        "customer": inv.get("customer"),
     } for inv in data.get("data", [])]
 
 

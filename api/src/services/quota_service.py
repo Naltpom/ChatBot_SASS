@@ -21,8 +21,20 @@ JAMAIS comptée deux fois : l'incrément Redis est posé APRÈS la persistance d
 message (call-site `widget.py`), et le reseed lit le COUNT SQL qui inclut déjà
 ce message.
 
-BYOK : un bot BYOK a `ai_quota_for(ent) is None` (illimité) ⇒ l'appelant
-n'invoque PAS `ai_quota_consume`. Ce module ne décide rien du BYOK lui-même.
+DEUX TEMPS (corrige le crédit brûlé sur panne provider) :
+
+- `ai_quota_precheck` — LECTURE SEULE, AVANT `generate_reply` : « le quota est-il
+  déjà épuisé ? » sans aucun incrément. Sert à refuser proprement (message dédié)
+  quand le mois est plein, sans réserver de crédit pour une réponse qui n'existe
+  pas encore.
+- `ai_quota_consume` — INCR, APRÈS un `generate_reply` réussi ET la persistance du
+  message assistant. Une panne provider (`AIServiceError`) n'appelle JAMAIS
+  `ai_quota_consume` : aucun crédit consommé, Redis ne dérive pas au-dessus du
+  COUNT SQL durable.
+
+BYOK : un bot BYOK a `ai_quota_for(ent) is None` (illimité) ⇒ l'appelant n'invoque
+NI `ai_quota_precheck` NI `ai_quota_consume`. Ce module ne décide rien du BYOK
+lui-même.
 """
 import logging
 import time
@@ -109,13 +121,58 @@ async def _count_sql(db: AsyncSession, bot_id: int, period: str) -> int:
     return await count_ai_messages_month(db, bot_id, period)
 
 
+async def ai_quota_precheck(db: AsyncSession, bot_id: int, quota: int) -> bool:
+    """LECTURE SEULE : reste-t-il du crédit IA ce mois-ci pour `bot_id` ?
+
+    Renvoie True si une réponse de plus tiendrait dans `quota` (conso courante
+    < quota), False si le quota est déjà atteint (mode `block`). N'incrémente
+    et ne crée AUCUNE clé : le crédit n'est consommé (`ai_quota_consume`) qu'une
+    fois la réponse IA réellement générée ET persistée. Une panne provider en
+    aval ne brûle donc jamais de crédit.
+
+    `quota` = `ai_monthly_quota` effectif (entier >= 0). Le cas illimité (BYOK /
+    `ai_quota_for(ent) is None`) est géré par l'APPELANT, qui n'appelle alors ni
+    ce pré-check ni le consume. Par sécurité, `quota <= 0` (module IA absent)
+    refuse.
+
+    FAIL-CLOSED : Redis indispo OU clé absente => verdict via COUNT SQL durable
+    (jamais de bypass silencieux).
+    """
+    if quota <= 0:
+        return False
+
+    period = quota_period()
+    client = _get_redis()
+    if client is not None:
+        try:
+            current = await client.get(_quota_key(period, bot_id))
+            if current is not None:
+                return int(current) < quota
+        except Exception as exc:
+            _redis_failed(exc)
+    # Pas de Redis, clé absente (début de mois / expirée), ou erreur : on tranche
+    # sur le COUNT SQL durable. Pas de reseed ici (lecture seule) — le reseed est
+    # posé par ai_quota_consume au moment de l'incrément.
+    used = await _count_sql(db, bot_id, period)
+    return used < quota
+
+
 async def ai_quota_consume(db: AsyncSession, bot_id: int, quota: int) -> bool:
-    """Réserve UNE réponse IA du mois courant pour `bot_id` contre `quota`.
+    """Comptabilise (INCR) UNE réponse IA du mois courant pour `bot_id`.
+
+    À appeler UNIQUEMENT après un `generate_reply` réussi, et AVANT la persistance
+    du message assistant (call-site `widget.py`) : le reseed lit alors le COUNT SQL
+    durable qui n'inclut PAS encore cette réponse (seed=conso des messages déjà
+    persistés), et l'INCR ajoute exactement cette réponse — Redis reste aligné sur
+    la source de vérité, jamais de double comptage. Sur panne provider, l'appelant
+    ne nous invoque PAS (return en amont sur `AIServiceError`) : aucun crédit n'est
+    brûlé et Redis ne dérive jamais au-dessus du COUNT SQL.
 
     Renvoie True si la réponse est dans le quota (et la comptabilise), False si
-    le quota est atteint (mode `block`). Appelé en PRÉ-CHECK, par message, AVANT
-    l'incrément durable côté Message — d'où le reseed depuis SQL qui resynchronise
-    Redis sur la source de vérité.
+    l'incrément dépasse le quota — dans ce dernier cas l'incrément est annulé (le
+    refus ne consomme pas de crédit). Le gating visiteur est fait en amont par
+    `ai_quota_precheck` (lecture seule) ; ce retour False sert de borne de sûreté
+    sur une course concurrente du dernier crédit.
 
     `quota` = `ai_monthly_quota` effectif (entier >= 0). Le cas illimité (BYOK /
     `ai_quota_for(ent) is None`) est géré par l'APPELANT, qui n'appelle alors pas

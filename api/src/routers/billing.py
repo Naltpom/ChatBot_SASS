@@ -16,6 +16,7 @@ Stripe en httpx pur via `services/stripe_service` (jamais de SDK). PAS de TVA
 (franchise en base, art. 293 B du CGI). Catalogue lu en base (`billing_products`)
 et validé contre `MODULE_KEYS` (parité D4/F5).
 """
+import calendar
 import json
 import logging
 from datetime import datetime
@@ -35,6 +36,7 @@ from src.models.billing import (
     BillingProduct,
     BillingProductOut,
     BillingSubscription,
+    BillingWebhookEvent,
     BotEntitlement,
 )
 from src.models.bot import Bot
@@ -86,6 +88,11 @@ class CheckoutPayload(BaseModel):
 
 
 class SubscriptionUpdatePayload(BaseModel):
+    bot_id: int
+    config: BotConfigPayload
+
+
+class ActivateFreePayload(BaseModel):
     bot_id: int
     config: BotConfigPayload
 
@@ -186,6 +193,76 @@ async def _billable_bots(db: AsyncSession, user: User) -> list[Bot]:
     )).scalars().all()
 
 
+async def billing_on_org_owner_change(
+    db: AsyncSession, org_id: int, old_owner_id: int | None, new_owner_id: int | None
+) -> None:
+    """Réaligne la facturation au transfert de propriété d'une org (#7, spec §4.3).
+
+    Le PAYEUR des bots d'équipe = l'owner de l'org (`org.owner_user_id`). Quand il
+    change, les BillingSubscription de l'ancien owner ne doivent plus porter ces
+    bots : on les en retire (proration crédit côté Stripe, best-effort) et on pose
+    chaque bot de l'org en GRACE (`status='past_due'`) jusqu'à ce que le NOUVEL
+    owner régularise via le configurateur / le webhook. Analogue à
+    `bots._billing_on_move_payer_change`.
+
+    No-op si billing OFF, ou si le payeur ne change pas. Défensif : toute erreur
+    Stripe est avalée (le transfert ne doit jamais échouer à cause du billing)."""
+    if not stripe_service.billing_enabled():
+        return
+    if old_owner_id is not None and old_owner_id == new_owner_id:
+        return  # même payeur : rien à re-facturer
+
+    org_bot_ids = (await db.execute(
+        select(Bot.id).where(Bot.organization_id == org_id)
+    )).scalars().all()
+    if not org_bot_ids:
+        return
+    bot_id_set = set(org_bot_ids)
+
+    # (a) Retirer ces bots des subscriptions de l'ancien payeur.
+    if old_owner_id is not None:
+        subs = (await db.execute(
+            select(BillingSubscription).where(
+                BillingSubscription.user_id == old_owner_id)
+        )).scalars().all()
+        for sub in subs:
+            items = list(sub.raw_items or [])
+            kept = [it for it in items if it.get("bot_id") not in bot_id_set]
+            if len(kept) == len(items):
+                continue  # cette sub ne portait aucun bot de l'org
+            target = [{"id": it.get("si_id"), "price": it.get("price_id"),
+                       "quantity": it.get("qty", 1)}
+                      for it in kept if it.get("price_id")]
+            try:
+                # 0 item cible ⇒ update_subscription_items résilie la sub (Stripe
+                # refuse une sub sans item) ; sinon proration crédit.
+                await stripe_service.update_subscription_items(
+                    sub.stripe_subscription_id, target,
+                    proration_behavior="create_prorations",
+                )
+            except stripe_service.StripeError:
+                logger.warning("billing.transfer: maj sub %s échouée (ignorée)",
+                               sub.stripe_subscription_id)
+            sub.raw_items = kept
+            if not kept:
+                sub.status = "canceled"
+
+    # (b) Côté nouveau payeur : chaque bot de l'org en grâce jusqu'à régularisation.
+    for bid in bot_id_set:
+        ent = (await db.execute(
+            select(BotEntitlement).where(BotEntitlement.bot_id == bid)
+        )).scalar_one_or_none()
+        if ent is None:
+            ent = BotEntitlement(bot_id=bid, source="stripe")
+            db.add(ent)
+        ent.modules = []
+        ent.ai_monthly_quota = 0
+        ent.status = "past_due"  # grâce : modules payants dégradés, socle gratuit OK
+        ent.source = "stripe"
+        ent.synced_at = utcnow()
+    await db.commit()
+
+
 async def _ensure_customer(db: AsyncSession, user: User) -> str:
     """Customer Stripe du payeur (création paresseuse à la 1re souscription)."""
     if user.stripe_customer_id:
@@ -223,6 +300,16 @@ async def _project_mock_entitlement(
                 select(BillingProduct).where(BillingProduct.code == tier)
             )).scalar_one_or_none()
             ai_quota = row.included_replies if row is not None else 0
+        elif MODULE_AI in modules:
+            # Plan IA GRATUIT (ai_free) : module IA actif sans ligne facturée
+            # (`_config_to_codes` n'émet aucun code ai_*). Le quota inclus doit
+            # tout de même être posé (sinon le mock projette quota=0 et l'IA est
+            # inutilisable). On lit included_replies du produit ai_free (50).
+            row = (await db.execute(
+                select(BillingProduct).where(BillingProduct.code == "ai_free")
+            )).scalar_one_or_none()
+            ai_quota = (row.included_replies if row is not None
+                        and row.included_replies is not None else 50)
     ent = (await db.execute(
         select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
     )).scalar_one_or_none()
@@ -347,10 +434,56 @@ async def get_summary(db: AsyncSession = Depends(get_db),
     )).scalars().all()
     bots = await _billable_bots(db, user)
 
+    # subscription_status agrégé du payeur (contrat front) : 'active' dès qu'une
+    # sub est active/trialing, sinon 'past_due' si au moins une est past_due,
+    # sinon 'none' (aucune sub facturante : tout gratuit / résilié).
+    statuses = {s.status for s in subs}
+    if statuses & {"active", "trialing"}:
+        subscription_status = "active"
+    elif "past_due" in statuses:
+        subscription_status = "past_due"
+    else:
+        subscription_status = "none"
+
+    # Prochaine échéance : la plus proche current_period_end parmi les subs
+    # actives (epoch s). Montant estimé : somme des unit_amount des produits
+    # portés par les raw_items de cette sub (null si non dérivable).
+    next_invoice_at: int | None = None
+    next_invoice_cents: int | None = None
+    active_subs = [s for s in subs if s.status in ("active", "trialing", "past_due")]
+    next_sub = min(
+        (s for s in active_subs if s.current_period_end is not None),
+        key=lambda s: s.current_period_end,
+        default=None,
+    )
+    if next_sub is not None:
+        # current_period_end est un datetime NAÏF UTC (cf. core/time.utcnow) :
+        # timegm(utctimetuple) donne l'epoch s correct (timestamp() l'interpréterait
+        # en heure locale).
+        next_invoice_at = calendar.timegm(
+            next_sub.current_period_end.utctimetuple())
+        price_ids = [it.get("price_id") for it in (next_sub.raw_items or [])
+                     if it.get("price_id")]
+        if price_ids:
+            prods = (await db.execute(
+                select(BillingProduct).where(
+                    BillingProduct.stripe_price_id.in_(price_ids))
+            )).scalars().all()
+            amount_by_price = {p.stripe_price_id: p.unit_amount for p in prods}
+            total = 0
+            for it in (next_sub.raw_items or []):
+                amt = amount_by_price.get(it.get("price_id"))
+                if amt is not None:
+                    total += amt * int(it.get("qty", 1) or 1)
+            next_invoice_cents = total
+
     return {
         "billing_grouping": user.billing_grouping,
         "has_customer": bool(user.stripe_customer_id),
         "billing_email": user.billing_email or user.email,
+        "subscription_status": subscription_status,
+        "next_invoice_cents": next_invoice_cents,
+        "next_invoice_at": next_invoice_at,
         "subscriptions": [{
             "stripe_subscription_id": s.stripe_subscription_id,
             "grouping": s.grouping,
@@ -416,6 +549,57 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
         await _project_mock_entitlement(db, bot, codes, modules)
     await db.commit()
     return {"checkout_url": url}
+
+
+# --- POST /api/billing/activate-free --------------------------------------
+
+@router.post("/billing/activate-free")
+async def activate_free(body: ActivateFreePayload, db: AsyncSession = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Active le plan IA GRATUIT (`ai_free`, total 0 €) SANS passer par Stripe.
+
+    Le front l'appelle (au lieu de sauter silencieusement) quand
+    `billingActive && total==0 && ai_tier_id==='ai_free'` : aucune souscription
+    n'est créée mais l'entitlement MODULE_AI + quota inclus (50) doit être posé,
+    sinon l'IA reste inutilisable (quota 0). Owner-only (require_billing_owner).
+
+    Refuse 422 si la config n'est pas réellement gratuite (un plan IA payant ou
+    BYOK doit passer par /checkout). Billing OFF ⇒ {billing: disabled}."""
+    if not stripe_service.billing_enabled():
+        return _DISABLED
+
+    _validate_config_modules(body.config)
+    bot = await db.get(Bot, body.bot_id)
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    await require_billing_owner(bot, user, db)
+
+    codes, modules = _config_to_codes(body.config)
+    # Cet endpoint est réservé au cas STRICTEMENT gratuit : aucune ligne facturable.
+    # Une config payante (plan IA managé, add-on, BYOK forfaité) doit passer par
+    # /checkout — on refuse pour ne pas projeter un entitlement non payé.
+    line_items = await _line_items_for_codes(db, codes)
+    if line_items:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Configuration payante : utilisez /billing/checkout",
+        )
+
+    # Projette directement l'entitlement gratuit (MODULE_AI + quota inclus 50 via
+    # ai_free) ; même règle que la simulation mock (pas de Stripe à appeler).
+    await _project_mock_entitlement(db, bot, codes, modules)
+    await db.commit()
+
+    ent = (await db.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
+    )).scalar_one_or_none()
+    return {
+        "bot_id": bot.id,
+        "free": True,
+        "modules": list(ent.modules or []) if ent is not None else sorted(set(modules)),
+        "ai_monthly_quota": ent.ai_monthly_quota if ent is not None else None,
+        "status": ent.status if ent is not None else "active",
+    }
 
 
 # --- POST /api/billing/subscription/update --------------------------------
@@ -591,18 +775,31 @@ async def put_grouping(body: GroupingPayload, db: AsyncSession = Depends(get_db)
                     status=created.get("status", "active"),
                 ))
         else:  # total : une seule sub user_all reprenant tous les items.
-            all_items: list[dict] = []
+            # Stripe REFUSE deux line_items au même price (400). Deux bots qui
+            # partagent un module (même price) doivent donc être AGRÉGÉS en un
+            # seul item dont on incrémente la quantité. La cartographie complète
+            # bot→codes est portée par subscription_data[metadata][bots] (JSON),
+            # que le webhook relit (le per-item metadata.bot_id ne peut référencer
+            # qu'un seul bot et serait perdu sur l'item agrégé).
+            qty_by_price: dict[str, int] = {}
+            price_order: list[str] = []
+            bots_map: dict[str, list[str]] = {}
             for bid, codes in codes_by_bot.items():
                 for it in await _line_items_for_codes(db, codes):
-                    all_items.append({
-                        "price": it["price"], "quantity": 1,
-                        "metadata": {"bot_id": str(bid), "code": it["code"]},
-                    })
+                    price = it["price"]
+                    if price not in qty_by_price:
+                        qty_by_price[price] = 0
+                        price_order.append(price)
+                    qty_by_price[price] += 1
+                    bots_map.setdefault(str(bid), []).append(it["code"])
+            all_items = [{"price": price, "quantity": qty_by_price[price]}
+                         for price in price_order]
             if all_items:
                 created = await stripe_service.create_subscription(
                     customer_id=customer_id,
                     items=all_items,
-                    metadata={"user_id": str(user.id), "grouping": target},
+                    metadata={"user_id": str(user.id), "grouping": target,
+                              "bots": json.dumps(bots_map, separators=(",", ":"))},
                 )
                 db.add(BillingSubscription(
                     user_id=user.id,
@@ -635,13 +832,15 @@ async def put_grouping(body: GroupingPayload, db: AsyncSession = Depends(get_db)
 async def get_invoices(db: AsyncSession = Depends(get_db),
                        user: User = Depends(get_current_user)):
     """Factures du payeur (à la demande, API Stripe). Billing OFF ⇒ disabled.
-    Sans customer ⇒ liste vide (jamais d'erreur)."""
+    Sans customer ⇒ tableau vide (jamais d'erreur).
+
+    Renvoie un TABLEAU bare `Invoice[]` (contrat front), pas l'enveloppe
+    `{invoices: [...]}`."""
     if not stripe_service.billing_enabled():
         return _DISABLED
     if not user.stripe_customer_id:
-        return {"invoices": []}
-    invoices = await stripe_service.list_invoices(user.stripe_customer_id)
-    return {"invoices": invoices}
+        return []
+    return await stripe_service.list_invoices(user.stripe_customer_id)
 
 
 # --- GET /api/billing/usage -----------------------------------------------
@@ -762,12 +961,67 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     event_type = event.get("type") or ""
 
-    # On reflète le miroir local AVANT de projeter (apply_subscription_event lit
-    # billing_subscriptions comme source de l'état cible). Pour les events
-    # subscription.*, on met à jour la ligne miroir depuis l'objet de l'event.
+    # Pour les events subscription.*, on reflète le miroir local AVANT de projeter
+    # (apply_subscription_event lit billing_subscriptions comme source de l'état
+    # cible). MAIS les gardes d'idempotence et d'ordre doivent passer AVANT tout
+    # _sync (#6) : sinon un event rejoué / arrivé dans le désordre réécrit le
+    # miroir et désynchronise l'état.
     if event_type.startswith("customer.subscription."):
+        sub_obj = (event.get("data") or {}).get("object") or {}
+        stripe_sub_id = sub_obj.get("id")
+        event_id = event.get("id")
+
+        # (1) Idempotence AVANT _sync : event déjà traité ⇒ no-op total (on ne
+        #     touche pas au miroir). La projection a déjà été appliquée.
+        if event_id:
+            already = (await db.execute(
+                select(BillingWebhookEvent.id).where(
+                    BillingWebhookEvent.stripe_event_id == event_id)
+            )).scalar_one_or_none()
+            if already is not None:
+                return {"received": True, "duplicate": True}
+
+        # (2) Ordre : ne pas régresser sur un event PLUS ANCIEN que le dernier
+        #     déjà appliqué pour CETTE subscription (replay / out-of-order). On
+        #     compare le champ Stripe `created` (epoch s) mémorisé sur les events
+        #     déjà traités de cette sub.
+        incoming_created = event.get("created")
+        if stripe_sub_id and isinstance(incoming_created, int):
+            last_created = await _last_event_created_for_sub(db, stripe_sub_id)
+            if last_created is not None and incoming_created < last_created:
+                logger.info(
+                    "billing: event %s (created=%s) plus ancien que l'état "
+                    "synced (%s) pour %s — ignoré",
+                    event_id, incoming_created, last_created, stripe_sub_id)
+                return {"received": True, "stale": True}
+
+        # (3) Ne pas RESSUSCITER une sub déjà résiliée : un .deleted est terminal.
+        #     Un event non-.deleted arrivant après le .deleted (out-of-order) ne
+        #     doit pas réactiver le miroir.
+        if event_type != "customer.subscription.deleted" and stripe_sub_id:
+            mirror = (await db.execute(
+                select(BillingSubscription.status).where(
+                    BillingSubscription.stripe_subscription_id == stripe_sub_id)
+            )).scalar_one_or_none()
+            if mirror == "canceled":
+                logger.info(
+                    "billing: sub %s déjà résiliée (terminal) — event %s ignoré",
+                    stripe_sub_id, event_id)
+                return {"received": True, "stale": True}
+
         await _sync_subscription_mirror(db, event)
         await apply_subscription_event(db, event)
+        # Mémorise le `created` Stripe sur l'event tout juste enregistré par
+        # apply_subscription_event (sert à la garde d'ordre ci-dessus).
+        if event_id and isinstance(incoming_created, int):
+            ev_row = (await db.execute(
+                select(BillingWebhookEvent).where(
+                    BillingWebhookEvent.stripe_event_id == event_id)
+            )).scalar_one_or_none()
+            if ev_row is not None:
+                payload = dict(ev_row.payload or {})
+                payload["created"] = incoming_created
+                ev_row.payload = payload
         await db.commit()
     elif event_type == "checkout.session.completed":
         # Le checkout crée la 1re sub : Stripe émet ensuite customer.subscription
@@ -779,6 +1033,29 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
         logger.info("billing: event %s ignoré (non géré)", event_type)
 
     return {"received": True}
+
+
+async def _last_event_created_for_sub(db: AsyncSession, stripe_sub_id: str) -> int | None:
+    """Max du champ Stripe `created` (epoch s) parmi les events subscription.*
+    déjà traités pour CETTE subscription (garde d'ordre webhook, #6).
+
+    Le `created` est mémorisé dans `BillingWebhookEvent.payload['created']` par
+    le routeur après projection. On filtre côté Python (peu d'events, portable
+    SQLite/Postgres : pas d'accès JSON SQL)."""
+    rows = (await db.execute(
+        select(BillingWebhookEvent.payload).where(
+            BillingWebhookEvent.type.like("customer.subscription.%"))
+    )).scalars().all()
+    best: int | None = None
+    for payload in rows:
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("subscription") != stripe_sub_id:
+            continue
+        created = payload.get("created")
+        if isinstance(created, int) and (best is None or created > best):
+            best = created
+    return best
 
 
 async def _sync_subscription_mirror(db: AsyncSession, event: dict) -> None:

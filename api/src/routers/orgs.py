@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import get_db
 from src.core.security import get_current_user, require_org_access, require_org_admin
 from src.models.user import BOT_PERMS, Invitation, Membership, Organization, User
+from src.routers.billing import billing_on_org_owner_change
 from src.services.org_service import ensure_not_last_admin
 
 router = APIRouter(prefix="/api/orgs", tags=["organizations"])
@@ -138,8 +139,13 @@ async def transfer_owner(org_id: int, body: TransferOwner,
     elif membership.role != "admin":
         membership.role = "admin"
 
+    # Payeur AVANT le transfert : le hook billing rebascule la facturation des
+    # bots de l'org si le payeur change (#7). No-op si billing OFF.
+    old_owner_id = org.owner_user_id
     org.owner_user_id = target.id
     await db.commit()
+
+    await billing_on_org_owner_change(db, org_id, old_owner_id, target.id)
     return {"id": org.id, "owner_user_id": org.owner_user_id}
 
 

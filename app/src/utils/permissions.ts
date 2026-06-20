@@ -51,18 +51,18 @@ export function canAccessBotPerm(user: User | null | undefined, bot: BotLike, pe
 // masque, le backend rejette (403) tout POST /api/billing/* d'un non-owner.
 
 // L'utilisateur peut-il VOIR l'espace facturation (entrée nav, page Billing) ?
-// (corrige E3 : ce n'est plus un `return true`). Conditions :
+// Tout utilisateur AUTHENTIFIÉ y a accès :
 //   - superadmin : toujours ;
-//   - owner d'au moins une org (owned_org_ids) : il paie les bots de ces orgs ;
-//   - compte solo (aucune org) : il peut détenir des bots perso qu'il paie.
-// Remarque : `User` ne porte pas la liste des bots ; un compte sans org est un
-// compte perso susceptible d'avoir des bots perso, donc éligible à la facturation.
+//   - owner d'au moins une org : il paie les bots de ces orgs ;
+//   - membre d'une équipe (même non-owner) : il peut AUSSI détenir des bots
+//     PERSO qu'il paie lui-même — l'exclure masquerait sa facturation à tort.
+// `User` ne porte pas de signal `hasPersonalBot` : on ne peut pas distinguer un
+// membre avec bots perso d'un membre sans bot. La page Billing étant self-scopée
+// (elle gère l'état vide « aucun bot facturable ») et le backend rejetant 403
+// tout POST /api/billing/* d'un non-owner (require_billing_owner, défense en
+// profondeur), on montre l'espace à tout utilisateur connecté.
 export function canSeeBilling(u?: User | null): boolean {
-  if (!u) return false
-  if (u.is_superadmin) return true
-  if ((u.owned_org_ids?.length ?? 0) > 0) return true
-  // Compte solo (perso) : pas d'org => bots perso possibles, payés par lui-même.
-  return u.organizations.length === 0
+  return !!u
 }
 
 // L'utilisateur est-il le PAYEUR (owner) pour la facturation de CE bot ?

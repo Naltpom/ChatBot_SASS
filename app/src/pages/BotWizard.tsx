@@ -713,19 +713,43 @@ export default function BotWizard() {
       }
       await api(`/api/bots/${bot.id}`, { method: 'PATCH', body })
 
-      // 3) facturation : si le billing est actif, que je suis le payeur de la
-      // destination et que la compo a un coût (> 0 €), on lance un Checkout
-      // Stripe (redirection hébergée). Sinon -> bot gratuit, on finit en 'done'.
-      // Invariant D0 : billing OFF => totalCents calculé sur FALLBACK mais on ne
-      // checkout JAMAIS (billingActive=false) => comportement gratuit identique.
-      if (billingActive && isOwnerDest && totalCents > 0) {
-        const { checkout_url } = await api<{ checkout_url: string }>('/api/billing/checkout', {
-          method: 'POST',
-          body: { bot_id: bot.id, config: botConfig, grouping: user?.billing_grouping ?? 'total' },
-        })
-        // Le retour Stripe (?checkout=success) atterrit sur /app/billing.
-        window.location.href = checkout_url
-        return
+      // 3) facturation : si le billing est actif et que je suis le payeur de la
+      // destination, trois cas selon la compo choisie.
+      // Invariant D0 : billing OFF => totalCents calculé sur FALLBACK mais on
+      // n'émet AUCUN appel /api/billing/* (billingActive=false) => comportement
+      // gratuit identique.
+      if (billingActive && isOwnerDest) {
+        // (a) Compo payante (> 0 €) : Checkout Stripe (redirection hébergée).
+        // On garde la nullité du checkout_url et le flag `free` : un backend qui
+        // répond {checkout_url:null, free:true} (rien à payer in fine) NE doit
+        // PAS provoquer une navigation vers `undefined` — on termine en 'done'.
+        if (totalCents > 0) {
+          const { checkout_url, free } = await api<{ checkout_url: string | null; free?: boolean }>(
+            '/api/billing/checkout', {
+              method: 'POST',
+              body: { bot_id: bot.id, config: botConfig, grouping: user?.billing_grouping ?? 'total' },
+            },
+          )
+          if (checkout_url && !free) {
+            // Le retour Stripe (?checkout=success) atterrit sur /app/billing.
+            window.location.href = checkout_url
+            return
+          }
+          // Rien à payer (free / URL absente) : bot déjà projeté côté serveur.
+          setCreatedBotId(bot.id)
+          setStep('done')
+          return
+        }
+        // (b) Plan IA gratuit (total 0 €, palier 'ai_free') : pas de Stripe, mais
+        // le bot DOIT obtenir l'entitlement MODULE_AI + son quota gratuit. On
+        // projette l'état via l'endpoint dédié AVANT de terminer le wizard.
+        if (botConfig.ai_tier_id === 'ai_free') {
+          await api('/api/billing/activate-free', {
+            method: 'POST',
+            body: { bot_id: bot.id, config: botConfig },
+          })
+        }
+        // (c) total == 0 sans IA : socle gratuit pur, rien à projeter.
       }
 
       setCreatedBotId(bot.id)
@@ -943,7 +967,7 @@ export default function BotWizard() {
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0,1fr) 320px', gap: 20, alignItems: 'start' }}>
-            <BotConfigurator catalog={catalog} config={botConfig} onChange={setBotConfig} disabled={!isOwnerDest} />
+            <BotConfigurator catalog={catalog} config={botConfig} onChange={setBotConfig} readOnly={!isOwnerDest} />
             <PriceCart catalog={catalog} config={botConfig} />
           </div>
 

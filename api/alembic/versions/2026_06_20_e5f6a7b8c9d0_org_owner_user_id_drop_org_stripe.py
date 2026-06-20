@@ -5,9 +5,11 @@ Revises: d4e5f6a7b8c9
 Create Date: 2026-06-20 10:05:00.000000
 
 M2 (spec §1.5 / §1.2) — Owner d'org = payeur des bots d'équipe (décision D5).
-On introduit `organizations.owner_user_id` (FK users), NOT NULL après backfill =
-l'admin le plus ancien de chaque org (DISTINCT ON ... ORDER BY id ASC). Les orgs
-orphelines (aucun admin) restent NULL — en base dev/quasi-vide il n'y en a pas.
+On introduit `organizations.owner_user_id` (FK users), NOT NULL après backfill.
+Backfill robuste : owner = l'admin le plus ancien de chaque org
+(DISTINCT ON ... ORDER BY id ASC) ; FALLBACK = le membre le plus ancien
+(n'importe quel rôle) pour les orgs sans admin. On ne passe NOT NULL qu'après
+ces deux passes, donc aucune org ayant au moins un membership ne reste NULL.
 
 On retire le Customer Stripe de `organizations` : il a migré vers le User (M1).
 Facturation DORMANTE (config.py) ⇒ toutes les colonnes Stripe d'org sont à NULL,
@@ -41,6 +43,7 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
+    # Passe 1 : owner = l'admin le plus ancien de chaque org.
     op.execute("""
         UPDATE organizations o SET owner_user_id = sub.user_id
         FROM (
@@ -49,6 +52,18 @@ def upgrade() -> None:
             ORDER BY organization_id, id ASC
         ) sub
         WHERE sub.organization_id = o.id
+    """)
+    # Passe 2 (fallback) : pour les orgs sans aucun admin, owner = le membre
+    # le plus ancien quel que soit son rôle. Évite que owner_user_id reste NULL.
+    op.execute("""
+        UPDATE organizations o SET owner_user_id = sub.user_id
+        FROM (
+            SELECT DISTINCT ON (organization_id) organization_id, user_id
+            FROM memberships
+            ORDER BY organization_id, id ASC
+        ) sub
+        WHERE sub.organization_id = o.id
+          AND o.owner_user_id IS NULL
     """)
     op.alter_column('organizations', 'owner_user_id', nullable=False)
     op.create_index(

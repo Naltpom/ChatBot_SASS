@@ -62,7 +62,7 @@ from src.services import tree_engine
 from src.services.ai_service import AIServiceError, generate_reply
 from src.services.captcha import verify_captcha
 from src.services.entitlement_service import ai_quota_for, has_module, resolve
-from src.services.quota_service import ai_quota_consume
+from src.services.quota_service import ai_quota_consume, ai_quota_precheck
 from src.services.email_service import (
     build_handoff_email,
     build_lead_email,
@@ -625,12 +625,16 @@ async def _handle_ai_message(
     ent = await resolve(db, bot)
 
     # Pre-check QUOTA IA (mode block) JUSTE AVANT l'effet couteux (generate_reply).
-    # ai_quota_for(ent) is None => illimite (BYOK ou billing OFF / pas de quota)
-    # => on n'appelle PAS le compteur. Sinon on reserve une reponse du mois :
-    # quota epuise => message DEDIE (reason=quota_exhausted), 200, source 'ai',
-    # PAS d'AIServiceError. On ne gate JAMAIS la navigation arbre/conseiller.
+    # LECTURE SEULE : on NE consomme PAS de credit ici. ai_quota_for(ent) is None
+    # => illimite (BYOK ou billing OFF / pas de quota) => on n'appelle PAS le
+    # compteur. Sinon : quota deja epuise => message DEDIE (reason=quota_exhausted),
+    # 200, source 'ai', PAS d'AIServiceError. On ne gate JAMAIS la navigation
+    # arbre/conseiller. Le credit n'est INCREMENTE (ai_quota_consume) qu'APRES un
+    # generate_reply reussi ET la persistance du message assistant : une panne
+    # provider (AIServiceError) ne brule donc aucune reponse du mois et Redis ne
+    # derive jamais au-dessus du COUNT SQL durable.
     quota = ai_quota_for(ent)
-    if quota is not None and not await ai_quota_consume(db, bot.id, quota):
+    if quota is not None and not await ai_quota_precheck(db, bot.id, quota):
         logger.info("billing.quota: bot %s quota IA epuise (reason=quota_exhausted)", bot.id)
         # Comme la branche AIServiceError : AUCUN message assistant persiste.
         # Un message source='ai' gonflerait la source durable du compteur
@@ -665,8 +669,22 @@ async def _handle_ai_message(
                                   locale=(bot.design_json or {}).get("locale"),
                                   allow_actions=allow_actions)
     except AIServiceError:
+        # Panne provider : AUCUN credit consomme (ai_quota_consume n'est appele
+        # qu'apres ce point). Le compteur Redis ne derive donc pas au-dessus du
+        # COUNT SQL durable, et la reponse du mois n'est pas brulee.
         return _maybe_refresh({"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.",
                                "options": [], "status": conversation.status}, bot, session)
+
+    # generate_reply a reussi : on comptabilise UNE reponse IA AVANT de persister
+    # le message assistant. Le reseed de ai_quota_consume lit alors le COUNT SQL
+    # durable qui n'inclut PAS encore cette reponse, et l'INCR l'ajoute exactement
+    # une fois (pas de double comptage). Le pre-check (lecture seule) ci-dessus a
+    # garanti qu'il restait du credit ; le retour False (borne de surete sur une
+    # course concurrente du dernier credit) est ignore : la reponse est deja
+    # generee, on ne la jette pas. BYOK / billing OFF => quota is None => pas de
+    # comptage.
+    if quota is not None:
+        await ai_quota_consume(db, bot.id, quota)
 
     msg = Message(
         conversation_id=conversation.id, bot_id=bot.id,
