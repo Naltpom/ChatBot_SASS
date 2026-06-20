@@ -71,10 +71,12 @@ test('wizard conversationnel : création d\'un bot en mode arbre de bout en bout
 
   // ===================== ÉTAPE 5 : ARBRE (TreeFlow partagé) =====================
   await expect(page.getByText('Votre arbre de conversation')).toBeVisible()
-  // Composant TreeFlow monté : carte racine « 🌿 Message d'accueil » (substring)
-  // + carte éditeur « Arbre de conversation » (titre exact).
-  await expect(page.getByText("Message d'accueil")).toBeVisible()
+  // Composant TreeFlow monté : le titre éditeur « Arbre de conversation » (exact)
+  // vit dans le wrapper TOUJOURS monté ; la carte racine « 🌿 Message d'accueil »
+  // (substring) est rendue par le canvas LAZY (chunk dynamique @xyflow) -> le
+  // expect auto-attend son chargement.
   await expect(page.getByText('Arbre de conversation', { exact: true })).toBeVisible()
+  await expect(page.getByText("Message d'accueil")).toBeVisible()
 
   // Création RÉELLE du bot (POST /api/orgs/{id}/bots + PATCH) → étape Terminé.
   await page.getByRole('button', { name: /Créer mon chatbot/ }).click()

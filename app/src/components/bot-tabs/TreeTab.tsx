@@ -146,6 +146,8 @@ export default function TreeTab({
                   onChange={t => patch({ tree_json: t })}
                   allowAI={aiTabRelevant} />
       )}
+      {/* Le test en direct n'est plus une carte ici : le widget flottant vit
+          directement sur la page du bot (BotPage), comme s'il était déployé. */}
     </div>
   )
 }

@@ -19,6 +19,9 @@
 export interface NodeOption {
   label: string
   next: string
+  // Point de pliage de la flèche dans l'éditeur de workflow (courbure manuelle).
+  // Clé ADDITIVE, ignorée par le backend/widget (comme TreeNode.pos).
+  bend?: { x: number; y: number }
 }
 
 // Un nœud de l'arbre. `type` absent = simple message ; les nœuds typés
@@ -29,6 +32,10 @@ export interface TreeNode {
   type?: 'message' | 'appointment' | 'lead' | 'handoff'
   url?: string
   fields?: string[]
+  // Position du nœud dans l'éditeur de workflow (React Flow). Champ ADDITIF,
+  // rétro-compatible : un arbre sans `pos` retombe sur le layout dagre auto.
+  // Colonne tree_json opaque côté backend -> survit au round-trip sans migration.
+  pos?: { x: number; y: number }
 }
 
 // tree_json complet : `start` = id du nœud racine, `nodes` = table d'index.
@@ -37,6 +44,9 @@ export interface TreeNode {
 export interface Tree {
   start?: string
   nodes?: Record<string, TreeNode>
+  // Position (éditeur de workflow) du nœud sentinelle IA, qui n'a pas d'entrée
+  // dans `nodes`. Clé additive, ignorée par le backend/widget (comme node.pos).
+  aiPos?: { x: number; y: number }
 }
 
 // ============================================================================

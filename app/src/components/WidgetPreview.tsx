@@ -18,6 +18,24 @@ import PreviewLauncher from './widget-preview/PreviewLauncher'
 import { FONT_STACKS, clampInt, leadFieldsOf } from './widget-preview/shared'
 import type { Msg, LeadSim, PreviewStyle } from './widget-preview/shared'
 
+// Sérialisation LOGIQUE du tree pour la dépendance du reset : on OMET node.pos
+// (position d'éditeur, purement visuelle). Sans ça, déplacer un nœud dans
+// l'éditeur de workflow re-déclencherait le reset de la conversation simulée.
+function treeLogicSig(tree: Tree): string {
+  const t = tree && typeof tree === 'object' ? tree : {}
+  const nodes = t.nodes || {}
+  const logical: Record<string, Omit<TreeNode, 'pos'>> = {}
+  for (const id of Object.keys(nodes)) {
+    // On retire node.pos ET option.bend (purement visuels/éditeur) : les déplacer
+    // ou plier une flèche ne doit PAS réinitialiser la conversation simulée.
+    const { pos: _pos, options, ...rest } = nodes[id]
+    logical[id] = options
+      ? { ...rest, options: options.map(({ bend: _b, ...o }) => o) }
+      : rest
+  }
+  return JSON.stringify({ start: t.start, nodes: logical })
+}
+
 // Dictionnaire UI miroir de I18N (widget/widget.js) pour les clés réellement
 // rendues par l'aperçu. Les valeurs FR sont les chaînes historiques À L'OCTET
 // (contrat e2e en défaut fr), les EN celles de widget.js — toute divergence
@@ -211,7 +229,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     return clearPendingTimers
     // d.welcomeMessage : utilisé par la branche IA (1er message). Sans cette dép,
     // l'aperçu ne se rafraîchissait pas à l'édition du message d'accueil.
-  }, [mode, lang, JSON.stringify(tree), d.welcomeMessage])
+  }, [mode, lang, treeLogicSig(tree), d.welcomeMessage])
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
