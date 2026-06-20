@@ -160,6 +160,52 @@ async def test_updated_resync_projette_module(db: FakeSession, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_trialing_projette_status_trialing_et_trial_end(db: FakeSession):
+    """Essai AVEC carte : un abonnement Stripe `trialing` (carte posée au Checkout)
+    -> entitlement status='trialing' + trial_end = subscription.trial_end (epoch s
+    Stripe -> datetime naïf UTC). Les modules de l'abonnement sont débloqués."""
+    import calendar
+
+    _seed_products(db)
+    _sub(db, sub_id="sub_tr", status="trialing",
+         items=[{"si_id": "si_1", "price_id": "price_rag",
+                 "code": "mod_rag", "bot_id": 7, "qty": 1}])
+    # trial_end ~ J+7 (epoch s) ; on le retrouve sur l'entitlement.
+    trial_end_epoch = calendar.timegm((2026, 6, 27, 12, 0, 0, 0, 0, 0))
+    ev = stripe_event("customer.subscription.updated", sub_id="sub_tr",
+                      status_="trialing", event_id="evt_tr")
+    ev["data"]["object"]["trial_end"] = trial_end_epoch
+    await es.apply_subscription_event(db, ev)
+
+    from src.models.billing import BotEntitlement
+    ent = [e for e in db.rows(BotEntitlement) if e.bot_id == 7][0]
+    assert ent.status == "trialing"
+    assert MODULE_RAG in ent.modules
+    assert ent.trial_end is not None
+    assert calendar.timegm(ent.trial_end.utctimetuple()) == trial_end_epoch
+
+
+@pytest.mark.asyncio
+async def test_active_apres_debit_ignore_trial_end(db: FakeSession):
+    """Statut Stripe 'active' (1er débit passé à J+7) -> status='active', trial_end
+    effacé (point 9 : trial_end ignoré hors essai)."""
+    _seed_products(db)
+    _sub(db, sub_id="sub_ac", status="active",
+         items=[{"si_id": "si_1", "price_id": "price_rag",
+                 "code": "mod_rag", "bot_id": 7, "qty": 1}])
+    ev = stripe_event("customer.subscription.updated", sub_id="sub_ac",
+                      status_="active", event_id="evt_ac")
+    # Même si Stripe renvoie encore un trial_end, il est ignoré une fois actif.
+    ev["data"]["object"]["trial_end"] = 1_900_000_000
+    await es.apply_subscription_event(db, ev)
+
+    from src.models.billing import BotEntitlement
+    ent = [e for e in db.rows(BotEntitlement) if e.bot_id == 7][0]
+    assert ent.status == "active"
+    assert ent.trial_end is None
+
+
+@pytest.mark.asyncio
 async def test_idempotence_event_id(db: FakeSession):
     """Le même event.id rejoué ne réapplique rien (billing_webhook_events)."""
     _seed_products(db)

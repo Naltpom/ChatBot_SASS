@@ -131,6 +131,43 @@ async def test_line_items_socle_inclus_si_plan_ia(db: FakeSession):
     assert codes == ["ai_growth"]
 
 
+# --- Essai AVEC carte : Checkout ouvre un abonnement trialing -------------
+
+@pytest.mark.asyncio
+async def test_checkout_session_pose_trial_et_carte_obligatoire(monkeypatch):
+    """create_checkout_session : essai 7 j (subscription_data[trial_period_days])
+    + carte OBLIGATOIRE (payment_method_collection=always). 0 € pendant l'essai,
+    auto-débit à J+7. (Modèle d'essai AVEC carte.)"""
+    from src.services import stripe_service as svc
+
+    monkeypatch.setattr(svc.settings, "MOCK_BILLING", False, raising=False)
+    monkeypatch.setattr(svc.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
+
+    captured = {}
+
+    async def _fake_request(method, path, data=None, params=None):
+        captured["method"] = method
+        captured["path"] = path
+        captured["data"] = data
+        return {"url": "https://checkout.stripe.test/cs_123"}
+
+    monkeypatch.setattr(svc, "_stripe_request", _fake_request)
+
+    url = await svc.create_checkout_session(
+        customer_id="cus_1",
+        line_items=[{"price": "price_growth", "quantity": 1}],
+        bots_map={"7": ["ai_growth"]},
+        group_key="total:1",
+        user_id=1,
+    )
+    assert url == "https://checkout.stripe.test/cs_123"
+    data = captured["data"]
+    # Essai : 7 j par défaut + carte requise.
+    assert data["subscription_data[trial_period_days]"] == "7"
+    assert data["payment_method_collection"] == "always"
+    assert data["mode"] == "subscription"
+
+
 # --- PUT /api/billing/grouping : transitions -----------------------------
 
 @pytest.mark.asyncio

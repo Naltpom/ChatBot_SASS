@@ -212,10 +212,11 @@ export default function BotConfigurator({
                            onSelect={() => setTier(t.id)} readOnly={readOnly} />
                 ))}
                 {/* Essai : l'IA managée est plafonnée à 50 réponses pendant les 7 jours
-                    d'essai sans carte ; le quota du palier s'applique à la souscription. */}
+                    d'essai (carte requise, sans engagement) ; le quota du palier s'applique
+                    dès le premier débit (J+7) ou la souscription. */}
                 <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 2, lineHeight: 1.5 }}>
-                  Essai 7 jours sans carte : IA plafonnée à 50 réponses, puis le quota du palier
-                  s'applique dès la souscription.
+                  Essai 7 jours avec carte, sans engagement (annulable) : IA plafonnée à 50 réponses,
+                  puis le quota du palier s'applique.
                 </div>
               </div>
             )}

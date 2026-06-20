@@ -48,10 +48,11 @@ class BotEntitlement(Base):
                           server_default=text("'block'"))  # block (v1) | meter (v2)
     status = Column(String, nullable=False, default="active",
                     server_default=text("'active'"))        # active | trialing | past_due | canceled | inactive
-    # Fin de l'essai 7 j SANS carte (status='trialing') : au-delà -> GATE (resolver).
-    # NULL quand status != 'trialing' (essai converti => status='active', trial_end ignoré).
+    # Fin de l'essai 7 j AVEC carte (status='trialing', carte posée au Checkout) :
+    # au-delà -> GATE (resolver) si non débité. NULL quand status != 'trialing'
+    # (essai converti => status='active', trial_end ignoré).
     trial_end = Column(DateTime, nullable=True)
-    # source : stripe (payé) | staff (override) | trial (nouveau bot, essai 7 j billing-ON)
+    # source : stripe (payé / essai avec carte) | staff (override) | free (billing-OFF)
     source = Column(String, nullable=False, default="free",
                     server_default=text("'free'"))
 
@@ -166,7 +167,7 @@ class BotEntitlementOut(BaseModel):
     overage_mode: str = "block"            # block | meter
     status: str = "active"                 # active | trialing | past_due | canceled | inactive
     trial_end: datetime | None = None      # fin de l'essai 7 j (null hors essai)
-    source: str = "free"                   # stripe | staff | trial
+    source: str = "free"                   # stripe | staff | free
     max_kb_sources: int | None = None
     max_actions: int | None = None
     max_mcp_servers: int | None = None

@@ -32,7 +32,7 @@ import HatIcon from '../components/HatIcon'
 import BotConfigurator from '../components/billing/BotConfigurator'
 import PriceCart, { formatCents } from '../components/billing/PriceCart'
 import { errMsg } from '../utils/errors'
-import { InfoBox, Seg } from '../ui'
+import { InfoBox } from '../ui'
 import { FALLBACK_CATALOG, computeCart, deriveConfigFromChat } from '../utils/billing'
 import type { DesignJson, Tree, TreeNode } from '../types/bot'
 import type { BillingCatalog, BotConfig } from '../types/billing'
@@ -399,10 +399,6 @@ export default function BotWizard() {
   // configurateur fait confiance au backend pour le montant final (Stripe).
   const [catalog, setCatalog] = useState<BillingCatalog>(FALLBACK_CATALOG)
   const [botConfig, setBotConfig] = useState<BotConfig>(draft0?.botConfig ?? { ...DEFAULT_BOT_CONFIG })
-  // Intention de souscription (point 3) : le bot démarre TOUJOURS en essai 7 j.
-  // false (défaut) => on reflète l'essai (activate-free). true => l'utilisateur veut
-  // souscrire tout de suite (checkout Stripe, lève l'essai). Restauré du brouillon.
-  const [subscribeNow, setSubscribeNow] = useState<boolean>(draft0?.subscribeNow ?? false)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -662,12 +658,12 @@ export default function BotWizard() {
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
           v: 1, step: step === 'processing' ? 'sources' : step,
-          qi, answers, goals, look, rows, treeJson, dest, botConfig, subscribeNow, savedAt: Date.now(),
+          qi, answers, goals, look, rows, treeJson, dest, botConfig, savedAt: Date.now(),
         }))
       } catch { /* quota dépassé / mode privé : on ignore */ }
     }, 500)
     return () => clearTimeout(h)
-  }, [step, qi, answers, goals, look, rows, treeJson, dest, botConfig, subscribeNow])
+  }, [step, qi, answers, goals, look, rows, treeJson, dest, botConfig])
 
   // « Recommencer à zéro » : efface le brouillon et remet le wizard au départ.
   function discardDraft() {
@@ -676,7 +672,6 @@ export default function BotWizard() {
     setStep('chat'); setQi(0); setAnswers({}); setGoals([]); setTextDraft('')
     setLook({ ...DEFAULT_LOOK }); setRows([newRow()]); setPdfs([]); setTreeJson(null); setGenNote('')
     setBotConfig({ ...DEFAULT_BOT_CONFIG })
-    setSubscribeNow(false)
     planTouched.current = false   // ré-active la dérivation depuis le chat
   }
 
@@ -732,40 +727,30 @@ export default function BotWizard() {
       }
       await api(`/api/bots/${bot.id}`, { method: 'PATCH', body })
 
-      // 3) facturation : le bot démarre TOUJOURS en essai 7 j (plus de chemin
-      // « gratuit à vie », point 1). Si le billing est actif et que je suis le
-      // payeur de la destination, deux chemins selon l'intention :
-      //   - subscribeNow=false (défaut) : on REFLÈTE l'essai sur la config choisie
-      //     via /billing/activate-free (status='trialing', modules + quota du plan,
-      //     trial_end posé à la création) — sans carte ;
-      //   - subscribeNow=true : l'utilisateur souscrit tout de suite => /billing/checkout
-      //     (lève l'essai). checkout_url null / free=true (rien à payer in fine,
-      //     ou catalogue non seedé) => pas de redirection, on termine en 'done'.
+      // 3) facturation : l'essai = un ABONNEMENT Stripe en statut 'trialing', créé
+      // au Checkout (CARTE requise, 0 € pendant 7 jours, auto-débité à J+7 sauf
+      // annulation). Le SEUL chemin d'essai est désormais le Checkout : on poste
+      // donc TOUJOURS /api/billing/checkout (plus de chemin sans-carte/gratuit-à-vie).
+      //   - checkout_url renvoyé => redirection vers le Checkout hébergé (la carte
+      //     y est saisie). Retour Stripe (?checkout=success) sur /app/billing.
+      //   - free=true / url absente (catalogue non seedé, rien à facturer) => pas de
+      //     redirection, le bot reste créé (gate jusqu'à un éventuel abonnement).
       // Invariant billing-OFF (D0) : si billing OFF, AUCUN appel /api/billing/*
-      // (billingActive=false) — le bot reste sur son essai par défaut, pas de crash.
+      // (billingActive=false) — le bot est gratuit, sans checkout, pas de crash.
       if (billingActive && isOwnerDest) {
-        if (subscribeNow) {
-          const { checkout_url, free } = await api<{ checkout_url: string | null; free?: boolean }>(
-            '/api/billing/checkout', {
-              method: 'POST',
-              body: { bot_id: bot.id, config: botConfig, grouping: user?.billing_grouping ?? 'total' },
-            },
-          )
-          if (checkout_url && !free) {
-            // Redirection vers le Checkout hébergé. Retour Stripe (?checkout=success)
-            // sur /app/billing. On ne navigue JAMAIS vers un url null/undefined.
-            window.location.href = checkout_url
-            return
-          }
-          // Rien à payer (free / url absente) : état déjà projeté côté serveur.
-        } else {
-          // Reflète l'essai 7 j sur la config (débloque le plan configuré pendant
-          // l'essai, IA plafonnée à 50 réponses jusqu'à la souscription).
-          await api('/api/billing/activate-free', {
+        const { checkout_url, free } = await api<{ checkout_url: string | null; free?: boolean }>(
+          '/api/billing/checkout', {
             method: 'POST',
-            body: { bot_id: bot.id, config: botConfig },
-          })
+            body: { bot_id: bot.id, config: botConfig, grouping: user?.billing_grouping ?? 'total' },
+          },
+        )
+        if (checkout_url && !free) {
+          // Redirection vers le Checkout hébergé. On ne navigue JAMAIS vers un url
+          // null/undefined.
+          window.location.href = checkout_url
+          return
         }
+        // Rien à payer (free / url absente) : état déjà projeté côté serveur.
       }
 
       setCreatedBotId(bot.id)
@@ -975,12 +960,15 @@ export default function BotWizard() {
             </p>
           </div>
 
-          {/* Essai 7 j sans carte — l'abonnement composé démarre en essai, l'IA est
-              plafonnée pendant cette période (levée à la souscription). */}
+          {/* Essai 7 j AVEC carte — l'abonnement composé démarre en essai (0 € pendant
+              7 jours), la carte est saisie au paiement sécurisé. Auto-débité à J+7 sauf
+              annulation. L'IA est plafonnée à 50 réponses pendant l'essai. */}
           <div style={{ marginBottom: 18 }}>
-            <InfoBox tone="info" title="Essai 7 jours, sans carte">
-              Votre chatbot démarre par un essai gratuit de 7 jours, sans carte bancaire. Pendant l'essai,
-              l'IA managée est plafonnée à 50 réponses ; ce plafond est levé dès la souscription.
+            <InfoBox tone="info" title="Essai 7 jours, carte requise, annulable">
+              Votre chatbot démarre par un essai gratuit de 7 jours. La carte est demandée au paiement
+              sécurisé mais rien n'est débité avant la fin de l'essai : à J+7, l'abonnement est débité
+              automatiquement sauf si vous annulez avant depuis votre espace facturation. Pendant l'essai,
+              l'IA managée est plafonnée à 50 réponses ; ce plafond est levé à la souscription.
             </InfoBox>
           </div>
 
@@ -998,25 +986,17 @@ export default function BotWizard() {
             <PriceCart catalog={catalog} config={botConfig} />
           </div>
 
-          {/* Intention de souscription. L'essai 7 j est le défaut ; l'owner peut
-              choisir de souscrire tout de suite (Checkout à la création). Affiché
-              seulement à l'owner ET si la compo est facturable (sinon checkout =
-              no-op : seul l'essai a du sens). */}
+          {/* Récap de l'essai facturable : si la compo a un coût (owner + total > 0),
+              on rappelle qu'à J+7 l'abonnement sera débité sauf annulation. Le seul
+              chemin de démarrage est le Checkout (carte) à la création — plus de
+              choix « essai sans carte / souscrire maintenant ». */}
           {isOwnerDest && totalCents > 0 && (
             <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 18 }}>
-              <Label>Comment démarrer ?</Label>
-              <Seg
-                options={[
-                  { value: 'trial', label: 'Essai 7 jours gratuit' },
-                  { value: 'now', label: 'Souscrire maintenant' },
-                ]}
-                value={subscribeNow ? 'now' : 'trial'}
-                onChange={v => setSubscribeNow(v === 'now')}
-              />
-              <div style={{ fontSize: 12.5, color: FAINT, marginTop: 10, lineHeight: 1.5 }}>
-                {subscribeNow
-                  ? `Vous serez redirigé vers le paiement sécurisé à la création (${formatCents(totalCents, catalog.currency)} /mois).`
-                  : 'Aucune carte demandée. Vous pourrez souscrire à tout moment depuis l\'espace facturation.'}
+              <Label>À la création</Label>
+              <div style={{ fontSize: 12.5, color: FAINT, lineHeight: 1.5 }}>
+                Vous serez redirigé vers le paiement sécurisé pour saisir votre carte (essai 7 jours,
+                0 € aujourd'hui). À J+7, {formatCents(totalCents, catalog.currency)} /mois seront débités
+                automatiquement, sauf si vous annulez avant depuis votre espace facturation.
               </div>
             </div>
           )}

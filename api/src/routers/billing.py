@@ -71,8 +71,9 @@ _PRESETS: list[dict] = [
 
 CATALOG_VERSION = "2026-06-20"
 
-# Durée de l'essai SANS carte (fin du gratuit à vie, point 1). Aligné sur
-# bots._seed_trial_entitlement (création du bot).
+# Durée de l'essai AVEC carte (point 1) : 7 j de trial sur l'abonnement Stripe
+# ouvert au Checkout (subscription_data[trial_period_days]). Auto-débit à J+7
+# sauf résiliation au portail. Aligné sur stripe_service.create_checkout_session.
 TRIAL_DAYS = 7
 
 
@@ -92,11 +93,6 @@ class CheckoutPayload(BaseModel):
 
 
 class SubscriptionUpdatePayload(BaseModel):
-    bot_id: int
-    config: BotConfigPayload
-
-
-class ActivateFreePayload(BaseModel):
     bot_id: int
     config: BotConfigPayload
 
@@ -322,38 +318,15 @@ async def _project_mock_entitlement(
     db: AsyncSession, bot: Bot, codes: list[str], modules: list[str]
 ) -> None:
     """MOCK_BILLING : applique directement l'entitlement attendu (simule
-    checkout.session.completed) pour que les e2e vérifient l'activation sans
+    l'abonnement créé au Checkout) pour que les e2e vérifient l'activation sans
     Stripe (spec §2.3). En vrai Stripe, le webhook s'en charge.
 
-    Souscription = conversion de l'essai : status='active' (le webhook fait pareil
-    en vrai). `trial_end` est ignoré quand status='active' (point 9)."""
-    ai_quota = await _ai_quota_for_codes(db, codes)
-    ent = (await db.execute(
-        select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
-    )).scalar_one_or_none()
-    if ent is None:
-        ent = BotEntitlement(bot_id=bot.id)
-        db.add(ent)
-    ent.modules = sorted(set(modules))
-    ent.ai_monthly_quota = ai_quota
-    ent.status = "active"
-    ent.source = "stripe"
-    # Conversion de l'essai : trial_end n'a plus de sens une fois actif (point 9).
-    if hasattr(ent, "trial_end"):
-        ent.trial_end = None
-    ent.synced_at = utcnow()
-
-
-async def _project_trial_entitlement(
-    db: AsyncSession, bot: Bot, codes: list[str], modules: list[str]
-) -> BotEntitlement:
-    """Aligne l'entitlement d'ESSAI d'un bot sur la config choisie, SANS Stripe
-    (fin du gratuit à vie, point 1/3). status='trialing', modules de la config,
-    quota IA selon le plan, AUCUNE subscription Stripe (pas de carte à l'essai).
-
-    `trial_end` PRÉSERVÉ s'il existe déjà (l'essai a démarré à la création du bot)
-    ; sinon posé à utcnow()+7 j. La conversion en payé passe par /checkout +
-    webhook (status='active', trial_end ignoré)."""
+    Essai AVEC CARTE (modèle actuel) : le Checkout ouvre un abonnement Stripe en
+    statut `trialing` (carte requise, 0 € pendant 7 j). On reflète donc
+    `status='trialing'` + `trial_end = utcnow() + 7 j` (le webhook réel lit
+    `subscription.trial_end`). Les modules de la config sont débloqués ; l'IA
+    managée est plafonnée à TRIAL_AI_CAP par `ai_quota_for`. L'auto-débit à J+7
+    bascule ensuite en `status='active'` (event Stripe `active`)."""
     ai_quota = await _ai_quota_for_codes(db, codes)
     ent = (await db.execute(
         select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
@@ -364,12 +337,9 @@ async def _project_trial_entitlement(
     ent.modules = sorted(set(modules))
     ent.ai_monthly_quota = ai_quota
     ent.status = "trialing"
-    ent.source = "trial"
-    # Conserve l'échéance d'essai existante ; sinon démarre la fenêtre 7 j.
-    if getattr(ent, "trial_end", None) is None:
-        ent.trial_end = utcnow() + timedelta(days=TRIAL_DAYS)
+    ent.source = "stripe"
+    ent.trial_end = utcnow() + timedelta(days=TRIAL_DAYS)
     ent.synced_at = utcnow()
-    return ent
 
 
 # --- GET /api/billing/catalog ---------------------------------------------
@@ -488,9 +458,10 @@ async def get_summary(db: AsyncSession = Depends(get_db),
     )).scalars().all()
     bots = await _billable_bots(db, user)
 
-    # Essais EN COURS du payeur (fin du gratuit à vie, point 4) : un bot sans sub
-    # Stripe peut être en essai 7 j (status='trialing' sur bot_entitlements).
-    # `trial_end` agrégé = le plus PROCHE parmi les essais encore en cours (epoch s).
+    # Essais EN COURS du payeur (essai AVEC carte, point 4) : un abonnement Stripe
+    # `trialing` projette `status='trialing'` + `trial_end` (= subscription.trial_end)
+    # sur bot_entitlements. `trial_end` agrégé = le plus PROCHE parmi les essais
+    # encore en cours (epoch s) ; null hors essai.
     now = utcnow()
     trial_end: int | None = None
     if bots:
@@ -505,16 +476,16 @@ async def get_summary(db: AsyncSession = Depends(get_db),
             trial_end = calendar.timegm(min(live_trials).utctimetuple())
 
     # subscription_status agrégé du payeur (contrat front) : 'active' dès qu'une
-    # sub est active/trialing, sinon 'past_due' si au moins une est past_due,
-    # sinon 'trialing' si aucune sub mais un essai 7 j est en cours (point 4),
-    # sinon 'none' (aucune sub facturante ni essai : tout résilié / expiré).
+    # sub est VRAIMENT active (1er débit passé), sinon 'trialing' si au moins un
+    # abonnement est en essai avec carte (point 4), sinon 'past_due' si au moins
+    # une est past_due, sinon 'none' (tout résilié / aucune sub).
     statuses = {s.status for s in subs}
-    if statuses & {"active", "trialing"}:
+    if "active" in statuses:
         subscription_status = "active"
+    elif "trialing" in statuses or trial_end is not None:
+        subscription_status = "trialing"
     elif "past_due" in statuses:
         subscription_status = "past_due"
-    elif trial_end is not None:
-        subscription_status = "trialing"
     else:
         subscription_status = "none"
 
@@ -579,8 +550,12 @@ async def get_summary(db: AsyncSession = Depends(get_db),
 @router.post("/billing/checkout")
 async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
                    user: User = Depends(get_current_user)):
-    """Crée une session de Checkout Stripe pour convertir l'essai d'un bot en
-    abonnement (fin du gratuit à vie, point 1).
+    """Crée une session de Checkout Stripe : c'est le SEUL chemin d'essai (point 1).
+
+    Essai AVEC CARTE : le Checkout ouvre un abonnement Stripe en statut `trialing`
+    (`subscription_data[trial_period_days]=7` + `payment_method_collection=always`)
+    — la carte est OBLIGATOIRE, 0 € est débité pendant 7 j, puis auto-débit du plan
+    à J+7 SAUF résiliation au Customer Portal (-> subscription.deleted -> bot gaté).
 
     Socle-inclusion (point 6) : `base` (9 €) n'est facturé QUE pour un bot arbre
     seul (aucun plan IA) ; dès qu'un plan IA est pris, le socle est inclus dans le
@@ -603,8 +578,9 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
 
     if not line_items:
         # Aucune ligne facturable (catalogue non seedé / prix manquants) : on ne
-        # peut pas créer de Checkout. En MOCK on projette tout de même l'état actif
-        # (les e2e n'ont pas de Stripe ni de catalogue prix réel).
+        # peut pas créer de Checkout. En MOCK on projette tout de même l'état
+        # d'essai (status='trialing') pour que les e2e vérifient l'activation sans
+        # Stripe ni catalogue prix réel.
         if settings.MOCK_BILLING:
             await _project_mock_entitlement(db, bot, codes, modules)
         await db.commit()
@@ -636,47 +612,6 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
         await _project_mock_entitlement(db, bot, codes, modules)
     await db.commit()
     return {"checkout_url": url}
-
-
-# --- POST /api/billing/activate-free --------------------------------------
-
-@router.post("/billing/activate-free")
-async def activate_free(body: ActivateFreePayload, db: AsyncSession = Depends(get_db),
-                        user: User = Depends(get_current_user)):
-    """Démarre/aligne l'ESSAI 7 j d'un bot sur la config choisie, SANS carte ni
-    Stripe (fin du gratuit à vie, points 1/3).
-
-    Le front l'appelle quand l'owner valide une config sans payer tout de suite :
-    on pose `status='trialing'` avec les modules de la config (l'essai débloque ce
-    que l'owner a choisi) et le quota IA du plan, en préservant `trial_end`
-    (démarré à la création du bot). À l'expiration de `trial_end`, le resolver gate
-    le bot jusqu'au paiement (/checkout). Owner-only (require_billing_owner).
-
-    Billing OFF ⇒ {billing: disabled}."""
-    if not stripe_service.billing_enabled():
-        return _DISABLED
-
-    _validate_config_modules(body.config)
-    bot = await db.get(Bot, body.bot_id)
-    if bot is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    await require_billing_owner(bot, user, db)
-
-    codes, modules = _config_to_codes(body.config)
-    # Aucune souscription Stripe : on reflète l'essai (status='trialing'), jamais un
-    # entitlement payé. La conversion en payé passe par /billing/checkout + webhook.
-    ent = await _project_trial_entitlement(db, bot, codes, modules)
-    await db.commit()
-
-    return {
-        "bot_id": bot.id,
-        "trial": True,
-        "modules": sorted(set(ent.modules or [])),
-        "ai_monthly_quota": ent.ai_monthly_quota,
-        "status": ent.status,
-        "trial_end": (calendar.timegm(ent.trial_end.utctimetuple())
-                      if ent.trial_end is not None else None),
-    }
 
 
 # --- POST /api/billing/subscription/update --------------------------------

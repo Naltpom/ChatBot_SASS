@@ -19,7 +19,7 @@ de TOUTES les subs ACTIVES couvrant le bot) plutôt que de révoquer aveuglémen
 """
 import logging
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -47,13 +47,15 @@ class Entitlement:
     None = illimité, 0 = module IA absent, >=1 = quota mensuel. `overage_mode` :
     block (v1) | meter (v2). `byok` : clé IA portée par le client (non métré).
 
-    Modèle d'essai (fin du gratuit à vie) : tout nouveau bot démarre en
-    `status='trialing'` avec `trial_end = création + 7 jours` (évalué
+    Modèle d'essai (CARTE à l'inscription) : l'essai est un ABONNEMENT Stripe en
+    statut `trialing` créé au Checkout (carte requise, 0 € pendant 7 j). Le webhook
+    projette `status='trialing'` avec `trial_end = subscription.trial_end` (évalué
     paresseusement, pas de cron). Tant que `utcnow() < trial_end`, les modules de
-    l'essai sont DÉBLOQUÉS ; passé `trial_end` (essai expiré), `trial_expired`
-    passe à True et tous les modules sont gatés (comme `inactive`) jusqu'au
-    paiement. Une souscription pose `status='active'` (webhook) : `trial_end` est
-    alors ignoré.
+    l'abonnement sont DÉBLOQUÉS (IA plafonnée à TRIAL_AI_CAP) ; passé `trial_end`
+    (auto-débit imminent ou résiliation), `trial_expired` passe à True. À J+7 sans
+    résiliation, Stripe débite et émet un event statut `active` -> `status='active'`
+    (trial_end ignoré) ; en cas de résiliation au portail -> `subscription.deleted`
+    -> bot gaté, 0 € débité.
     """
     bot_id: int
     modules: set[str] = field(default_factory=set)
@@ -205,6 +207,15 @@ def gate(ent: Entitlement, capability: str) -> None:
 _ACTIVE_SUB_STATUSES = {"active", "trialing", "past_due"}
 
 
+def _epoch_to_naive_utc(epoch: object) -> datetime | None:
+    """Convertit un epoch Stripe (secondes, ex. `subscription.trial_end`) en
+    datetime NAÏF UTC (convention des colonnes DateTime du projet, cf. core/time).
+    None / valeur non entière -> None (pas d'essai borné)."""
+    if not isinstance(epoch, (int, float)):
+        return None
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).replace(tzinfo=None)
+
+
 async def _product_index(db: AsyncSession) -> dict[str, BillingProduct]:
     """Index stripe_price_id -> BillingProduct (mapping prix Stripe → code)."""
     rows = (await db.execute(select(BillingProduct))).scalars().all()
@@ -227,18 +238,26 @@ def _net_modules_quota(
     - Un item `kind='ai_tier'` active le module IA et pose le quota = included_replies
       (illimité si included_replies est None — variante BYOK forfait).
     - Un item `kind='module'` active le module mappé via CODE_TO_MODULE.
-    - status : 'active' si au moins une sub VRAIMENT active (active/trialing) couvre
-      le bot ; sinon 'past_due' si seule une sub en impayé le couvre ; sinon 'inactive'.
+    - status : 'active' si au moins une sub VRAIMENT active couvre le bot ; sinon
+      'trialing' si seul un abonnement en ESSAI (Stripe status='trialing', carte
+      posée au Checkout, 0 € pendant 7 j) le couvre ; sinon 'past_due' si seule une
+      sub en impayé le couvre ; sinon 'inactive'.
       `past_due` dégrade tous les modules payants (has_module -> False, finding #4) :
       un client en impayé ne garde PAS l'accès aux modules tant que le paiement n'est
       pas régularisé. Les items past_due restent néanmoins comptés dans `modules`
       (pour conserver l'historique de synchro / re-bascule rapide), c'est le `status`
       qui gate l'accès effectif.
+
+      L'essai (trialing) débloque les modules de l'abonnement (carte déjà collectée
+      au Checkout) ; le plafond IA de l'essai (TRIAL_AI_CAP=50) est appliqué par
+      `ai_quota_for`, pas ici. Statut Stripe 'active' (après le 1er débit à J+7)
+      prime sur 'trialing'.
     """
     modules: set[str] = set()
     ai_quota: int | None = 0           # 0 = module IA absent par défaut
     ai_unlimited = False
-    has_active = False     # sub active/trialing couvrant le bot
+    has_active = False     # sub VRAIMENT active couvrant le bot
+    has_trialing = False   # sub en essai (Stripe trialing) couvrant le bot
     has_past_due = False   # sub en impayé couvrant le bot
 
     for sub in subs:
@@ -249,6 +268,8 @@ def _net_modules_quota(
                 continue
             if sub.status == "past_due":
                 has_past_due = True
+            elif sub.status == "trialing":
+                has_trialing = True
             else:
                 has_active = True
             code = item.get("code")
@@ -271,10 +292,13 @@ def _net_modules_quota(
                     ai_quota = max(ai_quota or 0, included)
 
     final_quota: int | None = None if ai_unlimited else ai_quota
-    # Priorité : une sub vraiment active prime sur un impayé ; sinon past_due
-    # (dégradation, finding #4) ; sinon plus rien -> inactive.
+    # Priorité : une sub vraiment active prime sur un essai, qui prime sur un
+    # impayé (dégradation, finding #4) ; sinon plus rien -> inactive. L'essai
+    # (trialing) débloque les modules mais plafonne l'IA (ai_quota_for).
     if has_active:
         status = "active"
+    elif has_trialing:
+        status = "trialing"
     elif has_past_due:
         status = "past_due"
     else:
@@ -297,8 +321,15 @@ async def _project_bot(
     bot_id: int,
     subs: list[BillingSubscription],
     products: dict[str, BillingProduct],
+    trial_end: datetime | None = None,
 ) -> None:
-    """Réécrit (déclaratif) la ligne bot_entitlements du bot depuis l'état NET."""
+    """Réécrit (déclaratif) la ligne bot_entitlements du bot depuis l'état NET.
+
+    `trial_end` (issu de `subscription.trial_end` Stripe, converti naïf UTC) n'est
+    posé que si l'état NET est 'trialing' (essai avec carte en cours) ; il est
+    EFFACÉ dès que le statut quitte l'essai (status='active' après le 1er débit,
+    'inactive'/'past_due' après résiliation), conformément au point produit
+    (trial_end ignoré hors essai)."""
     modules, ai_quota, status = _net_modules_quota(bot_id, subs, products)
     row = await _load(db, bot_id)
 
@@ -311,6 +342,7 @@ async def _project_bot(
             row.modules = []
             row.ai_monthly_quota = 0
             row.status = "inactive"
+            row.trial_end = None
             row.synced_at = utcnow()
         return
 
@@ -320,6 +352,8 @@ async def _project_bot(
     row.modules = sorted(modules)
     row.ai_monthly_quota = ai_quota
     row.status = status
+    # Essai avec carte : trial_end porté tant que l'essai dure, effacé sinon.
+    row.trial_end = trial_end if status == "trialing" else None
     row.source = "stripe"
     row.synced_at = utcnow()
 
@@ -356,6 +390,11 @@ async def apply_subscription_event(db: AsyncSession, event: dict) -> None:
 
     sub_obj = (event.get("data") or {}).get("object") or {}
     stripe_sub_id = sub_obj.get("id")
+    # Essai avec carte : `subscription.trial_end` (epoch s) -> datetime naïf UTC.
+    # Source de vérité de la fin d'essai (le miroir billing_subscriptions ne porte
+    # pas trial_end) ; n'est appliqué par _project_bot que si l'état NET reste
+    # 'trialing'. Un .deleted (trial_end absent) -> None -> trial_end effacé.
+    trial_end = _epoch_to_naive_utc(sub_obj.get("trial_end"))
 
     # Anti-race regrouping↔webhook (D1) : si une fenêtre de regrouping est ouverte
     # sur le payeur, un subscription.deleted ne doit pas révoquer (l'état NET est
@@ -414,7 +453,7 @@ async def apply_subscription_event(db: AsyncSession, event: dict) -> None:
         )
 
     for bot_id in affected_bot_ids:
-        await _project_bot(db, bot_id, user_subs, products)
+        await _project_bot(db, bot_id, user_subs, products, trial_end=trial_end)
 
     # Marque l'event traité (idempotence). On stocke un payload léger.
     db.add(

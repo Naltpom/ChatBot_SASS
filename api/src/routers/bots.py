@@ -132,35 +132,27 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
     return out
 
 
-# Durée de l'essai sans carte (fin du gratuit à vie) : 7 jours à compter de la
-# création du bot. À J+7 sans souscription, le resolver gate le bot (point 4).
-TRIAL_DAYS = 7
+async def _seed_pending_entitlement(db: AsyncSession, bot_id: int) -> None:
+    """A la creation d'un bot, billing ACTIF : pose un entitlement EN ATTENTE de
+    Checkout (`status='inactive'`, `modules=[]`, aucun quota IA).
 
+    Modèle d'essai AVEC CARTE : il n'y a plus d'essai gratuit créé à la création du
+    bot. L'essai = un abonnement Stripe `trialing` ouvert via le Checkout (carte
+    requise) ; tant que l'owner n'a pas validé le Checkout, le bot est GATÉ (le
+    resolver dégrade tous les modules pour un status='inactive'). On NE pose donc
+    SURTOUT PAS un état débloqué/gratuit ici.
 
-async def _seed_trial_entitlement(
-    db: AsyncSession, bot_id: int,
-    modules: list[str] | None = None, ai_monthly_quota: int | None = None,
-) -> None:
-    """A la creation d'un bot : démarre un ESSAI de 7 jours SANS carte
-    SEULEMENT si le billing est actif (fin du gratuit à vie, point 3).
-
-    Pose `status='trialing'`, `trial_end = utcnow() + 7j`, `modules` = ceux de la
-    config (défaut [] = bot arbre / socle seul), `ai_monthly_quota` selon le plan
-    IA configuré (None = pas d'IA). AUCUNE subscription Stripe (pas de carte à
-    l'essai) : la conversion en `status='active'` passe par le webhook au paiement.
-
-    Billing OFF -> on ne cree RIEN : le resolver renvoie ALL_UNLOCKED (RÈGLE 1),
-    inutile de polluer la base. Un bot sans entitlement est de toute facon traite
-    gratuit (RÈGLE 2). A commiter par l'appelant (le bot vient d'etre commit)."""
+    Billing OFF -> on ne cree RIEN : le resolver renvoie ALL_UNLOCKED (RÈGLE 1,
+    invariant D0 — app 100 % gratuite). Un bot sans entitlement reste gratuit
+    (RÈGLE 2). A commiter par l'appelant (le bot vient d'etre commit)."""
     if not billing_enabled():
         return
     db.add(BotEntitlement(
         bot_id=bot_id,
-        modules=modules or [],
-        ai_monthly_quota=ai_monthly_quota,
-        status="trialing",
-        trial_end=utcnow() + timedelta(days=TRIAL_DAYS),
-        source="trial",
+        modules=[],
+        ai_monthly_quota=0,
+        status="inactive",   # gaté tant que le Checkout (essai avec carte) n'a pas eu lieu
+        source="stripe",
     ))
     await db.commit()
 
@@ -175,7 +167,7 @@ async def create_personal_bot(body: BotCreate, db: AsyncSession = Depends(get_db
     db.add(bot)
     await db.commit()
     await db.refresh(bot)
-    await _seed_trial_entitlement(db, bot.id)
+    await _seed_pending_entitlement(db, bot.id)
     return BotOut.from_bot(bot)
 
 
@@ -312,7 +304,7 @@ async def create_bot(org_id: int, body: BotCreate, db: AsyncSession = Depends(ge
     db.add(bot)
     await db.commit()
     await db.refresh(bot)
-    await _seed_trial_entitlement(db, bot.id)
+    await _seed_pending_entitlement(db, bot.id)
     return BotOut.from_bot(bot)
 
 

@@ -125,12 +125,19 @@ async def create_checkout_session(
     bots_map: dict[str, list[str]],
     group_key: str,
     user_id: int,
-    trial_period_days: Optional[int] = None,
+    trial_period_days: int = 7,
 ) -> str:
     """Session de checkout abonnement -> URL de paiement hebergee par Stripe.
 
     Réécrit (spec §2.4, corrige A1) : plusieurs `line_items` (1 par produit :
     base + plan IA + add-ons), chacun `[{"price": "price_...", "quantity": 1}]`.
+
+    ESSAI AVEC CARTE (modèle d'essai actuel) : le Checkout crée un abonnement en
+    statut `trialing` via `subscription_data[trial_period_days]` (7 j par défaut)
+    et `payment_method_collection='always'` (la CARTE est OBLIGATOIRE à
+    l'inscription — 0 € débité pendant l'essai). À J+7, Stripe débite
+    automatiquement le plan SAUF si le client a résilié depuis le Customer Portal
+    (-> subscription.deleted -> bot gaté, 0 € débité).
 
     Checkout ne propage AUCUN metadata par line_item ⇒ la cartographie complète
     bot→modules est sérialisée dans `subscription_data[metadata][bots]` (JSON).
@@ -159,6 +166,8 @@ async def create_checkout_session(
         "subscription_data[metadata][bots]": json.dumps(bots_map, separators=(",", ":")),
         "subscription_data[metadata][group_key]": group_key,
         "subscription_data[metadata][user_id]": str(user_id),
+        # Essai avec carte : carte requise (0 € pendant l'essai), auto-débit à J+7.
+        "payment_method_collection": "always",
         "success_url": (f"{settings.APP_URL}/app/billing"
                         f"?checkout=success&session_id={{CHECKOUT_SESSION_ID}}"),
         "cancel_url": f"{settings.APP_URL}/app/billing?checkout=cancelled",

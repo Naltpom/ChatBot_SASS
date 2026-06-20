@@ -106,9 +106,12 @@ export default function BotPage() {
   // État de facturation du bot (onglet Facturation) : modules actifs / quota IA /
   // statut d'abonnement. Chargé paresseusement quand l'onglet devient visible.
   const [botBilling, setBotBilling] = useState<BotEntitlementView | null>(null)
-  // Souscription depuis l'essai (POST /api/billing/checkout) : busy + erreur.
+  // Souscription / réactivation via Checkout (essai expiré) : busy + erreur.
   const [subscribeBusy, setSubscribeBusy] = useState(false)
   const [subscribeErr, setSubscribeErr] = useState('')
+  // Gestion / annulation de l'essai via le Customer Portal : busy + erreur.
+  const [portalBusy, setPortalBusy] = useState(false)
+  const [portalErr, setPortalErr] = useState('')
 
   const fromAdmin = params.get('from') === 'admin'
   const isAdminView = !!user?.is_superadmin && fromAdmin
@@ -275,12 +278,11 @@ export default function BotPage() {
     setNewDomain('')
   }
 
-  // « Souscrire maintenant » depuis l'onglet Facturation : lève l'essai 7 j en
-  // convertissant la config DÉJÀ active (modules débloqués pendant l'essai +
-  // variante BYOK) via POST /api/billing/checkout. Le backend recalcule les
-  // line_items et débloque le quota plein (plafond essai 50 réponses retiré).
-  // checkout_url -> redirection Stripe ; null/free -> souscription immédiate
-  // (MOCK / catalogue gratuit), on recharge l'entitlement.
+  // Réactivation via Checkout (essai expiré / abonnement annulé -> bot gate) :
+  // recrée un abonnement (essai 7 j, carte requise) sur la config DÉJÀ active
+  // (modules + variante BYOK) via POST /api/billing/checkout. Le backend recalcule
+  // les line_items. checkout_url -> redirection Stripe ; null/free -> souscription
+  // immédiate (MOCK / catalogue gratuit), on recharge l'entitlement.
   async function subscribeNow() {
     if (!botBilling) return
     setSubscribeBusy(true)
@@ -305,6 +307,25 @@ export default function BotPage() {
       setSubscribeErr(errMsg(err, "La souscription n'a pas pu démarrer."))
     } finally {
       setSubscribeBusy(false)
+    }
+  }
+
+  // « Gérer / Annuler l'essai » : ouvre le Customer Portal Stripe (POST
+  // /api/billing/portal -> {portal_url|url}). Le client y annule l'abonnement
+  // d'essai avant J+7 (-> subscription.deleted -> bot gate, 0 € débité) ou met à
+  // jour sa carte. Redirection directe vers l'URL renvoyée.
+  async function openPortal() {
+    setPortalBusy(true)
+    setPortalErr('')
+    try {
+      const res = await api<{ portal_url?: string; url?: string }>('/api/billing/portal', { method: 'POST' })
+      const url = res.portal_url || res.url
+      if (url) window.location.href = url
+      else setPortalErr('Portail indisponible pour le moment.')
+    } catch (err: unknown) {
+      setPortalErr(errMsg(err, "Impossible d'ouvrir le portail."))
+    } finally {
+      setPortalBusy(false)
     }
   }
 
@@ -472,7 +493,8 @@ export default function BotPage() {
       {/* ================= FACTURATION ================= */}
       {activeTab === 'billing' && (
         <BotBillingTab billing={botBilling} botName={bot.name}
-                       onSubscribe={subscribeNow} subscribeBusy={subscribeBusy} subscribeErr={subscribeErr} />
+                       onSubscribe={subscribeNow} subscribeBusy={subscribeBusy} subscribeErr={subscribeErr}
+                       onPortal={openPortal} portalBusy={portalBusy} portalErr={portalErr} />
       )}
 
       {/* Widget de TEST flottant : le vrai aperçu du chatbot, posé directement sur
@@ -572,25 +594,34 @@ const SUB_STATUS_LABELS: Record<string, string> = {
   none: 'Aucun abonnement',
 }
 
-// Plafond IA pendant l'essai 7 j (sans carte), aligné backend (fin du gratuit à
-// vie). Levé à la souscription. Informatif (pas un prix codé en dur).
+// Plafond IA pendant l'essai 7 j (carte requise). Levé au premier débit (J+7).
+// Informatif (pas un prix codé en dur).
 const TRIAL_AI_CAP = 50
 // Jours restants avant la fin d'essai (epoch s -> ms, arrondi au jour supérieur).
 function daysUntil(epochSeconds: number): number {
   const ms = epochSeconds * 1000 - Date.now()
   return ms <= 0 ? 0 : Math.ceil(ms / 86_400_000)
 }
+// Date FR de fin d'essai (epoch s -> ms).
+function fmtDate(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+}
 
-// Onglet Facturation d'un bot : état d'essai 7 j (compte à rebours + plafond IA
-// + « Souscrire maintenant »), récap des modules actifs, quota IA (Meter) avec
-// alerte « quota proche / atteint », et renvoi vers la page Facturation. Owner-only
-// et monté uniquement si le billing est actif (voir billingTabVisible / visibleTabs).
-function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribeErr }: {
+// Onglet Facturation d'un bot : état d'essai 7 j avec carte (compte à rebours +
+// auto-débit à J+7 sauf annulation + plafond IA + bouton portail d'annulation),
+// récap des modules actifs, quota IA (Meter) avec alerte « quota proche / atteint »,
+// et renvoi vers la page Facturation. Owner-only et monté uniquement si le billing
+// est actif (voir billingTabVisible / visibleTabs).
+function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribeErr,
+                         onPortal, portalBusy, portalErr }: {
   billing: BotEntitlementView | null
   botName: string
   onSubscribe: () => void
   subscribeBusy: boolean
   subscribeErr: string
+  onPortal: () => void
+  portalBusy: boolean
+  portalErr: string
 }) {
   if (!billing) {
     return (
@@ -617,20 +648,23 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
 
   return (
     <div className="col" style={{ gap: 16 }}>
-      {/* ESSAI EN COURS : compte à rebours + plafond IA + souscrire. */}
+      {/* ESSAI EN COURS : compte à rebours + auto-débit à J+7 + plafond IA + bouton
+          portail pour annuler avant la fin (0 € débité). */}
       {onTrial && (
         <InfoBox tone="info" title={`Essai : ${trialDaysLeft} ${trialDaysLeft > 1 ? 'jours restants' : 'jour restant'}`}>
           <div className="col" style={{ gap: 12 }}>
             <span style={{ fontSize: 12.5 }}>
-              L'IA de ce bot est plafonnée à {TRIAL_AI_CAP} réponses pendant l'essai. Souscrivez
-              maintenant pour lever ce plafond et débloquer votre quota complet.
+              {trialEnd != null && <>Essai gratuit jusqu'au {fmtDate(trialEnd)}. </>}
+              L'abonnement sera débité automatiquement à la fin de l'essai (J+7) sauf annulation.
+              L'IA est plafonnée à {TRIAL_AI_CAP} réponses pendant l'essai ; ce plafond est levé au
+              premier débit. Annulez avant la fin depuis le portail : aucun montant ne sera prélevé.
             </span>
             <div>
-              <Btn kind="primary" onClick={onSubscribe} disabled={subscribeBusy}>
-                {subscribeBusy ? 'Redirection…' : 'Souscrire maintenant'}
+              <Btn kind="soft" onClick={onPortal} disabled={portalBusy}>
+                {portalBusy ? 'Ouverture…' : "Gérer / Annuler l'essai"}
               </Btn>
             </div>
-            {subscribeErr && <div className="error">{subscribeErr}</div>}
+            {portalErr && <div className="error">{portalErr}</div>}
           </div>
         </InfoBox>
       )}

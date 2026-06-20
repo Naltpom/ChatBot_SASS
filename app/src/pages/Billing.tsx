@@ -37,9 +37,10 @@ const INVOICE_STATUS_LABELS: Record<Invoice['status'], string> = {
 
 // Résumé d'abonnement renvoyé par GET /api/billing/summary. On reste tolérant
 // (champs optionnels) : le backend peut enrichir sans casser le front.
-// `subscription_status` peut désormais valoir 'trialing' (essai 7 j sans carte —
-// fin du gratuit à vie) et `trial_end` porte l'échéance du plus proche essai en
-// cours (epoch s, null hors essai). Voir routers/billing.get_summary.
+// `subscription_status` peut valoir 'trialing' : l'essai 7 j est un ABONNEMENT
+// Stripe en statut 'trialing' (carte saisie au Checkout, 0 € pendant 7 j, auto-
+// débité à J+7 sauf annulation). `trial_end` porte l'échéance du plus proche essai
+// en cours (epoch s, null hors essai). Voir routers/billing.get_summary.
 interface BillingSummary {
   subscription_status?: 'active' | 'past_due' | 'canceled' | 'none' | 'trialing'
   billable_bots?: number
@@ -48,8 +49,8 @@ interface BillingSummary {
   next_invoice_at?: number | null // epoch secondes
 }
 
-// Plafond IA pendant l'essai 7 j (sans carte), aligné backend (point 1). Le quota
-// plein est rétabli à la souscription. Affiché à titre informatif (pas un prix).
+// Plafond IA pendant l'essai 7 j (carte requise), aligné backend (point 1). Le
+// quota plein est rétabli au premier débit (J+7). Affiché à titre informatif.
 const TRIAL_AI_CAP = 50
 // Seuil d'alerte « quota proche » (>= 80 % de la conso IA mensuelle).
 const QUOTA_WARN_PCT = 80
@@ -231,7 +232,7 @@ export default function Billing() {
   // essais échus en sont retirés -> trial_end null) : l'état « essai terminé » au
   // niveau payeur n'est donc pas dérivable ici. Il est traité par bot dans
   // l'onglet Facturation (entitlement.trial_expired). On reste sur le compte à
-  // rebours + l'invite à souscrire.
+  // rebours + l'info auto-débit + l'accès au portail pour annuler avant J+7.
   const trialEnd = summary?.trial_end ?? null
   const onTrial = subStatus === 'trialing' && trialEnd != null && trialEnd * 1000 > Date.now()
   const trialDaysLeft = trialEnd != null ? daysUntil(trialEnd) : 0
@@ -252,18 +253,20 @@ export default function Billing() {
     <div className="col" style={{ gap: 18 }}>
       <Header />
 
-      {/* ESSAI 7 j en cours : compte à rebours + plafond IA + souscrire. */}
+      {/* ESSAI 7 j en cours : compte à rebours + auto-débit à J+7 + gérer/annuler
+          via le Customer Portal (avant J+7 -> 0 € débité). L'IA reste plafonnée. */}
       {onTrial && (
-        <InfoBox tone="info" title={`Essai : ${trialDaysLeft} ${trialDaysLeft > 1 ? 'jours restants' : 'jour restant'}`}>
+        <InfoBox tone="info" title={`Essai jusqu'au ${fmtDate(trialEnd as number)}`}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
             <span>
-              Votre essai gratuit se termine le {fmtDate(trialEnd as number)}. L'IA est plafonnée
-              à {TRIAL_AI_CAP} réponses pendant l'essai ; souscrivez pour lever ce plafond et
-              débloquer votre quota complet. Choisissez le bot à souscrire ci-dessous.
+              Essai gratuit jusqu'au {fmtDate(trialEnd as number)}, débité automatiquement à la fin
+              sauf annulation. L'IA est plafonnée à {TRIAL_AI_CAP} réponses pendant l'essai (plafond
+              levé au premier débit). Annulez avant la fin depuis le portail : aucun montant ne sera prélevé.
             </span>
-            <a href="#billable-bots" className="btn btn-primary" style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}>
-              Souscrire maintenant
-            </a>
+            <button onClick={openPortal} disabled={portalBusy} className="btn btn-primary"
+                    style={{ whiteSpace: 'nowrap' }}>
+              {portalBusy ? 'Ouverture…' : "Gérer / Annuler l'essai"}
+            </button>
           </div>
         </InfoBox>
       )}
@@ -318,7 +321,7 @@ export default function Billing() {
             <div style={{ fontSize: 14.5, fontWeight: 800 }}>Votre abonnement</div>
             <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 4 }}>
               {subStatus === 'active' && 'Abonnement actif.'}
-              {subStatus === 'trialing' && 'Essai gratuit en cours — souscrivez avant la fin pour conserver vos bots.'}
+              {subStatus === 'trialing' && 'Essai gratuit en cours — débité automatiquement à la fin, sauf annulation depuis le portail.'}
               {subStatus === 'past_due' && 'Paiement en retard — régularisez via le portail.'}
               {subStatus === 'canceled' && 'Abonnement résilié.'}
               {(subStatus === 'none' || subStatus === undefined) && 'Aucun abonnement payant — vous êtes sur le socle gratuit.'}
