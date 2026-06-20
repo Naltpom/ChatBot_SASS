@@ -15,6 +15,8 @@
 // d'anciennes valeurs ; la map est indexée par string (clé JSON).
 // ============================================================================
 
+import type { BillingGrouping } from './billing'
+
 export type BotPerm = 'copy' | 'test' | 'appearance' | 'context' | 'security' | 'inbox'
 
 // Telle que renvoyée : clés = bot_id stringifié (JSON object), valeurs = perms.
@@ -30,6 +32,9 @@ export interface Org {
   name: string
   role: string // admin | member (role du user courant)
   permissions: BotPermissions // perms par bot (pertinent pour un member)
+  // True si le user courant est l'OWNER de l'org (org.owner_user_id == user.id).
+  // Seul l'owner gère la facturation des bots d'équipe (un admin non-owner ne paie pas).
+  is_owner: boolean
 }
 
 // ============================================================================
@@ -46,6 +51,15 @@ export interface User {
   created_at?: string | null
   last_login?: string | null
   organizations: Org[]
+  // --- Facturation (UserOut, calculés serveur) ---
+  // Format de facture choisi : per_bot | total | per_org (défaut 'total').
+  billing_grouping: BillingGrouping
+  // True si le billing est actif côté serveur (clés Stripe posées). Pilote
+  // l'affichage front : à false, on reste 100% gratuit, aucun gating.
+  is_billing_enabled: boolean
+  // Ids des orgs dont CE user est owner (org.owner_user_id == user.id). Dérivable
+  // aussi de organizations[].is_owner ; exposé explicitement pour le gating billing.
+  owned_org_ids: number[]
 }
 
 // ============================================================================

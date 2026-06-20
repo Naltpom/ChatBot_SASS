@@ -17,6 +17,7 @@ import Profile from './pages/Profile'
 import MyOrgs from './pages/MyOrgs'
 import Analytics from './pages/Analytics'
 import Inbox from './pages/Inbox'
+import Billing from './pages/Billing'
 import AdminHome, { AdminClient } from './pages/Admin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminUsers from './pages/AdminUsers'
@@ -44,6 +45,7 @@ export function AppRoutes() {
       <Route path="/app/bots/:id" element={<Protected><BotPage /></Protected>} />
       <Route path="/app/analytics" element={<Protected><Analytics /></Protected>} />
       <Route path="/app/inbox" element={<Protected><Inbox /></Protected>} />
+      <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
       <Route path="/app/team" element={<Protected><Team /></Protected>} />
       <Route path="/app/orgs" element={<Protected><MyOrgs /></Protected>} />
       <Route path="/app/profile" element={<Protected><Profile /></Protected>} />

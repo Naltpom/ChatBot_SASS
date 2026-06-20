@@ -13,12 +13,14 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.constants import MODULE_RAG
 from src.core.database import get_db
 from src.core.time import utcnow
 from src.core.security import get_current_user
 from src.models.kb import KbSearchRequest, KbSource, KbSourceCreate, KbSourceOut
 from src.models.user import User
 from src.routers.bots_helpers import _check_bot_perm, _get_accessible_bot
+from src.services.entitlement_service import gate, resolve
 from src.services.kb_service import (
     MAX_PDF_BYTES,
     MAX_SOURCES_PER_BOT,
@@ -64,6 +66,9 @@ async def create_source(
     """Source url | sitemap | text (le PDF passe par l'endpoint multipart)."""
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     _check_bot_perm(user, membership, bot, "context")
+    # Module RAG (Connaissances) requis pour ingerer (spec §3.3) : 402 en mode
+    # enforce. Billing OFF / bot sans entitlement -> ALL_UNLOCKED -> no-op (D0).
+    gate(await resolve(db, bot), MODULE_RAG)
     await _check_sources_cap(db, bot.id)
 
     text_content = None
@@ -100,6 +105,8 @@ async def create_pdf_source(
     les octets partent en memoire vers la tache d'ingestion."""
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     _check_bot_perm(user, membership, bot, "context")
+    # Module RAG requis pour ingerer un PDF (spec §3.3) — meme garde que /sources.
+    gate(await resolve(db, bot), MODULE_RAG)
     await _check_sources_cap(db, bot.id)
 
     data = await file.read(MAX_PDF_BYTES + 1)

@@ -4,10 +4,11 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Bot, Building2, Check, ChevronDown, CircleUser,
-  Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Users,
+  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Users,
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
+import { canSeeBilling } from './utils/permissions'
 import { orgColor, orgInitials } from './ui'
 
 function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | null; onSwitch: (o: Org) => void }) {
@@ -145,6 +146,15 @@ export default function Layout({ children }: { children: ReactNode }) {
                       onClick={() => navigate('/app/inbox')}>
                 <span className="nav-ico"><Inbox size={16} /></span>Inbox
               </button>
+              {/* Facturation : visible uniquement pour un payeur (owner d'org ou
+                  compte perso) ; masquée pour un admin non-owner (canSeeBilling).
+                  Défense en profondeur : le backend rejette (403) les non-owners. */}
+              {canSeeBilling(user) && (
+                <button className={`nav-item ${path.startsWith('/app/billing') ? 'active' : ''}`}
+                        onClick={() => navigate('/app/billing')}>
+                  <span className="nav-ico"><CreditCard size={16} /></span>Facturation
+                </button>
+              )}
               {/* Lien team-scoped : visible seulement avec une équipe active. */}
               {activeOrg && (
                 <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}

@@ -185,3 +185,37 @@ async def require_bot_admin(bot: "Bot", user: "User", db: AsyncSession):
             return None
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
     return await require_org_admin(bot.organization_id, user, db)
+
+
+async def require_billing_owner(bot: "Bot", user: "User", db: AsyncSession):
+    """Acces FACTURATION a un bot (spec §1.1 / §5.4, corrige C3) — scopée.
+
+    Le PAYEUR seul gere la facturation (un admin non-owner d'une org ne voit pas
+    la facturation, contrairement a require_org_admin) :
+    - Bot d'EQUIPE (organization_id) : SEUL l'owner de l'org (`Organization.
+      owner_user_id`) — pas les autres admins. 404 anti-enumeration si l'org est
+      introuvable ; 403 si le user est membre mais pas owner.
+    - Bot PERSO (owner_user_id) : SEUL l'owner. 404 anti-enumeration sinon.
+    - superadmin : court-circuite (acces total).
+
+    Retourne None (pas de membership pertinente : la facturation est une notion
+    de payeur, pas de role d'equipe)."""
+    from src.models.user import Organization
+
+    if user.is_superadmin:
+        return None
+    if bot.owner_user_id is not None:
+        # Bot perso : seul le proprietaire paie.
+        if user.id == bot.owner_user_id:
+            return None
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    # Bot d'equipe : seul l'owner de l'org paie (un admin non-owner est exclu).
+    org = await db.get(Organization, bot.organization_id)
+    if org is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    if org.owner_user_id != user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Réservé au propriétaire de l'organisation (facturation)",
+        )
+    return None

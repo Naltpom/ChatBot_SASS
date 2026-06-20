@@ -10,17 +10,17 @@
 // sont importés ailleurs — ils ne sont plus montés ici).
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { useBotEditor } from '../hooks/useBotEditor'
 import {
-  Btn, BubbleIcon, Card, InfoBox,
+  Btn, BubbleIcon, Card, Chip, InfoBox, Meter,
   brandBg, modeChip, statusChip,
 } from '../ui'
 import { findModelOption } from '../botConstants'
-import { canAccessBotPerm, isPersonalBot } from '../utils/permissions'
+import { canAccessBotPerm, isBotBillingOwner, isPersonalBot } from '../utils/permissions'
 import { errMsg } from '../utils/errors'
 import AppearanceTab from '../components/bot-tabs/AppearanceTab'
 import TreeTab from '../components/bot-tabs/TreeTab'
@@ -30,6 +30,7 @@ import ActionsTab from '../components/bot-tabs/ActionsTab'
 import IntegrationTab from '../components/bot-tabs/IntegrationTab'
 import SecurityTab from '../components/bot-tabs/SecurityTab'
 import type { Bot, Integration, Tree } from '../types/bot'
+import type { BotBilling } from '../types/billing'
 
 // perm = permission par bot requise pour un MEMBER (admins : tout). Libellés
 // EXACTS de la charte Chapote. L'onglet 'appearance' reste PREMIER (fallback
@@ -42,6 +43,10 @@ const TABS = [
   { id: 'actions', label: 'Actions', perm: 'context' },  // si aiTabRelevant
   { id: 'install', label: 'Intégration', perm: 'copy' },
   { id: 'security', label: 'Sécurité', perm: 'security' },
+  // Facturation : réutilise la perm 'security' (PAS de nouvelle BOT_PERMS), mais
+  // en plus gardé OWNER-ONLY (isBotBillingOwner) dans visibleTabs, et masqué si
+  // le billing est désactivé (is_billing_enabled). Détail produit § BotPage.
+  { id: 'billing', label: 'Facturation', perm: 'security' },
 ]
 
 export default function BotPage() {
@@ -86,6 +91,9 @@ export default function BotPage() {
   const [integType, setIntegType] = useState('html')
   const [copied, setCopied] = useState(false)
   const [pageError, setPageError] = useState('')   // erreurs hors save (import, delete) — dismissable
+  // État de facturation du bot (onglet Facturation) : modules actifs / quota IA /
+  // statut d'abonnement. Chargé paresseusement quand l'onglet devient visible.
+  const [botBilling, setBotBilling] = useState<BotBilling | null>(null)
 
   const fromAdmin = params.get('from') === 'admin'
   const isAdminView = !!user?.is_superadmin && fromAdmin
@@ -94,6 +102,18 @@ export default function BotPage() {
     api<{ integrations: Integration[] }>(`/api/bots/${botId}/embed`)
       .then(d => setIntegrations(d.integrations)).catch(() => {})
   }, [botId])
+
+  // Facturation du bot : chargée uniquement quand l'onglet Facturation est
+  // ouvert (billing actif + payeur). On lit GET /api/bots/{id}/entitlement
+  // (require_billing_owner côté serveur ; échec silencieux -> on n'affiche rien).
+  useEffect(() => {
+    if (tab !== 'billing') return
+    let alive = true
+    api<BotBilling>(`/api/bots/${botId}/entitlement`)
+      .then(d => { if (alive) setBotBilling(d) })
+      .catch(() => { if (alive) setBotBilling(null) })
+    return () => { alive = false }
+  }, [tab, botId])
 
   // Permissions par bot : admins d'org et superadmins ont tout, les members
   // voient uniquement les onglets couverts par leurs permissions. Un bot PERSO
@@ -108,7 +128,15 @@ export default function BotPage() {
   const isOrgAdmin = !!bot && canAccessBotPerm(user, bot, 'admin')
   // Mode arbre pur : les onglets IA et Actions n'ont pas lieu d'être
   const aiTabRelevant = !!bot && bot.mode !== 'tree'
-  const visibleTabs = TABS.filter(t => hasPerm(t.perm) && ((t.id !== 'ai' && t.id !== 'actions') || aiTabRelevant))
+  // L'onglet Facturation n'apparaît que si : billing actif (clés Stripe posées)
+  // ET l'utilisateur est le PAYEUR de ce bot (owner d'org / propriétaire perso /
+  // superadmin). Sinon il disparaît purement (jamais d'onglet vide ou 403 visuel).
+  const billingTabVisible = !!bot && !!user?.is_billing_enabled && isBotBillingOwner(user, bot)
+  const visibleTabs = TABS.filter(t =>
+    hasPerm(t.perm)
+    && ((t.id !== 'ai' && t.id !== 'actions') || aiTabRelevant)
+    && (t.id !== 'billing' || billingTabVisible),
+  )
   const activeTab = visibleTabs.some(t => t.id === tab) ? tab : (visibleTabs[0]?.id || 'appearance')
 
   // Garde A/B : si la variante disparaît (Annuler, désactivation, reload), on
@@ -393,6 +421,11 @@ export default function BotPage() {
                      isOrgAdmin={isOrgAdmin} deleteBot={deleteBot} />
       )}
 
+      {/* ================= FACTURATION ================= */}
+      {activeTab === 'billing' && (
+        <BotBillingTab billing={botBilling} botName={bot.name} />
+      )}
+
       {/* ================= SAVE BAR SOMBRE (fixée bas, left:248px) ================= */}
       {(dirty || saved || error) && (
         <div role="status" style={{
@@ -454,6 +487,98 @@ export default function BotPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Libellés FR des clés de module (entitlement) pour l'onglet Facturation.
+const MODULE_LABELS: Record<string, string> = {
+  ai: 'Intelligence artificielle',
+  inbox: 'Live chat / Inbox',
+  rag: 'Connaissances (RAG)',
+  actions: 'Actions & MCP',
+  ab: 'A/B testing',
+  white_label: 'White-label',
+}
+const SUB_STATUS_LABELS: Record<BotBilling['subscription_status'], string> = {
+  active: 'Actif',
+  past_due: 'Paiement en retard',
+  canceled: 'Résilié',
+  none: 'Aucun abonnement',
+}
+
+// Onglet Facturation d'un bot : récap lecture seule des modules actifs, du quota
+// IA et du statut d'abonnement, avec renvoi vers la page Facturation pour gérer
+// l'abonnement (changement de modules, portail Stripe, factures). Owner-only et
+// monté uniquement si le billing est actif (voir billingTabVisible / visibleTabs).
+function BotBillingTab({ billing, botName }: { billing: BotBilling | null; botName: string }) {
+  if (!billing) {
+    return (
+      <Card style={{ padding: '24px 22px' }}>
+        <div style={{ fontSize: 13.5, color: 'var(--mut)' }}>Chargement de la facturation…</div>
+      </Card>
+    )
+  }
+  const quota = billing.quota_ai_replies
+  const used = billing.usage_ai_replies
+  const pct = quota && quota > 0 ? Math.round((used / quota) * 100) : 0
+  const overQuota = quota != null && quota > 0 && used >= quota
+  const modules = billing.active_modules || []
+
+  return (
+    <div className="col" style={{ gap: 16 }}>
+      <Card style={{ padding: '22px 22px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 14.5, fontWeight: 800 }}>Abonnement de « {botName} »</div>
+            <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 3 }}>
+              Statut : {SUB_STATUS_LABELS[billing.subscription_status]}
+            </div>
+          </div>
+          <Link to="/app/billing" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+            Gérer la facturation
+          </Link>
+        </div>
+      </Card>
+
+      {/* Quota IA (seulement si un plan managé avec quota est actif ; BYOK =
+          illimité => quota_ai_replies null, on n'affiche pas de barre). */}
+      {billing.ai_byok ? (
+        <Card style={{ padding: '18px 22px' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700 }}>IA — BYOK</div>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 4 }}>
+            Clé du client : réponses illimitées, bot non métré.
+          </div>
+        </Card>
+      ) : quota != null && quota > 0 ? (
+        <Card style={{ padding: '18px 22px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700 }}>Réponses IA ce mois-ci</span>
+            <span style={{ fontSize: 13, color: overQuota ? 'var(--danger)' : 'var(--mut)', fontWeight: 600 }}>
+              {used.toLocaleString('fr-FR')} / {quota.toLocaleString('fr-FR')}
+            </span>
+          </div>
+          <Meter pct={pct} tone={overQuota ? 'danger' : pct >= 80 ? 'warn' : 'acc'} />
+          {overQuota && (
+            <div style={{ fontSize: 12.5, color: 'var(--danger)', marginTop: 8 }}>
+              Quota atteint : les nouvelles réponses IA sont bloquées jusqu'au prochain cycle.
+            </div>
+          )}
+        </Card>
+      ) : null}
+
+      <Card style={{ padding: '18px 22px' }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 10 }}>Modules actifs</div>
+        {modules.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+            Aucun module payant — socle gratuit (arbre, apparence, triggers, analytics).
+          </div>
+        ) : (
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            {modules.map(m => <Chip key={m} tone="acc">{MODULE_LABELS[m] || m}</Chip>)}
+          </div>
+        )}
+      </Card>
     </div>
   )
 }

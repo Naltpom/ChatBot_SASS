@@ -1,0 +1,253 @@
+"""Format de facture / regrouping (spec §4 / §7.3) :
+
+- calcul de B(U) (bots facturables = perso ∪ bots des orgs OWNED) ;
+- _scope_for_bot par format ; _config_to_codes (config -> codes catalogue) ;
+- transitions PUT /api/billing/grouping (per_org 409 sans bot, MOCK no-op,
+  idempotence target==courant) ;
+- regrouping réel (MOCK_BILLING=False) : créer-puis-résilier, idempotence du
+  re-appel (stripe_service monkeypatché, aucun appel réseau).
+"""
+import pytest
+
+from conftest import FakeSession, FakeUser
+from src.core.constants import MODULE_AI, MODULE_RAG
+from src.routers import billing as bil
+from src.routers.billing import (
+    BotConfigPayload,
+    _billable_bots,
+    _config_to_codes,
+    _scope_for_bot,
+)
+
+
+def _bot(id, owner_user_id=None, organization_id=None):
+    from src.models.bot import Bot
+    return Bot(id=id, owner_user_id=owner_user_id, organization_id=organization_id,
+               name=f"bot{id}")
+
+
+def _org(id, owner_user_id):
+    from src.models.user import Organization
+    return Organization(id=id, name=f"org{id}", owner_user_id=owner_user_id)
+
+
+# --- B(U) : bots facturables du payeur -----------------------------------
+
+@pytest.mark.asyncio
+async def test_billable_bots_perso_et_org_owned(db: FakeSession):
+    """B(U) = bots perso (owner_user_id==U) ∪ bots des orgs OWNED par U."""
+    user = FakeUser(id=1)
+    db.seed(_org(10, owner_user_id=1))      # owned par U
+    db.seed(_org(20, owner_user_id=99))     # NON owned (un autre)
+    db.seed(_bot(1, owner_user_id=1))                # perso de U -> inclus
+    db.seed(_bot(2, organization_id=10))             # org owned -> inclus
+    db.seed(_bot(3, organization_id=20))             # org d'un autre -> EXCLU
+    db.seed(_bot(4, owner_user_id=2))                # perso d'un autre -> EXCLU
+
+    bots = await _billable_bots(db, user)
+    ids = sorted(b.id for b in bots)
+    assert ids == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_billable_bots_admin_non_owner_ne_paie_pas(db: FakeSession):
+    """Un admin non-owner d'une org ne facture PAS ses bots (c'est l'owner)."""
+    user = FakeUser(id=2)  # membre/admin de l'org 10 mais owner = user 1
+    db.seed(_org(10, owner_user_id=1))
+    db.seed(_bot(2, organization_id=10))
+    bots = await _billable_bots(db, user)
+    assert bots == []
+
+
+# --- _scope_for_bot -------------------------------------------------------
+
+def test_scope_for_bot_total():
+    assert _scope_for_bot("total", _bot(1, owner_user_id=1)) == ("user_all", None, None)
+
+
+def test_scope_for_bot_per_bot():
+    assert _scope_for_bot("per_bot", _bot(7, owner_user_id=1)) == ("bot", 7, None)
+
+
+def test_scope_for_bot_per_org_equipe():
+    assert _scope_for_bot("per_org", _bot(3, organization_id=10)) == ("org", None, 10)
+
+
+def test_scope_for_bot_per_org_perso():
+    assert _scope_for_bot("per_org", _bot(3, owner_user_id=1)) == ("user_personal", None, None)
+
+
+# --- _config_to_codes : config -> codes catalogue ------------------------
+
+def test_config_to_codes_managed_avec_addons():
+    cfg = BotConfigPayload(modules=[MODULE_RAG], ai_tier_id="ai_growth", ai_byok=False)
+    codes, modules = _config_to_codes(cfg)
+    assert "base" in codes
+    assert "ai_growth" in codes
+    assert "mod_rag" in codes
+    assert MODULE_AI in modules and MODULE_RAG in modules
+
+
+def test_config_to_codes_byok():
+    cfg = BotConfigPayload(modules=[], ai_tier_id=None, ai_byok=True)
+    codes, modules = _config_to_codes(cfg)
+    assert "mod_ai_byok" in codes
+    assert "ai_growth" not in codes
+    assert MODULE_AI in modules
+
+
+def test_config_to_codes_ai_free_pas_de_ligne_facturee():
+    """ai_free active le module IA mais N'AJOUTE PAS de code facturable."""
+    cfg = BotConfigPayload(modules=[], ai_tier_id="ai_free", ai_byok=False)
+    codes, modules = _config_to_codes(cfg)
+    assert codes == ["base"]                # pas de ligne ai_free
+    assert MODULE_AI in modules
+
+
+# --- PUT /api/billing/grouping : transitions -----------------------------
+
+@pytest.mark.asyncio
+async def test_grouping_billing_off_disabled(client, overrides, billing_off):
+    async with client as c:
+        resp = await c.put("/api/billing/grouping", json={"grouping": "per_bot"})
+    assert resp.status_code == 200
+    assert resp.json() == {"billing": "disabled"}
+
+
+@pytest.mark.asyncio
+async def test_grouping_per_org_409_sans_bot(client, overrides, db, current_user,
+                                             billing_on):
+    """per_org refusé (409) si 0 org owned ET 0 bot perso (spec §4.2)."""
+    current_user.id = 1  # aucun bot, aucune org owned
+    async with client as c:
+        resp = await c.put("/api/billing/grouping", json={"grouping": "per_org"})
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_grouping_mock_bascule_sans_stripe(client, overrides, db, current_user,
+                                                 billing_on):
+    """MOCK_BILLING : le format bascule sans toucher Stripe, entitlements intacts."""
+    current_user.id = 1
+    current_user.billing_grouping = "total"
+    db.seed(_bot(1, owner_user_id=1))  # un bot perso facturable
+    async with client as c:
+        resp = await c.put("/api/billing/grouping", json={"grouping": "per_bot"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["billing_grouping"] == "per_bot"
+    assert body["changed"] is True
+    assert current_user.billing_grouping == "per_bot"
+
+
+@pytest.mark.asyncio
+async def test_grouping_idempotent_meme_format(client, overrides, db, current_user,
+                                               billing_on):
+    """target == format courant -> changed=False, aucune mutation."""
+    current_user.id = 1
+    current_user.billing_grouping = "total"
+    async with client as c:
+        resp = await c.put("/api/billing/grouping", json={"grouping": "total"})
+    assert resp.status_code == 200
+    assert resp.json() == {"billing_grouping": "total", "changed": False}
+
+
+# --- Regrouping réel (MOCK_BILLING=False) : créer-puis-résilier ----------
+
+@pytest.mark.asyncio
+async def test_grouping_reel_cree_puis_resilie(client, overrides, db, current_user,
+                                               monkeypatch):
+    """Stripe « réel » mocké : passage total -> per_bot crée 1 sub/bot et résilie
+    l'ancienne sub user_all (créer-puis-résilier, préserve les entitlements)."""
+    from src.models.billing import BillingProduct, BillingSubscription
+    monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
+    monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
+    monkeypatch.setattr(bil.settings, "MOCK_BILLING", False, raising=False)
+
+    # Catalogue : base (0 €, pas de ligne) + mod_rag (facturable, price seedé).
+    db.seed(BillingProduct(code="base", label="Base", kind="base", unit_amount=0,
+                           stripe_price_id=None))
+    db.seed(BillingProduct(code="mod_rag", label="RAG", kind="module",
+                           unit_amount=900, stripe_price_id="price_rag"))
+
+    current_user.id = 1
+    current_user.billing_grouping = "total"
+    current_user.stripe_customer_id = "cus_1"
+    db.seed(_bot(1, owner_user_id=1))
+    # Sub existante (total) couvrant le bot 1 avec mod_rag.
+    db.seed(BillingSubscription(
+        user_id=1, stripe_subscription_id="sub_old", grouping="total",
+        scope_kind="user_all", status="active",
+        raw_items=[{"si_id": "si_1", "price_id": "price_rag", "code": "mod_rag",
+                    "bot_id": 1, "qty": 1}]))
+
+    created, canceled, expired = [], [], []
+
+    async def _create_sub(customer_id, items, metadata=None):
+        created.append((items, metadata))
+        return {"id": f"sub_new_{len(created)}", "status": "active"}
+
+    async def _cancel(subscription_id, prorate=False):
+        canceled.append((subscription_id, prorate))
+
+    async def _expire(customer_id):
+        expired.append(customer_id)
+
+    monkeypatch.setattr(bil.stripe_service, "create_subscription", _create_sub)
+    monkeypatch.setattr(bil.stripe_service, "cancel_subscription", _cancel)
+    monkeypatch.setattr(bil.stripe_service, "expire_open_checkout_sessions", _expire)
+
+    async with client as c:
+        resp = await c.put("/api/billing/grouping", json={"grouping": "per_bot"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["billing_grouping"] == "per_bot"
+    # 1 nouvelle sub créée (per_bot -> 1 par bot), l'ancienne résiliée avec proration.
+    assert len(created) == 1
+    assert ("sub_old", True) in canceled
+    # Ancienne sub marquée canceled localement.
+    old = [s for s in db.rows(BillingSubscription)
+           if s.stripe_subscription_id == "sub_old"][0]
+    assert old.status == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_grouping_reel_resiliation_proration(client, overrides, db, current_user,
+                                                   monkeypatch):
+    """L'ancienne sub est résiliée AVEC proration (prorate=True), jamais sèche."""
+    from src.models.billing import BillingProduct, BillingSubscription
+    monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
+    monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
+    monkeypatch.setattr(bil.settings, "MOCK_BILLING", False, raising=False)
+    db.seed(BillingProduct(code="base", label="Base", kind="base", unit_amount=0))
+    db.seed(BillingProduct(code="mod_rag", label="RAG", kind="module",
+                           unit_amount=900, stripe_price_id="price_rag"))
+
+    current_user.id = 1
+    current_user.billing_grouping = "per_bot"
+    current_user.stripe_customer_id = "cus_1"
+    db.seed(_bot(1, owner_user_id=1))
+    db.seed(BillingSubscription(
+        user_id=1, stripe_subscription_id="sub_a", grouping="per_bot",
+        scope_kind="bot", scope_bot_id=1, status="active",
+        raw_items=[{"si_id": "si_1", "price_id": "price_rag", "code": "mod_rag",
+                    "bot_id": 1, "qty": 1}]))
+
+    prorations = []
+
+    async def _cancel(subscription_id, prorate=False):
+        prorations.append(prorate)
+
+    async def _create_sub(customer_id, items, metadata=None):
+        return {"id": "sub_total", "status": "active"}
+
+    async def _expire(customer_id):
+        return None
+
+    monkeypatch.setattr(bil.stripe_service, "cancel_subscription", _cancel)
+    monkeypatch.setattr(bil.stripe_service, "create_subscription", _create_sub)
+    monkeypatch.setattr(bil.stripe_service, "expire_open_checkout_sessions", _expire)
+
+    async with client as c:
+        resp = await c.put("/api/billing/grouping", json={"grouping": "total"})
+    assert resp.status_code == 200, resp.text
+    assert prorations == [True]  # résiliation AVEC proration

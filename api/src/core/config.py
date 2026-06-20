@@ -72,15 +72,21 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str | None = None
     SMTP_FROM: str | None = None
 
-    # --- Stripe (facturation DORMANTE). L'application est actuellement 100 %
-    # gratuite : AUCUNE route ne consomme ces settings. Le provider Stripe est
-    # conserve pour un futur modele de tarification. TOUTES vides en dev/prod
-    # actuelle => billing desactive.
+    # --- Stripe / facturation modulaire (spec §6.1) ---
+    # billing_enabled() = bool(SECRET && WEBHOOK) : sortie du « tout-ou-rien
+    # 5 vars ». Les price IDs vivent désormais dans la table `billing_products`
+    # (catalogue seedé), plus en .env. Clés absentes => billing désactivé =>
+    # resolver ALL_UNLOCKED (invariant D0 : app 100 % gratuite, 0 gating).
     STRIPE_SECRET_KEY: str | None = None
     STRIPE_WEBHOOK_SECRET: str | None = None
-    STRIPE_PRICE_STARTER: str | None = None
-    STRIPE_PRICE_PRO: str | None = None
-    STRIPE_PRICE_AGENCE: str | None = None
+    # MOCK_BILLING (spec §2.3) : stripe_service n'émet AUCUN appel sortant
+    # (URLs locales, entitlement appliqué directement) => e2e sans Stripe.
+    # Interdit en production (validate_production). True par défaut (dev/CI).
+    MOCK_BILLING: bool = True
+    # Axe IA métré (Phase 1->2) : v1 = blocage au quota, v2 = Stripe Meters.
+    BILLING_METERING_ENABLED: bool = False
+    # Kill-switch enforcement (mode observe) : False = gating log-only (R1).
+    BILLING_ENFORCE: bool = False
 
     # Garde-fous widget
     MAX_MESSAGE_CHARS: int = 4000
@@ -104,22 +110,22 @@ class Settings(BaseSettings):
                 "JWT_SECRET_KEY/ENCRYPTION_KEY doivent être définies en production "
                 "(secret JWT par défaut ou clé de chiffrement absente)"
             )
-        # Stripe : tout-ou-rien. Billing actuellement DORMANT (aucune route ne
-        # l'utilise), mais on conserve ce garde-fou pour le futur modele de
-        # tarification : une config partielle donnerait un billing semi-actif
-        # silencieux (ex : checkout sans webhook -> changement jamais applique).
-        stripe_vars = {
-            "STRIPE_SECRET_KEY": self.STRIPE_SECRET_KEY,
-            "STRIPE_WEBHOOK_SECRET": self.STRIPE_WEBHOOK_SECRET,
-            "STRIPE_PRICE_STARTER": self.STRIPE_PRICE_STARTER,
-            "STRIPE_PRICE_PRO": self.STRIPE_PRICE_PRO,
-            "STRIPE_PRICE_AGENCE": self.STRIPE_PRICE_AGENCE,
-        }
-        missing = [name for name, value in stripe_vars.items() if not value]
-        if missing and len(missing) < len(stripe_vars):
+        # Stripe / facturation modulaire (spec §6.1, corrige A3/F4). Sortie du
+        # « tout-ou-rien 5 vars » : billing_enabled() = SECRET && WEBHOOK. On
+        # garde des garde-fous ciblés contre les configs semi-actives.
+        if self.STRIPE_SECRET_KEY and not self.STRIPE_WEBHOOK_SECRET:
             raise RuntimeError(
-                "Configuration Stripe partielle en production (billing semi-actif) : "
-                "variables manquantes : " + ", ".join(missing)
+                "STRIPE_WEBHOOK_SECRET requis dès que STRIPE_SECRET_KEY est défini"
+            )
+        if self.BILLING_METERING_ENABLED and not self.STRIPE_SECRET_KEY:
+            raise RuntimeError("BILLING_METERING_ENABLED=true sans billing actif")
+        if self.BILLING_ENFORCE and not self.STRIPE_SECRET_KEY:
+            raise RuntimeError("BILLING_ENFORCE=true sans billing actif")
+        if self.MOCK_BILLING:
+            raise RuntimeError("MOCK_BILLING interdit en production")
+        if (self.STRIPE_SECRET_KEY or "").startswith("sk_live"):
+            raise RuntimeError(
+                "Utiliser une Restricted API Key rk_live en production (A3)"
             )
 
     # extra="ignore" : une variable d'env inconnue (typo) est silencieusement

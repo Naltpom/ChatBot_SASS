@@ -37,6 +37,10 @@ class OrgCreate(BaseModel):
     name: str
 
 
+class TransferOwner(BaseModel):
+    user_id: int
+
+
 def _clean_permissions(perms: dict[str, Any]) -> dict[str, list[str]]:
     return {
         str(bot_id): [p for p in plist if p in BOT_PERMS]
@@ -60,12 +64,14 @@ async def create_org(body: OrgCreate, db: AsyncSession = Depends(get_db),
     name = body.name.strip()
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nom d'organisation requis")
-    org = Organization(name=name[:120])
+    # Owner d'org = createur (payeur des bots d'equipe, spec §1.2 b). L'owner
+    # est TOUJOURS membre admin (invariant applicatif §1.2 d).
+    org = Organization(name=name[:120], owner_user_id=user.id)
     db.add(org)
     await db.flush()
     db.add(Membership(user_id=user.id, organization_id=org.id, role="admin", permissions={}))
     await db.commit()
-    return {"id": org.id, "name": org.name, "role": "admin"}
+    return {"id": org.id, "name": org.name, "role": "admin", "is_owner": True}
 
 
 @router.post("/{org_id}/leave")
@@ -97,6 +103,44 @@ async def patch_org(org_id: int, body: OrgPatch, db: AsyncSession = Depends(get_
         org.name = data["name"].strip()
     await db.commit()
     return {"id": org.id, "name": org.name}
+
+
+@router.post("/{org_id}/transfer-owner")
+async def transfer_owner(org_id: int, body: TransferOwner,
+                         db: AsyncSession = Depends(get_db),
+                         user: User = Depends(get_current_user)):
+    """Transfert de la propriete (facturation) de l'org a un autre user
+    (spec §1.2 c). Reserve a l'owner ACTUEL ou au superadmin.
+
+    Pose `owner_user_id` ET garantit que le nouvel owner est membre admin
+    (invariant §1.2 d : l'owner ∈ memberships role='admin'). Si le nouvel
+    owner est deja membre, il est promu admin ; sinon un membership admin est
+    cree. La migration des subscriptions `scope_org_id` vers le nouvel owner
+    est geree par le volet facturation (§4 : lire `org.owner_user_id` au moment
+    du calcul)."""
+    org = await _get_org(db, org_id)
+    if not user.is_superadmin and org.owner_user_id != user.id:
+        # 403 (et non 404) : seul l'owner actuel ou le staff peut transferer.
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Réservé au propriétaire actuel de l'organisation")
+
+    target = await db.get(User, body.user_id)
+    if target is None or not target.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Utilisateur introuvable")
+
+    membership = (await db.execute(select(Membership).where(
+        Membership.user_id == target.id,
+        Membership.organization_id == org_id))).scalar_one_or_none()
+    if membership is None:
+        # Le nouvel owner DOIT etre membre admin : on le rattache.
+        db.add(Membership(user_id=target.id, organization_id=org_id,
+                          role="admin", permissions={}))
+    elif membership.role != "admin":
+        membership.role = "admin"
+
+    org.owner_user_id = target.id
+    await db.commit()
+    return {"id": org.id, "owner_user_id": org.owner_user_id}
 
 
 # ---------- Équipe ----------

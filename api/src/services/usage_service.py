@@ -1,9 +1,15 @@
-"""Compteurs d'usage : reponses IA du jour par bot, statistiques hebdomadaires.
+"""Compteurs d'usage : reponses IA (jour / mois) par bot, stats hebdomadaires.
 
-Il n'y a PLUS de cap IA ni de quota mensuel ni de notion de plan : l'application
-est entierement ouverte. `count_ai_messages_today` n'est plus un garde-fou
-cash-flow mais un simple COMPTEUR D'AFFICHAGE (ai_replies_today) montre dans le
-dashboard ; aucune logique ne bloque sur cette valeur.
+`count_ai_messages_today` reste un simple COMPTEUR D'AFFICHAGE (ai_replies_today)
+montre dans le dashboard ; aucune logique ne bloque dessus.
+
+`count_ai_messages_month` est la SOURCE DURABLE du quota IA mensuel (spec D7) :
+la table `Message` (source='ai', role='assistant') fait foi, Redis n'etant qu'un
+accelerateur (cf. quota_service). Frontiere de periode = mois CALENDAIRE **UTC**
+(spec D8/F1) : `period = utcnow().strftime("%Y-%m")`, identique des deux cotes
+(SQL ici, INCR Redis dans quota_service) pour eviter toute divergence au
+changement de mois. Quand le billing est OFF ou qu'un bot n'a pas d'entitlement,
+aucun appelant n'invoque ce compteur (resolver -> illimite) : il reste neutre.
 """
 from datetime import datetime, timedelta
 
@@ -30,6 +36,39 @@ async def count_ai_messages_today(db: AsyncSession, bot_id: int) -> int:
             Message.source == "ai",
             Message.role == "assistant",
             Message.created_at >= _today_start(),
+        )
+    )
+    return result.scalar() or 0
+
+
+def _month_start(period: str | None = None) -> datetime:
+    """Minuit UTC du 1er jour du mois, en datetime NAÏF (colonnes sans tz).
+
+    `period` = "YYYY-MM" UTC (spec D8). None => mois courant via utcnow().
+    """
+    if period:
+        year, month = period.split("-")
+        return datetime(int(year), int(month), 1)
+    now = utcnow()
+    return datetime(now.year, now.month, 1)
+
+
+async def count_ai_messages_month(
+    db: AsyncSession, bot_id: int, period: str | None = None
+) -> int:
+    """Reponses IA d'un bot sur le mois CALENDAIRE `period` ("YYYY-MM" UTC).
+
+    Source DURABLE du quota mensuel (spec §3.4 / D7) : on compte les Message
+    source='ai', role='assistant' depuis le 1er du mois UTC. `period=None` =
+    mois courant. Memes filtres que `count_ai_messages_today` (whitelist source
+    IA, reponses assistant uniquement) ; seule la borne temporelle change.
+    """
+    result = await db.execute(
+        select(func.count(Message.id)).where(
+            Message.bot_id == bot_id,
+            Message.source == "ai",
+            Message.role == "assistant",
+            Message.created_at >= _month_start(period),
         )
     )
     return result.scalar() or 0

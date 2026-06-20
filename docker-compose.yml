@@ -54,6 +54,10 @@ services:
       - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}
       - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
       - MOCK_AI=${MOCK_AI:-true}
+      # MOCK_BILLING=true : stripe_service n'émet aucun appel Stripe sortant
+      # (checkout/portail mockés, entitlement appliqué directement). Interdit en
+      # prod (validate_production). Défaut true = dev/CI sans clés Stripe.
+      - MOCK_BILLING=${MOCK_BILLING:-true}
       - APP_URL=${APP_URL:-http://localhost:3001}
       - API_URL=${API_URL:-http://localhost:8001}
       # Auth intranet Kertios (meme flux qu'ao_scrapping). Les comptes

@@ -33,9 +33,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activeOrg, setActive] = useState<Org | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Normalise les champs facturation : garantit que billing_grouping /
+  // is_billing_enabled / owned_org_ids sont toujours présents pour les
+  // consommateurs (canSeeBilling, page Billing), même si une réponse historique
+  // ou le prérendu SSR les omet. Défaut billing-OFF => comportement actuel (gratuit).
+  function normalizeUser(u: User): User {
+    return {
+      ...u,
+      billing_grouping: u.billing_grouping ?? 'total',
+      is_billing_enabled: u.is_billing_enabled ?? false,
+      owned_org_ids:
+        u.owned_org_ids ?? u.organizations.filter(o => o.is_owner).map(o => o.id),
+    }
+  }
+
   function applyUser(u: User) {
-    setUser(u)
-    setActive(pickActiveOrg(u))
+    const normalized = normalizeUser(u)
+    setUser(normalized)
+    setActive(pickActiveOrg(normalized))
   }
 
   useEffect(() => {

@@ -1,16 +1,21 @@
 """Stripe via l'API REST (httpx exclusivement, pas de SDK).
 
-DORMANT / parking-lot : la facturation est DESACTIVEE (application 100 %
-gratuite) et AUCUNE route n'appelle ce service. Module, settings STRIPE_* et
-colonnes stripe_* sont CONSERVES a dessein : le billing reviendra sous la forme
-d'un modele « 1 plan + quota usage » (roadmap). Logique "tout-ou-rien" : ne
-serait actif que si les 5 variables STRIPE_* etaient definies (cle secrete,
-secret webhook, 3 price IDs).
+Facturation MODULAIRE (spec §2.4). Le billing est actif dès que les DEUX clés
+sont posées (`billing_enabled()` = secret + webhook ; sortie du « tout-ou-rien
+5 vars » — les price IDs vivent désormais dans `billing_products`, plus en .env).
 
-ATTENTION — les plans starter/pro/agence n'existent PLUS : `price_id_for` /
-`plan_for_price` les referencent encore comme PLACEHOLDERS inertes (jamais
-appeles, ne plantent pas a l'import) et seront recables sur le futur plan
-unique le jour ou la facturation est reactivee.
+Catalogue piloté en base : `price_id_for_code(code, db)` / `code_for_price(...)`
+remplacent l'ancien mapping figé starter/pro/agence. Le Customer Stripe est
+attaché au User (plus à l'Organization).
+
+MOCK_BILLING (spec §2.3) : quand `settings.MOCK_BILLING` est vrai, ce service
+N'ÉMET AUCUN appel sortant. Les fonctions retournent des URLs locales / des
+identifiants `*_mock_*` pour que les e2e vérifient l'activation sans Stripe.
+`verify_webhook_signature` reste INCHANGÉ (testé en vrai HMAC).
+
+Aucune TVA (franchise en base, art. 293 B du CGI) : `automatic_tax`,
+`tax_id_collection`, `billing_address_collection` NE SONT JAMAIS passés.
+`payment_method_types` n'est JAMAIS passé (dynamic payment methods).
 
 La verification de signature webhook (Stripe-Signature) est faite a la main :
 HMAC-SHA256 sur "{timestamp}.{corps brut}" avec STRIPE_WEBHOOK_SECRET.
@@ -20,12 +25,16 @@ import hmac
 import json
 import logging
 import time
+import uuid
 from typing import Any, Optional
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.models.user import Organization
+from src.models.billing import BillingProduct
+from src.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -37,36 +46,42 @@ class StripeError(Exception):
 
 
 def billing_enabled() -> bool:
-    """Billing actif uniquement si la config est COMPLETE (tout-ou-rien)."""
-    return bool(settings.STRIPE_SECRET_KEY and settings.STRIPE_WEBHOOK_SECRET
-                and settings.STRIPE_PRICE_STARTER and settings.STRIPE_PRICE_PRO
-                and settings.STRIPE_PRICE_AGENCE)
+    """Billing actif dès que secret + webhook sont posés (spec §6.1).
+
+    Sortie du « tout-ou-rien 5 vars » : les price IDs vivent dans
+    `billing_products` (catalogue seedé), plus en config. Clés absentes
+    ⇒ False ⇒ resolver ALL_UNLOCKED (invariant D0 : app 100 % gratuite)."""
+    return bool(settings.STRIPE_SECRET_KEY and settings.STRIPE_WEBHOOK_SECRET)
 
 
-def price_id_for(plan: str) -> Optional[str]:
-    """Price ID Stripe d'un plan payant (None pour free / plan inconnu).
-
-    PLACEHOLDER (parking-lot) : starter/pro/agence sont des plans SUPPRIMES, ce
-    mapping est inerte (settings STRIPE_PRICE_* a None tant que billing dormant)
-    et sera recable sur le plan unique a la reactivation. Aucun appelant cable.
-    """
-    return {
-        "starter": settings.STRIPE_PRICE_STARTER,
-        "pro": settings.STRIPE_PRICE_PRO,
-        "agence": settings.STRIPE_PRICE_AGENCE,
-    }.get(plan)
+def metering_enabled() -> bool:
+    """Axe IA métré actif (Phase 2). v1 = blocage au quota (toujours False)."""
+    return billing_enabled() and settings.BILLING_METERING_ENABLED
 
 
-def plan_for_price(price_id: str) -> Optional[str]:
-    """Inverse de price_id_for (sync webhook customer.subscription.updated).
+async def price_id_for_code(code: str, db: AsyncSession) -> Optional[str]:
+    """Price ID Stripe d'un code catalogue (lookup `billing_products`).
 
-    PLACEHOLDER (parking-lot) : itere sur les plans SUPPRIMES starter/pro/agence
-    — inerte tant que la facturation est dormante. Aucun appelant cable.
-    """
-    for plan in ("starter", "pro", "agence"):
-        if price_id_for(plan) == price_id:
-            return plan
-    return None
+    Remplace l'ancien `price_id_for(plan)` figé. None si code inconnu, produit
+    inactif ou price non seedé (`seed_billing_catalog.py` pose stripe_price_id)."""
+    row = (await db.execute(
+        select(BillingProduct).where(
+            BillingProduct.code == code,
+            BillingProduct.is_active.is_(True),
+        )
+    )).scalar_one_or_none()
+    return row.stripe_price_id if row else None
+
+
+async def code_for_price(price_id: str, db: AsyncSession) -> Optional[str]:
+    """Inverse de price_id_for_code (sync webhook subscription.updated).
+
+    Remplace l'ancien `plan_for_price`. None si le price n'est dans aucun
+    `billing_products`."""
+    row = (await db.execute(
+        select(BillingProduct).where(BillingProduct.stripe_price_id == price_id)
+    )).scalar_one_or_none()
+    return row.code if row else None
 
 
 async def _stripe_request(method: str, path: str,
@@ -88,37 +103,141 @@ async def _stripe_request(method: str, path: str,
         raise StripeError("Service de paiement injoignable")
 
 
-async def create_customer(org: Organization, email: Optional[str]) -> str:
-    """Cree le customer Stripe de l'org -> cus_... (l'appelant stocke et commit)."""
+async def create_customer(user: User, email: Optional[str]) -> str:
+    """Cree le Customer Stripe du USER -> cus_... (l'appelant stocke et commit).
+
+    Le Customer est attaché au User (spec §1.1, plus à l'Organization).
+    `metadata[user_id]` permet au webhook de remonter au payeur.
+    MOCK_BILLING ⇒ identifiant local `cus_mock_<uuid>` (aucun appel sortant)."""
+    if settings.MOCK_BILLING:
+        return f"cus_mock_{uuid.uuid4().hex[:16]}"
     data = await _stripe_request("POST", "/customers", data={
-        "name": org.name,
-        "email": email or "",
-        "metadata[org_id]": str(org.id),
+        "name": user.name,
+        "email": email or user.email or "",
+        "metadata[user_id]": str(user.id),
     })
     return data["id"]
 
 
-async def create_checkout_session(customer_id: str, plan: str, org_id: int) -> str:
+async def create_checkout_session(
+    customer_id: str,
+    line_items: list[dict],
+    bots_map: dict[str, list[str]],
+    group_key: str,
+    user_id: int,
+    trial_period_days: Optional[int] = None,
+) -> str:
     """Session de checkout abonnement -> URL de paiement hebergee par Stripe.
-    org_id/plan en metadata (session ET subscription) : le webhook s'en sert
-    pour appliquer le plan sans deviner."""
-    data = await _stripe_request("POST", "/checkout/sessions", data={
+
+    Réécrit (spec §2.4, corrige A1) : plusieurs `line_items` (1 par produit :
+    base + plan IA + add-ons), chacun `[{"price": "price_...", "quantity": 1}]`.
+
+    Checkout ne propage AUCUN metadata par line_item ⇒ la cartographie complète
+    bot→modules est sérialisée dans `subscription_data[metadata][bots]` (JSON).
+    Le webhook `checkout.session.completed` / `subscription.updated` la relit.
+
+    PAS de TVA (franchise en base) : ni automatic_tax, ni tax_id_collection, ni
+    billing_address_collection. PAS de payment_method_types (dynamic methods).
+    `customer_update[name]=auto` met à jour le nom du Customer depuis le paiement.
+
+    MOCK_BILLING ⇒ URL locale, aucun appel Stripe (l'entitlement est appliqué
+    directement par l'appelant / le routeur, simulant le webhook)."""
+    if settings.MOCK_BILLING:
+        return (f"{settings.APP_URL}/app/billing?checkout=success"
+                f"&mock_session=cs_test_{uuid.uuid4().hex[:16]}")
+
+    data: dict[str, Any] = {
         "mode": "subscription",
         "customer": customer_id,
-        "line_items[0][price]": price_id_for(plan),
-        "line_items[0][quantity]": "1",
-        "success_url": f"{settings.APP_URL}/app/billing?checkout=success",
+        # A1 : AUCUN metadata par line_item (Checkout ne le propage pas).
+        "subscription_data[metadata][bots]": json.dumps(bots_map, separators=(",", ":")),
+        "subscription_data[metadata][group_key]": group_key,
+        "subscription_data[metadata][user_id]": str(user_id),
+        "success_url": (f"{settings.APP_URL}/app/billing"
+                        f"?checkout=success&session_id={{CHECKOUT_SESSION_ID}}"),
         "cancel_url": f"{settings.APP_URL}/app/billing?checkout=cancelled",
-        "metadata[org_id]": str(org_id),
-        "metadata[plan]": plan,
-        "subscription_data[metadata][org_id]": str(org_id),
-        "subscription_data[metadata][plan]": plan,
-    })
-    return data["url"]
+        # MAJ du nom du Customer depuis l'étape de paiement.
+        "customer_update[name]": "auto",
+        # PAS de payment_method_types / automatic_tax / tax_id_collection /
+        # billing_address_collection (dynamic methods + franchise en base TVA).
+    }
+    for i, item in enumerate(line_items):
+        data[f"line_items[{i}][price]"] = item["price"]
+        data[f"line_items[{i}][quantity]"] = str(item.get("quantity", 1))
+    if trial_period_days:
+        data["subscription_data[trial_period_days]"] = str(trial_period_days)
+
+    resp = await _stripe_request("POST", "/checkout/sessions", data=data)
+    return resp["url"]
+
+
+async def create_subscription(
+    customer_id: str,
+    items: list[dict],
+    metadata: Optional[dict[str, str]] = None,
+) -> dict:
+    """Crée une subscription par API (subs 2..n des formats per_bot/per_org).
+
+    Contrairement au Checkout, `items[n][metadata][bot_id]` EST propagé vers les
+    subscription_items (corrige A1, privilégié dès la 2e sub). `items` =
+    [{"price": "price_...", "quantity": 1, "metadata": {"bot_id": "42",
+    "module": "mod_rag"}}].
+
+    PAS de TVA (automatic_tax non passé). MOCK_BILLING ⇒ objet sub factice."""
+    if settings.MOCK_BILLING:
+        return {"id": f"sub_mock_{uuid.uuid4().hex[:16]}", "status": "active",
+                "items": {"data": [{"id": f"si_mock_{uuid.uuid4().hex[:12]}",
+                                    "price": {"id": it["price"]}} for it in items]}}
+
+    data: dict[str, Any] = {"customer": customer_id}
+    for i, item in enumerate(items):
+        data[f"items[{i}][price]"] = item["price"]
+        data[f"items[{i}][quantity]"] = str(item.get("quantity", 1))
+        for mk, mv in (item.get("metadata") or {}).items():
+            data[f"items[{i}][metadata][{mk}]"] = str(mv)
+    for mk, mv in (metadata or {}).items():
+        data[f"metadata[{mk}]"] = str(mv)
+    return await _stripe_request("POST", "/subscriptions", data=data)
+
+
+async def update_subscription_items(
+    subscription_id: str,
+    target_items: list[dict],
+    proration_behavior: str = "create_prorations",
+) -> Optional[dict]:
+    """Aligne les items d'une sub sur la liste cible (ajout/retrait/quantité).
+
+    `target_items` = [{"id": "si_..."?, "price": "price_...", "quantity": 1,
+    "deleted": bool?, "metadata": {...}}]. Si la liste cible est VIDE (0 item),
+    Stripe refuse une sub sans item ⇒ on RÉSILIE (corrige D4, garde §2.4).
+
+    MOCK_BILLING ⇒ no-op (retourne None)."""
+    if not target_items:
+        await cancel_subscription(subscription_id, prorate=True)
+        return None
+    if settings.MOCK_BILLING:
+        return None
+
+    data: dict[str, Any] = {"proration_behavior": proration_behavior}
+    for i, item in enumerate(target_items):
+        if item.get("id"):
+            data[f"items[{i}][id]"] = item["id"]
+        if item.get("deleted"):
+            data[f"items[{i}][deleted]"] = "true"
+            continue
+        if item.get("price"):
+            data[f"items[{i}][price]"] = item["price"]
+        data[f"items[{i}][quantity]"] = str(item.get("quantity", 1))
+        for mk, mv in (item.get("metadata") or {}).items():
+            data[f"items[{i}][metadata][{mk}]"] = str(mv)
+    return await _stripe_request("POST", f"/subscriptions/{subscription_id}", data=data)
 
 
 async def create_portal_session(customer_id: str) -> str:
-    """Portail client Stripe (downgrade, resiliation, moyens de paiement)."""
+    """Portail client Stripe (downgrade, resiliation, moyens de paiement).
+    MOCK_BILLING ⇒ URL locale, aucun appel sortant (spec §2.3)."""
+    if settings.MOCK_BILLING:
+        return f"{settings.APP_URL}/app/billing?portal=mock"
     data = await _stripe_request("POST", "/billing_portal/sessions", data={
         "customer": customer_id,
         "return_url": f"{settings.APP_URL}/app/billing",
@@ -126,13 +245,18 @@ async def create_portal_session(customer_id: str) -> str:
     return data["url"]
 
 
-async def create_update_portal_session(customer_id: str, subscription_id: str, plan: str) -> str:
-    """Portail EPINGLE sur le changement vers `plan` (flow
+async def create_update_portal_session(customer_id: str, subscription_id: str,
+                                       price_id: str) -> str:
+    """Portail EPINGLE sur le changement vers `price_id` (flow
     subscription_update_confirm) : le client ne peut pas y choisir un autre
-    plan que celui deja valide par les garde-fous de change_plan."""
-    price_id = price_id_for(plan)
+    price que celui deja valide par les garde-fous de l'appelant.
+
+    `price_id` est résolu par l'appelant via `price_id_for_code(code, db)`
+    (catalogue en base). MOCK_BILLING ⇒ URL locale."""
+    if settings.MOCK_BILLING:
+        return f"{settings.APP_URL}/app/billing?portal=mock"
     if not price_id:
-        raise StripeError(f"Pas de price Stripe pour le plan {plan}")
+        raise StripeError("Price Stripe manquant pour le changement d'abonnement")
     # L'item de l'abonnement (si_...) est requis par le flow de confirmation
     sub = await _stripe_request("GET", f"/subscriptions/{subscription_id}")
     items = (sub.get("items") or {}).get("data") or []
@@ -152,7 +276,9 @@ async def create_update_portal_session(customer_id: str, subscription_id: str, p
 
 async def create_cancel_portal_session(customer_id: str, subscription_id: str) -> str:
     """Portail EPINGLE sur la resiliation (retour au free) : le webhook
-    customer.subscription.deleted appliquera le plan."""
+    customer.subscription.deleted appliquera le plan. MOCK_BILLING ⇒ URL locale."""
+    if settings.MOCK_BILLING:
+        return f"{settings.APP_URL}/app/billing?portal=mock"
     data = await _stripe_request("POST", "/billing_portal/sessions", data={
         "customer": customer_id,
         "return_url": f"{settings.APP_URL}/app/billing",
@@ -162,17 +288,25 @@ async def create_cancel_portal_session(customer_id: str, subscription_id: str) -
     return data["url"]
 
 
-async def cancel_subscription(subscription_id: str) -> None:
-    """Resilie immediatement une subscription (reconciliation anti double
-    abonnement apres un second checkout). L'appelant decide si une StripeError
-    est bloquante (le webhook la loggue sans bloquer, pour rester idempotent)."""
-    await _stripe_request("DELETE", f"/subscriptions/{subscription_id}")
+async def cancel_subscription(subscription_id: str, prorate: bool = False) -> None:
+    """Resilie une subscription. `prorate=True` ⇒ proration de fin (crédit du
+    temps non consommé, regrouping §4.2) ; sinon résiliation immédiate sèche
+    (reconciliation anti double abonnement apres un second checkout).
+
+    L'appelant decide si une StripeError est bloquante (le webhook la loggue
+    sans bloquer, pour rester idempotent). MOCK_BILLING ⇒ no-op."""
+    if settings.MOCK_BILLING:
+        return
+    params = {"prorate": "true"} if prorate else None
+    await _stripe_request("DELETE", f"/subscriptions/{subscription_id}", params=params)
 
 
 async def expire_open_checkout_sessions(customer_id: str) -> None:
     """Expire les sessions de checkout encore ouvertes du customer : une seule
     session payable a la fois (deux onglets ou un retry ne peuvent pas aboutir
-    a deux abonnements payes)."""
+    a deux abonnements payes). MOCK_BILLING ⇒ no-op."""
+    if settings.MOCK_BILLING:
+        return
     data = await _stripe_request("GET", "/checkout/sessions",
                                  params={"customer": customer_id, "status": "open", "limit": 10})
     for session in data.get("data", []):
@@ -181,7 +315,10 @@ async def expire_open_checkout_sessions(customer_id: str) -> None:
 
 async def list_invoices(customer_id: Optional[str] = None, limit: int = 24) -> list[dict]:
     """Factures depuis l'API Stripe (a la demande, pas de table locale).
-    Sans customer_id : toutes les factures du compte (vue staff agregee)."""
+    Sans customer_id : toutes les factures du compte (vue staff agregee).
+    MOCK_BILLING ⇒ liste vide (aucune facture réelle simulée)."""
+    if settings.MOCK_BILLING:
+        return []
     params: dict[str, Any] = {"limit": limit}
     if customer_id:
         params["customer"] = customer_id

@@ -28,6 +28,13 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.constants import (
+    MODULE_AB,
+    MODULE_ACTIONS,
+    MODULE_INBOX,
+    MODULE_RAG,
+    MODULE_WHITELABEL,
+)
 from src.core.database import get_db
 from src.core.security import create_widget_token, get_widget_session
 from src.core.time import utcnow
@@ -54,6 +61,8 @@ from src.routers.widget_helpers import (
 from src.services import tree_engine
 from src.services.ai_service import AIServiceError, generate_reply
 from src.services.captcha import verify_captcha
+from src.services.entitlement_service import ai_quota_for, has_module, resolve
+from src.services.quota_service import ai_quota_consume
 from src.services.email_service import (
     build_handoff_email,
     build_lead_email,
@@ -91,6 +100,17 @@ HANDOFF_CLOSED_MESSAGE = (
 # human_requested sans prise en charge staff au-dela de ce delai -> retour ai
 # (evalue paresseusement au prochain /poll ou /message, jamais de cron)
 HANDOFF_TIMEOUT_MINUTES = 15
+
+# --- Facturation modulaire : quota IA epuise (spec §3.3 / F2) ---
+# Mode `block`, quota mensuel atteint : message DEDIE distinct (configurable
+# client via design_json.quotaExhaustedMessage), JAMAIS le AIServiceError
+# « souci technique » (mensonger, brouille le monitoring). Le flag interne
+# reason=quota_exhausted sert les logs/analytics ; la structure de reponse au
+# visiteur reste celle d'une reponse IA normale (200, source 'ai', options []).
+QUOTA_EXHAUSTED_MESSAGE = (
+    "Le service de réponses automatiques a atteint sa limite pour ce mois-ci. "
+    "Vous pouvez naviguer dans le menu ou revenir un peu plus tard."
+)
 
 
 # Helpers extraits dans routers/widget_helpers.py (importes ci-dessus) :
@@ -160,6 +180,14 @@ async def bootstrap(key: str, request: Request, db: AsyncSession = Depends(get_d
     design.setdefault("title", None)
     if not design.get("title"):
         design["title"] = bot.name
+    # Facturation modulaire (spec §3.3 white-label) : sans le module White-label,
+    # la mention « Powered by » est FORCEE (poweredBy=True), peu importe le
+    # design stocke. billing OFF / bot sans entitlement => has_module True
+    # (ALL_UNLOCKED) => le client garde la main sur poweredBy (comportement
+    # identique a aujourd'hui).
+    ent = await resolve(db, bot)
+    if not has_module(ent, MODULE_WHITELABEL):
+        design["poweredBy"] = True
     design = _sanitize_design(design)
     return {
         "design": design,
@@ -183,9 +211,15 @@ async def create_session(body: SessionRequest, request: Request, db: AsyncSessio
     # Affectation A/B : tiree AVANT la construction de la conversation, sticky
     # pour toute sa duree (tree_engine sert la variante aux conversations 'b').
     # JAMAIS renvoyee au widget : aucune fuite du variant au visiteur.
+    # Facturation modulaire (spec §3.3) : sans le module A/B, tous les visiteurs
+    # voient la variante A (variant=None) — degradation silencieuse, jamais
+    # d'erreur au visiteur. billing OFF / bot sans entitlement => has_module True
+    # (resolver ALL_UNLOCKED) => comportement identique a aujourd'hui.
     variant = None
     if bot.tree_variant_json and (bot.ab_split_pct or 0) > 0:
-        variant = "b" if random.random() * 100 < bot.ab_split_pct else "a"
+        ent = await resolve(db, bot)
+        if has_module(ent, MODULE_AB):
+            variant = "b" if random.random() * 100 < bot.ab_split_pct else "a"
 
     conversation = Conversation(
         bot_id=bot.id,
@@ -409,7 +443,14 @@ async def request_handoff(
 
     bot = await _session_active_bot(db, request, session)
 
-    if not _bot_has_handoff(bot):
+    # Facturation modulaire (spec §3.3 live chat) : la mise en relation conseiller
+    # exige le module Inbox. Check booleen AMONT de trigger_handoff (jamais
+    # d'exception dans la transition SQL) : sans le module, le handoff est refuse
+    # proprement (404, comme un bot qui ne propose pas de conseiller — pas de
+    # bascule partielle de la conversation). billing OFF / bot sans entitlement
+    # => has_module True (ALL_UNLOCKED) => comportement identique a aujourd'hui.
+    ent = await resolve(db, bot)
+    if not _bot_has_handoff(bot) or not has_module(ent, MODULE_INBOX):
         raise HTTPException(status.HTTP_404_NOT_FOUND,
                             "Ce bot ne propose pas de mise en relation avec un conseiller")
 
@@ -578,14 +619,42 @@ async def _handle_ai_message(
                    role="user", source="ai", content=text))
     await db.commit()
 
+    # --- Facturation modulaire (spec §3.3 / §3.4) : entitlement du bot ---
+    # billing OFF / bot sans entitlement => ALL_UNLOCKED (modules tous presents,
+    # quota illimite) => comportement strictement identique a aujourd'hui.
+    ent = await resolve(db, bot)
+
+    # Pre-check QUOTA IA (mode block) JUSTE AVANT l'effet couteux (generate_reply).
+    # ai_quota_for(ent) is None => illimite (BYOK ou billing OFF / pas de quota)
+    # => on n'appelle PAS le compteur. Sinon on reserve une reponse du mois :
+    # quota epuise => message DEDIE (reason=quota_exhausted), 200, source 'ai',
+    # PAS d'AIServiceError. On ne gate JAMAIS la navigation arbre/conseiller.
+    quota = ai_quota_for(ent)
+    if quota is not None and not await ai_quota_consume(db, bot.id, quota):
+        logger.info("billing.quota: bot %s quota IA epuise (reason=quota_exhausted)", bot.id)
+        # Comme la branche AIServiceError : AUCUN message assistant persiste.
+        # Un message source='ai' gonflerait la source durable du compteur
+        # (usage_service.count_ai_messages_month filtre source='ai',
+        # role='assistant') alors qu'aucune reponse IA n'a ete generee. Le
+        # message visiteur (source='ai') deja persiste reste l'historique. La
+        # reponse au visiteur garde la forme d'une reponse IA (200, source 'ai').
+        return _maybe_refresh({"source": "ai", "message": QUOTA_EXHAUSTED_MESSAGE,
+                               "options": [], "status": conversation.status},
+                              bot, session)
+
     history = await _build_ai_history(conversation, text, db)
 
     page_url = body.page_url or conversation.page_url
     # Base de connaissances : le tool search_docs n'est expose au modele que
-    # si le bot a au moins un extrait indexe.
+    # si le bot a au moins un extrait indexe ET que le module RAG est actif
+    # (sans le module, has_kb force a False => search_docs non expose).
     has_kb = (await db.execute(
         select(KbChunk.id).where(KbChunk.bot_id == bot.id).limit(1)
     )).first() is not None
+    if has_kb and not has_module(ent, MODULE_RAG):
+        has_kb = False
+    # Actions & MCP exposees au modele uniquement si le module Actions est actif.
+    allow_actions = has_module(ent, MODULE_ACTIONS)
     try:
         # journey : contexte IA uniquement (le mode arbre n'en a pas besoin),
         # deja valide/tronque au handshake par _sanitize_journey.
@@ -593,7 +662,8 @@ async def _handle_ai_message(
         # locale : 'auto' ajoute la consigne de langue au system prompt.
         ai = await generate_reply(bot, history, page_url, journey=conversation.journey,
                                   db=db, conversation_id=conversation.id, has_kb=has_kb,
-                                  locale=(bot.design_json or {}).get("locale"))
+                                  locale=(bot.design_json or {}).get("locale"),
+                                  allow_actions=allow_actions)
     except AIServiceError:
         return _maybe_refresh({"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.",
                                "options": [], "status": conversation.status}, bot, session)

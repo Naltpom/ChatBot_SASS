@@ -29,6 +29,7 @@ from src.models.user import (
 from src.services.auth_service import AuthenticationError, authenticate
 from src.services.org_service import consume_invitations
 from src.services.rate_limit import auth_limiter
+from src.services.stripe_service import billing_enabled
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -42,12 +43,18 @@ async def _check_auth_rate(request: Request) -> None:
 
 
 async def _user_out(db: AsyncSession, user: User) -> UserOut:
-    """UserOut avec organisations + role + permissions par bot du user."""
+    """UserOut avec organisations + role + permissions par bot du user.
+
+    Pose aussi les champs facturation (spec §1.3, corrige C2) :
+    - `is_owner` par org (`org.owner_user_id == user.id`) ;
+    - `owned_org_ids` (orgs possedees, derivees des `is_owner`) ;
+    - `billing_enabled` (calcule serveur, pilote l'affichage front)."""
     out = UserOut.model_validate(user)
     if user.is_superadmin:
         orgs = (await db.execute(select(Organization).order_by(Organization.name))).scalars().all()
         out.organizations = [
-            OrgOut(id=o.id, name=o.name, role="admin", permissions={})
+            OrgOut(id=o.id, name=o.name, role="admin", permissions={},
+                   is_owner=(o.owner_user_id == user.id))
             for o in orgs
         ]
     else:
@@ -59,9 +66,12 @@ async def _user_out(db: AsyncSession, user: User) -> UserOut:
         )).all()
         out.organizations = [
             OrgOut(id=o.id, name=o.name,
-                   role=m.role, permissions=m.permissions or {})
+                   role=m.role, permissions=m.permissions or {},
+                   is_owner=(o.owner_user_id == user.id))
             for o, m in rows
         ]
+    out.owned_org_ids = [o.id for o in out.organizations if o.is_owner]
+    out.billing_enabled = billing_enabled()
     return out
 
 
@@ -86,7 +96,10 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
     # appartiendront directement a lui (Bot.owner_user_id). Entreprise = une
     # organisation (equipe) creee avec le createur en admin + invitations.
     if body.account_type == "entreprise":
-        org = Organization(name=(body.organization_name or "").strip()[:120])
+        # Owner d'org = createur (payeur des bots d'equipe, spec §1.2 a). Il est
+        # TOUJOURS membre admin (invariant §1.2 d, pose juste apres le flush).
+        org = Organization(name=(body.organization_name or "").strip()[:120],
+                           owner_user_id=user.id)
         db.add(org)
         await db.flush()
         db.add(Membership(user_id=user.id, organization_id=org.id, role="admin", permissions={}))

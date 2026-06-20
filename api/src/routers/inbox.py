@@ -30,6 +30,8 @@ from src.models.conversation import (
 from src.models.user import User
 from src.routers.bots_helpers import _check_bot_perm, _get_accessible_bot
 from src.routers.widget import HANDOFF_CLOSED_MESSAGE
+from src.core.constants import MODULE_INBOX
+from src.services.entitlement_service import gate, resolve
 
 router = APIRouter(prefix="/api", tags=["inbox"])
 
@@ -200,6 +202,9 @@ async def take_conversation(
     prise en charge d'un autre conseiller)."""
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     conversation = await _get_inbox_conversation(db, bot, user, membership, cid)
+    # Module Live chat / Inbox requis cote staff (spec §3.3) : 402 en mode
+    # enforce. Billing OFF / bot sans entitlement -> ALL_UNLOCKED -> no-op (D0).
+    gate(await resolve(db, bot), MODULE_INBOX)
     if conversation.status == "human":
         return {"ok": True, "status": "human"}  # idempotent
     if conversation.status != "human_requested":
@@ -228,6 +233,8 @@ async def reply_conversation(
     repondant). Le message part vers le visiteur via son /poll."""
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     conversation = await _get_inbox_conversation(db, bot, user, membership, cid)
+    # Module Live chat / Inbox requis pour repondre (spec §3.3) — meme garde que take.
+    gate(await resolve(db, bot), MODULE_INBOX)
 
     content = (body.content or "").strip()
     if not content:

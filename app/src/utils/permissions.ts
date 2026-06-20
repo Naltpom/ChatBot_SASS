@@ -45,6 +45,37 @@ export function canAccessBotPerm(user: User | null | undefined, bot: BotLike, pe
   return org.role === 'admin' || (org.permissions[String(bot.id)] || []).includes(perm)
 }
 
+// === Gating UI facturation (spec §5.2) ======================================
+// NE PAS toucher canAccessBotPerm ci-dessus (garde-fou e2e). Ces deux helpers
+// sont des gardes UNIQUEMENT facturation — défense en profondeur : le front
+// masque, le backend rejette (403) tout POST /api/billing/* d'un non-owner.
+
+// L'utilisateur peut-il VOIR l'espace facturation (entrée nav, page Billing) ?
+// (corrige E3 : ce n'est plus un `return true`). Conditions :
+//   - superadmin : toujours ;
+//   - owner d'au moins une org (owned_org_ids) : il paie les bots de ces orgs ;
+//   - compte solo (aucune org) : il peut détenir des bots perso qu'il paie.
+// Remarque : `User` ne porte pas la liste des bots ; un compte sans org est un
+// compte perso susceptible d'avoir des bots perso, donc éligible à la facturation.
+export function canSeeBilling(u?: User | null): boolean {
+  if (!u) return false
+  if (u.is_superadmin) return true
+  if ((u.owned_org_ids?.length ?? 0) > 0) return true
+  // Compte solo (perso) : pas d'org => bots perso possibles, payés par lui-même.
+  return u.organizations.length === 0
+}
+
+// L'utilisateur est-il le PAYEUR (owner) pour la facturation de CE bot ?
+//   - superadmin : toujours ;
+//   - bot perso : son propriétaire ;
+//   - bot d'équipe : owner de l'org SEULEMENT (un admin non-owner ne paie pas).
+export function isBotBillingOwner(u: User | null | undefined, bot: BotLike): boolean {
+  if (!u) return false
+  if (u.is_superadmin) return true
+  if (isPersonalBot(bot)) return bot.owner_user_id === u.id
+  return (u.owned_org_ids || []).includes(bot.organization_id ?? -1)
+}
+
 // Badge d'appartenance : « Perso » pour un bot perso, sinon le nom de l'équipe
 // propriétaire (fallback « Équipe » si l'org n'est pas dans la liste de
 // l'utilisateur, p. ex. superadmin éditant le bot d'un client).

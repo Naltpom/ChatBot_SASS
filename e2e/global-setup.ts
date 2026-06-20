@@ -7,6 +7,11 @@
 // - 1 bot mode arbre avec un tree_json simple à 3 nœuds, captcha désactivé
 // - 1 compte MEMBER local jetable (« Membre E2E »), membre de l'org partagée,
 //   permissions remises à {} à chaque run (déterminisme team-permissions.spec)
+// - 1 compte ADMIN NON-OWNER local jetable (« Admin E2E »), membre de l'org
+//   partagée au rôle `admin` MAIS qui n'en est PAS l'owner (org.owner_user_id =
+//   le compte principal du setup). Sert au gating facturation (spec §7.4) :
+//   require_billing_owner renvoie 403 à un admin non-owner (il n'est pas le
+//   payeur), distinct du 403 perm member et du 404 anti-énumération perso.
 // Le tout est écrit dans e2e/.state.json (gitignoré).
 //
 // Si un .state.json valide existe déjà (itérations locales), il est réutilisé
@@ -39,6 +44,13 @@ export interface E2EState {
   memberToken?: string
   memberUserId?: number
   memberName?: string
+  // 3e acteur : admin NON-owner de l'org partagée (gating facturation §7.4).
+  // Distinct du member : rôle `admin` (donc require_org_admin OK) mais PAS
+  // owner (require_billing_owner → 403). Optionnels (vieux .state.json lisible).
+  adminEmail?: string
+  adminToken?: string
+  adminUserId?: number
+  adminName?: string
 }
 
 // RÈGLE DURE : purge des rate-limits Redis (persistants entre restarts api).
@@ -189,6 +201,80 @@ async function ensureMember(ctx: APIRequestContext, state: E2EState): Promise<vo
   if (!patch.ok()) await fail('PATCH /api/orgs/{id}/members/{uid} (reset permissions)', patch)
 }
 
+// Garantit le 3e acteur « Admin E2E » (local, jetable) : membre de l'org
+// partagée au rôle `admin`, mais JAMAIS owner (l'owner reste le compte
+// principal du setup, posé à la création de l'org via owner_user_id). Au plus 1
+// register (couvert par le FLUSHALL) ; les runs suivants réutilisent
+// adminToken. Le rôle est ré-affirmé `admin` à chaque run (déterminisme du
+// gating facturation). Compte enregistré en `perso` SANS org propre : son
+// `owned_org_ids` reste vide ⇒ canSeeBilling(false) côté front (admin non-owner).
+async function ensureAdmin(ctx: APIRequestContext, state: E2EState): Promise<void> {
+  const mainHeaders = authHeaders(state.token)
+  const wantedName = 'Admin E2E'
+
+  // 1. Token admin encore valide ? (GET /me, gratuit)
+  let valid = false
+  if (state.adminToken && state.adminUserId && state.adminEmail) {
+    const me = await ctx.get('/api/auth/me', { headers: authHeaders(state.adminToken) })
+    if (me.ok()) {
+      valid = true
+      const u = await me.json()
+      state.adminUserId = u.id
+      state.adminEmail = u.email
+      if (u.name !== wantedName) {
+        await ctx.patch('/api/auth/me', {
+          headers: authHeaders(state.adminToken),
+          data: { name: wantedName },
+        })
+      }
+    }
+  }
+
+  // 2. Sinon : register d'un compte perso jetable (1 SEUL register). `perso`
+  // (pas `entreprise`) : aucune org propre ⇒ pas d'owned_org_ids parasite.
+  if (!valid) {
+    const stamp = Date.now()
+    const email = `e2e.admin.${stamp}@e2e-chapote.fr`
+    const reg = await ctx.post('/api/auth/register', {
+      data: {
+        email,
+        password: STATE_PASSWORD,
+        name: wantedName,
+        account_type: 'perso',
+        invites: [],
+      },
+    })
+    if (!reg.ok()) await fail('POST /api/auth/register (admin E2E)', reg)
+    const body = await reg.json()
+    state.adminToken = body.access_token
+    state.adminUserId = body.user.id
+    state.adminEmail = email
+  }
+  state.adminName = wantedName
+
+  // 3. Membership dans l'org partagée au rôle `admin` (POST members non
+  // rate-limité, joined:true car le compte existe). NE TOUCHE PAS owner_user_id :
+  // l'org reste possédée par le compte principal du setup (require_billing_owner
+  // → 403 pour cet admin non-owner).
+  const list = await ctx.get(`/api/orgs/${state.orgId}/members`, { headers: mainHeaders })
+  if (!list.ok()) await fail('GET /api/orgs/{id}/members (admin E2E)', list)
+  const { members } = await list.json()
+  if (!members.some((m: { email: string }) => m.email === state.adminEmail)) {
+    const add = await ctx.post(`/api/orgs/${state.orgId}/members`, {
+      headers: mainHeaders,
+      data: { email: state.adminEmail, role: 'admin' },
+    })
+    if (!add.ok()) await fail('POST /api/orgs/{id}/members (admin E2E)', add)
+  }
+
+  // 4. Rôle ré-affirmé `admin` (un run précédent a pu le rétrograder).
+  const patch = await ctx.patch(`/api/orgs/${state.orgId}/members/${state.adminUserId}`, {
+    headers: mainHeaders,
+    data: { role: 'admin' },
+  })
+  if (!patch.ok()) await fail('PATCH /api/orgs/{id}/members/{uid} (admin E2E role)', patch)
+}
+
 // Réutilise un état existant encore valide (économise le rate-limit pendant
 // les itérations). Nettoie les résidus des runs précédents.
 async function tryReuse(ctx: APIRequestContext): Promise<boolean> {
@@ -235,9 +321,10 @@ async function tryReuse(ctx: APIRequestContext): Promise<boolean> {
     }
   }
 
-  // Compte member : re-validé/recréé à chaque run, permissions remises à {}.
-  // Le .state.json est RÉ-ÉCRIT (les champs member peuvent changer).
+  // Comptes member + admin non-owner : re-validés/recréés à chaque run.
+  // Le .state.json est RÉ-ÉCRIT (les champs member/admin peuvent changer).
   await ensureMember(ctx, state)
+  await ensureAdmin(ctx, state)
   fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
 
   console.log(`[e2e] État réutilisé (${state.email} + member ${state.memberEmail}, bot #${state.botId}) — aucune inscription du compte principal consommée.`)
@@ -306,11 +393,14 @@ export default async function globalSetup(_config: FullConfig) {
       publicKey: bot.public_key,
     }
 
-    // --- 3. Compte member « Membre E2E » (2e et DERNIER appel d'auth) ---
+    // --- 3. Compte member « Membre E2E » (2e appel d'auth) ---
     await ensureMember(ctx, state)
 
+    // --- 4. Compte admin NON-owner « Admin E2E » (3e et DERNIER appel d'auth) ---
+    await ensureAdmin(ctx, state)
+
     fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
-    console.log(`[e2e] Compte ${email} créé (org #${org.id}, bot #${bot.id}, member ${state.memberEmail}).`)
+    console.log(`[e2e] Compte ${email} créé (org #${org.id}, bot #${bot.id}, member ${state.memberEmail}, admin ${state.adminEmail}).`)
   } finally {
     await ctx.dispose()
   }
