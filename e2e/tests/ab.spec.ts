@@ -45,8 +45,13 @@ test('activer variante B + split → assert API non-null → désactiver → ass
   await page.locator('.tabs').getByRole('button', { name: 'Arbre' }).click()
 
   // UN SEUL TreeFlow monté (contrat strict mode) : vue A. La carte éditeur
-  // porte le titre « Arbre de conversation » (h3), unique par vue.
+  // porte le titre « Arbre de conversation » (h3), unique par vue. Ce titre vit
+  // dans le wrapper TOUJOURS monté (hors du chunk lazy @xyflow).
   await expect(page.getByText('Arbre de conversation', { exact: true })).toHaveCount(1)
+  // Attendre que le canvas LAZY (chunk dynamique) soit chargé avant de toucher au
+  // bloc A/B : son montage re-render l'onglet Arbre et pourrait avaler un clic.
+  // (Le bouton « Réorganiser » de la barre d'outils est rendu par le canvas.)
+  await expect(page.getByRole('button', { name: 'Réorganiser' })).toBeVisible()
 
   // --- Activer la variante B ---
   // Clic + assert du chip enveloppés dans un retry (toPass) : le re-render de
