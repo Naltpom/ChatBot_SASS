@@ -136,6 +136,12 @@ async def create_checkout_session(
     bot→modules est sérialisée dans `subscription_data[metadata][bots]` (JSON).
     Le webhook `checkout.session.completed` / `subscription.updated` la relit.
 
+    Socle-inclusion (point 6) : ce service ne fabrique JAMAIS de line_item — il
+    pose tels quels les `line_items` que l'appelant a construits. La règle « base
+    facturé seul / inclus dès qu'un plan IA est pris » est donc appliquée en amont
+    (`billing._line_items_for_codes`) : aucune ligne `base` n'arrive ici quand un
+    plan IA est présent. Les prix unitaires des plans IA ne sont jamais modifiés.
+
     PAS de TVA (franchise en base) : ni automatic_tax, ni tax_id_collection, ni
     billing_address_collection. PAS de payment_method_types (dynamic methods).
     `customer_update[name]=auto` met à jour le nom du Customer depuis le paiement.
@@ -341,12 +347,16 @@ async def list_invoices(customer_id: Optional[str] = None, limit: int = 24) -> l
 
 
 async def update_product(product_id: str, name: Optional[str] = None,
-                         active: Optional[bool] = None) -> dict:
+                         active: Optional[bool] = None,
+                         description: Optional[str] = None) -> dict:
     """Met à jour un Product Stripe (POST /v1/products/{id}). Les Products sont
-    MUTABLES (contrairement aux Prices) : on édite `name` / `active` en place.
+    MUTABLES (contrairement aux Prices) : on édite `name` / `active` /
+    `description` en place.
 
-    `active=False` masque le produit (le Price associé doit être désactivé à
-    part, via `deactivate_price`). MOCK_BILLING ⇒ no-op (retourne {})."""
+    `description` (texte commercial affiché sur le Product Stripe / Checkout) est
+    poussé tel quel quand fourni — None ⇒ champ non touché. `active=False` masque
+    le produit (le Price associé doit être désactivé à part, via
+    `deactivate_price`). MOCK_BILLING ⇒ no-op (retourne {})."""
     if settings.MOCK_BILLING:
         return {}
     data: dict[str, Any] = {}
@@ -354,21 +364,31 @@ async def update_product(product_id: str, name: Optional[str] = None,
         data["name"] = name
     if active is not None:
         data["active"] = "true" if active else "false"
+    if description is not None:
+        data["description"] = description
     if not data:
         return {}
     return await _stripe_request("POST", f"/products/{product_id}", data=data)
 
 
 async def create_price(product_id: str, unit_amount: int, currency: str,
-                       interval: str, code: str) -> dict:
+                       interval: str, code: str,
+                       description: Optional[str] = None) -> dict:
     """Crée un NOUVEAU Price récurrent (POST /v1/prices) pour un product existant.
 
     Les Prices Stripe sont IMMUABLES : un changement de montant ne se fait JAMAIS
     en place — on crée un nouveau Price (ce helper) puis on désactive l'ancien
     (`deactivate_price`). `recurring[usage_type]=licensed` (les produits métrés ne
-    sont pas vendus en v1). MOCK_BILLING ⇒ identifiant local `price_mock_<uuid>`."""
+    sont pas vendus en v1).
+
+    `description` n'est PAS un champ de Price (Stripe le porte sur le Product) :
+    quand fourni, on le pousse sur le Product parent (POST /v1/products/{id})
+    pour garder la description à jour lors d'un changement de prix. MOCK_BILLING
+    ⇒ identifiant local `price_mock_<uuid>`."""
     if settings.MOCK_BILLING:
         return {"id": f"price_mock_{uuid.uuid4().hex[:16]}"}
+    if description is not None:
+        await update_product(product_id, description=description)
     return await _stripe_request("POST", "/prices", data={
         "product": product_id,
         "currency": currency,

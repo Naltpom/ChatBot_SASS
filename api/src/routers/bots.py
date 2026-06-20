@@ -132,17 +132,36 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
     return out
 
 
-async def _seed_free_entitlement(db: AsyncSession, bot_id: int) -> None:
-    """A la creation d'un bot : pose un entitlement `source='free'`, modules=[]
-    SEULEMENT si le billing est actif (spec §6.2).
+# Durée de l'essai sans carte (fin du gratuit à vie) : 7 jours à compter de la
+# création du bot. À J+7 sans souscription, le resolver gate le bot (point 4).
+TRIAL_DAYS = 7
+
+
+async def _seed_trial_entitlement(
+    db: AsyncSession, bot_id: int,
+    modules: list[str] | None = None, ai_monthly_quota: int | None = None,
+) -> None:
+    """A la creation d'un bot : démarre un ESSAI de 7 jours SANS carte
+    SEULEMENT si le billing est actif (fin du gratuit à vie, point 3).
+
+    Pose `status='trialing'`, `trial_end = utcnow() + 7j`, `modules` = ceux de la
+    config (défaut [] = bot arbre / socle seul), `ai_monthly_quota` selon le plan
+    IA configuré (None = pas d'IA). AUCUNE subscription Stripe (pas de carte à
+    l'essai) : la conversion en `status='active'` passe par le webhook au paiement.
 
     Billing OFF -> on ne cree RIEN : le resolver renvoie ALL_UNLOCKED (RÈGLE 1),
     inutile de polluer la base. Un bot sans entitlement est de toute facon traite
     gratuit (RÈGLE 2). A commiter par l'appelant (le bot vient d'etre commit)."""
     if not billing_enabled():
         return
-    db.add(BotEntitlement(bot_id=bot_id, modules=[], ai_monthly_quota=0,
-                          status="active", source="free"))
+    db.add(BotEntitlement(
+        bot_id=bot_id,
+        modules=modules or [],
+        ai_monthly_quota=ai_monthly_quota,
+        status="trialing",
+        trial_end=utcnow() + timedelta(days=TRIAL_DAYS),
+        source="trial",
+    ))
     await db.commit()
 
 
@@ -156,7 +175,7 @@ async def create_personal_bot(body: BotCreate, db: AsyncSession = Depends(get_db
     db.add(bot)
     await db.commit()
     await db.refresh(bot)
-    await _seed_free_entitlement(db, bot.id)
+    await _seed_trial_entitlement(db, bot.id)
     return BotOut.from_bot(bot)
 
 
@@ -293,7 +312,7 @@ async def create_bot(org_id: int, body: BotCreate, db: AsyncSession = Depends(ge
     db.add(bot)
     await db.commit()
     await db.refresh(bot)
-    await _seed_free_entitlement(db, bot.id)
+    await _seed_trial_entitlement(db, bot.id)
     return BotOut.from_bot(bot)
 
 

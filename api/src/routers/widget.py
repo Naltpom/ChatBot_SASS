@@ -112,6 +112,20 @@ QUOTA_EXHAUSTED_MESSAGE = (
     "Vous pouvez naviguer dans le menu ou revenir un peu plus tard."
 )
 
+# --- Fin du gratuit à vie : essai de 7 jours expiré (point 4/5) ---
+# Un bot dont l'essai est terminé (status='trialing' ET utcnow()>=trial_end) est
+# GATÉ : l'IA ne répond plus tant que l'éditeur n'a pas souscrit. Message visiteur
+# DÉDIÉ, DISTINCT de QUOTA_EXHAUSTED_MESSAGE (le quota concerne un bot souscrit qui
+# a consommé son forfait du mois ; ici c'est l'essai qui est échu). Même forme de
+# réponse qu'une réponse IA (200, source 'ai', options []) : pas d'erreur visiteur,
+# la navigation arbre/conseiller reste possible côté gating module. billing OFF /
+# bot sans entitlement => resolver ALL_UNLOCKED (trial_expired False) => jamais ce
+# message (comportement identique à aujourd'hui).
+TRIAL_ENDED_MESSAGE = (
+    "Les réponses automatiques de cet assistant sont momentanément indisponibles. "
+    "Vous pouvez naviguer dans le menu ci-dessous."
+)
+
 
 # Helpers extraits dans routers/widget_helpers.py (importes ci-dessus) :
 # _client_ip, _check_ip_flood, _check_origin, _check_session_origin,
@@ -623,6 +637,18 @@ async def _handle_ai_message(
     # billing OFF / bot sans entitlement => ALL_UNLOCKED (modules tous presents,
     # quota illimite) => comportement strictement identique a aujourd'hui.
     ent = await resolve(db, bot)
+
+    # Fin du gratuit a vie (point 4/5) : essai de 7 jours EXPIRE => l'IA ne repond
+    # plus (gate), message visiteur DEDIE distinct du quota. On NE persiste AUCUN
+    # message assistant (comme la branche quota/AIServiceError : ne pas gonfler la
+    # source durable du compteur, source='ai' role='assistant'). Le message
+    # visiteur deja persiste reste l'historique. billing OFF / pas d'entitlement
+    # => trial_expired False => jamais ce chemin (comportement actuel preserve).
+    if ent.trial_expired:
+        logger.info("billing.trial: bot %s essai expire (reason=trial_ended)", bot.id)
+        return _maybe_refresh({"source": "ai", "message": TRIAL_ENDED_MESSAGE,
+                               "options": [], "status": conversation.status},
+                              bot, session)
 
     # Pre-check QUOTA IA (mode block) JUSTE AVANT l'effet couteux (generate_reply).
     # LECTURE SEULE : on NE consomme PAS de credit ici. ai_quota_for(ent) is None

@@ -43,43 +43,69 @@ INTERVAL = "month"
 # included_replies : quota mensuel des plans IA (NULL sinon).
 # is_active : False => seedé en base mais NON poussé chez Stripe en v1.
 CATALOG: list[dict] = [
-    # --- Socle gratuit (jamais facturé) ---
+    # --- Socle (9 €/mois) : facturé UNIQUEMENT pour un bot ARBRE SEUL ; INCLUS
+    #     (non ajouté au Checkout) dès qu'un plan IA (ai_tier OU mod_ai_byok) est pris.
+    #     Tout nouveau bot démarre par un essai 7 j SANS carte ; à J+7 sans
+    #     souscription -> GATE. ---
     {"code": "base", "label": "Socle", "kind": "base",
-     "unit_amount": 0, "included_replies": None, "is_active": True},
+     "unit_amount": 900, "included_replies": None, "is_active": True,
+     "description": "Bot conversationnel en arbre : menus à clics illimités, "
+                    "personnalisation de l'apparence, déclencheurs proactifs et "
+                    "analytics. Fonctionne sans IA."},
 
-    # --- Plans IA (kind=ai_tier ; un plan >= Starter active le module `ai`
-    #     et pose ai_monthly_quota = included_replies) ---
-    {"code": "ai_free", "label": "IA Gratuit", "kind": "ai_tier",
-     "unit_amount": 0, "included_replies": 50, "is_active": True},
+    # --- Plans IA (kind=ai_tier ; un plan active le module `ai` et pose
+    #     ai_monthly_quota = included_replies). Plus d'IA gratuite à vie. ---
     {"code": "ai_starter", "label": "IA Starter", "kind": "ai_tier",
-     "unit_amount": 1900, "included_replies": 1000, "is_active": True},
+     "unit_amount": 1900, "included_replies": 1000, "is_active": True,
+     "description": "Moteur IA (Claude Haiku / GPT-4o-mini) pour répondre en "
+                    "langage naturel. 1 000 réponses IA incluses par mois."},
     {"code": "ai_growth", "label": "IA Growth", "kind": "ai_tier",
-     "unit_amount": 3900, "included_replies": 3000, "is_active": True},
+     "unit_amount": 3900, "included_replies": 3000, "is_active": True,
+     "description": "Moteur IA avec Claude Sonnet en plus. 3 000 réponses IA par "
+                    "mois — pour un support client actif."},
     {"code": "ai_scale", "label": "IA Scale", "kind": "ai_tier",
-     "unit_amount": 8900, "included_replies": 10000, "is_active": True},
+     "unit_amount": 8900, "included_replies": 10000, "is_active": True,
+     "description": "Moteur IA haut volume : 10 000 réponses IA par mois, pour les "
+                    "sites à fort trafic."},
 
     # --- Variante IA BYOK (forfait plateforme, bot non métré, kind=module) ---
     {"code": "mod_ai_byok", "label": "IA — clé du client (BYOK)", "kind": "module",
-     "unit_amount": 2900, "included_replies": None, "is_active": True},
+     "unit_amount": 2900, "included_replies": None, "is_active": True,
+     "description": "Utilisez votre propre clé IA (Anthropic/OpenAI/Gemini) : "
+                    "réponses illimitées, vous payez votre fournisseur. Forfait "
+                    "plateforme fixe."},
 
     # --- Add-ons (forfait on/off, kind=module) ---
     {"code": "mod_rag", "label": "Connaissances (RAG)", "kind": "module",
-     "unit_amount": 900, "included_replies": None, "is_active": True},
+     "unit_amount": 900, "included_replies": None, "is_active": True,
+     "description": "Base de connaissances : indexez vos pages, PDF et FAQ ; l'IA "
+                    "répond à partir de VOS contenus (recherche sémantique)."},
     {"code": "mod_inbox", "label": "Live chat / Inbox", "kind": "module",
-     "unit_amount": 1500, "included_replies": None, "is_active": True},
+     "unit_amount": 1500, "included_replies": None, "is_active": True,
+     "description": "Chat en direct : vos conseillers reprennent la main sur une "
+                    "conversation, avec boîte de réception et notifications."},
     {"code": "mod_actions", "label": "Actions & MCP", "kind": "module",
-     "unit_amount": 1900, "included_replies": None, "is_active": True},
+     "unit_amount": 1900, "included_replies": None, "is_active": True,
+     "description": "Actions et connecteurs : l'IA déclenche des webhooks, capture "
+                    "des leads, ouvre des tickets, propose des créneaux et appelle "
+                    "vos outils MCP."},
     {"code": "mod_ab", "label": "A/B testing", "kind": "module",
-     "unit_amount": 700, "included_replies": None, "is_active": True},
+     "unit_amount": 700, "included_replies": None, "is_active": True,
+     "description": "Test A/B d'arbres : comparez deux versions de votre scénario "
+                    "et mesurez laquelle convertit le mieux."},
     {"code": "mod_whitelabel", "label": "White-label", "kind": "module",
-     "unit_amount": 900, "included_replies": None, "is_active": True},
+     "unit_amount": 900, "included_replies": None, "is_active": True,
+     "description": "Marque blanche : retire la mention Propulsé par Chapote du "
+                    "widget."},
 
     # --- Axe métré IA (v2 : 0,015 €/réponse = 1,5 c au-delà du quota). v1 : NON
     #     vendu, is_active=False => seedé en base, jamais poussé chez Stripe. Le
     #     prix sub-centime (1,5 c) se posera en v2 via unit_amount_decimal /
     #     Stripe Meters ; unit_amount=2 ici est un placeholder inerte (non poussé). ---
     {"code": "mtr_ai", "label": "Dépassement IA (par réponse)", "kind": "metered",
-     "unit_amount": 2, "included_replies": None, "is_active": False},
+     "unit_amount": 2, "included_replies": None, "is_active": False,
+     "description": "Facturation à l'usage des réponses IA au-delà du quota "
+                    "(activée en v2)."},
 ]
 
 
@@ -92,8 +118,9 @@ async def _upsert_local(db, item: dict) -> BillingProduct:
     if row is None:
         row = BillingProduct(code=item["code"], currency=CURRENCY, interval=INTERVAL)
         db.add(row)
-    # Champs déclaratifs (label/montant peuvent évoluer ; le code est figé).
+    # Champs déclaratifs (label/montant/description peuvent évoluer ; code figé).
     row.label = item["label"]
+    row.description = item.get("description")
     row.kind = item["kind"]
     row.included_replies = item["included_replies"]
     row.unit_amount = item["unit_amount"]
@@ -118,10 +145,14 @@ async def _push_stripe(row: BillingProduct, item: dict) -> bool:
     if row.stripe_product_id:
         return False  # déjà seedé chez Stripe.
 
-    product = await stripe_service._stripe_request("POST", "/products", data={
+    product_data = {
         "name": row.label,
         "metadata[code]": row.code,
-    })
+    }
+    if row.description:
+        # Champ `description` du Product Stripe (texte commercial).
+        product_data["description"] = row.description
+    product = await stripe_service._stripe_request("POST", "/products", data=product_data)
     row.stripe_product_id = product["id"]
 
     recurring_usage = "metered" if row.kind == "metered" else "licensed"

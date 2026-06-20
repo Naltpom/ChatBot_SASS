@@ -96,12 +96,39 @@ def test_config_to_codes_byok():
     assert MODULE_AI in modules
 
 
-def test_config_to_codes_ai_free_pas_de_ligne_facturee():
-    """ai_free active le module IA mais N'AJOUTE PAS de code facturable."""
-    cfg = BotConfigPayload(modules=[], ai_tier_id="ai_free", ai_byok=False)
+def test_config_to_codes_arbre_seul():
+    """Bot ARBRE seul (aucun plan IA) : seul `base` est dans les codes, sans IA.
+    (Fin du gratuit à vie : `ai_free` supprimé du catalogue — point 7.)"""
+    cfg = BotConfigPayload(modules=[], ai_tier_id=None, ai_byok=False)
     codes, modules = _config_to_codes(cfg)
-    assert codes == ["base"]                # pas de ligne ai_free
-    assert MODULE_AI in modules
+    assert codes == ["base"]
+    assert MODULE_AI not in modules
+
+
+@pytest.mark.asyncio
+async def test_line_items_socle_facture_seul_pour_bot_arbre(db: FakeSession):
+    """Socle (9 €) facturé seul pour un bot arbre seul (aucun plan IA, point 6)."""
+    from src.models.billing import BillingProduct
+    db.seed(BillingProduct(code="base", label="Socle", kind="base",
+                           unit_amount=900, is_active=True, stripe_price_id="price_base"))
+    items = await bil._line_items_for_codes(db, ["base"])
+    assert [it["code"] for it in items] == ["base"]
+
+
+@pytest.mark.asyncio
+async def test_line_items_socle_inclus_si_plan_ia(db: FakeSession):
+    """Socle INCLUS (retiré des line_items) dès qu'un plan IA est pris : les prix
+    IA ne changent pas, seul le plan IA est facturé (point 6)."""
+    from src.models.billing import BillingProduct
+    db.seed(BillingProduct(code="base", label="Socle", kind="base",
+                           unit_amount=900, is_active=True, stripe_price_id="price_base"))
+    db.seed(BillingProduct(code="ai_growth", label="IA Growth", kind="ai_tier",
+                           unit_amount=3900, included_replies=3000, is_active=True,
+                           stripe_price_id="price_growth"))
+    items = await bil._line_items_for_codes(db, ["base", "ai_growth"])
+    codes = [it["code"] for it in items]
+    assert "base" not in codes          # socle inclus, pas de ligne séparée
+    assert codes == ["ai_growth"]
 
 
 # --- PUT /api/billing/grouping : transitions -----------------------------

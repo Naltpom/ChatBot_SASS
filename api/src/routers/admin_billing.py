@@ -56,10 +56,13 @@ class EntitlementOverride(BaseModel):
 class CatalogPatch(BaseModel):
     """Édition d'une ligne catalogue (billing_products) — hors montant.
 
-    Les trois champs sont optionnels (PATCH partiel). `included_replies` accepte
-    null (illimité / non applicable) ou un entier >= 0. Le MONTANT ne se change
-    PAS ici (Prices Stripe immuables) : voir POST .../price."""
+    Tous les champs sont optionnels (PATCH partiel). `included_replies` accepte
+    null (illimité / non applicable) ou un entier >= 0. `description` (texte
+    commercial, poussé sur le Product Stripe) accepte une chaîne ou null (efface).
+    Le MONTANT ne se change PAS ici (Prices Stripe immuables) : voir POST
+    .../price."""
     label: Optional[str] = Field(None, min_length=1)
+    description: Optional[str] = None
     is_active: Optional[bool] = None
     included_replies: Optional[int] = Field(None, ge=0)
 
@@ -75,6 +78,7 @@ def _catalog_product(row: BillingProduct) -> dict:
     return {
         "code": row.code,
         "label": row.label,
+        "description": row.description,
         "kind": row.kind,
         "unit_amount": row.unit_amount,
         "currency": row.currency,
@@ -92,18 +96,23 @@ def _catalog_product(row: BillingProduct) -> dict:
 async def billing_overview(db: AsyncSession = Depends(get_db)):
     """Vue agrégée des payeurs : MRR, statut, abonnements, bots facturables.
 
-    Un PAYEUR = un User ayant un `stripe_customer_id` OU au moins une
-    `billing_subscription`. Pour chacun :
+    Un PAYEUR = un User ayant un `stripe_customer_id`, au moins une
+    `billing_subscription`, OU au moins un bot en ESSAI 7 j (status='trialing' —
+    fin du gratuit à vie). Pour chacun :
     - `monthly_cents` = somme (unit_amount × qty) des items des subs ACTIVES (via
-      raw_items × prix `billing_products`). BYOK inclus, métré (mtr_*) exclu.
+      raw_items × prix `billing_products`). BYOK inclus, métré (mtr_*) exclu. Un
+      payeur EN ESSAI (aucune sub payante) a monthly_cents=0 (pas encore de carte).
     - `status` = active si ≥1 sub active/trialing, past_due si seulement past_due,
-      sinon none.
+      'trialing' si pas de sub mais ≥1 bot en essai EN COURS, sinon none.
     - `bots` = bots perso (owner_user_id) ∪ bots des orgs dont il est owner.
-    `mrr_cents` = somme des `monthly_cents` des payeurs avec ≥1 sub active.
+    `mrr_cents` = somme des `monthly_cents` des payeurs avec ≥1 sub active (les
+    essais ne contribuent PAS au MRR, monthly_cents=0).
 
     Billing OFF ⇒ {billing: disabled}."""
     if not stripe_service.billing_enabled():
         return _DISABLED
+
+    now = utcnow()
 
     # Index prix Stripe -> produit (montant + kind), pour valoriser raw_items.
     products = (await db.execute(select(BillingProduct))).scalars().all()
@@ -123,6 +132,20 @@ async def billing_overview(db: AsyncSession = Depends(get_db)):
     users_by_id: dict[int, User] = {u.id: u for u in customers}
     payer_ids |= {u.id for u in customers}
 
+    # Payeurs en ESSAI sans sub ni customer : bots avec un entitlement trialing.
+    # On résout le payeur de chaque bot (perso = owner_user_id ; équipe = owner de
+    # l'org) pour qu'un compte qui n'a QUE des essais apparaisse dans l'overview.
+    trial_bots = (await db.execute(
+        select(Bot.owner_user_id, Organization.owner_user_id).select_from(
+            BotEntitlement).join(Bot, Bot.id == BotEntitlement.bot_id).outerjoin(
+            Organization, Organization.id == Bot.organization_id).where(
+            BotEntitlement.status == "trialing")
+    )).all()
+    for bot_owner_id, org_owner_id in trial_bots:
+        payer = bot_owner_id if bot_owner_id is not None else org_owner_id
+        if payer is not None:
+            payer_ids.add(payer)
+
     missing = payer_ids - set(users_by_id.keys())
     if missing:
         for u in (await db.execute(
@@ -138,16 +161,8 @@ async def billing_overview(db: AsyncSession = Depends(get_db)):
             continue  # payeur fantôme (user supprimé) : ignoré
         user_subs = subs_by_user.get(uid, [])
 
-        # Statut agrégé du payeur.
-        statuses = {s.status for s in user_subs}
-        if statuses & {"active", "trialing"}:
-            payer_status = "active"
-        elif "past_due" in statuses:
-            payer_status = "past_due"
-        else:
-            payer_status = "none"
-
-        # monthly_cents : somme des items des subs ACTIVES (métré exclu).
+        # monthly_cents : somme des items des subs ACTIVES (métré exclu). Un payeur
+        # en simple essai (aucune sub) reste donc à 0 (pas encore de carte).
         monthly_cents = 0
         active_sub_count = 0
         for s in user_subs:
@@ -159,9 +174,6 @@ async def billing_overview(db: AsyncSession = Depends(get_db)):
                 if product is None or product.kind == "metered":
                     continue  # produit inconnu ou métré : hors abonnement récurrent
                 monthly_cents += product.unit_amount * int(item.get("qty", 1) or 1)
-
-        if payer_status == "active":
-            mrr_cents += monthly_cents
 
         # Bots facturables du payeur : perso ∪ orgs dont il est owner.
         owned_org_ids = (await db.execute(
@@ -182,6 +194,27 @@ async def billing_overview(db: AsyncSession = Depends(get_db)):
                 select(BotEntitlement).where(BotEntitlement.bot_id.in_(bot_ids))
             )).scalars().all():
                 ent_by_bot[ent.bot_id] = ent
+
+        # Essai EN COURS = au moins un bot status='trialing' non expiré (point 4).
+        has_live_trial = any(
+            e.status == "trialing" and e.trial_end is not None and e.trial_end > now
+            for e in ent_by_bot.values()
+        )
+
+        # Statut agrégé du payeur : une sub payante prime ; sinon l'essai 7 j ;
+        # sinon rien. monthly_cents reste 0 pendant l'essai (pas de carte).
+        statuses = {s.status for s in user_subs}
+        if statuses & {"active", "trialing"}:
+            payer_status = "active"
+        elif "past_due" in statuses:
+            payer_status = "past_due"
+        elif has_live_trial:
+            payer_status = "trialing"
+        else:
+            payer_status = "none"
+
+        if payer_status == "active":
+            mrr_cents += monthly_cents
 
         bots_out = []
         for b in bots:
@@ -253,14 +286,14 @@ async def billing_catalog(db: AsyncSession = Depends(get_db)):
 @router.patch("/billing/catalog/{code}")
 async def patch_billing_catalog(code: str, body: CatalogPatch,
                                 db: AsyncSession = Depends(get_db)):
-    """Édite une ligne catalogue (label / is_active / included_replies).
+    """Édite une ligne catalogue (label / description / is_active / included_replies).
 
     Met à jour `billing_products` (PATCH partiel : seuls les champs fournis).
     SI billing_enabled() ET la ligne a un stripe_product_id : POST
-    /v1/products/{id} {name=label, active=is_active} (Product MUTABLE) ; si
-    is_active passe à false, désactive AUSSI le Price (POST /v1/prices/{id}
-    {active:false}). `included_replies` est app-side (quota), AUCUN équivalent
-    Stripe. Renvoie le CatalogProduct mis à jour."""
+    /v1/products/{id} {name=label, description, active=is_active} (Product
+    MUTABLE) ; si is_active passe à false, désactive AUSSI le Price (POST
+    /v1/prices/{id} {active:false}). `included_replies` est app-side (quota),
+    AUCUN équivalent Stripe. Renvoie le CatalogProduct mis à jour."""
     row = (await db.execute(
         select(BillingProduct).where(BillingProduct.code == code)
     )).scalar_one_or_none()
@@ -270,6 +303,8 @@ async def patch_billing_catalog(code: str, body: CatalogPatch,
     fields = body.model_dump(exclude_unset=True)
     if "label" in fields:
         row.label = fields["label"]
+    if "description" in fields:
+        row.description = fields["description"]
     if "included_replies" in fields:
         row.included_replies = fields["included_replies"]
     deactivating = False
@@ -284,6 +319,7 @@ async def patch_billing_catalog(code: str, body: CatalogPatch,
             row.stripe_product_id,
             name=fields.get("label"),
             active=fields.get("is_active"),
+            description=fields.get("description"),
         )
         # is_active false ⇒ on désactive aussi le Price (le Product seul reste
         # achetable sinon via un Price actif orphelin).

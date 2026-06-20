@@ -19,7 +19,7 @@ et validé contre `MODULE_KEYS` (parité D4/F5).
 import calendar
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -70,6 +70,10 @@ _PRESETS: list[dict] = [
 ]
 
 CATALOG_VERSION = "2026-06-20"
+
+# Durée de l'essai SANS carte (fin du gratuit à vie, point 1). Aligné sur
+# bots._seed_trial_entitlement (création du bot).
+TRIAL_DAYS = 7
 
 
 # --- Payloads -------------------------------------------------------------
@@ -125,23 +129,32 @@ def _validate_config_modules(config: BotConfigPayload) -> None:
         )
 
 
+def _config_has_ai(config: BotConfigPayload) -> bool:
+    """True si la config embarque un plan IA (managé `ai_tier_id` OU BYOK forfait).
+
+    Sert à la règle de socle-inclusion (point 6) : `base` n'est facturé QUE pour un
+    bot arbre seul ; dès qu'un plan IA est pris, le socle est INCLUS dans le prix
+    du plan IA (donc retiré des line_items Checkout)."""
+    return bool(config.ai_byok or config.ai_tier_id)
+
+
 def _config_to_codes(config: BotConfigPayload) -> tuple[list[str], list[str]]:
     """Traduit une config de bot en codes catalogue.
 
     Renvoie (codes, modules_actifs). Codes = ['base', <ai_tier|mod_ai_byok>?,
-    'mod_<module>'...]. `base` (socle gratuit, 0 €) toujours inclus pour porter
-    une ligne lisible sur la facture."""
+    'mod_<module>'...]. `base` (socle, 9 €) toujours présent dans `codes` pour
+    porter une ligne lisible / l'historique ; sa FACTURATION effective est décidée
+    à la construction des line_items (point 6 : facturé seul, inclus dès qu'un plan
+    IA est pris)."""
     codes: list[str] = ["base"]
     modules: list[str] = []
-    # Module IA : variante BYOK forfait OU plan IA managé.
+    # Module IA : variante BYOK forfait OU plan IA managé. (`ai_free` supprimé du
+    # catalogue : plus d'IA gratuite à vie — point 7.)
     if config.ai_byok:
         codes.append("mod_ai_byok")
         modules.append(MODULE_AI)
-    elif config.ai_tier_id and config.ai_tier_id != "ai_free":
+    elif config.ai_tier_id:
         codes.append(config.ai_tier_id)
-        modules.append(MODULE_AI)
-    elif config.ai_tier_id == "ai_free":
-        # Plan gratuit : module IA actif mais aucune ligne facturée.
         modules.append(MODULE_AI)
     # Add-ons : mapping module -> code mod_*.
     _module_to_code = {v: k for k, v in CODE_TO_MODULE.items() if k != "mod_ai_byok"}
@@ -160,10 +173,17 @@ async def _line_items_for_codes(
 ) -> list[dict]:
     """Résout les codes en line_items Stripe [{price, quantity, code}].
 
-    Saute les produits à 0 € (socle gratuit) et ceux sans `stripe_price_id`
-    (non seedés / billing OFF) — Stripe refuse `price=None`."""
+    Point 6 (socle-inclusion) : `base` n'est facturé QUE pour un bot arbre seul
+    (aucun plan IA dans `codes`). Dès qu'un plan IA est présent (`ai_*` ou
+    `mod_ai_byok`), le socle est INCLUS dans le prix du plan IA et donc RETIRÉ des
+    line_items (les prix unitaires des plans IA ne changent pas). Saute aussi les
+    produits sans `stripe_price_id` (non seedés / billing OFF) — Stripe refuse
+    `price=None`."""
+    has_ai = any(c.startswith("ai_") or c == "mod_ai_byok" for c in codes)
     items: list[dict] = []
     for code in codes:
+        if code == "base" and has_ai:
+            continue  # socle inclus dans le plan IA : pas de ligne séparée
         row = (await db.execute(
             select(BillingProduct).where(
                 BillingProduct.code == code,
@@ -171,7 +191,7 @@ async def _line_items_for_codes(
             )
         )).scalar_one_or_none()
         if row is None or row.unit_amount <= 0:
-            continue  # socle gratuit / produit absent : pas de ligne facturée
+            continue  # produit gratuit / absent : pas de ligne facturée
         if not row.stripe_price_id:
             continue
         items.append({"price": row.stripe_price_id, "quantity": 1, "code": code})
@@ -284,32 +304,30 @@ def _scope_for_bot(grouping: str, bot: Bot) -> tuple[str, int | None, int | None
     return "user_all", None, None  # total
 
 
+async def _ai_quota_for_codes(db: AsyncSession, codes: list[str]) -> int | None:
+    """Quota IA mensuel induit par les codes d'une config : None = illimité (BYOK),
+    0 = pas d'IA, sinon `included_replies` du plan IA managé."""
+    if "mod_ai_byok" in codes:
+        return None  # illimité (BYOK)
+    tier = next((c for c in codes if c.startswith("ai_")), None)
+    if tier:
+        row = (await db.execute(
+            select(BillingProduct).where(BillingProduct.code == tier)
+        )).scalar_one_or_none()
+        return row.included_replies if row is not None else 0
+    return 0
+
+
 async def _project_mock_entitlement(
     db: AsyncSession, bot: Bot, codes: list[str], modules: list[str]
 ) -> None:
     """MOCK_BILLING : applique directement l'entitlement attendu (simule
     checkout.session.completed) pour que les e2e vérifient l'activation sans
-    Stripe (spec §2.3). En vrai Stripe, le webhook s'en charge."""
-    ai_quota: int | None = 0
-    if "mod_ai_byok" in codes:
-        ai_quota = None  # illimité (BYOK)
-    else:
-        tier = next((c for c in codes if c.startswith("ai_")), None)
-        if tier:
-            row = (await db.execute(
-                select(BillingProduct).where(BillingProduct.code == tier)
-            )).scalar_one_or_none()
-            ai_quota = row.included_replies if row is not None else 0
-        elif MODULE_AI in modules:
-            # Plan IA GRATUIT (ai_free) : module IA actif sans ligne facturée
-            # (`_config_to_codes` n'émet aucun code ai_*). Le quota inclus doit
-            # tout de même être posé (sinon le mock projette quota=0 et l'IA est
-            # inutilisable). On lit included_replies du produit ai_free (50).
-            row = (await db.execute(
-                select(BillingProduct).where(BillingProduct.code == "ai_free")
-            )).scalar_one_or_none()
-            ai_quota = (row.included_replies if row is not None
-                        and row.included_replies is not None else 50)
+    Stripe (spec §2.3). En vrai Stripe, le webhook s'en charge.
+
+    Souscription = conversion de l'essai : status='active' (le webhook fait pareil
+    en vrai). `trial_end` est ignoré quand status='active' (point 9)."""
+    ai_quota = await _ai_quota_for_codes(db, codes)
     ent = (await db.execute(
         select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
     )).scalar_one_or_none()
@@ -320,7 +338,38 @@ async def _project_mock_entitlement(
     ent.ai_monthly_quota = ai_quota
     ent.status = "active"
     ent.source = "stripe"
+    # Conversion de l'essai : trial_end n'a plus de sens une fois actif (point 9).
+    if hasattr(ent, "trial_end"):
+        ent.trial_end = None
     ent.synced_at = utcnow()
+
+
+async def _project_trial_entitlement(
+    db: AsyncSession, bot: Bot, codes: list[str], modules: list[str]
+) -> BotEntitlement:
+    """Aligne l'entitlement d'ESSAI d'un bot sur la config choisie, SANS Stripe
+    (fin du gratuit à vie, point 1/3). status='trialing', modules de la config,
+    quota IA selon le plan, AUCUNE subscription Stripe (pas de carte à l'essai).
+
+    `trial_end` PRÉSERVÉ s'il existe déjà (l'essai a démarré à la création du bot)
+    ; sinon posé à utcnow()+7 j. La conversion en payé passe par /checkout +
+    webhook (status='active', trial_end ignoré)."""
+    ai_quota = await _ai_quota_for_codes(db, codes)
+    ent = (await db.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
+    )).scalar_one_or_none()
+    if ent is None:
+        ent = BotEntitlement(bot_id=bot.id)
+        db.add(ent)
+    ent.modules = sorted(set(modules))
+    ent.ai_monthly_quota = ai_quota
+    ent.status = "trialing"
+    ent.source = "trial"
+    # Conserve l'échéance d'essai existante ; sinon démarre la fenêtre 7 j.
+    if getattr(ent, "trial_end", None) is None:
+        ent.trial_end = utcnow() + timedelta(days=TRIAL_DAYS)
+    ent.synced_at = utcnow()
+    return ent
 
 
 # --- GET /api/billing/catalog ---------------------------------------------
@@ -357,7 +406,8 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
             "key": mod,
             "label": row.label,
             "short": row.label,
-            "desc": row.label,
+            # `desc` = description commerciale réelle (seed) si posée, sinon label.
+            "desc": row.description or row.label,
             "price_cents": row.unit_amount,
         }
         modules_out.append(entry)
@@ -368,7 +418,7 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
             "key": MODULE_AI,
             "label": "Intelligence artificielle",
             "short": "IA",
-            "desc": "Réponses générées par l'IA (plan managé ou BYOK).",
+            "desc": byok.description or "Réponses générées par l'IA (plan managé ou BYOK).",
             "price_cents": 0,
             "byok_price_cents": byok.unit_amount,
         })
@@ -377,6 +427,7 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
         "id": r.code,
         "included_replies": r.included_replies or 0,
         "price_cents": r.unit_amount,
+        "desc": r.description or r.label,
     } for r in rows if r.kind == "ai_tier" and r.is_active]
 
     mtr = by_code.get("mtr_ai")
@@ -408,6 +459,9 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
     return {
         "currency": "eur",
         "base_price_cents": base_cents,
+        # Socle (9 €) facturé pour un bot arbre seul, inclus dès qu'un plan IA est
+        # pris (point 6). Description commerciale réelle (seed) si posée.
+        "base_description": base.description if base is not None else None,
         "modules": modules_out,
         "ai_tiers": ai_tiers,
         "overage_cents_per_reply": overage,
@@ -434,14 +488,33 @@ async def get_summary(db: AsyncSession = Depends(get_db),
     )).scalars().all()
     bots = await _billable_bots(db, user)
 
+    # Essais EN COURS du payeur (fin du gratuit à vie, point 4) : un bot sans sub
+    # Stripe peut être en essai 7 j (status='trialing' sur bot_entitlements).
+    # `trial_end` agrégé = le plus PROCHE parmi les essais encore en cours (epoch s).
+    now = utcnow()
+    trial_end: int | None = None
+    if bots:
+        ents = (await db.execute(
+            select(BotEntitlement).where(
+                BotEntitlement.bot_id.in_([b.id for b in bots]))
+        )).scalars().all()
+        live_trials = [e.trial_end for e in ents
+                       if e.status == "trialing" and e.trial_end is not None
+                       and e.trial_end > now]
+        if live_trials:
+            trial_end = calendar.timegm(min(live_trials).utctimetuple())
+
     # subscription_status agrégé du payeur (contrat front) : 'active' dès qu'une
     # sub est active/trialing, sinon 'past_due' si au moins une est past_due,
-    # sinon 'none' (aucune sub facturante : tout gratuit / résilié).
+    # sinon 'trialing' si aucune sub mais un essai 7 j est en cours (point 4),
+    # sinon 'none' (aucune sub facturante ni essai : tout résilié / expiré).
     statuses = {s.status for s in subs}
     if statuses & {"active", "trialing"}:
         subscription_status = "active"
     elif "past_due" in statuses:
         subscription_status = "past_due"
+    elif trial_end is not None:
+        subscription_status = "trialing"
     else:
         subscription_status = "none"
 
@@ -482,6 +555,8 @@ async def get_summary(db: AsyncSession = Depends(get_db),
         "has_customer": bool(user.stripe_customer_id),
         "billing_email": user.billing_email or user.email,
         "subscription_status": subscription_status,
+        # Fin du plus proche essai 7 j en cours (epoch s), null hors essai (point 4).
+        "trial_end": trial_end,
         "next_invoice_cents": next_invoice_cents,
         "next_invoice_at": next_invoice_at,
         "subscriptions": [{
@@ -504,10 +579,15 @@ async def get_summary(db: AsyncSession = Depends(get_db),
 @router.post("/billing/checkout")
 async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
                    user: User = Depends(get_current_user)):
-    """Crée une session de Checkout Stripe pour souscrire la config d'un bot.
+    """Crée une session de Checkout Stripe pour convertir l'essai d'un bot en
+    abonnement (fin du gratuit à vie, point 1).
+
+    Socle-inclusion (point 6) : `base` (9 €) n'est facturé QUE pour un bot arbre
+    seul (aucun plan IA) ; dès qu'un plan IA est pris, le socle est inclus dans le
+    prix du plan et n'apparaît PAS comme line_item.
 
     Owner-only (require_billing_owner scopée). Billing OFF ⇒ {billing: disabled}.
-    Total 0 € (socle + ai_free seuls) ⇒ pas de Checkout (bot gratuit)."""
+    Aucun line_item facturable (catalogue non seedé) ⇒ pas de Checkout."""
     if not stripe_service.billing_enabled():
         return _DISABLED
 
@@ -522,7 +602,9 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
     line_items = await _line_items_for_codes(db, codes)
 
     if not line_items:
-        # Tout gratuit (socle + ai_free) : aucune souscription nécessaire.
+        # Aucune ligne facturable (catalogue non seedé / prix manquants) : on ne
+        # peut pas créer de Checkout. En MOCK on projette tout de même l'état actif
+        # (les e2e n'ont pas de Stripe ni de catalogue prix réel).
         if settings.MOCK_BILLING:
             await _project_mock_entitlement(db, bot, codes, modules)
         await db.commit()
@@ -532,7 +614,12 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
     # Une seule session payable à la fois (anti double-abonnement).
     await stripe_service.expire_open_checkout_sessions(customer_id)
 
-    bots_map = {str(bot.id): [c for c in codes if c != "base"]}
+    # Cartographie bot -> codes RÉELLEMENT facturés (= line_items). On NE retire
+    # plus `base` aveuglément : pour un bot arbre seul, `base` EST l'unique ligne
+    # facturée et doit être mappée au bot, sinon le webhook ne sait pas l'associer
+    # (status resterait gaté). Quand un plan IA est pris, `base` est déjà absent
+    # des line_items (point 6).
+    bots_map = {str(bot.id): [it["code"] for it in line_items]}
     group_key = f"{grouping}:{user.id}"
 
     url = await stripe_service.create_checkout_session(
@@ -556,15 +643,16 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
 @router.post("/billing/activate-free")
 async def activate_free(body: ActivateFreePayload, db: AsyncSession = Depends(get_db),
                         user: User = Depends(get_current_user)):
-    """Active le plan IA GRATUIT (`ai_free`, total 0 €) SANS passer par Stripe.
+    """Démarre/aligne l'ESSAI 7 j d'un bot sur la config choisie, SANS carte ni
+    Stripe (fin du gratuit à vie, points 1/3).
 
-    Le front l'appelle (au lieu de sauter silencieusement) quand
-    `billingActive && total==0 && ai_tier_id==='ai_free'` : aucune souscription
-    n'est créée mais l'entitlement MODULE_AI + quota inclus (50) doit être posé,
-    sinon l'IA reste inutilisable (quota 0). Owner-only (require_billing_owner).
+    Le front l'appelle quand l'owner valide une config sans payer tout de suite :
+    on pose `status='trialing'` avec les modules de la config (l'essai débloque ce
+    que l'owner a choisi) et le quota IA du plan, en préservant `trial_end`
+    (démarré à la création du bot). À l'expiration de `trial_end`, le resolver gate
+    le bot jusqu'au paiement (/checkout). Owner-only (require_billing_owner).
 
-    Refuse 422 si la config n'est pas réellement gratuite (un plan IA payant ou
-    BYOK doit passer par /checkout). Billing OFF ⇒ {billing: disabled}."""
+    Billing OFF ⇒ {billing: disabled}."""
     if not stripe_service.billing_enabled():
         return _DISABLED
 
@@ -575,30 +663,19 @@ async def activate_free(body: ActivateFreePayload, db: AsyncSession = Depends(ge
     await require_billing_owner(bot, user, db)
 
     codes, modules = _config_to_codes(body.config)
-    # Cet endpoint est réservé au cas STRICTEMENT gratuit : aucune ligne facturable.
-    # Une config payante (plan IA managé, add-on, BYOK forfaité) doit passer par
-    # /checkout — on refuse pour ne pas projeter un entitlement non payé.
-    line_items = await _line_items_for_codes(db, codes)
-    if line_items:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Configuration payante : utilisez /billing/checkout",
-        )
-
-    # Projette directement l'entitlement gratuit (MODULE_AI + quota inclus 50 via
-    # ai_free) ; même règle que la simulation mock (pas de Stripe à appeler).
-    await _project_mock_entitlement(db, bot, codes, modules)
+    # Aucune souscription Stripe : on reflète l'essai (status='trialing'), jamais un
+    # entitlement payé. La conversion en payé passe par /billing/checkout + webhook.
+    ent = await _project_trial_entitlement(db, bot, codes, modules)
     await db.commit()
 
-    ent = (await db.execute(
-        select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
-    )).scalar_one_or_none()
     return {
         "bot_id": bot.id,
-        "free": True,
-        "modules": list(ent.modules or []) if ent is not None else sorted(set(modules)),
-        "ai_monthly_quota": ent.ai_monthly_quota if ent is not None else None,
-        "status": ent.status if ent is not None else "active",
+        "trial": True,
+        "modules": sorted(set(ent.modules or [])),
+        "ai_monthly_quota": ent.ai_monthly_quota,
+        "status": ent.status,
+        "trial_end": (calendar.timegm(ent.trial_end.utctimetuple())
+                      if ent.trial_end is not None else None),
     }
 
 
@@ -903,16 +980,20 @@ async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
     used = await ai_quota_usage(db, bot_id)
 
     # subscription_status : 'none' tant que le billing est OFF ou que le bot n'a
-    # pas d'entitlement projeté par Stripe (gratuit). Sinon on remonte le statut
-    # de la ligne (active | past_due | canceled).
+    # pas d'entitlement projeté (gratuit). Sinon on remonte le statut de la ligne
+    # (active | trialing | past_due | canceled). 'trialing' = essai 7 j en cours
+    # (point 4) — le gate à l'expiration est porté par `ent.status` (resolve).
     row = (await db.execute(
         select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
     )).scalar_one_or_none()
+    trial_end_epoch: int | None = None
     if not stripe_service.billing_enabled() or row is None:
         sub_status = "none"
     else:
         sub_status = row.status if row.status in (
-            "active", "past_due", "canceled") else "none"
+            "active", "trialing", "past_due", "canceled") else "none"
+        if row.status == "trialing" and row.trial_end is not None:
+            trial_end_epoch = calendar.timegm(row.trial_end.utctimetuple())
 
     modules = sorted(ent.modules)
     return {
@@ -932,6 +1013,11 @@ async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
         # `subscription_status` = même info sous la clé du contrat front BotBilling.
         "status": ent.status,
         "subscription_status": sub_status,
+        # Fin d'essai 7 j (epoch s) si en essai, sinon null (point 4).
+        "trial_end": trial_end_epoch,
+        # Essai expiré : le front affiche le message « essai terminé, souscrivez »
+        # (distinct du quota épuisé). False hors essai / essai en cours / payé.
+        "trial_expired": ent.trial_expired,
     }
 
 

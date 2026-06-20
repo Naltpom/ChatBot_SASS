@@ -19,6 +19,7 @@ de TOUTES les subs ACTIVES couvrant le bot) plutôt que de révoquer aveuglémen
 """
 import logging
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -45,13 +46,23 @@ class Entitlement:
     `modules` = sous-ensemble de MODULE_KEYS débloqués. `ai_monthly_quota` :
     None = illimité, 0 = module IA absent, >=1 = quota mensuel. `overage_mode` :
     block (v1) | meter (v2). `byok` : clé IA portée par le client (non métré).
+
+    Modèle d'essai (fin du gratuit à vie) : tout nouveau bot démarre en
+    `status='trialing'` avec `trial_end = création + 7 jours` (évalué
+    paresseusement, pas de cron). Tant que `utcnow() < trial_end`, les modules de
+    l'essai sont DÉBLOQUÉS ; passé `trial_end` (essai expiré), `trial_expired`
+    passe à True et tous les modules sont gatés (comme `inactive`) jusqu'au
+    paiement. Une souscription pose `status='active'` (webhook) : `trial_end` est
+    alors ignoré.
     """
     bot_id: int
     modules: set[str] = field(default_factory=set)
     ai_monthly_quota: int | None = None   # None = illimité
     overage_mode: str = "block"           # block | meter
-    status: str = "active"                # active | past_due | canceled | inactive
+    status: str = "active"                # active | trialing | past_due | canceled | inactive
     byok: bool = False
+    trial_end: datetime | None = None     # fin d'essai (NULL hors essai)
+    trial_expired: bool = False           # essai dépassé (gate, comme inactive)
 
 
 # Sentinelle « tout débloqué » (RÈGLE 1/2). bot_id=0 = non lié à un bot précis ;
@@ -81,20 +92,47 @@ async def _load(db: AsyncSession, bot_id: int) -> BotEntitlement | None:
     ).scalar_one_or_none()
 
 
+def _trial_active(row: BotEntitlement) -> bool:
+    """True si la ligne est un essai EN COURS (`status='trialing'` ET non expiré).
+
+    Évaluation paresseuse (pas de cron) : `trial_end` NULL sur un essai = état
+    incohérent traité comme expiré (gate), jamais d'essai illimité par accident.
+    """
+    if (row.status or "active") != "trialing":
+        return False
+    trial_end = getattr(row, "trial_end", None)
+    return trial_end is not None and utcnow() < trial_end
+
+
 def _to_entitlement(row: BotEntitlement) -> Entitlement:
-    """Projette la ligne DB vers la dataclass effective (avant règle BYOK)."""
+    """Projette la ligne DB vers la dataclass effective (avant règle BYOK).
+
+    `status='trialing'` est conservé tel quel ; c'est `trial_expired` qui porte la
+    bascule : essai EN COURS ⇒ trial_expired=False (has_module débloque les
+    modules de l'essai) ; essai EXPIRÉ ⇒ trial_expired=True (has_module gate tous
+    les modules, comme `inactive`, point 4).
+    """
+    status = row.status or "active"
+    trial_expired = status == "trialing" and not _trial_active(row)
     return Entitlement(
         bot_id=row.bot_id,
         modules=set(row.modules or []),
         ai_monthly_quota=row.ai_monthly_quota,
         overage_mode=row.overage_mode or "block",
-        status=row.status or "active",
+        status=status,
         byok=False,
+        trial_end=getattr(row, "trial_end", None),
+        trial_expired=trial_expired,
     )
 
 
 async def resolve(db: AsyncSession, bot) -> Entitlement:
-    """Droits effectifs d'un `bot` (objet Bot). Voir RÈGLES 1/2/3 ci-dessus."""
+    """Droits effectifs d'un `bot` (objet Bot). Voir RÈGLES 1/2/3 ci-dessus.
+
+    Modèle d'essai (point 4) : `status='trialing'` ET `utcnow() < trial_end` ⇒
+    modules de l'essai débloqués ; `trialing` expiré ⇒ GATE (has_module False,
+    comme `inactive`). `status='active'` ⇒ normal (trial_end ignoré).
+    """
     # RÈGLE 1 — billing OFF : tout débloqué (= comportement actuel, 32 e2e verts).
     if not billing_enabled():
         return _unlocked_for(bot.id)
@@ -110,17 +148,37 @@ async def resolve(db: AsyncSession, bot) -> Entitlement:
 
 
 def has_module(ent: Entitlement, module: str) -> bool:
-    """True si `module` est débloqué ET l'abonnement est `active`.
+    """True si `module` est débloqué ET l'abonnement est utilisable.
 
-    status past_due/canceled/inactive ⇒ False pour TOUS les modules payants
-    (dégradation §6). ALL_UNLOCKED a status='active' ⇒ tout passe (billing OFF).
+    Utilisable = `status='active'` (souscrit) OU essai EN COURS (`status=
+    'trialing'` non expiré : `trial_expired=False`). status past_due/canceled/
+    inactive — et un essai EXPIRÉ (trial_expired) — ⇒ False pour TOUS les modules
+    (dégradation §6 / gate fin d'essai, point 4). ALL_UNLOCKED a status='active'
+    ⇒ tout passe (billing OFF).
     """
-    return ent.status == "active" and module in ent.modules
+    usable = ent.status == "active" or (
+        ent.status == "trialing" and not ent.trial_expired
+    )
+    return usable and module in ent.modules
+
+
+TRIAL_AI_CAP = 50  # plafond de réponses IA managées pendant l'essai (anti-abus coût provider)
 
 
 def ai_quota_for(ent: Entitlement) -> int | None:
-    """Quota IA mensuel effectif. None = illimité (BYOK ou pas de quota posé)."""
-    return None if ent.byok else ent.ai_monthly_quota
+    """Quota IA mensuel effectif. None = illimité (BYOK ou pas de quota posé).
+
+    Plafond d'essai (point produit) : pendant un essai EN COURS, l'IA managée est
+    plafonnée à TRIAL_AI_CAP (50) quel que soit le plan configuré (anti-abus du
+    coût provider) ; le BYOK reste illimité (aucun coût plateforme). Souscrire
+    (status='active') lève le plafond et applique le quota plein du plan.
+    """
+    if ent.byok:
+        return None
+    if ent.status == "trialing" and not ent.trial_expired:
+        q = ent.ai_monthly_quota
+        return TRIAL_AI_CAP if q is None else min(q, TRIAL_AI_CAP)
+    return ent.ai_monthly_quota
 
 
 def gate(ent: Entitlement, capability: str) -> None:

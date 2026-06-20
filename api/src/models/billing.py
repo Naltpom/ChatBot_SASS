@@ -47,8 +47,11 @@ class BotEntitlement(Base):
     overage_mode = Column(String, nullable=False, default="block",
                           server_default=text("'block'"))  # block (v1) | meter (v2)
     status = Column(String, nullable=False, default="active",
-                    server_default=text("'active'"))        # active | past_due | canceled | inactive
-    # source : stripe (payé) | staff (override) | free (nouveau bot / dev billing-OFF)
+                    server_default=text("'active'"))        # active | trialing | past_due | canceled | inactive
+    # Fin de l'essai 7 j SANS carte (status='trialing') : au-delà -> GATE (resolver).
+    # NULL quand status != 'trialing' (essai converti => status='active', trial_end ignoré).
+    trial_end = Column(DateTime, nullable=True)
+    # source : stripe (payé) | staff (override) | trial (nouveau bot, essai 7 j billing-ON)
     source = Column(String, nullable=False, default="free",
                     server_default=text("'free'"))
 
@@ -97,10 +100,11 @@ class BillingProduct(Base):
     __tablename__ = "billing_products"
 
     id = Column(Integer, primary_key=True)
-    # base, ai_free/starter/growth/scale, mod_ai_byok, mod_rag, mod_inbox,
+    # base, ai_starter/growth/scale, mod_ai_byok, mod_rag, mod_inbox,
     # mod_actions, mod_ab, mod_whitelabel, mtr_ai
     code = Column(String, unique=True, nullable=False, index=True)
     label = Column(String, nullable=False)
+    description = Column(String, nullable=True)  # texte commercial, poussé sur le Product Stripe
     kind = Column(String, nullable=False)   # base | ai_tier | module | metered
     included_replies = Column(Integer, nullable=True)  # quota mensuel des lignes kind='ai_tier' (NULL sinon)
     stripe_product_id = Column(String, nullable=True)
@@ -144,6 +148,7 @@ class BotUsageCounter(Base):
 class BillingProductOut(BaseModel):
     code: str
     label: str
+    description: str | None = None
     kind: str                              # base | ai_tier | module | metered
     included_replies: int | None = None
     unit_amount: int                       # centimes
@@ -159,8 +164,9 @@ class BotEntitlementOut(BaseModel):
     modules: list[str] = Field(default_factory=list)
     ai_monthly_quota: int | None = None    # None = illimité
     overage_mode: str = "block"            # block | meter
-    status: str = "active"                 # active | past_due | canceled | inactive
-    source: str = "free"                   # stripe | staff | free
+    status: str = "active"                 # active | trialing | past_due | canceled | inactive
+    trial_end: datetime | None = None      # fin de l'essai 7 j (null hors essai)
+    source: str = "free"                   # stripe | staff | trial
     max_kb_sources: int | None = None
     max_actions: int | None = None
     max_mcp_servers: int | None = None
