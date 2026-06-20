@@ -340,6 +340,54 @@ async def list_invoices(customer_id: Optional[str] = None, limit: int = 24) -> l
     } for inv in data.get("data", [])]
 
 
+async def update_product(product_id: str, name: Optional[str] = None,
+                         active: Optional[bool] = None) -> dict:
+    """Met à jour un Product Stripe (POST /v1/products/{id}). Les Products sont
+    MUTABLES (contrairement aux Prices) : on édite `name` / `active` en place.
+
+    `active=False` masque le produit (le Price associé doit être désactivé à
+    part, via `deactivate_price`). MOCK_BILLING ⇒ no-op (retourne {})."""
+    if settings.MOCK_BILLING:
+        return {}
+    data: dict[str, Any] = {}
+    if name is not None:
+        data["name"] = name
+    if active is not None:
+        data["active"] = "true" if active else "false"
+    if not data:
+        return {}
+    return await _stripe_request("POST", f"/products/{product_id}", data=data)
+
+
+async def create_price(product_id: str, unit_amount: int, currency: str,
+                       interval: str, code: str) -> dict:
+    """Crée un NOUVEAU Price récurrent (POST /v1/prices) pour un product existant.
+
+    Les Prices Stripe sont IMMUABLES : un changement de montant ne se fait JAMAIS
+    en place — on crée un nouveau Price (ce helper) puis on désactive l'ancien
+    (`deactivate_price`). `recurring[usage_type]=licensed` (les produits métrés ne
+    sont pas vendus en v1). MOCK_BILLING ⇒ identifiant local `price_mock_<uuid>`."""
+    if settings.MOCK_BILLING:
+        return {"id": f"price_mock_{uuid.uuid4().hex[:16]}"}
+    return await _stripe_request("POST", "/prices", data={
+        "product": product_id,
+        "currency": currency,
+        "unit_amount": str(unit_amount),
+        "recurring[interval]": interval,
+        "recurring[usage_type]": "licensed",
+        "metadata[code]": code,
+    })
+
+
+async def deactivate_price(price_id: str) -> dict:
+    """Désactive un Price (POST /v1/prices/{id} {active:false}). Seul `active` est
+    mutable sur un Price ; le montant ne l'est jamais (cf. `create_price`).
+    MOCK_BILLING ⇒ no-op (retourne {})."""
+    if settings.MOCK_BILLING:
+        return {}
+    return await _stripe_request("POST", f"/prices/{price_id}", data={"active": "false"})
+
+
 def verify_webhook_signature(payload: bytes, sig_header: Optional[str], tolerance: int = 300) -> dict:
     """Verifie le header "Stripe-Signature: t=<epoch>,v1=<hex>[,v1=...]" puis
     retourne l'evenement decode. Leve StripeError si signature absente,

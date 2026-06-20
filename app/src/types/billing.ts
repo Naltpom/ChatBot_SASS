@@ -151,3 +151,25 @@ export interface AdminBotEntitlement {
   status: string
   source: string
 }
+
+// Une ligne du CATALOGUE (table billing_products) vue/éditée côté superadmin.
+// GET /api/admin/billing/catalog renvoie un TABLEAU bare de ces objets — TOUJOURS
+// les lignes locales, même billing OFF (pour visualiser/éditer le local). PATCH
+// /catalog/{code} (label/is_active/included_replies) et POST /catalog/{code}/price
+// (changement de prix : nouveau Price Stripe + désactivation de l'ancien) renvoient
+// chacun le CatalogProduct mis à jour. Aligné strictement sur le schéma serveur (snake_case).
+//   - `unit_amount`     : montant en CENTIMES (pas d'euros côté logique).
+//   - `included_replies`: réponses IA incluses — pertinent pour kind='ai_tier' (sinon null).
+//   - `stripe_*`        : null tant que le produit n'a pas été poussé à Stripe (billing OFF/jamais sync).
+export interface CatalogProduct {
+  code: string
+  label: string
+  kind: 'base' | 'ai_tier' | 'module' | 'metered'
+  unit_amount: number
+  currency: string
+  interval: string
+  included_replies: number | null
+  is_active: boolean
+  stripe_product_id: string | null
+  stripe_price_id: string | null
+}

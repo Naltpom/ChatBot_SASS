@@ -53,6 +53,39 @@ class EntitlementOverride(BaseModel):
     status: Optional[str] = Field(None, pattern="^(active|past_due|canceled|inactive)$")
 
 
+class CatalogPatch(BaseModel):
+    """Édition d'une ligne catalogue (billing_products) — hors montant.
+
+    Les trois champs sont optionnels (PATCH partiel). `included_replies` accepte
+    null (illimité / non applicable) ou un entier >= 0. Le MONTANT ne se change
+    PAS ici (Prices Stripe immuables) : voir POST .../price."""
+    label: Optional[str] = Field(None, min_length=1)
+    is_active: Optional[bool] = None
+    included_replies: Optional[int] = Field(None, ge=0)
+
+
+class CatalogPrice(BaseModel):
+    """Changement de prix d'une ligne catalogue. unit_amount en CENTIMES (>= 0)."""
+    unit_amount: int = Field(..., ge=0)
+
+
+def _catalog_product(row: BillingProduct) -> dict:
+    """Sérialise une ligne `billing_products` au format CatalogProduct (contrat
+    front). `included_replies`/`stripe_*` peuvent être None."""
+    return {
+        "code": row.code,
+        "label": row.label,
+        "kind": row.kind,
+        "unit_amount": row.unit_amount,
+        "currency": row.currency,
+        "interval": row.interval,
+        "included_replies": row.included_replies,
+        "is_active": row.is_active,
+        "stripe_product_id": row.stripe_product_id,
+        "stripe_price_id": row.stripe_price_id,
+    }
+
+
 # --- GET /api/admin/billing/overview --------------------------------------
 
 @router.get("/billing/overview")
@@ -198,6 +231,108 @@ async def billing_invoices(db: AsyncSession = Depends(get_db)):
     for inv in invoices:
         inv.setdefault("customer", None)
     return invoices
+
+
+# --- GET /api/admin/billing/catalog ---------------------------------------
+
+@router.get("/billing/catalog")
+async def billing_catalog(db: AsyncSession = Depends(get_db)):
+    """Catalogue local (`billing_products`) au format CatalogProduct[].
+
+    TABLEAU bare (contrat front). Renvoie TOUJOURS les lignes locales — MÊME
+    billing OFF : la console doit pouvoir visualiser/éditer le catalogue local
+    (les colonnes stripe_* restent simplement NULL si jamais seedé)."""
+    rows = (await db.execute(
+        select(BillingProduct).order_by(BillingProduct.id)
+    )).scalars().all()
+    return [_catalog_product(r) for r in rows]
+
+
+# --- PATCH /api/admin/billing/catalog/{code} -------------------------------
+
+@router.patch("/billing/catalog/{code}")
+async def patch_billing_catalog(code: str, body: CatalogPatch,
+                                db: AsyncSession = Depends(get_db)):
+    """Édite une ligne catalogue (label / is_active / included_replies).
+
+    Met à jour `billing_products` (PATCH partiel : seuls les champs fournis).
+    SI billing_enabled() ET la ligne a un stripe_product_id : POST
+    /v1/products/{id} {name=label, active=is_active} (Product MUTABLE) ; si
+    is_active passe à false, désactive AUSSI le Price (POST /v1/prices/{id}
+    {active:false}). `included_replies` est app-side (quota), AUCUN équivalent
+    Stripe. Renvoie le CatalogProduct mis à jour."""
+    row = (await db.execute(
+        select(BillingProduct).where(BillingProduct.code == code)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Produit catalogue introuvable")
+
+    fields = body.model_dump(exclude_unset=True)
+    if "label" in fields:
+        row.label = fields["label"]
+    if "included_replies" in fields:
+        row.included_replies = fields["included_replies"]
+    deactivating = False
+    if "is_active" in fields:
+        deactivating = row.is_active and not fields["is_active"]
+        row.is_active = fields["is_active"]
+    row.updated_at = utcnow()
+
+    # Réplique sur Stripe seulement si billing actif ET produit déjà poussé.
+    if stripe_service.billing_enabled() and row.stripe_product_id:
+        await stripe_service.update_product(
+            row.stripe_product_id,
+            name=fields.get("label"),
+            active=fields.get("is_active"),
+        )
+        # is_active false ⇒ on désactive aussi le Price (le Product seul reste
+        # achetable sinon via un Price actif orphelin).
+        if deactivating and row.stripe_price_id:
+            await stripe_service.deactivate_price(row.stripe_price_id)
+
+    await db.commit()
+    return _catalog_product(row)
+
+
+# --- POST /api/admin/billing/catalog/{code}/price --------------------------
+
+@router.post("/billing/catalog/{code}/price")
+async def set_billing_catalog_price(code: str, body: CatalogPrice,
+                                    db: AsyncSession = Depends(get_db)):
+    """CHANGEMENT DE PRIX d'une ligne catalogue (unit_amount en centimes).
+
+    Prices Stripe IMMUABLES : jamais d'édition en place. SI billing_enabled() ET
+    stripe_product_id : crée un NOUVEAU Price (même product, nouveau montant,
+    recurring interval) PUIS désactive l'ANCIEN ; met à jour
+    `billing_products.unit_amount` + `stripe_price_id`. SI billing OFF : met à
+    jour `unit_amount` localement seulement. Les abonnés existants gardent
+    l'ancien prix (Stripe ne rétro-applique pas — attendu). Renvoie le
+    CatalogProduct mis à jour."""
+    row = (await db.execute(
+        select(BillingProduct).where(BillingProduct.code == code)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Produit catalogue introuvable")
+
+    if stripe_service.billing_enabled() and row.stripe_product_id:
+        old_price_id = row.stripe_price_id
+        price = await stripe_service.create_price(
+            row.stripe_product_id,
+            unit_amount=body.unit_amount,
+            currency=row.currency,
+            interval=row.interval,
+            code=row.code,
+        )
+        row.stripe_price_id = price["id"]
+        # Désactive l'ancien Price APRÈS création du nouveau (jamais de produit
+        # sans Price achetable entre les deux).
+        if old_price_id:
+            await stripe_service.deactivate_price(old_price_id)
+
+    row.unit_amount = body.unit_amount
+    row.updated_at = utcnow()
+    await db.commit()
+    return _catalog_product(row)
 
 
 # --- GET /api/admin/bots/{bot_id}/entitlement -----------------------------
