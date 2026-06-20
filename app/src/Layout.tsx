@@ -195,6 +195,10 @@ export default function Layout({ children }: { children: ReactNode }) {
                       onClick={() => navigate('/admin/users')}>
                 <span className="nav-ico"><Users size={16} /></span>Utilisateurs
               </button>
+              <button className={`nav-item ${path.startsWith('/admin/billing') ? 'active' : ''}`}
+                      onClick={() => navigate('/admin/billing')}>
+                <span className="nav-ico"><CreditCard size={16} /></span>Facturation
+              </button>
               <div className="nav-divider" />
               <button className="nav-item" onClick={() => navigate('/app')}>
                 <span className="nav-ico"><ArrowLeftRight size={16} /></span>Espace client
