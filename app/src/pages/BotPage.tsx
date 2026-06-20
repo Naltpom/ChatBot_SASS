@@ -29,6 +29,7 @@ import HumanTab from '../components/bot-tabs/HumanTab'
 import ActionsTab from '../components/bot-tabs/ActionsTab'
 import IntegrationTab from '../components/bot-tabs/IntegrationTab'
 import SecurityTab from '../components/bot-tabs/SecurityTab'
+import WidgetPreview from '../components/WidgetPreview'
 import type { Bot, Integration, Tree } from '../types/bot'
 import type { BotBilling } from '../types/billing'
 
@@ -424,6 +425,21 @@ export default function BotPage() {
       {/* ================= FACTURATION ================= */}
       {activeTab === 'billing' && (
         <BotBillingTab billing={botBilling} botName={bot.name} />
+      )}
+
+      {/* Widget de TEST flottant : le vrai aperçu du chatbot, posé directement sur
+          la page du bot (bulle en bas, comme s'il était déployé sur un site). Lit
+          le tree_json EN MÉMOIRE -> reflète les modifications non enregistrées ;
+          réponses IA simulées (aucun appel). Calque pointer-events:none -> ne bloque
+          aucun clic de la page ; le wrap interne ré-active les clics du widget.
+          Masqué sur l'onglet Apparence (qui a déjà son aperçu encadré dédié). */}
+      {activeTab !== 'appearance' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, pointerEvents: 'none' }}>
+          <div style={{ pointerEvents: 'auto' }}>
+            <WidgetPreview design={d} mode={bot.mode} botName={bot.name} defaultOpen={false}
+                           tree={treeView === 'b' && bot.tree_variant_json ? bot.tree_variant_json : bot.tree_json} />
+          </div>
+        </div>
       )}
 
       {/* ================= SAVE BAR SOMBRE (fixée bas, left:248px) ================= */}

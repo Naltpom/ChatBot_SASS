@@ -40,25 +40,47 @@ test('les 7 onglets de l\'éditeur en mode arbre (IA et Actions masqués)', asyn
   await expect(tabs.getByRole('button', { name: 'Actions', exact: true })).toHaveCount(0)
 })
 
-test('onglet Arbre : ajouter une branche, voir le flowchart, enregistrer puis persister', async ({ page }) => {
+test('onglet Arbre : ajouter une branche, l\'éditer via l\'inspecteur, enregistrer puis persister', async ({ page }) => {
   await page.locator('.tabs').getByRole('button', { name: 'Arbre', exact: true }).click()
 
-  // Carte éditeur de TreeFlow présente (racine + bouton d'ajout)
+  // Éditeur React Flow chargé en LAZY (chunk dynamique @xyflow) : le titre <h3>
+  // « Arbre de conversation » vit dans le wrapper (toujours monté), mais le canvas
+  // (nœud d'accueil, barre d'outils) n'apparaît qu'après le chargement du chunk.
   await expect(page.getByText('Arbre de conversation', { exact: true })).toBeVisible()
-  await expect(page.getByText("Message d'accueil")).toBeVisible()
+  // Carte du nœud d'accueil (« 🌿 Message d'accueil ») rendue par le canvas.
+  const rootNode = page.locator('[data-testid="tree-node"]').filter({ hasText: "Message d'accueil" })
+  await expect(rootNode).toBeVisible()
 
-  // Ajout d'une branche -> une ligne d'édition apparaît (intitulé du bouton
-  // pré-rempli « Réponse ») et la branche se reflète dans le canvas.
-  await page.getByRole('button', { name: '+ Branche' }).click()
-  const answerInput = page.locator('input[placeholder="Intitulé du bouton"]').last()
-  await expect(answerInput).toBeVisible()
-  await answerInput.fill('Choix E2E')
-  // Le message du nœud cible est une <textarea> (markdown léger)
-  const destInput = page.locator('textarea[placeholder^="Message affiché"]').last()
-  await destInput.fill('Réponse E2E')
+  // Ajout d'une branche via l'inspecteur (le bouton « + Branche » de la barre
+  // d'outils a été retiré : on ajoute depuis un nœud sélectionné, ou par drag de
+  // poignée). Sélectionner le nœud d'accueil -> « + Ajouter une réponse » crée
+  // une arête {label:'Réponse'} + un nœud cible {message:'Destination'}.
+  await rootNode.click()
+  const addResp = page.getByRole('button', { name: '+ Ajouter une réponse' })
+  await expect(addResp).toBeVisible()
+  await addResp.click()
 
-  // Le flowchart reflète la nouvelle branche (pastille de réponse dans le canvas)
-  await expect(page.getByText('Choix E2E').first()).toBeVisible()
+  // 1) Sélectionner l'ARÊTE créée (clic sur son label « Réponse », unique dans le
+  //    canvas — l'arbre de départ n'utilise jamais ce libellé) -> l'inspecteur
+  //    d'arête affiche l'input « Intitulé du bouton ». On y écrit « Choix E2E ».
+  const newEdgeLabel = page.locator('[data-testid="tree-edge-label"]').filter({ hasText: 'Réponse' })
+  await expect(newEdgeLabel).toBeVisible()
+  await newEdgeLabel.click()
+  const labelInput = page.locator('input[placeholder="Intitulé du bouton"]')
+  await expect(labelInput).toBeVisible()
+  await labelInput.fill('Choix E2E')
+
+  // 2) Sélectionner le NŒUD cible (carte « Destination », unique) -> l'inspecteur
+  //    de nœud affiche la <textarea> « Message affiché… ». On y écrit la réponse.
+  const destNode = page.locator('[data-testid="tree-node"]').filter({ hasText: 'Destination' })
+  await expect(destNode).toBeVisible()
+  await destNode.click()
+  const msgInput = page.locator('textarea[placeholder^="Message affiché"]')
+  await expect(msgInput).toBeVisible()
+  await msgInput.fill('Réponse E2E')
+
+  // Le canvas reflète le nouvel intitulé de l'arête (label « Choix E2E » visible).
+  await expect(page.locator('[data-testid="tree-edge-label"]').filter({ hasText: 'Choix E2E' })).toBeVisible()
 
   // L'état devient dirty -> la save bar sombre (role=status) apparaît
   const bar = page.getByRole('status')
@@ -69,9 +91,14 @@ test('onglet Arbre : ajouter une branche, voir le flowchart, enregistrer puis pe
   await bar.getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await expect(bar).toContainText('Enregistré')
 
-  // Persistance serveur : après reload, la branche est toujours là
+  // Persistance serveur : après reload, l'arête « Choix E2E » est toujours là.
+  // React Flow ne re-sélectionne rien au montage -> on re-sélectionne l'arête
+  // (clic sur son label « Choix E2E ») pour que l'inspecteur réaffiche l'input.
   await page.reload()
   await page.locator('.tabs').getByRole('button', { name: 'Arbre', exact: true }).click()
+  const savedEdgeLabel = page.locator('[data-testid="tree-edge-label"]').filter({ hasText: 'Choix E2E' })
+  await expect(savedEdgeLabel).toBeVisible()
+  await savedEdgeLabel.click()
   await expect(page.locator('input[value="Choix E2E"]')).toBeVisible()
 })
 
