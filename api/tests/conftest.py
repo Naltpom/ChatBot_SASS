@@ -182,12 +182,18 @@ def _apply_column_defaults(obj) -> None:
         arg = getattr(default, "arg", None)
         if arg is None:
             continue
-        try:
-            value = arg() if callable(arg) else arg
-        except TypeError:
-            # Certains defaults callable attendent un ExecutionContext : on les
-            # ignore (colonne laissée à None, le test ne doit pas en dépendre).
-            continue
+        if callable(arg):
+            # SQLAlchemy enveloppe un default callable 0-arg (ex. utcnow) en
+            # fn(ctx) : on passe d'abord un contexte (None), repli sur l'appel nu.
+            try:
+                value = arg(None)
+            except TypeError:
+                try:
+                    value = arg()
+                except TypeError:
+                    continue
+        else:
+            value = arg
         setattr(obj, name, value)
 
 
@@ -257,6 +263,11 @@ class FakeSession:
         self.store.setdefault(type(obj), []).append(obj)
 
     async def flush(self):
+        # Émule l'assignation des defaults par la DB au flush/insert (created_at,
+        # is_active…) pour que les response_model sérialisant un NOT NULL ne voient
+        # pas None quand le routeur flush puis renvoie l'objet sans commit/refresh.
+        for obj in self.added:
+            _apply_column_defaults(obj)
         return None
 
     async def commit(self):

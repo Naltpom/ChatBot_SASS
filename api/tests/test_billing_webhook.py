@@ -25,7 +25,8 @@ from src.services import stripe_service
 
 # --- Signature : valide / invalide / expirée (VRAI HMAC) ------------------
 
-def test_signature_valide():
+def test_signature_valide(monkeypatch):
+    monkeypatch.setattr(stripe_service.settings, "STRIPE_WEBHOOK_SECRET", "whsec_abc")
     body = b'{"hello":"world"}'
     sig = sign_stripe(body, "whsec_abc")
     out = stripe_service.verify_webhook_signature(body, sig)

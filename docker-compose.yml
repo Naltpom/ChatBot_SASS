@@ -98,6 +98,9 @@ services:
       # sur l'hôte (sinon elle resterait dans le conteneur).
       - ./api/alembic.ini:/app/alembic.ini
       - ./api/alembic:/app/alembic
+      # Scripts utilitaires (seed du catalogue billing) montés en dev :
+      # `docker compose exec api python -m scripts.seed_billing_catalog`.
+      - ./api/scripts:/app/scripts
       - ./widget:/app/widget
       - upload_files:/app/uploads
       # Cache du modele d'embeddings (download ~100-400 Mo au premier usage) :
