@@ -334,6 +334,9 @@ async def list_invoices(customer_id: Optional[str] = None, limit: int = 24) -> l
         "created": inv.get("created"),  # epoch SECONDES (brut Stripe), conforme au front
         "hosted_invoice_url": inv.get("hosted_invoice_url"),
         "invoice_pdf": inv.get("invoice_pdf"),
+        # customer (cus_...) : neutre pour la vue payeur (filtrée par customer_id),
+        # indispensable a la vue staff agregee pour mapper facture -> payeur.
+        "customer": inv.get("customer"),
     } for inv in data.get("data", [])]
 
 

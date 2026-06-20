@@ -93,4 +93,61 @@ export interface Invoice {
   invoice_pdf: string | null
   number: string | null
   period_label?: string
+  // customer (cus_...) : présent sur la vue staff agrégée (toutes les factures du
+  // compte) pour remonter au payeur ; absent/neutre sur la vue payeur filtrée.
+  customer?: string | null
+}
+
+// ============================================================================
+// CONSOLE ADMIN FACTURATION (superadmin only) — formes des réponses des routes
+// /api/admin/billing/* et /api/admin/bots/{id}/entitlement. Source de vérité :
+//   - api/src/routers/admin.py (overview / invoices / entitlement, dépendance superadmin)
+// INVARIANT billing-OFF : les routes renvoient { billing: 'disabled' } — d'où
+// le type `| { billing: 'disabled' }` sur les payloads concernés.
+// ============================================================================
+
+// Sentinelle renvoyée par toute route admin billing quand billing_enabled()==False.
+export interface BillingDisabled {
+  billing: 'disabled'
+}
+
+// Vue admin d'un bot d'un payeur (sous-objet de AdminPayer).
+export interface AdminPayerBot {
+  bot_id: number
+  name: string
+  scope: 'personal' | 'team'
+  modules: string[]
+  ai_monthly_quota: number | null
+  status: string
+  source: string
+}
+
+// Un payeur (client facturé) vu côté admin.
+export interface AdminPayer {
+  user_id: number
+  email: string
+  name: string
+  stripe_customer_id: string | null
+  status: 'active' | 'past_due' | 'none'
+  monthly_cents: number
+  subscription_count: number
+  bots: AdminPayerBot[]
+}
+
+// GET /api/admin/billing/overview — agrégat des payeurs + MRR total.
+export interface AdminBillingOverview {
+  currency: 'eur'
+  mrr_cents: number
+  payers: AdminPayer[]
+}
+
+// GET /api/admin/bots/{bot_id}/entitlement — ligne bot_entitlements projetée.
+// POST .../entitlement renvoie le même objet (état après upsert source='staff').
+export interface AdminBotEntitlement {
+  bot_id: number
+  modules: string[]
+  ai_monthly_quota: number | null
+  overage_mode: string
+  status: string
+  source: string
 }

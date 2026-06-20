@@ -21,6 +21,7 @@ import Billing from './pages/Billing'
 import AdminHome, { AdminClient } from './pages/Admin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminUsers from './pages/AdminUsers'
+import AdminBilling from './pages/AdminBilling'
 import Layout from './Layout'
 
 function Protected({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
@@ -54,6 +55,9 @@ export function AppRoutes() {
       <Route path="/admin/clients" element={<Protected adminOnly><AdminHome /></Protected>} />
       <Route path="/admin/clients/:orgId" element={<Protected adminOnly><AdminClient /></Protected>} />
       <Route path="/admin/users" element={<Protected adminOnly><AdminUsers /></Protected>} />
+      <Route path="/admin/billing" element={<Protected adminOnly><AdminBilling /></Protected>} />
+      {/* Alias historique demandé (/app/admin/billing) -> redirige vers la route admin canonique. */}
+      <Route path="/app/admin/billing" element={<Navigate to="/admin/billing" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

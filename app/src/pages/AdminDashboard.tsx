@@ -38,7 +38,12 @@ export default function AdminDashboard() {
   return (
     <div className="col g18">
       <SectionTitle sub="Vue d'ensemble de la plateforme — données temps réel."
-                    right={<Btn kind="ghost" small onClick={() => navigate('/admin/clients')}>Voir les clients</Btn>}>
+                    right={
+                      <div className="row g8">
+                        <Btn kind="ghost" small onClick={() => navigate('/admin/billing')}>Facturation</Btn>
+                        <Btn kind="ghost" small onClick={() => navigate('/admin/clients')}>Voir les clients</Btn>
+                      </div>
+                    }>
         Dashboard
       </SectionTitle>
 

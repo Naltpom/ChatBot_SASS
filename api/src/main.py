@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
-from src.routers import admin, auth, billing, bots, inbox, kb, orgs, stats, tree, uploads, widget
+from src.routers import admin, admin_billing, auth, billing, bots, inbox, kb, orgs, stats, tree, uploads, widget
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -142,6 +142,7 @@ app.include_router(bots.router)
 app.include_router(kb.router)
 app.include_router(inbox.router)
 app.include_router(admin.router)
+app.include_router(admin_billing.router)
 app.include_router(uploads.router)
 app.include_router(stats.router)
 app.include_router(tree.router)
