@@ -2,7 +2,7 @@
 // Icônes : lucide-react, même librairie qu'ao_scrapping.
 import { Children, Fragment, isValidElement, ReactNode, useId } from 'react'
 import { Pause } from 'lucide-react'
-import type { DesignJson } from './types/bot'
+import type { BotBillingStatus, DesignJson } from './types/bot'
 
 export function Card({ children, className = '', nopad = false, style, onClick }: {
   children: ReactNode; className?: string; nopad?: boolean; style?: React.CSSProperties; onClick?: () => void
@@ -225,6 +225,23 @@ export function BubbleIcon({ kind, size = 26, avatarImg }: { kind?: string; size
 export function statusChip(isActive: boolean) {
   if (!isActive) return <Chip tone="mut"><Pause size={11} /> En pause</Chip>
   return <Chip tone="go">● En ligne</Chip>
+}
+
+// Chip de FACTURATION d'un bot — DISTINCT de statusChip (widget on/off). Un bot
+// peut être is_active=true tout en étant 'inactive' côté paiement (« Paiement
+// requis »). Réutilise la primitive Chip. Rien à afficher si billing OFF
+// (status null/undefined) ou 'active' (payé, état nominal — pas de bruit visuel).
+//   - 'inactive'  -> « Paiement requis » (danger) : Checkout annulé/abandonné ou résilié.
+//   - 'trialing'  -> « Essai » (+ jours restants depuis trial_end si fourni) (acc).
+//   - 'past_due'  -> « Impayé » (warn) : abonnement en relance.
+export function billingChip(status?: BotBillingStatus | null, trialEnd?: number | null) {
+  if (!status || status === 'active') return null
+  if (status === 'inactive') return <Chip tone="danger">Paiement requis</Chip>
+  if (status === 'past_due') return <Chip tone="warn">Impayé</Chip>
+  // 'trialing' : on ajoute les jours restants si trial_end est dans le futur.
+  const days = trialEnd ? Math.ceil((trialEnd * 1000 - Date.now()) / 86_400_000) : null
+  const label = days && days > 0 ? `Essai · ${days} j` : 'Essai'
+  return <Chip tone="acc">{label}</Chip>
 }
 
 export function modeChip(mode: string) {

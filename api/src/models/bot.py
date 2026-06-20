@@ -245,6 +245,12 @@ class BotOut(BaseModel):
     # Renseignes par les endpoints de liste (cards) uniquement
     msgs_7d: int = 0
     visitors_7d: int = 0
+    # Facturation effective du bot (renseigné par GET /api/bots, spec billing
+    # modulaire) : alimente le badge front (règle 4). 'trialing' | 'active' |
+    # 'past_due' | 'inactive' | None (billing OFF — invariant D0, aucun badge).
+    billing_status: str | None = None
+    # Fin de l'essai 7 j AVEC carte (epoch s) si status='trialing', sinon None.
+    trial_end: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

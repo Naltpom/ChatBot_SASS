@@ -6,7 +6,7 @@ import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { useApiResource } from '../hooks/useApiResource'
 import { ErrorRetry } from '../components/ErrorRetry'
-import { Btn, BubbleIcon, Card, Chip, brandBg, orgInitials, statusChip } from '../ui'
+import { Btn, BubbleIcon, Card, Chip, billingChip, brandBg, orgInitials, statusChip } from '../ui'
 import { botOwnerLabel, canAccessBotPerm } from '../utils/permissions'
 import { BotSummary, Integration } from '../types/bot'
 
@@ -110,6 +110,10 @@ export function BotCard({ bot, onOpen, canCopy = true, ownerLabel }: {
           </div>
           <div className="col g6" style={{ alignItems: 'flex-end' }}>
             {statusChip(bot.is_active)}
+            {/* Badge de facturation, DISTINCT de la pastille is_active (widget
+                on/off) : un bot en ligne peut réclamer un paiement. null si
+                billing OFF ou bot payé (état nominal). */}
+            {billingChip(bot.billing_status, bot.trial_end)}
             {ownerLabel && (
               <Chip tone={bot.scope === 'personal' ? 'mut' : 'acc'}>{ownerLabel}</Chip>
             )}

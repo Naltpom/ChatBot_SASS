@@ -210,7 +210,18 @@ export interface Bot {
   // Renseignés uniquement par les endpoints de liste (cards) ; 0 sur le détail.
   msgs_7d: number
   visitors_7d: number
+  // État de facturation effectif du bot, exposé par GET /api/bots pour le badge.
+  // 'trialing' (essai avec carte) | 'active' (payé) | 'past_due' (impayé en relance)
+  // | 'inactive' (paiement requis / annulé) | null (billing OFF — aucun badge).
+  // INVARIANT billing OFF : null quand billing_enabled()==False (pas de gating).
+  billing_status?: BotBillingStatus | null
+  // Fin de l'essai (epoch secondes) — utilisé pour afficher les jours restants
+  // quand billing_status === 'trialing'. null/absent sinon.
+  trial_end?: number | null
 }
+
+// États de facturation d'un bot (cf. RÈGLES PRODUIT §4). null = billing OFF.
+export type BotBillingStatus = 'trialing' | 'active' | 'past_due' | 'inactive'
 
 // ============================================================================
 // BotSummary — forme de la LISTE (GET /api/bots). C'est le MÊME schéma BotOut
@@ -235,6 +246,9 @@ export type BotSummary = Pick<
   | 'owner_user_id'
   | 'organization_id'
   | 'scope'
+  // Champs de facturation pour le badge (null si billing OFF — cf. §4/§5).
+  | 'billing_status'
+  | 'trial_end'
 >
 
 // ============================================================================

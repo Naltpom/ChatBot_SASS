@@ -58,6 +58,11 @@ services:
       # (checkout/portail mockés, entitlement appliqué directement). Interdit en
       # prod (validate_production). Défaut true = dev/CI sans clés Stripe.
       - MOCK_BILLING=${MOCK_BILLING:-true}
+      # BILLING_ENFORCE=true : le gating bloque vraiment (402) un bot non payé /
+      # essai expiré. false = mode observe (logs only). BILLING_METERING_ENABLED :
+      # axe métré v2 (report d'usage Stripe), false en v1.
+      - BILLING_ENFORCE=${BILLING_ENFORCE:-false}
+      - BILLING_METERING_ENABLED=${BILLING_METERING_ENABLED:-false}
       - APP_URL=${APP_URL:-http://localhost:3001}
       - API_URL=${API_URL:-http://localhost:8001}
       # Auth intranet Kertios (meme flux qu'ao_scrapping). Les comptes
@@ -77,12 +82,11 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM=${SMTP_FROM:-}
-      # Stripe : les 5 vides = billing désactivé (changement de plan immédiat)
+      # Stripe : SECRET_KEY + WEBHOOK_SECRET vides = billing désactivé (app 100%
+      # gratuite). Le catalogue (Products/Prices) vit en base via seed_billing_catalog,
+      # plus de STRIPE_PRICE_* (catalogue modulaire).
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
-      - STRIPE_PRICE_STARTER=${STRIPE_PRICE_STARTER:-}
-      - STRIPE_PRICE_PRO=${STRIPE_PRICE_PRO:-}
-      - STRIPE_PRICE_AGENCE=${STRIPE_PRICE_AGENCE:-}
       # Embeddings locaux (RAG) : cache du modele fastembed hors de /app
       # (zéro interaction avec le watcher --reload). Changer de modele peut
       # changer la dimension (la base attend vector(384)).

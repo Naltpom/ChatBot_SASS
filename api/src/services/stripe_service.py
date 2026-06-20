@@ -316,6 +316,24 @@ async def cancel_subscription(subscription_id: str, prorate: bool = False) -> No
     await _stripe_request("DELETE", f"/subscriptions/{subscription_id}", params=params)
 
 
+async def cancel_at_period_end(subscription_id: str) -> Optional[dict]:
+    """Programme la résiliation d'une sub en FIN DE PÉRIODE (règle 2, point 2).
+
+    POST /v1/subscriptions/{id} {cancel_at_period_end:true} : le bot reste actif
+    jusqu'à `current_period_end` (AUCUN remboursement, pas de proration), puis
+    Stripe émet `customer.subscription.deleted` -> le webhook recalcule l'état NET
+    et gate le bot. Contrairement à `cancel_subscription` (résiliation immédiate),
+    ce helper NE résilie PAS tout de suite.
+
+    Retourne l'objet subscription Stripe (porte `current_period_end`, epoch s) ou
+    None en MOCK_BILLING (aucun appel sortant)."""
+    if settings.MOCK_BILLING:
+        return None
+    return await _stripe_request(
+        "POST", f"/subscriptions/{subscription_id}",
+        data={"cancel_at_period_end": "true"})
+
+
 async def expire_open_checkout_sessions(customer_id: str) -> None:
     """Expire les sessions de checkout encore ouvertes du customer : une seule
     session payable a la fois (deux onglets ou un retry ne peuvent pas aboutir

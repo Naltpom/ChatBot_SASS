@@ -17,11 +17,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, Card, Chip, InfoBox, Meter, Seg } from '../ui'
+import { Btn, Card, Chip, InfoBox, Meter, Seg, billingChip } from '../ui'
 import { errMsg } from '../utils/errors'
 import { isBotBillingOwner } from '../utils/permissions'
 import type { BotSummary } from '../types/bot'
-import type { BillingGrouping, Invoice } from '../types/billing'
+import type {
+  BillingGrouping, Invoice,
+  CheckoutResponse, SubscriptionCancelResponse,
+} from '../types/billing'
 
 // Libellés FR des formats de facture (User.billing_grouping).
 const GROUPING_OPTIONS: { value: BillingGrouping; label: string; desc: string }[] = [
@@ -97,6 +100,10 @@ export default function Billing() {
   const [bots, setBots] = useState<BotSummary[] | null>(null)
   const [botsLoading, setBotsLoading] = useState(true)
   const [botsError, setBotsError] = useState('')
+  // Action par bot (annulation / relance paiement) : id du bot en cours + erreur.
+  // Une seule action à la fois (le bouton concerné passe en busy).
+  const [botActionBusy, setBotActionBusy] = useState<number | null>(null)
+  const [botActionErr, setBotActionErr] = useState<Record<number, string>>({})
   const [invoices, setInvoices] = useState<Invoice[] | null>(null)
   const [invoicesLoading, setInvoicesLoading] = useState(true)
   const [invoicesError, setInvoicesError] = useState('')
@@ -207,6 +214,52 @@ export default function Billing() {
       setPortalErr(errMsg(err, "Impossible d'ouvrir le portail."))
     } finally {
       setPortalBusy(false)
+    }
+  }
+
+  function setBotErr(botId: number, msg: string) {
+    setBotActionErr(prev => ({ ...prev, [botId]: msg }))
+  }
+
+  // Annulation d'un bot facturable (point 2) : cancel_at_period_end=true (fin de
+  // période, sans remboursement). Le bot reste actif jusqu'à la fin de période
+  // puis ses modules sont gate. Confirmation explicite, puis re-fetch de la liste.
+  async function cancelBot(botId: number, name: string) {
+    if (!window.confirm(
+      `Annuler l'abonnement de « ${name} » ?\n\nL'abonnement prend fin à la fin de la `
+      + 'période en cours (aucun remboursement). Le bot reste actif jusque-là.',
+    )) return
+    setBotActionBusy(botId)
+    setBotErr(botId, '')
+    try {
+      await api<SubscriptionCancelResponse>(
+        '/api/billing/subscription/cancel',
+        { method: 'POST', body: { bot_id: botId } },
+      )
+      reload()
+    } catch (err: unknown) {
+      setBotErr(botId, errMsg(err, "L'annulation a échoué."))
+    } finally {
+      setBotActionBusy(null)
+    }
+  }
+
+  // Relance du paiement d'un bot 'inactive' (point 3) : POST /api/billing/checkout
+  // (sans config -> l'API rejoue la dernière compo connue). checkout_url ->
+  // redirection Stripe ; sinon (MOCK / gratuit) on recharge la liste.
+  async function resumeBot(botId: number) {
+    setBotActionBusy(botId)
+    setBotErr(botId, '')
+    try {
+      const res = await api<CheckoutResponse>(
+        '/api/billing/checkout', { method: 'POST', body: { bot_id: botId } },
+      )
+      if (res.checkout_url) { window.location.href = res.checkout_url; return }
+      reload()
+    } catch (err: unknown) {
+      setBotErr(botId, errMsg(err, 'La relance du paiement a échoué.'))
+    } finally {
+      setBotActionBusy(null)
     }
   }
 
@@ -333,7 +386,7 @@ export default function Billing() {
             )}
           </div>
           <Btn kind="soft" onClick={openPortal} disabled={portalBusy}>
-            {portalBusy ? 'Ouverture…' : 'Gérer mon paiement'}
+            {portalBusy ? 'Ouverture…' : 'Moyens de paiement & factures'}
           </Btn>
         </div>
         {portalErr && <div className="error" style={{ marginTop: 12 }}>{portalErr}</div>}
@@ -370,22 +423,55 @@ export default function Billing() {
           </div>
         ) : (
           <div className="col" style={{ gap: 10 }}>
-            {billableBots.map(b => (
-              <div key={b.id} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                gap: 12, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 12,
-              }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--mut)' }}>
-                    {b.organization_id == null ? 'Perso' : 'Équipe'} · {b.mode}
+            {billableBots.map(b => {
+              const inactive = b.billing_status === 'inactive'
+              // Plan modifiable EN APP tant que l'abonnement est vivant
+              // (essai/payé/relance). 'inactive' -> relance du Checkout.
+              const manageable = b.billing_status === 'active' || b.billing_status === 'trialing' || b.billing_status === 'past_due'
+              const busy = botActionBusy === b.id
+              const rowErr = botActionErr[b.id]
+              return (
+                <div key={b.id} style={{
+                  display: 'flex', flexDirection: 'column',
+                  gap: 10, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 12,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
+                        {billingChip(b.billing_status, b.trial_end)}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--mut)' }}>
+                        {b.organization_id == null ? 'Perso' : 'Équipe'} · {b.mode}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {inactive && (
+                        <Btn kind="primary" small onClick={() => resumeBot(b.id)} disabled={busy}>
+                          {busy ? 'Redirection…' : 'Finaliser le paiement'}
+                        </Btn>
+                      )}
+                      {/* Changement de plan EN APP (prorata) : le configurateur vit
+                          sur l'onglet Facturation du bot — on y renvoie (pas portail). */}
+                      {manageable && (
+                        <Link to={`/app/bots/${b.id}?tab=billing`} className="btn btn-soft small" style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                          Modifier le plan
+                        </Link>
+                      )}
+                      {manageable && (
+                        <Btn kind="ghost" small onClick={() => cancelBot(b.id, b.name)} disabled={busy}>
+                          {busy ? 'Annulation…' : 'Annuler'}
+                        </Btn>
+                      )}
+                      <Link to={`/app/bots/${b.id}?tab=billing`} className="btn btn-ghost small" style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                        Détail
+                      </Link>
+                    </div>
                   </div>
+                  {rowErr && <div className="error">{rowErr}</div>}
                 </div>
-                <Link to={`/app/bots/${b.id}?tab=billing`} className="btn btn-ghost small" style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}>
-                  Détail
-                </Link>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </Card>

@@ -315,3 +315,286 @@ async def test_grouping_reel_resiliation_proration(client, overrides, db, curren
         resp = await c.put("/api/billing/grouping", json={"grouping": "total"})
     assert resp.status_code == 200, resp.text
     assert prorations == [True]  # résiliation AVEC proration
+
+
+# --- POST /billing/subscription/update : changement de plan AU PRORATA ----
+
+@pytest.mark.asyncio
+async def test_subscription_update_billing_off_disabled(client, overrides, billing_off):
+    """Billing OFF (invariant D0) : aucune route billing active."""
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/update",
+                            json={"bot_id": 1, "config": {"modules": []}})
+    assert resp.status_code == 200
+    assert resp.json() == {"billing": "disabled"}
+
+
+@pytest.mark.asyncio
+async def test_subscription_update_prorata_via_items(client, overrides, db,
+                                                     current_user, monkeypatch):
+    """Vrai Stripe : modifier le plan d'un bot souscrit aligne les items AU PRORATA
+    (update_subscription_items proration_behavior='create_prorations'), PAS de
+    portail. Renvoie {status:'updated'} (point 1, règle 1)."""
+    from src.models.billing import BillingProduct, BillingSubscription
+    monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
+    monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
+    monkeypatch.setattr(bil.settings, "MOCK_BILLING", False, raising=False)
+
+    # Catalogue : base 9 € + mod_rag (déjà souscrit) + mod_inbox (ajouté).
+    db.seed(BillingProduct(code="base", label="Socle", kind="base",
+                           unit_amount=900, stripe_price_id="price_base"))
+    db.seed(BillingProduct(code="mod_rag", label="RAG", kind="module",
+                           unit_amount=900, stripe_price_id="price_rag"))
+    db.seed(BillingProduct(code="mod_inbox", label="Inbox", kind="module",
+                           unit_amount=1900, stripe_price_id="price_inbox"))
+
+    current_user.id = 1
+    current_user.stripe_customer_id = "cus_1"
+    db.seed(_bot(1, owner_user_id=1))
+    # Sub active couvrant le bot 1 avec base + mod_rag.
+    db.seed(BillingSubscription(
+        user_id=1, stripe_subscription_id="sub_1", grouping="per_bot",
+        scope_kind="bot", scope_bot_id=1, status="active",
+        raw_items=[
+            {"si_id": "si_base", "price_id": "price_base", "code": "base",
+             "bot_id": 1, "qty": 1},
+            {"si_id": "si_rag", "price_id": "price_rag", "code": "mod_rag",
+             "bot_id": 1, "qty": 1}]))
+
+    captured = {}
+
+    async def _update_items(subscription_id, target_items, proration_behavior="x"):
+        captured["sub"] = subscription_id
+        captured["items"] = target_items
+        captured["proration"] = proration_behavior
+        return {"id": subscription_id}
+
+    monkeypatch.setattr(bil.stripe_service, "update_subscription_items", _update_items)
+
+    # Nouvelle config : on garde RAG, on ajoute INBOX (upgrade).
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/update",
+                            json={"bot_id": 1,
+                                  "config": {"modules": ["rag", "inbox"]}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"status": "updated"}
+    assert captured["sub"] == "sub_1"
+    assert captured["proration"] == "create_prorations"  # PRORATA
+    # L'item RAG existant est réutilisé (si_id porté), INBOX est ajouté.
+    by_price = {it.get("price"): it for it in captured["items"] if it.get("price")}
+    assert by_price["price_rag"].get("id") == "si_rag"
+    assert "price_inbox" in by_price
+    # Bot arbre seul (sans IA) -> base reste facturé et porté.
+    assert "price_base" in by_price
+
+
+@pytest.mark.asyncio
+async def test_subscription_update_downgrade_supprime_item(client, overrides, db,
+                                                          current_user, monkeypatch):
+    """Downgrade : un module retiré de la config est SUPPRIMÉ de la sub (deleted),
+    au prorata (crédit du temps non consommé)."""
+    from src.models.billing import BillingProduct, BillingSubscription
+    monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
+    monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
+    monkeypatch.setattr(bil.settings, "MOCK_BILLING", False, raising=False)
+    db.seed(BillingProduct(code="base", label="Socle", kind="base",
+                           unit_amount=900, stripe_price_id="price_base"))
+    db.seed(BillingProduct(code="mod_rag", label="RAG", kind="module",
+                           unit_amount=900, stripe_price_id="price_rag"))
+    db.seed(BillingProduct(code="mod_inbox", label="Inbox", kind="module",
+                           unit_amount=1900, stripe_price_id="price_inbox"))
+
+    current_user.id = 1
+    current_user.stripe_customer_id = "cus_1"
+    db.seed(_bot(1, owner_user_id=1))
+    db.seed(BillingSubscription(
+        user_id=1, stripe_subscription_id="sub_1", grouping="per_bot",
+        scope_kind="bot", scope_bot_id=1, status="active",
+        raw_items=[
+            {"si_id": "si_base", "price_id": "price_base", "code": "base",
+             "bot_id": 1, "qty": 1},
+            {"si_id": "si_rag", "price_id": "price_rag", "code": "mod_rag",
+             "bot_id": 1, "qty": 1},
+            {"si_id": "si_inbox", "price_id": "price_inbox", "code": "mod_inbox",
+             "bot_id": 1, "qty": 1}]))
+
+    captured = {}
+
+    async def _update_items(subscription_id, target_items, proration_behavior="x"):
+        captured["items"] = target_items
+        return {"id": subscription_id}
+
+    monkeypatch.setattr(bil.stripe_service, "update_subscription_items", _update_items)
+
+    # On retire INBOX (downgrade) : garde rag.
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/update",
+                            json={"bot_id": 1, "config": {"modules": ["rag"]}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"status": "updated"}
+    deleted = [it for it in captured["items"] if it.get("deleted")]
+    assert any(it.get("id") == "si_inbox" for it in deleted)
+
+
+@pytest.mark.asyncio
+async def test_subscription_update_sans_sub_needs_checkout(client, overrides, db,
+                                                          current_user, monkeypatch):
+    """Bot SANS sub active (Checkout annulé/abandonné, point 3) : update relance le
+    Checkout -> {status:'needs_checkout', checkout_url}."""
+    from src.models.billing import BillingProduct
+    monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
+    monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
+    monkeypatch.setattr(bil.settings, "MOCK_BILLING", False, raising=False)
+    db.seed(BillingProduct(code="base", label="Socle", kind="base",
+                           unit_amount=900, stripe_price_id="price_base"))
+    db.seed(BillingProduct(code="mod_rag", label="RAG", kind="module",
+                           unit_amount=900, stripe_price_id="price_rag"))
+
+    current_user.id = 1
+    current_user.stripe_customer_id = "cus_1"
+    db.seed(_bot(1, owner_user_id=1))  # aucune BillingSubscription
+
+    async def _expire(customer_id):
+        return None
+
+    async def _checkout(**kw):
+        return "https://checkout.stripe.test/relance"
+
+    monkeypatch.setattr(bil.stripe_service, "expire_open_checkout_sessions", _expire)
+    monkeypatch.setattr(bil.stripe_service, "create_checkout_session", _checkout)
+
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/update",
+                            json={"bot_id": 1, "config": {"modules": ["rag"]}})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "needs_checkout"
+    assert body["checkout_url"] == "https://checkout.stripe.test/relance"
+
+
+@pytest.mark.asyncio
+async def test_subscription_update_mock_inactive_needs_checkout(client, overrides, db,
+                                                               current_user, billing_on):
+    """MOCK : un bot jamais souscrit (entitlement 'inactive') -> needs_checkout
+    (point 3), il ne bascule pas 'updated' aveuglément."""
+    from src.models.billing import BotEntitlement
+    current_user.id = 1
+    db.seed(_bot(1, owner_user_id=1))
+    db.seed(BotEntitlement(bot_id=1, modules=[], ai_monthly_quota=0,
+                           status="inactive", source="stripe"))
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/update",
+                            json={"bot_id": 1, "config": {"modules": ["rag"]}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "needs_checkout"
+
+
+# --- POST /billing/subscription/cancel : annulation fin de période --------
+
+@pytest.mark.asyncio
+async def test_subscription_cancel_billing_off_disabled(client, overrides, billing_off):
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/cancel", json={"bot_id": 1})
+    assert resp.status_code == 200
+    assert resp.json() == {"billing": "disabled"}
+
+
+@pytest.mark.asyncio
+async def test_subscription_cancel_pose_cancel_at_period_end(client, overrides, db,
+                                                            current_user, monkeypatch):
+    """Annuler = fin de période (cancel_at_period_end=true), AUCUN remboursement.
+    Renvoie {status:'cancel_scheduled', current_period_end} (point 2, règle 2)."""
+    from src.models.billing import BillingSubscription
+    monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
+    monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
+    monkeypatch.setattr(bil.settings, "MOCK_BILLING", False, raising=False)
+
+    current_user.id = 1
+    db.seed(_bot(1, owner_user_id=1))
+    db.seed(BillingSubscription(
+        user_id=1, stripe_subscription_id="sub_1", grouping="per_bot",
+        scope_kind="bot", scope_bot_id=1, status="active",
+        raw_items=[{"si_id": "si_1", "price_id": "price_rag", "code": "mod_rag",
+                    "bot_id": 1, "qty": 1}]))
+
+    captured = {}
+
+    async def _cape(subscription_id):
+        captured["sub"] = subscription_id
+        return {"id": subscription_id, "current_period_end": 1893456000}
+
+    monkeypatch.setattr(bil.stripe_service, "cancel_at_period_end", _cape)
+
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/cancel", json={"bot_id": 1})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body == {"status": "cancel_scheduled", "current_period_end": 1893456000}
+    assert captured["sub"] == "sub_1"
+    # Miroir local marqué.
+    sub = [s for s in db.rows(BillingSubscription)
+           if s.stripe_subscription_id == "sub_1"][0]
+    assert sub.cancel_at_period_end is True
+
+
+@pytest.mark.asyncio
+async def test_subscription_cancel_par_subscription_id(client, overrides, db,
+                                                      current_user, monkeypatch):
+    """On peut cibler la sub par subscription_id (doit appartenir au payeur)."""
+    from src.models.billing import BillingSubscription
+    monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
+    monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
+    monkeypatch.setattr(bil.settings, "MOCK_BILLING", False, raising=False)
+    current_user.id = 1
+    db.seed(BillingSubscription(
+        user_id=1, stripe_subscription_id="sub_1", grouping="total",
+        scope_kind="user_all", status="active", raw_items=[]))
+
+    async def _cape(subscription_id):
+        return {"id": subscription_id, "current_period_end": 1893456000}
+
+    monkeypatch.setattr(bil.stripe_service, "cancel_at_period_end", _cape)
+
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/cancel",
+                            json={"subscription_id": "sub_1"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "cancel_scheduled"
+
+
+@pytest.mark.asyncio
+async def test_subscription_cancel_sans_sub_404(client, overrides, db,
+                                               current_user, billing_on):
+    """Aucun abonnement actif à annuler -> 404."""
+    current_user.id = 1
+    db.seed(_bot(1, owner_user_id=1))
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/cancel", json={"bot_id": 1})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_subscription_cancel_mock_marque_sub(client, overrides, db,
+                                                  current_user, billing_on):
+    """MOCK_BILLING : cancel_at_period_end ne fait aucun appel sortant, marque la
+    sub locale et renvoie current_period_end depuis le miroir."""
+    import calendar as _cal
+    from datetime import datetime
+
+    from src.models.billing import BillingSubscription
+    current_user.id = 1
+    db.seed(_bot(1, owner_user_id=1))
+    cpe = datetime(2030, 1, 1)
+    db.seed(BillingSubscription(
+        user_id=1, stripe_subscription_id="sub_mock_1", grouping="per_bot",
+        scope_kind="bot", scope_bot_id=1, status="trialing",
+        current_period_end=cpe,
+        raw_items=[{"si_id": "si_1", "price_id": "price_rag", "code": "mod_rag",
+                    "bot_id": 1, "qty": 1}]))
+
+    async with client as c:
+        resp = await c.post("/api/billing/subscription/cancel", json={"bot_id": 1})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "cancel_scheduled"
+    assert body["current_period_end"] == _cal.timegm(cpe.utctimetuple())

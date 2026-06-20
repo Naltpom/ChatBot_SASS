@@ -68,6 +68,23 @@ export interface CatalogPreset {
   est_price_cents: number
 }
 
+// Statut d'abonnement effectif d'un bot tel que renvoyé par l'API (entitlement /
+// summary). 'trialing' = essai avec carte ; 'inactive' = paiement requis (Checkout
+// abandonné) ou abonnement annulé (cf. RÈGLES PRODUIT §3/§4) ; 'none' = pas
+// d'abonnement (socle gratuit). null jamais ici (billing-OFF est traité côté front).
+export type SubscriptionStatus =
+  | 'active'
+  | 'trialing'
+  | 'past_due'
+  | 'inactive'
+  | 'canceled'
+  | 'none'
+
+// NB : le statut de BADGE par bot exposé sur GET /api/bots (liste) vit dans
+// types/bot.ts (`BotBillingStatus` = 'trialing'|'active'|'past_due'|'inactive',
+// null = billing OFF), consommé par le helper partagé ui.tsx::billingChip. On ne
+// le redéfinit pas ici pour éviter toute divergence.
+
 // État de facturation effectif d'un bot (conso vs quota, statut d'abonnement).
 export interface BotBilling {
   bot_id: number
@@ -78,7 +95,36 @@ export interface BotBilling {
   quota_ai_replies: number | null
   period_start: string
   period_end: string
-  subscription_status: 'active' | 'past_due' | 'canceled' | 'none'
+  subscription_status: SubscriptionStatus
+}
+
+// ----------------------------------------------------------------------------
+// Réponses des routes de GESTION DE PLAN (spec produit §1/§2). Toutes peuvent
+// renvoyer la sentinelle billing-OFF { billing:'disabled' } (BillingDisabled).
+// ----------------------------------------------------------------------------
+
+// POST /api/billing/subscription/update {bot_id, config} — changement INSTANTANÉ
+// au PRORATA (update_subscription_items, PAS de portail). En l'absence d'abonnement
+// actif sur le bot, l'API bascule sur un Checkout (relance) -> { status:'needs_checkout' }.
+export type SubscriptionUpdateResponse =
+  | { status: 'updated' }
+  | { status: 'needs_checkout'; checkout_url: string }
+  | BillingDisabled
+
+// POST /api/billing/subscription/cancel {bot_id} — pose cancel_at_period_end=true
+// (fin de période, AUCUN remboursement) -> { status:'cancel_scheduled', current_period_end }.
+// `current_period_end` = epoch secondes (date de coupure effective) ou null (MOCK).
+export type SubscriptionCancelResponse =
+  | { status: 'cancel_scheduled'; current_period_end: number | null }
+  | BillingDisabled
+
+// POST /api/billing/checkout — sert AUSSI à relancer le paiement d'un bot 'inactive'.
+// `checkout_url` = URL Stripe hébergée (redirection) ; null/free = projection immédiate
+// (MOCK / catalogue gratuit). `billing:'disabled'` si billing OFF.
+export interface CheckoutResponse {
+  checkout_url?: string | null
+  free?: boolean
+  billing?: string
 }
 
 // Composition choisie par l'utilisateur dans le configurateur (entrée de computeCart).

@@ -30,8 +30,14 @@ import ActionsTab from '../components/bot-tabs/ActionsTab'
 import IntegrationTab from '../components/bot-tabs/IntegrationTab'
 import SecurityTab from '../components/bot-tabs/SecurityTab'
 import WidgetPreview from '../components/WidgetPreview'
+import BotConfigurator from '../components/billing/BotConfigurator'
+import PriceCart from '../components/billing/PriceCart'
+import { FALLBACK_CATALOG } from '../utils/billing'
 import type { Bot, Integration, Tree } from '../types/bot'
-import type { BotBilling, BotConfig } from '../types/billing'
+import type {
+  BillingCatalog, BotBilling, BotConfig,
+  SubscriptionCancelResponse, SubscriptionUpdateResponse,
+} from '../types/billing'
 
 // L'entitlement (GET /api/bots/{id}/entitlement) enrichit `BotBilling` avec
 // l'état d'essai 7 j (fin du gratuit à vie) : `status` brut (incl. 'trialing'),
@@ -112,6 +118,16 @@ export default function BotPage() {
   // Gestion / annulation de l'essai via le Customer Portal : busy + erreur.
   const [portalBusy, setPortalBusy] = useState(false)
   const [portalErr, setPortalErr] = useState('')
+  // Gestion du plan EN APP (spec §1/§2) : catalogue (configurateur), bloc
+  // « Modifier mon plan » ouvert + config en cours d'édition, application au
+  // prorata (busy/err) et annulation fin de période (busy/err).
+  const [catalog, setCatalog] = useState<BillingCatalog>(FALLBACK_CATALOG)
+  const [planOpen, setPlanOpen] = useState(false)
+  const [planConfig, setPlanConfig] = useState<BotConfig | null>(null)
+  const [planBusy, setPlanBusy] = useState(false)
+  const [planErr, setPlanErr] = useState('')
+  const [cancelBusy, setCancelBusy] = useState(false)
+  const [cancelErr, setCancelErr] = useState('')
 
   const fromAdmin = params.get('from') === 'admin'
   const isAdminView = !!user?.is_superadmin && fromAdmin
@@ -132,6 +148,19 @@ export default function BotPage() {
       .catch(() => { if (alive) setBotBilling(null) })
     return () => { alive = false }
   }, [tab, botId])
+
+  // Catalogue de facturation : chargé quand l'onglet Facturation est ouvert
+  // (sert le configurateur « Modifier mon plan »). Repli silencieux sur
+  // FALLBACK_CATALOG (déjà en état initial) si indisponible. Invariant billing
+  // OFF : l'onglet n'est pas visible (billingTabVisible) -> jamais d'appel.
+  useEffect(() => {
+    if (tab !== 'billing') return
+    let alive = true
+    api<BillingCatalog>('/api/billing/catalog')
+      .then(c => { if (alive) setCatalog(c) })
+      .catch(() => { /* repli FALLBACK_CATALOG */ })
+    return () => { alive = false }
+  }, [tab])
 
   // Permissions par bot : admins d'org et superadmins ont tout, les members
   // voient uniquement les onglets couverts par leurs permissions. Un bot PERSO
@@ -329,6 +358,74 @@ export default function BotPage() {
     }
   }
 
+  // « Modifier mon plan » : ouvre le configurateur pré-rempli avec la config
+  // ACTIVE du bot (modules actifs + variante BYOK). L'entitlement ne porte pas le
+  // palier IA précis (ai_tier_id null) ; le configurateur le rétablit si l'IA
+  // managée reste cochée.
+  function openPlanEditor() {
+    if (!botBilling) return
+    setPlanConfig({
+      modules: botBilling.active_modules,
+      ai_tier_id: botBilling.ai_tier_id,
+      ai_byok: botBilling.ai_byok,
+    })
+    setPlanErr('')
+    setPlanOpen(true)
+  }
+
+  // « Appliquer (prorata) » : POST /api/billing/subscription/update — changement
+  // INSTANTANÉ au prorata du mois en cours (PAS de portail). Sans abonnement actif
+  // sur le bot, l'API renvoie { needs_checkout, checkout_url } -> on redirige vers
+  // le Checkout (relance). Sinon { updated } -> on recharge l'entitlement et on
+  // referme le bloc. Billing OFF -> { billing:'disabled' } (jamais ici : onglet masqué).
+  async function applyPlan() {
+    if (!planConfig) return
+    setPlanBusy(true)
+    setPlanErr('')
+    try {
+      const res = await api<SubscriptionUpdateResponse>(
+        '/api/billing/subscription/update',
+        { method: 'POST', body: { bot_id: botId, config: planConfig } },
+      )
+      if ('status' in res && res.status === 'needs_checkout') {
+        window.location.href = res.checkout_url
+        return
+      }
+      const updated = await api<BotEntitlementView>(`/api/bots/${botId}/entitlement`)
+      setBotBilling(updated)
+      setPlanOpen(false)
+    } catch (err: unknown) {
+      setPlanErr(errMsg(err, "La modification du plan a échoué."))
+    } finally {
+      setPlanBusy(false)
+    }
+  }
+
+  // « Annuler l'abonnement » : POST /api/billing/subscription/cancel — pose
+  // cancel_at_period_end=true (FIN DE PÉRIODE, sans remboursement). Le bot reste
+  // actif jusqu'à la fin de période puis est gate. On confirme explicitement.
+  async function cancelSubscription() {
+    if (!window.confirm(
+      "Annuler l'abonnement de ce bot ?\n\nL'abonnement prend fin à la fin de la "
+      + 'période en cours (aucun remboursement). Le bot reste actif jusque-là, '
+      + 'puis ses modules payants seront coupés.',
+    )) return
+    setCancelBusy(true)
+    setCancelErr('')
+    try {
+      await api<SubscriptionCancelResponse>(
+        '/api/billing/subscription/cancel',
+        { method: 'POST', body: { bot_id: botId } },
+      )
+      const updated = await api<BotEntitlementView>(`/api/bots/${botId}/entitlement`)
+      setBotBilling(updated)
+    } catch (err: unknown) {
+      setCancelErr(errMsg(err, "L'annulation a échoué."))
+    } finally {
+      setCancelBusy(false)
+    }
+  }
+
   if (!bot) {
     if (loadError) {
       return (
@@ -494,7 +591,12 @@ export default function BotPage() {
       {activeTab === 'billing' && (
         <BotBillingTab billing={botBilling} botName={bot.name}
                        onSubscribe={subscribeNow} subscribeBusy={subscribeBusy} subscribeErr={subscribeErr}
-                       onPortal={openPortal} portalBusy={portalBusy} portalErr={portalErr} />
+                       onPortal={openPortal} portalBusy={portalBusy} portalErr={portalErr}
+                       catalog={catalog} isMobile={isMobile}
+                       planOpen={planOpen} onOpenPlan={openPlanEditor} onClosePlan={() => setPlanOpen(false)}
+                       planConfig={planConfig} onPlanChange={setPlanConfig}
+                       onApplyPlan={applyPlan} planBusy={planBusy} planErr={planErr}
+                       onCancel={cancelSubscription} cancelBusy={cancelBusy} cancelErr={cancelErr} />
       )}
 
       {/* Widget de TEST flottant : le vrai aperçu du chatbot, posé directement sur
@@ -590,6 +692,7 @@ const SUB_STATUS_LABELS: Record<string, string> = {
   active: 'Actif',
   trialing: 'Essai gratuit',
   past_due: 'Paiement en retard',
+  inactive: 'Paiement requis',
   canceled: 'Résilié',
   none: 'Aucun abonnement',
 }
@@ -609,11 +712,18 @@ function fmtDate(epochSeconds: number): string {
 
 // Onglet Facturation d'un bot : état d'essai 7 j avec carte (compte à rebours +
 // auto-débit à J+7 sauf annulation + plafond IA + bouton portail d'annulation),
-// récap des modules actifs, quota IA (Meter) avec alerte « quota proche / atteint »,
-// et renvoi vers la page Facturation. Owner-only et monté uniquement si le billing
-// est actif (voir billingTabVisible / visibleTabs).
+// état « Paiement requis » (status='inactive' -> relance du Checkout), bloc
+// « Modifier mon plan » (configurateur pré-rempli + application AU PRORATA +
+// annulation FIN DE PÉRIODE), récap des modules actifs, quota IA (Meter) avec
+// alerte « quota proche / atteint », et renvoi vers la page Facturation pour les
+// moyens de paiement & factures. Owner-only et monté uniquement si le billing est
+// actif (voir billingTabVisible / visibleTabs).
 function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribeErr,
-                         onPortal, portalBusy, portalErr }: {
+                         onPortal, portalBusy, portalErr,
+                         catalog, isMobile,
+                         planOpen, onOpenPlan, onClosePlan, planConfig, onPlanChange,
+                         onApplyPlan, planBusy, planErr,
+                         onCancel, cancelBusy, cancelErr }: {
   billing: BotEntitlementView | null
   botName: string
   onSubscribe: () => void
@@ -622,6 +732,19 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
   onPortal: () => void
   portalBusy: boolean
   portalErr: string
+  catalog: BillingCatalog
+  isMobile: boolean
+  planOpen: boolean
+  onOpenPlan: () => void
+  onClosePlan: () => void
+  planConfig: BotConfig | null
+  onPlanChange: (next: BotConfig) => void
+  onApplyPlan: () => void
+  planBusy: boolean
+  planErr: string
+  onCancel: () => void
+  cancelBusy: boolean
+  cancelErr: string
 }) {
   if (!billing) {
     return (
@@ -645,6 +768,14 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
   const onTrial = status === 'trialing' && trialEnd != null && trialEnd * 1000 > Date.now()
   const trialDaysLeft = trialEnd != null ? daysUntil(trialEnd) : 0
   const trialExpired = !!billing.trial_expired
+  // « Paiement requis » : Checkout abandonné ou abonnement annulé (point 3/4).
+  // Le bot est gardé (config sauvegardée) mais ses modules sont gate tant que pas
+  // payé -> on propose de relancer le Checkout.
+  const paymentRequired = status === 'inactive'
+  // Plan modifiable EN APP : un abonnement vivant (essai/payé/relance). Pour un
+  // bot 'inactive'/'none'/'canceled', le bon chemin est la (re)souscription via
+  // Checkout, pas le changement au prorata.
+  const planManageable = status === 'active' || status === 'trialing' || status === 'past_due'
 
   return (
     <div className="col" style={{ gap: 16 }}>
@@ -687,6 +818,28 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
         </InfoBox>
       )}
 
+      {/* PAIEMENT REQUIS (point 3) : Checkout abandonné ou abonnement annulé. Le
+          bot est conservé (config sauvegardée) ; on relance le Checkout pour le
+          (ré)activer. Avec BILLING_ENFORCE, l'IA & les modules restent coupés
+          (402) tant que pas payé. */}
+      {paymentRequired && (
+        <InfoBox tone="warn" title="Paiement requis">
+          <div className="col" style={{ gap: 12 }}>
+            <span style={{ fontSize: 12.5 }}>
+              « {botName} » est conservé avec sa configuration, mais son abonnement n'est pas
+              actif : les modules payants et l'IA sont suspendus tant que le paiement n'est pas
+              finalisé. Reprenez là où vous en étiez en finalisant le paiement.
+            </span>
+            <div>
+              <Btn kind="primary" onClick={onSubscribe} disabled={subscribeBusy}>
+                {subscribeBusy ? 'Redirection…' : 'Finaliser le paiement'}
+              </Btn>
+            </div>
+            {subscribeErr && <div className="error">{subscribeErr}</div>}
+          </div>
+        </InfoBox>
+      )}
+
       <Card style={{ padding: '22px 22px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
@@ -697,10 +850,64 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
             </div>
           </div>
           <Link to="/app/billing" className="btn btn-soft" style={{ textDecoration: 'none' }}>
-            Gérer la facturation
+            Moyens de paiement & factures
           </Link>
         </div>
       </Card>
+
+      {/* MODIFIER MON PLAN (point 1/2) : changement EN APP au prorata + annulation
+          fin de période. Disponible uniquement quand un abonnement est vivant
+          (planManageable) ; sinon le bon chemin est la (re)souscription ci-dessus. */}
+      {planManageable && (
+        <Card style={{ padding: '22px 22px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 800 }}>Modifier mon plan</div>
+              <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 3 }}>
+                Ajoutez ou retirez des modules : le changement est appliqué immédiatement, facturé
+                au prorata du mois en cours.
+              </div>
+            </div>
+            {!planOpen && (
+              <Btn kind="soft" onClick={onOpenPlan}>Modifier mon plan</Btn>
+            )}
+          </div>
+
+          {planOpen && planConfig && (
+            <div className="col" style={{ gap: 16, marginTop: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }}>
+                <BotConfigurator catalog={catalog} config={planConfig} onChange={onPlanChange} />
+                <PriceCart catalog={catalog} config={planConfig} title="Nouveau plan" />
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--mut)' }}>
+                L'écart de prix est facturé (ou crédité) au prorata des jours restants du mois en
+                cours, dès l'application.
+              </div>
+              {planErr && <div className="error">{planErr}</div>}
+              <div className="row g8" style={{ flexWrap: 'wrap' }}>
+                <Btn kind="primary" onClick={onApplyPlan} disabled={planBusy}>
+                  {planBusy ? 'Application…' : 'Appliquer (prorata)'}
+                </Btn>
+                <Btn kind="ghost" onClick={onClosePlan} disabled={planBusy}>Annuler</Btn>
+              </div>
+            </div>
+          )}
+
+          {/* Annulation fin de période (point 2) : sans remboursement, bot actif
+              jusqu'à la fin de période puis gate. */}
+          <div style={{ borderTop: '1px solid var(--bd)', marginTop: 18, paddingTop: 16 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Annuler l'abonnement</div>
+            <div style={{ fontSize: 12.5, color: 'var(--mut)', margin: '3px 0 10px' }}>
+              L'abonnement prend fin à la fin de la période en cours (aucun remboursement). Le bot
+              reste actif jusque-là.
+            </div>
+            <Btn kind="danger" onClick={onCancel} disabled={cancelBusy}>
+              {cancelBusy ? 'Annulation…' : "Annuler l'abonnement"}
+            </Btn>
+            {cancelErr && <div className="error" style={{ marginTop: 10 }}>{cancelErr}</div>}
+          </div>
+        </Card>
+      )}
 
       {/* Quota IA (seulement si un plan managé avec quota est actif ; BYOK =
           illimité => quota_ai_replies null, on n'affiche pas de barre). */}

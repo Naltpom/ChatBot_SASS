@@ -4,6 +4,7 @@ snippets d'integration (script HTML, iframe, GTM).
 
 Les helpers d'acces/permission et la validation metier des champs riches sont
 factorises dans routers/bots_helpers.py (partages avec inbox.py et kb.py)."""
+import calendar
 import logging
 from datetime import timedelta
 from typing import Any
@@ -118,6 +119,7 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
     )).scalars().all()
 
     week = await bots_week_stats_for_ids(db, {b.id for b in bots})
+    billing = await _billing_status_for_bots(db, [b.id for b in bots])
 
     out = []
     for b in bots:
@@ -128,7 +130,34 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
         else:
             membership = None if user.is_superadmin else by_org.get(b.organization_id)
         bo = _mask_bot_out(BotOut.from_bot(b), user, membership, b)
+        bo.billing_status, bo.trial_end = billing.get(b.id, (None, None))
         out.append(attach_week_stats(bo, b.id, week))
+    return out
+
+
+async def _billing_status_for_bots(
+    db: AsyncSession, bot_ids: list[int]
+) -> dict[int, tuple[str | None, int | None]]:
+    """billing_status + trial_end (epoch s) par bot, pour le badge front (regle 4).
+
+    INVARIANT billing OFF (D0) : billing_enabled()==False -> {} (tous les bots
+    ressortent (None, None), aucun badge). Sinon on lit les bot_entitlements en
+    UN seul select : status = le statut de la ligne (trialing|active|past_due|
+    inactive), un bot sans ligne (legacy/dev) reste None. trial_end n'est porte
+    que pour un status='trialing'."""
+    if not billing_enabled() or not bot_ids:
+        return {}
+    rows = (await db.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id.in_(bot_ids))
+    )).scalars().all()
+    out: dict[int, tuple[str | None, int | None]] = {}
+    for row in rows:
+        status_ = row.status if row.status in (
+            "trialing", "active", "past_due", "inactive") else None
+        trial_end: int | None = None
+        if row.status == "trialing" and row.trial_end is not None:
+            trial_end = calendar.timegm(row.trial_end.utctimetuple())
+        out[row.bot_id] = (status_, trial_end)
     return out
 
 

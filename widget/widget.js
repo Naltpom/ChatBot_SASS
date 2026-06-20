@@ -1,5 +1,5 @@
 /**
- * Chapote — widget embarquable.
+ * Chapote, widget embarquable.
  *
  * Usage flottant :
  *   <script src="https://api.exemple.com/widget.js" data-bot-key="pk_xxx" defer></script>
@@ -10,7 +10,7 @@
  * permet que d'initialiser une session (vérifiée côté serveur : domaine
  * whitelisté + captcha + rate limits). Aucune clé IA ne transite ici.
  *
- * Design : prototype "Chapote" (claude.ai/design) — widget.jsx.
+ * Design : prototype "Chapote" (claude.ai/design), widget.jsx.
  */
 (function () {
   "use strict";
@@ -31,7 +31,7 @@
   const API = script.src.replace(/\/widget\.js.*$/, "");
 
   // Garde-fous anti-injection : le design_json vient du serveur mais le widget
-  // se défend seul — seules des valeurs sûres entrent dans la feuille de style.
+  // se défend seul, seules des valeurs sûres entrent dans la feuille de style.
   function safeColor(c, fallback) { return /^#[0-9a-fA-F]{3,8}$/.test(c || "") ? c : fallback; }
   function safeInt(n, min, max, fallback) { n = parseInt(n, 10); return isNaN(n) ? fallback : Math.min(max, Math.max(min, n)); }
 
@@ -58,7 +58,7 @@
   // page n'a pas changé, plafonné aux 10 plus récents. Envoyé une seule fois,
   // au handshake de session, pour aider l'IA à contextualiser ses réponses.
   // Cas iframe (data-inline) : on ne voit pas le sessionStorage de la page
-  // parente — la page parente n'est connue que via document.referrer (même
+  // parente, la page parente n'est connue que via document.referrer (même
   // mécanisme que parent_url), et le parcours s'accumule dans le
   // sessionStorage de la frame (même onglet). Referrer absent/illisible
   // (Referrer-Policy stricte) → on n'enregistre rien : journey restera null.
@@ -92,7 +92,7 @@
   }
 
   // chatStatus : statut SERVEUR autoritaire du live chat (ai | human_requested
-  // | human) — aiMode est un sous-état du mode ai. La session (token + fil) est
+  // | human), aiMode est un sous-état du mode ai. La session (token + fil) est
   // PERSISTÉE en localStorage (cf. SESS_KEY) : un reload / une navigation
   // restaure la conversation, rouvrable pendant 2 h après la dernière activité.
   const state = { config: null, token: null, open: false, busy: false, aiMode: false,
@@ -110,7 +110,7 @@
   // conversation SURVIVE à un reload / une navigation et reste rouvrable
   // pendant 2 h après la dernière activité (au-delà : on repart de zéro =
   // « cooldown »). Le token est un JWT bas-privilège (30 min, une seule
-  // conversation, session glissante) — stockage local accepté, comme kc_vid.
+  // conversation, session glissante), stockage local accepté, comme kc_vid.
   const SESS_KEY = "kc_sess_" + BOT_KEY;
   const SESS_TTL = 2 * 60 * 60 * 1000; // 2 h
   function persistSession() {
@@ -408,7 +408,7 @@
     const bubble = SIZES[d.size] || SIZES.md;
     const R = safeInt(d.borderRadius, 0, 40, 16);
     const r14 = Math.min(R, 14);
-    // Personnalisation étendue — whitelists/bornes LOCALES (défense en
+    // Personnalisation étendue, whitelists/bornes LOCALES (défense en
     // profondeur : le widget ne fait jamais confiance au serveur). Les
     // défauts reproduisent le rendu historique à l'identique.
     const font = FONTS[d.font] || FONTS.system;
@@ -470,7 +470,7 @@
       // Tag « IA » et tag « Conseiller » (live chat) : même gabarit
       ".kc-ai-tag,.kc-human-tag{font-size:9.5px;font-weight:800;letter-spacing:.5px;color:" + brand + ";margin-bottom:3px}",
       // CSAT : pouces discrets SOUS la bulle assistant (élément séparé de
-      // .kc-msg — aucun texte ajouté aux bulles, contrat e2e)
+      // .kc-msg, aucun texte ajouté aux bulles, contrat e2e)
       ".kc-rate{display:flex;gap:2px;margin:-5px 0 0 4px}",
       ".kc-rate button{background:none;border:none;cursor:pointer;color:" + mutedText + ";padding:2px;line-height:0;opacity:.7}",
       ".kc-rate button:hover{opacity:1}",
@@ -658,7 +658,7 @@
     ui.inputRow.style.display = (state.config.mode === "tree" && !human) ? "none" : "";
   }
 
-  // tag : "ai" | "human" | null — libellé constant « Conseiller » (le serveur
+  // tag : "ai" | "human" | null, libellé constant « Conseiller » (le serveur
   // n'expose jamais l'identité du staff).
   // msgId (optionnel) : id serveur du message assistant ai|tree -> rangée CSAT
   // (pouces) appendée SÉPARÉMENT après la row, JAMAIS dans .kc-msg (les
@@ -837,7 +837,7 @@
       .catch(function (err) {
         if (err.status === 401 || err.status === 404) {
           // Session expirée (401) ou widget coupé (404 : bot suspendu, org
-          // inactive) : retour SILENCIEUX au mode normal — JAMAIS le
+          // inactive) : retour SILENCIEUX au mode normal, JAMAIS le
           // re-handshake du retry-401 (il créerait une nouvelle conversation)
           stopPolling();
           state.chatStatus = "ai";
@@ -973,7 +973,7 @@
 
   // CSAT : POST du pouce. SANS retry-401 (contrat « jamais de re-handshake »
   // hors envoi de message : un re-handshake créerait une NOUVELLE conversation
-  // et le message_id renverrait un 404 garanti — même philosophie que le
+  // et le message_id renverrait un 404 garanti, même philosophie que le
   // poll). Échec = rejet de la promesse, revert visuel silencieux côté bouton.
   function postFeedback(messageId, rating) {
     return api("/api/widget/feedback", {
@@ -1141,7 +1141,7 @@
     } else if (state.aiMode || state.config.mode === "ai") {
       if (ui.input) ui.input.focus(); // mode IA : saisie libre, pas de menu
     } else {
-      // Bot à menu : ré-affiche les options racine pour CONTINUER. Best-effort —
+      // Bot à menu : ré-affiche les options racine pour CONTINUER. Best-effort,
       // token expiré -> postMessage re-handshake une session serveur fraîche,
       // le fil visible restant préservé.
       sendNodeSilent("__root__");
@@ -1230,7 +1230,7 @@
 
   // --- Triggers proactifs ---
   // Évalués 100% côté client (timer, profondeur de scroll, intention de
-  // sortie, motif d'URL) à partir du bootstrap sanitisé — AUCUN appel serveur
+  // sortie, motif d'URL) à partir du bootstrap sanitisé, AUCUN appel serveur
   // au déclenchement : le tir ouvre le panneau (toggle -> startSession) puis
   // affiche le message en bulle locale. UN SEUL tir par chargement de page
   // (le premier annule les autres), jamais si le panneau est ouvert ou si le

@@ -97,6 +97,12 @@ class SubscriptionUpdatePayload(BaseModel):
     config: BotConfigPayload
 
 
+class SubscriptionCancelPayload(BaseModel):
+    # On accepte soit le bot (on retrouve sa sub active), soit la sub directement.
+    bot_id: Optional[int] = None
+    subscription_id: Optional[str] = None
+
+
 class GroupingPayload(BaseModel):
     grouping: str = Field(pattern="^(per_bot|total|per_org)$")
 
@@ -298,6 +304,27 @@ def _scope_for_bot(grouping: str, bot: Bot) -> tuple[str, int | None, int | None
             return "org", None, bot.organization_id
         return "user_personal", None, None
     return "user_all", None, None  # total
+
+
+async def _active_sub_for_bot(
+    db: AsyncSession, user: User, bot_id: int
+) -> BillingSubscription | None:
+    """Sub du payeur ACTIVE (active|trialing|past_due) couvrant `bot_id`.
+
+    On parcourt les subs non résiliées du payeur et on retient la 1re dont un
+    `raw_items[].bot_id` pointe sur le bot. None si le bot n'a pas de sub active
+    (-> relance Checkout côté appelant, point 3 : bot 'inactive')."""
+    subs = (await db.execute(
+        select(BillingSubscription).where(
+            BillingSubscription.user_id == user.id,
+            BillingSubscription.status.in_(["active", "trialing", "past_due"]),
+        )
+    )).scalars().all()
+    for sub in subs:
+        for item in (sub.raw_items or []):
+            if item.get("bot_id") == bot_id:
+                return sub
+    return None
 
 
 async def _ai_quota_for_codes(db: AsyncSession, codes: list[str]) -> int | None:
@@ -547,33 +574,18 @@ async def get_summary(db: AsyncSession = Depends(get_db),
 
 # --- POST /api/billing/checkout -------------------------------------------
 
-@router.post("/billing/checkout")
-async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
-                   user: User = Depends(get_current_user)):
-    """Crée une session de Checkout Stripe : c'est le SEUL chemin d'essai (point 1).
+async def _open_checkout(
+    db: AsyncSession, user: User, bot: Bot, grouping: str,
+    config: BotConfigPayload,
+) -> dict:
+    """Ouvre une session de Checkout Stripe pour `bot` selon `config` (essai AVEC
+    carte) et renvoie le dict de réponse — SANS commit (l'appelant commit).
 
-    Essai AVEC CARTE : le Checkout ouvre un abonnement Stripe en statut `trialing`
-    (`subscription_data[trial_period_days]=7` + `payment_method_collection=always`)
-    — la carte est OBLIGATOIRE, 0 € est débité pendant 7 j, puis auto-débit du plan
-    à J+7 SAUF résiliation au Customer Portal (-> subscription.deleted -> bot gaté).
-
-    Socle-inclusion (point 6) : `base` (9 €) n'est facturé QUE pour un bot arbre
-    seul (aucun plan IA) ; dès qu'un plan IA est pris, le socle est inclus dans le
-    prix du plan et n'apparaît PAS comme line_item.
-
-    Owner-only (require_billing_owner scopée). Billing OFF ⇒ {billing: disabled}.
-    Aucun line_item facturable (catalogue non seedé) ⇒ pas de Checkout."""
-    if not stripe_service.billing_enabled():
-        return _DISABLED
-
-    _validate_config_modules(body.config)
-    bot = await db.get(Bot, body.bot_id)
-    if bot is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    await require_billing_owner(bot, user, db)
-
-    grouping = body.grouping or user.billing_grouping
-    codes, modules = _config_to_codes(body.config)
+    Factorisé pour servir DEUX chemins (point 3) : la 1re souscription
+    (POST /billing/checkout) ET la relance de paiement d'un bot 'inactive'
+    (POST /billing/subscription/update sans sub active sur le bot). Le caller a
+    déjà validé la config et l'ownership."""
+    codes, modules = _config_to_codes(config)
     line_items = await _line_items_for_codes(db, codes)
 
     if not line_items:
@@ -583,7 +595,6 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
         # Stripe ni catalogue prix réel.
         if settings.MOCK_BILLING:
             await _project_mock_entitlement(db, bot, codes, modules)
-        await db.commit()
         return {"checkout_url": None, "free": True}
 
     customer_id = await _ensure_customer(db, user)
@@ -610,8 +621,41 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
     if settings.MOCK_BILLING:
         # Simule checkout.session.completed : applique l'entitlement directement.
         await _project_mock_entitlement(db, bot, codes, modules)
-    await db.commit()
     return {"checkout_url": url}
+
+
+@router.post("/billing/checkout")
+async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    """Crée une session de Checkout Stripe : c'est le SEUL chemin d'essai (point 1).
+
+    Essai AVEC CARTE : le Checkout ouvre un abonnement Stripe en statut `trialing`
+    (`subscription_data[trial_period_days]=7` + `payment_method_collection=always`)
+    — la carte est OBLIGATOIRE, 0 € est débité pendant 7 j, puis auto-débit du plan
+    à J+7 SAUF résiliation au Customer Portal (-> subscription.deleted -> bot gaté).
+
+    Sert AUSSI à RELANCER le paiement d'un bot 'inactive' (Checkout annulé/abandonné,
+    point 3) : même payload, même chemin.
+
+    Socle-inclusion (point 6) : `base` (9 €) n'est facturé QUE pour un bot arbre
+    seul (aucun plan IA) ; dès qu'un plan IA est pris, le socle est inclus dans le
+    prix du plan et n'apparaît PAS comme line_item.
+
+    Owner-only (require_billing_owner scopée). Billing OFF ⇒ {billing: disabled}.
+    Aucun line_item facturable (catalogue non seedé) ⇒ pas de Checkout."""
+    if not stripe_service.billing_enabled():
+        return _DISABLED
+
+    _validate_config_modules(body.config)
+    bot = await db.get(Bot, body.bot_id)
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    await require_billing_owner(bot, user, db)
+
+    grouping = body.grouping or user.billing_grouping
+    result = await _open_checkout(db, user, bot, grouping, body.config)
+    await db.commit()
+    return result
 
 
 # --- POST /api/billing/subscription/update --------------------------------
@@ -620,11 +664,22 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
 async def subscription_update(body: SubscriptionUpdatePayload,
                               db: AsyncSession = Depends(get_db),
                               user: User = Depends(get_current_user)):
-    """Met à jour les modules d'un bot déjà souscrit (ajout/retrait).
+    """Modifie le PLAN/modules d'un bot déjà souscrit, AU PRORATA (règle 1, point 1).
 
-    Owner-only. Sans abonnement actif sur le bot ⇒ on bascule sur un Checkout
-    (renvoie {portal_url} = l'URL de paiement) ; sinon on aligne les items via
-    le portail épinglé / l'API. Billing OFF ⇒ {billing: disabled}."""
+    Changement INSTANTANÉ (upgrade comme downgrade) : on aligne directement les
+    items de la subscription Stripe du bot via `update_subscription_items(
+    proration_behavior='create_prorations')` — PAS de redirection vers le portail.
+    Stripe émet la proration (crédit/débit du temps restant) et un event
+    subscription.updated -> le webhook reprojette l'entitlement. Renvoie
+    {status:'updated'}.
+
+    Sans subscription ACTIVE sur le bot (bot 'inactive' : Checkout annulé/abandonné,
+    point 3) ⇒ on relance le Checkout et renvoie {status:'needs_checkout',
+    checkout_url} (l'owner repasse par l'essai avec carte).
+
+    Owner-only. MOCK_BILLING ⇒ on projette directement le nouvel état (essai), sauf
+    sur un bot encore 'inactive' (jamais souscrit) -> needs_checkout. Billing OFF ⇒
+    {billing: disabled}."""
     if not stripe_service.billing_enabled():
         return _DISABLED
 
@@ -637,16 +692,133 @@ async def subscription_update(body: SubscriptionUpdatePayload,
     codes, modules = _config_to_codes(body.config)
 
     if settings.MOCK_BILLING:
-        # Applique directement le nouvel état (e2e dégradation/activation).
+        # MOCK : pas de subscription Stripe réelle. Le bot est « souscrit » dès que
+        # son entitlement a un statut actif/essai/impayé (posé par un Checkout MOCK
+        # antérieur). Un bot jamais souscrit (status 'inactive' / pas d'entitlement)
+        # -> relance Checkout (point 3) ; sinon on projette directement (e2e
+        # dégradation/activation au prorata).
+        row = (await db.execute(
+            select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
+        )).scalar_one_or_none()
+        subscribed = row is not None and row.status in (
+            "active", "trialing", "past_due")
+        if not subscribed:
+            result = await _open_checkout(
+                db, user, bot, user.billing_grouping, body.config)
+            await db.commit()
+            return {"status": "needs_checkout",
+                    "checkout_url": result.get("checkout_url")}
         await _project_mock_entitlement(db, bot, codes, modules)
         await db.commit()
         return {"status": "updated"}
 
-    # Vrai Stripe : on dirige l'owner vers le portail (downgrade/upgrade encadré).
-    customer_id = await _ensure_customer(db, user)
-    portal_url = await stripe_service.create_portal_session(customer_id)
+    # Vrai Stripe : changement au prorata sur la subscription du bot.
+    sub = await _active_sub_for_bot(db, user, bot.id)
+    if sub is None:
+        # Bot sans sub active (jamais payé / annulé) : relance Checkout (point 3).
+        result = await _open_checkout(
+            db, user, bot, user.billing_grouping, body.config)
+        await db.commit()
+        return {"status": "needs_checkout",
+                "checkout_url": result.get("checkout_url")}
+
+    # Items CIBLES = nouvelle config du bot. On RÉUTILISE le si_id existant quand le
+    # price ne change pas (Stripe aligne l'item) et on SUPPRIME (deleted) les items
+    # du bot dont le price n'est plus dans la cible. Les items des AUTRES bots
+    # portés par la même sub (formats total/per_org) sont PRÉSERVÉS tels quels.
+    new_items = await _line_items_for_codes(db, codes)
+    new_prices = {it["price"] for it in new_items}
+
+    existing = list(sub.raw_items or [])
+    si_by_price = {it.get("price_id"): it.get("si_id")
+                   for it in existing
+                   if it.get("bot_id") == bot.id and it.get("price_id")}
+    bot_prices = set(si_by_price)
+
+    target: list[dict] = []
+    # 1) Items des AUTRES bots : conservés à l'identique (formats total/per_org).
+    for it in existing:
+        if it.get("bot_id") != bot.id and it.get("price_id"):
+            target.append({"id": it.get("si_id"), "price": it["price_id"],
+                           "quantity": it.get("qty", 1)})
+    # 2) Nouveaux items du bot (réutilise le si_id si le price est déjà porté).
+    for it in new_items:
+        entry: dict[str, Any] = {"price": it["price"], "quantity": it["quantity"],
+                                 "metadata": {"bot_id": str(bot.id),
+                                              "code": it["code"]}}
+        if it["price"] in si_by_price:
+            entry["id"] = si_by_price[it["price"]]
+        target.append(entry)
+    # 3) Items du bot retirés de la cible : suppression explicite (proration crédit).
+    for price in bot_prices - new_prices:
+        target.append({"id": si_by_price[price], "deleted": True})
+
+    await stripe_service.update_subscription_items(
+        sub.stripe_subscription_id, target,
+        proration_behavior="create_prorations")
+    # L'état effectif (entitlement) est reprojeté par le webhook subscription.updated.
     await db.commit()
-    return {"status": "portal", "portal_url": portal_url}
+    return {"status": "updated"}
+
+
+# --- POST /api/billing/subscription/cancel --------------------------------
+
+@router.post("/billing/subscription/cancel")
+async def subscription_cancel(body: SubscriptionCancelPayload,
+                              db: AsyncSession = Depends(get_db),
+                              user: User = Depends(get_current_user)):
+    """Annule l'abonnement d'un bot en FIN DE PÉRIODE (règle 2, point 2).
+
+    `cancel_at_period_end=true` sur la sub Stripe : AUCUN remboursement, le bot
+    reste ACTIF jusqu'à `current_period_end`, puis Stripe émet
+    subscription.deleted -> le webhook gate le bot. Renvoie {status:'cancel_scheduled',
+    current_period_end} (epoch s | null).
+
+    Cible : `subscription_id` (doit appartenir au payeur) OU `bot_id` (on retrouve
+    sa sub active). Owner-only via la possession de la sub / require_billing_owner.
+    MOCK_BILLING : marque la sub localement (cancel_at_period_end=True). Billing OFF
+    ⇒ {billing: disabled}."""
+    if not stripe_service.billing_enabled():
+        return _DISABLED
+
+    sub: BillingSubscription | None = None
+    if body.subscription_id:
+        # La sub doit appartenir au payeur (anti-énumération inter-comptes).
+        sub = (await db.execute(
+            select(BillingSubscription).where(
+                BillingSubscription.stripe_subscription_id == body.subscription_id,
+                BillingSubscription.user_id == user.id,
+            )
+        )).scalar_one_or_none()
+    elif body.bot_id is not None:
+        bot = await db.get(Bot, body.bot_id)
+        if bot is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+        await require_billing_owner(bot, user, db)
+        sub = await _active_sub_for_bot(db, user, bot.id)
+    else:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "bot_id ou subscription_id requis")
+
+    if sub is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            "Aucun abonnement actif à annuler")
+
+    # Programme la résiliation en fin de période (sans remboursement, sans proration).
+    stripe_sub = await stripe_service.cancel_at_period_end(sub.stripe_subscription_id)
+    sub.cancel_at_period_end = True
+
+    # current_period_end (epoch s) : depuis l'objet Stripe (vrai), sinon le miroir
+    # local (MOCK / Stripe muet). Le bot reste actif jusque-là.
+    period_end: int | None = None
+    if isinstance(stripe_sub, dict) and isinstance(
+            stripe_sub.get("current_period_end"), int):
+        period_end = stripe_sub["current_period_end"]
+    elif sub.current_period_end is not None:
+        period_end = calendar.timegm(sub.current_period_end.utctimetuple())
+
+    await db.commit()
+    return {"status": "cancel_scheduled", "current_period_end": period_end}
 
 
 # --- POST /api/billing/portal + /portal/cancel ----------------------------
