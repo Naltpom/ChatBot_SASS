@@ -30,10 +30,10 @@ import TreeFlow from '../components/TreeFlow'
 import WidgetPreview from '../components/WidgetPreview'
 import HatIcon from '../components/HatIcon'
 import BotConfigurator from '../components/billing/BotConfigurator'
-import PriceCart from '../components/billing/PriceCart'
+import PriceCart, { formatCents } from '../components/billing/PriceCart'
 import { errMsg } from '../utils/errors'
-import { InfoBox } from '../ui'
-import { FALLBACK_CATALOG, computeCart } from '../utils/billing'
+import { InfoBox, Seg } from '../ui'
+import { FALLBACK_CATALOG, computeCart, deriveConfigFromChat } from '../utils/billing'
 import type { DesignJson, Tree, TreeNode } from '../types/bot'
 import type { BillingCatalog, BotConfig } from '../types/billing'
 
@@ -303,10 +303,12 @@ function dotIndex(step: Step): number {
 
 const RANDOM_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED', '#0EA5E9', '#D946A6']
 
-// Composition de bot par défaut (étape 'plan'). Socle gratuit seul : aucun
-// module payant, plan IA gratuit (ai_free) pré-sélectionné, pas de BYOK. Le
-// configurateur fait ensuite évoluer cette config (presets / mode avancé).
-const DEFAULT_BOT_CONFIG: BotConfig = { modules: [], ai_tier_id: 'ai_free', ai_byok: false }
+// Composition de bot par défaut (étape 'plan'). Arbre seul : aucun module payant,
+// AUCUN plan IA pré-sélectionné (ai_tier_id=null — l'IA gratuite à vie 'ai_free'
+// est supprimée, point 7 ; l'utilisateur choisit un plan IA s'il veut l'IA). La
+// dérivation du chat (deriveConfigFromChat) ou le configurateur fait ensuite
+// évoluer cette config.
+const DEFAULT_BOT_CONFIG: BotConfig = { modules: [], ai_tier_id: null, ai_byok: false }
 
 // Sources : types de page proposés + libellé d'en-tête FR utilisé côté backend.
 type SourceType = 'site' | 'contact' | 'aide' | 'qr' | 'autre'
@@ -397,6 +399,10 @@ export default function BotWizard() {
   // configurateur fait confiance au backend pour le montant final (Stripe).
   const [catalog, setCatalog] = useState<BillingCatalog>(FALLBACK_CATALOG)
   const [botConfig, setBotConfig] = useState<BotConfig>(draft0?.botConfig ?? { ...DEFAULT_BOT_CONFIG })
+  // Intention de souscription (point 3) : le bot démarre TOUJOURS en essai 7 j.
+  // false (défaut) => on reflète l'essai (activate-free). true => l'utilisateur veut
+  // souscrire tout de suite (checkout Stripe, lève l'essai). Restauré du brouillon.
+  const [subscribeNow, setSubscribeNow] = useState<boolean>(draft0?.subscribeNow ?? false)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -617,19 +623,30 @@ export default function BotWizard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, billingActive])
 
-  // Pré-remplit le module IA selon le choix du chat : si l'utilisateur veut de
-  // l'IA et n'a encore rien configuré, on active le module 'ai' (plan géré par
-  // défaut). N'écrase pas une config restaurée d'un brouillon.
+  // DÉRIVATION de l'abonnement depuis le chat : l'étape 'plan' arrive PRÉ-REMPLIE
+  // (preset + modules cochés), ajustable. La règle vit dans deriveConfigFromChat
+  // (utils/billing, PURE) : objectifs/repli -> modules recommandés (inbox si
+  // conseiller, rag si FAQ, actions si rdv/commande/leads, ai+palier si IA voulue,
+  // sinon arbre seul). On ne re-dérive QUE tant qu'on n'a pas dépassé l'étape
+  // 'plan' (en amont du choix), et JAMAIS par-dessus une config restaurée d'un
+  // brouillon (l'utilisateur a déjà ajusté) ni après que l'utilisateur a ouvert
+  // le configurateur (planTouched). Cela évite d'écraser un choix manuel.
+  const planTouched = useRef(false)
+  const beforePlan = step === 'chat' || step === 'preset'
   useEffect(() => {
-    if (draft0?.botConfig) return
-    setBotConfig(prev => {
-      const hasAi = prev.modules.includes('ai')
-      if (wantsAI && !hasAi) return { ...prev, modules: [...prev.modules, 'ai'] }
-      if (!wantsAI && hasAi) return { ...prev, modules: prev.modules.filter(m => m !== 'ai') }
-      return prev
-    })
+    if (draft0?.botConfig) return        // config restaurée : ne pas écraser
+    if (planTouched.current) return      // l'utilisateur a ajusté : ne pas écraser
+    if (!beforePlan) return              // déjà au-delà du choix d'abonnement
+    setBotConfig(deriveConfigFromChat(catalog, { goals, wantsAi: wantsAI, wantsHuman }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantsAI])
+  }, [goals, wantsAI, wantsHuman, catalog, beforePlan])
+
+  // Le configurateur a remonté un changement : on marque la config comme « touchée »
+  // pour figer la dérivation automatique (le choix manuel prime).
+  function onConfigChange(next: BotConfig) {
+    planTouched.current = true
+    setBotConfig(next)
+  }
 
   // Sauvegarde du brouillon à chaque changement (reprise après coupure). On ne
   // persiste pas l'étape transitoire 'processing' (re-jouée), et on efface tout
@@ -645,12 +662,12 @@ export default function BotWizard() {
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
           v: 1, step: step === 'processing' ? 'sources' : step,
-          qi, answers, goals, look, rows, treeJson, dest, botConfig, savedAt: Date.now(),
+          qi, answers, goals, look, rows, treeJson, dest, botConfig, subscribeNow, savedAt: Date.now(),
         }))
       } catch { /* quota dépassé / mode privé : on ignore */ }
     }, 500)
     return () => clearTimeout(h)
-  }, [step, qi, answers, goals, look, rows, treeJson, dest, botConfig])
+  }, [step, qi, answers, goals, look, rows, treeJson, dest, botConfig, subscribeNow])
 
   // « Recommencer à zéro » : efface le brouillon et remet le wizard au départ.
   function discardDraft() {
@@ -659,6 +676,8 @@ export default function BotWizard() {
     setStep('chat'); setQi(0); setAnswers({}); setGoals([]); setTextDraft('')
     setLook({ ...DEFAULT_LOOK }); setRows([newRow()]); setPdfs([]); setTreeJson(null); setGenNote('')
     setBotConfig({ ...DEFAULT_BOT_CONFIG })
+    setSubscribeNow(false)
+    planTouched.current = false   // ré-active la dérivation depuis le chat
   }
 
   // -------------------------------------------------------------------------
@@ -713,17 +732,19 @@ export default function BotWizard() {
       }
       await api(`/api/bots/${bot.id}`, { method: 'PATCH', body })
 
-      // 3) facturation : si le billing est actif et que je suis le payeur de la
-      // destination, trois cas selon la compo choisie.
-      // Invariant D0 : billing OFF => totalCents calculé sur FALLBACK mais on
-      // n'émet AUCUN appel /api/billing/* (billingActive=false) => comportement
-      // gratuit identique.
+      // 3) facturation : le bot démarre TOUJOURS en essai 7 j (plus de chemin
+      // « gratuit à vie », point 1). Si le billing est actif et que je suis le
+      // payeur de la destination, deux chemins selon l'intention :
+      //   - subscribeNow=false (défaut) : on REFLÈTE l'essai sur la config choisie
+      //     via /billing/activate-free (status='trialing', modules + quota du plan,
+      //     trial_end posé à la création) — sans carte ;
+      //   - subscribeNow=true : l'utilisateur souscrit tout de suite => /billing/checkout
+      //     (lève l'essai). checkout_url null / free=true (rien à payer in fine,
+      //     ou catalogue non seedé) => pas de redirection, on termine en 'done'.
+      // Invariant billing-OFF (D0) : si billing OFF, AUCUN appel /api/billing/*
+      // (billingActive=false) — le bot reste sur son essai par défaut, pas de crash.
       if (billingActive && isOwnerDest) {
-        // (a) Compo payante (> 0 €) : Checkout Stripe (redirection hébergée).
-        // On garde la nullité du checkout_url et le flag `free` : un backend qui
-        // répond {checkout_url:null, free:true} (rien à payer in fine) NE doit
-        // PAS provoquer une navigation vers `undefined` — on termine en 'done'.
-        if (totalCents > 0) {
+        if (subscribeNow) {
           const { checkout_url, free } = await api<{ checkout_url: string | null; free?: boolean }>(
             '/api/billing/checkout', {
               method: 'POST',
@@ -731,25 +752,20 @@ export default function BotWizard() {
             },
           )
           if (checkout_url && !free) {
-            // Le retour Stripe (?checkout=success) atterrit sur /app/billing.
+            // Redirection vers le Checkout hébergé. Retour Stripe (?checkout=success)
+            // sur /app/billing. On ne navigue JAMAIS vers un url null/undefined.
             window.location.href = checkout_url
             return
           }
-          // Rien à payer (free / URL absente) : bot déjà projeté côté serveur.
-          setCreatedBotId(bot.id)
-          setStep('done')
-          return
-        }
-        // (b) Plan IA gratuit (total 0 €, palier 'ai_free') : pas de Stripe, mais
-        // le bot DOIT obtenir l'entitlement MODULE_AI + son quota gratuit. On
-        // projette l'état via l'endpoint dédié AVANT de terminer le wizard.
-        if (botConfig.ai_tier_id === 'ai_free') {
+          // Rien à payer (free / url absente) : état déjà projeté côté serveur.
+        } else {
+          // Reflète l'essai 7 j sur la config (débloque le plan configuré pendant
+          // l'essai, IA plafonnée à 50 réponses jusqu'à la souscription).
           await api('/api/billing/activate-free', {
             method: 'POST',
             body: { bot_id: bot.id, config: botConfig },
           })
         }
-        // (c) total == 0 sans IA : socle gratuit pur, rien à projeter.
       }
 
       setCreatedBotId(bot.id)
@@ -952,9 +968,20 @@ export default function BotWizard() {
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <span style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🧩</span>
             <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 28, margin: '14px 0 0', letterSpacing: '-.02em' }}>Composez votre abonnement</h1>
-            <p style={{ fontSize: 15, color: MUT, margin: '10px auto 0', maxWidth: 520, lineHeight: 1.55 }}>
-              Le socle est gratuit. Choisissez votre plan IA et les modules à valeur — le panier se met à jour en direct.
+            <p style={{ fontSize: 15, color: MUT, margin: '10px auto 0', maxWidth: 540, lineHeight: 1.55 }}>
+              {/* Description RÉELLE du socle (catalogue), pas une répétition du titre. */}
+              {catalog.base_description || 'Le socle inclut l\'arbre, l\'apparence, les déclencheurs et les analytics.'}{' '}
+              Choisissez votre plan IA et les modules à valeur — le panier se met à jour en direct.
             </p>
+          </div>
+
+          {/* Essai 7 j sans carte — l'abonnement composé démarre en essai, l'IA est
+              plafonnée pendant cette période (levée à la souscription). */}
+          <div style={{ marginBottom: 18 }}>
+            <InfoBox tone="info" title="Essai 7 jours, sans carte">
+              Votre chatbot démarre par un essai gratuit de 7 jours, sans carte bancaire. Pendant l'essai,
+              l'IA managée est plafonnée à 50 réponses ; ce plafond est levé dès la souscription.
+            </InfoBox>
           </div>
 
           {!isOwnerDest && (
@@ -967,9 +994,32 @@ export default function BotWizard() {
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0,1fr) 320px', gap: 20, alignItems: 'start' }}>
-            <BotConfigurator catalog={catalog} config={botConfig} onChange={setBotConfig} readOnly={!isOwnerDest} />
+            <BotConfigurator catalog={catalog} config={botConfig} onChange={onConfigChange} readOnly={!isOwnerDest} />
             <PriceCart catalog={catalog} config={botConfig} />
           </div>
+
+          {/* Intention de souscription. L'essai 7 j est le défaut ; l'owner peut
+              choisir de souscrire tout de suite (Checkout à la création). Affiché
+              seulement à l'owner ET si la compo est facturable (sinon checkout =
+              no-op : seul l'essai a du sens). */}
+          {isOwnerDest && totalCents > 0 && (
+            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 18 }}>
+              <Label>Comment démarrer ?</Label>
+              <Seg
+                options={[
+                  { value: 'trial', label: 'Essai 7 jours gratuit' },
+                  { value: 'now', label: 'Souscrire maintenant' },
+                ]}
+                value={subscribeNow ? 'now' : 'trial'}
+                onChange={v => setSubscribeNow(v === 'now')}
+              />
+              <div style={{ fontSize: 12.5, color: FAINT, marginTop: 10, lineHeight: 1.5 }}>
+                {subscribeNow
+                  ? `Vous serez redirigé vers le paiement sécurisé à la création (${formatCents(totalCents, catalog.currency)} /mois).`
+                  : 'Aucune carte demandée. Vous pourrez souscrire à tout moment depuis l\'espace facturation.'}
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>
             <button onClick={() => setStep('preset')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Retour</button>

@@ -31,7 +31,18 @@ import IntegrationTab from '../components/bot-tabs/IntegrationTab'
 import SecurityTab from '../components/bot-tabs/SecurityTab'
 import WidgetPreview from '../components/WidgetPreview'
 import type { Bot, Integration, Tree } from '../types/bot'
-import type { BotBilling } from '../types/billing'
+import type { BotBilling, BotConfig } from '../types/billing'
+
+// L'entitlement (GET /api/bots/{id}/entitlement) enrichit `BotBilling` avec
+// l'état d'essai 7 j (fin du gratuit à vie) : `status` brut (incl. 'trialing'),
+// `trial_end` (epoch s|null) et `trial_expired`. Ces champs ne figurent pas
+// encore sur le contrat partagé `BotBilling` ; on les déclare ici (lecture seule,
+// alignés routers/billing.get_bot_entitlement) sans modifier le type partagé.
+type BotEntitlementView = BotBilling & {
+  status?: string
+  trial_end?: number | null
+  trial_expired?: boolean
+}
 
 // perm = permission par bot requise pour un MEMBER (admins : tout). Libellés
 // EXACTS de la charte Chapote. L'onglet 'appearance' reste PREMIER (fallback
@@ -94,7 +105,10 @@ export default function BotPage() {
   const [pageError, setPageError] = useState('')   // erreurs hors save (import, delete) — dismissable
   // État de facturation du bot (onglet Facturation) : modules actifs / quota IA /
   // statut d'abonnement. Chargé paresseusement quand l'onglet devient visible.
-  const [botBilling, setBotBilling] = useState<BotBilling | null>(null)
+  const [botBilling, setBotBilling] = useState<BotEntitlementView | null>(null)
+  // Souscription depuis l'essai (POST /api/billing/checkout) : busy + erreur.
+  const [subscribeBusy, setSubscribeBusy] = useState(false)
+  const [subscribeErr, setSubscribeErr] = useState('')
 
   const fromAdmin = params.get('from') === 'admin'
   const isAdminView = !!user?.is_superadmin && fromAdmin
@@ -110,7 +124,7 @@ export default function BotPage() {
   useEffect(() => {
     if (tab !== 'billing') return
     let alive = true
-    api<BotBilling>(`/api/bots/${botId}/entitlement`)
+    api<BotEntitlementView>(`/api/bots/${botId}/entitlement`)
       .then(d => { if (alive) setBotBilling(d) })
       .catch(() => { if (alive) setBotBilling(null) })
     return () => { alive = false }
@@ -259,6 +273,39 @@ export default function BotPage() {
     const dd = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
     if (dd && !bot.allowed_domains.includes(dd)) patch({ allowed_domains: [...bot.allowed_domains, dd] })
     setNewDomain('')
+  }
+
+  // « Souscrire maintenant » depuis l'onglet Facturation : lève l'essai 7 j en
+  // convertissant la config DÉJÀ active (modules débloqués pendant l'essai +
+  // variante BYOK) via POST /api/billing/checkout. Le backend recalcule les
+  // line_items et débloque le quota plein (plafond essai 50 réponses retiré).
+  // checkout_url -> redirection Stripe ; null/free -> souscription immédiate
+  // (MOCK / catalogue gratuit), on recharge l'entitlement.
+  async function subscribeNow() {
+    if (!botBilling) return
+    setSubscribeBusy(true)
+    setSubscribeErr('')
+    // L'entitlement ne porte pas le palier IA précis (ai_tier_id null) : on
+    // rejoue les modules actifs + la variante BYOK. Le backend dérive les codes.
+    const config: BotConfig = {
+      modules: botBilling.active_modules,
+      ai_tier_id: botBilling.ai_tier_id,
+      ai_byok: botBilling.ai_byok,
+    }
+    try {
+      const res = await api<{ checkout_url?: string | null; free?: boolean; billing?: string }>(
+        '/api/billing/checkout',
+        { method: 'POST', body: { bot_id: botId, config } },
+      )
+      if (res.checkout_url) { window.location.href = res.checkout_url; return }
+      // Souscription immédiate (MOCK / gratuit) : on recharge l'entitlement.
+      const updated = await api<BotEntitlementView>(`/api/bots/${botId}/entitlement`)
+      setBotBilling(updated)
+    } catch (err: unknown) {
+      setSubscribeErr(errMsg(err, "La souscription n'a pas pu démarrer."))
+    } finally {
+      setSubscribeBusy(false)
+    }
   }
 
   if (!bot) {
@@ -424,7 +471,8 @@ export default function BotPage() {
 
       {/* ================= FACTURATION ================= */}
       {activeTab === 'billing' && (
-        <BotBillingTab billing={botBilling} botName={bot.name} />
+        <BotBillingTab billing={botBilling} botName={bot.name}
+                       onSubscribe={subscribeNow} subscribeBusy={subscribeBusy} subscribeErr={subscribeErr} />
       )}
 
       {/* Widget de TEST flottant : le vrai aperçu du chatbot, posé directement sur
@@ -516,18 +564,34 @@ const MODULE_LABELS: Record<string, string> = {
   ab: 'A/B testing',
   white_label: 'White-label',
 }
-const SUB_STATUS_LABELS: Record<BotBilling['subscription_status'], string> = {
+const SUB_STATUS_LABELS: Record<string, string> = {
   active: 'Actif',
+  trialing: 'Essai gratuit',
   past_due: 'Paiement en retard',
   canceled: 'Résilié',
   none: 'Aucun abonnement',
 }
 
-// Onglet Facturation d'un bot : récap lecture seule des modules actifs, du quota
-// IA et du statut d'abonnement, avec renvoi vers la page Facturation pour gérer
-// l'abonnement (changement de modules, portail Stripe, factures). Owner-only et
-// monté uniquement si le billing est actif (voir billingTabVisible / visibleTabs).
-function BotBillingTab({ billing, botName }: { billing: BotBilling | null; botName: string }) {
+// Plafond IA pendant l'essai 7 j (sans carte), aligné backend (fin du gratuit à
+// vie). Levé à la souscription. Informatif (pas un prix codé en dur).
+const TRIAL_AI_CAP = 50
+// Jours restants avant la fin d'essai (epoch s -> ms, arrondi au jour supérieur).
+function daysUntil(epochSeconds: number): number {
+  const ms = epochSeconds * 1000 - Date.now()
+  return ms <= 0 ? 0 : Math.ceil(ms / 86_400_000)
+}
+
+// Onglet Facturation d'un bot : état d'essai 7 j (compte à rebours + plafond IA
+// + « Souscrire maintenant »), récap des modules actifs, quota IA (Meter) avec
+// alerte « quota proche / atteint », et renvoi vers la page Facturation. Owner-only
+// et monté uniquement si le billing est actif (voir billingTabVisible / visibleTabs).
+function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribeErr }: {
+  billing: BotEntitlementView | null
+  botName: string
+  onSubscribe: () => void
+  subscribeBusy: boolean
+  subscribeErr: string
+}) {
   if (!billing) {
     return (
       <Card style={{ padding: '24px 22px' }}>
@@ -539,19 +603,66 @@ function BotBillingTab({ billing, botName }: { billing: BotBilling | null; botNa
   const used = billing.usage_ai_replies
   const pct = quota && quota > 0 ? Math.round((used / quota) * 100) : 0
   const overQuota = quota != null && quota > 0 && used >= quota
+  const nearQuota = !overQuota && quota != null && quota > 0 && pct >= 80
   const modules = billing.active_modules || []
+
+  // État d'essai (fin du gratuit à vie). `status`/`subscription_status` peut valoir
+  // 'trialing' ; `trial_end` (epoch s) porte l'échéance ; `trial_expired` = essai
+  // échu sans souscription (bot bloqué).
+  const status = billing.status ?? billing.subscription_status
+  const trialEnd = billing.trial_end ?? null
+  const onTrial = status === 'trialing' && trialEnd != null && trialEnd * 1000 > Date.now()
+  const trialDaysLeft = trialEnd != null ? daysUntil(trialEnd) : 0
+  const trialExpired = !!billing.trial_expired
 
   return (
     <div className="col" style={{ gap: 16 }}>
+      {/* ESSAI EN COURS : compte à rebours + plafond IA + souscrire. */}
+      {onTrial && (
+        <InfoBox tone="info" title={`Essai : ${trialDaysLeft} ${trialDaysLeft > 1 ? 'jours restants' : 'jour restant'}`}>
+          <div className="col" style={{ gap: 12 }}>
+            <span style={{ fontSize: 12.5 }}>
+              L'IA de ce bot est plafonnée à {TRIAL_AI_CAP} réponses pendant l'essai. Souscrivez
+              maintenant pour lever ce plafond et débloquer votre quota complet.
+            </span>
+            <div>
+              <Btn kind="primary" onClick={onSubscribe} disabled={subscribeBusy}>
+                {subscribeBusy ? 'Redirection…' : 'Souscrire maintenant'}
+              </Btn>
+            </div>
+            {subscribeErr && <div className="error">{subscribeErr}</div>}
+          </div>
+        </InfoBox>
+      )}
+
+      {/* ESSAI TERMINÉ : bot bloqué jusqu'à souscription. */}
+      {trialExpired && (
+        <InfoBox tone="warn" title="Essai terminé, souscrivez pour réactiver">
+          <div className="col" style={{ gap: 12 }}>
+            <span style={{ fontSize: 12.5 }}>
+              L'essai gratuit de « {botName} » est terminé. Souscrivez pour réactiver le bot
+              et ses modules.
+            </span>
+            <div>
+              <Btn kind="primary" onClick={onSubscribe} disabled={subscribeBusy}>
+                {subscribeBusy ? 'Redirection…' : 'Souscrire maintenant'}
+              </Btn>
+            </div>
+            {subscribeErr && <div className="error">{subscribeErr}</div>}
+          </div>
+        </InfoBox>
+      )}
+
       <Card style={{ padding: '22px 22px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 14.5, fontWeight: 800 }}>Abonnement de « {botName} »</div>
             <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 3 }}>
-              Statut : {SUB_STATUS_LABELS[billing.subscription_status]}
+              Statut : {SUB_STATUS_LABELS[status] ?? SUB_STATUS_LABELS.none}
+              {onTrial && trialEnd != null && ` · fin de l'essai dans ${trialDaysLeft} ${trialDaysLeft > 1 ? 'jours' : 'jour'}`}
             </div>
           </div>
-          <Link to="/app/billing" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+          <Link to="/app/billing" className="btn btn-soft" style={{ textDecoration: 'none' }}>
             Gérer la facturation
           </Link>
         </div>
@@ -574,12 +685,18 @@ function BotBillingTab({ billing, botName }: { billing: BotBilling | null; botNa
               {used.toLocaleString('fr-FR')} / {quota.toLocaleString('fr-FR')}
             </span>
           </div>
-          <Meter pct={pct} tone={overQuota ? 'danger' : pct >= 80 ? 'warn' : 'acc'} />
-          {overQuota && (
+          <Meter pct={pct} tone={overQuota ? 'danger' : nearQuota ? 'warn' : 'acc'} />
+          {overQuota ? (
             <div style={{ fontSize: 12.5, color: 'var(--danger)', marginTop: 8 }}>
-              Quota atteint : les nouvelles réponses IA sont bloquées jusqu'au prochain cycle.
+              Quota atteint : l'IA est en pause jusqu'au prochain cycle — souscrivez un plan
+              supérieur pour augmenter le quota.
             </div>
-          )}
+          ) : nearQuota ? (
+            <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 8 }}>
+              Quota bientôt atteint ({pct}%). Pensez à passer à un plan supérieur pour éviter
+              une coupure de l'IA.
+            </div>
+          ) : null}
         </Card>
       ) : null}
 

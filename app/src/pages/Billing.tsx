@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, Card, Chip, InfoBox, Seg } from '../ui'
+import { Btn, Card, Chip, InfoBox, Meter, Seg } from '../ui'
 import { errMsg } from '../utils/errors'
 import { isBotBillingOwner } from '../utils/permissions'
 import type { BotSummary } from '../types/bot'
@@ -37,11 +37,33 @@ const INVOICE_STATUS_LABELS: Record<Invoice['status'], string> = {
 
 // Résumé d'abonnement renvoyé par GET /api/billing/summary. On reste tolérant
 // (champs optionnels) : le backend peut enrichir sans casser le front.
+// `subscription_status` peut désormais valoir 'trialing' (essai 7 j sans carte —
+// fin du gratuit à vie) et `trial_end` porte l'échéance du plus proche essai en
+// cours (epoch s, null hors essai). Voir routers/billing.get_summary.
 interface BillingSummary {
-  subscription_status?: 'active' | 'past_due' | 'canceled' | 'none'
+  subscription_status?: 'active' | 'past_due' | 'canceled' | 'none' | 'trialing'
   billable_bots?: number
+  trial_end?: number | null      // epoch secondes (essai 7 j) ou null
   next_invoice_cents?: number | null
   next_invoice_at?: number | null // epoch secondes
+}
+
+// Plafond IA pendant l'essai 7 j (sans carte), aligné backend (point 1). Le quota
+// plein est rétabli à la souscription. Affiché à titre informatif (pas un prix).
+const TRIAL_AI_CAP = 50
+// Seuil d'alerte « quota proche » (>= 80 % de la conso IA mensuelle).
+const QUOTA_WARN_PCT = 80
+
+// GET /api/billing/usage — conso IA mensuelle par bot facturable du payeur.
+interface UsageRow {
+  bot_id: number
+  usage_ai_replies: number
+  quota_ai_replies: number | null // null = illimité (BYOK)
+  byok: boolean
+}
+interface UsageResponse {
+  period: string
+  usage: UsageRow[]
 }
 
 function fmtEur(cents: number): string {
@@ -49,6 +71,12 @@ function fmtEur(cents: number): string {
 }
 function fmtDate(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+// Jours restants avant la fin d'essai (epoch s -> ms). Arrondi au jour supérieur
+// (un essai qui finit dans 6 h affiche « 1 jour »). 0 si déjà échu.
+function daysUntil(epochSeconds: number): number {
+  const ms = epochSeconds * 1000 - Date.now()
+  return ms <= 0 ? 0 : Math.ceil(ms / 86_400_000)
 }
 
 export default function Billing() {
@@ -72,6 +100,7 @@ export default function Billing() {
   const [invoicesLoading, setInvoicesLoading] = useState(true)
   const [invoicesError, setInvoicesError] = useState('')
   const [summary, setSummary] = useState<BillingSummary | null>(null)
+  const [usage, setUsage] = useState<UsageRow[] | null>(null)
   // Compteur de rechargement (re-fetch après retour de checkout).
   const [tick, setTick] = useState(0)
   const reload = useCallback(() => setTick(n => n + 1), [])
@@ -90,6 +119,17 @@ export default function Billing() {
     api<BillingSummary>('/api/billing/summary')
       .then(s => { if (alive) setSummary(s) })
       .catch(() => { /* résumé indisponible : on n'affiche pas le bloc */ })
+    return () => { alive = false }
+  }, [billingOff, tick])
+
+  // Conso IA mensuelle par bot (GET /api/billing/usage) — sert l'alerte « quota
+  // proche / atteint ». Best-effort : échec silencieux (l'alerte reste masquée).
+  useEffect(() => {
+    if (billingOff) return
+    let alive = true
+    api<UsageResponse>('/api/billing/usage')
+      .then(u => { if (alive) setUsage(u.usage ?? []) })
+      .catch(() => { if (alive) setUsage(null) })
     return () => { alive = false }
   }, [billingOff, tick])
 
@@ -186,9 +226,64 @@ export default function Billing() {
   const currentGrouping: BillingGrouping = user?.billing_grouping ?? 'total'
   const subStatus = summary?.subscription_status
 
+  // Essai 7 j en cours : status='trialing' ET échéance future. Le backend
+  // (get_summary) n'agrège QUE les essais ENCORE en cours dans `trial_end` (les
+  // essais échus en sont retirés -> trial_end null) : l'état « essai terminé » au
+  // niveau payeur n'est donc pas dérivable ici. Il est traité par bot dans
+  // l'onglet Facturation (entitlement.trial_expired). On reste sur le compte à
+  // rebours + l'invite à souscrire.
+  const trialEnd = summary?.trial_end ?? null
+  const onTrial = subStatus === 'trialing' && trialEnd != null && trialEnd * 1000 > Date.now()
+  const trialDaysLeft = trialEnd != null ? daysUntil(trialEnd) : 0
+
+  // Bots du payeur dont la conso IA approche / atteint le quota (managés, non BYOK,
+  // quota fini). >= seuil => alerte ; >= 100 % => IA en pause (blocage v1).
+  const quotaAlerts = (usage ?? [])
+    .filter(u => !u.byok && u.quota_ai_replies != null && u.quota_ai_replies > 0
+      && u.usage_ai_replies / u.quota_ai_replies >= QUOTA_WARN_PCT / 100)
+    .map(u => {
+      const quota = u.quota_ai_replies as number
+      const pct = Math.min(100, Math.round((u.usage_ai_replies / quota) * 100))
+      const bot = (bots ?? []).find(b => b.id === u.bot_id)
+      return { ...u, quota, pct, atQuota: u.usage_ai_replies >= quota, name: bot?.name ?? `Bot #${u.bot_id}` }
+    })
+
   return (
     <div className="col" style={{ gap: 18 }}>
       <Header />
+
+      {/* ESSAI 7 j en cours : compte à rebours + plafond IA + souscrire. */}
+      {onTrial && (
+        <InfoBox tone="info" title={`Essai : ${trialDaysLeft} ${trialDaysLeft > 1 ? 'jours restants' : 'jour restant'}`}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+            <span>
+              Votre essai gratuit se termine le {fmtDate(trialEnd as number)}. L'IA est plafonnée
+              à {TRIAL_AI_CAP} réponses pendant l'essai ; souscrivez pour lever ce plafond et
+              débloquer votre quota complet. Choisissez le bot à souscrire ci-dessous.
+            </span>
+            <a href="#billable-bots" className="btn btn-primary" style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              Souscrire maintenant
+            </a>
+          </div>
+        </InfoBox>
+      )}
+
+      {/* ALERTE QUOTA IA proche / atteint (par bot). Blocage v1 : au quota, l'IA
+          est en pause, PAS de surfacturation -> message « plan supérieur ». */}
+      {quotaAlerts.map(a => (
+        <InfoBox key={a.bot_id} tone={a.atQuota ? 'danger' : 'warn'}
+                 title={a.atQuota ? `Quota IA atteint — ${a.name}` : `Quota IA bientôt atteint — ${a.name}`}>
+          <div className="col" style={{ gap: 8 }}>
+            <div style={{ fontSize: 12.5 }}>
+              {a.usage_ai_replies.toLocaleString('fr-FR')} / {a.quota.toLocaleString('fr-FR')} réponses IA ce mois-ci.
+              {a.atQuota
+                ? " L'IA est en pause jusqu'au prochain cycle — souscrivez un plan supérieur pour augmenter le quota."
+                : ' Pensez à passer à un plan supérieur pour éviter une coupure.'}
+            </div>
+            <Meter pct={a.pct} tone={a.atQuota ? 'danger' : 'warn'} />
+          </div>
+        </InfoBox>
+      ))}
 
       {/* Bannière de retour Stripe (checkout / portail). */}
       {checkoutResult === 'success' && (
@@ -223,6 +318,7 @@ export default function Billing() {
             <div style={{ fontSize: 14.5, fontWeight: 800 }}>Votre abonnement</div>
             <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 4 }}>
               {subStatus === 'active' && 'Abonnement actif.'}
+              {subStatus === 'trialing' && 'Essai gratuit en cours — souscrivez avant la fin pour conserver vos bots.'}
               {subStatus === 'past_due' && 'Paiement en retard — régularisez via le portail.'}
               {subStatus === 'canceled' && 'Abonnement résilié.'}
               {(subStatus === 'none' || subStatus === undefined) && 'Aucun abonnement payant — vous êtes sur le socle gratuit.'}
@@ -259,7 +355,7 @@ export default function Billing() {
 
       {/* Bots facturables. */}
       <Card style={{ padding: '20px 22px' }}>
-        <div style={{ fontSize: 14.5, fontWeight: 800, marginBottom: 12 }}>Bots facturables</div>
+        <div id="billable-bots" style={{ fontSize: 14.5, fontWeight: 800, marginBottom: 12, scrollMarginTop: 16 }}>Bots facturables</div>
         {botsLoading ? (
           <div style={{ fontSize: 13, color: 'var(--mut)' }}>Chargement…</div>
         ) : botsError ? (

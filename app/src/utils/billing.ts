@@ -92,12 +92,13 @@ const FALLBACK_MODULES: CatalogModule[] = [
   },
 ]
 
-// Paliers IA managés (kind='ai_tier'). Choisir >= starter active le module 'ai'.
+// Paliers IA managés (kind='ai_tier'). Choisir un palier active le module 'ai'.
+// Plus de palier 'ai_free' : l'IA gratuite à vie est supprimée (point 7). L'IA
+// reste plafonnée à 50 réponses PENDANT l'essai 7 j, levée à la souscription.
 const FALLBACK_AI_TIERS: AiTier[] = [
-  { id: 'ai_free', included_replies: 50, price_cents: 0 },
-  { id: 'ai_starter', included_replies: 1000, price_cents: 1900 },
-  { id: 'ai_growth', included_replies: 3000, price_cents: 3900 },
-  { id: 'ai_scale', included_replies: 10000, price_cents: 8900 },
+  { id: 'ai_starter', included_replies: 1000, price_cents: 1900, desc: 'Pour démarrer : volume confortable pour un petit site.' },
+  { id: 'ai_growth', included_replies: 3000, price_cents: 3900, desc: 'Trafic régulier : marge pour un site actif.' },
+  { id: 'ai_scale', included_replies: 10000, price_cents: 8900, desc: 'Gros volume : forte audience et pics de demandes.' },
 ]
 
 // Présélections guidées (somme transparente des produits).
@@ -134,12 +135,66 @@ const FALLBACK_PRESETS: CatalogPreset[] = [
 export const FALLBACK_CATALOG: BillingCatalog = {
   currency: 'eur',
   base_price_cents: 0,
+  base_description: 'Arbre de conversation, apparence, déclencheurs et analytics — inclus.',
   modules: FALLBACK_MODULES,
   ai_tiers: FALLBACK_AI_TIERS,
   overage_cents_per_reply: 0, // v1 = blocage au quota (pas de dépassement facturé)
   tax_note: 'TVA non applicable, art. 293 B du CGI',
   presets: FALLBACK_PRESETS,
   version: 'fallback-2026-06-20',
+}
+
+// --- Dérivation config recommandée depuis le chat (PUR) ------------------------
+//
+// Le premier chat (« l'assistant de vos rêves ») PRÉ-CONFIGURE l'abonnement :
+// l'étape 'plan' arrive PRÉ-REMPLIE (preset + modules cochés), ajustable. Fin de
+// la double saisie (chat puis from-scratch).
+//
+// RÈGLE de dérivation (simple et robuste), évaluée sur les réponses du chat
+// (objectifs cochés + repli) :
+//   - support / conseiller (repli 'human' ou 'both')           -> module 'inbox'
+//   - FAQ / documents / connaissances (objectif 'faq')         -> module 'rag'
+//   - rendez-vous / commande / devis / leads
+//     (objectifs 'rdv' | 'orders' | 'leads')                   -> module 'actions'
+//   - IA voulue (repli 'ia' ou 'both')                         -> module 'ai' + palier managé
+//   - sinon : arbre seul (aucun module payant, pas de plan IA).
+//
+// Le palier IA managé choisi suit le VOLUME implicite : on prend le palier du
+// preset le plus proche s'il est connu, sinon le 1er palier payant du catalogue.
+// La config dérivée passe par withRequires côté configurateur (dépendances).
+export interface WizardSignals {
+  goals: string[]                 // objectifs cochés ('faq' | 'orders' | 'leads' | 'rdv' | 'horaires')
+  wantsAi: boolean                // repli 'ia' ou 'both'
+  wantsHuman: boolean             // repli 'human' ou 'both'
+}
+
+// Palier IA managé recommandé : 1er palier > 0 €, sinon 1er disponible (jamais
+// 'ai_free' — supprimé). null si le catalogue n'expose aucun palier.
+function recommendedManagedTier(catalog: BillingCatalog): string | null {
+  return catalog.ai_tiers.find(t => t.price_cents > 0)?.id ?? catalog.ai_tiers[0]?.id ?? null
+}
+
+// deriveConfigFromChat : traduit les signaux du chat en BotConfig recommandé.
+// FONCTION PURE. Ne coche que des modules présents dans le catalogue (robustesse).
+export function deriveConfigFromChat(catalog: BillingCatalog, sig: WizardSignals): BotConfig {
+  const present = new Set(catalog.modules.map(m => m.key))
+  const modules: ModuleKey[] = []
+  const add = (k: ModuleKey) => { if (present.has(k) && !modules.includes(k)) modules.push(k) }
+
+  // Conseiller humain -> Inbox / live chat.
+  if (sig.wantsHuman) add('inbox')
+  // FAQ / connaissances -> RAG.
+  if (sig.goals.includes('faq')) add('rag')
+  // Rendez-vous, suivi de commande, devis, capture de contacts -> Actions.
+  if (sig.goals.includes('rdv') || sig.goals.includes('orders') || sig.goals.includes('leads')) add('actions')
+
+  let ai_tier_id: string | null = null
+  if (sig.wantsAi) {
+    add('ai')
+    ai_tier_id = recommendedManagedTier(catalog)
+  }
+
+  return { modules, ai_tier_id, ai_byok: false }
 }
 
 // --- Calcul de panier (PUR) ----------------------------------------------------

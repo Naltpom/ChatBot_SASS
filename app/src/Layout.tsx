@@ -195,10 +195,31 @@ export default function Layout({ children }: { children: ReactNode }) {
                       onClick={() => navigate('/admin/users')}>
                 <span className="nav-ico"><Users size={16} /></span>Utilisateurs
               </button>
-              <button className={`nav-item ${path.startsWith('/admin/billing') ? 'active' : ''}`}
+              <button className={`nav-item ${path === '/admin/billing' ? 'active' : ''}`}
                       onClick={() => navigate('/admin/billing')}>
                 <span className="nav-ico"><CreditCard size={16} /></span>Facturation
               </button>
+              {/* Sous-pages facturation — visibles dès qu'on est dans la console
+                  facturation. La « Vue d'ensemble » porte le path exact. */}
+              {path.startsWith('/admin/billing') && (
+                <div className="col" style={{ gap: 4, paddingLeft: 30 }}>
+                  <button className={`nav-item ${path === '/admin/billing' ? 'active' : ''}`}
+                          style={{ fontSize: 13.5 }}
+                          onClick={() => navigate('/admin/billing')}>
+                    Vue d'ensemble
+                  </button>
+                  <button className={`nav-item ${path.startsWith('/admin/billing/invoices') ? 'active' : ''}`}
+                          style={{ fontSize: 13.5 }}
+                          onClick={() => navigate('/admin/billing/invoices')}>
+                    Factures
+                  </button>
+                  <button className={`nav-item ${path.startsWith('/admin/billing/catalog') ? 'active' : ''}`}
+                          style={{ fontSize: 13.5 }}
+                          onClick={() => navigate('/admin/billing/catalog')}>
+                    Catalogue
+                  </button>
+                </div>
+              )}
               <div className="nav-divider" />
               <button className="nav-item" onClick={() => navigate('/app')}>
                 <span className="nav-ico"><ArrowLeftRight size={16} /></span>Espace client

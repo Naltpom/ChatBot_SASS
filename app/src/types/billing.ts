@@ -35,6 +35,9 @@ export interface AiTier {
   id: string
   included_replies: number
   price_cents: number
+  // Description commerciale RÉELLE du palier (seed backend). Affichée sous le
+  // quota au lieu de répéter le nombre de réponses. Optionnelle (fallback hors-ligne).
+  desc?: string
 }
 
 // Catalogue complet renvoyé par GET /api/billing/catalog. Le front recompose le
@@ -42,6 +45,9 @@ export interface AiTier {
 export interface BillingCatalog {
   currency: 'eur'
   base_price_cents: number
+  // Description commerciale RÉELLE du socle (seed backend, peut être null tant
+  // que non posée). Le front l'affiche au lieu de répéter le titre « Socle ».
+  base_description?: string | null
   modules: CatalogModule[]
   ai_tiers: AiTier[]
   overage_cents_per_reply: number
