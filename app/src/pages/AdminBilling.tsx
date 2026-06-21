@@ -81,6 +81,27 @@ export default function AdminBilling() {
   // Compteur de rechargement après un override d'entitlement.
   const [tick, setTick] = useState(0)
   const reload = useCallback(() => setTick(n => n + 1), [])
+  const [resyncBusy, setResyncBusy] = useState(false)
+  const [resyncMsg, setResyncMsg] = useState('')
+
+  const doResync = useCallback(async () => {
+    setResyncBusy(true); setResyncMsg('')
+    try {
+      const r = await api<{ payers: number; subscriptions: number; bots_touched: number } | { billing: 'disabled' }>(
+        '/api/admin/billing/reconcile', { method: 'POST' })
+      if (isDisabled(r)) {
+        setResyncMsg('Facturation désactivée.')
+      } else {
+        const ok = r as { payers: number; subscriptions: number; bots_touched: number }
+        setResyncMsg(`Resync OK : ${ok.subscriptions} abonnement(s), ${ok.bots_touched} bot(s) mis à jour.`)
+      }
+      reload()
+    } catch (err: unknown) {
+      setResyncMsg(errMsg(err, 'Resync impossible.'))
+    } finally {
+      setResyncBusy(false)
+    }
+  }, [reload])
 
   useEffect(() => {
     let alive = true
@@ -160,7 +181,8 @@ export default function AdminBilling() {
 
   return (
     <div className="col g18">
-      <Header navigate={navigate} />
+      <Header navigate={navigate} onResync={doResync} resyncBusy={resyncBusy} />
+      {resyncMsg && <InfoBox tone="info">{resyncMsg}</InfoBox>}
 
       {/* ---- Bandeau MRR + KPIs ---- */}
       <div className="stat-row">
@@ -236,11 +258,20 @@ export default function AdminBilling() {
   )
 }
 
-function Header({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+function Header({ navigate, onResync, resyncBusy }: {
+  navigate: ReturnType<typeof useNavigate>
+  onResync?: () => void
+  resyncBusy?: boolean
+}) {
   return (
     <SectionTitle sub="Vue d'ensemble des abonnements et entitlements — staff uniquement."
                   right={
                     <div className="row g8">
+                      {onResync && (
+                        <Btn kind="ghost" small onClick={onResync} disabled={resyncBusy}>
+                          {resyncBusy ? 'Resync…' : '↻ Resync Stripe'}
+                        </Btn>
+                      )}
                       <Btn kind="ghost" small onClick={() => navigate('/admin/billing/invoices')}>Factures</Btn>
                       <Btn kind="ghost" small onClick={() => navigate('/admin/billing/catalog')}>Catalogue</Btn>
                       <Btn kind="ghost" small onClick={() => navigate('/admin')}>← Dashboard</Btn>

@@ -478,3 +478,66 @@ async def set_bot_entitlement(bot_id: int, body: EntitlementOverride,
         "status": row.status,
         "source": row.source,
     }
+
+
+# --- POST /api/admin/billing/reconcile ------------------------------------
+
+@router.post("/billing/reconcile")
+async def reconcile_from_stripe(db: AsyncSession = Depends(get_db)):
+    """Filet anti-webhook-manqué : relit les abonnements Stripe de TOUS les
+    payeurs et reprojette les entitlements (même chemin que le webhook :
+    `_sync_subscription_mirror` + `apply_subscription_event`).
+
+    Utile si un event webhook n'a pas été délivré (ex. `stripe listen` non lancé
+    en dev, ou endpoint injoignable) : l'état Stripe fait foi, on resynchronise
+    sans attendre un nouvel event. Idempotent (ré-exécutable sans effet de bord
+    autre que l'alignement). Superadmin uniquement. Billing OFF ⇒ disabled."""
+    if not stripe_service.billing_enabled():
+        return _DISABLED
+
+    # Imports locaux : le helper de miroir vit dans le routeur webhook
+    # (réutilisé tel quel) ; import paresseux pour éviter tout cycle d'import.
+    import json
+    import time
+
+    from src.routers.billing import _sync_subscription_mirror
+    from src.services.entitlement_service import apply_subscription_event
+
+    customers = (await db.execute(
+        select(User.stripe_customer_id).where(User.stripe_customer_id.isnot(None))
+    )).scalars().all()
+
+    payers = 0
+    subs_seen = 0
+    bots_touched: set[int] = set()
+    for cust in customers:
+        try:
+            data = await stripe_service._stripe_request(
+                "GET", "/subscriptions",
+                params={"customer": cust, "status": "all", "limit": 100})
+        except stripe_service.StripeError as exc:
+            logger.warning("reconcile: customer %s injoignable : %s", cust, exc)
+            continue
+        payers += 1
+        for sub in data.get("data", []):
+            if sub.get("status") not in _ACTIVE_SUB_STATUSES:
+                continue
+            subs_seen += 1
+            now = int(time.time())
+            event = {
+                "id": f"reconcile_{sub['id']}_{now}",
+                "type": "customer.subscription.updated",
+                "created": now,
+                "data": {"object": sub},
+            }
+            await _sync_subscription_mirror(db, event)
+            await apply_subscription_event(db, event)
+            # Comptage best-effort des bots impactés (jamais bloquant).
+            try:
+                bots_map = json.loads((sub.get("metadata") or {}).get("bots") or "{}")
+                bots_touched.update(int(b) for b in bots_map)
+            except (ValueError, TypeError):
+                pass
+    await db.commit()
+    return {"payers": payers, "subscriptions": subs_seen,
+            "bots_touched": len(bots_touched)}
