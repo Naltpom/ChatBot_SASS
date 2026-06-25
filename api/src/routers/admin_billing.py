@@ -24,7 +24,7 @@ from src.core.constants import MODULE_AI, MODULE_KEYS
 from src.core.database import get_db
 from src.core.security import require_superadmin
 from src.core.time import utcnow
-from src.models.billing import BillingProduct, BillingSubscription, BotEntitlement
+from src.models.billing import BillingPreset, BillingProduct, BillingSubscription, BotEntitlement
 from src.models.bot import Bot
 from src.models.user import Organization, User
 from src.services import stripe_service
@@ -72,6 +72,34 @@ class CatalogPrice(BaseModel):
     unit_amount: int = Field(..., ge=0)
 
 
+class CatalogIntro(BaseModel):
+    """Changement du % de remise d'intro (1er mois) d'un produit. 0..100 ; 0 = aucune."""
+    intro_percent: int = Field(..., ge=0, le=100)
+
+
+class PresetIn(BaseModel):
+    """Création/édition complète d'une présélection (bundle)."""
+    key: str = Field(..., min_length=1, max_length=64)
+    label: str = Field(..., min_length=1)
+    tagline: str = ""
+    ai_tier_id: Optional[str] = None
+    modules: list[str] = Field(default_factory=list)
+    recommended: bool = False
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class PresetPatch(BaseModel):
+    """Édition partielle d'une présélection (seuls les champs fournis)."""
+    label: Optional[str] = Field(None, min_length=1)
+    tagline: Optional[str] = None
+    ai_tier_id: Optional[str] = None
+    modules: Optional[list[str]] = None
+    recommended: Optional[bool] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
 def _catalog_product(row: BillingProduct) -> dict:
     """Sérialise une ligne `billing_products` au format CatalogProduct (contrat
     front). `included_replies`/`stripe_*` peuvent être None."""
@@ -85,6 +113,8 @@ def _catalog_product(row: BillingProduct) -> dict:
         "interval": row.interval,
         "included_replies": row.included_replies,
         "is_active": row.is_active,
+        "intro_percent": row.intro_percent,
+        "intro_coupon_id": row.intro_coupon_id,
         "stripe_product_id": row.stripe_product_id,
         "stripe_price_id": row.stripe_price_id,
     }
@@ -369,6 +399,119 @@ async def set_billing_catalog_price(code: str, body: CatalogPrice,
     row.updated_at = utcnow()
     await db.commit()
     return _catalog_product(row)
+
+
+# --- POST /api/admin/billing/catalog/{code}/intro --------------------------
+
+@router.post("/billing/catalog/{code}/intro")
+async def set_billing_catalog_intro(code: str, body: CatalogIntro,
+                                    db: AsyncSession = Depends(get_db)):
+    """Change le % de remise d'INTRO (1er mois) d'un produit (paliers IA + 'base').
+
+    Coupons Stripe IMMUABLES (comme les Prices) : SI billing_enabled() on crée un
+    NOUVEAU coupon `duration:once` au nouveau %, puis on stocke son id sur
+    `billing_products.intro_coupon_id`. `intro_percent=0` => remise SUPPRIMÉE
+    (intro_percent et intro_coupon_id mis à NULL). SI billing OFF : met à jour
+    intro_percent seulement (pas de coupon Stripe). Renvoie le CatalogProduct."""
+    row = (await db.execute(
+        select(BillingProduct).where(BillingProduct.code == code)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Produit catalogue introuvable")
+
+    pct = body.intro_percent
+    if pct <= 0:
+        row.intro_percent = None
+        row.intro_coupon_id = None
+    else:
+        row.intro_percent = pct
+        if stripe_service.billing_enabled():
+            coupon = await stripe_service.create_coupon(
+                pct, duration="once", name=f"Intro 1er mois -{pct}% ({row.code})")
+            row.intro_coupon_id = coupon["id"]
+    row.updated_at = utcnow()
+    await db.commit()
+    return _catalog_product(row)
+
+
+# --- Présélections (billing_presets) : CRUD admin -------------------------
+
+def _preset_dict(row: BillingPreset) -> dict:
+    return {
+        "key": row.key, "label": row.label, "tagline": row.tagline,
+        "ai_tier_id": row.ai_tier_id, "modules": row.modules or [],
+        "recommended": row.recommended, "sort_order": row.sort_order,
+        "is_active": row.is_active,
+    }
+
+
+def _validate_preset_modules(modules: list[str]) -> None:
+    bad = [m for m in modules if m not in MODULE_KEYS]
+    if bad:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Modules inconnus : {', '.join(bad)}")
+
+
+@router.get("/billing/presets")
+async def list_billing_presets(db: AsyncSession = Depends(get_db)):
+    """Liste TOUTES les présélections (actives + inactives), ordre sort_order."""
+    rows = (await db.execute(
+        select(BillingPreset).order_by(BillingPreset.sort_order, BillingPreset.id)
+    )).scalars().all()
+    return [_preset_dict(r) for r in rows]
+
+
+@router.post("/billing/presets")
+async def create_billing_preset(body: PresetIn, db: AsyncSession = Depends(get_db)):
+    """Crée une présélection (clé unique). 409 si la clé existe déjà."""
+    _validate_preset_modules(body.modules)
+    existing = (await db.execute(
+        select(BillingPreset).where(BillingPreset.key == body.key)
+    )).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cette clé de présélection existe déjà")
+    row = BillingPreset(
+        key=body.key, label=body.label, tagline=body.tagline,
+        ai_tier_id=body.ai_tier_id, modules=body.modules,
+        recommended=body.recommended, sort_order=body.sort_order,
+        is_active=body.is_active)
+    db.add(row)
+    await db.commit()
+    return _preset_dict(row)
+
+
+@router.patch("/billing/presets/{key}")
+async def patch_billing_preset(key: str, body: PresetPatch,
+                               db: AsyncSession = Depends(get_db)):
+    """Édite une présélection (PATCH partiel). Renvoie la présélection à jour."""
+    row = (await db.execute(
+        select(BillingPreset).where(BillingPreset.key == key)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Présélection introuvable")
+    fields = body.model_dump(exclude_unset=True)
+    if fields.get("modules") is not None:
+        _validate_preset_modules(fields["modules"])
+    for f in ("label", "tagline", "ai_tier_id", "modules", "recommended",
+              "sort_order", "is_active"):
+        if f in fields:
+            setattr(row, f, fields[f])
+    row.updated_at = utcnow()
+    await db.commit()
+    return _preset_dict(row)
+
+
+@router.delete("/billing/presets/{key}")
+async def delete_billing_preset(key: str, db: AsyncSession = Depends(get_db)):
+    """Supprime une présélection."""
+    row = (await db.execute(
+        select(BillingPreset).where(BillingPreset.key == key)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Présélection introuvable")
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
 
 
 # --- GET /api/admin/bots/{bot_id}/entitlement -----------------------------

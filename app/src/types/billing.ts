@@ -227,6 +227,9 @@ export interface CatalogProduct {
   interval: string
   included_replies: number | null
   is_active: boolean
+  // Remise d'intro 1er mois (% éditable admin) sur les paliers IA + le socle.
+  intro_percent: number | null
+  intro_coupon_id: string | null
   stripe_product_id: string | null
   stripe_price_id: string | null
 }

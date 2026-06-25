@@ -108,6 +108,11 @@ class BillingProduct(Base):
     description = Column(String, nullable=True)  # texte commercial, poussé sur le Product Stripe
     kind = Column(String, nullable=False)   # base | ai_tier | module | metered
     included_replies = Column(Integer, nullable=True)  # quota mensuel des lignes kind='ai_tier' (NULL sinon)
+    # Remise d'intro 1er mois (éditable admin) : % porté par les paliers IA (ai_*)
+    # et par 'base' (= défaut IA off / BYOK) ; coupon Stripe duration:once associé
+    # (rotation à chaque changement de %). NULL ailleurs / pas de remise.
+    intro_percent = Column(Integer, nullable=True)
+    intro_coupon_id = Column(String, nullable=True)
     stripe_product_id = Column(String, nullable=True)
     stripe_price_id = Column(String, nullable=True, index=True)
     unit_amount = Column(Integer, nullable=False)            # centimes
@@ -115,6 +120,24 @@ class BillingProduct(Base):
     interval = Column(String, nullable=False, default="month")
     is_active = Column(Boolean, nullable=False, default=True,
                        server_default=text("true"))
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class BillingPreset(Base):
+    """Présélections du configurateur (bundles), pilotées en base (éditable admin).
+    Le total affiché est recalculé serveur depuis billing_products (aucun prix ici)."""
+    __tablename__ = "billing_presets"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String, unique=True, nullable=False, index=True)
+    label = Column(String, nullable=False)
+    tagline = Column(String, nullable=False, default="", server_default="")
+    ai_tier_id = Column(String, nullable=True)    # code du palier IA (ou None)
+    modules = Column(JSON, nullable=True)          # liste de clés de module (add-ons)
+    recommended = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    sort_order = Column(Integer, nullable=False, default=0, server_default=text("'0'"))
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 

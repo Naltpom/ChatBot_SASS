@@ -40,6 +40,8 @@ export default function AdminBillingCatalog() {
   const [error, setError] = useState('')
   // Code dont le prix est en cours de changement (modale dédiée).
   const [pricing, setPricing] = useState<CatalogProduct | null>(null)
+  // Onglet actif : produits/prix vs présélections.
+  const [tab, setTab] = useState<'products' | 'presets'>('products')
 
   const [tick, setTick] = useState(0)
   const reload = useCallback(() => setTick(n => n + 1), [])
@@ -88,36 +90,53 @@ export default function AdminBillingCatalog() {
         </InfoBox>
       )}
 
-      <div>
-        <div className="card-title" style={{ marginBottom: 11 }}>Catalogue (produits & prix)</div>
-        {error ? (
-          <Card><div className="error">{error}</div></Card>
-        ) : catalog == null ? (
-          <Card style={{ color: 'var(--faint)' }}>Chargement…</Card>
-        ) : catalog.length === 0 ? (
-          <Card style={{ color: 'var(--faint)' }}>Aucun produit dans le catalogue local.</Card>
-        ) : (
-          <Card nopad>
-            <table className="kc">
-              <thead>
-                <tr>
-                  <th>Code</th><th>Libellé</th><th>Type</th>
-                  <th>Prix</th><th>Réponses incluses</th><th>Actif</th>
-                </tr>
-              </thead>
-              <tbody>
-                {catalog.map(p => (
-                  <CatalogRow
-                    key={p.code} product={p}
-                    onEditPrice={() => setPricing(p)}
-                    onChanged={reload}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        )}
+      {/* Onglets : Produits & prix · Présélections. */}
+      <div className="tabs">
+        <button className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>
+          Produits &amp; prix
+        </button>
+        <button className={tab === 'presets' ? 'active' : ''} onClick={() => setTab('presets')}>
+          Présélections
+        </button>
       </div>
+
+      {tab === 'products' ? (
+        <div className="col g10">
+          <p style={{ fontSize: 12.5, color: 'var(--mut)', margin: 0, lineHeight: 1.5 }}>
+            Libellés, prix (un changement crée un nouveau Price Stripe et désactive l'ancien),
+            quotas IA, remise d'intro du 1er mois et activation.
+          </p>
+          {error ? (
+            <Card><div className="error">{error}</div></Card>
+          ) : catalog == null ? (
+            <Card style={{ color: 'var(--faint)' }}>Chargement…</Card>
+          ) : catalog.length === 0 ? (
+            <Card style={{ color: 'var(--faint)' }}>Aucun produit dans le catalogue local.</Card>
+          ) : (
+            <Card nopad>
+              <table className="kc">
+                <thead>
+                  <tr>
+                    <th>Code</th><th>Libellé</th><th>Type</th>
+                    <th>Prix</th><th>Réponses incluses</th><th>Intro 1er mois</th><th>Actif</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {catalog.map(p => (
+                    <CatalogRow
+                      key={p.code} product={p}
+                      onEditPrice={() => setPricing(p)}
+                      onChanged={reload}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </div>
+      ) : (
+        <PresetsSection tiers={(catalog ?? []).filter(p => p.kind === 'ai_tier')} />
+      )}
 
       {pricing && (
         <PriceEditor
@@ -151,6 +170,9 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
   const [repliesStr, setRepliesStr] = useState(
     product.included_replies == null ? '' : String(product.included_replies),
   )
+  const [introStr, setIntroStr] = useState(
+    product.intro_percent == null ? '' : String(product.intro_percent),
+  )
   const [busy, setBusy] = useState(false)
   const [rowError, setRowError] = useState('')
 
@@ -159,6 +181,9 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
   useEffect(() => {
     setRepliesStr(product.included_replies == null ? '' : String(product.included_replies))
   }, [product.included_replies])
+  useEffect(() => {
+    setIntroStr(product.intro_percent == null ? '' : String(product.intro_percent))
+  }, [product.intro_percent])
 
   async function patch(body: { label?: string; is_active?: boolean; included_replies?: number | null }) {
     setBusy(true)
@@ -191,11 +216,36 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
     patch({ included_replies: value })
   }
 
+  // Remise d'intro (1er mois) : éditable sur les paliers IA + le socle ('base').
+  // POST dédié (rotation du coupon Stripe côté serveur). Vide = 0 (pas de remise).
+  const introEditable = product.kind === 'ai_tier' || product.code === 'base'
+  async function saveIntro() {
+    const trimmed = introStr.trim()
+    const value = trimmed === '' ? 0 : Number(trimmed)
+    if (!Number.isInteger(value) || value < 0 || value > 100) {
+      setRowError('La remise d’intro doit être un entier entre 0 et 100 (vide = 0).')
+      setIntroStr(product.intro_percent == null ? '' : String(product.intro_percent))
+      return
+    }
+    if (value === (product.intro_percent ?? 0)) return
+    setBusy(true)
+    setRowError('')
+    try {
+      await api<CatalogProduct>(`/api/admin/billing/catalog/${product.code}/intro`,
+        { method: 'POST', body: { intro_percent: value } })
+      onChanged()
+    } catch (err: unknown) {
+      setRowError(errMsg(err, 'La mise à jour de la remise a échoué.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <tr>
       <td style={{ fontFamily: 'monospace', fontSize: 11.5, color: 'var(--mut)' }}>{product.code}</td>
       <td>
-        <input value={label} onChange={e => setLabel(e.target.value)}
+        <input type="text" value={label} onChange={e => setLabel(e.target.value)}
                onBlur={saveLabel}
                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                disabled={busy} style={{ width: '100%', minWidth: 140 }} />
@@ -220,11 +270,190 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
           <span style={{ color: 'var(--faint)' }}>—</span>
         )}
       </td>
+      <td className="num">
+        {introEditable ? (
+          <div className="row g6" style={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+            <input type="number" min={0} max={100} step={1} value={introStr}
+                   placeholder="0"
+                   onChange={e => setIntroStr(e.target.value)}
+                   onBlur={saveIntro}
+                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                   disabled={busy} style={{ width: 60 }} />
+            <span style={{ color: 'var(--mut)' }}>%</span>
+          </div>
+        ) : (
+          <span style={{ color: 'var(--faint)' }}>—</span>
+        )}
+      </td>
       <td>
         <Toggle on={product.is_active} disabled={busy}
                 onChange={v => patch({ is_active: v })} />
       </td>
     </tr>
+  )
+}
+
+// --- Présélections (bundles) éditables : GET/POST/PATCH/DELETE presets -----
+
+interface AdminPreset {
+  key: string
+  label: string
+  tagline: string
+  ai_tier_id: string | null
+  modules: string[]
+  recommended: boolean
+  sort_order: number
+  is_active: boolean
+}
+
+// Modules proposables dans une présélection (clés d'entitlement, hors 'ai' porté
+// par le palier). Liste stable staff — alignée sur MODULE_KEYS backend.
+const PRESET_MODULES: { key: string; label: string }[] = [
+  { key: 'rag', label: 'RAG' },
+  { key: 'inbox', label: 'Inbox' },
+  { key: 'actions', label: 'Actions' },
+  { key: 'mcp', label: 'MCP' },
+  { key: 'ab', label: 'A/B' },
+  { key: 'white_label', label: 'White-label' },
+]
+
+function PresetsSection({ tiers }: { tiers: CatalogProduct[] }) {
+  const [presets, setPresets] = useState<AdminPreset[] | null>(null)
+  const [error, setError] = useState('')
+  const [tick, setTick] = useState(0)
+  const reload = useCallback(() => setTick(n => n + 1), [])
+
+  useEffect(() => {
+    let alive = true
+    api<AdminPreset[]>('/api/admin/billing/presets')
+      .then(d => { if (alive) setPresets(d) })
+      .catch(e => { if (alive) setError(errMsg(e, 'Chargement des présélections impossible.')) })
+    return () => { alive = false }
+  }, [tick])
+
+  async function addPreset() {
+    setError('')
+    const nextOrder = presets && presets.length ? Math.max(...presets.map(p => p.sort_order)) + 10 : 10
+    try {
+      await api('/api/admin/billing/presets', { method: 'POST', body: {
+        key: `preset_${Date.now()}`, label: 'Nouvelle présélection', tagline: '',
+        ai_tier_id: null, modules: [], recommended: false, sort_order: nextOrder, is_active: true,
+      } })
+      reload()
+    } catch (e: unknown) { setError(errMsg(e, 'Création impossible.')) }
+  }
+
+  return (
+    <div className="col g10">
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <p style={{ fontSize: 12.5, color: 'var(--mut)', margin: 0, lineHeight: 1.5, maxWidth: 560 }}>
+          Bundles proposés au configurateur. Le prix affiché est recalculé automatiquement
+          depuis le catalogue (socle + palier IA + modules).
+        </p>
+        <Btn kind="soft" small onClick={addPreset}>+ Ajouter une présélection</Btn>
+      </div>
+      {error && <InfoBox tone="danger" title="Erreur">{error}</InfoBox>}
+      {presets == null ? (
+        <Card style={{ color: 'var(--faint)' }}>Chargement…</Card>
+      ) : presets.length === 0 ? (
+        <Card style={{ color: 'var(--faint)' }}>Aucune présélection.</Card>
+      ) : (
+        <div className="col g14">
+          {presets.map(p => <PresetCard key={p.key} preset={p} tiers={tiers} onChanged={reload} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PresetCard({ preset, tiers, onChanged }: {
+  preset: AdminPreset; tiers: CatalogProduct[]; onChanged: () => void
+}) {
+  const [label, setLabel] = useState(preset.label)
+  const [tagline, setTagline] = useState(preset.tagline)
+  const [orderStr, setOrderStr] = useState(String(preset.sort_order))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => setLabel(preset.label), [preset.label])
+  useEffect(() => setTagline(preset.tagline), [preset.tagline])
+  useEffect(() => setOrderStr(String(preset.sort_order)), [preset.sort_order])
+
+  async function patch(body: Record<string, unknown>) {
+    setBusy(true); setErr('')
+    try {
+      await api(`/api/admin/billing/presets/${preset.key}`, { method: 'PATCH', body })
+      onChanged()
+    } catch (e: unknown) { setErr(errMsg(e, 'Mise à jour impossible.')); setBusy(false) }
+  }
+  async function remove() {
+    if (!window.confirm(`Supprimer la présélection « ${preset.label} » ?`)) return
+    setBusy(true); setErr('')
+    try { await api(`/api/admin/billing/presets/${preset.key}`, { method: 'DELETE' }); onChanged() }
+    catch (e: unknown) { setErr(errMsg(e, 'Suppression impossible.')); setBusy(false) }
+  }
+  function toggleModule(key: string, on: boolean) {
+    patch({ modules: on ? [...preset.modules, key] : preset.modules.filter(m => m !== key) })
+  }
+
+  return (
+    <Card>
+      <div className="row g10" style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div className="col g6" style={{ flex: '1 1 260px', minWidth: 220 }}>
+          <input type="text" value={label} onChange={e => setLabel(e.target.value)}
+                 onBlur={() => { const v = label.trim(); if (v && v !== preset.label) patch({ label: v }); else setLabel(preset.label) }}
+                 disabled={busy} style={{ fontWeight: 700 }} placeholder="Libellé" />
+          <input type="text" value={tagline} onChange={e => setTagline(e.target.value)}
+                 onBlur={() => { if (tagline !== preset.tagline) patch({ tagline }) }}
+                 disabled={busy} placeholder="Accroche" />
+        </div>
+        <div className="col g6" style={{ flex: '0 0 auto' }}>
+          <label style={{ fontSize: 11.5, color: 'var(--mut)' }}>Palier IA</label>
+          <select value={preset.ai_tier_id ?? ''} disabled={busy}
+                  onChange={e => patch({ ai_tier_id: e.target.value || null })}>
+            <option value="">Aucune IA</option>
+            {tiers.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
+          <Btn kind="ghost" small onClick={remove} disabled={busy}>Supprimer</Btn>
+        </div>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 11.5, color: 'var(--mut)', marginBottom: 6 }}>Modules inclus</div>
+        <div className="row g8" style={{ flexWrap: 'wrap' }}>
+          {PRESET_MODULES.map(m => {
+            const on = preset.modules.includes(m.key)
+            return (
+              <button key={m.key} type="button" disabled={busy}
+                      onClick={() => toggleModule(m.key, !on)}
+                      style={{ padding: '4px 11px', borderRadius: 999, cursor: 'pointer',
+                               border: `1px solid ${on ? 'var(--acc)' : 'var(--bd)'}`,
+                               background: on ? 'var(--acc-soft)' : 'transparent',
+                               color: on ? 'var(--acc)' : 'var(--mut)', fontSize: 12, fontWeight: 600 }}>
+                {on ? '✓ ' : ''}{m.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="row g14" style={{ flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+        <label className="row g6" style={{ alignItems: 'center', fontSize: 12.5 }}>
+          <Toggle on={preset.recommended} disabled={busy} onChange={v => patch({ recommended: v })} /> Recommandé
+        </label>
+        <label className="row g6" style={{ alignItems: 'center', fontSize: 12.5 }}>
+          <Toggle on={preset.is_active} disabled={busy} onChange={v => patch({ is_active: v })} /> Actif
+        </label>
+        <label className="row g6" style={{ alignItems: 'center', fontSize: 12.5, color: 'var(--mut)' }}>
+          Ordre
+          <input type="number" value={orderStr} disabled={busy}
+                 onChange={e => setOrderStr(e.target.value)}
+                 onBlur={() => { const v = Number(orderStr); if (Number.isInteger(v) && v !== preset.sort_order) patch({ sort_order: v }) }}
+                 style={{ width: 64 }} />
+        </label>
+        <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--faint)' }}>{preset.key}</span>
+      </div>
+      {err && <div className="error" style={{ marginTop: 8, fontSize: 12 }}>{err}</div>}
+    </Card>
   )
 }
 

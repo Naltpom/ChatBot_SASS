@@ -555,6 +555,19 @@ async def create_price(product_id: str, unit_amount: int, currency: str,
     })
 
 
+async def create_coupon(percent_off: int, duration: str = "once",
+                        name: Optional[str] = None) -> dict:
+    """Crée un coupon Stripe (POST /v1/coupons). Les coupons sont IMMUABLES sur leur
+    montant : changer un % => nouveau coupon (comme les Prices). Sert à la remise
+    d'intro 1er mois (`duration='once'`). MOCK_BILLING ⇒ identifiant local factice."""
+    if settings.MOCK_BILLING:
+        return {"id": f"coupon_mock_{uuid.uuid4().hex[:12]}"}
+    data: dict[str, Any] = {"percent_off": str(percent_off), "duration": duration}
+    if name:
+        data["name"] = name
+    return await _stripe_request("POST", "/coupons", data=data)
+
+
 async def deactivate_price(price_id: str) -> dict:
     """Désactive un Price (POST /v1/prices/{id} {active:false}). Seul `active` est
     mutable sur un Price ; le montant ne l'est jamais (cf. `create_price`).

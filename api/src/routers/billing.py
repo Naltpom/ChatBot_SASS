@@ -39,6 +39,7 @@ from src.core.database import get_db
 from src.core.security import get_current_user, require_billing_owner
 from src.core.time import utcnow
 from src.models.billing import (
+    BillingPreset,
     BillingProduct,
     BillingProductOut,
     BillingSubscription,
@@ -58,22 +59,8 @@ router = APIRouter(prefix="/api", tags=["billing"])
 # Réponse standard quand le billing est OFF (clés Stripe absentes — invariant D0).
 _DISABLED = {"billing": "disabled"}
 
-# Présélections de configurateur (spec §2.2). Le total est la somme transparente
-# des produits (recalculée serveur depuis billing_products) — aucun prix caché.
-_PRESETS: list[dict] = [
-    {"key": "vitrine", "label": "Vitrine / FAQ",
-     "tagline": "Un bot qui répond aux questions courantes.",
-     "ai_tier_id": "ai_starter", "modules": ["rag"], "recommended": False},
-    {"key": "pro_ia_rag", "label": "Service client",
-     "tagline": "IA + base de connaissances + live chat + actions.",
-     "ai_tier_id": "ai_growth", "modules": ["rag", "inbox", "actions"],
-     "recommended": True},
-    {"key": "service_client", "label": "Sur-mesure / Volume",
-     "tagline": "Tout débloqué, gros volume.",
-     "ai_tier_id": "ai_scale",
-     "modules": ["rag", "inbox", "actions", "ab", "white_label"],
-     "recommended": False},
-]
+# Présélections du configurateur : pilotées en base (table `billing_presets`,
+# éditable admin). Le total est recalculé serveur depuis billing_products.
 
 CATALOG_VERSION = "2026-06-20"
 
@@ -573,26 +560,31 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
     mtr = by_code.get("mtr_ai")
     overage = mtr.unit_amount if mtr is not None else 0
 
-    # Présélections : total recalculé serveur (somme transparente).
+    # Présélections (pilotées en base, éditable admin) : total recalculé serveur
+    # (somme transparente depuis billing_products). Actifs seuls, ordre sort_order.
+    preset_rows = (await db.execute(
+        select(BillingPreset).where(BillingPreset.is_active.is_(True))
+        .order_by(BillingPreset.sort_order, BillingPreset.id)
+    )).scalars().all()
     presets_out: list[dict] = []
-    for preset in _PRESETS:
+    for preset in preset_rows:
         est = base_cents
-        tier = by_code.get(preset["ai_tier_id"]) if preset["ai_tier_id"] else None
+        tier = by_code.get(preset.ai_tier_id) if preset.ai_tier_id else None
         if tier is not None:
             est += tier.unit_amount
-        for mod in preset["modules"]:
+        for mod in (preset.modules or []):
             code = next((c for c, m in CODE_TO_MODULE.items()
                          if m == mod and c != "mod_ai_byok"), None)
             row = by_code.get(code) if code else None
             if row is not None:
                 est += row.unit_amount
         presets_out.append({
-            "key": preset["key"],
-            "label": preset["label"],
-            "tagline": preset["tagline"],
-            "modules": preset["modules"],
-            "ai_tier_id": preset["ai_tier_id"],
-            "recommended": preset["recommended"],
+            "key": preset.key,
+            "label": preset.label,
+            "tagline": preset.tagline,
+            "modules": preset.modules or [],
+            "ai_tier_id": preset.ai_tier_id,
+            "recommended": preset.recommended,
             "est_price_cents": est,
         })
 
@@ -607,9 +599,12 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
         "overage_cents_per_reply": overage,
         "tax_note": "TVA non applicable, art. 293 B du CGI",
         "presets": presets_out,
-        # Remise intro 1er mois (%) par palier IA ('default' = IA off / BYOK) :
-        # affichage front (« 1er mois à -X% »). Le coupon Stripe porte le même %.
-        "intro_discounts": {"default": INTRO_PERCENT_DEFAULT, **INTRO_PERCENT_BY_TIER},
+        # Remise intro 1er mois (%) lue depuis billing_products.intro_percent
+        # ('default' = socle = IA off/BYOK ; ai_* = palier). Affichage front « -X% ».
+        "intro_discounts": {
+            ("default" if r.code == "base" else r.code): r.intro_percent
+            for r in rows if r.intro_percent is not None
+        },
         "version": CATALOG_VERSION,
         # Lecture seule, utile au debug / parité (jamais source de prix front).
         "products": [BillingProductOut.model_validate(r).model_dump() for r in rows],
@@ -718,30 +713,27 @@ async def get_summary(db: AsyncSession = Depends(get_db),
     }
 
 
-# --- Intro 1er mois remisé (remplace l'essai gratuit) ---------------------
+# --- Intro 1er mois remisé (piloté en base, éditable admin) ----------------
 #
-# Remise appliquée au TOTAL de la 1re facture via un coupon Stripe `duration:once`,
-# % BORNÉ par palier IA pour préserver l'ordre des prix (cheap < cher après remise).
-# IA off / BYOK = remise de base. Les ids DOIVENT exister côté Stripe (Coupons Write).
-INTRO_COUPON_BY_TIER: dict[str, str] = {
-    "ai_starter": "intro_starter_50",
-    "ai_growth": "intro_growth_65",
-    "ai_scale": "intro_scale_80",
-}
-INTRO_COUPON_DEFAULT = "intro_base_45"  # IA désactivée ou BYOK
-
-# % de remise intro (1er mois) par palier — pour l'AFFICHAGE front (le coupon Stripe
-# correspondant porte le MÊME %). 'default' = IA off / BYOK. Exposé via get_catalog.
-INTRO_PERCENT_BY_TIER: dict[str, int] = {"ai_starter": 50, "ai_growth": 65, "ai_scale": 80}
-INTRO_PERCENT_DEFAULT = 45
-
-
-def _intro_coupon_for(config: BotConfigPayload) -> str:
-    """Coupon d'intro selon le palier IA : palier managé -> sa remise dédiée ;
-    IA off ou BYOK -> remise de base (-45 %)."""
+# Remise appliquée au TOTAL de la 1re facture via un coupon Stripe `duration:once`.
+# Le % et l'id du coupon sont stockés sur `billing_products` (intro_percent /
+# intro_coupon_id) : sur les paliers IA (ai_*) et sur 'base' (= défaut IA off/BYOK).
+# Plus aucune valeur en dur : l'admin les édite (rotation du coupon au changement).
+def _intro_product_code(config: BotConfigPayload) -> str:
+    """Code du produit catalogue portant la remise d'intro de `config` : le palier
+    IA managé si présent, sinon 'base' (défaut IA off / BYOK)."""
     if not config.ai_byok and config.ai_tier_id:
-        return INTRO_COUPON_BY_TIER.get(config.ai_tier_id, INTRO_COUPON_DEFAULT)
-    return INTRO_COUPON_DEFAULT
+        return config.ai_tier_id
+    return "base"
+
+
+async def _intro_coupon_for(db: AsyncSession, config: BotConfigPayload) -> Optional[str]:
+    """Id du coupon Stripe d'intro pour `config`, lu depuis billing_products
+    (intro_coupon_id). None si non posé => aucune remise appliquée."""
+    row = (await db.execute(
+        select(BillingProduct).where(BillingProduct.code == _intro_product_code(config))
+    )).scalar_one_or_none()
+    return row.intro_coupon_id if row else None
 
 
 # --- POST /api/billing/checkout -------------------------------------------
@@ -783,6 +775,7 @@ async def _open_checkout(
     # Consentement à l'exécution immédiate (renonciation rétractation 14 j) :
     # horodaté côté serveur, stocké en métadonnée d'abonnement Stripe (preuve).
     consent_at = utcnow().isoformat() if consent else None
+    intro_coupon = await _intro_coupon_for(db, config)
     url = await stripe_service.create_checkout_session(
         customer_id=customer_id,
         line_items=[{"price": it["price"], "quantity": it["quantity"]}
@@ -790,8 +783,8 @@ async def _open_checkout(
         bots_map=bots_map,
         group_key=group_key,
         user_id=user.id,
-        # Intro 1er mois remisée selon le palier IA (coupon `duration:once`).
-        intro_coupon=_intro_coupon_for(config),
+        # Intro 1er mois remisée selon le palier IA (coupon `duration:once`, base).
+        intro_coupon=intro_coupon,
         consent_immediate_execution_at=consent_at,
     )
 

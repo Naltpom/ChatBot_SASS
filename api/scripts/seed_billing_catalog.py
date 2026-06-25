@@ -30,7 +30,7 @@ import logging
 from sqlalchemy import select
 
 from src.core.database import AsyncSessionLocal
-from src.models.billing import BillingProduct
+from src.models.billing import BillingPreset, BillingProduct
 from src.services import stripe_service
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ CATALOG: list[dict] = [
     #     souscription -> GATE. ---
     {"code": "base", "label": "Socle", "kind": "base",
      "unit_amount": 900, "included_replies": None, "is_active": True,
+     "intro_percent": 45, "intro_coupon_id": "intro_base_45",
      "description": "Bot conversationnel en arbre : menus à clics illimités, "
                     "personnalisation de l'apparence, déclencheurs proactifs et "
                     "analytics. Fonctionne sans IA."},
@@ -57,14 +58,17 @@ CATALOG: list[dict] = [
     #     ai_monthly_quota = included_replies). Plus d'IA gratuite à vie. ---
     {"code": "ai_starter", "label": "IA Starter", "kind": "ai_tier",
      "unit_amount": 1900, "included_replies": 1000, "is_active": True,
+     "intro_percent": 50, "intro_coupon_id": "intro_starter_50",
      "description": "Moteur IA (Claude Haiku / GPT-4o-mini) pour répondre en "
                     "langage naturel. 1 000 réponses IA incluses par mois."},
     {"code": "ai_growth", "label": "IA Growth", "kind": "ai_tier",
      "unit_amount": 3900, "included_replies": 3000, "is_active": True,
+     "intro_percent": 65, "intro_coupon_id": "intro_growth_65",
      "description": "Moteur IA avec Claude Sonnet en plus. 3 000 réponses IA par "
                     "mois — pour un support client actif."},
     {"code": "ai_scale", "label": "IA Scale", "kind": "ai_tier",
      "unit_amount": 8900, "included_replies": 10000, "is_active": True,
+     "intro_percent": 80, "intro_coupon_id": "intro_scale_80",
      "description": "Moteur IA haut volume : 10 000 réponses IA par mois, pour les "
                     "sites à fort trafic."},
 
@@ -113,6 +117,24 @@ CATALOG: list[dict] = [
 ]
 
 
+# Présélections du configurateur (bundles) — pilotées en base (billing_presets,
+# éditable admin). Le total est recalculé serveur depuis billing_products.
+PRESETS: list[dict] = [
+    {"key": "vitrine", "label": "Vitrine / FAQ",
+     "tagline": "Un bot qui répond aux questions courantes.",
+     "ai_tier_id": "ai_starter", "modules": ["rag"],
+     "recommended": False, "sort_order": 10},
+    {"key": "pro_ia_rag", "label": "Service client",
+     "tagline": "IA + base de connaissances + live chat + actions.",
+     "ai_tier_id": "ai_growth", "modules": ["rag", "inbox", "actions"],
+     "recommended": True, "sort_order": 20},
+    {"key": "service_client", "label": "Sur-mesure / Volume",
+     "tagline": "Tout débloqué, gros volume.",
+     "ai_tier_id": "ai_scale", "modules": ["rag", "inbox", "actions", "ab", "white_label"],
+     "recommended": False, "sort_order": 30},
+]
+
+
 async def _upsert_local(db, item: dict) -> BillingProduct:
     """Crée/met à jour la ligne `billing_products` (idempotent par `code`).
     Ne touche JAMAIS stripe_product_id / stripe_price_id (gérés par _push_stripe)."""
@@ -131,8 +153,30 @@ async def _upsert_local(db, item: dict) -> BillingProduct:
     row.currency = CURRENCY
     row.interval = INTERVAL
     row.is_active = item["is_active"]
+    # Remise d'intro (éditable admin ensuite) : posée au seed pour les paliers IA
+    # + le socle (défaut). Absente => None (pas de remise sur ce produit).
+    row.intro_percent = item.get("intro_percent")
+    row.intro_coupon_id = item.get("intro_coupon_id")
     await db.flush()
     return row
+
+
+async def _upsert_preset(db, item: dict) -> None:
+    """Crée/met à jour une présélection `billing_presets` (idempotent par `key`)."""
+    row = (await db.execute(
+        select(BillingPreset).where(BillingPreset.key == item["key"])
+    )).scalar_one_or_none()
+    if row is None:
+        row = BillingPreset(key=item["key"])
+        db.add(row)
+    row.label = item["label"]
+    row.tagline = item.get("tagline", "")
+    row.ai_tier_id = item.get("ai_tier_id")
+    row.modules = item.get("modules", [])
+    row.recommended = item.get("recommended", False)
+    row.sort_order = item.get("sort_order", 0)
+    row.is_active = item.get("is_active", True)
+    await db.flush()
 
 
 async def _push_stripe(row: BillingProduct, item: dict) -> bool:
@@ -181,6 +225,8 @@ async def seed() -> None:
                 pushed += 1
                 logger.info("Stripe seedé : %s -> %s / %s",
                             row.code, row.stripe_product_id, row.stripe_price_id)
+        for preset in PRESETS:
+            await _upsert_preset(db, preset)
         await db.commit()
 
     if stripe_service.billing_enabled():
