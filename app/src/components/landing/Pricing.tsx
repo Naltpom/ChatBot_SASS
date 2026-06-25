@@ -219,7 +219,7 @@ export function Pricing({ ctaTo }: { ctaTo: string }) {
         <div className="ch-reveal" style={{ textAlign: 'center', margin: '46px 0 18px' }}>
           <span style={{ fontFamily: JAKARTA, fontWeight: 700, fontSize: 15, color: '#1E2A32' }}>Modules à la carte</span>
           <p style={{ fontSize: 13.5, color: '#6B7B8D', margin: '6px auto 0', maxWidth: 520 }}>
-            Activez-les sur n’importe quel bot, à tout moment. Facturés au prorata.
+            Activez-les sur n’importe quel bot, à tout moment.
           </p>
         </div>
         <div className="ch-modules-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
@@ -228,10 +228,7 @@ export function Pricing({ ctaTo }: { ctaTo: string }) {
             return (
               <div key={m.key} className="ch-reveal" style={{ ...cardBase, padding: '22px 20px' }}>
                 <span style={{ width: 42, height: 42, borderRadius: 12, background: v.bg, color: v.co, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{v.icon}</span>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, margin: '14px 0 0' }}>
-                  <span style={{ fontFamily: JAKARTA, fontWeight: 700, fontSize: 15, color: '#1E2A32' }}>{m.label}</span>
-                  <span style={{ fontWeight: 700, fontSize: 15, color: '#1C3F5C', whiteSpace: 'nowrap' }}>{fmtEur(m.price_cents)}<span style={{ fontSize: 11.5, fontWeight: 400, color: '#6B7B8D' }}> /mois</span></span>
-                </div>
+                <div style={{ fontFamily: JAKARTA, fontWeight: 700, fontSize: 15, color: '#1E2A32', margin: '14px 0 0' }}>{m.label}</div>
                 <p style={{ fontSize: 13, lineHeight: 1.5, color: '#6B7B8D', margin: '7px 0 0' }}>{m.description}</p>
               </div>
             )
