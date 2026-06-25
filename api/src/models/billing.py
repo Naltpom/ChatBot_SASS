@@ -46,6 +46,10 @@ class BotEntitlement(Base):
     ai_monthly_quota = Column(Integer, nullable=True)
     overage_mode = Column(String, nullable=False, default="block",
                           server_default=text("'block'"))  # block (v1) | meter (v2)
+    # Plafond de sécurité du dépassement IA métré (v2) : nombre MAX de réponses
+    # facturées au-delà du quota par mois. NULL = défaut technique OVERAGE_CAP_DEFAULT
+    # (1000). Choix OWNER (toggle UI Facturation) ; préservé au reprojet webhook.
+    overage_cap = Column(Integer, nullable=True)
     status = Column(String, nullable=False, default="active",
                     server_default=text("'active'"))        # active | trialing | past_due | canceled | inactive
     # Fin de l'essai 7 j AVEC carte (status='trialing', carte posée au Checkout) :
@@ -108,6 +112,13 @@ class BillingProduct(Base):
     description = Column(String, nullable=True)  # texte commercial, poussé sur le Product Stripe
     kind = Column(String, nullable=False)   # base | ai_tier | module | metered
     included_replies = Column(Integer, nullable=True)  # quota mensuel des lignes kind='ai_tier' (NULL sinon)
+    # Axe IA métré (v2 — Stripe Billing Meters). Posés UNIQUEMENT sur la ligne
+    # kind='metered' (mtr_ai), NULL ailleurs.
+    # - stripe_meter_id   : id du Meter Stripe (mtr_...) créé au seed métré.
+    # - meter_event_name  : event_name unique du Meter (= METER_EVENT_NAME), référencé
+    #                       par le Price métré ET par les meter_events rapportés.
+    stripe_meter_id = Column(String, nullable=True)
+    meter_event_name = Column(String, nullable=True)
     # Remise d'intro 1er mois (éditable admin) : % porté par les paliers IA (ai_*)
     # et par 'base' (= défaut IA off / BYOK) ; coupon Stripe duration:once associé
     # (rotation à chaque changement de %). NULL ailleurs / pas de remise.
@@ -188,6 +199,7 @@ class BotEntitlementOut(BaseModel):
     modules: list[str] = Field(default_factory=list)
     ai_monthly_quota: int | None = None    # None = illimité
     overage_mode: str = "block"            # block | meter
+    overage_cap: int | None = None         # plafond dépassement IA (NULL = défaut 1000)
     status: str = "active"                 # active | trialing | past_due | canceled | inactive
     trial_end: datetime | None = None      # fin de l'essai 7 j (null hors essai)
     source: str = "free"                   # stripe | staff | free

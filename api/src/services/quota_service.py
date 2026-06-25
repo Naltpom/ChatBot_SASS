@@ -38,11 +38,16 @@ lui-même.
 """
 import logging
 import time
+from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.constants import OVERAGE_CAP_DEFAULT
 from src.core.time import utcnow
+from src.models.billing import BotUsageCounter
+from src.services import stripe_service
 from src.services.usage_service import count_ai_messages_month
 
 logger = logging.getLogger("quota")
@@ -241,3 +246,105 @@ async def ai_quota_usage(db: AsyncSession, bot_id: int) -> int:
         except Exception as exc:
             _redis_failed(exc)
     return await _count_sql(db, bot_id, period)
+
+
+# --- Dépassement IA métré (overage) : compteur durable BotUsageCounter -----
+#
+# Le dépassement (réponses servies AU-DELÀ du quota, mode 'meter') est compté dans
+# `BotUsageCounter.reported_overage` (par (bot_id, period) UTC), source de vérité
+# locale qui fait foi pour la réconciliation. SQL (faible volume : seules les
+# réponses au-delà du quota incrémentent) ; pas de Redis ici. Le plafond
+# (`overage_cap`, défaut OVERAGE_CAP_DEFAULT) est vérifié AVANT génération
+# (ai_overage_precheck), comme le quota : on ne génère jamais au-delà du plafond.
+
+
+async def _overage_count(db: AsyncSession, bot_id: int, period: str) -> int:
+    """Lecture du compteur de dépassement du mois (0 si pas de ligne)."""
+    row = (await db.execute(
+        select(BotUsageCounter).where(
+            BotUsageCounter.bot_id == bot_id,
+            BotUsageCounter.period == period,
+        )
+    )).scalar_one_or_none()
+    return int(row.reported_overage or 0) if row is not None else 0
+
+
+def _month_start_utc(now=None) -> datetime:
+    """1er du mois courant à 00:00 UTC, datetime NAÏF (convention colonnes)."""
+    d = now or utcnow()
+    return datetime(d.year, d.month, 1)
+
+
+async def ai_overage_precheck(db: AsyncSession, bot_id: int, cap: int | None) -> bool:
+    """LECTURE SEULE : reste-t-il du dépassement facturable sous le plafond ?
+
+    Renvoie True si `reported_overage(period) < (cap or OVERAGE_CAP_DEFAULT)` (une
+    réponse de dépassement de plus tiendrait sous le plafond), False sinon. Vérifié
+    AVANT génération (comme ai_quota_precheck) : on ne génère jamais au-delà du
+    plafond. N'incrémente RIEN."""
+    period = quota_period()
+    limit = cap if cap is not None else OVERAGE_CAP_DEFAULT
+    used = await _overage_count(db, bot_id, period)
+    return used < limit
+
+
+async def ai_overage_consume(db: AsyncSession, bot_id: int,
+                             customer_id: str | None,
+                             event_name: str, cap: int | None) -> bool:
+    """Comptabilise UNE réponse de dépassement (INCR durable) ET la rapporte à Stripe.
+
+    À appeler APRÈS un `generate_reply` réussi et AVANT la persistance du message,
+    UNIQUEMENT quand le bot est en dépassement armé (overage_active + plafond non
+    atteint au pré-check). Étapes :
+      1) upsert `BotUsageCounter` sur (bot_id, period) — period_start = 1er du mois
+         UTC — et INCR `reported_overage` ;
+      2) si le nouveau total dépasse le plafond (course concurrente du dernier
+         crédit) : ANNULE l'incrément (décrément) et renvoie False (refus, ne
+         consomme pas) — borne de sûreté, le gating est fait au pré-check ;
+      3) si un `customer_id` payeur est résolu, rapporte le meter event Stripe
+         (best-effort : StripeError AVALÉE et loggée — un hoquet Stripe ne casse
+         pas la réponse au visiteur, le compteur local fait foi) avec
+         `identifier=f"{bot_id}:{period}:{new_count}"` (dédup Stripe 24 h). Sans
+         customer (org sans payeur Stripe, jamais souscrit) : on NE rapporte PAS,
+         mais l'INCRÉMENT durable (étapes 1-2) a TOUJOURS lieu — le plafond reste
+         enforce, jamais de dépassement illimité non plafonné. Renvoie True.
+    """
+    period = quota_period()
+    limit = cap if cap is not None else OVERAGE_CAP_DEFAULT
+
+    row = (await db.execute(
+        select(BotUsageCounter).where(
+            BotUsageCounter.bot_id == bot_id,
+            BotUsageCounter.period == period,
+        )
+    )).scalar_one_or_none()
+    if row is None:
+        row = BotUsageCounter(
+            bot_id=bot_id, period=period,
+            reported_overage=0, period_start=_month_start_utc())
+        db.add(row)
+        await db.flush()
+
+    new_count = int(row.reported_overage or 0) + 1
+    if new_count > limit:
+        # Plafond atteint (course concurrente) : ne pas comptabiliser, refus.
+        return False
+    row.reported_overage = new_count
+
+    # Report Stripe best-effort, UNIQUEMENT si un payeur (customer) est résolu : un
+    # échec ne doit pas casser la réponse visiteur, et l'absence de customer ne doit
+    # pas empêcher le comptage du plafond (déjà fait ci-dessus). Le compteur local
+    # (reported_overage) fait foi et permet la réconciliation.
+    if customer_id:
+        try:
+            await stripe_service.report_meter_event(
+                event_name=event_name,
+                customer_id=customer_id,
+                value=1,
+                identifier=f"{bot_id}:{period}:{new_count}",
+            )
+        except stripe_service.StripeError as exc:
+            logger.warning(
+                "overage: report_meter_event échoué bot %s (%s) — compteur local "
+                "fait foi, réconciliation ultérieure", bot_id, exc)
+    return True

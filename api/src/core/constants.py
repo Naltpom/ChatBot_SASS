@@ -60,6 +60,36 @@ MODULE_KEYS: tuple[str, ...] = (
     MODULE_WHITELABEL,
 )
 
+# --- Axe IA métré (dépassement de quota, Stripe Billing Meters) -----------
+#
+# METER_EVENT_NAME : event_name UNIQUE du Meter Stripe `mtr_ai` (référencé par le
+# Price métré ET les meter_events rapportés). Figé côté catalogue (seed) et
+# côté runtime (widget) : doit être IDENTIQUE des deux côtés.
+METER_EVENT_NAME: str = "ai_reply_overage"
+
+# OVERAGE_CAP_DEFAULT : plafond de sécurité par défaut du dépassement IA (réponses
+# facturées max/mois) quand l'owner active le mode 'meter' sans cap explicite.
+OVERAGE_CAP_DEFAULT: int = 1000
+
+# METERED_CODE : code catalogue de la SEULE ligne MÉTRÉE (kind='metered',
+# Stripe usage_type=metered). Un item métré est traité À PART de toute
+# reconstruction de raw_items : on le reconduit TEL QUEL (price + si_id, flag
+# `metered`, SANS quantity, JAMAIS supprimé), il ne porte AUCUN module et ne
+# participe PAS à la classification ajout/retrait/swap des plans. Il n'est
+# (dé)câblé QUE par le toggle dépassement (_sync_overage_item). Le retirer ou
+# lui coller une quantity lors d'un changement de plan = fuite de revenu /
+# Stripe 400 sur l'item métré.
+METERED_CODE: str = "mtr_ai"
+
+
+def is_metered_code(code: str | None) -> bool:
+    """True si `code` désigne la ligne MÉTRÉE (mtr_ai) — item de facturation à
+    l'usage attaché/détaché par le seul toggle dépassement, invariant des
+    reconstructions de raw_items (jamais classé add/remove, jamais de quantity,
+    jamais supprimé lors d'un changement de plan)."""
+    return code == METERED_CODE
+
+
 # Mapping explicite des codes catalogue (billing_products.code) vers le module
 # d'entitlement qu'ils activent. mod_ai et mod_ai_byok activent tous deux le
 # module IA (BYOK = variante forfait non métrée).

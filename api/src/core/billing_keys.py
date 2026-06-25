@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.bot import Bot
-from src.models.user import Organization
+from src.models.user import Organization, User
 
 
 def _bot_limiter_key(bot: Bot) -> str:
@@ -46,3 +46,20 @@ async def billing_owner_user_id(scope_key: str, db: AsyncSession) -> int | None:
             select(Organization.owner_user_id).where(Organization.id == ident)
         )
     return None
+
+
+async def billing_customer_for_bot(db: AsyncSession, bot: Bot) -> str | None:
+    """Customer Stripe (cus_...) du PAYEUR d'un bot, ou None.
+
+    Sert au report de dépassement IA métré (le Meter mappe l'usage au customer
+    payeur, pas au bot). On résout le scope (`_bot_limiter_key`) -> id du User
+    payeur (`billing_owner_user_id`) -> son `stripe_customer_id`. None si pas de
+    payeur résolu (org sans owner) ou payeur sans customer (jamais souscrit) :
+    l'appelant n'émet alors aucun meter event."""
+    scope = _bot_limiter_key(bot)
+    uid = await billing_owner_user_id(scope, db)
+    if uid is None:
+        return None
+    return await db.scalar(
+        select(User.stripe_customer_id).where(User.id == uid)
+    )

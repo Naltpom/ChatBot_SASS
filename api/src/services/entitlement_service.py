@@ -34,7 +34,7 @@ from src.models.billing import (
     BillingWebhookEvent,
     BotEntitlement,
 )
-from src.services.stripe_service import billing_enabled
+from src.services.stripe_service import billing_enabled, metering_enabled
 
 logger = logging.getLogger("billing")
 
@@ -61,6 +61,7 @@ class Entitlement:
     modules: set[str] = field(default_factory=set)
     ai_monthly_quota: int | None = None   # None = illimité
     overage_mode: str = "block"           # block | meter
+    overage_cap: int | None = None        # plafond dépassement IA (None = défaut 1000)
     status: str = "active"                # active | trialing | past_due | canceled | inactive
     byok: bool = False
     trial_end: datetime | None = None     # fin d'essai (NULL hors essai)
@@ -121,6 +122,7 @@ def _to_entitlement(row: BotEntitlement) -> Entitlement:
         modules=set(row.modules or []),
         ai_monthly_quota=row.ai_monthly_quota,
         overage_mode=row.overage_mode or "block",
+        overage_cap=getattr(row, "overage_cap", None),
         status=status,
         byok=False,
         trial_end=getattr(row, "trial_end", None),
@@ -181,6 +183,32 @@ def ai_quota_for(ent: Entitlement) -> int | None:
         q = ent.ai_monthly_quota
         return TRIAL_AI_CAP if q is None else min(q, TRIAL_AI_CAP)
     return ent.ai_monthly_quota
+
+
+def overage_active(ent: Entitlement) -> bool:
+    """True si le DÉPASSEMENT IA métré est ARMÉ pour ce bot (servir + facturer
+    au-delà du quota, avec plafond de sécurité).
+
+    Conditions cumulatives (toutes requises) :
+    - `metering_enabled()` : billing ON ET BILLING_METERING_ENABLED (sans Stripe,
+      métrage inerte -> False, invariant D0) ;
+    - `overage_mode == 'meter'` : l'OWNER a activé le toggle (défaut 'block' =>
+      AUCUN dépassement facturé tant qu'il ne l'a pas demandé — argent) ;
+    - `not byok` : BYOK jamais métré (clé du client, illimité) ;
+    - `ai_monthly_quota is not None` : plan IA managé avec quota (un plan illimité
+      managé -> None ne dépasse jamais ; pas d'IA -> 0 n'est pas None mais le
+      quota_precheck bloque déjà) ;
+    - `MODULE_AI in modules` ET `status == 'active'` : module IA souscrit et
+      abonnement utilisable (un essai/past_due ne facture pas de dépassement).
+    """
+    return (
+        metering_enabled()
+        and ent.overage_mode == "meter"
+        and not ent.byok
+        and ent.ai_monthly_quota is not None
+        and MODULE_AI in ent.modules
+        and ent.status == "active"
+    )
 
 
 def gate(ent: Entitlement, capability: str) -> None:
@@ -352,6 +380,9 @@ async def _project_bot(
     row.modules = sorted(modules)
     row.ai_monthly_quota = ai_quota
     row.status = status
+    # CHOIX OWNER PRÉSERVÉ : on ne touche JAMAIS overage_mode / overage_cap ici
+    # (toggle dépassement IA posé via POST /api/bots/{id}/overage). Le reprojet
+    # webhook ne doit pas réinitialiser le dépassement armé par l'owner.
     # Essai avec carte : trial_end porté tant que l'essai dure, effacé sinon.
     row.trial_end = trial_end if status == "trialing" else None
     row.source = "stripe"

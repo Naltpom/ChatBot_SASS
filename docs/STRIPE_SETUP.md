@@ -54,9 +54,17 @@ Permissions à accorder (principe du moindre privilège) :
 | Products | **Write** *(pour le seed)* |
 | Prices | **Write** *(pour le seed)* |
 | Invoices | **Read** |
+| **Billing Meters** | **Write** *(v2 dépassement IA — Meters)* |
+| **Meter events** | **Write** *(v2 dépassement IA — report d'usage)* |
 
 > Tout le reste : *None*. (Optionnel mais recommandé en prod : restreindre la clé par
 > **IP allowlist** sur l'IP de ton serveur.)
+>
+> ⚠️ **Permission restreinte « Billing Meters »** : Stripe regroupe les *Meters* et
+> *Meter events* dans une catégorie à part. Si tu n'actives pas le **dépassement IA
+> métré** (mtr_ai, §3.5), tu peux laisser ces 2 lignes à *None* — le seed ne créera ni
+> Meter ni Price métré tant que la fonctionnalité n'est pas voulue. Active-les dès que tu
+> comptes proposer le toggle « Dépassement facturé ».
 
 → Copie la valeur `rk_test_…` (puis `rk_live_…` en live).
 
@@ -114,7 +122,13 @@ Pour référence, voici ce que le seed va créer (prix **nets**, **par bot/mois*
 | `mod_actions` | Actions & MCP | 19 € |
 | `mod_ab` | A/B testing | 7 € |
 | `mod_whitelabel` | White-label | 9 € |
-| `mtr_ai` | Dépassement IA | **non créé en v1** (`is_active=false`) |
+| `mtr_ai` | Dépassement IA (métré) | **0,015 €/réponse** (`unit_amount_decimal=1.5`, créé si billing actif) |
+
+> **`mtr_ai` (v2 dépassement IA)** : le seed crée désormais le **Meter** Stripe
+> (`event_name = ai_reply_overage`) **et** le **Price métré** (`recurring[usage_type]=metered`,
+> `unit_amount_decimal=1.5` = 0,015 €/réponse) **quand `billing_enabled()`**. Le Price reste
+> **inerte** tant qu'aucun owner n'active le toggle « Dépassement facturé » sur son bot (§3.5) :
+> par défaut `overage_mode='block'` ⇒ aucun item métré attaché, donc rien facturé. Voir §3.5.
 
 > **Annuel −17 %** : pas encore dans le seed (seules les prices **mensuelles** sont
 > créées). À ajouter plus tard si tu veux l'option annuelle.
@@ -132,7 +146,7 @@ STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxx      # le secret du webhook (§2.C)
 
 # Flags de facturation :
 MOCK_BILLING=false                # true = aucun appel Stripe (dev/CI). DOIT être false dès qu'on parle au vrai Stripe.
-BILLING_METERING_ENABLED=false    # v2 (Stripe Meters). Laisser false en v1.
+BILLING_METERING_ENABLED=true     # v2 (Stripe Billing Meters / dépassement IA mtr_ai). Défaut true ; le toggle owner reste OFF par bot.
 BILLING_ENFORCE=false             # false = mode "observe" (logge, ne bloque pas) ; true = gating actif.
 ```
 
@@ -169,9 +183,46 @@ Ce que ça fait :
 
 ### 3.4 — Vérifications
 
-- `GET /api/billing/catalog` (connecté, owner) renvoie le catalogue avec les montants.
-- Le Dashboard Stripe (test) montre 10 Products + 10 Prices avec `metadata.code`.
+- `GET /api/billing/catalog` (connecté, owner) renvoie le catalogue avec les montants
+  (dont `overage_cents_per_reply` = 1.5 et `overage_cap_default` = 1000).
+- Le Dashboard Stripe (test) montre 10 Products + 10 Prices avec `metadata.code`,
+  plus — si billing actif — le **Meter** `ai_reply_overage` et le **Price métré** `mtr_ai`.
 - Le webhook test reçoit bien les events (voir §4).
+
+### 3.5 — Activer le dépassement IA (`mtr_ai`, v2)
+
+Quand un bot atteint son quota IA mensuel, le comportement par défaut est le **blocage**
+(`overage_mode='block'`) : l'IA est mise en pause jusqu'au cycle suivant, **rien n'est
+facturé**. La v2 ajoute une **option activable** : au-delà du quota, on **sert quand même
+la réponse et on la facture** à l'usage, avec un **plafond de sécurité**.
+
+**Pré-requis (une fois, côté Stripe)** :
+- La clé restreinte doit avoir **Billing Meters : Write** et **Meter events : Write** (§2.A).
+- `BILLING_METERING_ENABLED=true` (défaut) ET billing actif (`STRIPE_SECRET_KEY` +
+  `STRIPE_WEBHOOK_SECRET`). Le seed (§3.3) crée alors le **Meter** (`event_name = ai_reply_overage`)
+  et le **Price métré** `mtr_ai` (`unit_amount_decimal=1.5` = **0,015 €/réponse**).
+
+**Activation par bot (owner)** : ce n'est **pas** un flag dev global, c'est un **toggle
+owner** dans l'app, page **Facturation** (« votre plan », colonne de droite) :
+- Toggle **« Dépassement facturé »** → `POST /api/bots/{id}/overage` `{ "enabled": true, "cap": <int|null> }`.
+- `cap` = **plafond de sécurité** (nombre max de réponses facturées au-delà du quota ; `null`
+  ⇒ défaut **1000**). Le plafond est vérifié **AVANT** génération, comme le quota : on ne
+  sert jamais une réponse au-delà du plafond.
+- Activer attache l'**item métré** `mtr_ai` (price `recurring[usage_type]=metered`, **sans
+  quantity**) à la subscription active du bot ; désactiver le retire (best-effort).
+- Le toggle n'apparaît **que** si le dépassement est applicable : billing actif,
+  `BILLING_METERING_ENABLED=true`, **plan IA managé** (quota défini) et **bot non BYOK**.
+
+**Ce qui n'est jamais facturé** :
+- **BYOK** (clé du client) : illimité, **jamais métré** — pas de toggle.
+- Tant qu'aucun owner n'a activé le toggle, `overage_mode` reste `block` ⇒ **zéro
+  facturation de dépassement** (on ne facture jamais un dépassement non demandé).
+
+**Report d'usage** : la consommation au-delà du quota est reportée à Stripe par
+**meter event** (`event_name = ai_reply_overage`) au niveau du **customer** (le payeur).
+⚠️ Limite connue : le report est **par customer**, pas finement **par bot / par org** ;
+le détail par bot vit en base (`bot_usage_counters.reported_overage`, exposé via
+`GET /api/bots/{id}/entitlement` → `reported_overage`).
 
 ---
 
@@ -233,7 +284,7 @@ nouveau 100 % gratuite, nav facturation masquée.
 ## 7. Checklist
 
 **Stripe (test puis live)**
-- [ ] Clé restreinte `rk_` créée avec les 7 permissions (§2.A)
+- [ ] Clé restreinte `rk_` créée avec les permissions (§2.A ; + Billing Meters/Meter events Write si dépassement IA)
 - [ ] Portail client configuré (cancel + payment method) (§2.B)
 - [ ] Webhook créé sur `…/api/billing/webhook` + 4 events + `whsec_` copié (§2.C)
 - [ ] Pied de facture « TVA non applicable, art. 293 B du CGI » (§2.D)
@@ -242,9 +293,10 @@ nouveau 100 % gratuite, nav facturation masquée.
 **App**
 - [ ] `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` dans l'env ; `MOCK_BILLING=false`
 - [ ] `alembic upgrade head`
-- [ ] `python -m scripts.seed_billing_catalog` (vérifier `stripe_price_id` remplis)
+- [ ] `python -m scripts.seed_billing_catalog` (vérifier `stripe_price_id` remplis ; Meter + Price `mtr_ai` créés si billing actif)
 - [ ] `GET /api/billing/catalog` OK ; webhook reçoit les events ; Checkout test OK
 - [ ] `BILLING_ENFORCE=false` (observe) → puis `true`
+- [ ] (Dépassement IA) `BILLING_METERING_ENABLED=true` ; toggle « Dépassement facturé » par bot dans Facturation (owner), plafond de sécurité posé (§3.5)
 
 > ⚠️ Pré-requis non-Stripe : valider d'abord la branche en Docker (migrations + pytest +
 > tsc + e2e), cf. discussion en cours sur le WIP TreeFlow du dossier principal.

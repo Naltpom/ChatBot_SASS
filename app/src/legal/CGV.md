@@ -63,7 +63,7 @@ Le catalogue et les prix en vigueur sont affichés dans le Service au moment de 
 
 ## 8. Quotas, usage et BYOK
 
-8.1. **IA managée :** chaque palier inclut un quota mensuel de réponses. Atteint le quota, l'IA est mise en pause jusqu'au cycle suivant (pas de dépassement facturé en version actuelle). Une alerte est affichée à l'approche du quota.
+8.1. **IA managée :** chaque palier inclut un quota mensuel de réponses. Une alerte est affichée à l'approche du quota. Une fois le quota atteint, l'IA est, par défaut, mise en pause jusqu'au cycle suivant, sans frais supplémentaire. Le Client peut toutefois activer, pour un Bot donné, l'**option « dépassement facturé »** : au-delà du quota, les réponses supplémentaires continuent d'être servies et sont facturées à l'usage, au tarif de **0,015 € par réponse**, dans la limite d'un **plafond de sécurité** défini par le Client. Cette option est désactivée par défaut ; aucun dépassement n'est facturé tant que le Client ne l'a pas expressément activée.
 
 8.2. **BYOK :** le Client fournit sa propre clé fournisseur et paie directement son fournisseur d'IA ; Chapote ne facture qu'un forfait plateforme. Le Client garantit la licéité de l'usage de sa clé.
 
