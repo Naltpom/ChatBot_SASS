@@ -87,8 +87,10 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str | None = None
     # MOCK_BILLING (spec §2.3) : stripe_service n'émet AUCUN appel sortant
     # (URLs locales, entitlement appliqué directement) => e2e sans Stripe.
-    # Interdit en production (validate_production). True par défaut (dev/CI).
-    MOCK_BILLING: bool = True
+    # Interdit en production (validate_production) => défaut FALSE (sûr en prod :
+    # un déploiement sans var MOCK_BILLING démarre normalement). Dev/CI/tests le
+    # passent explicitement à True quand ils veulent mocker Stripe.
+    MOCK_BILLING: bool = False
     # Axe IA métré (Stripe Billing Meters) : la feature est « mise en place » par
     # défaut (True). Reste INOFFENSIVE sans billing : metering_enabled() ANDe
     # billing_enabled(), donc clés Stripe absentes => métrage INERTE (overage

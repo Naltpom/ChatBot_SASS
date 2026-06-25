@@ -156,7 +156,7 @@ export function Pricing({ ctaTo }: { ctaTo: string }) {
   useEffect(() => {
     let alive = true
     api<PublicPricing>('/api/billing/pricing')
-      .then(d => { if (alive && d && Array.isArray(d.ai_tiers)) setPricing(d) })
+      .then(d => { if (alive && d && Array.isArray(d.ai_tiers) && d.ai_tiers.length > 0) setPricing(d) })
       .catch(() => { /* repli silencieux sur FALLBACK */ })
     return () => { alive = false }
   }, [])
