@@ -301,6 +301,7 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
   const [modules, setModules] = useState<Set<ModuleKey>>(new Set())
   const [quotaStr, setQuotaStr] = useState('') // vide = illimité (null)
   const [saving, setSaving] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
@@ -346,7 +347,9 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
         body: {
           modules: MODULE_LABELS.filter(m => modules.has(m.key)).map(m => m.key),
           ai_monthly_quota: quota,
-          status: ent?.status,
+          // `none` (pas d'override) / `trialing` (essai) sont des statuts
+          // synthétiques renvoyés par le GET : un override staff est actif.
+          status: ent && ent.status !== 'none' && ent.status !== 'trialing' ? ent.status : 'active',
         },
       })
       onSaved()
@@ -354,6 +357,25 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
       setSaveError(errMsg(err, "L'enregistrement a échoué."))
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Réinitialise : retire l'override staff et recalcule depuis la facturation
+  // réelle (Stripe). Sans abo actif couvrant le bot, il redevient gaté (= non
+  // activé). Voir DELETE /api/admin/bots/{id}/entitlement.
+  async function reset() {
+    if (!window.confirm(
+      "Réinitialiser cet entitlement ?\n\nL'override manuel (staff) est retiré et l'état est recalculé "
+      + "depuis la facturation Stripe. Si aucun abonnement actif ne couvre ce bot, il redevient gaté (non activé).")) return
+    setResetting(true)
+    setSaveError('')
+    try {
+      await api(`/api/admin/bots/${bot.bot_id}/entitlement`, { method: 'DELETE' })
+      onSaved()
+    } catch (err: unknown) {
+      setSaveError(errMsg(err, 'La réinitialisation a échoué.'))
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -412,11 +434,16 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
 
             {saveError && <div className="error" style={{ marginTop: 12 }}>{saveError}</div>}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 22 }}>
-              <Btn kind="ghost" onClick={onClose} disabled={saving}>Annuler</Btn>
-              <Btn kind="primary" onClick={save} disabled={saving}>
-                {saving ? 'Enregistrement…' : 'Enregistrer (staff)'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 22 }}>
+              <Btn kind="ghost" onClick={reset} disabled={saving || resetting}>
+                {resetting ? 'Réinitialisation…' : '↺ Réinitialiser (état Stripe)'}
               </Btn>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Btn kind="ghost" onClick={onClose} disabled={saving || resetting}>Annuler</Btn>
+                <Btn kind="primary" onClick={save} disabled={saving || resetting}>
+                  {saving ? 'Enregistrement…' : 'Enregistrer (staff)'}
+                </Btn>
+              </div>
             </div>
           </>
         )}
