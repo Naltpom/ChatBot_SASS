@@ -28,7 +28,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.billing_keys import billing_customer_for_bot
 from src.core.constants import (
+    METER_EVENT_NAME,
     MODULE_AB,
     MODULE_ACTIONS,
     MODULE_INBOX,
@@ -62,8 +64,18 @@ from src.routers.widget_helpers import (
 from src.services import tree_engine
 from src.services.ai_service import AIServiceError, generate_reply
 from src.services.captcha import verify_captcha
-from src.services.entitlement_service import ai_quota_for, has_module, resolve
-from src.services.quota_service import ai_quota_consume, ai_quota_precheck
+from src.services.entitlement_service import (
+    ai_quota_for,
+    has_module,
+    overage_active,
+    resolve,
+)
+from src.services.quota_service import (
+    ai_overage_consume,
+    ai_overage_precheck,
+    ai_quota_consume,
+    ai_quota_precheck,
+)
 from src.services.email_service import (
     build_handoff_email,
     build_lead_email,
@@ -125,6 +137,16 @@ QUOTA_EXHAUSTED_MESSAGE = (
 TRIAL_ENDED_MESSAGE = (
     "Les réponses automatiques de cet assistant sont momentanément indisponibles. "
     "Vous pouvez naviguer dans le menu ci-dessous."
+)
+
+# --- Plafond de dépassement IA métré atteint (mode 'meter') ---
+# Le bot a dépassé son quota, l'owner a armé le dépassement facturé (overage), MAIS
+# le PLAFOND de sécurité (overage_cap) est atteint pour ce mois : on ne génère plus
+# (pré-check, comme le quota). Message DÉDIÉ, forme d'une réponse IA (200, source
+# 'ai', options []) ; AUCUN message assistant persisté (reason=overage_cap_reached).
+OVERAGE_CAP_MESSAGE = (
+    "Le service de réponses automatiques a atteint sa limite pour ce mois-ci. "
+    "Vous pouvez naviguer dans le menu ou revenir un peu plus tard."
 )
 
 
@@ -660,18 +682,50 @@ async def _handle_ai_message(
     # generate_reply reussi ET la persistance du message assistant : une panne
     # provider (AIServiceError) ne brule donc aucune reponse du mois et Redis ne
     # derive jamais au-dessus du COUNT SQL durable.
+    # Dépassement IA métré (mode 'meter', toggle owner) : armé une fois ent résolu.
+    # billing OFF / pas de plan IA managé / BYOK / overage_mode='block' => False
+    # => comportement strictement identique a aujourd'hui (blocage au quota).
+    overage_on = overage_active(ent)
+    # in_overage : la reponse en cours est servie AU-DELA du quota (a facturer).
+    # Decide dans la branche quota epuise ci-dessous ; consomme apres generate_reply.
+    in_overage = False
+
     quota = ai_quota_for(ent)
     if quota is not None and not await ai_quota_precheck(db, bot.id, quota):
-        logger.info("billing.quota: bot %s quota IA epuise (reason=quota_exhausted)", bot.id)
-        # Comme la branche AIServiceError : AUCUN message assistant persiste.
-        # Un message source='ai' gonflerait la source durable du compteur
-        # (usage_service.count_ai_messages_month filtre source='ai',
-        # role='assistant') alors qu'aucune reponse IA n'a ete generee. Le
-        # message visiteur (source='ai') deja persiste reste l'historique. La
-        # reponse au visiteur garde la forme d'une reponse IA (200, source 'ai').
-        return _maybe_refresh({"source": "ai", "message": QUOTA_EXHAUSTED_MESSAGE,
-                               "options": [], "status": conversation.status},
-                              bot, session)
+        # Quota epuise. Deux issues selon le mode dépassement (choix owner) :
+        if overage_on:
+            # Mode 'meter' : on SERT au-dela du quota TANT QUE le plafond de
+            # securite (overage_cap) n'est pas atteint (pre-check LECTURE SEULE,
+            # comme le quota : on ne genere jamais au-dela du plafond).
+            cap = ent.overage_cap
+            if await ai_overage_precheck(db, bot.id, cap):
+                # Sous le plafond : on NE return PAS, on genere puis on rapporte
+                # le dépassement (ai_overage_consume) apres generate_reply.
+                in_overage = True
+                logger.info(
+                    "billing.overage: bot %s quota epuise -> dépassement servi "
+                    "(mode=meter, reason=overage_served)", bot.id)
+            else:
+                # Plafond de dépassement atteint : message DEDIE (distinct du quota),
+                # AUCUN message assistant persiste (reason=overage_cap_reached).
+                logger.info(
+                    "billing.overage: bot %s plafond de dépassement atteint "
+                    "(reason=overage_cap_reached)", bot.id)
+                return _maybe_refresh(
+                    {"source": "ai", "message": OVERAGE_CAP_MESSAGE,
+                     "options": [], "status": conversation.status}, bot, session)
+        else:
+            # Mode 'block' (defaut) : comportement actuel (quota epuise, message dedie).
+            logger.info("billing.quota: bot %s quota IA epuise (reason=quota_exhausted)", bot.id)
+            # Comme la branche AIServiceError : AUCUN message assistant persiste.
+            # Un message source='ai' gonflerait la source durable du compteur
+            # (usage_service.count_ai_messages_month filtre source='ai',
+            # role='assistant') alors qu'aucune reponse IA n'a ete generee. Le
+            # message visiteur (source='ai') deja persiste reste l'historique. La
+            # reponse au visiteur garde la forme d'une reponse IA (200, source 'ai').
+            return _maybe_refresh({"source": "ai", "message": QUOTA_EXHAUSTED_MESSAGE,
+                                   "options": [], "status": conversation.status},
+                                  bot, session)
 
     history = await _build_ai_history(conversation, text, db)
 
@@ -704,15 +758,25 @@ async def _handle_ai_message(
         return _maybe_refresh({"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.",
                                "options": [], "status": conversation.status}, bot, session)
 
-    # generate_reply a reussi : on comptabilise UNE reponse IA AVANT de persister
-    # le message assistant. Le reseed de ai_quota_consume lit alors le COUNT SQL
-    # durable qui n'inclut PAS encore cette reponse, et l'INCR l'ajoute exactement
-    # une fois (pas de double comptage). Le pre-check (lecture seule) ci-dessus a
-    # garanti qu'il restait du credit ; le retour False (borne de surete sur une
-    # course concurrente du dernier credit) est ignore : la reponse est deja
-    # generee, on ne la jette pas. BYOK / billing OFF => quota is None => pas de
-    # comptage.
-    if quota is not None:
+    # generate_reply a reussi : on comptabilise UNE reponse AVANT de persister le
+    # message assistant. Deux cas exclusifs :
+    # - DÉPASSEMENT (in_overage) : la reponse est servie au-dela du quota. On NE
+    #   touche PAS le quota (deja epuise) ; on INCRÉMENTE TOUJOURS reported_overage
+    #   (le plafond reste enforce) et on rapporte le meter event Stripe (best-effort)
+    #   UNIQUEMENT si un customer payeur est resolu — sans customer (org sans payeur
+    #   Stripe / jamais souscrit) on compte quand meme (sinon le plafond ne bornerait
+    #   plus rien => depassement illimite). Le message reste un Message source='ai'
+    #   normal (historique + conso durable).
+    # - NORMAL : on comptabilise UNE reponse IA dans le quota (ai_quota_consume).
+    #   Le reseed lit le COUNT SQL durable qui n'inclut PAS encore cette reponse,
+    #   l'INCR l'ajoute exactement une fois (pas de double comptage). Le retour
+    #   False (course concurrente du dernier credit) est ignore : la reponse est
+    #   deja generee. BYOK / billing OFF => quota is None => pas de comptage.
+    if in_overage:
+        customer_id = await billing_customer_for_bot(db, bot)
+        await ai_overage_consume(
+            db, bot.id, customer_id, METER_EVENT_NAME, ent.overage_cap)
+    elif quota is not None:
         await ai_quota_consume(db, bot.id, quota)
 
     msg = Message(

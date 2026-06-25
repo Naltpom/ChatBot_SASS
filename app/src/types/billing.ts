@@ -58,6 +58,10 @@ export interface BillingCatalog {
   // Remise intro 1er mois (%) par clé : 'default' (IA off/BYOK) + un palier IA
   // (ai_starter/growth/scale). Sert à afficher « 1er mois à -X% » dans le panier.
   intro_discounts?: Record<string, number>
+  // Plafond de dépassement IA par défaut (réponses/mois) proposé quand l'owner
+  // active le dépassement métré sans saisir de plafond. Aligné OVERAGE_CAP_DEFAULT
+  // backend (1000). Optionnel (fallback front si absent).
+  overage_cap_default?: number
   version: string
 }
 
@@ -91,6 +95,16 @@ export type SubscriptionStatus =
 // le redéfinit pas ici pour éviter toute divergence.
 
 // État de facturation effectif d'un bot (conso vs quota, statut d'abonnement).
+//
+// Champs DÉPASSEMENT IA métré (overage) — ajoutés à GET /api/bots/{id}/entitlement
+// (CONTRAT 2). Optionnels : billing OFF / backend ancien ne les renvoie pas, et le
+// front ne montre le toggle de dépassement QUE si `metering_available === true`.
+//   - overage_mode        : 'block' (défaut, blocage au quota) | 'meter' (servir + facturer).
+//   - overage_enabled     : raccourci = overage_mode === 'meter'.
+//   - overage_cap         : plafond de sécurité (réponses/mois au-delà du quota), null = défaut.
+//   - reported_overage    : réponses de dépassement déjà facturées ce mois (0 si aucune).
+//   - overage_cents_per_reply : prix unitaire métré (ex. 1.5 centime = 0,015 €).
+//   - metering_available  : metering activé ET plan IA managé ET non BYOK (gate d'affichage).
 export interface BotBilling {
   bot_id: number
   active_modules: ModuleKey[]
@@ -101,6 +115,12 @@ export interface BotBilling {
   period_start: string
   period_end: string
   subscription_status: SubscriptionStatus
+  overage_mode?: 'block' | 'meter'
+  overage_enabled?: boolean
+  overage_cap?: number | null
+  reported_overage?: number
+  overage_cents_per_reply?: number
+  metering_available?: boolean
 }
 
 // ----------------------------------------------------------------------------

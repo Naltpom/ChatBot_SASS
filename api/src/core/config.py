@@ -87,10 +87,15 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str | None = None
     # MOCK_BILLING (spec §2.3) : stripe_service n'émet AUCUN appel sortant
     # (URLs locales, entitlement appliqué directement) => e2e sans Stripe.
-    # Interdit en production (validate_production). True par défaut (dev/CI).
-    MOCK_BILLING: bool = True
-    # Axe IA métré (Phase 1->2) : v1 = blocage au quota, v2 = Stripe Meters.
-    BILLING_METERING_ENABLED: bool = False
+    # Interdit en production (validate_production) => défaut FALSE (sûr en prod :
+    # un déploiement sans var MOCK_BILLING démarre normalement). Dev/CI/tests le
+    # passent explicitement à True quand ils veulent mocker Stripe.
+    MOCK_BILLING: bool = False
+    # Axe IA métré (Stripe Billing Meters) : la feature est « mise en place » par
+    # défaut (True). Reste INOFFENSIVE sans billing : metering_enabled() ANDe
+    # billing_enabled(), donc clés Stripe absentes => métrage INERTE (overage
+    # dormant, comportement strictement identique à aujourd'hui, invariant D0).
+    BILLING_METERING_ENABLED: bool = True
     # Enforcement actif par défaut (env-overridable). SÛR : l'enforcement est un
     # no-op tant que le billing est OFF — billing_enabled()==False => resolve()
     # renvoie ALL_UNLOCKED => chaque gate() passe (invariant D0, app 100 %
@@ -128,8 +133,11 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "STRIPE_WEBHOOK_SECRET requis dès que STRIPE_SECRET_KEY est défini"
             )
-        if self.BILLING_METERING_ENABLED and not self.STRIPE_SECRET_KEY:
-            raise RuntimeError("BILLING_METERING_ENABLED=true sans billing actif")
+        # PAS de garde-fou « BILLING_METERING_ENABLED sans billing » : le flag est
+        # ON par défaut (feature mise en place) et INOFFENSIF sans Stripe —
+        # metering_enabled() exige déjà billing_enabled() (clés Stripe présentes),
+        # donc un prod 100 % gratuit (sans Stripe) garde un métrage INERTE et doit
+        # démarrer normalement (invariant D0). L'exiger casserait ce déploiement.
         # BILLING_ENFORCE est ON par défaut et INOFFENSIF sans billing (no-op :
         # billing_enabled()==False => resolve() ALL_UNLOCKED => gate() passe,
         # invariant D0). On n'exige donc PAS de clé Stripe : un déploiement

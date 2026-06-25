@@ -55,7 +55,11 @@ def billing_enabled() -> bool:
 
 
 def metering_enabled() -> bool:
-    """Axe IA métré actif (Phase 2). v1 = blocage au quota (toujours False)."""
+    """Axe IA métré (Stripe Billing Meters) actif ET utilisable.
+
+    ANDe billing_enabled() : sans clés Stripe, métrage INERTE (overage dormant,
+    invariant D0). BILLING_METERING_ENABLED est True par défaut (feature mise en
+    place), mais inoffensif tant que le billing est OFF."""
     return billing_enabled() and settings.BILLING_METERING_ENABLED
 
 
@@ -241,8 +245,13 @@ async def update_subscription_items(
     """Aligne les items d'une sub sur la liste cible (ajout/retrait/quantité).
 
     `target_items` = [{"id": "si_..."?, "price": "price_...", "quantity": 1,
-    "deleted": bool?, "metadata": {...}}]. Si la liste cible est VIDE (0 item),
-    Stripe refuse une sub sans item ⇒ on RÉSILIE (corrige D4, garde §2.4).
+    "deleted": bool?, "metered": bool?, "metadata": {...}}]. Si la liste cible est
+    VIDE (0 item), Stripe refuse une sub sans item ⇒ on RÉSILIE (corrige D4,
+    garde §2.4).
+
+    Un item MÉTRÉ (`metered=True`, usage_type metered : axe IA dépassement) N'ACCEPTE
+    PAS de `quantity` (Stripe 400 sinon) : on l'omet pour ces items. Les items
+    licenciés gardent `quantity` (défaut 1).
 
     `proration_behavior` (best practice Stripe, point proration) :
     - `always_invoice` : facture IMMÉDIATEMENT le prorata du temps restant (ajout
@@ -274,7 +283,9 @@ async def update_subscription_items(
             continue
         if item.get("price"):
             data[f"items[{i}][price]"] = item["price"]
-        data[f"items[{i}][quantity]"] = str(item.get("quantity", 1))
+        # Item MÉTRÉ (usage_type metered) : PAS de quantity (Stripe la refuse).
+        if not item.get("metered"):
+            data[f"items[{i}][quantity]"] = str(item.get("quantity", 1))
         for mk, mv in (item.get("metadata") or {}).items():
             data[f"items[{i}][metadata][{mk}]"] = str(mv)
     return await _stripe_request("POST", f"/subscriptions/{subscription_id}", data=data)
@@ -301,9 +312,11 @@ async def schedule_subscription_downgrade(
        `end_behavior='release'` : à la fin du schedule la sub redevient autonome.
 
     `phase_items` = [{"price": "price_...", "quantity": 1}] = la composition CIBLE
-    (après retrait). Liste VIDE interdite (une sub sans item est une résiliation :
-    passer par `cancel_at_period_end`). Idempotent côté appelant : ré-appeler
-    réécrit simplement la 2e phase.
+    (après retrait). Un item MÉTRÉ (`metered=True`, usage_type metered : axe IA
+    dépassement) N'EMPORTE PAS de quantity (Stripe 400 sinon). Liste VIDE
+    interdite (une sub sans item est une résiliation : passer par
+    `cancel_at_period_end`). Idempotent côté appelant : ré-appeler réécrit
+    simplement la 2e phase.
 
     MOCK_BILLING ⇒ no-op (retourne None) : la sémantique de report est simulée
     côté routeur (entitlement « pending downgrade »)."""
@@ -359,19 +372,29 @@ async def schedule_subscription_downgrade(
     }
     for j, item in enumerate(cur.get("items") or []):
         price = item.get("price")
-        # Sur un objet schedule, item.price est l'id (string) du price.
+        # Sur un objet schedule, item.price est l'id (string) du price (ou un
+        # objet price expansé).
+        price_obj = price if isinstance(price, dict) else None
         if isinstance(price, dict):
             price = price.get("id")
         if not price:
             continue
         data[f"phases[0][items][{j}][price]"] = price
-        data[f"phases[0][items][{j}][quantity]"] = str(item.get("quantity", 1))
+        # Un item MÉTRÉ (usage_type=metered) n'a PAS de quantity (Stripe 400
+        # sinon). Stripe ne renvoie pas de `quantity` pour ces items : on
+        # n'émet la quantité QUE si la source en porte une (item licencié).
+        recurring = (price_obj or {}).get("recurring") or {}
+        is_metered = recurring.get("usage_type") == "metered"
+        if not is_metered and item.get("quantity") is not None:
+            data[f"phases[0][items][{j}][quantity]"] = str(item.get("quantity", 1))
 
     data["phases[1][start_date]"] = str(period_end)
     data["phases[1][proration_behavior]"] = "none"
     for j, item in enumerate(phase_items):
         data[f"phases[1][items][{j}][price]"] = item["price"]
-        data[f"phases[1][items][{j}][quantity]"] = str(item.get("quantity", 1))
+        # Item MÉTRÉ : aucune quantity (axe IA dépassement, mtr_ai).
+        if not item.get("metered"):
+            data[f"phases[1][items][{j}][quantity]"] = str(item.get("quantity", 1))
 
     return await _stripe_request(
         "POST", f"/subscription_schedules/{schedule_id}", data=data)
@@ -575,6 +598,81 @@ async def deactivate_price(price_id: str) -> dict:
     if settings.MOCK_BILLING:
         return {}
     return await _stripe_request("POST", f"/prices/{price_id}", data={"active": "false"})
+
+
+# --- Stripe Billing Meters (axe IA dépassement métré, v2) ------------------
+#
+# Pipeline : create_meter (1 Meter par event_name) -> create_metered_price (Price
+# usage_type=metered lié au Meter) -> report_meter_event (à chaque réponse au-delà
+# du quota). Le Meter mappe l'usage au CUSTOMER (payeur) via customer_mapping :
+# pour le format 'total' (1 sub/customer) c'est exact ; per_bot/per_org (multi-sub)
+# rapportent par customer — limitation connue documentée (scope serré, pas de
+# sur-construction). MOCK_BILLING ⇒ objets factices / no-op (aucun appel sortant).
+
+async def create_meter(display_name: str, event_name: str) -> dict:
+    """Crée un Billing Meter Stripe (POST /v1/billing/meters).
+
+    `event_name` est UNIQUE : référencé par le Price métré (`recurring[meter]`) et
+    par les meter_events rapportés. Agrégation `sum` des `value` ; mapping vers le
+    Customer payeur via `payload[stripe_customer_id]`. MOCK_BILLING ⇒ id factice."""
+    if settings.MOCK_BILLING:
+        return {"id": f"mtr_mock_{uuid.uuid4().hex[:16]}", "event_name": event_name}
+    return await _stripe_request("POST", "/billing/meters", data={
+        "display_name": display_name,
+        "event_name": event_name,
+        "default_aggregation[formula]": "sum",
+        "customer_mapping[type]": "by_id",
+        "customer_mapping[event_payload_key]": "stripe_customer_id",
+        "value_settings[event_payload_key]": "value",
+    })
+
+
+async def create_metered_price(product_id: str, unit_amount_decimal: str,
+                               currency: str, interval: str, code: str,
+                               meter_id: str) -> dict:
+    """Crée un Price MÉTRÉ (POST /v1/prices, recurring[usage_type]=metered).
+
+    `unit_amount_decimal` est une chaîne décimale en CENTIMES (ex. "1.5" = 1,5 c =
+    0,015 €) : `billing_scheme=per_unit` facture `value` × ce montant. Lié au Meter
+    `meter_id` (recurring[meter]). MOCK_BILLING ⇒ id factice."""
+    if settings.MOCK_BILLING:
+        return {"id": f"price_mock_{uuid.uuid4().hex[:16]}"}
+    return await _stripe_request("POST", "/prices", data={
+        "product": product_id,
+        "currency": currency,
+        "recurring[interval]": interval,
+        "recurring[usage_type]": "metered",
+        "recurring[meter]": meter_id,
+        "billing_scheme": "per_unit",
+        "unit_amount_decimal": unit_amount_decimal,
+        "metadata[code]": code,
+    })
+
+
+async def report_meter_event(event_name: str, customer_id: str, value: int = 1,
+                             identifier: Optional[str] = None) -> None:
+    """Rapporte un meter event (POST /v1/billing/meter_events) — usage métré.
+
+    `payload[stripe_customer_id]` mappe l'usage au Customer payeur ; `payload[value]`
+    porte la quantité (str). `identifier` (ex. "bot:{id}:{period}:{n}") déduplique
+    les events sur une fenêtre GLISSANTE de 24 h côté Stripe (PAS une idempotence
+    durable) ; l'appelant le choisit STRICTEMENT MONOTONE (n incrémente à chaque
+    dépassement) donc il ne se répète jamais — c'est le compteur local
+    reported_overage qui borne et fait foi, pas ce paramètre.
+
+    BEST-EFFORT côté APPELANT : un hoquet Stripe (StripeError) NE DOIT PAS casser la
+    réponse au visiteur — l'appelant avale l'exception ; le compteur local
+    reported_overage fait foi et permettra une réconciliation. MOCK_BILLING ⇒ no-op."""
+    if settings.MOCK_BILLING:
+        return
+    data: dict[str, Any] = {
+        "event_name": event_name,
+        "payload[stripe_customer_id]": customer_id,
+        "payload[value]": str(value),
+    }
+    if identifier:
+        data["identifier"] = identifier
+    await _stripe_request("POST", "/billing/meter_events", data=data)
 
 
 def verify_webhook_signature(payload: bytes, sig_header: Optional[str], tolerance: int = 300) -> dict:

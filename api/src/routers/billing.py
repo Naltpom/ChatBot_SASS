@@ -34,6 +34,8 @@ from src.core.constants import (
     MODULE_KEYS,
     MODULE_MCP,
     MODULE_RAG,
+    OVERAGE_CAP_DEFAULT,
+    is_metered_code,
 )
 from src.core.database import get_db
 from src.core.security import get_current_user, require_billing_owner
@@ -45,6 +47,7 @@ from src.models.billing import (
     BillingSubscription,
     BillingWebhookEvent,
     BotEntitlement,
+    BotUsageCounter,
 )
 from src.models.bot import Bot
 from src.models.user import Organization, User
@@ -111,12 +114,61 @@ class GroupingPayload(BaseModel):
     grouping: str = Field(pattern="^(per_bot|total|per_org)$")
 
 
+class OveragePayload(BaseModel):
+    """Toggle owner du dépassement IA métré d'un bot (contrat figé).
+
+    `enabled` : True => overage_mode='meter' (servir + facturer au-delà du quota,
+    avec plafond) ; False => 'block' (comportement par défaut). `cap` : plafond de
+    sécurité (réponses facturées max/mois) ; null => défaut OVERAGE_CAP_DEFAULT ;
+    >= 0 sinon."""
+    enabled: bool
+    cap: Optional[int] = Field(None, ge=0)
+
+
 # --- Helpers --------------------------------------------------------------
 
 async def _catalog_rows(db: AsyncSession) -> list[BillingProduct]:
     return (await db.execute(
         select(BillingProduct).order_by(BillingProduct.id)
     )).scalars().all()
+
+
+# Prix métré du dépassement IA (centimes/réponse) : 0,015 € = 1,5 c. Le produit
+# mtr_ai porte un unit_amount entier placeholder (le vrai tarif sub-centime vit
+# dans le Price métré, unit_amount_decimal). On expose la valeur figée (1.5) tant
+# que le catalogue ne stocke pas le décimal localement.
+_OVERAGE_CENTS_PER_REPLY = 1.5
+
+
+def _overage_cents_per_reply(mtr: BillingProduct | None) -> float:
+    """Tarif métré du dépassement (centimes/réponse). Constante produit (1.5) si la
+    ligne mtr_ai existe et est active, sinon 0 (métré absent du catalogue)."""
+    if mtr is None or not mtr.is_active:
+        return 0.0
+    return _OVERAGE_CENTS_PER_REPLY
+
+
+async def _reported_overage_this_month(db: AsyncSession, bot_id: int) -> int:
+    """Dépassement IA déjà facturé ce mois (BotUsageCounter, 0 si absent)."""
+    row = (await db.execute(
+        select(BotUsageCounter).where(
+            BotUsageCounter.bot_id == bot_id,
+            BotUsageCounter.period == quota_period(),
+        )
+    )).scalar_one_or_none()
+    return int(row.reported_overage or 0) if row is not None else 0
+
+
+def _metering_available_for_bot(ent) -> bool:
+    """metering_available (contrat front) : le toggle dépassement n'est proposé que
+    si le métrage est utilisable POUR CE BOT — metering_enabled() ET plan IA managé
+    (quota non None) ET non BYOK. Indépendant de l'état du toggle (overage_mode)."""
+    return (
+        stripe_service.metering_enabled()
+        and not ent.byok
+        and ent.ai_monthly_quota is not None
+        and MODULE_AI in ent.modules
+    )
 
 
 def _validate_config_modules(config: BotConfigPayload) -> None:
@@ -190,6 +242,11 @@ async def _line_items_for_codes(
     for code in codes:
         if code == "base" and has_ai:
             continue  # socle inclus dans le plan IA : pas de ligne séparée
+        if is_metered_code(code):
+            continue  # ligne MÉTRÉE (mtr_ai) : jamais un line_item à quantité
+            # fixe (Stripe 400 si quantity sur un price metered). Le dépassement
+            # est (dé)câblé exclusivement par le toggle (_sync_overage_item) ;
+            # il ne doit pas être (ré)injecté à la création/au swap de sub.
         row = (await db.execute(
             select(BillingProduct).where(
                 BillingProduct.code == code,
@@ -256,9 +313,15 @@ async def billing_on_org_owner_change(
             kept = [it for it in items if it.get("bot_id") not in bot_id_set]
             if len(kept) == len(items):
                 continue  # cette sub ne portait aucun bot de l'org
-            target = [{"id": it.get("si_id"), "price": it.get("price_id"),
-                       "quantity": it.get("qty", 1)}
-                      for it in kept if it.get("price_id")]
+            # Ligne MÉTRÉE conservée (mtr_ai) : marquée `metered`, AUCUNE quantity
+            # (Stripe 400 sinon sur l'item metered).
+            target = [
+                {"id": it.get("si_id"), "price": it.get("price_id"),
+                 "metered": True}
+                if is_metered_code(it.get("code"))
+                else {"id": it.get("si_id"), "price": it.get("price_id"),
+                      "quantity": it.get("qty", 1)}
+                for it in kept if it.get("price_id")]
             try:
                 # 0 item cible ⇒ update_subscription_items résilie la sub (Stripe
                 # refuse une sub sans item) ; sinon proration crédit.
@@ -557,8 +620,11 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
         "desc": r.description or r.label,
     } for r in rows if r.kind == "ai_tier" and r.is_active]
 
-    mtr = by_code.get("mtr_ai")
-    overage = mtr.unit_amount if mtr is not None else 0
+    # Prix MÉTRÉ réel du dépassement IA : 0,015 € = 1,5 centime par réponse. Le
+    # produit mtr_ai porte un unit_amount entier placeholder (2) — le vrai tarif
+    # sub-centime vit dans le Price métré (unit_amount_decimal "1.5"). On expose
+    # donc la VALEUR en centimes (1.5), pas mtr.unit_amount.
+    overage = _overage_cents_per_reply(by_code.get("mtr_ai"))
 
     # Présélections (pilotées en base, éditable admin) : total recalculé serveur
     # (somme transparente depuis billing_products). Actifs seuls, ordre sort_order.
@@ -596,7 +662,11 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
         "base_description": base.description if base is not None else None,
         "modules": modules_out,
         "ai_tiers": ai_tiers,
+        # Vrai prix métré du dépassement IA (centimes/réponse, ex. 1.5 = 0,015 €).
         "overage_cents_per_reply": overage,
+        # Plafond de dépassement par défaut (réponses facturées max/mois) proposé au
+        # toggle owner quand aucun cap n'est saisi.
+        "overage_cap_default": OVERAGE_CAP_DEFAULT,
         "tax_note": "TVA non applicable, art. 293 B du CGI",
         "presets": presets_out,
         # Remise intro 1er mois (%) lue depuis billing_products.intro_percent
@@ -736,6 +806,17 @@ async def _intro_coupon_for(db: AsyncSession, config: BotConfigPayload) -> Optio
     return row.intro_coupon_id if row else None
 
 
+async def _user_has_subscription(db: AsyncSession, user: User) -> bool:
+    """True si le client a DÉJÀ un abonnement (toute ligne billing_subscription,
+    statut quelconque — conservées même annulées). Sert à n'offrir la remise d'intro
+    qu'au PREMIER bot souscrit (offre de bienvenue, UNE FOIS par client, pas par bot)."""
+    row = (await db.execute(
+        select(BillingSubscription.id)
+        .where(BillingSubscription.user_id == user.id).limit(1)
+    )).first()
+    return row is not None
+
+
 # --- POST /api/billing/checkout -------------------------------------------
 
 async def _open_checkout(
@@ -775,7 +856,12 @@ async def _open_checkout(
     # Consentement à l'exécution immédiate (renonciation rétractation 14 j) :
     # horodaté côté serveur, stocké en métadonnée d'abonnement Stripe (preuve).
     consent_at = utcnow().isoformat() if consent else None
-    intro_coupon = await _intro_coupon_for(db, config)
+    # Offre de bienvenue : la remise d'intro ne s'applique qu'au PREMIER abonnement
+    # du client (1er bot), jamais aux suivants (anti-cumul ; pas une remise par bot).
+    intro_coupon = (
+        await _intro_coupon_for(db, config)
+        if not await _user_has_subscription(db, user) else None
+    )
     url = await stripe_service.create_checkout_session(
         customer_id=customer_id,
         line_items=[{"price": it["price"], "quantity": it["quantity"]}
@@ -935,11 +1021,21 @@ async def subscription_update(body: SubscriptionUpdatePayload,
     removed_set = set(removed_codes)
     target_set = set(target_codes)
 
+    def _reconduct(it: dict) -> dict:
+        """Reconduit un raw_item TEL QUEL pour update_subscription_items. Un item
+        MÉTRÉ (mtr_ai) est marqué `metered` et N'EMPORTE PAS de quantity (Stripe
+        400 sinon) ; les items licenciés gardent leur quantité."""
+        entry: dict[str, Any] = {"id": it["si_id"], "price": it["price_id"]}
+        if is_metered_code(it.get("code")):
+            entry["metered"] = True
+        else:
+            entry["quantity"] = it.get("qty", 1)
+        return entry
+
     other_bot_items = [
-        {"id": it.get("si_id"), "price": it["price_id"],
-         "quantity": it.get("qty", 1)}
+        _reconduct(it)
         for it in existing
-        if it.get("bot_id") != bot.id and it.get("price_id")]
+        if it.get("bot_id") != bot.id and it.get("price_id") and it.get("si_id")]
 
     # --- (1) MODIFICATIONS IMMÉDIATES (ajout de module / swap de palier dans un
     # slot conservé) : appliquées MAINTENANT. Les RETRAITS de module restent sur la
@@ -972,13 +1068,25 @@ async def subscription_update(body: SubscriptionUpdatePayload,
             code = it.get("code")
             if code in changed_now:
                 continue  # déjà posé en (a)
+            # Ligne MÉTRÉE (mtr_ai) : INVARIANTE du changement de plan. Elle ne
+            # figure ni dans target_set ni dans removed_set (elle ne porte aucun
+            # module) ; sans ce cas elle tomberait dans la boucle de suppression
+            # (c) -> item métré retiré alors que le runtime sert + facture le
+            # dépassement (fuite de revenu). On la RECONDUIT TELLE QUELLE
+            # (metered, sans quantity), (dé)câblée uniquement par le toggle.
+            if is_metered_code(code) and it.get("price_id"):
+                now_target.append(_reconduct(it))
+                continue
             if (code in target_set or code in removed_set) and it.get("price_id"):
-                now_target.append({"id": it["si_id"], "price": it["price_id"],
-                                   "quantity": it.get("qty", 1)})
+                now_target.append(_reconduct(it))
         # (c) SWAP dans un slot conservé : l'ANCIEN item du slot (code courant ni
         #     dans la cible ni en retrait différé, ex. ancien palier IA) est SUPPRIMÉ
-        #     MAINTENANT (le nouveau code du slot est déjà posé en (a)).
+        #     MAINTENANT (le nouveau code du slot est déjà posé en (a)). La ligne
+        #     MÉTRÉE est exclue (déjà reconduite en (b)) : on ne la supprime JAMAIS
+        #     ici (elle n'est pas un slot de plan).
         for it in bot_existing:
+            if is_metered_code(it.get("code")):
+                continue
             if (it.get("code") not in target_set
                     and it.get("code") not in removed_set):
                 now_target.append({"id": it["si_id"], "deleted": True})
@@ -1003,14 +1111,27 @@ async def subscription_update(body: SubscriptionUpdatePayload,
                 price_order.append(price)
             qty_by_price[price] += qty
 
+        metered_phase_prices: list[str] = []
         for it in existing:
-            if it.get("bot_id") != bot.id and it.get("price_id"):
+            if not it.get("price_id"):
+                continue
+            if is_metered_code(it.get("code")):
+                # Ligne MÉTRÉE (mtr_ai) : reconduite dans la phase cible SANS
+                # quantity (Stripe 400 sinon) et hors agrégation par price. Sans
+                # ce report, le retrait de module au renouvellement effacerait
+                # l'item métré -> dépassement servi/compté mais plus facturable.
+                if it["price_id"] not in metered_phase_prices:
+                    metered_phase_prices.append(it["price_id"])
+                continue
+            if it.get("bot_id") != bot.id:
                 _add_price(it["price_id"], int(it.get("qty", 1) or 1))
         for code in target_codes:
             _add_price(price_by_code[code], 1)
 
         phase_items = [{"price": price, "quantity": qty_by_price[price]}
                        for price in price_order]
+        phase_items += [{"price": price, "metered": True}
+                        for price in metered_phase_prices]
         if phase_items:
             await stripe_service.schedule_subscription_downgrade(
                 sub.stripe_subscription_id, phase_items)
@@ -1308,12 +1429,18 @@ async def get_usage(db: AsyncSession = Depends(get_db),
     for bot in bots:
         ent = await resolve(db, bot)
         used = await ai_quota_usage(db, bot.id)
+        reported_overage = await _reported_overage_this_month(db, bot.id)
         out.append({
             "bot_id": bot.id,
             "period": period,
             "usage_ai_replies": used,
             "quota_ai_replies": None if ent.byok else ent.ai_monthly_quota,
             "byok": ent.byok,
+            # Axe IA métré (dépassement) : mode (block|meter), conso de dépassement
+            # du mois, plafond (null = défaut OVERAGE_CAP_DEFAULT).
+            "overage_mode": ent.overage_mode,
+            "reported_overage": reported_overage,
+            "overage_cap": ent.overage_cap,
         })
     return {"period": period, "usage": out}
 
@@ -1344,23 +1471,11 @@ async def _ai_tier_id_for_quota(db: AsyncSession, quota: int | None) -> Optional
     return None
 
 
-@router.get("/bots/{bot_id}/entitlement")
-async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
-                              user: User = Depends(get_current_user)):
-    """Facturation effective d'un bot (contrat front `BotBilling`, spec §5.1).
-    Owner-only (require_billing_owner scopée, E2 : un member ne voit pas la
-    facturation).
-
-    Retourne la forme consommée par BotPage (`active_modules`, `ai_byok`,
-    `usage_ai_replies`, `quota_ai_replies`, `period_*`, `subscription_status`) —
-    PAS le schéma brut `BotEntitlementOut`. Billing OFF ⇒ projection « tout
-    débloqué » (resolver RÈGLE 1) : status 'none', modules débloqués, quota
-    illimité — cohérent avec l'app 100 % gratuite, aucune donnée Stripe exposée."""
-    bot = await db.get(Bot, bot_id)
-    if bot is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    await require_billing_owner(bot, user, db)
-
+async def _bot_entitlement_response(db: AsyncSession, bot: Bot) -> dict:
+    """Construit la réponse `BotBilling` d'un bot (forme FIGÉE, réutilisée par
+    GET /bots/{id}/entitlement ET POST /bots/{id}/overage : le front re-render avec
+    la même structure). L'ownership est vérifié par l'APPELANT."""
+    bot_id = bot.id
     ent = await resolve(db, bot)
     period = quota_period()
     period_start, period_end = _month_bounds_iso(period)
@@ -1390,6 +1505,17 @@ async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
         if row is not None and not ent.byok and MODULE_AI in ent.modules
         else None
     )
+
+    # --- Axe IA métré (dépassement) : champs additifs du contrat front ---
+    # metering_available : le toggle owner n'est affiché QUE si true (métrage
+    # utilisable + plan IA managé + non BYOK). reported_overage : conso de
+    # dépassement du mois. overage_cents_per_reply : vrai prix métré (1.5).
+    reported_overage = await _reported_overage_this_month(db, bot_id)
+    metering_available = _metering_available_for_bot(ent)
+    mtr = (await db.execute(
+        select(BillingProduct).where(BillingProduct.code == "mtr_ai")
+    )).scalar_one_or_none()
+    overage_cents = _overage_cents_per_reply(mtr)
     return {
         "bot_id": bot_id,
         # `modules` (clés d'entitlement) ET `active_modules` (alias contrat front
@@ -1412,7 +1538,173 @@ async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
         # Essai expiré : le front affiche le message « essai terminé, souscrivez »
         # (distinct du quota épuisé). False hors essai / essai en cours / payé.
         "trial_expired": ent.trial_expired,
+        # --- Dépassement IA métré (contrat front BotBilling) ---
+        "overage_mode": ent.overage_mode,                 # block | meter
+        "overage_enabled": ent.overage_mode == "meter",   # = toggle owner armé
+        "overage_cap": ent.overage_cap,                   # null = défaut 1000
+        "reported_overage": reported_overage,             # dépassement facturé ce mois
+        "overage_cents_per_reply": overage_cents,         # vrai prix métré (1.5)
+        # Le front n'affiche le toggle dépassement QUE si metering_available est true.
+        "metering_available": metering_available,
     }
+
+
+@router.get("/bots/{bot_id}/entitlement")
+async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
+                              user: User = Depends(get_current_user)):
+    """Facturation effective d'un bot (contrat front `BotBilling`, spec §5.1).
+    Owner-only (require_billing_owner scopée, E2 : un member ne voit pas la
+    facturation).
+
+    Retourne la forme consommée par BotPage (`active_modules`, `ai_byok`,
+    `usage_ai_replies`, `quota_ai_replies`, `period_*`, `subscription_status`) —
+    PAS le schéma brut `BotEntitlementOut`. Billing OFF ⇒ projection « tout
+    débloqué » (resolver RÈGLE 1) : status 'none', modules débloqués, quota
+    illimité — cohérent avec l'app 100 % gratuite, aucune donnée Stripe exposée."""
+    bot = await db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    await require_billing_owner(bot, user, db)
+    return await _bot_entitlement_response(db, bot)
+
+
+# --- POST /api/bots/{bot_id}/overage --------------------------------------
+
+@router.post("/bots/{bot_id}/overage")
+async def set_bot_overage(bot_id: int, body: OveragePayload,
+                          db: AsyncSession = Depends(get_db),
+                          user: User = Depends(get_current_user)):
+    """Toggle OWNER du dépassement IA métré d'un bot (contrat figé).
+
+    Au-delà du quota : SERVIR + FACTURER avec PLAFOND de sécurité (mode 'meter'),
+    ou bloquer (mode 'block', défaut). Owner-only (require_billing_owner scopée).
+
+    - billing OFF ⇒ {billing: disabled} (200, aucune mutation).
+    - métrage indisponible (metering_enabled() faux) ⇒ 409 metering_unavailable.
+    - bot BYOK OU pas de plan IA managé (quota None/0) ⇒ 409 overage_not_applicable.
+    - sinon : upsert bot_entitlements (overage_mode = 'meter' si enabled sinon
+      'block' ; overage_cap = cap ou OVERAGE_CAP_DEFAULT si null ; source inchangée).
+      Vrai Stripe + enabled : attache l'item MÉTRÉ mtr_ai (sans quantity) à la sub
+      ACTIVE du bot ; disabled : retire cet item (best-effort). MOCK ⇒ colonnes
+      seulement. Renvoie la MÊME forme que GET /bots/{id}/entitlement (re-render)."""
+    if not stripe_service.billing_enabled():
+        return _DISABLED
+
+    bot = await db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    await require_billing_owner(bot, user, db)
+
+    if not stripe_service.metering_enabled():
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error": "metering_unavailable"})
+
+    ent = await resolve(db, bot)
+    # BYOK ou pas de plan IA managé (quota None = illimité/BYOK, 0 = pas d'IA) :
+    # le dépassement n'a pas de sens (rien à dépasser).
+    if ent.byok or not ent.ai_monthly_quota:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error": "overage_not_applicable"})
+
+    cap = body.cap if body.cap is not None else OVERAGE_CAP_DEFAULT
+
+    row = (await db.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
+    )).scalar_one_or_none()
+    if row is None:
+        # Bot avec un plan IA managé mais sans ligne projetée : ne devrait pas
+        # arriver (resolve a vu un quota), mais on crée défensivement (source free
+        # -> staff serait trompeur ; on laisse le défaut de colonne).
+        row = BotEntitlement(bot_id=bot_id)
+        db.add(row)
+    row.overage_mode = "meter" if body.enabled else "block"
+    row.overage_cap = cap
+    # source INCHANGÉE (le toggle dépassement n'est pas un override de plan).
+    row.synced_at = utcnow()
+
+    # Vrai Stripe (hors MOCK) : (dé)attache l'item MÉTRÉ mtr_ai sur la sub active.
+    if not settings.MOCK_BILLING:
+        await _sync_overage_item(db, user, bot, row, enabled=body.enabled)
+
+    await db.commit()
+    return await _bot_entitlement_response(db, bot)
+
+
+def _metered_si_id(sub_obj: Optional[dict], price_id: str) -> Optional[str]:
+    """si_id (si_...) de l'item métré (price == price_id) dans un objet subscription
+    Stripe renvoyé par update_subscription_items. None si absent / Stripe muet."""
+    if not isinstance(sub_obj, dict):
+        return None
+    for it in ((sub_obj.get("items") or {}).get("data") or []):
+        if ((it.get("price") or {}).get("id")) == price_id:
+            return it.get("id")
+    return None
+
+
+async def _sync_overage_item(db: AsyncSession, user: User, bot: Bot,
+                             ent_row: BotEntitlement, enabled: bool) -> None:
+    """Attache (enabled) ou retire (disabled) l'item MÉTRÉ mtr_ai sur la sub ACTIVE
+    du bot. Best-effort : toute StripeError est AVALÉE (le toggle DB fait foi ;
+    un hoquet Stripe ne doit pas faire échouer l'activation côté owner)."""
+    sub = await _active_sub_for_bot(db, user, bot.id)
+    if sub is None:
+        return  # pas de sub active : rien à câbler côté Stripe (toggle DB seul)
+
+    mtr = (await db.execute(
+        select(BillingProduct).where(BillingProduct.code == "mtr_ai")
+    )).scalar_one_or_none()
+    if mtr is None or not mtr.stripe_price_id:
+        return  # mtr_ai non poussé chez Stripe (métrage non seedé) : toggle DB seul
+
+    existing = list(sub.raw_items or [])
+    # Tous les items courants reconduits TELS QUELS (price + si_id), sans quantity
+    # pour les items métrés.
+    target: list[dict] = []
+    metered_item_present = False
+    for it in existing:
+        price = it.get("price_id")
+        if not price:
+            continue
+        entry: dict[str, Any] = {"id": it.get("si_id"), "price": price}
+        if price == mtr.stripe_price_id:
+            metered_item_present = True
+            entry["metered"] = True
+            if not enabled:
+                entry["deleted"] = True
+        else:
+            entry["quantity"] = it.get("qty", 1)
+        target.append(entry)
+
+    if enabled and not metered_item_present:
+        # Ajoute l'item métré (AUCUNE quantity) lié au bot (metadata bot_id).
+        target.append({
+            "price": mtr.stripe_price_id, "metered": True,
+            "metadata": {"bot_id": str(bot.id), "code": "mtr_ai"}})
+
+    try:
+        updated = await stripe_service.update_subscription_items(
+            sub.stripe_subscription_id, target, proration_behavior="none")
+        # Refléter le miroir local (sub.raw_items) ET capturer le vrai si_id de
+        # l'item métré. Un webhook subscription.updated reprojettera raw_items, mais
+        # s'il N'EST PAS encore arrivé et que l'owner désactive aussitôt, le miroir
+        # local doit déjà porter l'item métré — sinon il resterait ORPHELIN sur la
+        # sub Stripe et facturerait l'usage rapporté (metered_item_present le retrouve
+        # alors et émet sa suppression).
+        items = list(sub.raw_items or [])
+        if enabled:
+            ent_row.stripe_item_id = _metered_si_id(updated, mtr.stripe_price_id)
+            if not any(it.get("price_id") == mtr.stripe_price_id for it in items):
+                items.append({"si_id": ent_row.stripe_item_id,
+                              "price_id": mtr.stripe_price_id,
+                              "code": "mtr_ai", "bot_id": bot.id, "qty": 1})
+        else:
+            ent_row.stripe_item_id = None
+            items = [it for it in items
+                     if it.get("price_id") != mtr.stripe_price_id]
+        sub.raw_items = items
+    except stripe_service.StripeError as exc:
+        logger.warning("overage: maj item métré sub %s échouée (ignorée) : %s",
+                       sub.stripe_subscription_id, exc)
 
 
 # --- POST /api/billing/webhook (public, corps bytes bruts) ----------------

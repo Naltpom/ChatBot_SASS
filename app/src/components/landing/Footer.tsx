@@ -6,7 +6,7 @@ export function Footer() {
   return (
     <footer style={{ background: '#1C3F5C', color: '#fff', padding: '62px 0 28px' }}>
       <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
-        <div className="ch-footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr 1fr', gap: 28 }}>
+        <div className="ch-footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr', gap: 28 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,.13)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon size={19} /></span>
@@ -19,24 +19,20 @@ export function Footer() {
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14, color: '#fff' }}>{col.title}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                 {col.links.map((link, i) =>
-                  // §8 a11y : les ancres réelles (#features…) restent des <a> ;
-                  // les liens placeholder « # » deviennent des <button> (pas de
-                  // saut en haut de page, focusables au clavier).
-                  link.href === '#'
-                    ? <button key={link.label + i} type="button" className="ch-flink" style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}>{link.label}</button>
-                    : <a key={link.label + i} className="ch-flink" href={link.href}>{link.label}</a>,
+                  // §8 a11y : ancres réelles (#features…) en <a> ; routes internes
+                  // (/cgu…) en <Link> react-router ; placeholders « # » en <button>
+                  // (focusables, pas de saut en haut de page).
+                  link.href.startsWith('/')
+                    ? <Link key={link.label + i} className="ch-flink" to={link.href}>{link.label}</Link>
+                    : link.href === '#'
+                      ? <button key={link.label + i} type="button" className="ch-flink" style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}>{link.label}</button>
+                      : <a key={link.label + i} className="ch-flink" href={link.href}>{link.label}</a>,
                 )}
               </div>
             </div>
           ))}
         </div>
         <div style={{ height: 1, background: 'rgba(255,255,255,.12)', margin: '40px 0 22px' }} />
-        {/* Liens légaux (pages publiques /mentions-legales, /cgu, /cgv, /confidentialite). */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', marginBottom: 16 }}>
-          {([['Mentions légales', '/mentions-legales'], ['CGU', '/cgu'], ['CGV', '/cgv'], ['Confidentialité', '/confidentialite']] as const).map(([label, to]) => (
-            <Link key={to} className="ch-flink" to={to} style={{ fontSize: 13.5, color: '#A8C0D0' }}>{label}</Link>
-          ))}
-        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: '#A8C0D0' }}>🇫🇷 Hébergement français · Données locales · Conforme RGPD</span>
           <span style={{ fontSize: 13, color: '#7FA0B5' }}>© {new Date().getFullYear()} Chapote. Tous droits réservés.</span>

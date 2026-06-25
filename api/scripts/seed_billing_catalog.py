@@ -106,14 +106,19 @@ CATALOG: list[dict] = [
      "description": "Marque blanche : retire la mention Propulsé par Chapote du "
                     "widget."},
 
-    # --- Axe métré IA (v2 : 0,015 €/réponse = 1,5 c au-delà du quota). v1 : NON
-    #     vendu, is_active=False => seedé en base, jamais poussé chez Stripe. Le
-    #     prix sub-centime (1,5 c) se posera en v2 via unit_amount_decimal /
-    #     Stripe Meters ; unit_amount=2 ici est un placeholder inerte (non poussé). ---
+    # --- Axe métré IA (Stripe Billing Meters) : 0,015 €/réponse = 1,5 c au-delà
+    #     du quota. is_active=True (feature mise en place), poussé chez Stripe
+    #     UNIQUEMENT si metering_enabled() (Meter + Price métré usage_type=metered).
+    #     unit_amount=2 = placeholder entier en centimes (compat colonne NOT NULL) ;
+    #     le VRAI prix sub-centime est porté par unit_amount_decimal="1.5" via le
+    #     Price métré (jamais unit_amount sur ce produit). ---
     {"code": "mtr_ai", "label": "Dépassement IA (par réponse)", "kind": "metered",
-     "unit_amount": 2, "included_replies": None, "is_active": False,
+     "unit_amount": 2, "included_replies": None, "is_active": True,
+     "unit_amount_decimal": "1.5",
+     "meter_event_name": "ai_reply_overage",
+     "meter_display_name": "Dépassement IA (réponses)",
      "description": "Facturation à l'usage des réponses IA au-delà du quota "
-                    "(activée en v2)."},
+                    "(0,015 € par réponse)."},
 ]
 
 
@@ -157,6 +162,11 @@ async def _upsert_local(db, item: dict) -> BillingProduct:
     # + le socle (défaut). Absente => None (pas de remise sur ce produit).
     row.intro_percent = item.get("intro_percent")
     row.intro_coupon_id = item.get("intro_coupon_id")
+    # Métré (mtr_ai) : event_name déclaratif (posé au seed) ; le stripe_meter_id
+    # est créé par _push_stripe (ne JAMAIS l'écraser ici s'il existe déjà). Le
+    # meter_event_name est figé côté catalogue (= METER_EVENT_NAME).
+    if item.get("meter_event_name") and not row.meter_event_name:
+        row.meter_event_name = item["meter_event_name"]
     await db.flush()
     return row
 
@@ -179,16 +189,75 @@ async def _upsert_preset(db, item: dict) -> None:
     await db.flush()
 
 
+async def _push_metered(row: BillingProduct, item: dict) -> bool:
+    """Pousse une ligne MÉTRÉE (kind='metered', mtr_ai) chez Stripe (idempotent).
+
+    DORMANT sans métrage : ne pousse RIEN si `metering_enabled()` est faux (clés
+    Stripe absentes OU flag off) — invariant D0, overage inerte. Sinon, en trois
+    étapes idempotentes (chacune sautée si déjà posée) :
+      1) Product (POST /v1/products) si stripe_product_id absent ;
+      2) Meter (create_meter, event_name unique) si stripe_meter_id absent —
+         persiste stripe_meter_id ET meter_event_name ;
+      3) Price MÉTRÉ (create_metered_price, unit_amount_decimal="1.5", lié au Meter)
+         si stripe_price_id absent.
+    Retourne True dès qu'au moins une création a eu lieu."""
+    if not stripe_service.metering_enabled():
+        return False  # métrage dormant : aucun objet Stripe posé (D0)
+
+    did = False
+    event_name = item.get("meter_event_name") or row.meter_event_name
+    if not event_name:
+        return False  # ligne métrée sans event_name : rien à pousser (défensif)
+
+    # (1) Product (texte commercial = description).
+    if not row.stripe_product_id:
+        product_data = {"name": row.label, "metadata[code]": row.code}
+        if row.description:
+            product_data["description"] = row.description
+        product = await stripe_service._stripe_request(
+            "POST", "/products", data=product_data)
+        row.stripe_product_id = product["id"]
+        did = True
+
+    # (2) Meter (event_name unique). Stocke meter_id + event_name.
+    if not row.stripe_meter_id:
+        meter = await stripe_service.create_meter(
+            display_name=item.get("meter_display_name") or row.label,
+            event_name=event_name)
+        row.stripe_meter_id = meter["id"]
+        row.meter_event_name = event_name
+        did = True
+
+    # (3) Price MÉTRÉ (unit_amount_decimal en centimes, lié au Meter).
+    if not row.stripe_price_id:
+        price = await stripe_service.create_metered_price(
+            product_id=row.stripe_product_id,
+            unit_amount_decimal=item.get("unit_amount_decimal") or "1.5",
+            currency=row.currency,
+            interval=row.interval,
+            code=row.code,
+            meter_id=row.stripe_meter_id)
+        row.stripe_price_id = price["id"]
+        did = True
+
+    return did
+
+
 async def _push_stripe(row: BillingProduct, item: dict) -> bool:
     """Crée le Product puis le Price chez Stripe si absent (idempotent).
 
-    Retourne True si un push a eu lieu. Saute : produits inactifs (mtr_ai en v1),
-    lignes déjà liées (stripe_product_id présent). Prices IMMUABLES : un montant
-    différent => nouveau Price (géré hors seed, par bascule is_active)."""
+    Retourne True si un push a eu lieu. Les lignes MÉTRÉES (kind='metered', mtr_ai)
+    partent sur le chemin DÉDIÉ `_push_metered` (Meter + Price métré, dormant sans
+    métrage). Saute : produits inactifs, lignes déjà liées (stripe_product_id
+    présent, sauf métré dont chaque objet est idempotent). Prices IMMUABLES : un
+    montant différent => nouveau Price (géré hors seed, par bascule is_active)."""
     if not stripe_service.billing_enabled():
         return False
+    # Métré : chemin dédié AVANT le push licencié générique. Ne pousse que si
+    # metering_enabled() (sinon dormant, return False) ; Meter/Price idempotents.
+    if item["kind"] == "metered":
+        return await _push_metered(row, item)
     if not item["is_active"]:
-        # mtr_ai (et tout produit v2) : non vendu en v1, pas de push.
         return False
     if row.stripe_product_id:
         return False  # déjà seedé chez Stripe.
@@ -203,13 +272,12 @@ async def _push_stripe(row: BillingProduct, item: dict) -> bool:
     product = await stripe_service._stripe_request("POST", "/products", data=product_data)
     row.stripe_product_id = product["id"]
 
-    recurring_usage = "metered" if row.kind == "metered" else "licensed"
     price = await stripe_service._stripe_request("POST", "/prices", data={
         "product": product["id"],
         "currency": row.currency,
         "unit_amount": str(row.unit_amount),
         "recurring[interval]": row.interval,
-        "recurring[usage_type]": recurring_usage,
+        "recurring[usage_type]": "licensed",
         "metadata[code]": row.code,
     })
     row.stripe_price_id = price["id"]

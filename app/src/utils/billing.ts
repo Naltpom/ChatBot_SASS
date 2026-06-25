@@ -150,11 +150,17 @@ export const FALLBACK_CATALOG: BillingCatalog = {
   base_description: 'Arbre de conversation, apparence, déclencheurs et analytics — inclus.',
   modules: FALLBACK_MODULES,
   ai_tiers: FALLBACK_AI_TIERS,
-  overage_cents_per_reply: 0, // v1 = blocage au quota (pas de dépassement facturé)
+  // Prix unitaire du dépassement IA métré (mtr_ai) : 1,5 centime = 0,015 € par
+  // réponse au-delà du quota. Le dépassement existe désormais EN OPTION (toggle
+  // owner par bot, défaut 'block') — il n'est jamais facturé sans activation
+  // explicite et n'est pas une ligne d'abonnement fixe (hors computeCart).
+  overage_cents_per_reply: 1.5,
   tax_note: 'TVA non applicable, art. 293 B du CGI',
   presets: FALLBACK_PRESETS,
   // Miroir des % d'intro (parité backend INTRO_PERCENT_*). 'default' = IA off/BYOK.
   intro_discounts: { default: 45, ai_starter: 50, ai_growth: 65, ai_scale: 80 },
+  // Plafond de dépassement IA par défaut (réponses/mois) — parité OVERAGE_CAP_DEFAULT.
+  overage_cap_default: 1000,
   version: 'fallback-2026-06-20',
 }
 

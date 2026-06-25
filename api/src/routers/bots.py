@@ -25,6 +25,7 @@ from src.core.constants import (
     MODULE_KEYS,
     MODULE_MCP,
     MODULE_WHITELABEL,
+    is_metered_code,
 )
 from src.core.database import get_db
 from src.core.security import (
@@ -240,9 +241,15 @@ async def _billing_on_move_payer_change(db: AsyncSession, bot_id: int,
             # Items cibles = ceux qu'on garde (on porte si_id pour aligner sans
             # recreer cote Stripe) ; liste vide -> update_subscription_items
             # resilie la sub (Stripe refuse une sub sans item, garde §2.4/D4).
-            target = [{"id": it.get("si_id"), "price": it.get("price_id"),
-                       "quantity": it.get("qty", 1)}
-                      for it in kept if it.get("price_id")]
+            # Une ligne MÉTRÉE conservée (mtr_ai d'un AUTRE bot) est marquée
+            # `metered` -> AUCUNE quantity (Stripe 400 sinon sur l'item metered).
+            target = [
+                {"id": it.get("si_id"), "price": it.get("price_id"),
+                 "metered": True}
+                if is_metered_code(it.get("code"))
+                else {"id": it.get("si_id"), "price": it.get("price_id"),
+                      "quantity": it.get("qty", 1)}
+                for it in kept if it.get("price_id")]
             try:
                 # 0 item cible -> update_subscription_items resilie la sub (Stripe
                 # refuse une sub sans item) ; sinon proration credit.

@@ -56,30 +56,34 @@ export const CMP_ROWS: CmpRow[] = [
   { label: 'Arbre guidé', badge: 'ILLIMITÉ', chapote: { kind: 'ok', label: 'Sans surcoût', strong: true }, ia: { kind: 'no', label: "Limité à l'IA" }, classic: { kind: 'no', label: 'Manuel' } },
 ]
 
-// ---- Témoignages -----------------------------------------------------------
-export type Testi = { stars: number; q: string; av: string; bg: string; name: string; role: string }
-export const TESTIS: Testi[] = [
-  { stars: 5, q: '« On a divisé par 3 notre volume de tickets de niveau 1 — pour un tarif dérisoire face au gain. »', av: 'LM', bg: '#1C3F5C', name: 'Léa Mercier', role: 'Head of Support · Velobird' },
-  { stars: 5, q: '« L\'installation a pris deux minutes. Le relais humain reste fluide — nos clients ne voient pas la couture. »', av: 'KB', bg: '#2F9E79', name: 'Karim Benali', role: 'CTO · Maison Lou' },
-  { stars: 5, q: '« Enfin un chatbot au tarif clair ET conforme RGPD. L\'hébergement français a débloqué notre service juridique. »', av: 'SD', bg: '#E86A5F', name: 'Sophie Dubois', role: 'COO · Nordia' },
+// ---- L'impact (ex-« témoignages ») -----------------------------------------
+// Révision design : on n'invente pas de témoignages clients. On décrit ce que la
+// mécanique produit « par design » (3 cartes à icône, même charte que Piliers).
+export type Impact = { bg: string; co: string; t: string; d: string; icon: React.ReactNode }
+export const IMPACTS: Impact[] = [
+  { bg: 'rgba(47,158,121,.12)', co: '#2F9E79', t: 'Le niveau 1 absorbé 24/7', d: "L'arbre guidé répond aux questions répétitives sans consommer d'IA. Vos conseillers ne traitent que ce qui mérite un humain.", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M9 7l-4.5 5L9 17M15 7l4.5 5L15 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+  { bg: 'rgba(232,106,95,.12)', co: '#E86A5F', t: 'Un coût plafonné, pas à l\'usage', d: "L'IA est bornée par paliers : vous savez exactement ce que vous payez chaque mois. Aucune facture qui dérape.", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" /><path d="M14.5 9.4a3.2 3.2 0 100 5.2M8 11h4.5M8 13.2h3.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg> },
+  { bg: 'rgba(140,109,255,.12)', co: '#8C6DFF', t: 'Conforme dès le premier jour', d: "Hébergement français, données locales. Votre service juridique valide en un coup d'œil, sans dossier de transfert hors UE.", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 2.6v5.2c0 4.4-3 7.4-7 8.9-4-1.5-7-4.5-7-8.9V5.6z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><path d="M9 12l2 2 4-4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> },
 ]
 
-export const LOGOS = ['Velobird', 'Maison Lou', 'Nordia', 'Fika&Co', 'Atelier 9']
+// Plateformes d'intégration (le widget s'installe partout via une seule balise).
+export const LOGOS = ['WordPress', 'Shopify', 'Webflow', 'Wix', 'PrestaShop']
 
 // ---- Navigation (types explicites — §8 évite les as-casts) -----------------
 export type NavLink = { href: string; label: string }
 export const NAV: NavLink[] = [
   { href: '#features', label: 'Fonctionnalités' },
-  { href: '#why', label: 'Pourquoi Chapote' },
+  { href: '#why', label: 'Comparatif' },
   { href: '#pricing', label: 'Tarifs' },
-  { href: '#testi', label: 'Blog' },
+  { href: '#demo', label: 'Démo' },
 ]
 
 // ---- Colonnes de liens du footer (types explicites — §8) -------------------
 export type FooterColumn = { title: string; links: NavLink[] }
+// Liens en « / » → routes internes (rendues en <Link> par Footer). « # » → ancre
+// ou placeholder. Le pack légal pointe vers les pages publiques réelles.
 export const FOOTER_COLUMNS: FooterColumn[] = [
-  { title: 'Produit', links: [{ href: '#features', label: 'Fonctionnalités' }, { href: '#why', label: 'Comparatif' }, { href: '#install', label: 'Tarifs' }, { href: '#demo', label: 'Démo' }] },
-  { title: 'Ressources', links: [{ href: '#', label: 'Documentation' }, { href: '#', label: 'Blog' }, { href: '#', label: 'Guides' }, { href: '#', label: 'Statut' }] },
-  { title: 'RGPD & Légal', links: [{ href: '#', label: 'Confidentialité' }, { href: '#', label: 'Hébergement FR' }, { href: '#', label: 'CGU' }, { href: '#', label: 'DPA' }] },
-  { title: 'Réseaux', links: [{ href: '#', label: 'LinkedIn' }, { href: '#', label: 'X / Twitter' }, { href: '#', label: 'GitHub' }] },
+  { title: 'Produit', links: [{ href: '#features', label: 'Fonctionnalités' }, { href: '#why', label: 'Comparatif' }, { href: '#pricing', label: 'Tarifs' }, { href: '#install', label: 'Installation' }, { href: '#demo', label: 'Démo' }] },
+  { title: 'Légal', links: [{ href: '/mentions-legales', label: 'Mentions légales' }, { href: '/cgu', label: 'CGU' }, { href: '/cgv', label: 'CGV' }, { href: '/confidentialite', label: 'Confidentialité' }] },
+  { title: 'Ressources', links: [{ href: '#', label: 'Documentation' }, { href: '#', label: 'Contact' }, { href: '#', label: 'GitHub' }] },
 ]

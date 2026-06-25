@@ -16,7 +16,7 @@ import { useAuth } from '../AuthContext'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { useBotEditor } from '../hooks/useBotEditor'
 import {
-  Btn, BubbleIcon, Card, Chip, InfoBox, Meter,
+  Btn, BubbleIcon, Card, Chip, InfoBox, Meter, Toggle,
   brandBg, modeChip, statusChip,
 } from '../ui'
 import { findModelOption } from '../botConstants'
@@ -45,6 +45,9 @@ import type {
 // `trial_end` (epoch s|null) et `trial_expired`. Ces champs ne figurent pas
 // encore sur le contrat partagé `BotBilling` ; on les déclare ici (lecture seule,
 // alignés routers/billing.get_bot_entitlement) sans modifier le type partagé.
+// Les champs de DÉPASSEMENT IA métré (overage_mode/_enabled/_cap, reported_overage,
+// overage_cents_per_reply, metering_available) vivent désormais sur `BotBilling`
+// (CONTRAT 2) — hérités ici, pas redéclarés.
 type BotEntitlementView = BotBilling & {
   status?: string
   trial_end?: number | null
@@ -134,6 +137,11 @@ export default function BotPage() {
   const [planErr, setPlanErr] = useState('')
   const [cancelBusy, setCancelBusy] = useState(false)
   const [cancelErr, setCancelErr] = useState('')
+  // Dépassement IA métré (toggle owner + plafond) : busy/err locaux, même pattern
+  // que les autres handlers de plan. POST /api/bots/{id}/overage puis refetch de
+  // l'entitlement (la réponse a la MÊME forme que GET .../entitlement, CONTRAT 1).
+  const [overageBusy, setOverageBusy] = useState(false)
+  const [overageErr, setOverageErr] = useState('')
 
   // Save bar (modifications non enregistrées / erreur / enregistré) : on mesure
   // sa hauteur réelle pour relever le widget flottant juste au-dessus quand elle
@@ -453,6 +461,24 @@ export default function BotPage() {
     }
   }
 
+  // Dépassement IA métré (CONTRAT 1) : POST /api/bots/{id}/overage {enabled, cap}.
+  // Active/désactive le service au-delà du quota (servir + facturer au plafond) ou
+  // y revient au blocage. La réponse a la MÊME forme que GET .../entitlement : on
+  // refetch pour re-render (toggle, plafond, progression). cap null -> défaut serveur.
+  async function toggleOverage(enabled: boolean, cap: number | null) {
+    setOverageBusy(true)
+    setOverageErr('')
+    try {
+      await api(`/api/bots/${botId}/overage`, { method: 'POST', body: { enabled, cap } })
+      const updated = await api<BotEntitlementView>(`/api/bots/${botId}/entitlement`)
+      setBotBilling(updated)
+    } catch (err: unknown) {
+      setOverageErr(errMsg(err, 'La modification du dépassement a échoué.'))
+    } finally {
+      setOverageBusy(false)
+    }
+  }
+
   if (!bot) {
     if (loadError) {
       return (
@@ -676,7 +702,8 @@ export default function BotPage() {
                        planConfig={planConfig} onPlanChange={setPlanConfig}
                        onApplyPlan={applyPlan} planBusy={planBusy} planErr={planErr}
                        planConsent={planConsent} onConsentChange={setPlanConsent}
-                       onCancel={cancelSubscription} cancelBusy={cancelBusy} cancelErr={cancelErr} />
+                       onCancel={cancelSubscription} cancelBusy={cancelBusy} cancelErr={cancelErr}
+                       onToggleOverage={toggleOverage} overageBusy={overageBusy} overageErr={overageErr} />
       )}
 
       {/* Widget de TEST flottant : le vrai aperçu du chatbot, posé directement sur
@@ -814,7 +841,8 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
                          catalog, isMobile,
                          planConfig, onPlanChange,
                          onApplyPlan, planBusy, planErr, planConsent, onConsentChange,
-                         onCancel, cancelBusy, cancelErr }: {
+                         onCancel, cancelBusy, cancelErr,
+                         onToggleOverage, overageBusy, overageErr }: {
   billing: BotEntitlementView | null
   botName: string
   onSubscribe: () => void
@@ -835,6 +863,9 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
   onCancel: () => void
   cancelBusy: boolean
   cancelErr: string
+  onToggleOverage: (enabled: boolean, cap: number | null) => void
+  overageBusy: boolean
+  overageErr: string
 }) {
   if (!billing) {
     return (
@@ -1043,6 +1074,15 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
         </Card>
       ) : null}
 
+      {/* DÉPASSEMENT FACTURÉ (toggle owner) — visible seulement pour un plan IA
+          managé métré (metering_available, non BYOK, quota fini). Servir + facturer
+          au-delà du quota, avec un plafond de sécurité. Défaut 'block' (rien ne
+          change tant que l'owner n'active pas). */}
+      {billing.metering_available && !billing.ai_byok && quota != null && quota > 0 && (
+        <OverageCard billing={billing} catalog={catalog}
+                     onToggleOverage={onToggleOverage} overageBusy={overageBusy} overageErr={overageErr} />
+      )}
+
       <Card style={{ padding: '18px 22px' }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 10 }}>Modules actifs</div>
         {modules.length === 0 ? (
@@ -1056,5 +1096,97 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
         )}
       </Card>
     </div>
+  )
+}
+
+// Prix unitaire de dépassement (en centimes, ex. 1.5) -> « 0,015 € ». On divise
+// par 100 (centimes -> euros) et on garde jusqu'à 3 décimales pour le sous-centime.
+function fmtPerReply(cents: number): string {
+  return (cents / 100).toLocaleString('fr-FR', {
+    style: 'currency', currency: 'EUR',
+    minimumFractionDigits: 2, maximumFractionDigits: 3,
+  })
+}
+
+// Carte « Dépassement facturé » (toggle owner + plafond de sécurité) — rendue
+// uniquement pour un plan IA managé métré (gate dans BotBillingTab). Quand l'owner
+// active le dépassement, l'IA continue de répondre au-delà du quota (servie +
+// facturée 0,015 €/réponse) jusqu'au PLAFOND choisi, puis se met en pause. Le
+// plafond est éditable localement avant d'être envoyé (onToggleOverage refetch).
+function OverageCard({ billing, catalog, onToggleOverage, overageBusy, overageErr }: {
+  billing: BotEntitlementView
+  catalog: BillingCatalog
+  onToggleOverage: (enabled: boolean, cap: number | null) => void
+  overageBusy: boolean
+  overageErr: string
+}) {
+  const enabled = billing.overage_enabled ?? billing.overage_mode === 'meter'
+  // Plafond par défaut : valeur serveur du bot -> défaut du catalogue -> 1000.
+  const defaultCap = billing.overage_cap ?? catalog.overage_cap_default ?? 1000
+  // Prix unitaire métré : entitlement -> catalogue -> fallback 1,5 centime.
+  const perReply = billing.overage_cents_per_reply ?? catalog.overage_cents_per_reply ?? 1.5
+  const reported = billing.reported_overage ?? 0
+
+  // Saisie locale du plafond (avant validation). On part de la valeur effective
+  // du bot (overage_cap) si présente, sinon du défaut. Resync si le bot change.
+  const [capInput, setCapInput] = useState<number>(billing.overage_cap ?? defaultCap)
+  useEffect(() => {
+    setCapInput(billing.overage_cap ?? defaultCap)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billing.overage_cap])
+
+  const cap = capInput > 0 ? capInput : defaultCap
+  const capPct = cap > 0 ? Math.round((reported / cap) * 100) : 0
+  const atCap = reported >= cap
+
+  return (
+    <Card style={{ padding: '18px 22px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700 }}>Dépassement facturé</div>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 4, lineHeight: 1.5 }}>
+            Au-delà du quota mensuel, l'IA continue de répondre (au lieu de se mettre en pause)
+            et chaque réponse supplémentaire est facturée {fmtPerReply(perReply)}, dans la limite
+            d'un plafond de sécurité que vous fixez.
+          </div>
+        </div>
+        <Toggle on={enabled} disabled={overageBusy}
+                onChange={v => onToggleOverage(v, v ? cap : null)} />
+      </div>
+
+      {enabled && (
+        <div className="col" style={{ gap: 12, marginTop: 14 }}>
+          <div>
+            <span className="field-label">Plafond (réponses/mois au-delà du quota)</span>
+            <div className="row g8" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="number" min={0} step={100} value={capInput}
+                     disabled={overageBusy}
+                     onChange={e => setCapInput(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                     style={{ width: 140 }} />
+              <Btn kind="soft" small disabled={overageBusy || capInput === (billing.overage_cap ?? defaultCap)}
+                   onClick={() => onToggleOverage(true, cap)}>
+                {overageBusy ? 'Enregistrement…' : 'Enregistrer le plafond'}
+              </Btn>
+            </div>
+            <div className="field-hint">
+              {fmtPerReply(perReply)} par réponse au-delà du quota. Au plafond, l'IA se met en pause
+              jusqu'au prochain cycle (aucun dépassement non plafonné).
+            </div>
+          </div>
+
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 12.5, color: 'var(--mut)', fontWeight: 600 }}>Dépassement ce mois-ci</span>
+              <span style={{ fontSize: 12.5, color: atCap ? 'var(--danger)' : 'var(--mut)', fontWeight: 600 }}>
+                {reported.toLocaleString('fr-FR')} / {cap.toLocaleString('fr-FR')}
+              </span>
+            </div>
+            <Meter pct={capPct} tone={atCap ? 'danger' : capPct >= 80 ? 'warn' : 'acc'} />
+          </div>
+        </div>
+      )}
+
+      {overageErr && <div className="error" style={{ marginTop: 12 }}>{overageErr}</div>}
+    </Card>
   )
 }

@@ -294,7 +294,9 @@ Le mapping `starter/pro/agence → STRIPE_PRICE_*` (`stripe_service.py:46-69`, `
 | code | kind | v1 | v2 |
 |---|---|---|---|
 | `base` | base | **0 €** (socle gratuit, jamais facturé) | — |
-| `mtr_ai` | metered | **blocage au quota** (`is_active=false`, non vendu) | **0,015 €/réponse** (1.5 c) au-delà du quota |
+| `mtr_ai` | metered | **blocage au quota** (`is_active=false`, non vendu) | **LIVRÉ — 0,015 €/réponse** (1.5 c, `unit_amount_decimal="1.5"`, `event_name="ai_reply_overage"`) au-delà du quota, **option activable** par bot |
+
+> **`mtr_ai` v2 LIVRÉ (Stripe Billing Meters).** Le seed crée le **Meter** (`event_name="ai_reply_overage"`) + le **Price métré** (`recurring[usage_type]=metered`, `unit_amount_decimal="1.5"`) quand `billing_enabled()`. Activation = **toggle owner par bot** (`POST /api/bots/{id}/overage`, `overage_mode` `block`↔`meter`) avec **plafond de sécurité** (`overage_cap`, défaut `OVERAGE_CAP_DEFAULT=1000`) vérifié **AVANT** génération comme le quota. Défaut `overage_mode='block'` ⇒ aucun item métré, **zéro facturation non demandée**. **BYOK jamais métré**. `BILLING_METERING_ENABLED` défaut **True**. Report par **meter event** au niveau customer ; détail par bot dans `bot_usage_counters.reported_overage`.
 
 > **Modèle managé borné Haiku / GPT-4o-mini** par défaut (marge). **Sonnet** réservé à `ai_growth`+ ; pour de gros volumes Sonnet, pousser le **BYOK** (sinon marge négative). v2 pourra pondérer (1 réponse Sonnet = N crédits).
 > **BYOK exclusif** : un plan IA managé (`ai_*`) et `mod_ai_byok` sont **mutuellement exclusifs** sur un bot. Bot `byok` ⇒ `mod_ai_byok`, jamais `mtr_ai` ; les deux activent le module `ai` (`ai_monthly_quota = NULL` = illimité pour BYOK).
@@ -634,7 +636,7 @@ if self.is_production and (self.STRIPE_SECRET_KEY or "").startswith("sk_live"):
 
 - **Phase 0 (auj.)** : clés absentes ⇒ `billing_enabled()==False` ⇒ resolver `ALL_UNLOCKED`, gating no-op, routes `/api/billing/*` → `{billing:'disabled'}` (200), nav masquée, webhook no-op. **0 régression e2e** (clés absentes en CI).
 - **Phase 1** : clés posées + `BILLING_METERING_ENABLED=false` + `BILLING_ENFORCE=false`. UI/checkout/portail actifs, entitlements créés via webhook, **rien bloqué** (mode observe : logs `billing.observe`). Module IA = **booléen** (pas de quota). Puis `BILLING_ENFORCE=true` : nouveaux bots `free` gatés (un bot sans entitlement reste gratuit).
-- **Phase 2** : `ai_monthly_quota` posé sur les entitlements `mod_ai` payés ; compteur branché ; `BILLING_METERING_ENABLED=true` (d'abord observe, puis report Meters).
+- **Phase 2 (LIVRÉE)** : `ai_monthly_quota` posé sur les entitlements `mod_ai` payés ; compteur branché ; `BILLING_METERING_ENABLED=true` (**défaut True**). Le **dépassement IA métré** `mtr_ai` est **activable par bot** via le **toggle owner** « Dépassement facturé » (`POST /api/bots/{id}/overage`) : au-delà du quota, on **sert + facture** à 0,015 €/réponse avec un **plafond de sécurité** (`overage_cap`, défaut 1000) vérifié **AVANT** génération. Défaut `overage_mode='block'` ⇒ aucun changement de comportement tant que l'owner n'active pas le toggle (zéro facturation non demandée). **BYOK jamais métré.** Report via meter event (`event_name="ai_reply_overage"`) au niveau customer ; détail par bot dans `bot_usage_counters.reported_overage`.
 
 ### 6.4 Réversibilité
 
@@ -757,4 +759,4 @@ Principe : **3 niveaux, 0 appel Stripe facturé**. La suite e2e tourne `MOCK_AI=
 9. [ ] **Owner d'org** : vérifier register entreprise/create_org posent `owner_user_id` ; endpoint transfert opérationnel (sinon `NOT NULL` casse).
 10. [ ] **Réversibilité** documentée : R1/R2 ; procédure de **réconciliation au rallumage** (F3) prête.
 11. [ ] **CI** : `MOCK_BILLING=true`, clés Stripe absentes ⇒ 0 régression sur les 32 e2e ; `billing-catalog-parity.spec.ts` vert ; `permissions-parity.spec.ts` vert.
-12. [ ] **Phase 2** (ultérieure) : `BILLING_METERING_ENABLED=true` (observe d'abord), report Stripe Billing Meters depuis `bot_usage_counters.reported_overage`.
+12. [x] **Phase 2 — dépassement IA métré (LIVRÉ)** : `BILLING_METERING_ENABLED=true` (défaut True) ; seed crée le **Meter** `ai_reply_overage` + le **Price métré** `mtr_ai` (`unit_amount_decimal="1.5"`) ; **toggle owner par bot** « Dépassement facturé » (`POST /api/bots/{id}/overage`) avec **plafond de sécurité** (`OVERAGE_CAP_DEFAULT=1000`, vérifié AVANT génération) ; défaut `overage_mode='block'` (zéro régression, zéro facturation non demandée) ; **BYOK jamais métré** ; report Stripe Billing Meters par meter event (customer) + détail par bot dans `bot_usage_counters.reported_overage`. ⚠️ Permission Stripe restreinte **Billing Meters / Meter events : Write** requise (cf. `docs/STRIPE_SETUP.md` §2.A/§3.5).

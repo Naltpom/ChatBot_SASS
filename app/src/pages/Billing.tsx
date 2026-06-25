@@ -59,11 +59,18 @@ const TRIAL_AI_CAP = 50
 const QUOTA_WARN_PCT = 80
 
 // GET /api/billing/usage — conso IA mensuelle par bot facturable du payeur.
+// CONTRAT 3 : ajoute le DÉPASSEMENT IA métré (optionnel — billing/backend ancien
+// ne le renvoie pas). `reported_overage` = réponses déjà facturées au-delà du
+// quota ce mois ; `overage_mode` = 'block' (défaut) | 'meter' ; `overage_cap` =
+// plafond de sécurité (réponses/mois).
 interface UsageRow {
   bot_id: number
   usage_ai_replies: number
   quota_ai_replies: number | null // null = illimité (BYOK)
   byok: boolean
+  overage_mode?: 'block' | 'meter'
+  reported_overage?: number
+  overage_cap?: number | null
 }
 interface UsageResponse {
   period: string
@@ -324,22 +331,34 @@ export default function Billing() {
         </InfoBox>
       )}
 
-      {/* ALERTE QUOTA IA proche / atteint (par bot). Blocage v1 : au quota, l'IA
-          est en pause, PAS de surfacturation -> message « plan supérieur ». */}
-      {quotaAlerts.map(a => (
-        <InfoBox key={a.bot_id} tone={a.atQuota ? 'danger' : 'warn'}
-                 title={a.atQuota ? `Quota IA atteint — ${a.name}` : `Quota IA bientôt atteint — ${a.name}`}>
-          <div className="col" style={{ gap: 8 }}>
-            <div style={{ fontSize: 12.5 }}>
-              {a.usage_ai_replies.toLocaleString('fr-FR')} / {a.quota.toLocaleString('fr-FR')} réponses IA ce mois-ci.
-              {a.atQuota
-                ? " L'IA est en pause jusqu'au prochain cycle — souscrivez un plan supérieur pour augmenter le quota."
-                : ' Pensez à passer à un plan supérieur pour éviter une coupure.'}
+      {/* ALERTE QUOTA IA proche / atteint (par bot). Au quota : soit l'IA est en
+          pause (mode 'block', défaut -> message « plan supérieur »), soit le
+          dépassement facturé est actif (mode 'meter' -> l'IA continue, facturée
+          au-delà du quota). `reported_overage` est affiché s'il y a déjà eu du
+          dépassement ce mois. */}
+      {quotaAlerts.map(a => {
+        const metering = a.overage_mode === 'meter'
+        const reported = a.reported_overage ?? 0
+        return (
+          <InfoBox key={a.bot_id} tone={a.atQuota && !metering ? 'danger' : 'warn'}
+                   title={a.atQuota ? `Quota IA atteint — ${a.name}` : `Quota IA bientôt atteint — ${a.name}`}>
+            <div className="col" style={{ gap: 8 }}>
+              <div style={{ fontSize: 12.5 }}>
+                {a.usage_ai_replies.toLocaleString('fr-FR')} / {a.quota.toLocaleString('fr-FR')} réponses IA ce mois-ci.
+                {reported > 0 && (
+                  <> {' '}<strong>+ {reported.toLocaleString('fr-FR')} réponses en dépassement</strong> (facturées).</>
+                )}
+                {a.atQuota
+                  ? (metering
+                      ? " Le dépassement facturé est actif : l'IA continue de répondre au-delà du quota (dans la limite du plafond)."
+                      : " L'IA est en pause jusqu'au prochain cycle — souscrivez un plan supérieur pour augmenter le quota.")
+                  : ' Pensez à passer à un plan supérieur pour éviter une coupure.'}
+              </div>
+              <Meter pct={a.pct} tone={a.atQuota && !metering ? 'danger' : 'warn'} />
             </div>
-            <Meter pct={a.pct} tone={a.atQuota ? 'danger' : 'warn'} />
-          </div>
-        </InfoBox>
-      ))}
+          </InfoBox>
+        )
+      })}
 
       {/* Bannière de retour Stripe (checkout / portail). */}
       {checkoutResult === 'success' && (
