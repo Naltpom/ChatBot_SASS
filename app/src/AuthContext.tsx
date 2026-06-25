@@ -14,6 +14,7 @@ interface AuthState {
   activeOrg: Org | null
   setActiveOrg: (org: Org) => void
   login: (email: string, password: string) => Promise<void>
+  loginWithGoogle: (credential: string) => Promise<void>
   register: (payload: RegisterPayload) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
@@ -93,6 +94,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applyUser(data.user)
   }
 
+  async function loginWithGoogle(credential: string) {
+    const data = await api<AuthResponse>('/api/auth/google', { method: 'POST', body: { credential } })
+    setToken(data.access_token)
+    applyUser(data.user)
+  }
+
   async function register(payload: RegisterPayload) {
     const data = await api<AuthResponse>('/api/auth/register', { method: 'POST', body: payload })
     setToken(data.access_token)
@@ -110,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, activeOrg, setActiveOrg, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, activeOrg, setActiveOrg, login, loginWithGoogle, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

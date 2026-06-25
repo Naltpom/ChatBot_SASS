@@ -46,7 +46,8 @@ export interface User {
   id: number
   email: string
   name: string
-  auth_source: string // local | intranet
+  avatar_url?: string | null // photo de profil (SSO Google) ou null -> initiales
+  auth_source: string // local | intranet | google
   is_superadmin: boolean
   created_at?: string | null
   last_login?: string | null

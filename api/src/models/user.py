@@ -41,7 +41,8 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     name = Column(String, nullable=False)
-    auth_source = Column(String, default="local", nullable=False)  # local | intranet
+    avatar_url = Column(String, nullable=True)  # photo de profil (SSO Google, hébergée localement)
+    auth_source = Column(String, default="local", nullable=False)  # local | intranet | google
     is_superadmin = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     last_login = Column(DateTime, nullable=True)
@@ -127,7 +128,8 @@ class UserOut(BaseModel):
     id: int
     email: str
     name: str
-    auth_source: str = "local"          # local | intranet
+    avatar_url: str | None = None       # photo de profil (SSO Google) ou null
+    auth_source: str = "local"          # local | intranet | google
     is_superadmin: bool
     created_at: datetime | None = None
     last_login: datetime | None = None
