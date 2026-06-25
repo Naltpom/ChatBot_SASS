@@ -5,8 +5,12 @@ import react from '@vitejs/plugin-react'
 // (import.meta.env.DEV=true, NODE_ENV non-prod -> warnings React/react-router
 // visibles EN PROD, code de dev non éliminé). On FORCE donc le mode prod au
 // build via `define(process.env.NODE_ENV)` — indépendant du shell, c'est la clé
-// que React et react-router lisent pour DCE leur code de dev. Le script "build"
-// passe aussi NODE_ENV=production + --mode production (ceinture+bretelles).
+// que React et react-router lisent pour DCE leur code de dev. ⚠ MAIS le `define`
+// NE suffit PAS pour @vitejs/plugin-react : il choisit le runtime JSX (jsx vs
+// jsxDEV) selon config.isProduction, qui dépend du VRAI process.env.NODE_ENV au
+// build. Sans NODE_ENV=production réel, il émet jsxDEV() alors que le define
+// résout react/jsx-dev-runtime en PROD (jsxDEV=undefined) => crash prod. D'où le
+// `NODE_ENV=production` posé par le script "build" ET le Dockerfile.prod.
 // Côté front, NE PAS se fier à import.meta.env.DEV/PROD (toujours douteux sous
 // bun) : utiliser un test runtime (ex. window.location.hostname, cf. l'auto-
 // login dev dans AuthContext).
