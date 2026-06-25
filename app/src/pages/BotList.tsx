@@ -1,7 +1,7 @@
 // « Mes chatbots » — cards Chapote + intégrations + CTA wizard.
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Bot, Check, ChevronDown, Clipboard, Plus } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { useApiResource } from '../hooks/useApiResource'
@@ -160,6 +160,16 @@ export function BotCard({ bot, onOpen, canCopy = true, ownerLabel }: {
   )
 }
 
+// Priorité d'atterrissage sur /app : on redirige vers le bot qui demande le plus
+// d'attention. 0 = paiement requis (billing_status inactive/past_due), 1 =
+// configuration à finaliser (hors ligne ou sans domaine autorisé), 2 = en ligne &
+// configuré. À priorité égale, ordre alphabétique (FR, insensible à la casse).
+function botLandingPriority(b: BotSummary): number {
+  if (b.billing_status === 'inactive' || b.billing_status === 'past_due') return 0
+  if (!b.is_active || b.allowed_domains.length === 0) return 1
+  return 2
+}
+
 export default function BotList() {
   // Nouveau modèle : on liste TOUS mes bots (perso + équipes) via GET /api/bots.
   // Plus de dépendance à l'org active. `organizations` sert à mapper
@@ -185,6 +195,17 @@ export default function BotList() {
         <ErrorRetry message={error} onRetry={reload} />
       </div>
     )
+  }
+
+  // /app n'est plus une page liste : dès qu'il existe au moins un bot, on
+  // atterrit directement sur le plus prioritaire (paiement requis, puis config à
+  // finaliser, puis alpha). La liste reste accessible via l'aside (BotNav).
+  if (bots.length > 0) {
+    const target = [...bots].sort(
+      (a, b) => botLandingPriority(a) - botLandingPriority(b)
+        || a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }),
+    )[0]
+    return <Navigate to={`/app/bots/${target.id}`} replace />
   }
 
   // Sous-ligne : chiffres RÉELS uniquement. Conversations 7 j = somme des

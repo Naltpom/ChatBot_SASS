@@ -3,13 +3,14 @@
 // /app/* = espace client (OrgSwitcher), /admin/* = back-office staff.
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeftRight, BarChart3, Bot, Building2, Check, ChevronDown, CircleUser,
+  ArrowLeftRight, BarChart3, Building2, Check, ChevronDown, CircleUser,
   CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Users,
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
 import { canSeeBilling } from './utils/permissions'
 import { orgColor, orgInitials } from './ui'
+import BotNav from './components/BotNav'
 
 function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | null; onSwitch: (o: Org) => void }) {
   const [open, setOpen] = useState(false)
@@ -132,12 +133,13 @@ export default function Layout({ children }: { children: ReactNode }) {
         <nav className="col" style={{ gap: 4 }}>
           {!inAdmin && (
             <>
-              {/* Toujours visibles (solo ou en équipe) : ses chatbots (perso +
-                  équipes via GET /api/bots), l'analytics et l'inbox. */}
-              <button className={`nav-item ${path === '/app' || path.startsWith('/app/bots') ? 'active' : ''}`}
-                      onClick={() => navigate('/app')}>
-                <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
-              </button>
+              {/* Liste des chatbots dans la sidebar (perso + équipes via
+                  GET /api/bots) — chaque bot pointe vers sa page, pastille de
+                  statut. L'intitulé « Mes chatbots » reste cliquable -> /app. */}
+              <BotNav />
+              {/* Séparation entre la liste des bots et le reste de la nav
+                  (Analytics/Inbox/Facturation…), comme la maquette de référence. */}
+              <div className="nav-divider" />
               <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
                       onClick={() => navigate('/app/analytics')}>
                 <span className="nav-ico"><BarChart3 size={16} /></span>Analytics
@@ -232,7 +234,12 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <div className="sidebar-user">
           <button className="sidebar-user-main" onClick={() => navigate('/app/profile')} title="Mon profil">
-            <span className="sidebar-user-avatar" aria-hidden="true">{orgInitials(user?.name || '?')}</span>
+            {user?.avatar_url ? (
+              <img className="sidebar-user-avatar" src={user.avatar_url} alt=""
+                   style={{ objectFit: 'cover' }} referrerPolicy="no-referrer" />
+            ) : (
+              <span className="sidebar-user-avatar" aria-hidden="true">{orgInitials(user?.name || '?')}</span>
+            )}
             <span className="sidebar-user-id">
               <span className="nm">
                 {user?.name}
