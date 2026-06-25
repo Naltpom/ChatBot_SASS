@@ -806,6 +806,17 @@ async def _intro_coupon_for(db: AsyncSession, config: BotConfigPayload) -> Optio
     return row.intro_coupon_id if row else None
 
 
+async def _user_has_subscription(db: AsyncSession, user: User) -> bool:
+    """True si le client a DÉJÀ un abonnement (toute ligne billing_subscription,
+    statut quelconque — conservées même annulées). Sert à n'offrir la remise d'intro
+    qu'au PREMIER bot souscrit (offre de bienvenue, UNE FOIS par client, pas par bot)."""
+    row = (await db.execute(
+        select(BillingSubscription.id)
+        .where(BillingSubscription.user_id == user.id).limit(1)
+    )).first()
+    return row is not None
+
+
 # --- POST /api/billing/checkout -------------------------------------------
 
 async def _open_checkout(
@@ -845,7 +856,12 @@ async def _open_checkout(
     # Consentement à l'exécution immédiate (renonciation rétractation 14 j) :
     # horodaté côté serveur, stocké en métadonnée d'abonnement Stripe (preuve).
     consent_at = utcnow().isoformat() if consent else None
-    intro_coupon = await _intro_coupon_for(db, config)
+    # Offre de bienvenue : la remise d'intro ne s'applique qu'au PREMIER abonnement
+    # du client (1er bot), jamais aux suivants (anti-cumul ; pas une remise par bot).
+    intro_coupon = (
+        await _intro_coupon_for(db, config)
+        if not await _user_has_subscription(db, user) else None
+    )
     url = await stripe_service.create_checkout_session(
         customer_id=customer_id,
         line_items=[{"price": it["price"], "quantity": it["quantity"]}
