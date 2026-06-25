@@ -30,12 +30,31 @@ export function formatCents(cents: number, currency = 'eur'): string {
   return `${body} ${symbol}`
 }
 
-function CartRow({ line, currency }: { line: CartLine; currency: string }) {
+// Statut d'une ligne dans le diff d'évolution du plan : inchangée, ajoutée (vert
+// gras, « + »), ou retirée (rouge barré, « fin de période »).
+type LineStatus = 'same' | 'added' | 'removed'
+// Vert « ajout » : var --ok si le thème la définit un jour, sinon vert lisible.
+const ADDED_COLOR = 'var(--ok, #16a34a)'
+
+function CartRow({ line, currency, status = 'same' }: {
+  line: CartLine; currency: string; status?: LineStatus
+}) {
   const free = line.cents === 0
+  const added = status === 'added'
+  const removed = status === 'removed'
+  const color = removed ? 'var(--danger)' : added ? ADDED_COLOR : free ? 'var(--mut)' : 'var(--ink)'
   return (
     <div className="cart-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', padding: '5px 0' }}>
-      <span style={{ color: free ? 'var(--mut)' : 'var(--ink)', fontSize: 13 }}>{line.label}</span>
-      <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: free ? 400 : 600, color: free ? 'var(--mut)' : 'var(--ink)' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+        <span style={{ color, fontSize: 13, fontWeight: added ? 700 : 400,
+                       textDecoration: removed ? 'line-through' : undefined }}>
+          {added ? '+ ' : ''}{line.label}
+        </span>
+        {removed && <span style={{ fontSize: 10.5, color: 'var(--danger)', whiteSpace: 'nowrap', fontWeight: 600 }}>fin de période</span>}
+      </span>
+      <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+                     fontWeight: added ? 700 : free ? 400 : 600, color,
+                     textDecoration: removed ? 'line-through' : undefined }}>
         {free ? 'gratuit' : formatCents(line.cents, currency)}
       </span>
     </div>
@@ -48,6 +67,7 @@ export default function PriceCart({
   variant = 'sticky',
   title = 'Votre configuration',
   footer,
+  baseline = null,
 }: {
   catalog: BillingCatalog
   config: BotConfig
@@ -56,9 +76,32 @@ export default function PriceCart({
   title?: string
   // CTA/contenu additionnel sous le total (ex. bouton « Continuer »).
   footer?: React.ReactNode
+  // Plan ACTUEL (abonnement en cours) : si fourni, le panier devient un DIFF —
+  // ajouts en vert/gras, retraits barrés en rouge (« fin de période »), delta vs
+  // le total actuel. null = pas de diff (souscription initiale).
+  baseline?: BotConfig | null
 }) {
   const cart = computeCart(catalog, config)
+  const baseCart = baseline ? computeCart(catalog, baseline) : null
   const taxNote = catalog.tax_note || 'TVA non applicable, art. 293 B du CGI'
+
+  // Diff ligne à ligne (par clé) : lignes cibles d'abord (ajout/inchangé), puis
+  // les lignes retirées (présentes dans le plan actuel, absentes de la cible).
+  const newKeys = new Set(cart.lines.map(l => l.key))
+  const baseKeys = new Set(baseCart?.lines.map(l => l.key) ?? [])
+  const displayRows: { line: CartLine; status: LineStatus }[] = [
+    ...cart.lines.map(l => ({ line: l, status: (baseCart && !baseKeys.has(l.key) ? 'added' : 'same') as LineStatus })),
+    ...(baseCart ? baseCart.lines.filter(l => !newKeys.has(l.key)).map(l => ({ line: l, status: 'removed' as LineStatus })) : []),
+  ]
+  const delta = baseCart ? cart.total_cents - baseCart.total_cents : 0
+
+  // Intro 1er mois remisé : visible UNIQUEMENT pour une souscription initiale
+  // (pas de baseline = pas une modif de plan en cours). % selon le palier IA, ou
+  // 'default' (IA off/BYOK). Source = catalog.intro_discounts (parité backend).
+  const introKey = config.ai_byok || !config.ai_tier_id ? 'default' : config.ai_tier_id
+  const introPct = baseCart == null ? (catalog.intro_discounts?.[introKey] ?? catalog.intro_discounts?.default ?? 0) : 0
+  const introFirstMonth = Math.round(cart.total_cents * (100 - introPct) / 100)
+  const showIntro = introPct > 0 && cart.total_cents > 0
 
   // Drawer mobile : version compacte (total + détail repliable visuellement léger).
   if (variant === 'drawer') {
@@ -87,8 +130,8 @@ export default function PriceCart({
     <>
       <div className="section-title" style={{ marginBottom: 4 }}>{title}</div>
       <div className="cart-lines" style={{ margin: '8px 0' }}>
-        {cart.lines.map(line => (
-          <CartRow key={line.key} line={line} currency={catalog.currency} />
+        {displayRows.map(({ line, status }) => (
+          <CartRow key={`${status}-${line.key}`} line={line} currency={catalog.currency} status={status} />
         ))}
       </div>
       <Divider />
@@ -98,6 +141,36 @@ export default function PriceCart({
           {formatCents(cart.total_cents, catalog.currency)}
         </span>
       </div>
+      {/* Évolution vs le plan actuel : total d'avant + delta (seulement si ça change). */}
+      {baseCart && delta !== 0 && (
+        <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 3 }}>
+          Plan actuel : {formatCents(baseCart.total_cents, catalog.currency)} /mois{' · '}
+          <span style={{ color: delta > 0 ? ADDED_COLOR : 'var(--danger)', fontWeight: 700 }}>
+            {delta > 0 ? '+' : '−'}{formatCents(Math.abs(delta), catalog.currency)} /mois
+          </span>
+        </div>
+      )}
+      {/* Remise intro 1er mois (souscription initiale) : appliquée par Stripe au
+          paiement (coupon duration:once) — on l'affiche ici pour la transparence. */}
+      {showIntro && (
+        <div style={{ marginTop: 8, padding: '9px 11px', borderRadius: 9,
+                      background: 'var(--acc-soft)', border: '1px solid var(--bd)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontWeight: 700, color: 'var(--acc)' }}>1er mois</span>
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+              <span style={{ textDecoration: 'line-through', color: 'var(--mut)', fontSize: 12 }}>
+                {formatCents(cart.total_cents, catalog.currency)}
+              </span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--acc)', fontVariantNumeric: 'tabular-nums' }}>
+                {formatCents(introFirstMonth, catalog.currency)}
+              </span>
+            </span>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 2 }}>
+            Remise de bienvenue −{introPct}% le 1er mois, puis {formatCents(cart.total_cents, catalog.currency)}/mois.
+          </div>
+        </div>
+      )}
       <div className="cart-tax-note" style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 2 }}>
         {taxNote}
       </div>

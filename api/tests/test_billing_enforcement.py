@@ -5,7 +5,9 @@ rate-limit). Le mode ENFORCE doit être actif pour bloquer (sinon observe = log)
 
 Couvre :
 - IA config (mode/system_prompt/provider/model)            -> _enforce_config_modules
-- Actions&MCP config (actions_json / mcp_servers_json)      -> idem
+- Actions config (actions_json)                            -> MODULE_ACTIONS
+- MCP config (mcp_servers_json)                            -> MODULE_MCP
+- Séparation Actions/MCP : l'un ne débloque pas l'autre    -> idem
 - A/B config : ab_split_pct>0 ET tree_variant_json non-null -> idem
 - RAG ingestion (kb.create_source/pdf)                      -> gate(MODULE_RAG)
 - Live chat staff (inbox take/reply)                        -> gate(MODULE_INBOX)
@@ -22,6 +24,7 @@ from src.core.constants import (
     MODULE_ACTIONS,
     MODULE_AI,
     MODULE_INBOX,
+    MODULE_MCP,
     MODULE_RAG,
 )
 from src.services import entitlement_service as es
@@ -80,7 +83,7 @@ def test_ia_config_mode_tree_non_gate(monkeypatch):
     _enforce_config_modules(bot, {"mode": "tree"}, _ent(modules=[]))  # ne lève pas
 
 
-# --- Actions & MCP config -------------------------------------------------
+# --- Actions config (actions_json -> MODULE_ACTIONS, SANS IA) -------------
 
 def test_actions_config_negatif(monkeypatch):
     _enforce(monkeypatch, True)
@@ -102,6 +105,53 @@ def test_actions_config_liste_vide_non_gate(monkeypatch):
     _enforce(monkeypatch, True)
     bot = Obj(id=1, tree_variant_json=None, ab_split_pct=0)
     _enforce_config_modules(bot, {"actions_json": []}, _ent(modules=[]))  # ne lève pas
+
+
+# --- MCP config (mcp_servers_json -> MODULE_MCP) --------------------------
+
+def test_mcp_config_negatif(monkeypatch):
+    _enforce(monkeypatch, True)
+    bot = Obj(id=1, tree_variant_json=None, ab_split_pct=0)
+    with pytest.raises(HTTPException) as ei:
+        _enforce_config_modules(bot, {"mcp_servers_json": [{"name": "s"}]},
+                                _ent(modules=[]))
+    assert ei.value.status_code == 402
+
+
+def test_mcp_config_positif(monkeypatch):
+    _enforce(monkeypatch, True)
+    bot = Obj(id=1, tree_variant_json=None, ab_split_pct=0)
+    _enforce_config_modules(bot, {"mcp_servers_json": [{"name": "s"}]},
+                            _ent(modules=[MODULE_MCP]))
+
+
+def test_mcp_config_liste_vide_non_gate(monkeypatch):
+    """mcp_servers_json=[] (vide) = pas de configuration active -> pas de gate."""
+    _enforce(monkeypatch, True)
+    bot = Obj(id=1, tree_variant_json=None, ab_split_pct=0)
+    _enforce_config_modules(bot, {"mcp_servers_json": []}, _ent(modules=[]))  # ne lève pas
+
+
+# --- Séparation Actions/MCP : avoir l'un ne débloque PAS l'autre ----------
+
+def test_actions_sans_mcp(monkeypatch):
+    """Posséder MODULE_ACTIONS ne débloque PAS la config MCP (-> 402)."""
+    _enforce(monkeypatch, True)
+    bot = Obj(id=1, tree_variant_json=None, ab_split_pct=0)
+    with pytest.raises(HTTPException) as ei:
+        _enforce_config_modules(bot, {"mcp_servers_json": [{"name": "s"}]},
+                                _ent(modules=[MODULE_ACTIONS]))
+    assert ei.value.status_code == 402
+
+
+def test_mcp_sans_actions(monkeypatch):
+    """Posséder MODULE_MCP ne débloque PAS la config Actions (-> 402)."""
+    _enforce(monkeypatch, True)
+    bot = Obj(id=1, tree_variant_json=None, ab_split_pct=0)
+    with pytest.raises(HTTPException) as ei:
+        _enforce_config_modules(bot, {"actions_json": [{"name": "a"}]},
+                                _ent(modules=[MODULE_MCP]))
+    assert ei.value.status_code == 402
 
 
 # --- A/B config : LES DEUX formes (split>0 ET variante non-null) ----------

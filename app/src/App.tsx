@@ -24,6 +24,11 @@ import AdminUsers from './pages/AdminUsers'
 import AdminBilling from './pages/AdminBilling'
 import AdminBillingInvoices from './pages/AdminBillingInvoices'
 import AdminBillingCatalog from './pages/AdminBillingCatalog'
+import LegalPage from './pages/LegalPage'
+import mentionsMd from './legal/MENTIONS_LEGALES.md?raw'
+import cguMd from './legal/CGU.md?raw'
+import cgvMd from './legal/CGV.md?raw'
+import confidMd from './legal/POLITIQUE_CONFIDENTIALITE.md?raw'
 import Layout from './Layout'
 
 function Protected({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
@@ -42,6 +47,11 @@ export function AppRoutes() {
       <Route path="/showcase" element={<Showcase />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      {/* Pages légales (publiques) — rendues depuis les .md de src/legal. */}
+      <Route path="/mentions-legales" element={<LegalPage md={mentionsMd} />} />
+      <Route path="/cgu" element={<LegalPage md={cguMd} />} />
+      <Route path="/cgv" element={<LegalPage md={cgvMd} />} />
+      <Route path="/confidentialite" element={<LegalPage md={confidMd} />} />
       {/* Application (clients) */}
       <Route path="/app" element={<Protected><BotList /></Protected>} />
       <Route path="/app/bots/new" element={<Protected><BotWizard /></Protected>} />

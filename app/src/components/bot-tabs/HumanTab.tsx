@@ -1,15 +1,19 @@
 // Onglet « Humain » (relais / handoff) de BotPage — présentationnel.
 import { Btn, Card, Field, InfoBox, SectionTitle } from '../../ui'
+import ModuleLockBanner from '../billing/ModuleLockBanner'
 import type { Bot, BotUpdate } from '../../types/bot'
 
 export default function HumanTab({
-  bot, patch, hasPerm, switchTab, aiTabRelevant,
+  bot, patch, hasPerm, switchTab, aiTabRelevant, locked, onUpgrade,
 }: {
   bot: Bot
   patch: (fields: BotUpdate) => void
   hasPerm: (perm: string | null) => boolean
   switchTab: (t: string) => void
   aiTabRelevant: boolean
+  // Module 'inbox' verrouillé : relais humain / live chat visible mais non éditable.
+  locked: boolean
+  onUpgrade: () => void
 }) {
   return (
     <div className="col g18">
@@ -17,6 +21,8 @@ export default function HumanTab({
         Relais humain
       </SectionTitle>
 
+      <ModuleLockBanner locked={locked} label="Live chat / Inbox" onUpgrade={onUpgrade} />
+      <div className="col g18">
       {hasPerm('context') ? (
         <Card style={{ maxWidth: 720 }}>
           <div className="card-title">Notification de relais</div>
@@ -66,6 +72,7 @@ export default function HumanTab({
           </div>
         </div>
       </Card>
+      </div>
     </div>
   )
 }

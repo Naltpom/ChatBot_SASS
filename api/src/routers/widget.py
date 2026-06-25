@@ -32,6 +32,7 @@ from src.core.constants import (
     MODULE_AB,
     MODULE_ACTIONS,
     MODULE_INBOX,
+    MODULE_MCP,
     MODULE_RAG,
     MODULE_WHITELABEL,
 )
@@ -683,8 +684,10 @@ async def _handle_ai_message(
     )).first() is not None
     if has_kb and not has_module(ent, MODULE_RAG):
         has_kb = False
-    # Actions & MCP exposees au modele uniquement si le module Actions est actif.
+    # Actions exposees au modele uniquement si le module Actions est actif ;
+    # serveurs MCP exposes uniquement si le module MCP est actif (separation).
     allow_actions = has_module(ent, MODULE_ACTIONS)
+    allow_mcp = has_module(ent, MODULE_MCP)
     try:
         # journey : contexte IA uniquement (le mode arbre n'en a pas besoin),
         # deja valide/tronque au handshake par _sanitize_journey.
@@ -693,7 +696,7 @@ async def _handle_ai_message(
         ai = await generate_reply(bot, history, page_url, journey=conversation.journey,
                                   db=db, conversation_id=conversation.id, has_kb=has_kb,
                                   locale=(bot.design_json or {}).get("locale"),
-                                  allow_actions=allow_actions)
+                                  allow_actions=allow_actions, allow_mcp=allow_mcp)
     except AIServiceError:
         # Panne provider : AUCUN credit consomme (ai_quota_consume n'est appele
         # qu'apres ce point). Le compteur Redis ne derive donc pas au-dessus du

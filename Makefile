@@ -24,3 +24,8 @@ ps:
 # Page de demo du widget (a ouvrir apres avoir cree un bot et whiteliste localhost)
 demo:
 	@echo "Ouvrir demo/index.html dans un navigateur (servir via: python -m http.server 8080 -d demo)"
+
+stripe-webhook:
+	@echo "Lancer le webhook stripe (pour tester les events de facturation)"
+	@echo "Exemple: stripe listen --forward-to localhost:8000/api/stripe/webhook"
+	stripe listen --forward-to localhost:8001/api/billing/webhook

@@ -4,6 +4,7 @@
 // refuser la configuration des capacités payantes en 402 Payment Required
 // (distinct du 403 perm et du 429 rate-limit) :
 //   - PATCH actions_json (non vide)        → 402 module_required(actions) ;
+//   - PATCH mcp_servers_json (non vide)     → 402 module_required(mcp) ;
 //   - PATCH ab_split_pct=50                 → 402 module_required(ab) ;
 //   - POST /kb/sources (ingestion RAG)      → 402 module_required(rag).
 // Puis ACTIVATION via MOCK_BILLING (POST /api/billing/subscription/update
@@ -74,6 +75,7 @@ test('bot free : PATCH actions/ab → 402, POST KB → 402 ; activation MOCK_BIL
   // --- État initial : entitlement free, aucun module ---
   const ent0 = await (await request.get(entUrl, { headers })).json()
   expect(ent0.modules).not.toContain('actions')
+  expect(ent0.modules).not.toContain('mcp')
   expect(ent0.modules).not.toContain('ab')
   expect(ent0.modules).not.toContain('rag')
 
@@ -84,6 +86,16 @@ test('bot free : PATCH actions/ab → 402, POST KB → 402 ; activation MOCK_BIL
   })
   expect(patchActions.status()).toBe(402)
   expect((await patchActions.json()).detail).toMatchObject({ error: 'module_required', module: 'actions' })
+
+  // --- 1bis. PATCH mcp_servers_json (non vide) sans module MCP → 402(mcp) ---
+  // Le split Actions/MCP gate désormais les serveurs MCP par le module 'mcp'
+  // (distinct d'actions). Le secret du jeton n'est pas requis pour atteindre le gating.
+  const patchMcp = await request.patch(botUrl, {
+    headers,
+    data: { mcp_servers_json: [{ name: 'crm', url: 'https://mcp.e2e.invalid/mcp' }] },
+  })
+  expect(patchMcp.status()).toBe(402)
+  expect((await patchMcp.json()).detail).toMatchObject({ error: 'module_required', module: 'mcp' })
 
   // --- 2. PATCH ab_split_pct=50 sans module A/B → 402(ab) ---
   const patchAb = await request.patch(botUrl, { headers, data: { ab_split_pct: 50 } })
@@ -98,12 +110,12 @@ test('bot free : PATCH actions/ab → 402, POST KB → 402 ; activation MOCK_BIL
   expect(postKb.status()).toBe(402)
   expect((await postKb.json()).detail).toMatchObject({ error: 'module_required', module: 'rag' })
 
-  // --- 4. Activation via MOCK_BILLING : actions + ab + rag ---
-  const act = await activate(request, { modules: ['actions', 'ab', 'rag'] })
+  // --- 4. Activation via MOCK_BILLING : actions + mcp + ab + rag ---
+  const act = await activate(request, { modules: ['actions', 'mcp', 'ab', 'rag'] })
   expect(act.ok()).toBe(true)
 
   const ent1 = await (await request.get(entUrl, { headers })).json()
-  expect(ent1.modules).toEqual(expect.arrayContaining(['actions', 'ab', 'rag']))
+  expect(ent1.modules).toEqual(expect.arrayContaining(['actions', 'mcp', 'ab', 'rag']))
   expect(ent1.status).toBe('active')
 
   // --- 5. Mêmes mutations → 200 désormais ---
@@ -112,6 +124,14 @@ test('bot free : PATCH actions/ab → 402, POST KB → 402 ; activation MOCK_BIL
     data: { actions_json: [{ type: 'webhook', name: 'lead', url: 'https://e2e.invalid' }] },
   })
   expect(okActions.ok()).toBe(true)
+
+  // MCP désormais débloqué : le PATCH mcp_servers_json ne doit plus 402.
+  const okMcp = await request.patch(botUrl, {
+    headers,
+    data: { mcp_servers_json: [{ name: 'crm', url: 'https://mcp.e2e.invalid/mcp' }] },
+  })
+  expect(okMcp.status()).not.toBe(402)
+  expect(okMcp.ok()).toBe(true)
 
   const okAb = await request.patch(botUrl, { headers, data: { ab_split_pct: 50 } })
   expect(okAb.ok()).toBe(true)

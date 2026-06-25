@@ -39,6 +39,7 @@ const MODULE_LABELS: { key: ModuleKey; label: string }[] = [
   { key: 'inbox', label: 'Inbox' },
   { key: 'rag', label: 'Base de connaissances' },
   { key: 'actions', label: 'Actions' },
+  { key: 'mcp', label: 'MCP (outils IA)' },
   { key: 'ab', label: 'A/B testing' },
   { key: 'white_label', label: 'Marque blanche' },
 ]

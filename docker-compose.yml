@@ -69,6 +69,8 @@ services:
       # intranet deviennent superadmins du SaaS.
       - INTRANET_AUTH_URL=${INTRANET_AUTH_URL:-https://intranet.kertios.com/main/auth_ret}
       - INTRANET_AUTH_ENABLED=${INTRANET_AUTH_ENABLED:-true}
+      # SSO Google : Client ID public (= audience des tokens). Vide = désactivé.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # Auto-login admin (dev uniquement, ignore si ENV != dev)
       - AUTO_LOGIN_ADMIN_DEV=${AUTO_LOGIN_ADMIN_DEV:-false}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@kertios.com}
@@ -134,6 +136,8 @@ services:
     restart: unless-stopped
     environment:
       - VITE_API_URL=${VITE_API_URL:-http://localhost:8001}
+      # SSO Google : même Client ID que côté API (valeur publique). Vide = bouton masqué.
+      - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID:-}
     ports:
       - "3001:3000"
     volumes:

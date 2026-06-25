@@ -520,7 +520,7 @@ pre.snippet {
   color: var(--faint); margin-top: 4px;
 }
 .af-sec:first-child { margin-top: 0; }
-.preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; }
 .preset-card {
   border: 1px solid var(--border2); background: var(--surface); border-radius: 10px;
   padding: 9px 6px 8px; cursor: pointer; display: flex; flex-direction: column;
@@ -630,3 +630,20 @@ table.perm-matrix td:first-child { text-align: left; padding: 8px 12px; }
 @keyframes kcBlink { 0%, 80%, 100% { opacity: .35; } 40% { opacity: 1; } }
 @keyframes kcWave { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-5px); } }
 @keyframes kcPulse { 0%, 100% { transform: scale(.7); opacity: .5; } 50% { transform: scale(1.15); opacity: 1; } }
+/* Nouvelles animations de chargement (refonte Apparence) — miroir de widget.js. */
+@keyframes kcBars { 0%, 100% { transform: scaleY(.4); } 50% { transform: scaleY(1); } }
+@keyframes kcRing { to { transform: rotate(360deg); } }
+@keyframes kcTyping { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
+/* Animations au repos du lanceur fermé (launcherAnimation float | pulse). */
+@keyframes kcLauncherFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes kcLauncherPulse { 0% { box-shadow: 0 8px 26px rgba(10,30,25,.3), 0 0 0 0 var(--kc-halo); } 70% { box-shadow: 0 8px 26px rgba(10,30,25,.3), 0 0 0 14px transparent; } 100% { box-shadow: 0 8px 26px rgba(10,30,25,.3), 0 0 0 0 transparent; } }
+/* Accroche du lanceur (greeting) — apparition douce. */
+@keyframes kcGreetingIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+/* Ouverture du panneau (openAnimation zoom | fade | slide). */
+@keyframes kcOpenZoom { from { opacity: 0; transform: scale(.92) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes kcOpenFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kcOpenSlide { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes kcOpenPop { 0% { opacity: 0; transform: scale(.8); } 60% { opacity: 1; transform: scale(1.04); } 100% { transform: scale(1); } }
+@keyframes kcOpenFlip { from { opacity: 0; transform: perspective(700px) rotateX(-16deg); } to { opacity: 1; transform: perspective(700px) rotateX(0); } }
+/* Pastille « à régler » dans la liste des bots de la sidebar (BotNav). */
+@keyframes kcAsidePulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.6); opacity: .4; } }

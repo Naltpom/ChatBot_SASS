@@ -1,4 +1,5 @@
 // Footer : marque + colonnes de liens (types explicites, §8) + mentions.
+import { Link } from 'react-router-dom'
 import { CLASH, FOOTER_COLUMNS, HatIcon } from './data'
 
 export function Footer() {
@@ -30,6 +31,12 @@ export function Footer() {
           ))}
         </div>
         <div style={{ height: 1, background: 'rgba(255,255,255,.12)', margin: '40px 0 22px' }} />
+        {/* Liens légaux (pages publiques /mentions-legales, /cgu, /cgv, /confidentialite). */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', marginBottom: 16 }}>
+          {([['Mentions légales', '/mentions-legales'], ['CGU', '/cgu'], ['CGV', '/cgv'], ['Confidentialité', '/confidentialite']] as const).map(([label, to]) => (
+            <Link key={to} className="ch-flink" to={to} style={{ fontSize: 13.5, color: '#A8C0D0' }}>{label}</Link>
+          ))}
+        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: '#A8C0D0' }}>🇫🇷 Hébergement français · Données locales · Conforme RGPD</span>
           <span style={{ fontSize: 13, color: '#7FA0B5' }}>© {new Date().getFullYear()} Chapote. Tous droits réservés.</span>

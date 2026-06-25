@@ -28,6 +28,7 @@ export const MODULE_KEYS: readonly ModuleKey[] = [
   'inbox',
   'rag',
   'actions',
+  'mcp',
   'ab',
   'white_label',
 ]
@@ -39,6 +40,7 @@ export const MODULE_TO_CODE: Record<Exclude<ModuleKey, 'ai'>, string> = {
   inbox: 'mod_inbox',
   rag: 'mod_rag',
   actions: 'mod_actions',
+  mcp: 'mod_mcp',
   ab: 'mod_ab',
   white_label: 'mod_whitelabel',
 }
@@ -61,6 +63,7 @@ const FALLBACK_MODULES: CatalogModule[] = [
     short: 'RAG',
     desc: 'Base de connaissances : ingestion de sources et recherche documentaire.',
     price_cents: 900,
+    requires: ['ai'], // RAG est piloté par l'IA (recherche documentaire dans la réponse).
   },
   {
     key: 'inbox',
@@ -71,10 +74,19 @@ const FALLBACK_MODULES: CatalogModule[] = [
   },
   {
     key: 'actions',
-    label: 'Actions & MCP',
+    label: 'Actions',
     short: 'Actions',
-    desc: 'Webhooks, capture de leads, connecteurs MCP exécutés par le bot.',
-    price_cents: 1900,
+    desc: 'Webhooks, capture de leads, tickets, créneaux — exécutables dans un arbre, sans IA.',
+    price_cents: 1200,
+    // PAS de requires : les actions tournent aussi dans un arbre pur (sans IA).
+  },
+  {
+    key: 'mcp',
+    label: 'MCP (outils IA)',
+    short: 'MCP',
+    desc: "Serveurs/outils MCP appelés par l'IA pendant la conversation.",
+    price_cents: 900,
+    requires: ['ai'], // MCP n'a de sens qu'avec l'IA (c'est elle qui appelle les outils).
   },
   {
     key: 'ab',
@@ -118,7 +130,7 @@ const FALLBACK_PRESETS: CatalogPreset[] = [
     modules: ['rag', 'inbox', 'actions'],
     ai_tier_id: 'ai_growth',
     recommended: true,
-    est_price_cents: 8200, // 3900 + 900 + 1500 + 1900
+    est_price_cents: 7500, // 3900 + 900 (rag) + 1500 (inbox) + 1200 (actions)
   },
   {
     key: 'service_client',
@@ -126,7 +138,7 @@ const FALLBACK_PRESETS: CatalogPreset[] = [
     tagline: 'Tous les modules, gros volume de réponses.',
     modules: ['rag', 'inbox', 'actions', 'ab', 'white_label'],
     ai_tier_id: 'ai_scale',
-    est_price_cents: 14800, // 8900 + 900 + 1500 + 1900 + 700 + 900
+    est_price_cents: 14100, // 8900 + 900 (rag) + 1500 (inbox) + 1200 (actions) + 700 (ab) + 900 (wl)
   },
 ]
 
@@ -141,6 +153,8 @@ export const FALLBACK_CATALOG: BillingCatalog = {
   overage_cents_per_reply: 0, // v1 = blocage au quota (pas de dépassement facturé)
   tax_note: 'TVA non applicable, art. 293 B du CGI',
   presets: FALLBACK_PRESETS,
+  // Miroir des % d'intro (parité backend INTRO_PERCENT_*). 'default' = IA off/BYOK.
+  intro_discounts: { default: 45, ai_starter: 50, ai_growth: 65, ai_scale: 80 },
   version: 'fallback-2026-06-20',
 }
 

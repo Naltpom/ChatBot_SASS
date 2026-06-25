@@ -131,13 +131,14 @@ async def test_line_items_socle_inclus_si_plan_ia(db: FakeSession):
     assert codes == ["ai_growth"]
 
 
-# --- Essai AVEC carte : Checkout ouvre un abonnement trialing -------------
+# --- Intro 1er mois remisé : Checkout sans essai, carte if_required -------
 
 @pytest.mark.asyncio
-async def test_checkout_session_pose_trial_et_carte_obligatoire(monkeypatch):
-    """create_checkout_session : essai 7 j (subscription_data[trial_period_days])
-    + carte OBLIGATOIRE (payment_method_collection=always). 0 € pendant l'essai,
-    auto-débit à J+7. (Modèle d'essai AVEC carte.)"""
+async def test_checkout_session_intro_remise_et_carte_if_required(monkeypatch):
+    """create_checkout_session : plus d'essai gratuit -> intro 1er mois remisée
+    (coupon `duration:once` via discounts) + carte if_required (demandée car
+    montant dû, sautée si 100 %). PAS de allow_promotion_codes (Stripe l'interdit
+    avec discounts)."""
     from src.services import stripe_service as svc
 
     monkeypatch.setattr(svc.settings, "MOCK_BILLING", False, raising=False)
@@ -159,12 +160,15 @@ async def test_checkout_session_pose_trial_et_carte_obligatoire(monkeypatch):
         bots_map={"7": ["ai_growth"]},
         group_key="total:1",
         user_id=1,
+        intro_coupon="intro_growth_65",
     )
     assert url == "https://checkout.stripe.test/cs_123"
     data = captured["data"]
-    # Essai : 7 j par défaut + carte requise.
-    assert data["subscription_data[trial_period_days]"] == "7"
-    assert data["payment_method_collection"] == "always"
+    # Plus d'essai gratuit ; carte seulement si montant dû ; intro via discounts.
+    assert "subscription_data[trial_period_days]" not in data
+    assert data["payment_method_collection"] == "if_required"
+    assert data["discounts[0][coupon]"] == "intro_growth_65"
+    assert "allow_promotion_codes" not in data
     assert data["mode"] == "subscription"
 
 

@@ -19,9 +19,9 @@ const state = loadState()
 
 // Ordre EXACT de MODULE_KEYS (api/src/core/constants.py) :
 //   MODULE_KEYS = (MODULE_AI, MODULE_INBOX, MODULE_RAG, MODULE_ACTIONS,
-//                  MODULE_AB, MODULE_WHITELABEL)
+//                  MODULE_MCP, MODULE_AB, MODULE_WHITELABEL)
 // Le miroir front (app/src/utils/billing.ts::MODULE_KEYS) DOIT être identique.
-const EXPECTED_MODULES = ['ai', 'inbox', 'rag', 'actions', 'ab', 'white_label']
+const EXPECTED_MODULES = ['ai', 'inbox', 'rag', 'actions', 'mcp', 'ab', 'white_label']
 
 // Axe métré (D1 : v1 = blocage, une seule dimension « réponse IA ») ; BYOK exclut
 // le métré (RÈGLE 3) ; formats de facture (User.billing_grouping).

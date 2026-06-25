@@ -102,7 +102,7 @@ class BillingProduct(Base):
 
     id = Column(Integer, primary_key=True)
     # base, ai_starter/growth/scale, mod_ai_byok, mod_rag, mod_inbox,
-    # mod_actions, mod_ab, mod_whitelabel, mtr_ai
+    # mod_actions, mod_mcp, mod_ab, mod_whitelabel, mtr_ai
     code = Column(String, unique=True, nullable=False, index=True)
     label = Column(String, nullable=False)
     description = Column(String, nullable=True)  # texte commercial, poussé sur le Product Stripe

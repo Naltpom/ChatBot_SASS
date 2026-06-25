@@ -8,8 +8,8 @@ import { CLASH, JAKARTA, btnPrimary, eyebrow, sectionH2, Check } from './data'
 
 // Prix NETS en euros/mois (TVA non applicable, art. 293 B du CGI). Alignés sur le
 // catalogue seed : base 9, ai_starter 19 (1000), ai_growth 39 (3000),
-// ai_scale 89 (10000), mod_ai_byok 29, mod_rag 9, mod_inbox 15, mod_actions 19,
-// mod_ab 7, mod_whitelabel 9.
+// ai_scale 89 (10000), mod_ai_byok 29, mod_rag 9, mod_inbox 15, mod_actions 12,
+// mod_mcp 9, mod_ab 7, mod_whitelabel 9.
 type Plan = {
   name: string
   price: number
@@ -57,7 +57,8 @@ const AI_PLANS: Plan[] = [
 const MODULES: { name: string; price: number; desc: string }[] = [
   { name: 'Connaissances (RAG)', price: 9, desc: 'Indexez pages, PDF et FAQ ; l’IA répond depuis vos contenus.' },
   { name: 'Live chat / Inbox', price: 15, desc: 'Vos conseillers reprennent la main, avec boîte de réception.' },
-  { name: 'Actions & MCP', price: 19, desc: 'Webhooks, capture de leads, tickets, créneaux, outils MCP.' },
+  { name: 'Actions', price: 12, desc: 'Webhooks, capture de leads, tickets, créneaux — exécutables dans un arbre, sans IA.' },
+  { name: 'MCP (outils IA)', price: 9, desc: 'Branchez l’IA sur vos serveurs/outils MCP, appelés pendant la conversation.' },
   { name: 'A/B testing', price: 7, desc: 'Comparez deux versions d’arbre et mesurez la meilleure.' },
   { name: 'White-label', price: 9, desc: 'Retire la mention « Propulsé par Chapote » du widget.' },
 ]

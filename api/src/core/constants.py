@@ -45,6 +45,7 @@ MODULE_AI = "ai"
 MODULE_INBOX = "inbox"
 MODULE_RAG = "rag"
 MODULE_ACTIONS = "actions"
+MODULE_MCP = "mcp"
 MODULE_AB = "ab"
 MODULE_WHITELABEL = "white_label"
 
@@ -54,6 +55,7 @@ MODULE_KEYS: tuple[str, ...] = (
     MODULE_INBOX,
     MODULE_RAG,
     MODULE_ACTIONS,
+    MODULE_MCP,
     MODULE_AB,
     MODULE_WHITELABEL,
 )
@@ -67,6 +69,7 @@ CODE_TO_MODULE: dict[str, str] = {
     "mod_inbox": MODULE_INBOX,
     "mod_rag": MODULE_RAG,
     "mod_actions": MODULE_ACTIONS,
+    "mod_mcp": MODULE_MCP,
     "mod_ab": MODULE_AB,
     "mod_whitelabel": MODULE_WHITELABEL,
 }

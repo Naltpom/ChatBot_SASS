@@ -129,6 +129,7 @@ async def generate_reply(
     has_kb: bool = False,
     locale: Optional[str] = None,
     allow_actions: bool = True,
+    allow_mcp: bool = True,
 ) -> AIResult:
     """history = [{"role": "user"|"assistant", "content": "..."}], deja tronque.
 
@@ -139,12 +140,14 @@ async def generate_reply(
     extraits KB indexes -> tool search_docs expose au modele.
     `locale` (defaut None : appels existants inchanges) = design_json.locale ;
     seul 'auto' ajoute la consigne de langue au system prompt.
-    `allow_actions` (defaut True : appels existants inchanges, ex tree_generator)
-    = facturation modulaire (spec §3.3). Le call-site widget.py le pose à
-    has_module(ent, MODULE_ACTIONS) : sans le module Actions&MCP, actions_json
-    et serveurs MCP ne sont PAS exposés au modèle (le tool search_docs reste
-    gouverné par has_kb, gaté en amont par le module RAG). generate_reply
-    n'est JAMAIS gaté globalement (partagé treegen/insights, gratuits)."""
+    `allow_actions` / `allow_mcp` (defaut True : appels existants inchanges, ex
+    tree_generator) = facturation modulaire (spec §3.3). Le call-site widget.py
+    les pose à has_module(ent, MODULE_ACTIONS) / has_module(ent, MODULE_MCP) :
+    sans le module Actions, actions_json n'est PAS exposé au modèle ; sans le
+    module MCP, les serveurs MCP ne sont PAS exposés (séparation des deux
+    modules). Le tool search_docs reste gouverné par has_kb, gaté en amont par le
+    module RAG. generate_reply n'est JAMAIS gaté globalement (partagé
+    treegen/insights, gratuits)."""
     if settings.MOCK_AI:
         return await _mock_reply(bot, history, db, conversation_id, has_kb)
 
@@ -157,9 +160,9 @@ async def generate_reply(
 
     try:
         if bot.ai_provider == "anthropic":
-            return await _call_anthropic(api_key, bot, system, history, temperature, db, conversation_id, has_kb, allow_actions)
+            return await _call_anthropic(api_key, bot, system, history, temperature, db, conversation_id, has_kb, allow_actions, allow_mcp)
         if bot.ai_provider == "openai":
-            return await _call_openai(api_key, bot, system, history, temperature, db, conversation_id, has_kb, allow_actions)
+            return await _call_openai(api_key, bot, system, history, temperature, db, conversation_id, has_kb, allow_actions, allow_mcp)
         if bot.ai_provider == "gemini":
             return await _call_gemini(api_key, bot, system, history, temperature, has_kb)
     except httpx.HTTPStatusError as e:
@@ -276,30 +279,32 @@ async def _dispatch_tool_call(bot, name, args: dict, db,
 
 async def _build_tools(bot, has_kb: bool, conversation_id,
                        fmt: Callable[[str, str, dict], dict],
-                       allow_actions: bool = True) -> Optional[list[dict]]:
+                       allow_actions: bool = True,
+                       allow_mcp: bool = True) -> Optional[list[dict]]:
     """Tools exposes au modele (actions + search_docs + MCP decouverts), chaque
     entree encapsulee par `fmt(name, description, schema)` au format du provider
     (_anthropic_tool / _openai_tool). None si aucun. Comportement INCHANGE des
-    deux builders par-provider d'origine (allow_actions=True par defaut).
+    deux builders par-provider d'origine (allow_actions/allow_mcp=True par defaut).
 
     Actions heritees aux noms reserves (search_docs, prefixe mcp_) ecartees par
     _eligible_actions. Pour les tools MCP decouverts (cache par conversation),
     le schema brut `input_schema` est passe tel quel a `fmt` ; echec serveur =
     liste vide, jamais bloquant (contrat de mcp_client).
 
-    Facturation modulaire (spec §3.3) : sans le module Actions&MCP
-    (allow_actions=False, posé par le call-site widget.py), NI les actions
-    configurees (actions_json) NI les serveurs MCP ne sont exposes — un bot
-    configure avant downgrade n'execute alors plus ses actions. Le tool interne
-    search_docs reste gouverne par `has_kb` (deja force a False par widget.py si
-    le module RAG manque), independant du module Actions."""
+    Facturation modulaire (spec §3.3), modules SEPARES : sans le module Actions
+    (allow_actions=False, posé par widget.py) les actions configurees
+    (actions_json) ne sont PAS exposees ; sans le module MCP (allow_mcp=False)
+    les serveurs MCP ne sont PAS exposes. Les deux sont independants (un bot peut
+    avoir l'un sans l'autre). Le tool interne search_docs reste gouverne par
+    `has_kb` (deja force a False par widget.py si le module RAG manque),
+    independant des modules Actions et MCP."""
     tools = [fmt(a["name"], a.get("description", ""), _object_schema(*_action_schema(a)))
              for a in _eligible_actions(bot)] if allow_actions else []
     if has_kb:
         tools.append(fmt(
             SEARCH_DOCS_TOOL["name"], SEARCH_DOCS_TOOL["description"],
             _object_schema(SEARCH_DOCS_TOOL["properties"], SEARCH_DOCS_TOOL["required"])))
-    if allow_actions and getattr(bot, "mcp_servers_json", None) and conversation_id:
+    if allow_mcp and getattr(bot, "mcp_servers_json", None) and conversation_id:
         from src.services.mcp_client import list_mcp_tools
         for t in await list_mcp_tools(bot, conversation_id):
             tools.append(fmt(t["name"], t["description"], t["input_schema"]))
@@ -309,13 +314,14 @@ async def _build_tools(bot, has_kb: bool, conversation_id,
 async def _call_anthropic(api_key: str, bot: Bot, system: str,
                           history: list[dict], temperature: float,
                           db=None, conversation_id: Optional[str] = None,
-                          has_kb: bool = False, allow_actions: bool = True) -> AIResult:
+                          has_kb: bool = False, allow_actions: bool = True,
+                          allow_mcp: bool = True) -> AIResult:
     """Boucle tool-use bornee : les echanges intermediaires (tool_use /
     tool_result) vivent dans la requete, seul le texte final est persiste.
 
     Transport delegue a core.anthropic.call_messages ; un seul httpx.AsyncClient
     (timeout 60) est reutilise sur tous les tours de la boucle."""
-    tools = await _build_tools(bot, has_kb, conversation_id, _anthropic_tool, allow_actions)
+    tools = await _build_tools(bot, has_kb, conversation_id, _anthropic_tool, allow_actions, allow_mcp)
     messages = list(history)
     tokens_in = tokens_out = 0
     last_text = ""
@@ -367,10 +373,11 @@ async def _call_anthropic(api_key: str, bot: Bot, system: str,
 async def _call_openai(api_key: str, bot: Bot, system: str,
                        history: list[dict], temperature: float,
                        db=None, conversation_id: Optional[str] = None,
-                       has_kb: bool = False, allow_actions: bool = True) -> AIResult:
+                       has_kb: bool = False, allow_actions: bool = True,
+                       allow_mcp: bool = True) -> AIResult:
     """Meme boucle tool-use bornee que _call_anthropic, au format OpenAI
     (tools / tool_calls / messages role=tool)."""
-    tools = await _build_tools(bot, has_kb, conversation_id, _openai_tool, allow_actions)
+    tools = await _build_tools(bot, has_kb, conversation_id, _openai_tool, allow_actions, allow_mcp)
     messages = [{"role": "system", "content": system}, *history]
     tokens_in = tokens_out = 0
     last_text = ""

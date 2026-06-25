@@ -12,7 +12,9 @@
 // clés d'ENTITLEMENT (modules débloqués), PAS des permissions (BOT_PERMS).
 
 // Clés de module débloquables — strictement alignées sur core/constants.MODULE_KEYS.
-export type ModuleKey = 'ai' | 'inbox' | 'rag' | 'actions' | 'ab' | 'white_label'
+// 'mcp' suit 'actions' : Actions (sans IA) et MCP (outils IA) sont DEUX modules
+// distincts (split 2026-06-24). L'ordre est figé (parité backend MODULE_KEYS).
+export type ModuleKey = 'ai' | 'inbox' | 'rag' | 'actions' | 'mcp' | 'ab' | 'white_label'
 
 // Format de facture choisi par le User (User.billing_grouping). Défaut = 'total'.
 export type BillingGrouping = 'per_bot' | 'total' | 'per_org'
@@ -53,6 +55,9 @@ export interface BillingCatalog {
   overage_cents_per_reply: number
   tax_note: string
   presets: CatalogPreset[]
+  // Remise intro 1er mois (%) par clé : 'default' (IA off/BYOK) + un palier IA
+  // (ai_starter/growth/scale). Sert à afficher « 1er mois à -X% » dans le panier.
+  intro_discounts?: Record<string, number>
   version: string
 }
 

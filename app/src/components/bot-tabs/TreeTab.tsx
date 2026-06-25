@@ -7,6 +7,7 @@ import { RefObject } from 'react'
 import { Download, Sparkles, Upload } from 'lucide-react'
 import { Btn, Card, Chip, Field, Seg } from '../../ui'
 import TreeFlow from '../TreeFlow'
+import ModuleLockBanner from '../billing/ModuleLockBanner'
 import type { Bot, BotUpdate, Tree } from '../../types/bot'
 
 export default function TreeTab({
@@ -15,6 +16,7 @@ export default function TreeTab({
   genOpen, setGenOpen, genMode, setGenMode, genText, setGenText, genUrl, setGenUrl,
   genBusy, genError, generateTree,
   exportConfig, importConfig, treeFileRef,
+  abLocked, onUpgrade,
 }: {
   bot: Bot
   patch: (fields: BotUpdate) => void
@@ -36,28 +38,34 @@ export default function TreeTab({
   exportConfig: () => void
   importConfig: (file: File) => void
   treeFileRef: RefObject<HTMLInputElement>
+  // Module 'ab' verrouillé : SEULE la carte « Test A/B de l'arbre » est
+  // verrouillée ; l'éditeur d'arbre (TreeFlow) reste gratuit (socle).
+  abLocked: boolean
+  onUpgrade: () => void
 }) {
   return (
     <div className="col g14">
-      {bot.tree_variant_json == null ? (
-        <Card>
-          <div className="card-title">Test A/B de l'arbre</div>
-          <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 10 }}>
-            Servez une variante B à une partie des nouvelles conversations et comparez conversations
-            et satisfaction dans vos statistiques. L'affectation est tirée au sort à l'ouverture et
-            reste stable pour toute la conversation.
-          </div>
+      {/* Test A/B (module 'ab') : SEULE cette carte est gardée ; l'éditeur d'arbre
+          ci-dessous reste gratuit. Verrouillé -> message « Ajouter à l'abonnement »
+          (pas de CTA d'activation). Le « Comportement » (mode) vit dans l'onglet IA. */}
+      <Card>
+        <div className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div className="card-title" style={{ marginBottom: 0 }}>Test A/B de l'arbre</div>
+          {!abLocked && bot.tree_variant_json != null && <Chip tone="acc">A/B actif</Chip>}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 10 }}>
+          Servez une variante B à une partie des nouvelles conversations et comparez conversations
+          et satisfaction dans vos statistiques. L'affectation est tirée au sort à l'ouverture et
+          reste stable pour toute la conversation.
+        </div>
+        {abLocked ? (
+          <ModuleLockBanner locked label="A/B testing" onUpgrade={onUpgrade} />
+        ) : bot.tree_variant_json == null ? (
           <Btn kind="soft" onClick={() => {
             patch({ tree_variant_json: JSON.parse(JSON.stringify(bot.tree_json)) as Tree, ab_split_pct: bot.ab_split_pct || 50 })
             setTreeView('b')
           }}>Activer une variante B</Btn>
-        </Card>
-      ) : (
-        <Card>
-          <div className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-            <div className="card-title" style={{ marginBottom: 0 }}>Test A/B de l'arbre</div>
-            <Chip tone="acc">A/B actif</Chip>
-          </div>
+        ) : (
           <div className="col" style={{ gap: 12 }}>
             <Seg value={treeView} onChange={v => setTreeView(v as 'a' | 'b')}
                  options={[{ value: 'a', label: 'Variante A (originale)' }, { value: 'b', label: 'Variante B' }]} />
@@ -74,8 +82,8 @@ export default function TreeTab({
               }}>Désactiver la variante B</Btn>
             </div>
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
 
       {/* Barre d'outils config-as-code + génération IA (arbre A uniquement).
           TreeFlow ne porte plus l'export/import ni la génération : on les

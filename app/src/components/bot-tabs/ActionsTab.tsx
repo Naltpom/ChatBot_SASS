@@ -1,9 +1,12 @@
 // Onglet « Actions IA » de BotPage — présentationnel (galerie de modèles,
 // éditeur des 5 types d'actions, serveurs MCP). Tous les handlers et le state des
 // secrets restent définis dans BotPage et sont passés en props.
+import { useState } from 'react'
 import { Plus } from 'lucide-react'
-import { Btn, Card, Chip, Divider, Field, InfoBox, SectionTitle, Seg, Toggle } from '../../ui'
+import { Btn, Card, Chip, Field, InfoBox, SectionTitle, Seg, Toggle } from '../../ui'
 import { ACTION_TEMPLATES } from '../../botConstants'
+import SubTabs from '../SubTabs'
+import ModuleLockBanner from '../billing/ModuleLockBanner'
 import type { Bot, BotAction, BotActionField, McpServer, BotUpdate } from '../../types/bot'
 
 const ACTION_NAME_RE = /^[a-z][a-z0-9_]{0,63}$/
@@ -54,6 +57,7 @@ export default function ActionsTab({
   actionSecrets, setActionSecretAt, mcpTokens, setMcpTokenAt,
   updateAction, addAction, removeAction, updateActionField, updateActionType,
   updateMcpServer, addMcpServer, removeMcpServer,
+  actionsLocked, mcpLocked, aiActive, onUpgrade,
 }: {
   bot: Bot
   savedBot: Bot | null
@@ -72,13 +76,36 @@ export default function ActionsTab({
   updateMcpServer: (i: number, fields: Partial<McpServer>) => void
   addMcpServer: () => void
   removeMcpServer: (i: number) => void
+  // DEUX modules distincts (split Actions / MCP) : chaque section porte SA bannière.
+  //   actionsLocked → module 'actions' (webhooks, leads, tickets, créneaux — sans IA) ;
+  //   mcpLocked     → module 'mcp'     (serveurs/outils MCP appelés par l'IA).
+  actionsLocked: boolean
+  mcpLocked: boolean
+  // IA active sur ce bot (mode != tree) : MCP n'a de sens qu'avec l'IA — la section
+  // est masquée du sélecteur et verrouillée tant que l'IA est OFF.
+  aiActive: boolean
+  onUpgrade: () => void
 }) {
+  const [sec, setSec] = useState<'actions' | 'mcp'>('actions')
+  // MCP masqué du sélecteur tant que l'IA est OFF ; on retombe sur « Actions » si
+  // on était sur l'onglet MCP au moment où l'IA est désactivée.
+  const mcpAvailable = aiActive
+  const activeSec = sec === 'mcp' && !mcpAvailable ? 'actions' : sec
+  const subTabOptions: { value: 'actions' | 'mcp'; label: string }[] = mcpAvailable
+    ? [{ value: 'actions', label: 'Actions' }, { value: 'mcp', label: 'Serveurs MCP' }]
+    : [{ value: 'actions', label: 'Actions' }]
   return (
     <div className="col g18">
-      <SectionTitle sub="Donnez à l'IA le pouvoir d'agir pendant la conversation : appeler vos webhooks (signés) ou enregistrer un contact. 5 actions maximum.">
-        Actions &amp; outils
+      <SectionTitle sub="Donnez à votre bot le pouvoir d'agir (webhooks, leads, tickets, créneaux), puis — avec l'IA — branchez-le sur vos services via MCP. Deux modules distincts.">
+        Actions &amp; MCP
       </SectionTitle>
 
+      <SubTabs value={activeSec} onChange={setSec} maxWidth={340}
+               options={subTabOptions} />
+
+      {activeSec === 'actions' && (
+      <div className="col g18">
+      <ModuleLockBanner locked={actionsLocked} label="Actions" onUpgrade={onUpgrade} />
       {bot.ai_provider === 'gemini' && (
         <InfoBox tone="warn" title="Non supporté par Gemini">
           Les actions, la recherche dans les connaissances et les serveurs MCP sont ignorés tant que
@@ -264,8 +291,12 @@ export default function ActionsTab({
         </Btn>
         {actions.length >= 5 && <Chip tone="warn">5/5</Chip>}
       </div>
+      </div>
+      )}
 
-      <Divider />
+      {activeSec === 'mcp' && (
+      <div className="col g18">
+      <ModuleLockBanner locked={mcpLocked} label="MCP (outils IA)" onUpgrade={onUpgrade} />
       <SectionTitle sub="Branchez l'IA sur vos services externes via le protocole MCP. 2 serveurs maximum.">
         Serveurs MCP
       </SectionTitle>
@@ -332,6 +363,8 @@ export default function ActionsTab({
         </Btn>
         {mcpServers.length >= 2 && <Chip tone="warn">2/2</Chip>}
       </div>
+      </div>
+      )}
     </div>
   )
 }

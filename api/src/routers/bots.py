@@ -23,6 +23,8 @@ from src.core.constants import (
     MODULE_AB,
     MODULE_AI,
     MODULE_KEYS,
+    MODULE_MCP,
+    MODULE_WHITELABEL,
 )
 from src.core.database import get_db
 from src.core.security import (
@@ -435,8 +437,16 @@ def _enforce_config_modules(bot: Bot, data: dict, ent) -> None:
 
     - Module IA : toucher `mode` (ai|hybrid) / `system_prompt` / `ai_provider`
       / `ai_model` -> MODULE_AI.
-    - Module Actions&MCP : `actions_json` / `mcp_servers_json` non vide -> MODULE_ACTIONS.
+    - Module Actions : `actions_json` non vide -> MODULE_ACTIONS (webhooks /
+      capture de leads / tickets / créneaux : exécutables dans un arbre SANS IA).
+    - Module MCP : `mcp_servers_json` non vide -> MODULE_MCP (serveurs MCP appelés
+      par l'IA).
     - Module A/B : `tree_variant_json` non null OU `ab_split_pct>0` -> MODULE_AB.
+    - Module White-label : `design_json.poweredBy` mis a FALSY (retrait du badge
+      « Powered by ») -> MODULE_WHITELABEL. Les autres champs d'apparence
+      (couleurs, polices...) restent GRATUITS (socle apparence libre).
+
+    Partage par le PATCH et l'import de config (meme gate, meme 402).
     """
     # --- IA ---
     touches_ai = (
@@ -448,9 +458,12 @@ def _enforce_config_modules(bot: Bot, data: dict, ent) -> None:
     if touches_ai:
         gate(ent, MODULE_AI)
 
-    # --- Actions & MCP --- (listes non vides = configuration active du module)
-    if data.get("actions_json") or data.get("mcp_servers_json"):
+    # --- Actions --- (webhooks/leads/tickets/créneaux : exécutables SANS IA)
+    if data.get("actions_json"):
         gate(ent, MODULE_ACTIONS)
+    # --- MCP --- (serveurs MCP appelés par l'IA)
+    if data.get("mcp_servers_json"):
+        gate(ent, MODULE_MCP)
 
     # --- A/B --- tree_variant_json non-null = variante active ; ab_split_pct>0 =
     # split actif. _strip_notnull_nulls a deja retire un ab_split_pct null ; un
@@ -459,6 +472,16 @@ def _enforce_config_modules(bot: Bot, data: dict, ent) -> None:
     split_set = isinstance(data.get("ab_split_pct"), int) and data["ab_split_pct"] > 0
     if variant_set or split_set:
         gate(ent, MODULE_AB)
+
+    # --- White-label --- retirer le badge « Powered by » (poweredBy falsy dans le
+    # design entrant) exige le module. SEUL poweredBy=false est gate : toutes les
+    # autres cles d'apparence (couleurs, police, themes...) restent gratuites.
+    # SEUL un retrait explicite est gate (la cle doit etre presente ET falsy) ;
+    # garder poweredBy=true, ou ne pas toucher au design, ne gate jamais. Belt &
+    # suspenders : widget.py force poweredBy=true au bootstrap sans le module.
+    design = data.get("design_json")
+    if isinstance(design, dict) and "poweredBy" in design and not design["poweredBy"]:
+        gate(ent, MODULE_WHITELABEL)
 
 
 def _merge_rich_collections(bot: Bot, data: dict) -> None:
@@ -559,6 +582,21 @@ async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = 
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     # Permission par champ effectivement importe (meme mapping/boucle que le PATCH)
     _enforce_field_perms(user, membership, bot, {f: config[f] for f in CONFIG_FIELDS if f in config})
+
+    # Enforcement CONFIG des modules forfaitaires (spec §3.3) — MEME garde que le
+    # PATCH, AVANT toute persistance (sinon l'import etait un bypass : on importait
+    # une config IA/Actions/MCP/A-B/white-label sans posseder le module). Resolver
+    # -> ALL_UNLOCKED si billing OFF ou bot sans entitlement (invariant D0 : aucun
+    # gating). On passe au gate l'ensemble des champs gates presents dans le fichier
+    # importe (defensif : couvre meme un champ hors CONFIG_FIELDS si le format
+    # d'export evolue), avec les memes cles que le PATCH (model_dump de BotUpdate).
+    _GATED_IMPORT_FIELDS = ("mode", "system_prompt", "ai_provider", "ai_model",
+                            "design_json", "actions_json", "mcp_servers_json",
+                            "tree_variant_json", "ab_split_pct")
+    gated_in = {f: config[f] for f in _GATED_IMPORT_FIELDS if f in config}
+    ent = await resolve(db, bot)
+    _enforce_config_modules(bot, gated_in, ent)
+
     if "tree_json" in config:
         # null inclus -> 422 (comme avant : _vt sans garde None interne)
         _vt(config["tree_json"])

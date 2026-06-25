@@ -58,6 +58,8 @@ services:
       - API_URL=${API_URL}
       - INTRANET_AUTH_URL=${INTRANET_AUTH_URL:-https://intranet.kertios.com/main/auth_ret}
       - INTRANET_AUTH_ENABLED=${INTRANET_AUTH_ENABLED:-true}
+      # SSO Google : Client ID public (= audience des tokens). Vide = désactivé.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # Rate-limiters partagés via Redis : prérequis du multi-worker ci-dessous.
       # Si Redis tombe, repli mémoire fail-open (limites par process, dégradé
       # mais le produit reste up).
@@ -101,6 +103,8 @@ services:
         # Baké dans le bundle au build (import.meta.env.VITE_API_URL) :
         # doit pointer vers l'URL PUBLIQUE de l'API.
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8001}
+        # SSO Google : même Client ID que côté API (valeur publique). Vide = bouton masqué.
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     container_name: chatbot-app
     restart: unless-stopped
     # Porte de maintenance (nginx) : redirige tout le monde vers la page de

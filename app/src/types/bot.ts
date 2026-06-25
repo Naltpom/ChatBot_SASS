@@ -63,16 +63,16 @@ export interface DesignJson {
   position?: 'right' | 'left'
   size?: 'sm' | 'md' | 'lg'
   borderRadius?: number
-  icon?: 'chat' | 'spark' | 'help' | 'image'
+  icon?: 'chat' | 'spark' | 'help' | 'bot' | 'message' | 'headset' | 'smile' | 'zap' | 'image'
   avatarImage?: string
   bordered?: boolean
   welcomeMessage?: string
   placeholder?: string
-  loadingAnimation?: 'dots' | 'wave' | 'pulse'
+  loadingAnimation?: 'dots' | 'wave' | 'pulse' | 'bars' | 'ring' | 'typing'
   poweredBy?: boolean
   // --- Personnalisation étendue (lot apparence) ---
   font?: 'system' | 'serif' | 'mono'
-  headerStyle?: 'solid' | 'soft'
+  headerStyle?: 'solid' | 'soft' | 'gradient'
   darkMode?: boolean
   bubbleStyle?: 'rounded' | 'square'
   density?: 'cozy' | 'compact'
@@ -80,6 +80,35 @@ export interface DesignJson {
   offsetX?: number
   offsetY?: number
   locale?: 'auto' | 'fr' | 'en'
+  // --- Refonte Apparence (sous-onglets + maquette intégrale) ---
+  // Toutes ces clés sont ADDITIVES et rétro-compatibles : le défaut de chacune
+  // reproduit le rendu actuel du widget (aucun widget existant n'est modifié
+  // tant que le client n'y touche pas). Parité OBLIGATOIRE : chaque clé est lue
+  // par WidgetPreview ET widget/widget.js, et bornée par _sanitize_design
+  // (api/src/routers/widget_helpers.py) + présente dans DEFAULT_DESIGN (bot.py).
+  // Lanceur
+  launcherShape?: 'round' | 'pill' | 'square'   // défaut 'round' (= cercle actuel)
+  launcherAnimation?: 'none' | 'float' | 'pulse' // animation au repos, défaut 'none'
+  greeting?: boolean                             // bulle d'accroche au-dessus du lanceur fermé
+  greetingText?: string                          // texte de l'accroche (max 80)
+  // Fenêtre
+  windowWidth?: number                           // largeur du panneau px [300,560], défaut 338 (= largeur actuelle)
+  windowHeight?: number | null                   // hauteur du panneau px [360,720] ; null = auto (selon densité)
+  headerAvatar?: boolean                         // avatar dans l'en-tête, défaut true
+  headerStatus?: boolean                         // ligne « En ligne » dans l'en-tête, défaut false
+  statusLabel?: string                           // libellé du statut (max 60), défaut '' → « En ligne »
+  textScale?: 'sm' | 'md' | 'lg'                 // taille du texte des messages, défaut 'md'
+  timestamps?: boolean                           // horodatage des messages, défaut false
+  openAnimation?: 'zoom' | 'fade' | 'slide' | 'pop' | 'flip' // animation d'ouverture, défaut 'zoom'
+  bubbleTail?: boolean                           // ergot (coins asymétriques), défaut true
+  // Thème
+  chatBg?: 'plain' | 'soft' | 'pattern'          // fond de conversation, défaut 'plain'
+  accentColor?: string | null                    // couleur dédiée des boutons, null = marque
+  shadow?: number                                // intensité d'ombre de la fenêtre [0,3], défaut 2
+  // Messages
+  quickReplyStyle?: 'pill' | 'button'            // style des réponses rapides, défaut 'pill'
+  sendStyle?: 'icon' | 'colored'                 // style du bouton d'envoi, défaut 'icon'
+  sound?: boolean                                // son à la réception, défaut false
 }
 
 // ============================================================================

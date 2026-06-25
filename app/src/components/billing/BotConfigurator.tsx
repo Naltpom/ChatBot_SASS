@@ -58,11 +58,20 @@ function defaultManagedTier(catalog: BillingCatalog): string | null {
   return catalog.ai_tiers.find(t => t.price_cents > 0)?.id ?? catalog.ai_tiers[0]?.id ?? null
 }
 
+// Modules implicites d'un preset : ses add-ons + 'ai' si un palier IA est défini
+// (le preset porte le plan IA dans ai_tier_id, jamais comme module 'ai' explicite),
+// fermés transitivement par `requires`.
+function presetModules(catalog: BillingCatalog, p: CatalogPreset): Set<ModuleKey> {
+  const base = new Set<ModuleKey>(p.modules)
+  if (p.ai_tier_id) base.add('ai')
+  return withRequires(catalog, base)
+}
+
 // Une config qui ne correspond à aucun preset → ouvrir directement en mode Avancé.
 function configMatchesPreset(catalog: BillingCatalog, config: BotConfig, p: CatalogPreset): boolean {
   if (config.ai_byok) return false
   if (config.ai_tier_id !== p.ai_tier_id) return false
-  const want = withRequires(catalog, new Set(p.modules))
+  const want = presetModules(catalog, p)
   if (want.size !== config.modules.length) return false
   return config.modules.every(k => want.has(k))
 }
@@ -85,8 +94,11 @@ export default function BotConfigurator({
   const aiOn = active.has('ai')
   const aiVariant: 'off' | 'managed' | 'byok' = !aiOn ? 'off' : config.ai_byok ? 'byok' : 'managed'
 
+  // Mode initial : Présélections si la config est VIDE (nouveau bot, on guide) ou
+  // si elle correspond à un preset ; sinon Avancé (compo sur-mesure existante).
+  const isEmpty = config.modules.length === 0 && !config.ai_tier_id && !config.ai_byok
   const initialMode: 'presets' | 'advanced' =
-    catalog.presets.some(p => configMatchesPreset(catalog, config, p)) ? 'presets' : 'advanced'
+    isEmpty || catalog.presets.some(p => configMatchesPreset(catalog, config, p)) ? 'presets' : 'advanced'
   const [mode, setMode] = useState<'presets' | 'advanced'>(initialMode)
 
   function emit(next: BotConfig) {
@@ -95,7 +107,9 @@ export default function BotConfigurator({
 
   // --- Presets ----------------------------------------------------------------
   function applyPreset(p: CatalogPreset) {
-    emit({ modules: [...withRequires(catalog, new Set(p.modules))], ai_tier_id: p.ai_tier_id, ai_byok: false })
+    // 'ai' inclus si le preset porte un palier IA (sinon l'IA apparaîtrait
+    // « Désactivée » en mode Avancé alors qu'un palier est sélectionné).
+    emit({ modules: [...presetModules(catalog, p)], ai_tier_id: p.ai_tier_id, ai_byok: false })
   }
 
   // --- Avancé : module IA (variante + palier) ---------------------------------
@@ -157,6 +171,9 @@ export default function BotConfigurator({
         <div className="cfg-presets" style={{ display: 'grid', gap: 10 }}>
           {catalog.presets.map(p => {
             const selected = configMatchesPreset(catalog, config, p)
+            // Remise intro 1er mois (% selon le palier IA du preset ; 'default' sinon).
+            const introPct = catalog.intro_discounts?.[p.ai_tier_id ?? 'default'] ?? catalog.intro_discounts?.default ?? 0
+            const introFirst = Math.round(p.est_price_cents * (100 - introPct) / 100)
             return (
               <Card key={p.key} className={selected ? 'selected' : ''}
                     onClick={readOnly ? undefined : () => applyPreset(p)}
@@ -167,9 +184,27 @@ export default function BotConfigurator({
                   <div style={{ fontWeight: 700 }}>
                     {p.label} {p.recommended && <Chip tone="acc">Recommandé</Chip>}
                   </div>
-                  <div style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                    {formatCents(p.est_price_cents, catalog.currency)}
-                    <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--mut)' }}> /mois</span>
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {introPct > 0 ? (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, justifyContent: 'flex-end' }}>
+                          <span style={{ textDecoration: 'line-through', color: 'var(--mut)', fontSize: 13 }}>
+                            {formatCents(p.est_price_cents, catalog.currency)}
+                          </span>
+                          <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--acc)' }}>
+                            {formatCents(introFirst, catalog.currency)}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--acc)', fontWeight: 700 }}>
+                          −{introPct}% le 1er mois<span style={{ color: 'var(--mut)', fontWeight: 400 }}>, puis {formatCents(p.est_price_cents, catalog.currency)}/mois</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                        {formatCents(p.est_price_cents, catalog.currency)}
+                        <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--mut)' }}> /mois</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 2 }}>{p.tagline}</div>
@@ -211,12 +246,11 @@ export default function BotConfigurator({
                            selected={config.ai_tier_id === t.id}
                            onSelect={() => setTier(t.id)} readOnly={readOnly} />
                 ))}
-                {/* Essai : l'IA managée est plafonnée à 50 réponses pendant les 7 jours
-                    d'essai (carte requise, sans engagement) ; le quota du palier s'applique
-                    dès le premier débit (J+7) ou la souscription. */}
+                {/* Intro : 1er mois remisé selon le palier (coupon Stripe duration:once),
+                    puis plein tarif. Pas de plafond IA — le client paie dès le 1er mois. */}
                 <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 2, lineHeight: 1.5 }}>
-                  Essai 7 jours avec carte, sans engagement (annulable) : IA plafonnée à 50 réponses,
-                  puis le quota du palier s'applique.
+                  1er mois à tarif réduit (remise selon le palier), puis plein tarif. Sans engagement,
+                  annulable à tout moment.
                 </div>
               </div>
             )}
@@ -238,6 +272,9 @@ export default function BotConfigurator({
             <div style={{ display: 'grid' }}>
               {addons.map(m => {
                 if (isFreeModule(m)) return null // jamais de toggle sur une capacité gratuite
+                // Add-on dépendant de l'IA (rag, mcp) masqué tant que l'IA est OFF :
+                // on ne propose pas d'activer un module qui n'aurait aucun effet sans IA.
+                if ((m.requires ?? []).includes('ai') && !aiOn) return null
                 const on = active.has(m.key)
                 const blockedRemoval = on && dependentsOf(catalog, m.key, active).length > 0
                 return (

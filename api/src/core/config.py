@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     INTRANET_AUTH_URL: str = "https://intranet.kertios.com/main/auth_ret"
     INTRANET_AUTH_ENABLED: bool = True
 
+    # --- SSO Google (Sign in with Google, flux ID token) ---
+    # Client ID OAuth (valeur PUBLIQUE, = audience attendue des tokens Google).
+    # Vide => endpoint /api/auth/google désactivé (401) et bouton masqué côté
+    # front. Aucun client secret requis pour le flux ID token.
+    GOOGLE_CLIENT_ID: str | None = None
+
     # --- Auto-login admin en dev ---
     # Si actif (et ENV=dev uniquement), /api/auth/dev-login renvoie un token
     # superadmin sans credentials, et le frontend se connecte tout seul.
@@ -85,8 +91,13 @@ class Settings(BaseSettings):
     MOCK_BILLING: bool = True
     # Axe IA métré (Phase 1->2) : v1 = blocage au quota, v2 = Stripe Meters.
     BILLING_METERING_ENABLED: bool = False
-    # Kill-switch enforcement (mode observe) : False = gating log-only (R1).
-    BILLING_ENFORCE: bool = False
+    # Enforcement actif par défaut (env-overridable). SÛR : l'enforcement est un
+    # no-op tant que le billing est OFF — billing_enabled()==False => resolve()
+    # renvoie ALL_UNLOCKED => chaque gate() passe (invariant D0, app 100 %
+    # gratuite). Default-ON ne mord donc QUE quand le billing est réellement
+    # activé (clés Stripe présentes). Mettre BILLING_ENFORCE=false pour repasser
+    # en mode observe (gating log-only, R1).
+    BILLING_ENFORCE: bool = True
 
     # Garde-fous widget
     MAX_MESSAGE_CHARS: int = 4000
@@ -119,8 +130,11 @@ class Settings(BaseSettings):
             )
         if self.BILLING_METERING_ENABLED and not self.STRIPE_SECRET_KEY:
             raise RuntimeError("BILLING_METERING_ENABLED=true sans billing actif")
-        if self.BILLING_ENFORCE and not self.STRIPE_SECRET_KEY:
-            raise RuntimeError("BILLING_ENFORCE=true sans billing actif")
+        # BILLING_ENFORCE est ON par défaut et INOFFENSIF sans billing (no-op :
+        # billing_enabled()==False => resolve() ALL_UNLOCKED => gate() passe,
+        # invariant D0). On n'exige donc PAS de clé Stripe : un déploiement
+        # prod 100 % gratuit (sans Stripe) doit démarrer normalement. Le métrage
+        # ci-dessus, lui, n'a aucun sens sans billing et reste donc gardé.
         if self.MOCK_BILLING:
             raise RuntimeError("MOCK_BILLING interdit en production")
         if (self.STRIPE_SECRET_KEY or "").startswith("sk_live"):

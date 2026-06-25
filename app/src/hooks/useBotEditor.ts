@@ -8,7 +8,7 @@
 // suivis ici par INDEX et rejoués dans le payload à la sauvegarde ; ils ne sont
 // jamais relus depuis l'API (seuls les flags *_set reviennent).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { canAccessBotPerm } from '../utils/permissions'
 import { errMsg } from '../utils/errors'
 import type {
@@ -263,7 +263,13 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err: unknown) {
-      setError(errMsg(err, 'Erreur'))
+      // 402 = module payant non souscrit (gate serveur). On NE montre PAS l'objet
+      // brut {error, module} : message clair qui renvoie vers Facturation.
+      if (err instanceof ApiError && err.status === 402) {
+        setError("Cette option fait partie d'un module payant. Ouvre l'onglet « Facturation » pour l'ajouter à ton abonnement, puis réessaie d'enregistrer.")
+      } else {
+        setError(errMsg(err, 'Erreur'))
+      }
     }
   }
 

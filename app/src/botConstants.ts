@@ -1,4 +1,5 @@
 // Constantes partagées — wording porté du prototype Chapote.
+import type { DesignJson } from './types/bot'
 
 // Modèles proposés en radio-cards (design pages-bot.jsx).
 export interface ModelOption {
@@ -73,6 +74,27 @@ export const APPEARANCE_PRESETS: AppearancePreset[] = [
   { id: 'encre', name: 'Encre', values: { primaryColor: '#0f172a', secondaryColor: null, headerStyle: 'soft', darkMode: false, bubbleStyle: 'square', font: 'serif', bordered: false, loadingAnimation: 'dots' } },
   { id: 'amethyste', name: 'Améthyste', values: { primaryColor: '#7c2d92', secondaryColor: '#4f46e5', headerStyle: 'soft', darkMode: true, bubbleStyle: 'rounded', font: 'system', bordered: false, loadingAnimation: 'wave' } },
 ]
+
+// « Surprends-moi » (AppearanceForm, section Thème) : randomise UNIQUEMENT des
+// clés déjà sûres/bornées côté serveur, pour ne jamais produire un design
+// invalide. Renvoie un patch partiel mergé tel quel dans design_json.
+export function surpriseDesign(): Partial<DesignJson> {
+  const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)]
+  const withGradient = Math.random() < 0.5
+  return {
+    primaryColor: pick(WIDGET_BRAND_COLORS),
+    secondaryColor: withGradient ? pick(GRADIENT_SECOND_COLORS) : null,
+    borderRadius: 4 + Math.floor(Math.random() * 21), // [4,24]
+    font: pick(['system', 'serif', 'mono'] as const),
+    headerStyle: pick(['solid', 'soft', 'gradient'] as const),
+    darkMode: Math.random() < 0.5,
+    bubbleStyle: pick(['rounded', 'square'] as const),
+    icon: pick(['chat', 'spark', 'help', 'bot', 'message', 'headset', 'smile', 'zap'] as const),
+    loadingAnimation: pick(['dots', 'wave', 'pulse', 'bars', 'ring', 'typing'] as const),
+    launcherShape: pick(['round', 'pill', 'square'] as const),
+    chatBg: pick(['plain', 'soft', 'pattern'] as const),
+  }
+}
 
 // Galerie de modèles d'actions IA (onglet Actions de BotPage) — données
 // FRONTEND uniquement (décision actée, rien côté backend) : « Utiliser » copie

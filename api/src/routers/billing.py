@@ -28,7 +28,13 @@ from sqlalchemy import or_, select, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.core.constants import CODE_TO_MODULE, MODULE_AI, MODULE_KEYS
+from src.core.constants import (
+    CODE_TO_MODULE,
+    MODULE_AI,
+    MODULE_KEYS,
+    MODULE_MCP,
+    MODULE_RAG,
+)
 from src.core.database import get_db
 from src.core.security import get_current_user, require_billing_owner
 from src.core.time import utcnow
@@ -71,6 +77,13 @@ _PRESETS: list[dict] = [
 
 CATALOG_VERSION = "2026-06-20"
 
+# Dépendances de modules exposées au front (CatalogModule.requires). Statique :
+# rag et mcp sont pilotés par l'IA -> requires ['ai']. [] sinon.
+_MODULE_REQUIRES: dict[str, list[str]] = {
+    MODULE_RAG: [MODULE_AI],
+    MODULE_MCP: [MODULE_AI],
+}
+
 # Durée de l'essai AVEC carte (point 1) : 7 j de trial sur l'abonnement Stripe
 # ouvert au Checkout (subscription_data[trial_period_days]). Auto-débit à J+7
 # sauf résiliation au portail. Aligné sur stripe_service.create_checkout_session.
@@ -90,11 +103,15 @@ class CheckoutPayload(BaseModel):
     bot_id: int
     config: BotConfigPayload
     grouping: Optional[str] = Field(None, pattern="^(per_bot|total|per_org)$")
+    # Consentement à l'exécution immédiate du service (renonciation au droit de
+    # rétractation 14 j) coché au checkout. Horodaté serveur -> métadonnée Stripe.
+    consent: bool = False
 
 
 class SubscriptionUpdatePayload(BaseModel):
     bot_id: int
     config: BotConfigPayload
+    consent: bool = False
 
 
 class SubscriptionCancelPayload(BaseModel):
@@ -327,6 +344,84 @@ async def _active_sub_for_bot(
     return None
 
 
+def _current_codes_for_bot(sub: BillingSubscription, bot_id: int) -> list[str]:
+    """Codes catalogue ACTUELLEMENT portés pour `bot_id` par la sub (miroir local).
+
+    Sert au calcul du delta de proration (ADD vs REMOVE) : on compare la
+    composition courante du bot (ses `raw_items[].code`) à la composition demandée
+    (`_config_to_codes`). Les items des AUTRES bots de la sub sont ignorés."""
+    out: list[str] = []
+    for it in (sub.raw_items or []):
+        if it.get("bot_id") == bot_id and it.get("code"):
+            out.append(it["code"])
+    return out
+
+
+def _module_of_code(code: str) -> str | None:
+    """Module d'entitlement porté par un code catalogue (None = socle `base` /
+    code hors module). Les codes de plan IA (`ai_*`) et `mod_ai_byok` portent tous
+    le module IA — c'est le même SLOT (un seul plan IA à la fois)."""
+    if code == "base":
+        return None
+    if code.startswith("ai_") or code == "mod_ai_byok":
+        return MODULE_AI
+    return CODE_TO_MODULE.get(code)
+
+
+def _classify_code_changes(
+    current: list[str], target: list[str]
+) -> tuple[list[str], list[str]]:
+    """Classe le passage `current` -> `target` en (removed_codes, changed_now).
+
+    La décision « différé vs immédiat » se prend au niveau MODULE (un SLOT) :
+    - `removed_codes` = codes courants dont le MODULE n'est PLUS dans la cible
+      (vrai RETRAIT de module) -> à programmer en FIN DE PÉRIODE, sans crédit ;
+    - `changed_now` = codes cibles soit d'un module AJOUTÉ, soit d'un code MODIFIÉ
+      dans un slot CONSERVÉ (ex. swap de palier IA starter->growth : le module IA
+      reste, seul le price change) -> à appliquer MAINTENANT (prorata immédiat).
+      Un code cible inchangé (déjà porté) n'y figure pas (rien à facturer).
+
+    `base` (socle) n'est jamais un module : il suit la composition cible des
+    line_items (inclus dès qu'un plan IA est pris, point 6) et n'est ni un retrait
+    ni un ajout facturable séparé hors bascule arbre<->IA."""
+    cur_set = set(current)
+    cur_modules = {m for m in (_module_of_code(c) for c in current) if m}
+    tgt_modules = {m for m in (_module_of_code(c) for c in target) if m}
+
+    removed_codes = sorted(
+        c for c in current
+        if (mod := _module_of_code(c)) is not None and mod not in tgt_modules)
+
+    changed_now: list[str] = []
+    for c in target:
+        if c in cur_set:
+            continue  # code déjà porté à l'identique : rien à facturer
+        mod = _module_of_code(c)
+        if mod is None:
+            # `base` (socle) n'est jamais un changement immédiat À LUI SEUL : il ne
+            # (ré)apparaît que lors d'une bascule du slot IA (un plan IA retiré ->
+            # tree-only fait réapparaître `base`). Il suit donc la phase de cette
+            # bascule (différée si l'IA est retirée en fin de période) — jamais
+            # facturé maintenant en doublon du plan IA encore actif.
+            continue
+        # Module AJOUTÉ (mod ∉ courant) OU code MODIFIÉ dans un slot conservé
+        # (mod ∈ courant ET ∈ cible mais le code précis diffère) : immédiat.
+        if mod not in cur_modules or mod in tgt_modules:
+            changed_now.append(c)
+    return removed_codes, sorted(changed_now)
+
+
+def _split_modules_delta(
+    current: list[str], target: list[str]
+) -> tuple[list[str], list[str]]:
+    """Delta au niveau MODULE (added, removed) — utilisé par le MOCK, dont
+    l'entitlement ne porte que `modules` (pas les codes/paliers précis). Un
+    changement de palier IA qui ne change pas l'ensemble de modules n'apparaît donc
+    ni en ajout ni en retrait (le quota cible est réappliqué tel quel)."""
+    cur, tgt = set(current), set(target)
+    return sorted(tgt - cur), sorted(cur - tgt)
+
+
 async def _ai_quota_for_codes(db: AsyncSession, codes: list[str]) -> int | None:
     """Quota IA mensuel induit par les codes d'une config : None = illimité (BYOK),
     0 = pas d'IA, sinon `included_replies` du plan IA managé."""
@@ -348,12 +443,10 @@ async def _project_mock_entitlement(
     l'abonnement créé au Checkout) pour que les e2e vérifient l'activation sans
     Stripe (spec §2.3). En vrai Stripe, le webhook s'en charge.
 
-    Essai AVEC CARTE (modèle actuel) : le Checkout ouvre un abonnement Stripe en
-    statut `trialing` (carte requise, 0 € pendant 7 j). On reflète donc
-    `status='trialing'` + `trial_end = utcnow() + 7 j` (le webhook réel lit
-    `subscription.trial_end`). Les modules de la config sont débloqués ; l'IA
-    managée est plafonnée à TRIAL_AI_CAP par `ai_quota_for`. L'auto-débit à J+7
-    bascule ensuite en `status='active'` (event Stripe `active`)."""
+    INTRO 1er MOIS REMISÉ (modèle actuel) : plus d'essai gratuit. Le Checkout
+    ouvre un abonnement ACTIF immédiatement (1re facture remisée par un coupon
+    `duration:once`, carte via if_required). On reflète donc `status='active'`,
+    PAS de `trial_end`, et AUCUN plafond IA (le client paie dès le 1er mois)."""
     ai_quota = await _ai_quota_for_codes(db, codes)
     ent = (await db.execute(
         select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
@@ -363,9 +456,55 @@ async def _project_mock_entitlement(
         db.add(ent)
     ent.modules = sorted(set(modules))
     ent.ai_monthly_quota = ai_quota
-    ent.status = "trialing"
+    # Plus d'essai gratuit : l'abo est ACTIF dès la 1re facture (intro 1er mois
+    # remisé, carte via if_required). Pas de trial_end ni de plafond IA d'essai.
+    ent.status = "active"
     ent.source = "stripe"
-    ent.trial_end = utcnow() + timedelta(days=TRIAL_DAYS)
+    ent.trial_end = None
+    ent.synced_at = utcnow()
+
+
+async def _project_mock_update(
+    db: AsyncSession, bot: Bot, ent: BotEntitlement,
+    target_codes: list[str], target_modules: list[str],
+    removed_modules: list[str],
+) -> None:
+    """MOCK_BILLING : applique la MODIFICATION d'un bot DÉJÀ souscrit avec la même
+    sémantique de proration que le vrai Stripe, sur l'entitlement projeté :
+
+    - AJOUTS effectifs MAINTENANT (modules ajoutés débloqués tout de suite, comme
+      la facture de prorata immédiate côté Stripe) ;
+    - RETRAITS DIFFÉRÉS en fin de période, SANS crédit : le module retiré reste
+      ACTIF (et facturé) jusqu'au renouvellement. En MOCK on n'a pas de cron de
+      renouvellement : on CONSERVE donc le module dans `modules` (il reste
+      débloqué), conformément à « le module retiré reste actif jusqu'à la fin de
+      période ». L'état CIBLE (après période) = `target_modules` — non appliqué
+      tant que la période n'est pas écoulée.
+
+    Le STATUT existant est préservé (un essai reste `trialing`, un abonnement
+    `active` reste `active`) : une modification ne réinitialise PAS l'essai 7 j et
+    ne « rétrograde » jamais un abonnement payant en essai. Pendant l'essai, les
+    changements ne font que remodeler ce qui sera facturé en fin d'essai (le
+    plafond IA reste appliqué par `ai_quota_for`).
+    """
+    # Modules effectifs MAINTENANT = cible ∪ retraits (les retraits NE quittent PAS
+    # l'accès avant la fin de période).
+    effective_modules = sorted(set(target_modules) | set(removed_modules))
+
+    # Quota IA : si l'IA est RETIRÉE, on CONSERVE le quota courant jusqu'à la fin de
+    # période (accès maintenu) ; sinon (IA ajoutée ou inchangée) on aligne sur la
+    # cible demandée.
+    if MODULE_AI in removed_modules:
+        ai_quota = ent.ai_monthly_quota  # conservé jusqu'à la fin de période
+    else:
+        ai_quota = await _ai_quota_for_codes(db, target_codes)
+
+    ent.modules = effective_modules
+    ent.ai_monthly_quota = ai_quota
+    # Statut préservé (jamais de retour en arrière vers l'essai sur un payant).
+    if ent.status not in ("active", "trialing", "past_due"):
+        ent.status = "active"
+    ent.source = "stripe"
     ent.synced_at = utcnow()
 
 
@@ -406,6 +545,8 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
             # `desc` = description commerciale réelle (seed) si posée, sinon label.
             "desc": row.description or row.label,
             "price_cents": row.unit_amount,
+            # Dépendances statiques exposées au front (rag/mcp -> ['ai'], [] sinon).
+            "requires": _MODULE_REQUIRES.get(mod, []),
         }
         modules_out.append(entry)
 
@@ -418,6 +559,8 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
             "desc": byok.description or "Réponses générées par l'IA (plan managé ou BYOK).",
             "price_cents": 0,
             "byok_price_cents": byok.unit_amount,
+            # L'IA ne dépend d'aucun module.
+            "requires": [],
         })
 
     ai_tiers = [{
@@ -464,6 +607,9 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
         "overage_cents_per_reply": overage,
         "tax_note": "TVA non applicable, art. 293 B du CGI",
         "presets": presets_out,
+        # Remise intro 1er mois (%) par palier IA ('default' = IA off / BYOK) :
+        # affichage front (« 1er mois à -X% »). Le coupon Stripe porte le même %.
+        "intro_discounts": {"default": INTRO_PERCENT_DEFAULT, **INTRO_PERCENT_BY_TIER},
         "version": CATALOG_VERSION,
         # Lecture seule, utile au debug / parité (jamais source de prix front).
         "products": [BillingProductOut.model_validate(r).model_dump() for r in rows],
@@ -572,14 +718,40 @@ async def get_summary(db: AsyncSession = Depends(get_db),
     }
 
 
+# --- Intro 1er mois remisé (remplace l'essai gratuit) ---------------------
+#
+# Remise appliquée au TOTAL de la 1re facture via un coupon Stripe `duration:once`,
+# % BORNÉ par palier IA pour préserver l'ordre des prix (cheap < cher après remise).
+# IA off / BYOK = remise de base. Les ids DOIVENT exister côté Stripe (Coupons Write).
+INTRO_COUPON_BY_TIER: dict[str, str] = {
+    "ai_starter": "intro_starter_50",
+    "ai_growth": "intro_growth_65",
+    "ai_scale": "intro_scale_80",
+}
+INTRO_COUPON_DEFAULT = "intro_base_45"  # IA désactivée ou BYOK
+
+# % de remise intro (1er mois) par palier — pour l'AFFICHAGE front (le coupon Stripe
+# correspondant porte le MÊME %). 'default' = IA off / BYOK. Exposé via get_catalog.
+INTRO_PERCENT_BY_TIER: dict[str, int] = {"ai_starter": 50, "ai_growth": 65, "ai_scale": 80}
+INTRO_PERCENT_DEFAULT = 45
+
+
+def _intro_coupon_for(config: BotConfigPayload) -> str:
+    """Coupon d'intro selon le palier IA : palier managé -> sa remise dédiée ;
+    IA off ou BYOK -> remise de base (-45 %)."""
+    if not config.ai_byok and config.ai_tier_id:
+        return INTRO_COUPON_BY_TIER.get(config.ai_tier_id, INTRO_COUPON_DEFAULT)
+    return INTRO_COUPON_DEFAULT
+
+
 # --- POST /api/billing/checkout -------------------------------------------
 
 async def _open_checkout(
     db: AsyncSession, user: User, bot: Bot, grouping: str,
-    config: BotConfigPayload,
+    config: BotConfigPayload, consent: bool = False,
 ) -> dict:
-    """Ouvre une session de Checkout Stripe pour `bot` selon `config` (essai AVEC
-    carte) et renvoie le dict de réponse — SANS commit (l'appelant commit).
+    """Ouvre une session de Checkout Stripe pour `bot` selon `config` (intro 1er
+    mois remisé) et renvoie le dict de réponse — SANS commit (l'appelant commit).
 
     Factorisé pour servir DEUX chemins (point 3) : la 1re souscription
     (POST /billing/checkout) ET la relance de paiement d'un bot 'inactive'
@@ -590,9 +762,8 @@ async def _open_checkout(
 
     if not line_items:
         # Aucune ligne facturable (catalogue non seedé / prix manquants) : on ne
-        # peut pas créer de Checkout. En MOCK on projette tout de même l'état
-        # d'essai (status='trialing') pour que les e2e vérifient l'activation sans
-        # Stripe ni catalogue prix réel.
+        # peut pas créer de Checkout. En MOCK on projette tout de même l'état ACTIF
+        # pour que les e2e vérifient l'activation sans Stripe ni catalogue prix réel.
         if settings.MOCK_BILLING:
             await _project_mock_entitlement(db, bot, codes, modules)
         return {"checkout_url": None, "free": True}
@@ -609,6 +780,9 @@ async def _open_checkout(
     bots_map = {str(bot.id): [it["code"] for it in line_items]}
     group_key = f"{grouping}:{user.id}"
 
+    # Consentement à l'exécution immédiate (renonciation rétractation 14 j) :
+    # horodaté côté serveur, stocké en métadonnée d'abonnement Stripe (preuve).
+    consent_at = utcnow().isoformat() if consent else None
     url = await stripe_service.create_checkout_session(
         customer_id=customer_id,
         line_items=[{"price": it["price"], "quantity": it["quantity"]}
@@ -616,6 +790,9 @@ async def _open_checkout(
         bots_map=bots_map,
         group_key=group_key,
         user_id=user.id,
+        # Intro 1er mois remisée selon le palier IA (coupon `duration:once`).
+        intro_coupon=_intro_coupon_for(config),
+        consent_immediate_execution_at=consent_at,
     )
 
     if settings.MOCK_BILLING:
@@ -653,7 +830,7 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
     await require_billing_owner(bot, user, db)
 
     grouping = body.grouping or user.billing_grouping
-    result = await _open_checkout(db, user, bot, grouping, body.config)
+    result = await _open_checkout(db, user, bot, grouping, body.config, consent=body.consent)
     await db.commit()
     return result
 
@@ -664,22 +841,37 @@ async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
 async def subscription_update(body: SubscriptionUpdatePayload,
                               db: AsyncSession = Depends(get_db),
                               user: User = Depends(get_current_user)):
-    """Modifie le PLAN/modules d'un bot déjà souscrit, AU PRORATA (règle 1, point 1).
+    """Modifie le PLAN/modules d'un bot déjà souscrit, AU PRORATA (règle proration).
 
-    Changement INSTANTANÉ (upgrade comme downgrade) : on aligne directement les
-    items de la subscription Stripe du bot via `update_subscription_items(
-    proration_behavior='create_prorations')` — PAS de redirection vers le portail.
-    Stripe émet la proration (crédit/débit du temps restant) et un event
-    subscription.updated -> le webhook reprojette l'entitlement. Renvoie
+    On calcule le DELTA entre la composition COURANTE du bot (ses items de sub) et
+    la composition DEMANDÉE (config), puis on applique deux sémantiques distinctes :
+
+    - AJOUTS (modules/paliers ajoutés) : appliqués IMMÉDIATEMENT à la sub Stripe
+      avec `proration_behavior='always_invoice'` -> le client est facturé tout de
+      suite le prorata du temps restant (« paiement à la modification ») ;
+    - RETRAITS (modules retirés) : AUCUN crédit, AUCUNE perte d'accès immédiate. La
+      rétrogradation est PROGRAMMÉE en FIN DE PÉRIODE via un Subscription Schedule
+      (`schedule_subscription_downgrade`) : le module reste actif et facturé
+      jusqu'à `current_period_end`, puis la composition réduite prend effet ;
+    - ESSAI (`status='trialing'`) : AUCUN débit immédiat. Les ajouts sont posés avec
+      `proration_behavior='none'` -> le prix PLEIN s'appliquera en fin d'essai (la
+      facture de fin d'essai porte les items alors présents). Les retraits prennent
+      aussi effet en fin de période/essai.
+
+    Changement mixte (ajout + retrait) : on fait les ajouts maintenant
+    (always_invoice / none en essai) ET on programme les retraits en fin de période.
+    Un retrait ne crédite ni n'abaisse JAMAIS la facture courante. L'état effectif
+    (entitlement) est reprojeté par le webhook subscription.updated. Renvoie
     {status:'updated'}.
 
     Sans subscription ACTIVE sur le bot (bot 'inactive' : Checkout annulé/abandonné,
     point 3) ⇒ on relance le Checkout et renvoie {status:'needs_checkout',
     checkout_url} (l'owner repasse par l'essai avec carte).
 
-    Owner-only. MOCK_BILLING ⇒ on projette directement le nouvel état (essai), sauf
-    sur un bot encore 'inactive' (jamais souscrit) -> needs_checkout. Billing OFF ⇒
-    {billing: disabled}."""
+    Owner-only. MOCK_BILLING ⇒ on simule la MÊME sémantique sur l'entitlement
+    projeté (ajouts effectifs maintenant, retraits différés en fin de période),
+    sauf sur un bot encore 'inactive' (jamais souscrit) -> needs_checkout. Billing
+    OFF ⇒ {billing: disabled}."""
     if not stripe_service.billing_enabled():
         return _DISABLED
 
@@ -695,8 +887,8 @@ async def subscription_update(body: SubscriptionUpdatePayload,
         # MOCK : pas de subscription Stripe réelle. Le bot est « souscrit » dès que
         # son entitlement a un statut actif/essai/impayé (posé par un Checkout MOCK
         # antérieur). Un bot jamais souscrit (status 'inactive' / pas d'entitlement)
-        # -> relance Checkout (point 3) ; sinon on projette directement (e2e
-        # dégradation/activation au prorata).
+        # -> relance Checkout (point 3) ; sinon on projette la MÊME sémantique de
+        # proration (ajouts maintenant, retraits différés en fin de période).
         row = (await db.execute(
             select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
         )).scalar_one_or_none()
@@ -704,11 +896,17 @@ async def subscription_update(body: SubscriptionUpdatePayload,
             "active", "trialing", "past_due")
         if not subscribed:
             result = await _open_checkout(
-                db, user, bot, user.billing_grouping, body.config)
+                db, user, bot, user.billing_grouping, body.config, consent=body.consent)
             await db.commit()
             return {"status": "needs_checkout",
                     "checkout_url": result.get("checkout_url")}
-        await _project_mock_entitlement(db, bot, codes, modules)
+        # Delta au niveau MODULE (le MOCK n'a pas de raw_items par bot : la compo
+        # courante est portée par `row.modules`). On calcule les modules ajoutés /
+        # retirés pour appliquer la sémantique (ajouts maintenant, retraits différés).
+        _added_mods, removed_mods = _split_modules_delta(
+            list(row.modules or []), modules)
+        await _project_mock_update(
+            db, bot, row, codes, modules, removed_mods)
         await db.commit()
         return {"status": "updated"}
 
@@ -717,46 +915,120 @@ async def subscription_update(body: SubscriptionUpdatePayload,
     if sub is None:
         # Bot sans sub active (jamais payé / annulé) : relance Checkout (point 3).
         result = await _open_checkout(
-            db, user, bot, user.billing_grouping, body.config)
+            db, user, bot, user.billing_grouping, body.config, consent=body.consent)
         await db.commit()
         return {"status": "needs_checkout",
                 "checkout_url": result.get("checkout_url")}
 
-    # Items CIBLES = nouvelle config du bot. On RÉUTILISE le si_id existant quand le
-    # price ne change pas (Stripe aligne l'item) et on SUPPRIME (deleted) les items
-    # du bot dont le price n'est plus dans la cible. Les items des AUTRES bots
-    # portés par la même sub (formats total/per_org) sont PRÉSERVÉS tels quels.
+    # Items CIBLES (composition demandée) résolus en line_items facturables, et
+    # composition COURANTE du bot (codes portés par ses raw_items). On en déduit le
+    # DELTA, classé au niveau MODULE (slot) : retraits de module (différés) vs
+    # ajouts/modifications dans un slot (immédiats).
     new_items = await _line_items_for_codes(db, codes)
-    new_prices = {it["price"] for it in new_items}
+    target_codes = [it["code"] for it in new_items]
+    current_codes = _current_codes_for_bot(sub, bot.id)
+    removed_codes, changed_now = _classify_code_changes(current_codes, target_codes)
+
+    is_trial = sub.status == "trialing"
 
     existing = list(sub.raw_items or [])
+    # Index price->code des line_items cibles (les ajouts/modifs portent leur price).
+    price_by_code = {it["code"]: it["price"] for it in new_items}
+    # si_id du bot par price (réutilisé quand le price est déjà porté -> Stripe
+    # aligne l'item au lieu d'en créer un doublon).
     si_by_price = {it.get("price_id"): it.get("si_id")
                    for it in existing
                    if it.get("bot_id") == bot.id and it.get("price_id")}
-    bot_prices = set(si_by_price)
+    removed_set = set(removed_codes)
+    target_set = set(target_codes)
 
-    target: list[dict] = []
-    # 1) Items des AUTRES bots : conservés à l'identique (formats total/per_org).
-    for it in existing:
-        if it.get("bot_id") != bot.id and it.get("price_id"):
-            target.append({"id": it.get("si_id"), "price": it["price_id"],
-                           "quantity": it.get("qty", 1)})
-    # 2) Nouveaux items du bot (réutilise le si_id si le price est déjà porté).
-    for it in new_items:
-        entry: dict[str, Any] = {"price": it["price"], "quantity": it["quantity"],
-                                 "metadata": {"bot_id": str(bot.id),
-                                              "code": it["code"]}}
-        if it["price"] in si_by_price:
-            entry["id"] = si_by_price[it["price"]]
-        target.append(entry)
-    # 3) Items du bot retirés de la cible : suppression explicite (proration crédit).
-    for price in bot_prices - new_prices:
-        target.append({"id": si_by_price[price], "deleted": True})
+    other_bot_items = [
+        {"id": it.get("si_id"), "price": it["price_id"],
+         "quantity": it.get("qty", 1)}
+        for it in existing
+        if it.get("bot_id") != bot.id and it.get("price_id")]
 
-    await stripe_service.update_subscription_items(
-        sub.stripe_subscription_id, target,
-        proration_behavior="create_prorations")
-    # L'état effectif (entitlement) est reprojeté par le webhook subscription.updated.
+    # --- (1) MODIFICATIONS IMMÉDIATES (ajout de module / swap de palier dans un
+    # slot conservé) : appliquées MAINTENANT. Les RETRAITS de module restent sur la
+    # sub (toujours facturés jusqu'à la fin de période). always_invoice hors essai
+    # (prorata facturé tout de suite) ; none pendant l'essai (prix plein en fin
+    # d'essai). Pas de modif immédiate -> on ne touche PAS la sub (pas de facture).
+    if changed_now:
+        now_target: list[dict] = list(other_bot_items)
+        bot_existing = [it for it in existing
+                        if it.get("bot_id") == bot.id and it.get("si_id")]
+        # (a) Ajouts/modifs IMMÉDIATS (changed_now) : créés depuis les line_items
+        #     cibles (kept réutilise le si_id par price ; ajout/swap crée l'item).
+        for code in changed_now:
+            price = price_by_code.get(code)
+            if not price:
+                continue
+            entry: dict[str, Any] = {
+                "price": price, "quantity": 1,
+                "metadata": {"bot_id": str(bot.id), "code": code}}
+            if price in si_by_price:
+                entry["id"] = si_by_price[price]
+            now_target.append(entry)
+        # (b) Codes courants CONSERVÉS (cible inchangée) OU en RETRAIT DIFFÉRÉ
+        #     (toujours actifs/facturés jusqu'à la fin de période) : reconduits TELS
+        #     QUELS depuis le raw_item (price + si_id), sans repasser par les
+        #     line_items cibles (un retrait n'y figure pas). On ne (ré)introduit PAS
+        #     un code cible absent (ex. `base` réapparu après un retrait IA différé :
+        #     il n'arrive qu'en phase 2, jamais maintenant en doublon du plan IA).
+        for it in bot_existing:
+            code = it.get("code")
+            if code in changed_now:
+                continue  # déjà posé en (a)
+            if (code in target_set or code in removed_set) and it.get("price_id"):
+                now_target.append({"id": it["si_id"], "price": it["price_id"],
+                                   "quantity": it.get("qty", 1)})
+        # (c) SWAP dans un slot conservé : l'ANCIEN item du slot (code courant ni
+        #     dans la cible ni en retrait différé, ex. ancien palier IA) est SUPPRIMÉ
+        #     MAINTENANT (le nouveau code du slot est déjà posé en (a)).
+        for it in bot_existing:
+            if (it.get("code") not in target_set
+                    and it.get("code") not in removed_set):
+                now_target.append({"id": it["si_id"], "deleted": True})
+        await stripe_service.update_subscription_items(
+            sub.stripe_subscription_id, now_target,
+            proration_behavior="none" if is_trial else "always_invoice")
+
+    # --- (2) RETRAITS de module : programmés en FIN DE PÉRIODE, SANS crédit. Phase
+    # cible = autres bots + items CIBLES du bot (les retraits tombent au
+    # renouvellement). Si la phase cible est VIDE (sub entièrement vidée), c'est une
+    # résiliation : on garde le flow cancel_at_period_end (intact).
+    if removed_codes:
+        # Composition CIBLE de la sub en fin de période = autres bots + items CIBLES
+        # du bot. Stripe refuse deux items au même price (format total où deux bots
+        # partagent un module) -> on AGRÈGE par price en cumulant la quantité.
+        qty_by_price: dict[str, int] = {}
+        price_order: list[str] = []
+
+        def _add_price(price: str, qty: int) -> None:
+            if price not in qty_by_price:
+                qty_by_price[price] = 0
+                price_order.append(price)
+            qty_by_price[price] += qty
+
+        for it in existing:
+            if it.get("bot_id") != bot.id and it.get("price_id"):
+                _add_price(it["price_id"], int(it.get("qty", 1) or 1))
+        for code in target_codes:
+            _add_price(price_by_code[code], 1)
+
+        phase_items = [{"price": price, "quantity": qty_by_price[price]}
+                       for price in price_order]
+        if phase_items:
+            await stripe_service.schedule_subscription_downgrade(
+                sub.stripe_subscription_id, phase_items)
+        else:
+            # Plus aucun item en fin de période -> résiliation en fin de période
+            # (sans remboursement) : on réutilise le flow de résiliation existant.
+            await stripe_service.cancel_at_period_end(sub.stripe_subscription_id)
+            sub.cancel_at_period_end = True
+
+    # L'état effectif (entitlement) est reprojeté par le webhook subscription.updated
+    # (les ajouts immédiatement ; les retraits au renouvellement / passage de phase).
     await db.commit()
     return {"status": "updated"}
 
@@ -1064,6 +1336,21 @@ def _month_bounds_iso(period: str) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
+async def _ai_tier_id_for_quota(db: AsyncSession, quota: int | None) -> Optional[str]:
+    """Déduit le palier IA managé (`ai_*`) à partir du quota mensuel stocké sur
+    l'entitlement. Le palier précis n'est pas persisté : on le retrouve via le
+    quota (paliers à `included_replies` distincts — 1000/3000/10000). None si pas
+    de correspondance (BYOK, pas d'IA, ou quota plafonné pendant l'essai). Sert au
+    pré-remplissage du configurateur (Facturation) et au diff « évolution du plan »."""
+    if not quota:
+        return None
+    rows = await _catalog_rows(db)
+    for r in rows:
+        if r.kind == "ai_tier" and r.is_active and (r.included_replies or 0) == quota:
+            return r.code
+    return None
+
+
 @router.get("/bots/{bot_id}/entitlement")
 async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
                               user: User = Depends(get_current_user)):
@@ -1103,6 +1390,13 @@ async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
             trial_end_epoch = calendar.timegm(row.trial_end.utctimetuple())
 
     modules = sorted(ent.modules)
+    # Palier IA précis (non stocké sur l'entitlement) : déduit du quota mensuel.
+    # Sert au pré-remplissage du configurateur + au diff d'évolution du plan.
+    ai_tier_id = (
+        await _ai_tier_id_for_quota(db, row.ai_monthly_quota)
+        if row is not None and not ent.byok and MODULE_AI in ent.modules
+        else None
+    )
     return {
         "bot_id": bot_id,
         # `modules` (clés d'entitlement) ET `active_modules` (alias contrat front
@@ -1110,7 +1404,7 @@ async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db),
         # BotPage lit `active_modules`). Même liste, jamais divergente.
         "modules": modules,
         "active_modules": modules,
-        "ai_tier_id": None,   # le palier précis n'est pas porté par l'entitlement
+        "ai_tier_id": ai_tier_id,
         "ai_byok": ent.byok,
         "usage_ai_replies": used,
         "quota_ai_replies": None if ent.byok else ent.ai_monthly_quota,

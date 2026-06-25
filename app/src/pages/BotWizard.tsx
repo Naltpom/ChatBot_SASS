@@ -1229,11 +1229,11 @@ export default function BotWizard() {
           </span>
           <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 30, margin: '22px 0 0', letterSpacing: '-.02em' }}>Votre chatbot est créé 🎉</h1>
           <p style={{ fontSize: 15, color: MUT, margin: '12px auto 0', maxWidth: 400, lineHeight: 1.55 }}>
-            Il est prêt. Ouvrez l'éditeur pour affiner chaque onglet et récupérer votre balise d'intégration.
+            Dernière étape : activez‑le pour le mettre en ligne. Vous pouvez aussi le configurer d'abord — il reste hors ligne tant qu'il n'est pas activé.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11, marginTop: 30 }}>
-            <button onClick={() => navigate(`/app/bots/${createdBotId}`)} style={{ ...primaryBtnLg, padding: 15, fontSize: 15.5 }}>Ouvrir l'éditeur →</button>
-            <button onClick={() => navigate('/app')} style={{ background: 'transparent', color: MUT, border: 'none', fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}>Aller au tableau de bord</button>
+            <button onClick={() => navigate(`/app/bots/${createdBotId}?tab=billing`)} style={{ ...primaryBtnLg, padding: 15, fontSize: 15.5 }}>Activer mon bot →</button>
+            <button onClick={() => navigate(`/app/bots/${createdBotId}`)} style={{ background: 'transparent', color: MUT, border: 'none', fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}>Le configurer d'abord</button>
           </div>
         </div>
       )}

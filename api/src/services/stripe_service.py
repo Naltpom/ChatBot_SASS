@@ -125,19 +125,22 @@ async def create_checkout_session(
     bots_map: dict[str, list[str]],
     group_key: str,
     user_id: int,
-    trial_period_days: int = 7,
+    trial_period_days: int = 0,
+    intro_coupon: Optional[str] = None,
+    consent_immediate_execution_at: Optional[str] = None,
 ) -> str:
     """Session de checkout abonnement -> URL de paiement hebergee par Stripe.
 
     Réécrit (spec §2.4, corrige A1) : plusieurs `line_items` (1 par produit :
     base + plan IA + add-ons), chacun `[{"price": "price_...", "quantity": 1}]`.
 
-    ESSAI AVEC CARTE (modèle d'essai actuel) : le Checkout crée un abonnement en
-    statut `trialing` via `subscription_data[trial_period_days]` (7 j par défaut)
-    et `payment_method_collection='always'` (la CARTE est OBLIGATOIRE à
-    l'inscription — 0 € débité pendant l'essai). À J+7, Stripe débite
-    automatiquement le plan SAUF si le client a résilié depuis le Customer Portal
-    (-> subscription.deleted -> bot gaté, 0 € débité).
+    INTRO 1er MOIS REMISÉ (modèle actuel) : plus d'essai gratuit. Le Checkout crée
+    un abonnement ACTIF immédiatement, dont la 1re facture est remisée par
+    `intro_coupon` (coupon Stripe `duration:once`, % borné par palier IA).
+    `payment_method_collection='if_required'` : la carte n'est demandée que s'il
+    reste un montant dû — donc demandée pour un plan payant (intro > 0 €), MAIS
+    sautée si un coupon 100 % ramène le dû à 0 € (parcours « offert » sans carte).
+    Aux renouvellements, le plein tarif s'applique (coupon `once` consommé).
 
     Checkout ne propage AUCUN metadata par line_item ⇒ la cartographie complète
     bot→modules est sérialisée dans `subscription_data[metadata][bots]` (JSON).
@@ -166,19 +169,34 @@ async def create_checkout_session(
         "subscription_data[metadata][bots]": json.dumps(bots_map, separators=(",", ":")),
         "subscription_data[metadata][group_key]": group_key,
         "subscription_data[metadata][user_id]": str(user_id),
-        # Essai avec carte : carte requise (0 € pendant l'essai), auto-débit à J+7.
-        "payment_method_collection": "always",
+        # Carte demandée SEULEMENT s'il reste un montant dû (if_required) : oui pour
+        # un plan payant (intro 1er mois > 0 €), NON si un coupon 100 % ramène à 0 €
+        # (parcours « offert » sans carte). Compatible désormais car il n'y a plus
+        # d'essai à 0 € (qui aurait fait sauter la carte pour tout le monde).
+        "payment_method_collection": "if_required",
         "success_url": (f"{settings.APP_URL}/app/billing"
                         f"?checkout=success&session_id={{CHECKOUT_SESSION_ID}}"),
         "cancel_url": f"{settings.APP_URL}/app/billing?checkout=cancelled",
         # MAJ du nom du Customer depuis l'étape de paiement.
         "customer_update[name]": "auto",
+        # PAS de `allow_promotion_codes` : Stripe l'INTERDIT avec `discounts` (un seul
+        # rabais par session). L'intro est appliquée d'office via `discounts`
+        # ci-dessous ; les gratuités/comps passent par l'override admin « offert »
+        # (entitlement source=staff, hors Stripe, sans carte).
         # PAS de payment_method_types / automatic_tax / tax_id_collection /
         # billing_address_collection (dynamic methods + franchise en base TVA).
     }
     for i, item in enumerate(line_items):
         data[f"line_items[{i}][price]"] = item["price"]
         data[f"line_items[{i}][quantity]"] = str(item.get("quantity", 1))
+    # Intro 1er mois remisée : coupon Stripe `duration:once` appliqué au TOTAL de la
+    # 1re facture (mutuellement exclusif avec allow_promotion_codes côté Stripe).
+    if intro_coupon:
+        data["discounts[0][coupon]"] = intro_coupon
+    # Preuve du consentement à l'exécution immédiate (renonciation rétractation 14 j) :
+    # horodatage ISO stocké en métadonnée d'abonnement (lisible Dashboard / API Stripe).
+    if consent_immediate_execution_at:
+        data["subscription_data[metadata][consent_immediate_execution_at]"] = consent_immediate_execution_at
     if trial_period_days:
         data["subscription_data[trial_period_days]"] = str(trial_period_days)
 
@@ -226,6 +244,20 @@ async def update_subscription_items(
     "deleted": bool?, "metadata": {...}}]. Si la liste cible est VIDE (0 item),
     Stripe refuse une sub sans item ⇒ on RÉSILIE (corrige D4, garde §2.4).
 
+    `proration_behavior` (best practice Stripe, point proration) :
+    - `always_invoice` : facture IMMÉDIATEMENT le prorata du temps restant (ajout
+      de module/upgrade « payant à la modif ») ;
+    - `none` : aucune proration ni facture intermédiaire — le prix PLEIN s'applique
+      à la prochaine échéance (utilisé PENDANT l'essai : les changements ne font que
+      remodeler ce qui sera facturé en fin d'essai) ;
+    - `create_prorations` : crée des lignes de prorata appliquées à la prochaine
+      facture (défaut historique, conservé pour les autres appelants : regrouping,
+      transfert de payeur).
+
+    Pour un RETRAIT de module sans crédit en fin de période, NE PAS supprimer
+    l'item ici : utiliser `schedule_subscription_downgrade` (le module reste actif
+    et facturé jusqu'à `current_period_end`).
+
     MOCK_BILLING ⇒ no-op (retourne None)."""
     if not target_items:
         await cancel_subscription(subscription_id, prorate=True)
@@ -246,6 +278,103 @@ async def update_subscription_items(
         for mk, mv in (item.get("metadata") or {}).items():
             data[f"items[{i}][metadata][{mk}]"] = str(mv)
     return await _stripe_request("POST", f"/subscriptions/{subscription_id}", data=data)
+
+
+async def schedule_subscription_downgrade(
+    subscription_id: str,
+    phase_items: list[dict],
+) -> Optional[dict]:
+    """Programme un RETRAIT de module en FIN DE PÉRIODE, SANS crédit (règle
+    proration, point « removal = end-of-period, no credit »).
+
+    Le module retiré reste ACTIF et FACTURÉ jusqu'à `current_period_end` ; la
+    composition réduite (`phase_items`) ne prend effet qu'au renouvellement. On
+    s'appuie sur les Subscription Schedules Stripe (mécanisme natif de phases) :
+
+    1) `POST /v1/subscription_schedules {from_subscription}` : « libère » la sub
+       dans un schedule dont la phase courante reflète l'abonnement actuel
+       (Stripe la pose avec les bonnes dates `start_date`/`end_date`).
+    2) On relit le schedule pour récupérer la phase courante (items + bornes),
+       puis on RÉÉCRIT `phases` = [phase_courante (inchangée), phase_réduite] où
+       la 2e phase démarre exactement à la fin de la 1re (= fin de période) avec
+       `proration_behavior='none'` (aucune proration/crédit au passage de phase).
+       `end_behavior='release'` : à la fin du schedule la sub redevient autonome.
+
+    `phase_items` = [{"price": "price_...", "quantity": 1}] = la composition CIBLE
+    (après retrait). Liste VIDE interdite (une sub sans item est une résiliation :
+    passer par `cancel_at_period_end`). Idempotent côté appelant : ré-appeler
+    réécrit simplement la 2e phase.
+
+    MOCK_BILLING ⇒ no-op (retourne None) : la sémantique de report est simulée
+    côté routeur (entitlement « pending downgrade »)."""
+    if settings.MOCK_BILLING:
+        return None
+    if not phase_items:
+        # Sécurité : un schedule sans item de phase 2 est une résiliation ; le
+        # caller doit router ce cas vers cancel_at_period_end. On ne devine pas.
+        raise StripeError(
+            "schedule_subscription_downgrade : phase cible vide (utiliser "
+            "cancel_at_period_end pour une résiliation)")
+
+    # 1) Libère la sub dans un schedule (la phase courante reflète l'état actuel).
+    schedule = await _stripe_request(
+        "POST", "/subscription_schedules",
+        data={"from_subscription": subscription_id})
+    schedule_id = schedule.get("id")
+    if not schedule_id:
+        raise StripeError("Stripe n'a pas renvoyé d'identifiant de schedule")
+
+    phases = schedule.get("phases") or []
+    now = int(time.time())
+    # `current_phase` (Stripe) porte les bornes de la phase en cours ; on retrouve
+    # la phase correspondante dans `phases` par sa fin. À défaut, on prend la phase
+    # dont les bornes encadrent maintenant, sinon la dernière phase posée.
+    cur_phase_meta = schedule.get("current_phase") or {}
+    cur_end_hint = cur_phase_meta.get("end_date")
+    cur = None
+    if isinstance(cur_end_hint, int):
+        cur = next((ph for ph in phases if ph.get("end_date") == cur_end_hint), None)
+    if cur is None:
+        for ph in phases:
+            start = ph.get("start_date")
+            end = ph.get("end_date")
+            if isinstance(start, int) and isinstance(end, int) and start <= now < end:
+                cur = ph
+                break
+    if cur is None and phases:
+        cur = phases[-1]
+    if cur is None or not isinstance(cur.get("end_date"), int):
+        raise StripeError("Schedule sans phase courante exploitable")
+
+    period_end = cur["end_date"]
+
+    # 2) Réécrit les phases : phase courante CONSERVÉE telle quelle (items + dates,
+    #    le module retiré reste facturé jusqu'à period_end), puis phase réduite à
+    #    partir de period_end, sans proration (aucun crédit).
+    data: dict[str, Any] = {
+        "end_behavior": "release",
+        "phases[0][start_date]": str(cur.get("start_date") or now),
+        "phases[0][end_date]": str(period_end),
+        "phases[0][proration_behavior]": "none",
+    }
+    for j, item in enumerate(cur.get("items") or []):
+        price = item.get("price")
+        # Sur un objet schedule, item.price est l'id (string) du price.
+        if isinstance(price, dict):
+            price = price.get("id")
+        if not price:
+            continue
+        data[f"phases[0][items][{j}][price]"] = price
+        data[f"phases[0][items][{j}][quantity]"] = str(item.get("quantity", 1))
+
+    data["phases[1][start_date]"] = str(period_end)
+    data["phases[1][proration_behavior]"] = "none"
+    for j, item in enumerate(phase_items):
+        data[f"phases[1][items][{j}][price]"] = item["price"]
+        data[f"phases[1][items][{j}][quantity]"] = str(item.get("quantity", 1))
+
+    return await _stripe_request(
+        "POST", f"/subscription_schedules/{schedule_id}", data=data)
 
 
 async def create_portal_session(customer_id: str) -> str:

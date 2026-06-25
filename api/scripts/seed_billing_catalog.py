@@ -84,11 +84,15 @@ CATALOG: list[dict] = [
      "unit_amount": 1500, "included_replies": None, "is_active": True,
      "description": "Chat en direct : vos conseillers reprennent la main sur une "
                     "conversation, avec boîte de réception et notifications."},
-    {"code": "mod_actions", "label": "Actions & MCP", "kind": "module",
-     "unit_amount": 1900, "included_replies": None, "is_active": True,
-     "description": "Actions et connecteurs : l'IA déclenche des webhooks, capture "
-                    "des leads, ouvre des tickets, propose des créneaux et appelle "
-                    "vos outils MCP."},
+    {"code": "mod_actions", "label": "Actions", "kind": "module",
+     "unit_amount": 1200, "included_replies": None, "is_active": True,
+     "description": "Actions exécutables dans un arbre, SANS IA : webhooks, "
+                    "capture de leads, ouverture de tickets, propositions de "
+                    "créneaux."},
+    {"code": "mod_mcp", "label": "MCP (outils IA)", "kind": "module",
+     "unit_amount": 900, "included_replies": None, "is_active": True,
+     "description": "Serveurs / outils MCP appelés par l'IA pour interroger vos "
+                    "systèmes et agir en votre nom."},
     {"code": "mod_ab", "label": "A/B testing", "kind": "module",
      "unit_amount": 700, "included_replies": None, "is_active": True,
      "description": "Test A/B d'arbres : comparez deux versions de votre scénario "
