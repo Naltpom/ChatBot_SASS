@@ -16,6 +16,8 @@ COPY alembic.ini ./
 COPY alembic/ ./alembic/
 
 COPY src/ ./src/
+# scripts/ : seed du catalogue de facturation (lancé manuellement au go-live).
+COPY scripts/ ./scripts/
 
 EXPOSE 8000
 

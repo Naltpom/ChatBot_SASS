@@ -53,6 +53,13 @@ services:
       - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}
       - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
       - MOCK_AI=${MOCK_AI:-false}
+      # Facturation Stripe (go-live). Vides => billing OFF (app gratuite). MOCK_BILLING
+      # défaut false = sûr en prod ; métrage IA off par défaut (activable plus tard).
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - MOCK_BILLING=${MOCK_BILLING:-false}
+      - BILLING_ENFORCE=${BILLING_ENFORCE:-true}
+      - BILLING_METERING_ENABLED=${BILLING_METERING_ENABLED:-false}
       # URLs publiques (CORS dashboard + snippets d'intégration).
       - APP_URL=${APP_URL}
       - API_URL=${API_URL}
