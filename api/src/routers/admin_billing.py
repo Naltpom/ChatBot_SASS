@@ -50,7 +50,11 @@ class EntitlementOverride(BaseModel):
     """Override manuel staff d'un entitlement bot (sans Stripe)."""
     modules: list[str] = Field(default_factory=list)   # sous-ensemble de MODULE_KEYS
     ai_monthly_quota: Optional[int] = None             # None = illimité ; >=0 sinon
-    status: Optional[str] = Field(None, pattern="^(active|past_due|canceled|inactive)$")
+    # `none`/`trialing` tolérés en entrée : le GET .../entitlement renvoie ces
+    # valeurs synthétiques (none = aucune ligne d'override, trialing = essai),
+    # et le front les renvoie tel quel au save. On les accepte ici puis on les
+    # normalise en `active` côté handler (un override staff est par nature actif).
+    status: Optional[str] = Field(None, pattern="^(active|past_due|canceled|inactive|trialing|none)$")
 
 
 class CatalogPatch(BaseModel):
@@ -608,7 +612,10 @@ async def set_bot_entitlement(bot_id: int, body: EntitlementOverride,
         db.add(row)
     row.modules = modules
     row.ai_monthly_quota = ai_quota
-    row.status = body.status or "active"
+    # Normalisation : `none` (pas d'override) / `trialing` (essai) -> `active`.
+    # Un override manuel staff est par définition actif (statuts de gestion
+    # réelle = active/past_due/canceled/inactive).
+    row.status = body.status if body.status not in (None, "none", "trialing") else "active"
     row.source = "staff"
     row.synced_at = utcnow()
     await db.commit()
@@ -620,6 +627,99 @@ async def set_bot_entitlement(bot_id: int, body: EntitlementOverride,
         "overage_mode": row.overage_mode or "block",
         "status": row.status,
         "source": row.source,
+    }
+
+
+# --- DELETE /api/admin/bots/{bot_id}/entitlement --------------------------
+
+@router.delete("/bots/{bot_id}/entitlement")
+async def reset_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db)):
+    """Réinitialise l'entitlement d'un bot : retire un override staff et REVIENT
+    à l'état dérivé de la FACTURATION réelle (Stripe).
+
+    ⚠ On NE supprime PAS la ligne : sans entitlement, le resolver renvoie
+    ALL_UNLOCKED (RÈGLE 2 — tout débloqué gratuitement). On fait donc :
+      1. baseline GATÉE (modules=[], quota=0, status='inactive', source='stripe')
+         — identique au seed d'un bot fraîchement créé, jamais débloqué ;
+      2. reprojection depuis les abonnements RÉELS du payeur du bot (même chemin
+         que le webhook / reconcile : `_sync_subscription_mirror` +
+         `apply_subscription_event`). Si un abo actif couvre ce bot, son état
+         payant est restauré ; sinon il reste gaté (= non activé).
+    Superadmin only. Billing OFF ⇒ disabled (un override y est de toute façon
+    inerte, le resolver renvoie ALL_UNLOCKED)."""
+    if not stripe_service.billing_enabled():
+        return _DISABLED
+
+    bot = await db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+
+    # 1. Baseline gatée (jamais ALL_UNLOCKED) sur la ligne existante ou une neuve.
+    row = (await db.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
+    )).scalar_one_or_none()
+    if row is None:
+        row = BotEntitlement(bot_id=bot_id)
+        db.add(row)
+    row.modules = []
+    row.ai_monthly_quota = 0
+    row.status = "inactive"
+    row.trial_end = None
+    row.source = "stripe"
+    row.synced_at = utcnow()
+    await db.commit()
+
+    # 2. Payeur du bot : perso = owner_user_id ; équipe = owner de l'org.
+    payer: Optional[User] = None
+    if bot.owner_user_id is not None:
+        payer = await db.get(User, bot.owner_user_id)
+    elif bot.organization_id is not None:
+        org = await db.get(Organization, bot.organization_id)
+        if org is not None and org.owner_user_id is not None:
+            payer = await db.get(User, org.owner_user_id)
+
+    # 3. Reprojection depuis Stripe (restaure l'état payant si un abo couvre le bot).
+    reprojected_from_stripe = False
+    if payer is not None and payer.stripe_customer_id:
+        import time
+
+        from src.routers.billing import _sync_subscription_mirror
+        from src.services.entitlement_service import apply_subscription_event
+        try:
+            data = await stripe_service._stripe_request(
+                "GET", "/subscriptions",
+                params={"customer": payer.stripe_customer_id,
+                        "status": "all", "limit": 100})
+        except stripe_service.StripeError as exc:
+            logger.warning("reset entitlement: customer %s injoignable : %s",
+                           payer.stripe_customer_id, exc)
+            data = {"data": []}
+        for sub in data.get("data", []):
+            if sub.get("status") not in _ACTIVE_SUB_STATUSES:
+                continue
+            now = int(time.time())
+            event = {
+                "id": f"reset_{sub['id']}_{now}",
+                "type": "customer.subscription.updated",
+                "created": now,
+                "data": {"object": sub},
+            }
+            await _sync_subscription_mirror(db, event)
+            await apply_subscription_event(db, event)
+            reprojected_from_stripe = True
+        await db.commit()
+
+    final = (await db.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
+    )).scalar_one_or_none()
+    return {
+        "bot_id": bot_id,
+        "modules": sorted((final.modules if final else []) or []),
+        "ai_monthly_quota": final.ai_monthly_quota if final else 0,
+        "overage_mode": (final.overage_mode if final else None) or "block",
+        "status": final.status if final else "inactive",
+        "source": final.source if final else "stripe",
+        "reprojected_from_stripe": reprojected_from_stripe,
     }
 
 
