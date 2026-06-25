@@ -15,7 +15,7 @@ import PreviewTyping from './widget-preview/PreviewTyping'
 import PreviewLeadForm from './widget-preview/PreviewLeadForm'
 import PreviewAppointmentOverlay from './widget-preview/PreviewAppointmentOverlay'
 import PreviewLauncher from './widget-preview/PreviewLauncher'
-import { FONT_STACKS, clampInt, leadFieldsOf } from './widget-preview/shared'
+import { FONT_STACKS, clampInt, leadFieldsOf, safeHex, TEXT_SCALE, nowHHMM } from './widget-preview/shared'
 import type { Msg, LeadSim, PreviewStyle } from './widget-preview/shared'
 
 // Sérialisation LOGIQUE du tree pour la dépendance du reset : on OMET node.pos
@@ -44,6 +44,7 @@ const PREVIEW_I18N: Record<'fr' | 'en', Record<string, string>> = {
   fr: {
     online_tree: 'En ligne · Menu guidé',
     online_ai: 'En ligne · Mode IA',
+    online: 'En ligne',
     advisor_online: 'Conseiller en ligne',
     advisor_wait: "En attente d'un conseiller…",
     close: 'Fermer',
@@ -74,6 +75,7 @@ const PREVIEW_I18N: Record<'fr' | 'en', Record<string, string>> = {
   en: {
     online_tree: 'Online · Guided menu',
     online_ai: 'Online · AI mode',
+    online: 'Online',
     advisor_online: 'Advisor online',
     advisor_wait: 'Waiting for an advisor…',
     close: 'Close',
@@ -109,6 +111,10 @@ interface Props {
   tree: Tree
   botName: string
   defaultOpen?: boolean    // false : bulle fermée au départ (démo landing)
+  // Côté d'affichage de la DÉMO seulement (override de design.position), pour
+  // pousser l'aperçu hors des contrôles pendant l'édition. N'affecte PAS la
+  // position réelle du widget (qui reste design.position).
+  positionOverride?: 'left' | 'right'
 }
 
 const AI_PREVIEW_REPLIES = [
@@ -117,7 +123,7 @@ const AI_PREVIEW_REPLIES = [
   "Voici un exemple de réponse IA. Les réponses arbre, elles, sont gratuites et illimitées.",
 ]
 
-export default function WidgetPreview({ design, mode, tree, botName, defaultOpen = true }: Props) {
+export default function WidgetPreview({ design, mode, tree, botName, defaultOpen = true, positionOverride }: Props) {
   const d = design || {}
   const brand = d.primaryColor || '#0d9488'
   const bg = brandBg(d)
@@ -128,12 +134,43 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
   const font = FONT_STACKS[d.font || 'system'] || FONT_STACKS.system
   const ox = clampInt(d.offsetX, 0, 120, 18)
   const oy = clampInt(d.offsetY, 0, 120, 18)
-  const side = d.position === 'left' ? { left: ox } : { right: ox }
+  // Côté du lanceur/panneau : override de démo prioritaire, sinon design.position.
+  const pos = positionOverride || (d.position === 'left' ? 'left' : 'right')
+  const side = pos === 'left' ? { left: ox } : { right: ox }
   const dark = d.darkMode === true
+  // headerStyle : soft = surface claire ; solid (défaut) / gradient = `bg` (brandBg,
+  // dégradé si secondaryColor, sinon couleur pleine). solid et gradient coïncident
+  // car brandBg produit DÉJÀ le dégradé de marque (rendu actuel à l'octet).
   const soft = d.headerStyle === 'soft'
   const square = d.bubbleStyle === 'square'
   const compact = d.density === 'compact'
   const launcherText = (typeof d.launcherText === 'string' ? d.launcherText : '').slice(0, 40).trim()
+  // --- Refonte Apparence (défauts = rendu actuel à l'octet) ---
+  // windowWidth : largeur du panneau. Défaut = 338 (valeur HARDCODÉE actuelle du
+  // widget) pour ne RIEN changer aux widgets existants ; clamp [300,560].
+  const windowWidth = clampInt(d.windowWidth, 300, 560, 338)
+  // windowHeight : null/absent = auto (selon densité, = hauteur historique) ; sinon borné.
+  const windowHeight = clampInt(d.windowHeight, 360, 720, compact ? 420 : 460)
+  const headerAvatar = d.headerAvatar !== false   // défaut true (affiché, comme actuellement)
+  const headerStatus = d.headerStatus === true     // défaut false (pas de ligne de statut)
+  const statusLabel = (typeof d.statusLabel === 'string' ? d.statusLabel : '').slice(0, 60).trim()
+  const scale = TEXT_SCALE[d.textScale || 'md'] || 1
+  const timestamps = d.timestamps === true
+  const tail = d.bubbleTail !== false              // défaut true (ergot asymétrique actuel)
+  // openAnimation : zoom (défaut, = ouverture actuelle) | fade | slide | pop | flip.
+  const openAnim = d.openAnimation === 'fade' ? 'kcOpenFade .22s ease both'
+    : d.openAnimation === 'slide' ? 'kcOpenSlide .26s ease both'
+    : d.openAnimation === 'pop' ? 'kcOpenPop .3s ease both'
+    : d.openAnimation === 'flip' ? 'kcOpenFlip .3s ease both'
+    : 'kcOpenZoom .22s cubic-bezier(.2,.8,.3,1.1) both'
+  // accentColor : null/invalide -> couleur de marque (rendu actuel). Sinon hex validé.
+  const accent = safeHex(d.accentColor, brand)
+  // chatBg : plain (défaut, fond solide actuel) | soft (léger dégradé teinté) | pattern (pointillés discrets).
+  const chatBg = d.chatBg === 'soft' || d.chatBg === 'pattern' ? d.chatBg : 'plain'
+  // shadow : intensité d'ombre [0,3], défaut 2 (= ombre actuelle).
+  const shadowLvl = clampInt(d.shadow, 0, 3, 2)
+  const optBtn = d.quickReplyStyle === 'button'
+  const sendColored = d.sendStyle === 'colored'
   // Locale — même règle de résolution que widget.js : 'en' explicite, 'auto'
   // suit navigator.language, tout le reste = fr (rendu historique).
   const lang: 'fr' | 'en' = d.locale === 'en' ? 'en'
@@ -151,6 +188,26 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
   const inputBorder = dark ? '#233330' : '#dde3e1'
   const mutedText = dark ? '#9fb0ab' : '#5f7873'
   const headText = soft ? (dark ? '#e8efed' : '#1d2b27') : '#fff'
+  // En-tête : soft = surface claire/sombre ; sinon `bg` (brandBg) = dégradé si
+  // secondaryColor définie, couleur pleine sinon. C'est le RENDU ACTUEL à l'octet
+  // (le header solide utilisait déjà brandBg), donc le défaut reste inchangé.
+  const headBg = soft ? panelBg : bg
+  // Fond de la zone de conversation (chatBg). plain = fond solide actuel ;
+  // soft = léger dégradé vertical teinté de marque ; pattern = pointillés discrets.
+  // Doit respecter la palette sombre.
+  const tint = dark ? 'rgba(255,255,255,.04)' : `${brand}0d`   // ~5% de marque
+  const dotColor = dark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.05)'
+  const msgsBgStyle: React.CSSProperties =
+    chatBg === 'soft'
+      ? { background: `linear-gradient(180deg, ${tint}, ${msgsBg})` }
+      : chatBg === 'pattern'
+        ? { background: msgsBg, backgroundImage: `radial-gradient(${dotColor} 1.3px, transparent 1.3px)`, backgroundSize: '14px 14px' }
+        : { background: msgsBg }
+  // Ombre de la fenêtre selon shadow [0,3] (2 = ombre actuelle, à l'octet).
+  const PANEL_SHADOW = ['none',
+    '0 8px 26px rgba(10,30,25,.12)',
+    '0 18px 60px rgba(10,30,25,.22), 0 2px 8px rgba(10,30,25,.08)',
+    '0 26px 80px rgba(10,30,25,.34), 0 4px 14px rgba(10,30,25,.14)'][shadowLvl]
 
   const [open, setOpen] = useState(defaultOpen)
   const [aiMode, setAiMode] = useState(mode === 'ai')
@@ -186,6 +243,29 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
   function clearPendingTimers() {
     pendingTimers.current.forEach(h => clearTimeout(h))
     pendingTimers.current = []
+  }
+
+  // Son à la réception (clé sound) — bip court synthétisé via WebAudio, sans
+  // asset. No-op si désactivé, et toujours sous try/catch (politique d'autoplay,
+  // contexte indisponible…) : ne doit JAMAIS bloquer le rendu de l'aperçu.
+  const audioCtx = useRef<AudioContext | null>(null)
+  function playPing() {
+    if (d.sound !== true) return
+    try {
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext
+      if (!Ctx) return
+      const ctx = audioCtx.current || (audioCtx.current = new Ctx())
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = 660
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18)
+      osc.connect(gain).connect(ctx.destination)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.2)
+    } catch { /* autoplay/contexte indisponible : on ignore (parité visuelle seule) */ }
   }
 
   const nodes = tree?.nodes || {}
@@ -244,6 +324,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     schedule(() => {
       setTyping(false)
       setMsgs(m => [...m, { from: 'bot', text, ai }])
+      playPing()
       if (opts) setOptions(opts)
       setAppt(extras?.appt || null)
       if (extras?.lead) {
@@ -297,6 +378,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
           from: 'bot', advisor: true,
           text: lang === 'en' ? '(Preview) A human advisor would reply here.' : '(Aperçu) Un conseiller humain vous répondrait ici.',
         }])
+        playPing()
       }, 760 + 1600)
       return
     }
@@ -327,6 +409,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     schedule(() => {
       setTyping(false)
       setMsgs(m => [...m, { from: 'bot', text: AI_PREVIEW_REPLIES[aiIdx % AI_PREVIEW_REPLIES.length], ai: true }])
+      playPing()
       setAiIdx(i => i + 1)
     }, 1200)
   }
@@ -348,32 +431,52 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
   const st: PreviewStyle = {
     brand, bg, r14, compact, square, dark,
     botBg, botBorder, botText, inputBg, inputBorder, mutedText, panelBg, anim,
+    accent, scale, tail, optBtn, timestamps, ts: nowHHMM(),
+  }
+
+  // Style des boutons d'option / réponse rapide (parité .kc-opt) : couleur = accent
+  // (accentColor ou marque). quickReplyStyle button -> rectangle ~10px, pleine
+  // largeur, texte centré ; pill (défaut) -> chip arrondie 99 qui s'enroule.
+  const optStyle: React.CSSProperties = {
+    fontSize: compact ? 11.5 : 12.5, fontWeight: 600, padding: compact ? '6px 10px' : '8px 12px',
+    whiteSpace: optBtn ? 'normal' : 'nowrap',
+    borderRadius: optBtn ? 10 : (square ? 10 : 99),
+    border: `1.5px solid ${accent}`, background: '#fff', color: accent, cursor: 'pointer',
+    ...(optBtn ? { width: '100%', textAlign: 'center' as const } : {}),
   }
 
   return (
     <div style={{ fontFamily: font }}>
       {open && (
         <div style={{
-          position: 'absolute', bottom: bubblePx + oy + 12, ...side, width: 338, maxWidth: 'calc(100% - 36px)',
-          height: compact ? 420 : 460, maxHeight: `calc(100% - ${bubblePx + oy + 34}px)`,
-          background: panelBg, borderRadius: R, boxShadow: '0 18px 60px rgba(10,30,25,.22), 0 2px 8px rgba(10,30,25,.08)',
+          position: 'absolute', bottom: bubblePx + oy + 12, ...side, width: windowWidth, maxWidth: 'calc(100% - 36px)',
+          height: windowHeight, maxHeight: `calc(100% - ${bubblePx + oy + 34}px)`,
+          background: panelBg, borderRadius: R, boxShadow: PANEL_SHADOW,
           display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 40,
           border: dark ? '1px solid #233330' : '1px solid rgba(0,0,0,.06)',
+          animation: openAnim, transformOrigin: 'bottom ' + (('left' in side) ? 'left' : 'right'),
         }}>
-          {/* Header — solid : couleur de marque ; soft : surface claire (ou sombre) */}
+          {/* Header — solid/gradient : `bg` (brandBg, dégradé ou couleur pleine) ;
+              soft : surface claire (ou sombre). headerAvatar masque l'icône si false. */}
           <div style={{
-            background: soft ? panelBg : bg, color: headText, padding: '13px 15px',
+            background: headBg, color: headText, padding: '13px 15px',
             display: 'flex', alignItems: 'center', gap: 10,
             borderBottom: soft ? `1px solid ${lineBorder}` : 'none',
           }}>
-            <div style={{ width: 34, height: 34, borderRadius: 10, background: soft ? bg : 'rgba(255,255,255,.18)', color: '#fff', display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
-              <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? 34 : 19} avatarImg={d.avatarImage} />
-            </div>
+            {headerAvatar && (
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: soft ? bg : 'rgba(255,255,255,.18)', color: '#fff', display: 'grid', placeItems: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? 34 : 19} avatarImg={d.avatarImage} />
+              </div>
+            )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14.5, lineHeight: 1.2 }}>{d.title || botName}</div>
+              {/* Sous-titre : headerStatus ON -> libellé de statut (statusLabel ou
+                  « En ligne » localisé) ; OFF -> statut de mode historique (inchangé). */}
               <div style={{ fontSize: 11, opacity: .85, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ width: 7, height: 7, borderRadius: 9, background: '#7CF5C8', display: 'inline-block' }} />
-                {live ? t('advisor_online') : t(aiMode ? 'online_ai' : 'online_tree')}
+                {headerStatus
+                  ? (live ? t('advisor_online') : (statusLabel || t('online')))
+                  : (live ? t('advisor_online') : t(aiMode ? 'online_ai' : 'online_tree'))}
               </div>
             </div>
             {/* Badge .kc-mode : jamais localisé (parité widget.js) */}
@@ -388,8 +491,8 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
             <button onClick={() => setOpen(false)} aria-label={t('close')} style={{ background: 'none', border: 'none', color: headText, cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4, opacity: .85 }}>×</button>
           </div>
 
-          {/* Messages */}
-          <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: compact ? 10 : '14px 13px', display: 'flex', flexDirection: 'column', gap: compact ? 6 : 9, background: msgsBg }}>
+          {/* Messages — fond selon chatBg (plain | soft | pattern) */}
+          <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: compact ? 10 : '14px 13px', display: 'flex', flexDirection: 'column', gap: compact ? 6 : 9, ...msgsBgStyle }}>
             {msgs.map((m, i) => (
               <PreviewBubble key={i} m={m} i={i} st={st} t={t}
                              rating={ratings[i]}
@@ -397,20 +500,18 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
             ))}
             {typing && <PreviewTyping st={st} />}
             {!typing && (options.length > 0 || appt) && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 2 }}>
+              // quickReplyStyle : pill (défaut) = chips arrondies qui s'enroulent ;
+              // button = boutons rectangulaires empilés, pleine largeur.
+              <div style={optBtn
+                ? { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2, alignItems: 'stretch' }
+                : { display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 2 }}>
                 {appt && (
-                  <button onClick={() => setOverlay(appt)} style={{
-                    fontSize: compact ? 11.5 : 12.5, fontWeight: 600, padding: compact ? '6px 10px' : '8px 12px', whiteSpace: 'nowrap',
-                    borderRadius: square ? 10 : 99, border: `1.5px solid ${brand}`, background: '#fff', color: brand, cursor: 'pointer',
-                  }}>{t('appointment')}</button>
+                  <button onClick={() => setOverlay(appt)} style={optStyle}>{t('appointment')}</button>
                 )}
                 {options.map((o, i) => (
                   // Clé = identité de l'option (cible + libellé) plutôt que l'index,
                   // suffixée par i pour rester unique si deux options coïncident.
-                  <button key={`${o.next}|${o.label}|${i}`} onClick={() => pick(o)} style={{
-                    fontSize: compact ? 11.5 : 12.5, fontWeight: 600, padding: compact ? '6px 10px' : '8px 12px', whiteSpace: 'nowrap',
-                    borderRadius: square ? 10 : 99, border: `1.5px solid ${brand}`, background: '#fff', color: brand, cursor: 'pointer',
-                  }}>{o.label}</button>
+                  <button key={`${o.next}|${o.label}|${i}`} onClick={() => pick(o)} style={optStyle}>{o.label}</button>
                 ))}
               </div>
             )}
@@ -433,6 +534,9 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
               value={input} disabled={inputDisabled}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && sendAI()}
+              // accentColor : la bordure de focus passe sur l'accent (parité widget.js).
+              onFocus={e => { e.currentTarget.style.borderColor = accent }}
+              onBlur={e => { e.currentTarget.style.borderColor = inputBorder }}
               placeholder={live ? t('placeholder_advisor') : inputDisabled ? t('placeholder_pick') : (d.placeholder || t('placeholder'))}
               style={{
                 flex: 1, fontFamily: 'inherit', fontSize: 13.5, padding: '10px 13px', borderRadius: 99,
@@ -440,10 +544,14 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
                 background: inputDisabled ? (dark ? '#0c1311' : '#f4f6f5') : inputBg,
                 color: botText, minWidth: 0, boxShadow: 'none',
               }} />
+            {/* sendStyle : icon (défaut) = bouton actuel (rempli marque à l'actif) ;
+                colored = bouton rempli accent, glyphe blanc, toujours coloré. */}
             <button onClick={sendAI} disabled={inputDisabled || !input.trim()} aria-label={t('send')} style={{
               width: 40, height: 40, borderRadius: 99, border: 'none', cursor: inputDisabled ? 'default' : 'pointer',
-              background: inputDisabled || !input.trim() ? '#e3e8e6' : brand, color: '#fff',
+              background: inputDisabled || !input.trim() ? (sendColored ? `${accent}55` : '#e3e8e6') : (sendColored ? accent : brand),
+              color: '#fff',
               display: 'grid', placeItems: 'center', flexShrink: 0,
+              boxShadow: sendColored && !(inputDisabled || !input.trim()) ? `0 2px 8px ${accent}40` : 'none',
             }}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.6 21.8 12 3.4 3.4l.01 6.6L15 12 3.41 14z" /></svg>
             </button>
