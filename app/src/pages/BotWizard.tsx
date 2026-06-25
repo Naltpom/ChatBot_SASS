@@ -29,8 +29,13 @@ import { useIsMobile } from '../hooks/useMediaQuery'
 import TreeFlow from '../components/TreeFlow'
 import WidgetPreview from '../components/WidgetPreview'
 import HatIcon from '../components/HatIcon'
+import BotConfigurator from '../components/billing/BotConfigurator'
+import PriceCart, { formatCents } from '../components/billing/PriceCart'
 import { errMsg } from '../utils/errors'
+import { InfoBox } from '../ui'
+import { FALLBACK_CATALOG, computeCart, deriveConfigFromChat } from '../utils/billing'
 import type { DesignJson, Tree, TreeNode } from '../types/bot'
+import type { BillingCatalog, BotConfig } from '../types/billing'
 
 // ---------------------------------------------------------------------------
 // Palette Chapote (alignée styles.css / charte)
@@ -280,11 +285,12 @@ function buildDesign(look: Look): DesignJson {
 // Machine d'étapes. 'processing' est un écran TRANSITOIRE (génération IA) : il
 // n'a PAS sa propre pastille (les dots restent calés sur SOURCES) pour ne pas
 // alourdir l'en-tête — voir headerDot()/STEP_DOTS.
-type Step = 'chat' | 'preset' | 'appearance' | 'sources' | 'processing' | 'tree' | 'done'
-// Pastilles d'en-tête : 5 étapes « visibles » (processing/done exclus).
-const STEP_DOTS: Step[] = ['chat', 'preset', 'appearance', 'sources', 'tree']
+type Step = 'chat' | 'preset' | 'plan' | 'appearance' | 'sources' | 'processing' | 'tree' | 'done'
+// Pastilles d'en-tête : 6 étapes « visibles » (processing/done exclus). L'étape
+// 'plan' (configurateur + panier) s'intercale entre preset et apparence (spec §5.3).
+const STEP_DOTS: Step[] = ['chat', 'preset', 'plan', 'appearance', 'sources', 'tree']
 const STEP_CAPTION: Record<Step, string> = {
-  chat: 'Discussion', preset: 'Proposition', appearance: 'Apparence',
+  chat: 'Discussion', preset: 'Proposition', plan: 'Abonnement', appearance: 'Apparence',
   sources: 'Vos contenus', processing: 'Génération', tree: 'Arbre', done: 'Terminé',
 }
 // Index « visible » d'une étape pour l'avancement des pastilles : processing se
@@ -296,6 +302,13 @@ function dotIndex(step: Step): number {
 }
 
 const RANDOM_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED', '#0EA5E9', '#D946A6']
+
+// Composition de bot par défaut (étape 'plan'). Arbre seul : aucun module payant,
+// AUCUN plan IA pré-sélectionné (ai_tier_id=null — l'IA gratuite à vie 'ai_free'
+// est supprimée, point 7 ; l'utilisateur choisit un plan IA s'il veut l'IA). La
+// dérivation du chat (deriveConfigFromChat) ou le configurateur fait ensuite
+// évoluer cette config.
+const DEFAULT_BOT_CONFIG: BotConfig = { modules: [], ai_tier_id: null, ai_byok: false }
 
 // Sources : types de page proposés + libellé d'en-tête FR utilisé côté backend.
 type SourceType = 'site' | 'contact' | 'aide' | 'qr' | 'autre'
@@ -381,6 +394,12 @@ export default function BotWizard() {
   // qu'on n'a pas atteint cette étape.
   const [treeJson, setTreeJson] = useState<Tree | null>(draft0?.treeJson ?? null)
 
+  // Étape 'plan' : catalogue (GET /api/billing/catalog, repli sur le miroir
+  // FALLBACK_CATALOG si indisponible) + composition choisie (botConfig). Le
+  // configurateur fait confiance au backend pour le montant final (Stripe).
+  const [catalog, setCatalog] = useState<BillingCatalog>(FALLBACK_CATALOG)
+  const [botConfig, setBotConfig] = useState<BotConfig>(draft0?.botConfig ?? { ...DEFAULT_BOT_CONFIG })
+
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [createdBotId, setCreatedBotId] = useState<number | null>(null)
@@ -391,6 +410,19 @@ export default function BotWizard() {
   const allowAI = wantsAI
   // Mode réel du bot : hybride si IA voulue, sinon arbre.
   const botMode = wantsAI ? 'hybrid' : 'tree'
+
+  // --- Facturation (étape 'plan') ------------------------------------------
+  // Le billing est-il actif côté serveur (clés Stripe posées) ? Si non, on reste
+  // 100% gratuit : l'étape 'plan' est sautée et createBot crée un bot gratuit.
+  const billingActive = !!user?.is_billing_enabled
+  // Suis-je le PAYEUR de la destination choisie ? Perso => oui (moi-même).
+  // Équipe => uniquement si je suis OWNER de l'org (owned_org_ids). Un admin
+  // non-owner voit les modules payants en lecture seule (c'est l'owner qui paie).
+  const ownedOrgIds = user?.owned_org_ids ?? []
+  const isOwnerDest = dest === 'perso' || ownedOrgIds.includes(dest as number)
+  // Panier live recomposé localement (computeCart est PUR). Total en centimes.
+  const cart = useMemo(() => computeCart(catalog, botConfig), [catalog, botConfig])
+  const totalCents = cart.total_cents
 
   // -------------------------------------------------------------------------
   // Logique du chat. Le branchement conditionnel (when()) modifie la liste des
@@ -569,6 +601,49 @@ export default function BotWizard() {
   // Coupe un flux SSE en cours si on quitte le wizard pendant la génération.
   useEffect(() => () => { genAbort.current?.abort() }, [])
 
+  // Catalogue de facturation : chargé une fois si le billing est actif. Repli
+  // silencieux sur FALLBACK_CATALOG (déjà en état initial) en cas d'échec.
+  useEffect(() => {
+    if (!billingActive) return
+    let alive = true
+    api<BillingCatalog>('/api/billing/catalog')
+      .then(c => { if (alive) setCatalog(c) })
+      .catch(() => { /* repli FALLBACK_CATALOG */ })
+    return () => { alive = false }
+  }, [billingActive])
+
+  // Garde-fou : un brouillon restauré sur l'étape 'plan' alors que le billing
+  // a été désactivé entre-temps ne doit pas bloquer sur un écran vide.
+  useEffect(() => {
+    if (step === 'plan' && !billingActive) setStep('appearance')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, billingActive])
+
+  // DÉRIVATION de l'abonnement depuis le chat : l'étape 'plan' arrive PRÉ-REMPLIE
+  // (preset + modules cochés), ajustable. La règle vit dans deriveConfigFromChat
+  // (utils/billing, PURE) : objectifs/repli -> modules recommandés (inbox si
+  // conseiller, rag si FAQ, actions si rdv/commande/leads, ai+palier si IA voulue,
+  // sinon arbre seul). On ne re-dérive QUE tant qu'on n'a pas dépassé l'étape
+  // 'plan' (en amont du choix), et JAMAIS par-dessus une config restaurée d'un
+  // brouillon (l'utilisateur a déjà ajusté) ni après que l'utilisateur a ouvert
+  // le configurateur (planTouched). Cela évite d'écraser un choix manuel.
+  const planTouched = useRef(false)
+  const beforePlan = step === 'chat' || step === 'preset'
+  useEffect(() => {
+    if (draft0?.botConfig) return        // config restaurée : ne pas écraser
+    if (planTouched.current) return      // l'utilisateur a ajusté : ne pas écraser
+    if (!beforePlan) return              // déjà au-delà du choix d'abonnement
+    setBotConfig(deriveConfigFromChat(catalog, { goals, wantsAi: wantsAI, wantsHuman }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goals, wantsAI, wantsHuman, catalog, beforePlan])
+
+  // Le configurateur a remonté un changement : on marque la config comme « touchée »
+  // pour figer la dérivation automatique (le choix manuel prime).
+  function onConfigChange(next: BotConfig) {
+    planTouched.current = true
+    setBotConfig(next)
+  }
+
   // Sauvegarde du brouillon à chaque changement (reprise après coupure). On ne
   // persiste pas l'étape transitoire 'processing' (re-jouée), et on efface tout
   // à la création du bot ('done'). Les PDF (File) ne sont pas sérialisables.
@@ -583,12 +658,12 @@ export default function BotWizard() {
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
           v: 1, step: step === 'processing' ? 'sources' : step,
-          qi, answers, goals, look, rows, treeJson, dest, savedAt: Date.now(),
+          qi, answers, goals, look, rows, treeJson, dest, botConfig, savedAt: Date.now(),
         }))
       } catch { /* quota dépassé / mode privé : on ignore */ }
     }, 500)
     return () => clearTimeout(h)
-  }, [step, qi, answers, goals, look, rows, treeJson, dest])
+  }, [step, qi, answers, goals, look, rows, treeJson, dest, botConfig])
 
   // « Recommencer à zéro » : efface le brouillon et remet le wizard au départ.
   function discardDraft() {
@@ -596,6 +671,8 @@ export default function BotWizard() {
     setDraftRestored(false)
     setStep('chat'); setQi(0); setAnswers({}); setGoals([]); setTextDraft('')
     setLook({ ...DEFAULT_LOOK }); setRows([newRow()]); setPdfs([]); setTreeJson(null); setGenNote('')
+    setBotConfig({ ...DEFAULT_BOT_CONFIG })
+    planTouched.current = false   // ré-active la dérivation depuis le chat
   }
 
   // -------------------------------------------------------------------------
@@ -635,7 +712,8 @@ export default function BotWizard() {
         method: 'POST', body: { name, mode: botMode },
       })
 
-      // 2) configuration (design, arbre, modèle IA, captcha)
+      // 2) configuration (design, arbre, modèle IA, captcha). Le mode de clé IA
+      // suit le choix du configurateur : BYOK (clé du client) ou géré (managed).
       const model = MODEL_OPTIONS[1] // Claude Sonnet par défaut
       const body: Record<string, any> = {
         design_json: design,
@@ -645,9 +723,35 @@ export default function BotWizard() {
       if (botMode !== 'tree') {
         body.ai_provider = model.provider
         body.ai_model = model.model
-        body.api_key_mode = 'managed'
+        body.api_key_mode = botConfig.ai_byok ? 'byok' : 'managed'
       }
       await api(`/api/bots/${bot.id}`, { method: 'PATCH', body })
+
+      // 3) facturation : l'essai = un ABONNEMENT Stripe en statut 'trialing', créé
+      // au Checkout (CARTE requise, 0 € pendant 7 jours, auto-débité à J+7 sauf
+      // annulation). Le SEUL chemin d'essai est désormais le Checkout : on poste
+      // donc TOUJOURS /api/billing/checkout (plus de chemin sans-carte/gratuit-à-vie).
+      //   - checkout_url renvoyé => redirection vers le Checkout hébergé (la carte
+      //     y est saisie). Retour Stripe (?checkout=success) sur /app/billing.
+      //   - free=true / url absente (catalogue non seedé, rien à facturer) => pas de
+      //     redirection, le bot reste créé (gate jusqu'à un éventuel abonnement).
+      // Invariant billing-OFF (D0) : si billing OFF, AUCUN appel /api/billing/*
+      // (billingActive=false) — le bot est gratuit, sans checkout, pas de crash.
+      if (billingActive && isOwnerDest) {
+        const { checkout_url, free } = await api<{ checkout_url: string | null; free?: boolean }>(
+          '/api/billing/checkout', {
+            method: 'POST',
+            body: { bot_id: bot.id, config: botConfig, grouping: user?.billing_grouping ?? 'total' },
+          },
+        )
+        if (checkout_url && !free) {
+          // Redirection vers le Checkout hébergé. On ne navigue JAMAIS vers un url
+          // null/undefined.
+          window.location.href = checkout_url
+          return
+        }
+        // Rien à payer (free / url absente) : état déjà projeté côté serveur.
+      }
 
       setCreatedBotId(bot.id)
       setStep('done')
@@ -831,7 +935,77 @@ export default function BotWizard() {
           </div>
           <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>
             <button onClick={() => { setStep('chat'); setQi(0) }} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Modifier mes réponses</button>
-            <button onClick={() => setStep('appearance')} style={{ ...primaryBtnLg, flex: 1, ...(mobile ? { width: '100%' } : null) }}>Personnaliser l'apparence →</button>
+            {/* Billing actif => étape 'plan' (configurateur + panier). Sinon on
+                saute directement à l'apparence (app 100% gratuite, invariant D0). */}
+            <button onClick={() => setStep(billingActive ? 'plan' : 'appearance')} style={{ ...primaryBtnLg, flex: 1, ...(mobile ? { width: '100%' } : null) }}>
+              {billingActive ? 'Choisir mon abonnement →' : "Personnaliser l'apparence →"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== ÉTAPE 2bis : PLAN / ABONNEMENT ===================== */}
+      {/* Configurateur modulaire + panier live. Rendu uniquement si le billing est
+          actif (sinon on saute cette étape). Org non-owner => modules payants en
+          lecture seule + InfoBox (c'est l'owner de l'équipe qui paie). */}
+      {step === 'plan' && (
+        <div style={{ maxWidth: 1000, margin: '0 auto', padding: mobile ? '24px 16px 44px' : '40px 28px 60px', animation: 'cin .35s ease' }}>
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <span style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🧩</span>
+            <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 28, margin: '14px 0 0', letterSpacing: '-.02em' }}>Composez votre abonnement</h1>
+            <p style={{ fontSize: 15, color: MUT, margin: '10px auto 0', maxWidth: 540, lineHeight: 1.55 }}>
+              {/* Description RÉELLE du socle (catalogue), pas une répétition du titre. */}
+              {catalog.base_description || 'Le socle inclut l\'arbre, l\'apparence, les déclencheurs et les analytics.'}{' '}
+              Choisissez votre plan IA et les modules à valeur — le panier se met à jour en direct.
+            </p>
+          </div>
+
+          {/* Essai 7 j AVEC carte — l'abonnement composé démarre en essai (0 € pendant
+              7 jours), la carte est saisie au paiement sécurisé. Auto-débité à J+7 sauf
+              annulation. L'IA est plafonnée à 50 réponses pendant l'essai. */}
+          <div style={{ marginBottom: 18 }}>
+            <InfoBox tone="info" title="Essai 7 jours, carte requise, annulable">
+              Votre chatbot démarre par un essai gratuit de 7 jours. La carte est demandée au paiement
+              sécurisé mais rien n'est débité avant la fin de l'essai : à J+7, l'abonnement est débité
+              automatiquement sauf si vous annulez avant depuis votre espace facturation. Pendant l'essai,
+              l'IA managée est plafonnée à 50 réponses ; ce plafond est levé à la souscription.
+            </InfoBox>
+          </div>
+
+          {!isOwnerDest && (
+            <div style={{ marginBottom: 18 }}>
+              <InfoBox tone="warn" title="Facturation gérée par le propriétaire de l'équipe">
+                Vous n'êtes pas le propriétaire de cette équipe : les modules payants sont en lecture seule.
+                Le bot sera créé sur le socle gratuit ; le propriétaire pourra ensuite souscrire les modules.
+              </InfoBox>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0,1fr) 320px', gap: 20, alignItems: 'start' }}>
+            <BotConfigurator catalog={catalog} config={botConfig} onChange={onConfigChange} readOnly={!isOwnerDest} />
+            <PriceCart catalog={catalog} config={botConfig} />
+          </div>
+
+          {/* Récap de l'essai facturable : si la compo a un coût (owner + total > 0),
+              on rappelle qu'à J+7 l'abonnement sera débité sauf annulation. Le seul
+              chemin de démarrage est le Checkout (carte) à la création — plus de
+              choix « essai sans carte / souscrire maintenant ». */}
+          {isOwnerDest && totalCents > 0 && (
+            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 18 }}>
+              <Label>À la création</Label>
+              <div style={{ fontSize: 12.5, color: FAINT, lineHeight: 1.5 }}>
+                Vous serez redirigé vers le paiement sécurisé pour saisir votre carte (essai 7 jours,
+                0 € aujourd'hui). À J+7, {formatCents(totalCents, catalog.currency)} /mois seront débités
+                automatiquement, sauf si vous annulez avant depuis votre espace facturation.
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>
+            <button onClick={() => setStep('preset')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Retour</button>
+            <button onClick={() => setStep('appearance')} style={{ ...primaryBtnLg, flex: 1, ...(mobile ? { width: '100%' } : null) }}>
+              Personnaliser l'apparence →
+            </button>
           </div>
         </div>
       )}
@@ -889,7 +1063,7 @@ export default function BotWizard() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24, maxWidth: 640 }}>
-              <button onClick={() => setStep('preset')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Retour</button>
+              <button onClick={() => setStep(billingActive ? 'plan' : 'preset')} style={{ ...ghostBtn, ...(mobile ? { width: '100%' } : null) }}>← Retour</button>
               <button onClick={() => setStep('sources')} style={{ ...primaryBtnLg, flex: 1, ...(mobile ? { width: '100%' } : null) }}>Continuer →</button>
             </div>
           </div>
@@ -1055,11 +1229,11 @@ export default function BotWizard() {
           </span>
           <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 30, margin: '22px 0 0', letterSpacing: '-.02em' }}>Votre chatbot est créé 🎉</h1>
           <p style={{ fontSize: 15, color: MUT, margin: '12px auto 0', maxWidth: 400, lineHeight: 1.55 }}>
-            Il est prêt. Ouvrez l'éditeur pour affiner chaque onglet et récupérer votre balise d'intégration.
+            Dernière étape : activez‑le pour le mettre en ligne. Vous pouvez aussi le configurer d'abord — il reste hors ligne tant qu'il n'est pas activé.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11, marginTop: 30 }}>
-            <button onClick={() => navigate(`/app/bots/${createdBotId}`)} style={{ ...primaryBtnLg, padding: 15, fontSize: 15.5 }}>Ouvrir l'éditeur →</button>
-            <button onClick={() => navigate('/app')} style={{ background: 'transparent', color: MUT, border: 'none', fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}>Aller au tableau de bord</button>
+            <button onClick={() => navigate(`/app/bots/${createdBotId}?tab=billing`)} style={{ ...primaryBtnLg, padding: 15, fontSize: 15.5 }}>Activer mon bot →</button>
+            <button onClick={() => navigate(`/app/bots/${createdBotId}`)} style={{ background: 'transparent', color: MUT, border: 'none', fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}>Le configurer d'abord</button>
           </div>
         </div>
       )}

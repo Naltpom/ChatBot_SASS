@@ -165,6 +165,21 @@ async def _handoff(bot: Bot, db: Optional[AsyncSession],
     from src.models.conversation import Conversation
     from src.routers.widget import trigger_handoff
 
+    # Module Live chat / Inbox requis pour declencher un handoff (spec §3.3,
+    # runtime visiteur) : check BOOLEEN AMONT de trigger_handoff (jamais
+    # d'exception dans la transition SQL). Sans le module, le handoff est refuse
+    # proprement -> le modele recoit un tool_result neutre (pas un is_error :
+    # le visiteur ne voit pas d'incident technique). Billing OFF / bot sans
+    # entitlement -> ALL_UNLOCKED -> has_module True (invariant D0, comportement
+    # actuel preserve). Import paresseux (coherent avec le reste du module).
+    from src.services.entitlement_service import has_module, resolve
+    from src.core.constants import MODULE_INBOX
+
+    if not has_module(await resolve(db, bot), MODULE_INBOX):
+        logger.info("billing: handoff refuse (module inbox absent) bot=%s", bot.id)
+        return {"ok": False, "status": "unavailable",
+                "message": "La mise en relation avec un conseiller n'est pas disponible."}
+
     conversation = await db.get(Conversation, conversation_id)
     if conversation is None:
         raise ActionError("Mise en relation indisponible dans ce contexte")

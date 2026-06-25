@@ -45,6 +45,37 @@ export function canAccessBotPerm(user: User | null | undefined, bot: BotLike, pe
   return org.role === 'admin' || (org.permissions[String(bot.id)] || []).includes(perm)
 }
 
+// === Gating UI facturation (spec §5.2) ======================================
+// NE PAS toucher canAccessBotPerm ci-dessus (garde-fou e2e). Ces deux helpers
+// sont des gardes UNIQUEMENT facturation — défense en profondeur : le front
+// masque, le backend rejette (403) tout POST /api/billing/* d'un non-owner.
+
+// L'utilisateur peut-il VOIR l'espace facturation (entrée nav, page Billing) ?
+// Tout utilisateur AUTHENTIFIÉ y a accès :
+//   - superadmin : toujours ;
+//   - owner d'au moins une org : il paie les bots de ces orgs ;
+//   - membre d'une équipe (même non-owner) : il peut AUSSI détenir des bots
+//     PERSO qu'il paie lui-même — l'exclure masquerait sa facturation à tort.
+// `User` ne porte pas de signal `hasPersonalBot` : on ne peut pas distinguer un
+// membre avec bots perso d'un membre sans bot. La page Billing étant self-scopée
+// (elle gère l'état vide « aucun bot facturable ») et le backend rejetant 403
+// tout POST /api/billing/* d'un non-owner (require_billing_owner, défense en
+// profondeur), on montre l'espace à tout utilisateur connecté.
+export function canSeeBilling(u?: User | null): boolean {
+  return !!u
+}
+
+// L'utilisateur est-il le PAYEUR (owner) pour la facturation de CE bot ?
+//   - superadmin : toujours ;
+//   - bot perso : son propriétaire ;
+//   - bot d'équipe : owner de l'org SEULEMENT (un admin non-owner ne paie pas).
+export function isBotBillingOwner(u: User | null | undefined, bot: BotLike): boolean {
+  if (!u) return false
+  if (u.is_superadmin) return true
+  if (isPersonalBot(bot)) return bot.owner_user_id === u.id
+  return (u.owned_org_ids || []).includes(bot.organization_id ?? -1)
+}
+
 // Badge d'appartenance : « Perso » pour un bot perso, sinon le nom de l'équipe
 // propriétaire (fallback « Équipe » si l'org n'est pas dans la liste de
 // l'utilisateur, p. ex. superadmin éditant le bot d'un client).

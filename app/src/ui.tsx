@@ -2,7 +2,7 @@
 // Icônes : lucide-react, même librairie qu'ao_scrapping.
 import { Children, Fragment, isValidElement, ReactNode, useId } from 'react'
 import { Pause } from 'lucide-react'
-import type { DesignJson } from './types/bot'
+import type { BotBillingStatus, DesignJson } from './types/bot'
 
 export function Card({ children, className = '', nopad = false, style, onClick }: {
   children: ReactNode; className?: string; nopad?: boolean; style?: React.CSSProperties; onClick?: () => void
@@ -214,6 +214,49 @@ export function BubbleIcon({ kind, size = 26, avatarImg }: { kind?: string; size
       </svg>
     )
   }
+  // Icônes étendues (refonte Apparence) — mêmes tracés que la maquette ; doivent
+  // rester identiques au dict SVG de widget/widget.js (parité de rendu).
+  if (kind === 'bot') {
+    return (
+      <svg style={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 8V4H8" />
+        <rect width="16" height="12" x="4" y="8" rx="2" />
+        <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+      </svg>
+    )
+  }
+  if (kind === 'message') {
+    return (
+      <svg style={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+      </svg>
+    )
+  }
+  if (kind === 'headset') {
+    return (
+      <svg style={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+        <rect x="2.5" y="13" width="4" height="7" rx="1.6" />
+        <rect x="17.5" y="13" width="4" height="7" rx="1.6" />
+      </svg>
+    )
+  }
+  if (kind === 'smile') {
+    return (
+      <svg style={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9.5" />
+        <path d="M8.5 14.5s1.3 1.8 3.5 1.8 3.5-1.8 3.5-1.8" />
+        <path d="M9 9.5h.01M15 9.5h.01" />
+      </svg>
+    )
+  }
+  if (kind === 'zap') {
+    return (
+      <svg style={s} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
+      </svg>
+    )
+  }
   return (
     <svg style={s} viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 3C7 3 3 6.6 3 11c0 2.2 1 4.2 2.7 5.6-.1 1-.5 2.1-1.4 3 1.7-.1 3.1-.7 4.1-1.4 1.1.4 2.3.7 3.6.7 5 0 9-3.6 9-7.9S17 3 12 3z" />
@@ -225,6 +268,23 @@ export function BubbleIcon({ kind, size = 26, avatarImg }: { kind?: string; size
 export function statusChip(isActive: boolean) {
   if (!isActive) return <Chip tone="mut"><Pause size={11} /> En pause</Chip>
   return <Chip tone="go">● En ligne</Chip>
+}
+
+// Chip de FACTURATION d'un bot — DISTINCT de statusChip (widget on/off). Un bot
+// peut être is_active=true tout en étant 'inactive' côté paiement (« Paiement
+// requis »). Réutilise la primitive Chip. Rien à afficher si billing OFF
+// (status null/undefined) ou 'active' (payé, état nominal — pas de bruit visuel).
+//   - 'inactive'  -> « Paiement requis » (danger) : Checkout annulé/abandonné ou résilié.
+//   - 'trialing'  -> « Essai » (+ jours restants depuis trial_end si fourni) (acc).
+//   - 'past_due'  -> « Impayé » (warn) : abonnement en relance.
+export function billingChip(status?: BotBillingStatus | null, trialEnd?: number | null) {
+  if (!status || status === 'active') return null
+  if (status === 'inactive') return <Chip tone="danger">Paiement requis</Chip>
+  if (status === 'past_due') return <Chip tone="warn">Impayé</Chip>
+  // 'trialing' : on ajoute les jours restants si trial_end est dans le futur.
+  const days = trialEnd ? Math.ceil((trialEnd * 1000 - Date.now()) / 86_400_000) : null
+  const label = days && days > 0 ? `Essai · ${days} j` : 'Essai'
+  return <Chip tone="acc">{label}</Chip>
 }
 
 export function modeChip(mode: string) {

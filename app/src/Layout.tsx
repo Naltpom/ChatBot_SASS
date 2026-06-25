@@ -3,12 +3,14 @@
 // /app/* = espace client (OrgSwitcher), /admin/* = back-office staff.
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeftRight, BarChart3, Bot, Building2, Check, ChevronDown, CircleUser,
-  Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Users,
+  ArrowLeftRight, BarChart3, Building2, Check, ChevronDown, CircleUser,
+  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Users,
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
+import { canSeeBilling } from './utils/permissions'
 import { orgColor, orgInitials } from './ui'
+import BotNav from './components/BotNav'
 
 function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | null; onSwitch: (o: Org) => void }) {
   const [open, setOpen] = useState(false)
@@ -131,12 +133,13 @@ export default function Layout({ children }: { children: ReactNode }) {
         <nav className="col" style={{ gap: 4 }}>
           {!inAdmin && (
             <>
-              {/* Toujours visibles (solo ou en équipe) : ses chatbots (perso +
-                  équipes via GET /api/bots), l'analytics et l'inbox. */}
-              <button className={`nav-item ${path === '/app' || path.startsWith('/app/bots') ? 'active' : ''}`}
-                      onClick={() => navigate('/app')}>
-                <span className="nav-ico"><Bot size={16} /></span>Mes chatbots
-              </button>
+              {/* Liste des chatbots dans la sidebar (perso + équipes via
+                  GET /api/bots) — chaque bot pointe vers sa page, pastille de
+                  statut. L'intitulé « Mes chatbots » reste cliquable -> /app. */}
+              <BotNav />
+              {/* Séparation entre la liste des bots et le reste de la nav
+                  (Analytics/Inbox/Facturation…), comme la maquette de référence. */}
+              <div className="nav-divider" />
               <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
                       onClick={() => navigate('/app/analytics')}>
                 <span className="nav-ico"><BarChart3 size={16} /></span>Analytics
@@ -145,6 +148,15 @@ export default function Layout({ children }: { children: ReactNode }) {
                       onClick={() => navigate('/app/inbox')}>
                 <span className="nav-ico"><Inbox size={16} /></span>Inbox
               </button>
+              {/* Facturation : visible uniquement pour un payeur (owner d'org ou
+                  compte perso) ; masquée pour un admin non-owner (canSeeBilling).
+                  Défense en profondeur : le backend rejette (403) les non-owners. */}
+              {canSeeBilling(user) && (
+                <button className={`nav-item ${path.startsWith('/app/billing') ? 'active' : ''}`}
+                        onClick={() => navigate('/app/billing')}>
+                  <span className="nav-ico"><CreditCard size={16} /></span>Facturation
+                </button>
+              )}
               {/* Lien team-scoped : visible seulement avec une équipe active. */}
               {activeOrg && (
                 <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
@@ -185,6 +197,31 @@ export default function Layout({ children }: { children: ReactNode }) {
                       onClick={() => navigate('/admin/users')}>
                 <span className="nav-ico"><Users size={16} /></span>Utilisateurs
               </button>
+              <button className={`nav-item ${path === '/admin/billing' ? 'active' : ''}`}
+                      onClick={() => navigate('/admin/billing')}>
+                <span className="nav-ico"><CreditCard size={16} /></span>Facturation
+              </button>
+              {/* Sous-pages facturation — visibles dès qu'on est dans la console
+                  facturation. La « Vue d'ensemble » porte le path exact. */}
+              {path.startsWith('/admin/billing') && (
+                <div className="col" style={{ gap: 4, paddingLeft: 30 }}>
+                  <button className={`nav-item ${path === '/admin/billing' ? 'active' : ''}`}
+                          style={{ fontSize: 13.5 }}
+                          onClick={() => navigate('/admin/billing')}>
+                    Vue d'ensemble
+                  </button>
+                  <button className={`nav-item ${path.startsWith('/admin/billing/invoices') ? 'active' : ''}`}
+                          style={{ fontSize: 13.5 }}
+                          onClick={() => navigate('/admin/billing/invoices')}>
+                    Factures
+                  </button>
+                  <button className={`nav-item ${path.startsWith('/admin/billing/catalog') ? 'active' : ''}`}
+                          style={{ fontSize: 13.5 }}
+                          onClick={() => navigate('/admin/billing/catalog')}>
+                    Catalogue
+                  </button>
+                </div>
+              )}
               <div className="nav-divider" />
               <button className="nav-item" onClick={() => navigate('/app')}>
                 <span className="nav-ico"><ArrowLeftRight size={16} /></span>Espace client
@@ -197,7 +234,12 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <div className="sidebar-user">
           <button className="sidebar-user-main" onClick={() => navigate('/app/profile')} title="Mon profil">
-            <span className="sidebar-user-avatar" aria-hidden="true">{orgInitials(user?.name || '?')}</span>
+            {user?.avatar_url ? (
+              <img className="sidebar-user-avatar" src={user.avatar_url} alt=""
+                   style={{ objectFit: 'cover' }} referrerPolicy="no-referrer" />
+            ) : (
+              <span className="sidebar-user-avatar" aria-hidden="true">{orgInitials(user?.name || '?')}</span>
+            )}
             <span className="sidebar-user-id">
               <span className="nm">
                 {user?.name}

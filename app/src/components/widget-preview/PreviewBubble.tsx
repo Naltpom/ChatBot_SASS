@@ -13,12 +13,19 @@ export default function PreviewBubble({ m, i, st, t, rating, onRate }: {
   rating?: 1 | -1
   onRate: (i: number, v: 1 | -1) => void
 }) {
-  const { brand, r14, compact, square, botBg, botBorder, botText, mutedText } = st
+  const { brand, accent, scale, tail, timestamps, ts, r14, compact, square, botBg, botBorder, botText, mutedText } = st
+  // Coins : square force r8 partout ; sinon ergot asymétrique (tail) ou r14 plein.
+  const radius = square ? 8
+    : tail
+      ? (m.from === 'user' ? `${r14}px ${r14}px 4px ${r14}px` : `4px ${r14}px ${r14}px ${r14}px`)
+      : `${r14}px`
+  // textScale : multiplie la taille de police de base de la bulle (compact=12.5, cozy=13.5).
+  const fontPx = (compact ? 12.5 : 13.5) * scale
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
       <div style={{
-        maxWidth: '82%', padding: compact ? '7px 10px' : '9px 12px', fontSize: compact ? 12.5 : 13.5, lineHeight: 1.5,
-        borderRadius: square ? 8 : (m.from === 'user' ? `${r14}px ${r14}px 4px ${r14}px` : `4px ${r14}px ${r14}px ${r14}px`),
+        maxWidth: '82%', padding: compact ? '7px 10px' : '9px 12px', fontSize: fontPx, lineHeight: 1.5,
+        borderRadius: radius,
         background: m.from === 'user' ? brand : botBg,
         color: m.from === 'user' ? '#fff' : (m.sys ? mutedText : botText),
         fontStyle: m.sys ? 'italic' : undefined,
@@ -40,6 +47,10 @@ export default function PreviewBubble({ m, i, st, t, rating, onRate }: {
             que les sauts de ligne s'affichent comme dans le widget. */}
         <span style={{ whiteSpace: 'pre-wrap' }}>{m.from === 'bot' ? renderMarkdown(m.text) : m.text}</span>
       </div>
+      {/* Horodatage simulé (clé timestamps) — heure statique HH:MM, parité visuelle. */}
+      {timestamps && (
+        <div style={{ fontSize: 9.5, color: mutedText, marginTop: 2, padding: '0 4px', opacity: .8 }}>{ts}</div>
+      )}
       {/* CSAT simulé — HORS de la bulle (parité .kc-rate hors .kc-msg),
           jamais sur les bulles système/Conseiller (parité : le widget
           ne propose le vote que sur les réponses ai|tree) */}

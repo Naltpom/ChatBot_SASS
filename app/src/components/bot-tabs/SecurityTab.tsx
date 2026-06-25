@@ -1,6 +1,6 @@
 // Onglet « Sécurité » de BotPage — présentationnel (domaines, captcha, déplacer
 // vers une équipe, zone de danger). Tous les handlers/état viennent de BotPage.
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Btn, Card, Chip, InfoBox, SectionTitle, Toggle } from '../../ui'
 import { CAPTCHA_OPTIONS } from '../../botConstants'
 import type { Bot, BotUpdate, CaptchaProvider } from '../../types/bot'
@@ -8,7 +8,7 @@ import type { Bot, BotUpdate, CaptchaProvider } from '../../types/bot'
 export default function SecurityTab({
   bot, patch, newDomain, setNewDomain, addDomain, captchaSecret, setCaptchaSecret,
   canMoveToTeam, myTeams, moveTarget, setMoveTarget, moveBusy, moveToTeam,
-  isOrgAdmin, deleteBot,
+  isOrgAdmin,
 }: {
   bot: Bot
   patch: (fields: BotUpdate) => void
@@ -24,7 +24,6 @@ export default function SecurityTab({
   moveBusy: boolean
   moveToTeam: () => void
   isOrgAdmin: boolean
-  deleteBot: () => void
 }) {
   return (
     <div className="col g18">
@@ -106,20 +105,14 @@ export default function SecurityTab({
           )}
 
           {isOrgAdmin && (
-            <Card style={{ borderColor: 'var(--danger-bd)' }}>
-              <div className="card-title" style={{ color: 'var(--danger)' }}>Zone de danger</div>
-              <div className="toggle-row" style={{ marginBottom: 12 }}>
+            <Card>
+              <div className="card-title">Activation</div>
+              <div className="toggle-row">
                 <div>
                   <div className="tl">Widget actif</div>
                   <div className="ts">Désactivé : le chat disparaît des sites, sans rien supprimer.</div>
                 </div>
                 <Toggle on={bot.is_active} onChange={v => patch({ is_active: v })} />
-              </div>
-              <Btn kind="danger" onClick={deleteBot}>
-                <Trash2 size={14} /> Supprimer ce chatbot
-              </Btn>
-              <div className="field-hint" style={{ marginTop: 6 }}>
-                Suppression définitive : widget coupé partout, conversations et stats perdues.
               </div>
             </Card>
           )}

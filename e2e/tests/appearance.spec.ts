@@ -20,19 +20,22 @@ test('preset Crépuscule + launcherText → aperçu (pilule) + bootstrap sanitis
   await page.goto(`/app/bots/${botId}`)
   await page.locator('.tabs').getByRole('button', { name: 'Apparence' }).click()
 
+  // Refonte Apparence : sous-onglets Thème/Lanceur/Fenêtre/Messages (Seg). Le
+  // sous-onglet « Thème » est actif par défaut → les presets y sont visibles.
   // Preset (merge partiel) : hex de botConstants.ts — Crépuscule =
   // primaryColor #4f46e5 / secondaryColor #be185d
   const preset = page.locator('button.preset-card', { hasText: 'Crépuscule' })
   await preset.click()
   await expect(preset).toHaveClass(/selected/)
 
+  // « Texte du lanceur » vit désormais dans le sous-onglet « Lanceur ».
+  await page.getByRole('button', { name: 'Lanceur', exact: true }).click()
   await page.getByLabel('Texte du lanceur').fill('Une question ?')
 
-  // Aperçu : la pilule du lanceur n'apparaît que panneau FERMÉ (defaultOpen=true)
-  // — sélecteurs SCOPÉS au faux site client (aria-label « Fermer » existe ailleurs)
-  const stage = page.locator('.preview-stage')
-  await stage.locator('[aria-label="Fermer"]').click()
-  await expect(stage.locator('[aria-label="Ouvrir le chat"]')).toContainText('Une question ?')
+  // Aperçu : l'aperçu encadré latéral est supprimé ; la DÉMO FLOTTANTE (posée par
+  // BotPage avec defaultOpen=false) est déjà fermée → le lanceur affiche la pilule
+  // avec le texte, sans avoir à fermer le panneau au préalable.
+  await expect(page.locator('[aria-label="Ouvrir le chat"]')).toContainText('Une question ?')
 
   await page.getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await expect(page.getByRole('button', { name: /Enregistré/ })).toBeVisible()

@@ -194,16 +194,16 @@ def _sanitize_design(design: dict) -> dict:
         out["size"] = "md"
     if out.get("position") not in ("left", "right"):
         out["position"] = "right"
-    if out.get("icon") not in ("chat", "spark", "help", "image"):
+    if out.get("icon") not in ("chat", "spark", "help", "image", "bot", "message", "headset", "smile", "zap"):
         out["icon"] = "chat"
-    if out.get("loadingAnimation") not in ("dots", "wave", "pulse"):
+    if out.get("loadingAnimation") not in ("dots", "wave", "pulse", "bars", "ring", "typing"):
         out["loadingAnimation"] = "dots"
 
     # Personnalisation étendue (lot apparence) : memes patterns (whitelist
     # stricte, bool strict, entiers bornes) — defauts = rendu historique.
     if out.get("font") not in ("system", "serif", "mono"):
         out["font"] = "system"
-    if out.get("headerStyle") not in ("solid", "soft"):
+    if out.get("headerStyle") not in ("solid", "soft", "gradient"):
         out["headerStyle"] = "solid"
     if out.get("bubbleStyle") not in ("rounded", "square"):
         out["bubbleStyle"] = "rounded"
@@ -217,6 +217,52 @@ def _sanitize_design(design: dict) -> dict:
             out[f] = max(0, min(120, int(out.get(f, 18))))
         except (TypeError, ValueError):
             out[f] = 18
+
+    # --- Apparence v2 (lot redesign). Memes patterns ; defauts = rendu actuel
+    # (la largeur 338 px reproduit le panneau historiquement codé en dur). ---
+    # LANCEUR
+    if out.get("launcherShape") not in ("round", "pill", "square"):
+        out["launcherShape"] = "round"
+    if out.get("launcherAnimation") not in ("none", "float", "pulse"):
+        out["launcherAnimation"] = "none"
+    out["greeting"] = out.get("greeting") is True  # bool strict, defaut False
+    gt = out.get("greetingText")
+    out["greetingText"] = str(gt)[:80] if isinstance(gt, str) and gt.strip() else ""
+    # FENETRE
+    try:
+        out["windowWidth"] = max(300, min(560, int(out.get("windowWidth", 338))))
+    except (TypeError, ValueError):
+        out["windowWidth"] = 338
+    # windowHeight : null = auto (hauteur selon densité côté widget). Sinon borné.
+    try:
+        wh = out.get("windowHeight")
+        out["windowHeight"] = max(360, min(720, int(wh))) if wh is not None else None
+    except (TypeError, ValueError):
+        out["windowHeight"] = None
+    out["headerAvatar"] = out.get("headerAvatar") is not False  # bool strict, defaut True
+    out["headerStatus"] = out.get("headerStatus") is True       # bool strict, defaut False
+    sl = out.get("statusLabel")
+    out["statusLabel"] = str(sl)[:60] if isinstance(sl, str) and sl.strip() else ""
+    if out.get("textScale") not in ("sm", "md", "lg"):
+        out["textScale"] = "md"
+    out["timestamps"] = out.get("timestamps") is True  # bool strict, defaut False
+    if out.get("openAnimation") not in ("zoom", "fade", "slide", "pop", "flip"):
+        out["openAnimation"] = "zoom"
+    out["bubbleTail"] = out.get("bubbleTail") is not False  # bool strict, defaut True
+    # THEME
+    if out.get("chatBg") not in ("plain", "soft", "pattern"):
+        out["chatBg"] = "plain"
+    out["accentColor"] = _hex(out.get("accentColor"), None)  # null = couleur de marque
+    try:
+        out["shadow"] = max(0, min(3, int(out.get("shadow", 2))))
+    except (TypeError, ValueError):
+        out["shadow"] = 2
+    # MESSAGES
+    if out.get("quickReplyStyle") not in ("pill", "button"):
+        out["quickReplyStyle"] = "pill"
+    if out.get("sendStyle") not in ("icon", "colored"):
+        out["sendStyle"] = "icon"
+    out["sound"] = out.get("sound") is True  # bool strict, defaut False
 
     # Langue de l'UI du widget (dictionnaire FR/EN cote widget.js ; 'auto' =
     # langue du navigateur + consigne IA dans build_system_prompt)

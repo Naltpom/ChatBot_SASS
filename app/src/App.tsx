@@ -17,9 +17,18 @@ import Profile from './pages/Profile'
 import MyOrgs from './pages/MyOrgs'
 import Analytics from './pages/Analytics'
 import Inbox from './pages/Inbox'
+import Billing from './pages/Billing'
 import AdminHome, { AdminClient } from './pages/Admin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminUsers from './pages/AdminUsers'
+import AdminBilling from './pages/AdminBilling'
+import AdminBillingInvoices from './pages/AdminBillingInvoices'
+import AdminBillingCatalog from './pages/AdminBillingCatalog'
+import LegalPage from './pages/LegalPage'
+import mentionsMd from './legal/MENTIONS_LEGALES.md?raw'
+import cguMd from './legal/CGU.md?raw'
+import cgvMd from './legal/CGV.md?raw'
+import confidMd from './legal/POLITIQUE_CONFIDENTIALITE.md?raw'
 import Layout from './Layout'
 
 function Protected({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
@@ -38,12 +47,18 @@ export function AppRoutes() {
       <Route path="/showcase" element={<Showcase />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      {/* Pages légales (publiques) — rendues depuis les .md de src/legal. */}
+      <Route path="/mentions-legales" element={<LegalPage md={mentionsMd} />} />
+      <Route path="/cgu" element={<LegalPage md={cguMd} />} />
+      <Route path="/cgv" element={<LegalPage md={cgvMd} />} />
+      <Route path="/confidentialite" element={<LegalPage md={confidMd} />} />
       {/* Application (clients) */}
       <Route path="/app" element={<Protected><BotList /></Protected>} />
       <Route path="/app/bots/new" element={<Protected><BotWizard /></Protected>} />
       <Route path="/app/bots/:id" element={<Protected><BotPage /></Protected>} />
       <Route path="/app/analytics" element={<Protected><Analytics /></Protected>} />
       <Route path="/app/inbox" element={<Protected><Inbox /></Protected>} />
+      <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
       <Route path="/app/team" element={<Protected><Team /></Protected>} />
       <Route path="/app/orgs" element={<Protected><MyOrgs /></Protected>} />
       <Route path="/app/profile" element={<Protected><Profile /></Protected>} />
@@ -52,6 +67,11 @@ export function AppRoutes() {
       <Route path="/admin/clients" element={<Protected adminOnly><AdminHome /></Protected>} />
       <Route path="/admin/clients/:orgId" element={<Protected adminOnly><AdminClient /></Protected>} />
       <Route path="/admin/users" element={<Protected adminOnly><AdminUsers /></Protected>} />
+      <Route path="/admin/billing" element={<Protected adminOnly><AdminBilling /></Protected>} />
+      <Route path="/admin/billing/invoices" element={<Protected adminOnly><AdminBillingInvoices /></Protected>} />
+      <Route path="/admin/billing/catalog" element={<Protected adminOnly><AdminBillingCatalog /></Protected>} />
+      {/* Alias historique demandé (/app/admin/billing) -> redirige vers la route admin canonique. */}
+      <Route path="/app/admin/billing" element={<Navigate to="/admin/billing" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

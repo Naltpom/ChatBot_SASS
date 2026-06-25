@@ -57,19 +57,19 @@ DEFAULT_DESIGN = {
     "position": "right",           # right | left
     "size": "md",                  # sm | md | lg (bulle 48/58/68 px)
     "borderRadius": 16,            # arrondi du panneau (4-24 px)
-    "icon": "chat",                # chat | spark | help | image
+    "icon": "chat",                # chat | spark | help | image | bot | message | headset | smile | zap
     "avatarImage": "",             # URL image uploadee (icon="image")
     "bordered": False,             # liseré blanc autour de la bulle
     "welcomeMessage": "",
     "placeholder": "Écrivez votre message…",
-    "loadingAnimation": "dots",    # dots | wave | pulse
+    "loadingAnimation": "dots",    # dots | wave | pulse | bars | ring | typing
     "poweredBy": True,
     # --- Personnalisation étendue (lot apparence). Rétro-compat : un design
     # existant SANS ces clés rend pixel-identique (défauts = rendu actuel).
     # Toute nouvelle clé doit aussi être bornée dans routers/widget.py
     # (_sanitize_design) : c'est LÀ que vit la sanitisation (au bootstrap).
     "font": "system",              # system | serif | mono (aucune police externe chargée)
-    "headerStyle": "solid",        # solid (en-tête brand) | soft (en-tête clair, badge contour)
+    "headerStyle": "solid",        # solid (en-tête brand) | soft (en-tête clair) | gradient (dégradé marque)
     "darkMode": False,             # palette sombre du panneau (couleur de marque conservée)
     "bubbleStyle": "rounded",      # rounded (radii asymétriques) | square (radius uniformes)
     "density": "cozy",             # cozy | compact (panneau 420px, textes resserrés)
@@ -77,6 +77,31 @@ DEFAULT_DESIGN = {
     "offsetX": 18,                 # marge latérale bulle/panneau (0-120 px)
     "offsetY": 18,                 # marge basse (0-120 px)
     "locale": "fr",                # auto | fr | en — langue de l'UI du widget
+    # --- Apparence v2 (lot redesign). Rétro-compat : défauts = rendu actuel.
+    # Toute nouvelle clé est aussi bornée dans widget_helpers._sanitize_design.
+    # LANCEUR
+    "launcherShape": "round",      # round (cercle, actuel) | pill (stade) | square (carré arrondi)
+    "launcherAnimation": "none",   # none (actuel) | float (bob doux) | pulse (halo)
+    "greeting": False,             # accroche flottante au-dessus du lanceur (panneau fermé)
+    "greetingText": "",            # <= 80 chars : texte de l'accroche
+    # FENETRE
+    "windowWidth": 338,            # 300-560 px : largeur du panneau (338 = valeur historique)
+    "windowHeight": None,          # 360-720 px, ou None = auto (hauteur selon densité)
+    "headerAvatar": True,          # afficher l'avatar/icône dans l'en-tête (actuel)
+    "headerStatus": False,         # ligne de statut (point en ligne + statusLabel)
+    "statusLabel": "",             # <= 60 chars : texte de statut ('' -> "En ligne"/"Online")
+    "textScale": "md",             # sm (.92) | md (1, actuel) | lg (1.1) — taille des messages
+    "timestamps": False,           # horodatage discret sous chaque message
+    "openAnimation": "zoom",       # zoom (actuel) | fade (opacité) | slide (translation)
+    "bubbleTail": True,            # coin "queue" asymétrique sur les bulles (actuel)
+    # THEME
+    "chatBg": "plain",             # plain (actuel) | soft (dégradé teinté) | pattern (pointillés)
+    "accentColor": None,           # hex ou null : null = couleur de marque (boutons/options/envoi)
+    "shadow": 2,                   # 0-3 : intensité de l'ombre du panneau (2 = actuel)
+    # MESSAGES
+    "quickReplyStyle": "pill",     # pill (arrondi 999, actuel) | button (rectangulaire)
+    "sendStyle": "icon",           # icon (bouton icône, actuel) | colored (bouton plein marque/accent)
+    "sound": False,                # "ping" WebAudio à l'arrivée d'un message bot
 }
 
 
@@ -245,6 +270,12 @@ class BotOut(BaseModel):
     # Renseignes par les endpoints de liste (cards) uniquement
     msgs_7d: int = 0
     visitors_7d: int = 0
+    # Facturation effective du bot (renseigné par GET /api/bots, spec billing
+    # modulaire) : alimente le badge front (règle 4). 'trialing' | 'active' |
+    # 'past_due' | 'inactive' | None (billing OFF — invariant D0, aucun badge).
+    billing_status: str | None = None
+    # Fin de l'essai 7 j AVEC carte (epoch s) si status='trialing', sinon None.
+    trial_end: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

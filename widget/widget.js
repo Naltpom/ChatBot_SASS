@@ -1,5 +1,5 @@
 /**
- * Chapote — widget embarquable.
+ * Chapote, widget embarquable.
  *
  * Usage flottant :
  *   <script src="https://api.exemple.com/widget.js" data-bot-key="pk_xxx" defer></script>
@@ -10,7 +10,7 @@
  * permet que d'initialiser une session (vérifiée côté serveur : domaine
  * whitelisté + captcha + rate limits). Aucune clé IA ne transite ici.
  *
- * Design : prototype "Chapote" (claude.ai/design) — widget.jsx.
+ * Design : prototype "Chapote" (claude.ai/design), widget.jsx.
  */
 (function () {
   "use strict";
@@ -31,9 +31,23 @@
   const API = script.src.replace(/\/widget\.js.*$/, "");
 
   // Garde-fous anti-injection : le design_json vient du serveur mais le widget
-  // se défend seul — seules des valeurs sûres entrent dans la feuille de style.
+  // se défend seul, seules des valeurs sûres entrent dans la feuille de style.
   function safeColor(c, fallback) { return /^#[0-9a-fA-F]{3,8}$/.test(c || "") ? c : fallback; }
   function safeInt(n, min, max, fallback) { n = parseInt(n, 10); return isNaN(n) ? fallback : Math.min(max, Math.max(min, n)); }
+  // Chaîne sûre bornée : non-string -> '' ; toujours rognée à max (anti-débordement UI/XSS).
+  function safeStr(s, max) { return typeof s === "string" ? s.slice(0, max) : ""; }
+  // Hex (#rgb / #rrggbb / #rrggbbaa) -> "r,g,b" pour composer une rgba() de teinte.
+  // Entrée non valide -> null. La couleur a déjà été validée par safeColor en amont.
+  function hexToRgb(hex) {
+    let h = (hex || "").replace("#", "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (h.length < 6) return null;
+    const n = parseInt(h.slice(0, 6), 16);
+    if (isNaN(n)) return null;
+    return ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255);
+  }
+  // Whitelist d'énumération : valeur hors liste -> défaut (jamais injectée en className brute).
+  function safeEnum(v, allowed, fallback) { return allowed.indexOf(v) !== -1 ? v : fallback; }
 
   function pageUrl() {
     return INLINE ? (document.referrer || location.href) : location.href;
@@ -58,7 +72,7 @@
   // page n'a pas changé, plafonné aux 10 plus récents. Envoyé une seule fois,
   // au handshake de session, pour aider l'IA à contextualiser ses réponses.
   // Cas iframe (data-inline) : on ne voit pas le sessionStorage de la page
-  // parente — la page parente n'est connue que via document.referrer (même
+  // parente, la page parente n'est connue que via document.referrer (même
   // mécanisme que parent_url), et le parcours s'accumule dans le
   // sessionStorage de la frame (même onglet). Referrer absent/illisible
   // (Referrer-Policy stricte) → on n'enregistre rien : journey restera null.
@@ -92,7 +106,7 @@
   }
 
   // chatStatus : statut SERVEUR autoritaire du live chat (ai | human_requested
-  // | human) — aiMode est un sous-état du mode ai. La session (token + fil) est
+  // | human), aiMode est un sous-état du mode ai. La session (token + fil) est
   // PERSISTÉE en localStorage (cf. SESS_KEY) : un reload / une navigation
   // restaure la conversation, rouvrable pendant 2 h après la dernière activité.
   const state = { config: null, token: null, open: false, busy: false, aiMode: false,
@@ -110,7 +124,7 @@
   // conversation SURVIVE à un reload / une navigation et reste rouvrable
   // pendant 2 h après la dernière activité (au-delà : on repart de zéro =
   // « cooldown »). Le token est un JWT bas-privilège (30 min, une seule
-  // conversation, session glissante) — stockage local accepté, comme kc_vid.
+  // conversation, session glissante), stockage local accepté, comme kc_vid.
   const SESS_KEY = "kc_sess_" + BOT_KEY;
   const SESS_TTL = 2 * 60 * 60 * 1000; // 2 h
   function persistSession() {
@@ -262,6 +276,12 @@
     chat: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3C7 3 3 6.6 3 11c0 2.2 1 4.2 2.7 5.6-.1 1-.5 2.1-1.4 3 1.7-.1 3.1-.7 4.1-1.4 1.1.4 2.3.7 3.6.7 5 0 9-3.6 9-7.9S17 3 12 3z"></path></svg>',
     spark: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"></path><circle cx="19" cy="5" r="1.6"></circle></svg>',
     help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9.2"></circle><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.9c-.8.35-1 .9-1 1.7"></path><circle cx="12" cy="16.8" r="1.15" fill="currentColor" stroke="none"></circle></svg>',
+    // Icônes étendues (refonte Apparence) : mêmes tracés que ui.tsx BubbleIcon (parité de rendu).
+    bot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2M20 14h2M15 13v2M9 13v2"></path></svg>',
+    message: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>',
+    headset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"></path><rect x="2.5" y="13" width="4" height="7" rx="1.6"></rect><rect x="17.5" y="13" width="4" height="7" rx="1.6"></rect></svg>',
+    smile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"></circle><path d="M8.5 14.5s1.3 1.8 3.5 1.8 3.5-1.8 3.5-1.8"></path><path d="M9 9.5h.01M15 9.5h.01"></path></svg>',
+    zap: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"></path></svg>',
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
     send: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.6 21.8 12 3.4 3.4l.01 6.6L15 12 3.41 14z"></path></svg>',
     alert: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>',
@@ -321,6 +341,7 @@
     fr: {
       online_tree: "En ligne · Menu guidé",
       online_ai: "En ligne · Mode IA",
+      online: "En ligne",
       advisor_online: "Conseiller en ligne",
       advisor_wait: "En attente d'un conseiller…",
       advisor_joined: "Un conseiller a rejoint le chat.",
@@ -359,6 +380,7 @@
     en: {
       online_tree: "Online · Guided menu",
       online_ai: "Online · AI mode",
+      online: "Online",
       advisor_online: "Advisor online",
       advisor_wait: "Waiting for an advisor…",
       advisor_joined: "An advisor has joined the chat.",
@@ -408,20 +430,56 @@
     const bubble = SIZES[d.size] || SIZES.md;
     const R = safeInt(d.borderRadius, 0, 40, 16);
     const r14 = Math.min(R, 14);
-    // Personnalisation étendue — whitelists/bornes LOCALES (défense en
+    // Personnalisation étendue, whitelists/bornes LOCALES (défense en
     // profondeur : le widget ne fait jamais confiance au serveur). Les
     // défauts reproduisent le rendu historique à l'identique.
     const font = FONTS[d.font] || FONTS.system;
     const ox = safeInt(d.offsetX, 0, 120, 18);
     const oy = safeInt(d.offsetY, 0, 120, 18);
     const dark = d.darkMode === true;
-    const soft = d.headerStyle === "soft";
+    // En-tête : solid (actuel) | soft (clair) | gradient (dégradé de marque).
+    const headerStyle = safeEnum(d.headerStyle, ["solid", "soft", "gradient"], "solid");
+    const soft = headerStyle === "soft";
+    const gradient = headerStyle === "gradient";
     const square = d.bubbleStyle === "square";
     const compact = d.density === "compact";
+    // --- Refonte Apparence : nouvelles clés (défauts = rendu actuel à l'identique) ---
+    // Accent : null -> marque (actuel). Si défini, gouverne options/réponses
+    // rapides/envoi + focus de saisie. Validé comme une couleur hex.
+    const accent = d.accentColor ? safeColor(d.accentColor, brand) : brand;
+    // Largeur du panneau : si la clé est absente, on retombe sur la largeur
+    // historique (338px) pour ne PAS modifier les widgets existants.
+    const winW = safeInt(d.windowWidth, 300, 560, 338);
+    // Coins des bulles : ergot (coins asymétriques, actuel) si true ; sinon r14 partout.
+    const tail = d.bubbleTail !== false;
+    const botR = square ? "8px" : (tail ? "4px " + r14 + "px " + r14 + "px " + r14 + "px" : r14 + "px");
+    const userR = square ? "8px" : (tail ? r14 + "px " + r14 + "px 4px " + r14 + "px" : r14 + "px");
+    // Échelle du texte des messages (sm≈.92, md=1, lg≈1.1).
+    const ts = safeEnum(d.textScale, ["sm", "md", "lg"], "md");
+    const tScale = ts === "sm" ? 0.92 : (ts === "lg" ? 1.1 : 1);
+    const msgFs = (compact ? 12.5 : 13.5) * tScale;
+    const optFs = (compact ? 11.5 : 12.5) * tScale;
+    // Ombre de la fenêtre : 0=aucune 1=légère 2=moyenne (actuel) 3=forte.
+    const shadowLvl = safeInt(d.shadow, 0, 3, 2);
+    const SHADOWS = {
+      0: "none",
+      1: "0 6px 22px rgba(10,30,25,.12)",
+      2: "0 18px 60px rgba(10,30,25,.22),0 2px 8px rgba(10,30,25,.08)",
+      3: "0 26px 80px rgba(10,30,25,.34),0 4px 14px rgba(10,30,25,.16)",
+    };
+    const panelShadow = SHADOWS[shadowLvl];
+    // Style des réponses rapides (options) : pill (arrondi 999, actuel) | button (rectangulaire).
+    const optBtn = safeEnum(d.quickReplyStyle, ["pill", "button"], "pill") === "button";
+    // Forme du lanceur (géométrie icône seule) : round=cercle (actuel).
+    const lShape = safeEnum(d.launcherShape, ["round", "pill", "square"], "round");
+    const sqR = Math.max(14, Math.round(bubble * 0.3)); // square : ~30% de la taille, min 14px
+    const launcherRadius = lShape === "square" ? sqR + "px" : "50%";
+    // Animation au repos du lanceur fermé : none (actuel) | float | pulse.
+    const lAnim = safeEnum(d.launcherAnimation, ["none", "float", "pulse"], "none");
     // Surfaces du panneau : palette sombre si darkMode, littéraux actuels sinon.
     // Bulle user et options : brand inchangé (contraste OK sur les deux fonds).
     const panelBg = dark ? "#101816" : "#fff";
-    const msgsBg = dark ? "#0c1311" : "#fafbfb";
+    const msgsSolid = dark ? "#0c1311" : "#fafbfb";
     const botBg = dark ? "#1b2624" : "#fff";
     const botBorder = dark ? "#233330" : "#e6eae8";
     const botText = dark ? "#e8efed" : "#1d2b27";
@@ -429,14 +487,34 @@
     const inputBg = dark ? "#18221f" : "#fff";
     const inputBorder = dark ? "#233330" : "#dde3e1";
     const mutedText = dark ? "#9fb0ab" : "#5f7873";
-    // En-tête : solid = couleur de marque (actuel) ; soft = clair (surface)
+    // Fond de la zone de conversation : plain=solide (actuel) | soft=léger dégradé
+    // teinté marque | pattern=motif de points discret. Respecte le mode sombre.
+    const chatBg = safeEnum(d.chatBg, ["plain", "soft", "pattern"], "plain");
+    let msgsBg = msgsSolid;
+    if (chatBg === "soft") {
+      // Teinte translucide dérivée de la marque (rgba, robuste quelle que soit
+      // la longueur du hex — pas de concaténation d'alpha hasardeuse).
+      const rgb = hexToRgb(brand);
+      const tint = rgb ? "rgba(" + rgb + ",.05)" : (dark ? "#0e1714" : "#f3f6f5");
+      msgsBg = "linear-gradient(180deg," + msgsSolid + "," + tint + ")";
+    } else if (chatBg === "pattern") {
+      const dotCol = dark ? "rgba(255,255,255,.05)" : "rgba(10,30,25,.06)";
+      msgsBg = "radial-gradient(" + dotCol + " 1.2px,transparent 1.3px) 0 0/16px 16px," + msgsSolid;
+    }
+    // En-tête : solid = marque (actuel) ; soft = clair (surface) ; gradient = dégradé.
+    const headBg = soft ? panelBg : (gradient ? bg : (color2 ? bg : brand));
     const headText = soft ? (dark ? "#e8efed" : "#1d2b27") : "#fff";
+    // Hauteur du panneau : windowHeight si défini (borné), sinon AUTO selon la
+    // densité (= hauteur historique). max-height:70vh la cape au viewport.
+    const winH = safeInt(d.windowHeight, 360, 720, compact ? 420 : 460);
+    // openAnimation : zoom (actuel) | fade | slide | pop | flip.
+    const oaName = ({ fade: "Fade", slide: "Slide", pop: "Pop", flip: "Flip" })[d.openAnimation] || "Zoom";
     const panelPos = INLINE
       ? "position:fixed;inset:0;width:100%;height:100%;max-height:none;border-radius:0;"
-      : "position:fixed;bottom:" + (bubble + oy + 12) + "px;" + side + ":" + ox + "px;width:338px;max-width:calc(100vw - 36px);height:" + (compact ? 420 : 460) + "px;max-height:70vh;border-radius:" + R + "px;";
+      : "position:fixed;bottom:" + (bubble + oy + 12) + "px;" + side + ":" + ox + "px;width:" + winW + "px;max-width:calc(100vw - 36px);height:" + winH + "px;max-height:70vh;border-radius:" + R + "px;";
     return [
       ".kc-root{font-family:" + font + "}",
-      ".kc-bubble{position:fixed;bottom:" + oy + "px;" + side + ":" + ox + "px;width:" + bubble + "px;height:" + bubble + "px;border-radius:50%;",
+      ".kc-bubble{position:fixed;bottom:" + oy + "px;" + side + ":" + ox + "px;width:" + bubble + "px;height:" + bubble + "px;border-radius:" + launcherRadius + ";",
       "border:" + (d.bordered ? "3px solid rgba(255,255,255,.95)" : "none") + ";cursor:pointer;background:" + bg + ";color:#fff;",
       "box-shadow:0 8px 26px rgba(10,30,25,.3);display:grid;place-items:center;z-index:2147483000;",
       "transition:transform .18s ease;padding:0}",
@@ -445,41 +523,63 @@
       // Pilule du lanceur (launcherText non vide, mode flottant uniquement)
       ".kc-bubble-pill{width:auto;border-radius:99px;padding:0 16px 0 12px;display:flex;align-items:center;gap:8px}",
       ".kc-bubble-label{font-size:13px;font-weight:700;white-space:nowrap}",
+      // launcherShape=pill : géométrie stade (icône seule, plus large). N'écrase
+      // pas la pilule à libellé (.kc-bubble-pill, qui garde son propre gabarit).
+      lShape === "pill" ? ".kc-bubble:not(.kc-bubble-pill){width:auto;min-width:" + bubble + "px;border-radius:999px;padding:0 " + Math.round(bubble * .28) + "px}" : "",
+      // launcherAnimation (lanceur fermé uniquement, désarmé à l'ouverture via .open)
+      lAnim === "float" ? ".kc-bubble:not(.open){animation:chapoteFloat 3s ease-in-out infinite}" : "",
+      lAnim === "pulse" ? ".kc-bubble:not(.open){animation:chapoteHalo 2.4s ease-in-out infinite}" : "",
+      lAnim === "float" ? "@keyframes chapoteFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}" : "",
+      lAnim === "pulse" ? "@keyframes chapoteHalo{0%{box-shadow:0 8px 26px rgba(10,30,25,.3),0 0 0 0 " + brand + "59}70%{box-shadow:0 8px 26px rgba(10,30,25,.3),0 0 0 12px " + brand + "00}100%{box-shadow:0 8px 26px rgba(10,30,25,.3),0 0 0 0 " + brand + "00}}" : "",
+      // Bulle d'accroche (greeting) au-dessus du lanceur fermé
+      ".kc-greet{position:fixed;bottom:" + (bubble + oy + 14) + "px;" + side + ":" + ox + "px;max-width:230px;background:" + botBg + ";color:" + botText + ";",
+      "border:1px solid " + botBorder + ";border-radius:14px;padding:9px 12px;font-size:13px;line-height:1.4;",
+      "box-shadow:0 8px 26px rgba(10,30,25,.18);z-index:2147482999}",
       ".kc-badge{position:absolute;top:-2px;right:-2px;width:19px;height:19px;border-radius:99px;background:#e74c3c;",
       "color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center;border:2px solid #fff}",
-      ".kc-panel{" + panelPos + "background:" + panelBg + ";box-shadow:0 18px 60px rgba(10,30,25,.22),0 2px 8px rgba(10,30,25,.08);",
+      ".kc-panel{" + panelPos + "background:" + panelBg + ";box-shadow:" + panelShadow + ";",
       "display:none;flex-direction:column;overflow:hidden;z-index:2147483000;border:1px solid " + (dark ? "#233330" : "rgba(0,0,0,.06)") + "}",
-      ".kc-panel.open{display:flex}",
-      ".kc-head{background:" + (soft ? panelBg : bg) + ";color:" + headText + ";padding:13px 15px;display:flex;align-items:center;gap:10px" + (soft ? ";border-bottom:1px solid " + lineBorder : "") + "}",
+      // openAnimation : zoom (actuel) | fade | slide | pop (rebond) | flip (bascule).
+      ".kc-panel.open{display:flex;transform-origin:bottom " + side + ";animation:chapoteOpen" + oaName + " .26s ease}",
+      "@keyframes chapoteOpenZoom{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}",
+      "@keyframes chapoteOpenFade{from{opacity:0}to{opacity:1}}",
+      "@keyframes chapoteOpenSlide{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}",
+      "@keyframes chapoteOpenPop{0%{opacity:0;transform:scale(.8)}60%{opacity:1;transform:scale(1.04)}100%{transform:scale(1)}}",
+      "@keyframes chapoteOpenFlip{from{opacity:0;transform:perspective(700px) rotateX(-16deg)}to{opacity:1;transform:perspective(700px) rotateX(0)}}",
+      ".kc-head{background:" + headBg + ";color:" + headText + ";padding:13px 15px;display:flex;align-items:center;gap:10px" + (soft ? ";border-bottom:1px solid " + lineBorder : "") + "}",
       ".kc-head-ico{width:34px;height:34px;border-radius:10px;background:" + (soft ? bg : "rgba(255,255,255,.18)") + ";color:#fff;display:grid;place-items:center;overflow:hidden;flex-shrink:0}",
       ".kc-head-ico svg{width:19px;height:19px}",
       ".kc-head-name{font-weight:700;font-size:14.5px;line-height:1.2}",
       ".kc-head-sub{font-size:11px;opacity:.85;display:flex;align-items:center;gap:5px}",
+      // Ligne de statut « En ligne » (headerStatus) : même gabarit que .kc-head-sub
+      ".kc-head-status{font-size:11px;opacity:.85;display:flex;align-items:center;gap:5px;margin-top:2px}",
       ".kc-dot{width:7px;height:7px;border-radius:9px;background:#7CF5C8;display:inline-block}",
       ".kc-mode{font-size:9.5px;font-weight:800;letter-spacing:.6px;padding:3px 8px;border-radius:99px;text-transform:uppercase;"
         + (soft ? "border:1.5px solid " + brand + ";color:" + brand + ";background:transparent" : "background:rgba(255,255,255,.2)") + "}",
       ".kc-x{background:none;border:none;color:" + headText + ";cursor:pointer;font-size:18px;line-height:1;padding:4px;opacity:.85}",
       ".kc-msgs{flex:1;overflow-y:auto;padding:" + (compact ? "10px" : "14px 13px") + ";display:flex;flex-direction:column;gap:" + (compact ? 6 : 9) + "px;background:" + msgsBg + "}",
-      ".kc-row{display:flex}.kc-row.user{justify-content:flex-end}",
-      ".kc-msg{max-width:82%;padding:" + (compact ? "7px 10px" : "9px 12px") + ";font-size:" + (compact ? "12.5" : "13.5") + "px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}",
-      ".kc-row.bot .kc-msg{border-radius:" + (square ? "8px" : "4px " + r14 + "px " + r14 + "px " + r14 + "px") + ";background:" + botBg + ";color:" + botText + ";border:1px solid " + botBorder + ";box-shadow:0 1px 2px rgba(0,0,0,.04)}",
-      ".kc-row.user .kc-msg{border-radius:" + (square ? "8px" : r14 + "px " + r14 + "px 4px " + r14 + "px") + ";background:" + brand + ";color:#fff}",
+      ".kc-row{display:flex;flex-direction:column;align-items:flex-start}.kc-row.user{align-items:flex-end}",
+      ".kc-msg{max-width:82%;padding:" + (compact ? "7px 10px" : "9px 12px") + ";font-size:" + msgFs + "px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}",
+      ".kc-row.bot .kc-msg{border-radius:" + botR + ";background:" + botBg + ";color:" + botText + ";border:1px solid " + botBorder + ";box-shadow:0 1px 2px rgba(0,0,0,.04)}",
+      ".kc-row.user .kc-msg{border-radius:" + userR + ";background:" + brand + ";color:#fff}",
+      // Horodatage discret sous chaque message (timestamps)
+      ".kc-time{font-size:10px;color:" + mutedText + ";margin:2px 4px 0}",
       // Markdown léger rendu dans les bulles (liens cliquables, gras/italique).
       ".kc-msg a{color:inherit;text-decoration:underline;font-weight:600}",
       ".kc-msg strong{font-weight:700}",".kc-msg em{font-style:italic}",
       // Tag « IA » et tag « Conseiller » (live chat) : même gabarit
       ".kc-ai-tag,.kc-human-tag{font-size:9.5px;font-weight:800;letter-spacing:.5px;color:" + brand + ";margin-bottom:3px}",
       // CSAT : pouces discrets SOUS la bulle assistant (élément séparé de
-      // .kc-msg — aucun texte ajouté aux bulles, contrat e2e)
+      // .kc-msg, aucun texte ajouté aux bulles, contrat e2e)
       ".kc-rate{display:flex;gap:2px;margin:-5px 0 0 4px}",
       ".kc-rate button{background:none;border:none;cursor:pointer;color:" + mutedText + ";padding:2px;line-height:0;opacity:.7}",
       ".kc-rate button:hover{opacity:1}",
       ".kc-rate button svg{width:13px;height:13px}",
       ".kc-rate button.kc-on{color:" + brand + ";opacity:1}",
       ".kc-opts{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}",
-      ".kc-opt{font-family:inherit;font-size:" + (compact ? "11.5" : "12.5") + "px;font-weight:600;padding:" + (compact ? "6px 10px" : "8px 12px") + ";white-space:nowrap;border-radius:" + (square ? "10px" : "99px") + ";",
-      "border:1.5px solid " + brand + ";background:#fff;color:" + brand + ";cursor:pointer;transition:background .15s,color .15s}",
-      ".kc-opt:hover{background:" + brand + ";color:#fff}",
+      ".kc-opt{font-family:inherit;font-size:" + optFs + "px;font-weight:600;padding:" + (compact ? "6px 10px" : "8px 12px") + ";white-space:nowrap;border-radius:" + (square || optBtn ? "10px" : "99px") + ";",
+      (optBtn ? "flex:1 1 100%;text-align:center;white-space:normal;" : "") + "border:1.5px solid " + accent + ";background:#fff;color:" + accent + ";cursor:pointer;transition:background .15s,color .15s}",
+      ".kc-opt:hover{background:" + accent + ";color:#fff}",
       ".kc-back{align-self:flex-start;font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:99px;",
       "border:1px solid #d8dedc;background:#fff;color:#5f7873;cursor:pointer}",
       ".kc-typing{display:flex}.kc-typing>div{padding:10px 14px;border-radius:4px 14px 14px 14px;background:" + botBg + ";border:1px solid " + botBorder + ";display:flex;gap:4px;align-items:center}",
@@ -489,14 +589,28 @@
       ".kc-typing.wave .kc-td:nth-child(2){animation-delay:.14s}.kc-typing.wave .kc-td:nth-child(3){animation-delay:.28s}",
       ".kc-typing.pulse .kc-td{width:10px;height:10px;background:" + brand + ";animation:chapotePulse 1s infinite ease-in-out}",
       ".kc-typing.pulse .kc-td:nth-child(2),.kc-typing.pulse .kc-td:nth-child(3){display:none}",
+      // bars : trois barres verticales qui ondulent en hauteur
+      ".kc-typing.bars .kc-td{width:4px;height:14px;border-radius:3px;background:" + brand + ";animation:chapoteBars 1s infinite ease-in-out}",
+      ".kc-typing.bars .kc-td:nth-child(2){animation-delay:.16s}.kc-typing.bars .kc-td:nth-child(3){animation-delay:.32s}",
+      // ring : un seul anneau qui tourne (les deux autres points masqués)
+      ".kc-typing.ring .kc-td{width:14px;height:14px;border-radius:50%;background:none;border:2px solid " + botBorder + ";border-top-color:" + brand + ";animation:chapoteSpin .7s linear infinite}",
+      ".kc-typing.ring .kc-td:nth-child(2),.kc-typing.ring .kc-td:nth-child(3){display:none}",
+      // typing : trois points qui montent puis redescendent (frappe humaine)
+      ".kc-typing.typing .kc-td{background:" + brand + ";animation:chapoteType 1.3s infinite ease-in-out}",
+      ".kc-typing.typing .kc-td:nth-child(2){animation-delay:.2s}.kc-typing.typing .kc-td:nth-child(3){animation-delay:.4s}",
       "@keyframes chapoteBlink{0%,80%,100%{opacity:.35}40%{opacity:1}}",
       "@keyframes chapoteWave{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}",
       "@keyframes chapotePulse{0%,100%{transform:scale(.7);opacity:.5}50%{transform:scale(1.15);opacity:1}}",
+      "@keyframes chapoteBars{0%,100%{transform:scaleY(.45)}50%{transform:scaleY(1)}}",
+      "@keyframes chapoteSpin{to{transform:rotate(360deg)}}",
+      "@keyframes chapoteType{0%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-4px);opacity:1}}",
       ".kc-inputrow{border-top:1px solid " + lineBorder + ";padding:10px;display:flex;gap:8px;background:" + panelBg + "}",
       ".kc-input{flex:1;font-family:inherit;font-size:13.5px;padding:10px 13px;border-radius:99px;border:1px solid " + inputBorder + ";",
       "outline:none;background:" + inputBg + ";color:" + botText + ";min-width:0}",
+      ".kc-input:focus{border-color:" + accent + "}",
       ".kc-input:disabled{background:" + (dark ? "#0c1311" : "#f4f6f5") + "}",
-      ".kc-send{width:40px;height:40px;border-radius:99px;border:none;cursor:pointer;background:" + brand + ";color:#fff;",
+      // sendStyle=icon (actuel) : bouton plat ; colored : cercle plein teinté accent.
+      ".kc-send{width:40px;height:40px;border-radius:99px;border:none;cursor:pointer;background:" + (d.sendStyle === "colored" ? accent : brand) + ";color:#fff;",
       "display:grid;place-items:center;flex-shrink:0;transition:background .15s}",
       ".kc-send:disabled{background:#e3e8e6;cursor:default}",
       ".kc-powered{text-align:center;font-size:10px;color:" + (dark ? "#6b7a76" : "#9aa7a3") + ";padding:0 0 7px;background:" + panelBg + "}",
@@ -507,8 +621,8 @@
       ".kc-lead{background:" + botBg + ";border:1px solid " + botBorder + ";border-radius:" + (square ? 10 : r14) + "px;padding:12px;display:flex;flex-direction:column;gap:6px;max-width:86%;box-shadow:0 1px 2px rgba(0,0,0,.04)}",
       ".kc-lead-label{font-size:11px;font-weight:700;color:" + mutedText + "}",
       ".kc-lead-input{font-family:inherit;font-size:13px;padding:8px 11px;border-radius:10px;border:1px solid " + inputBorder + ";outline:none;background:" + inputBg + ";color:" + botText + ";resize:vertical}",
-      ".kc-lead-input:focus{border-color:" + brand + "}",
-      ".kc-lead-send{font-family:inherit;font-size:13px;font-weight:700;padding:9px;border-radius:99px;border:none;cursor:pointer;background:" + brand + ";color:#fff;margin-top:4px}",
+      ".kc-lead-input:focus{border-color:" + accent + "}",
+      ".kc-lead-send{font-family:inherit;font-size:13px;font-weight:700;padding:9px;border-radius:99px;border:none;cursor:pointer;background:" + accent + ";color:#fff;margin-top:4px}",
       ".kc-lead-send:disabled{background:#e3e8e6;cursor:default}",
       ".kc-lead-err{font-size:11.5px;color:#c0392b}",
       // Overlay rendez-vous (noeud d'arbre type "appointment")
@@ -540,9 +654,12 @@
     // Panneau
     ui.panel = el("div", "kc-panel");
     const head = el("div", "kc-head");
-    const hIco = el("div", "kc-head-ico");
-    setIcon(hIco, d, d.icon === "image" && d.avatarImage ? 34 : 19);
-    head.appendChild(hIco);
+    // headerAvatar : avatar/icône dans l'en-tête (actuel) ; false = masqué.
+    if (d.headerAvatar !== false) {
+      const hIco = el("div", "kc-head-ico");
+      setIcon(hIco, d, d.icon === "image" && d.avatarImage ? 34 : 19);
+      head.appendChild(hIco);
+    }
     const hMid = el("div");
     hMid.style.cssText = "flex:1;min-width:0";
     hMid.appendChild(el("div", "kc-head-name", d.title || "Assistant"));
@@ -551,6 +668,14 @@
     ui.headSubText = el("span", null, t("online_tree"));
     ui.headSub.appendChild(ui.headSubText);
     hMid.appendChild(ui.headSub);
+    // headerStatus : ligne « En ligne » sous le nom (point + libellé). Le
+    // statusLabel est borné et posé en textContent (anti-XSS) ; vide -> localisé.
+    if (d.headerStatus === true) {
+      const status = el("div", "kc-head-status");
+      status.appendChild(el("span", "kc-dot"));
+      status.appendChild(el("span", null, safeStr(d.statusLabel, 60).trim() || t("online")));
+      hMid.appendChild(status);
+    }
     head.appendChild(hMid);
     ui.modeBadge = el("span", "kc-mode", "TREE");
     head.appendChild(ui.modeBadge);
@@ -628,6 +753,15 @@
       ui.bubble.appendChild(ui.badge);
       ui.bubble.addEventListener("click", toggle);
       root.appendChild(ui.bubble);
+      // greeting : petite bulle d'accroche au-dessus du lanceur fermé. Texte
+      // borné (80) posé en textContent (anti-XSS). Cliquer ouvre le chat ;
+      // masquée dès l'ouverture (cf. toggle).
+      const gtxt = safeStr(d.greetingText, 80).trim();
+      if (d.greeting === true && gtxt) {
+        ui.greet = el("div", "kc-greet", gtxt);
+        ui.greet.addEventListener("click", toggle);
+        root.appendChild(ui.greet);
+      }
     } else {
       state.open = true;
       ui.panel.classList.add("open");
@@ -658,7 +792,7 @@
     ui.inputRow.style.display = (state.config.mode === "tree" && !human) ? "none" : "";
   }
 
-  // tag : "ai" | "human" | null — libellé constant « Conseiller » (le serveur
+  // tag : "ai" | "human" | null, libellé constant « Conseiller » (le serveur
   // n'expose jamais l'identité du staff).
   // msgId (optionnel) : id serveur du message assistant ai|tree -> rangée CSAT
   // (pouces) appendée SÉPARÉMENT après la row, JAMAIS dans .kc-msg (les
@@ -704,14 +838,55 @@
     }
     renderMd(m, text);
     row.appendChild(m);
+    // Horodatage (timestamps) : heure locale courante (HH:MM), placeholder non
+    // persisté — aucun stockage. Posé en textContent (anti-XSS).
+    const dsg = (state.config && state.config.design) || {};
+    if (dsg.timestamps === true) row.appendChild(el("div", "kc-time", nowHM()));
     ui.msgs.appendChild(row);
     if (msgId) ui.msgs.appendChild(rateRow(msgId));
     ui.msgs.scrollTop = ui.msgs.scrollHeight;
+    // Son (sound) : court « ping » de synthèse à l'arrivée d'un message bot, hors
+    // restauration (pas de boucle au boot). Garde-fous anti-autoplay dans playPing.
+    if (role === "bot" && !restore && dsg.sound === true) playPing();
     if (!restore) {
       if (!state.history) state.history = [];
       state.history.push({ r: role, t: text, g: tag || null });
       persistSession();
     }
+  }
+
+  // Heure locale HH:MM (24h) pour l'horodatage des messages.
+  function nowHM() {
+    const dt = new Date();
+    const h = dt.getHours(), mn = dt.getMinutes();
+    return (h < 10 ? "0" + h : h) + ":" + (mn < 10 ? "0" + mn : mn);
+  }
+
+  // « Ping » de synthèse (WebAudio, aucun asset) joué à la réception d'un
+  // message bot quand design.sound est actif. Tout est encapsulé dans un
+  // try/catch : un contexte audio suspendu (autoplay bloqué) ou indisponible
+  // ne doit JAMAIS interrompre le rendu.
+  let _audioCtx = null;
+  function playPing() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!_audioCtx) _audioCtx = new AC();
+      const ctx = _audioCtx;
+      if (ctx.state === "suspended" && ctx.resume) ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.24);
+    } catch (e) { /* autoplay bloqué / WebAudio indisponible : silencieux */ }
   }
 
   // --- CSAT (pouce haut/bas sous les réponses assistant ai|tree) ---
@@ -784,8 +959,10 @@
   function setTyping(on) {
     const typing = ui.msgs.querySelector(".kc-typing");
     if (on && !typing) {
-      let anim = (state.config.design || {}).loadingAnimation || "dots";
-      if (anim !== "wave" && anim !== "pulse") anim = "dots"; // whitelist (valeur libre -> className)
+      // Whitelist (valeur libre -> className) : dots (actuel) + wave/pulse +
+      // les trois nouvelles animations bars/ring/typing. Tout le reste -> dots.
+      const anim = safeEnum((state.config.design || {}).loadingAnimation,
+        ["dots", "wave", "pulse", "bars", "ring", "typing"], "dots");
       const wrap = el("div", "kc-typing" + (anim !== "dots" ? " " + anim : ""));
       const inner = el("div");
       inner.appendChild(el("span", "kc-td"));
@@ -837,7 +1014,7 @@
       .catch(function (err) {
         if (err.status === 401 || err.status === 404) {
           // Session expirée (401) ou widget coupé (404 : bot suspendu, org
-          // inactive) : retour SILENCIEUX au mode normal — JAMAIS le
+          // inactive) : retour SILENCIEUX au mode normal, JAMAIS le
           // re-handshake du retry-401 (il créerait une nouvelle conversation)
           stopPolling();
           state.chatStatus = "ai";
@@ -973,7 +1150,7 @@
 
   // CSAT : POST du pouce. SANS retry-401 (contrat « jamais de re-handshake »
   // hors envoi de message : un re-handshake créerait une NOUVELLE conversation
-  // et le message_id renverrait un 404 garanti — même philosophie que le
+  // et le message_id renverrait un 404 garanti, même philosophie que le
   // poll). Échec = rejet de la promesse, revert visuel silencieux côté bouton.
   function postFeedback(messageId, rating) {
     return api("/api/widget/feedback", {
@@ -1141,7 +1318,7 @@
     } else if (state.aiMode || state.config.mode === "ai") {
       if (ui.input) ui.input.focus(); // mode IA : saisie libre, pas de menu
     } else {
-      // Bot à menu : ré-affiche les options racine pour CONTINUER. Best-effort —
+      // Bot à menu : ré-affiche les options racine pour CONTINUER. Best-effort,
       // token expiré -> postMessage re-handshake une session serveur fraîche,
       // le fil visible restant préservé.
       sendNodeSilent("__root__");
@@ -1217,6 +1394,8 @@
         }
       }
       if (state.open && ui.badge) { ui.badge.style.display = "none"; }
+      // greeting : l'accroche disparaît dès la première ouverture (définitif)
+      if (ui.greet) { ui.greet.style.display = state.open ? "none" : ""; }
     }
     if (state.open) {
       cancelTriggers(); // panneau ouvert : plus aucun tir possible
@@ -1230,7 +1409,7 @@
 
   // --- Triggers proactifs ---
   // Évalués 100% côté client (timer, profondeur de scroll, intention de
-  // sortie, motif d'URL) à partir du bootstrap sanitisé — AUCUN appel serveur
+  // sortie, motif d'URL) à partir du bootstrap sanitisé, AUCUN appel serveur
   // au déclenchement : le tir ouvre le panneau (toggle -> startSession) puis
   // affiche le message en bulle locale. UN SEUL tir par chargement de page
   // (le premier annule les autres), jamais si le panneau est ouvert ou si le

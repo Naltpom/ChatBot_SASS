@@ -4,6 +4,7 @@ import { useAuth } from '../AuthContext'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { errMsg } from '../utils/errors'
 import HatIcon from '../components/HatIcon'
+import GoogleButton, { GOOGLE_ENABLED } from '../components/GoogleButton'
 
 const NAVY = '#1C3F5C'
 const INPUT_BASE: React.CSSProperties = {
@@ -28,7 +29,7 @@ function Check() {
 }
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, loginWithGoogle } = useAuth()
   const navigate = useNavigate()
   const isMobile = useIsMobile(760)
   const [email, setEmail] = useState('')
@@ -46,6 +47,19 @@ export default function Login() {
       navigate('/app')
     } catch (err: unknown) {
       setError(errMsg(err, 'Connexion impossible.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleGoogle(credential: string) {
+    setError('')
+    setBusy(true)
+    try {
+      await loginWithGoogle(credential)
+      navigate('/app')
+    } catch (err: unknown) {
+      setError(errMsg(err, 'Connexion Google impossible.'))
     } finally {
       setBusy(false)
     }
@@ -237,43 +251,17 @@ export default function Login() {
             </button>
           </form>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '22px 0' }}>
-            <span style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
-            <span style={{ fontSize: 12.5, color: '#9AA7B4' }}>ou</span>
-            <span style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
-          </div>
+          {GOOGLE_ENABLED && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '22px 0' }}>
+                <span style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
+                <span style={{ fontSize: 12.5, color: '#9AA7B4' }}>ou</span>
+                <span style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
+              </div>
 
-          <button
-            type="button"
-            onClick={() => {}}
-            style={{
-              width: '100%',
-              height: 46,
-              background: '#fff',
-              color: '#1E2A32',
-              border: '1px solid #D8DEE6',
-              borderRadius: 12,
-              fontWeight: 600,
-              fontSize: 14.5,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 9,
-              transition: 'border-color .2s',
-              fontFamily: 'inherit',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = NAVY }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = '#D8DEE6' }}
-          >
-            <svg width="17" height="17" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.5 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.9a5 5 0 01-2.2 3.3v2.7h3.5c2-1.9 3.3-4.7 3.3-7.9z" />
-              <path fill="#34A853" d="M12 23c2.9 0 5.4-1 7.2-2.7l-3.5-2.7c-1 .7-2.2 1-3.7 1-2.8 0-5.2-1.9-6.1-4.5H2.3v2.8A11 11 0 0012 23z" />
-              <path fill="#FBBC05" d="M5.9 14.1a6.6 6.6 0 010-4.2V7.1H2.3a11 11 0 000 9.8z" />
-              <path fill="#EA4335" d="M12 5.4c1.6 0 3 .5 4.1 1.6l3.1-3.1A11 11 0 002.3 7.1l3.6 2.8C6.8 7.3 9.2 5.4 12 5.4z" />
-            </svg>
-            Continuer avec Google
-          </button>
+              <GoogleButton onCredential={handleGoogle} onError={setError} />
+            </>
+          )}
 
           <p style={{ textAlign: 'center', fontSize: 14, color: '#6B7B8D', margin: '24px 0 0' }}>
             Pas encore de compte ?{' '}

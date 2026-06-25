@@ -1,5 +1,6 @@
 """Auth dashboard : inscription perso/entreprise (+ invitations), login
-(intranet -> local), auto-login admin en dev, profil (nom, mot de passe)."""
+(intranet -> local), SSO Google, auto-login admin en dev, profil (nom, mdp)."""
+import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -26,9 +27,13 @@ from src.models.user import (
     UserOut,
     UserRegister,
 )
+from src.core.time import utcnow
 from src.services.auth_service import AuthenticationError, authenticate
+from src.services.avatar import fetch_and_store_avatar
+from src.services.google_oauth import GoogleAuthError, verify_google_id_token
 from src.services.org_service import consume_invitations
 from src.services.rate_limit import auth_limiter
+from src.services.stripe_service import billing_enabled
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -42,12 +47,18 @@ async def _check_auth_rate(request: Request) -> None:
 
 
 async def _user_out(db: AsyncSession, user: User) -> UserOut:
-    """UserOut avec organisations + role + permissions par bot du user."""
+    """UserOut avec organisations + role + permissions par bot du user.
+
+    Pose aussi les champs facturation (spec §1.3, corrige C2) :
+    - `is_owner` par org (`org.owner_user_id == user.id`) ;
+    - `owned_org_ids` (orgs possedees, derivees des `is_owner`) ;
+    - `billing_enabled` (calcule serveur, pilote l'affichage front)."""
     out = UserOut.model_validate(user)
     if user.is_superadmin:
         orgs = (await db.execute(select(Organization).order_by(Organization.name))).scalars().all()
         out.organizations = [
-            OrgOut(id=o.id, name=o.name, role="admin", permissions={})
+            OrgOut(id=o.id, name=o.name, role="admin", permissions={},
+                   is_owner=(o.owner_user_id == user.id))
             for o in orgs
         ]
     else:
@@ -59,9 +70,12 @@ async def _user_out(db: AsyncSession, user: User) -> UserOut:
         )).all()
         out.organizations = [
             OrgOut(id=o.id, name=o.name,
-                   role=m.role, permissions=m.permissions or {})
+                   role=m.role, permissions=m.permissions or {},
+                   is_owner=(o.owner_user_id == user.id))
             for o, m in rows
         ]
+    out.owned_org_ids = [o.id for o in out.organizations if o.is_owner]
+    out.billing_enabled = billing_enabled()
     return out
 
 
@@ -86,7 +100,10 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
     # appartiendront directement a lui (Bot.owner_user_id). Entreprise = une
     # organisation (equipe) creee avec le createur en admin + invitations.
     if body.account_type == "entreprise":
-        org = Organization(name=(body.organization_name or "").strip()[:120])
+        # Owner d'org = createur (payeur des bots d'equipe, spec §1.2 a). Il est
+        # TOUJOURS membre admin (invariant §1.2 d, pose juste apres le flush).
+        org = Organization(name=(body.organization_name or "").strip()[:120],
+                           owner_user_id=user.id)
         db.add(org)
         await db.flush()
         db.add(Membership(user_id=user.id, organization_id=org.id, role="admin", permissions={}))
@@ -118,6 +135,51 @@ async def login(body: UserLogin, request: Request, db: AsyncSession = Depends(ge
         user = await authenticate(db, body.email.lower().strip(), body.password)
     except AuthenticationError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e))
+    return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
+
+
+class GoogleAuthPayload(BaseModel):
+    credential: str  # ID token JWT renvoyé par Google Identity Services (front)
+
+
+@router.post("/google", response_model=TokenOut)
+async def google_login(body: GoogleAuthPayload, request: Request,
+                       db: AsyncSession = Depends(get_db)):
+    """SSO Google (flux ID token). Connecte un compte existant (rapprochement
+    par email) ou en crée un PERSO (sans organisation), comme une inscription
+    perso. Désactivé (401) tant que GOOGLE_CLIENT_ID n'est pas configuré."""
+    await _check_auth_rate(request)
+    try:
+        claims = await verify_google_id_token(body.credential)
+    except GoogleAuthError as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e))
+
+    email = claims["email"].lower().strip()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is None:
+        # Création perso : aucune org, aucun membership (cf. register perso). Pas
+        # de mot de passe utilisable -> on hash un secret aléatoire (la colonne
+        # est NOT NULL ; la connexion par mot de passe reste donc impossible).
+        name = (claims.get("name") or email.split("@")[0]).strip()[:120] or email
+        avatar = await fetch_and_store_avatar(claims.get("picture"))
+        user = User(email=email, hashed_password=hash_password(secrets.token_urlsafe(32)),
+                    name=name, auth_source="google", avatar_url=avatar)
+        db.add(user)
+        await db.flush()
+        # Un nouvel arrivant peut avoir des invitations d'équipe en attente.
+        await consume_invitations(db, user)
+    elif not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Compte désactivé")
+    elif not user.avatar_url:
+        # Backfill ponctuel : on récupère la photo une seule fois (compte créé
+        # avant cette feature, ou avatar vide). Pas à chaque login -> évite
+        # d'accumuler des fichiers orphelins. Une photo Google modifiée plus
+        # tard ne se propage donc pas (compromis v1 assumé).
+        user.avatar_url = await fetch_and_store_avatar(claims.get("picture"))
+
+    user.last_login = utcnow()
+    await db.commit()
+    await db.refresh(user)
     return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
 
 

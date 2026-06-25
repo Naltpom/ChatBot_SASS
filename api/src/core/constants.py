@@ -33,3 +33,43 @@ VISITOR_SOURCES: tuple[str, ...] = ("ai", "tree")
 #   - api/src/services/tree_generator.py    (GENERATION_MODEL, ~19)
 #   - api/src/services/insights_service.py  (INSIGHTS_MODEL, ~20)
 TREE_INSIGHTS_MODEL: str = "claude-sonnet-4-6"
+
+
+# --- Modules d'entitlement (facturation modulaire — spec §3.1, D4) --------
+#
+# UN seul jeu de clés de modules, partagé backend/front (parité catalogue
+# `billing-catalog-parity.spec.ts`). Ce sont des CLES D'ENTITLEMENT, PAS des
+# permissions : ne JAMAIS les ajouter à BOT_PERMS / FIELD_PERMS (sinon
+# `permissions-parity.spec.ts` casse).
+MODULE_AI = "ai"
+MODULE_INBOX = "inbox"
+MODULE_RAG = "rag"
+MODULE_ACTIONS = "actions"
+MODULE_MCP = "mcp"
+MODULE_AB = "ab"
+MODULE_WHITELABEL = "white_label"
+
+# Tuple (ordre stable et immuable) : source canonique de la parité front.
+MODULE_KEYS: tuple[str, ...] = (
+    MODULE_AI,
+    MODULE_INBOX,
+    MODULE_RAG,
+    MODULE_ACTIONS,
+    MODULE_MCP,
+    MODULE_AB,
+    MODULE_WHITELABEL,
+)
+
+# Mapping explicite des codes catalogue (billing_products.code) vers le module
+# d'entitlement qu'ils activent. mod_ai et mod_ai_byok activent tous deux le
+# module IA (BYOK = variante forfait non métrée).
+CODE_TO_MODULE: dict[str, str] = {
+    "mod_ai": MODULE_AI,
+    "mod_ai_byok": MODULE_AI,
+    "mod_inbox": MODULE_INBOX,
+    "mod_rag": MODULE_RAG,
+    "mod_actions": MODULE_ACTIONS,
+    "mod_mcp": MODULE_MCP,
+    "mod_ab": MODULE_AB,
+    "mod_whitelabel": MODULE_WHITELABEL,
+}

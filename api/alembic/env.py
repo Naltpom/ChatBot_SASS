@@ -29,6 +29,7 @@ import src.models.conversation  # noqa: F401
 import src.models.lead  # noqa: F401
 import src.models.kb  # noqa: F401
 import src.models.analytics  # noqa: F401
+import src.models.billing  # noqa: F401   # BotEntitlement, BillingSubscription, BillingProduct, BillingWebhookEvent, BotUsageCounter
 
 config = context.config
 

@@ -40,6 +40,25 @@ export function clampInt(v: any, min: number, max: number, fallback: number): nu
   return isNaN(n) ? fallback : Math.min(max, Math.max(min, n))
 }
 
+// Validation d'une couleur hex (#rgb | #rrggbb) — miroir de safeColor (widget.js)
+// pour accentColor. Toute valeur non conforme retombe sur le fallback.
+const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+export function safeHex(v: any, fallback: string): string {
+  return typeof v === 'string' && HEX_RE.test(v.trim()) ? v.trim() : fallback
+}
+
+// Multiplicateur de taille de texte (clé textScale) — mêmes facteurs que widget.js.
+export const TEXT_SCALE: Record<string, number> = { sm: 0.92, md: 1, lg: 1.1 }
+
+// Heure statique HH:MM pour l'horodatage simulé (clé timestamps). Pas de
+// persistance : parité visuelle seule (placeholder, comme dans widget.js).
+export function nowHHMM(): string {
+  const dt = new Date()
+  const h = String(dt.getHours()).padStart(2, '0')
+  const m = String(dt.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
 // Tokens visuels résolus une fois dans WidgetPreview puis passés aux
 // sous-composants présentationnels (évite de repropager 20 props).
 export interface PreviewStyle {
@@ -57,6 +76,13 @@ export interface PreviewStyle {
   mutedText: string
   panelBg: string
   anim: string
+  // --- Refonte Apparence (clés additives, défauts = rendu actuel) ---
+  accent: string         // couleur des boutons/options/envoi (accentColor || brand)
+  scale: number          // multiplicateur de taille de texte (textScale)
+  tail: boolean          // ergot des bulles (bubbleTail), false = coins égaux
+  optBtn: boolean        // quickReplyStyle === 'button' (option rectangulaire pleine largeur)
+  timestamps: boolean    // horodatage sous les bulles
+  ts: string             // heure statique HH:MM (placeholder)
 }
 
 export type T = (k: string) => string

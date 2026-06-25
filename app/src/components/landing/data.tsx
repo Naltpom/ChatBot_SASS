@@ -39,7 +39,7 @@ export const Check = ({ stroke = '#2F9E79', w = 2.2, size = 16 }: { stroke?: str
 // ---- Piliers ---------------------------------------------------------------
 export type Pilier = { bg: string; co: string; t: string; d: string; icon: React.ReactNode }
 export const PILIERS: Pilier[] = [
-  { bg: 'rgba(47,158,121,.12)', co: '#2F9E79', t: '100% gratuit', d: 'Toutes les fonctionnalités incluses, sans carte bancaire ni facture surprise.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" /><path d="M14.5 9.4a3.2 3.2 0 100 5.2M8 11h4.5M8 13.2h3.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg> },
+  { bg: 'rgba(47,158,121,.12)', co: '#2F9E79', t: 'Sans engagement', d: 'Essai 7 jours, puis un tarif clair par bot. Annulable à tout moment, sans surprise.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" /><path d="M14.5 9.4a3.2 3.2 0 100 5.2M8 11h4.5M8 13.2h3.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg> },
   { bg: 'rgba(47,158,121,.12)', co: '#2F9E79', t: 'RGPD par défaut', d: 'Hébergement français, données locales. Conforme sans la moindre configuration.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 2.6v5.2c0 4.4-3 7.4-7 8.9-4-1.5-7-4.5-7-8.9V5.6z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><path d="M9 12l2 2 4-4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> },
   { bg: 'rgba(140,109,255,.12)', co: '#8C6DFF', t: 'Installation 1 minute', d: 'Une seule balise <script> à coller. Aucun autre réglage requis.', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M9 7l-4.5 5L9 17M15 7l4.5 5L15 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> },
   { bg: 'rgba(232,106,95,.12)', co: '#E86A5F', t: 'Relais humain', d: "Bascule fluide vers un conseiller quand l'humain fait la différence.", icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 6h16v10H9l-4 3.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><circle cx="12" cy="11" r="2.2" stroke="currentColor" strokeWidth="1.8" /></svg> },
@@ -49,7 +49,7 @@ export const PILIERS: Pilier[] = [
 export type Cell = { kind: 'ok' | 'warn' | 'no'; label: string; strong?: boolean }
 export type CmpRow = { label: string; badge?: string; chapote: Cell; ia: Cell; classic: Cell }
 export const CMP_ROWS: CmpRow[] = [
-  { label: '100% gratuit', chapote: { kind: 'ok', label: 'Tout inclus' }, ia: { kind: 'warn', label: "Coût à l'usage" }, classic: { kind: 'no', label: 'Masse salariale' } },
+  { label: 'Tarif transparent', chapote: { kind: 'ok', label: 'Prix par bot, net' }, ia: { kind: 'warn', label: "Coût à l'usage" }, classic: { kind: 'no', label: 'Masse salariale' } },
   { label: 'RGPD & hébergement FR', chapote: { kind: 'ok', label: 'Français, natif' }, ia: { kind: 'no', label: 'Souvent hors UE' }, classic: { kind: 'warn', label: "Selon l'outil" } },
   { label: 'Installation', chapote: { kind: 'ok', label: '1 balise, 1 min' }, ia: { kind: 'warn', label: 'Config requise' }, classic: { kind: 'no', label: 'Projet long' } },
   { label: 'Relais humain', chapote: { kind: 'ok', label: 'Bascule fluide' }, ia: { kind: 'no', label: 'Aucun' }, classic: { kind: 'ok', label: 'Oui, mais lent' } },
@@ -59,9 +59,9 @@ export const CMP_ROWS: CmpRow[] = [
 // ---- Témoignages -----------------------------------------------------------
 export type Testi = { stars: number; q: string; av: string; bg: string; name: string; role: string }
 export const TESTIS: Testi[] = [
-  { stars: 5, q: '« On a divisé par 3 notre volume de tickets de niveau 1 — et c\'est gratuit. »', av: 'LM', bg: '#1C3F5C', name: 'Léa Mercier', role: 'Head of Support · Velobird' },
+  { stars: 5, q: '« On a divisé par 3 notre volume de tickets de niveau 1 — pour un tarif dérisoire face au gain. »', av: 'LM', bg: '#1C3F5C', name: 'Léa Mercier', role: 'Head of Support · Velobird' },
   { stars: 5, q: '« L\'installation a pris deux minutes. Le relais humain reste fluide — nos clients ne voient pas la couture. »', av: 'KB', bg: '#2F9E79', name: 'Karim Benali', role: 'CTO · Maison Lou' },
-  { stars: 5, q: '« Enfin un chatbot gratuit ET conforme RGPD. L\'hébergement français a débloqué notre service juridique. »', av: 'SD', bg: '#E86A5F', name: 'Sophie Dubois', role: 'COO · Nordia' },
+  { stars: 5, q: '« Enfin un chatbot au tarif clair ET conforme RGPD. L\'hébergement français a débloqué notre service juridique. »', av: 'SD', bg: '#E86A5F', name: 'Sophie Dubois', role: 'COO · Nordia' },
 ]
 
 export const LOGOS = ['Velobird', 'Maison Lou', 'Nordia', 'Fika&Co', 'Atelier 9']

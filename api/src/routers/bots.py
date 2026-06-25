@@ -4,6 +4,8 @@ snippets d'integration (script HTML, iframe, GTM).
 
 Les helpers d'acces/permission et la validation metier des champs riches sont
 factorises dans routers/bots_helpers.py (partages avec inbox.py et kb.py)."""
+import calendar
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -14,7 +16,16 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.billing_keys import _bot_limiter_key, billing_owner_user_id
 from src.core.config import settings
+from src.core.constants import (
+    MODULE_ACTIONS,
+    MODULE_AB,
+    MODULE_AI,
+    MODULE_KEYS,
+    MODULE_MCP,
+    MODULE_WHITELABEL,
+)
 from src.core.database import get_db
 from src.core.security import (
     get_current_user,
@@ -24,6 +35,7 @@ from src.core.security import (
 )
 from src.core.time import utcnow
 from src.models.analytics import InsightsReport, InsightsReportOut
+from src.models.billing import BillingSubscription, BotEntitlement
 from src.models.bot import Bot, BotCreate, BotOut, BotUpdate
 from src.models.conversation import Conversation, Message
 from src.models.lead import Lead, LeadOut
@@ -42,20 +54,22 @@ from src.routers.bots_helpers import (
     attach_week_stats,
 )
 from src.services.crypto import encrypt_secret
+from src.services.entitlement_service import gate, resolve
 from src.services.rate_limit import insights_limiter, treegen_limiter
+from src.services.stripe_service import StripeError, billing_enabled, update_subscription_items
 from src.services.tree_engine import TreeError, validate_tree
 from src.services.usage_service import bots_week_stats, bots_week_stats_for_ids
 
 router = APIRouter(prefix="/api", tags=["bots"])
 
+logger = logging.getLogger("billing")
 
-def _bot_limiter_key(bot: Bot) -> str:
-    """Cle de rate-limit IA (treegen/insights) : par organisation pour un bot
-    d'equipe, par utilisateur proprietaire pour un bot perso."""
-    return f"org:{bot.organization_id}" if bot.organization_id else f"user:{bot.owner_user_id}"
+# `_bot_limiter_key` vit desormais dans core/billing_keys (scope partage
+# rate-limit IA + facturation, spec §2.5). Importe ci-dessus, reexporte pour
+# les appelants historiques (treegen/insights ci-dessous) sans changer leur API.
 
 
-# --- Meta : sources canoniques des permissions (lecture seule) ---
+# --- Meta : sources canoniques des permissions / catalogue (lecture seule) ---
 
 @router.get("/meta/permissions")
 async def permissions_meta(user: User = Depends(get_current_user)):
@@ -66,6 +80,24 @@ async def permissions_meta(user: User = Depends(get_current_user)):
     Sert au front a verifier la parite avec ses propres tables (anti-divergence).
     Auth dashboard requise, comme les autres routes du router."""
     return {"bot_perms": BOT_PERMS, "field_perms": FIELD_PERMS}
+
+
+@router.get("/meta/billing-catalog")
+async def billing_catalog_meta(user: User = Depends(get_current_user)):
+    """Source canonique FIGEE de la facturation modulaire (spec §7.2) — sert a
+    la parite `billing-catalog-parity.spec.ts` (calque permissions-parity).
+
+    Ce sont les CLES (modules, axes metres, formats de facture), pas les prix :
+    les montants/labels variables vivent dans `billing_products` et sont exposes
+    par GET /api/billing/catalog. Ici, ordre stable depuis core/constants.py
+    (MODULE_KEYS) -> comparaison toEqual stricte cote e2e. Aucun effet sur
+    l'enforcement (lecture seule, auth dashboard comme /meta/permissions)."""
+    return {
+        "modules": list(MODULE_KEYS),
+        "metered_axes": [MODULE_AI],
+        "byok_excludes_metering": True,
+        "billing_grouping_options": ["per_bot", "total", "per_org"],
+    }
 
 
 # --- Mes bots (ownership polymorphe : perso + equipes) ---
@@ -89,6 +121,7 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
     )).scalars().all()
 
     week = await bots_week_stats_for_ids(db, {b.id for b in bots})
+    billing = await _billing_status_for_bots(db, [b.id for b in bots])
 
     out = []
     for b in bots:
@@ -99,8 +132,60 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
         else:
             membership = None if user.is_superadmin else by_org.get(b.organization_id)
         bo = _mask_bot_out(BotOut.from_bot(b), user, membership, b)
+        bo.billing_status, bo.trial_end = billing.get(b.id, (None, None))
         out.append(attach_week_stats(bo, b.id, week))
     return out
+
+
+async def _billing_status_for_bots(
+    db: AsyncSession, bot_ids: list[int]
+) -> dict[int, tuple[str | None, int | None]]:
+    """billing_status + trial_end (epoch s) par bot, pour le badge front (regle 4).
+
+    INVARIANT billing OFF (D0) : billing_enabled()==False -> {} (tous les bots
+    ressortent (None, None), aucun badge). Sinon on lit les bot_entitlements en
+    UN seul select : status = le statut de la ligne (trialing|active|past_due|
+    inactive), un bot sans ligne (legacy/dev) reste None. trial_end n'est porte
+    que pour un status='trialing'."""
+    if not billing_enabled() or not bot_ids:
+        return {}
+    rows = (await db.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id.in_(bot_ids))
+    )).scalars().all()
+    out: dict[int, tuple[str | None, int | None]] = {}
+    for row in rows:
+        status_ = row.status if row.status in (
+            "trialing", "active", "past_due", "inactive") else None
+        trial_end: int | None = None
+        if row.status == "trialing" and row.trial_end is not None:
+            trial_end = calendar.timegm(row.trial_end.utctimetuple())
+        out[row.bot_id] = (status_, trial_end)
+    return out
+
+
+async def _seed_pending_entitlement(db: AsyncSession, bot_id: int) -> None:
+    """A la creation d'un bot, billing ACTIF : pose un entitlement EN ATTENTE de
+    Checkout (`status='inactive'`, `modules=[]`, aucun quota IA).
+
+    Modèle d'essai AVEC CARTE : il n'y a plus d'essai gratuit créé à la création du
+    bot. L'essai = un abonnement Stripe `trialing` ouvert via le Checkout (carte
+    requise) ; tant que l'owner n'a pas validé le Checkout, le bot est GATÉ (le
+    resolver dégrade tous les modules pour un status='inactive'). On NE pose donc
+    SURTOUT PAS un état débloqué/gratuit ici.
+
+    Billing OFF -> on ne cree RIEN : le resolver renvoie ALL_UNLOCKED (RÈGLE 1,
+    invariant D0 — app 100 % gratuite). Un bot sans entitlement reste gratuit
+    (RÈGLE 2). A commiter par l'appelant (le bot vient d'etre commit)."""
+    if not billing_enabled():
+        return
+    db.add(BotEntitlement(
+        bot_id=bot_id,
+        modules=[],
+        ai_monthly_quota=0,
+        status="inactive",   # gaté tant que le Checkout (essai avec carte) n'a pas eu lieu
+        source="stripe",
+    ))
+    await db.commit()
 
 
 @router.post("/bots", response_model=BotOut)
@@ -113,11 +198,77 @@ async def create_personal_bot(body: BotCreate, db: AsyncSession = Depends(get_db
     db.add(bot)
     await db.commit()
     await db.refresh(bot)
+    await _seed_pending_entitlement(db, bot.id)
     return BotOut.from_bot(bot)
 
 
 class MoveRequest(_BaseModel):
     organization_id: int
+
+
+async def _billing_on_move_payer_change(db: AsyncSession, bot_id: int,
+                                        old_scope_key: str, new_scope_key: str) -> None:
+    """Hook billing au move perso->equipe quand le PAYEUR change (spec §4.3, D2).
+
+    No-op si billing OFF, ou si le payeur ne change pas (meme owner avant/apres).
+    Sinon, cote ancien payeur : retirer les items de ce bot de ses subscriptions
+    (proration credit cote Stripe, best-effort). Cote nouveau payeur : tant qu'il
+    n'a pas regularise (pas de sub couvrant le bot), poser l'entitlement en GRACE
+    (`status='past_due'`) -> le resolver degrade les modules payants sans casser
+    le socle gratuit. La (re)souscription chez le nouveau payeur passe ensuite par
+    le configurateur / le webhook (volet grouping §4).
+
+    Defensif : toute erreur Stripe est avalee (le move ne doit jamais echouer a
+    cause de la facturation) ; l'etat local reste coherent (grace + items retires)."""
+    if not billing_enabled():
+        return
+    old_owner = await billing_owner_user_id(old_scope_key, db)
+    new_owner = await billing_owner_user_id(new_scope_key, db)
+    if old_owner is not None and old_owner == new_owner:
+        return  # meme payeur : rien a re-facturer
+
+    # (a) Retirer le bot des subscriptions de l'ancien payeur.
+    if old_owner is not None:
+        subs = (await db.execute(
+            select(BillingSubscription).where(BillingSubscription.user_id == old_owner)
+        )).scalars().all()
+        for sub in subs:
+            items = list(sub.raw_items or [])
+            kept = [it for it in items if it.get("bot_id") != bot_id]
+            if len(kept) == len(items):
+                continue  # ce bot n'etait pas porte par cette sub
+            # Items cibles = ceux qu'on garde (on porte si_id pour aligner sans
+            # recreer cote Stripe) ; liste vide -> update_subscription_items
+            # resilie la sub (Stripe refuse une sub sans item, garde §2.4/D4).
+            target = [{"id": it.get("si_id"), "price": it.get("price_id"),
+                       "quantity": it.get("qty", 1)}
+                      for it in kept if it.get("price_id")]
+            try:
+                # 0 item cible -> update_subscription_items resilie la sub (Stripe
+                # refuse une sub sans item) ; sinon proration credit.
+                await update_subscription_items(
+                    sub.stripe_subscription_id, target,
+                    proration_behavior="create_prorations",
+                )
+            except StripeError:
+                logger.warning("billing.move: maj sub %s echouee (ignoree)",
+                               sub.stripe_subscription_id)
+            sub.raw_items = kept
+            if not kept:
+                sub.status = "canceled"
+
+    # (b) Cote nouveau payeur : bot en grace jusqu'a regularisation.
+    ent = (await db.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
+    )).scalar_one_or_none()
+    if ent is None:
+        ent = BotEntitlement(bot_id=bot_id, source="stripe")
+        db.add(ent)
+    ent.modules = []
+    ent.ai_monthly_quota = 0
+    ent.status = "past_due"  # grace : modules payants degrades, socle gratuit OK
+    ent.synced_at = utcnow()
+    await db.commit()
 
 
 @router.post("/bots/{bot_id}/move", response_model=BotOut)
@@ -143,10 +294,17 @@ async def move_bot_to_org(bot_id: int, body: MoveRequest,
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organisation introuvable")
 
+    # Scopes de facturation AVANT/APRES (spec §2.5) : perso=user:{owner} ->
+    # equipe=org:{id}. Si le payeur change, on rebascule la facturation (hook §4.3).
+    old_scope_key = _bot_limiter_key(bot)
+
     bot.organization_id = body.organization_id
     bot.owner_user_id = None
     await db.commit()
     await db.refresh(bot)
+
+    await _billing_on_move_payer_change(db, bot.id, old_scope_key,
+                                        _bot_limiter_key(bot))
     return BotOut.from_bot(bot)
 
 
@@ -177,6 +335,7 @@ async def create_bot(org_id: int, body: BotCreate, db: AsyncSession = Depends(ge
     db.add(bot)
     await db.commit()
     await db.refresh(bot)
+    await _seed_pending_entitlement(db, bot.id)
     return BotOut.from_bot(bot)
 
 
@@ -248,13 +407,81 @@ def _normalize_handoff_url(data: dict) -> None:
             data["handoff_webhook_url"] = url
 
 
-def _apply_secrets(bot: Bot, data: dict) -> None:
+async def _apply_secrets(bot: Bot, data: dict, ent) -> None:
     """Secrets en clair a l'entree : chiffres au stockage, jamais renvoyes en
-    clair. Retires (pop) de data pour ne pas finir dans la boucle setattr."""
+    clair. Retires (pop) de data pour ne pas finir dans la boucle setattr.
+
+    Garde BYOK (spec §3.5, corrige D5) : passer un bot en `api_key_mode='byok'`
+    exige l'entitlement variante `mod_ai_byok` (module IA). MAIS un bot gratuit
+    ne doit jamais etre bloque : si le billing est OFF (billing_enabled()==False)
+    OU si le bot n'a pas d'entitlement (legacy/dev), le resolver renvoie
+    ALL_UNLOCKED (status active, IA presente) ⇒ `has_module(ent, MODULE_AI)`
+    True ⇒ aucun blocage. La garde ne mord donc que sur un bot reellement gere
+    par le billing qui n'a pas souscrit l'IA."""
+    if data.get("api_key_mode") == "byok":
+        # gate -> 402 si module IA absent (et BILLING_ENFORCE actif). En mode
+        # observe ou billing OFF, no-op (comportement actuel preserve).
+        gate(ent, MODULE_AI)
     if "byok_key" in data:
         bot.byok_key_encrypted = encrypt_secret(data.pop("byok_key"))
     if "captcha_secret" in data:
         bot.captcha_secret_encrypted = encrypt_secret(data.pop("captcha_secret"))
+
+
+def _enforce_config_modules(bot: Bot, data: dict, ent) -> None:
+    """Enforcement CONFIG des modules forfaitaires au PATCH (spec §3.3).
+
+    Check d'entitlement AVANT l'effet : modifier une capacite payante d'un bot
+    non souscrit -> 402 (mode enforce) ou log-only (mode observe). Billing OFF /
+    bot sans entitlement -> ALL_UNLOCKED -> `gate` no-op (invariant D0).
+
+    - Module IA : toucher `mode` (ai|hybrid) / `system_prompt` / `ai_provider`
+      / `ai_model` -> MODULE_AI.
+    - Module Actions : `actions_json` non vide -> MODULE_ACTIONS (webhooks /
+      capture de leads / tickets / créneaux : exécutables dans un arbre SANS IA).
+    - Module MCP : `mcp_servers_json` non vide -> MODULE_MCP (serveurs MCP appelés
+      par l'IA).
+    - Module A/B : `tree_variant_json` non null OU `ab_split_pct>0` -> MODULE_AB.
+    - Module White-label : `design_json.poweredBy` mis a FALSY (retrait du badge
+      « Powered by ») -> MODULE_WHITELABEL. Les autres champs d'apparence
+      (couleurs, polices...) restent GRATUITS (socle apparence libre).
+
+    Partage par le PATCH et l'import de config (meme gate, meme 402).
+    """
+    # --- IA ---
+    touches_ai = (
+        ("mode" in data and data["mode"] in ("ai", "hybrid"))
+        or "system_prompt" in data
+        or "ai_provider" in data
+        or "ai_model" in data
+    )
+    if touches_ai:
+        gate(ent, MODULE_AI)
+
+    # --- Actions --- (webhooks/leads/tickets/créneaux : exécutables SANS IA)
+    if data.get("actions_json"):
+        gate(ent, MODULE_ACTIONS)
+    # --- MCP --- (serveurs MCP appelés par l'IA)
+    if data.get("mcp_servers_json"):
+        gate(ent, MODULE_MCP)
+
+    # --- A/B --- tree_variant_json non-null = variante active ; ab_split_pct>0 =
+    # split actif. _strip_notnull_nulls a deja retire un ab_split_pct null ; un
+    # tree_variant_json explicitement null = desactivation (jamais gate).
+    variant_set = data.get("tree_variant_json") is not None and "tree_variant_json" in data
+    split_set = isinstance(data.get("ab_split_pct"), int) and data["ab_split_pct"] > 0
+    if variant_set or split_set:
+        gate(ent, MODULE_AB)
+
+    # --- White-label --- retirer le badge « Powered by » (poweredBy falsy dans le
+    # design entrant) exige le module. SEUL poweredBy=false est gate : toutes les
+    # autres cles d'apparence (couleurs, police, themes...) restent gratuites.
+    # SEUL un retrait explicite est gate (la cle doit etre presente ET falsy) ;
+    # garder poweredBy=true, ou ne pas toucher au design, ne gate jamais. Belt &
+    # suspenders : widget.py force poweredBy=true au bootstrap sans le module.
+    design = data.get("design_json")
+    if isinstance(design, dict) and "poweredBy" in design and not design["poweredBy"]:
+        gate(ent, MODULE_WHITELABEL)
 
 
 def _merge_rich_collections(bot: Bot, data: dict) -> None:
@@ -277,6 +504,13 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
 
     _strip_notnull_nulls(data)
     _enforce_field_perms(user, membership, bot, data)
+
+    # Enforcement CONFIG des modules forfaitaires (spec §3.3) : check
+    # d'entitlement AVANT toute mutation. Resolver -> ALL_UNLOCKED si billing OFF
+    # ou bot sans entitlement (invariant D0 : aucun gating, 32 e2e verts).
+    ent = await resolve(db, bot)
+    _enforce_config_modules(bot, data, ent)
+
     _validate_trees(bot, data)
 
     # Triggers proactifs : validation metier (types, bornes, messages)
@@ -284,7 +518,7 @@ async def update_bot(bot_id: int, body: BotUpdate, db: AsyncSession = Depends(ge
         _check_triggers(data["triggers_json"])
 
     _normalize_handoff_url(data)
-    _apply_secrets(bot, data)
+    await _apply_secrets(bot, data, ent)
     _merge_rich_collections(bot, data)
 
     for field, value in data.items():
@@ -348,6 +582,21 @@ async def import_config(bot_id: int, config: dict[str, Any], db: AsyncSession = 
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     # Permission par champ effectivement importe (meme mapping/boucle que le PATCH)
     _enforce_field_perms(user, membership, bot, {f: config[f] for f in CONFIG_FIELDS if f in config})
+
+    # Enforcement CONFIG des modules forfaitaires (spec §3.3) — MEME garde que le
+    # PATCH, AVANT toute persistance (sinon l'import etait un bypass : on importait
+    # une config IA/Actions/MCP/A-B/white-label sans posseder le module). Resolver
+    # -> ALL_UNLOCKED si billing OFF ou bot sans entitlement (invariant D0 : aucun
+    # gating). On passe au gate l'ensemble des champs gates presents dans le fichier
+    # importe (defensif : couvre meme un champ hors CONFIG_FIELDS si le format
+    # d'export evolue), avec les memes cles que le PATCH (model_dump de BotUpdate).
+    _GATED_IMPORT_FIELDS = ("mode", "system_prompt", "ai_provider", "ai_model",
+                            "design_json", "actions_json", "mcp_servers_json",
+                            "tree_variant_json", "ab_split_pct")
+    gated_in = {f: config[f] for f in _GATED_IMPORT_FIELDS if f in config}
+    ent = await resolve(db, bot)
+    _enforce_config_modules(bot, gated_in, ent)
+
     if "tree_json" in config:
         # null inclus -> 422 (comme avant : _vt sans garde None interne)
         _vt(config["tree_json"])
