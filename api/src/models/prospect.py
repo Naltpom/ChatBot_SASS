@@ -20,6 +20,9 @@ from src.core.time import utcnow
 # Statuts du cycle de vie d'un prospect.
 PROSPECT_STATUSES = ("found", "enriched", "drafted", "sent", "rejected")
 
+# Decisions de l'operateur sur un prospect score par l'IA (apprentissage few-shot).
+PROSPECT_DECISIONS = ("accepted", "rejected")
+
 
 class Prospect(Base):
     __tablename__ = "prospects"
@@ -46,6 +49,16 @@ class Prospect(Base):
     # Les colonnes scalaires ci-dessus restent les valeurs « principales »
     # retenues pour le flux email.
     enrichment = Column(JSON, nullable=True)
+
+    # Scoring IA (proba de besoin 0..100) + feedback de l'operateur. Le detail
+    # du scoring (formule/modules/integrations recommandes) vit dans
+    # enrichment['scoring'] ; fit_score est denormalise ici pour tri/index.
+    fit_score = Column(Integer, nullable=True, index=True)
+    decision = Column(String, nullable=True, index=True)  # 'accepted' | 'rejected' | None
+    decision_reason = Column(Text, nullable=True)
+    decision_at = Column(DateTime, nullable=True)
+    # Critere/requete de decouverte qui a fait surgir ce prospect.
+    discovery_query = Column(String, nullable=True)
 
     # Brouillon d'email de prospection (IA), editable par le superadmin.
     email_subject = Column(Text, nullable=True)
@@ -75,6 +88,11 @@ class ProspectOut(BaseModel):
     site_summary: str | None = None
     has_existing_chatbot: bool | None = None
     enrichment: dict | None = None
+    fit_score: int | None = None
+    decision: str | None = None
+    decision_reason: str | None = None
+    decision_at: datetime | None = None
+    discovery_query: str | None = None
     email_subject: str | None = None
     email_body: str | None = None
     status: str

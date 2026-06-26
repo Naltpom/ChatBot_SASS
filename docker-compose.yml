@@ -92,6 +92,9 @@ services:
       - PROSPECT_CRAWL_MAX_PAGES=${PROSPECT_CRAWL_MAX_PAGES:-6}
       - PROSPECT_CRAWL_MAX_REDIRECTS=${PROSPECT_CRAWL_MAX_REDIRECTS:-4}
       - PROSPECT_FETCH_MAX_BYTES=${PROSPECT_FETCH_MAX_BYTES:-300000}
+      # Brave Search (découverte web à la demande). Vide = web off, repli SIRENE.
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY:-}
+      - PROSPECT_DISCOVER_MAX=${PROSPECT_DISCOVER_MAX:-10}
       # 2FA (TOTP + WebAuthn/passkeys). RP_ID dérivé de APP_URL si vide (host).
       # En dev (ENV=dev) l'enforcement admin ne mord pas : auto-login conservé.
       - TWOFA_ISSUER=${TWOFA_ISSUER:-Chapote}
