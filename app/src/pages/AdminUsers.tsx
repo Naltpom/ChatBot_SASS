@@ -56,7 +56,8 @@ export default function AdminUsers() {
       </SectionTitle>
 
       <Card nopad>
-        <table className="kc">
+        <div className="table-scroll">
+<table className="kc">
           <thead>
             <tr>
               <th>Utilisateur</th><th>Authentification</th><th>Rôle</th><th>Statut</th><th>Dernière connexion</th>
@@ -86,6 +87,7 @@ export default function AdminUsers() {
             )}
           </tbody>
         </table>
+</div>
       </Card>
     </div>
   )

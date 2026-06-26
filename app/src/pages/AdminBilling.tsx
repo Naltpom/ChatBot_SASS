@@ -202,6 +202,7 @@ export default function AdminBilling() {
           <Card style={{ color: 'var(--faint)' }}>Aucun client facturé pour le moment.</Card>
         ) : (
           <Card nopad>
+            <div className="table-scroll">
             <table className="kc">
               <thead>
                 <tr>
@@ -243,6 +244,7 @@ export default function AdminBilling() {
                 ))}
               </tbody>
             </table>
+            </div>
           </Card>
         )}
       </div>
@@ -267,7 +269,7 @@ function Header({ navigate, onResync, resyncBusy }: {
   return (
     <SectionTitle sub="Vue d'ensemble des abonnements et entitlements — staff uniquement."
                   right={
-                    <div className="row g8">
+                    <div className="row g8" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       {onResync && (
                         <Btn kind="ghost" small onClick={onResync} disabled={resyncBusy}>
                           {resyncBusy ? 'Resync…' : '↻ Resync Stripe'}

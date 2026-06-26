@@ -71,10 +71,10 @@ export default function FunnelCard({ funnel, funnelError, tree, variantTree }: {
                     {lbl.text}
                   </span>
                   <span className="num mono" style={{ fontSize: 12, fontWeight: 700 }}>{n.count}</span>
-                  <div style={{ width: 150, flexShrink: 0 }}>
+                  <div className="funnel-meter">
                     <Meter pct={Math.round((n.count / maxCount) * 100)} height={6} />
                   </div>
-                  <span style={{ fontSize: 10.5, width: 112, textAlign: 'right', flexShrink: 0, color: hot ? 'var(--warn)' : 'var(--faint)' }}>
+                  <span className="funnel-exit" style={{ fontSize: 10.5, color: hot ? 'var(--warn)' : 'var(--faint)' }}>
                     {n.exits} sorties · {exitPct} %
                   </span>
                 </div>

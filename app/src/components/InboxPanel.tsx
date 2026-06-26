@@ -193,7 +193,7 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
 
       {listError && <div className="error">{listError}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 14, alignItems: 'start' }}>
+      <div className="inbox-layout">
         {/* ---- Liste ---- */}
         <Card nopad>
           <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>

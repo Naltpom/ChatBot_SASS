@@ -75,7 +75,8 @@ export default function LeadsSection({ botName, leads, leadsBusy, leadsError, on
         </Card>
       ) : (
         <Card nopad>
-          <table className="kc">
+          <div className="table-scroll">
+<table className="kc">
             <thead>
               <tr><th>Date</th><th>Email</th><th>Nom</th><th>Téléphone</th><th>Message</th><th>Source</th></tr>
             </thead>
@@ -94,6 +95,7 @@ export default function LeadsSection({ botName, leads, leadsBusy, leadsError, on
               ))}
             </tbody>
           </table>
+</div>
         </Card>
       )}
     </>

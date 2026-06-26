@@ -114,6 +114,7 @@ export default function AdminBillingCatalog() {
             <Card style={{ color: 'var(--faint)' }}>Aucun produit dans le catalogue local.</Card>
           ) : (
             <Card nopad>
+              <div className="table-scroll">
               <table className="kc">
                 <thead>
                   <tr>
@@ -131,6 +132,7 @@ export default function AdminBillingCatalog() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </Card>
           )}
         </div>

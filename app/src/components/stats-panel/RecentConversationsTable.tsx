@@ -21,6 +21,7 @@ export default function RecentConversationsTable({ convs }: { convs: Conv[] }) {
   return (
     <Card nopad>
       <div className="card-title" style={{ padding: '14px 16px 10px', marginBottom: 0 }}>Conversations récentes</div>
+      <div className="table-scroll">
       <table className="kc">
         <thead>
           <tr><th>Page</th><th>Mode</th><th>Msgs</th><th>Quand</th></tr>
@@ -63,6 +64,7 @@ export default function RecentConversationsTable({ convs }: { convs: Conv[] }) {
           )}
         </tbody>
       </table>
+      </div>
     </Card>
   )
 }

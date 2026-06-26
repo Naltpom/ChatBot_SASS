@@ -286,7 +286,8 @@ export default function Team() {
             </div>
 
             <div style={{ border: '1px solid var(--border)', borderRadius: 11, overflow: 'hidden' }}>
-              <table className="perm-matrix">
+              <div className="table-scroll">
+<table className="perm-matrix">
                 <thead>
                   <tr>
                     <th>Bot</th>
@@ -321,6 +322,7 @@ export default function Team() {
                   )}
                 </tbody>
               </table>
+</div>
             </div>
 
             <div style={{ fontSize: 10.5, color: 'var(--faint)', margin: '7px 0 14px', lineHeight: 1.5 }}>
