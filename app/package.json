@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
+    "@simplewebauthn/browser": "^9.0.1",
     "@xyflow/react": "^12.11.0",
     "lucide-react": "^1.16.0",
+    "qrcode": "^1.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
@@ -19,6 +21,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^4.2.1",

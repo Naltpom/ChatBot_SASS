@@ -112,6 +112,30 @@ class Settings(BaseSettings):
     RATE_IP_REQUESTS: int = 100             # anti-flood IP...
     RATE_IP_WINDOW_SECONDS: int = 60        # ...par minute
 
+    # --- 2FA (TOTP authenticator + WebAuthn / passkeys) ---
+    # Émetteur affiché dans l'app authenticator + RP name WebAuthn.
+    TWOFA_ISSUER: str = "Chapote"
+    # Obligatoire pour les superadmins (staff) : en PROD, un superadmin sans 2FA
+    # configurée se voit refuser l'accès aux routes /api/admin/* (HTTP 403 avec
+    # le code `twofa_setup_required`). Recommandée mais optionnelle pour les
+    # autres utilisateurs. Désactivable via env si besoin.
+    TWOFA_ENFORCE_ADMIN: bool = True
+    # Relying Party WebAuthn. Par défaut dérivés de APP_URL (host = RP ID,
+    # origin = APP_URL sans slash final). Surchargeable en prod multi-domaine.
+    WEBAUTHN_RP_ID: str | None = None
+    WEBAUTHN_RP_NAME: str = "Chapote"
+
+    @property
+    def webauthn_rp_id(self) -> str:
+        if self.WEBAUTHN_RP_ID:
+            return self.WEBAUTHN_RP_ID
+        from urllib.parse import urlparse
+        return urlparse(self.APP_URL).hostname or "localhost"
+
+    @property
+    def webauthn_origin(self) -> str:
+        return self.APP_URL.rstrip("/")
+
     @property
     def is_production(self) -> bool:
         return self.ENV.lower() not in ("dev", "development")

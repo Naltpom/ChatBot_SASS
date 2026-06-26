@@ -52,6 +52,17 @@ class User(Base):
     billing_grouping = Column(String, nullable=False, default="total",
                               server_default=text("'total'"))  # per_bot | total | per_org
     billing_email = Column(String, nullable=True)              # défaut applicatif = user.email
+    # --- 2FA (TOTP authenticator + WebAuthn passkeys) ---
+    # totp_secret : secret base32 CHIFFRÉ (Fernet) ; None tant que non enrôlé.
+    # totp_enabled passe à True seulement après vérification d'un 1er code.
+    totp_secret = Column(String, nullable=True)
+    totp_enabled = Column(Boolean, default=False, nullable=False,
+                          server_default=text("false"))
+    # Codes de secours : liste de hashs (bcrypt), usage unique, consommés à l'emploi.
+    twofa_recovery = Column(JSON, nullable=True)
+    # Challenge WebAuthn transitoire (base64url) + horodatage pour expiration.
+    webauthn_challenge = Column(String, nullable=True)
+    webauthn_challenge_at = Column(DateTime, nullable=True)
 
 
 class Organization(Base):
@@ -91,6 +102,25 @@ class Invitation(Base):
     email = Column(String, nullable=False, index=True)
     role = Column(String, default="member", nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class WebAuthnCredential(Base):
+    """Passkey (clé WebAuthn) enregistrée par un user — 2nd facteur / sans mdp.
+
+    Stocke l'identifiant public de la credential et sa clé publique COSE
+    (base64url), plus le compteur anti-rejeu (sign_count). Aucun secret : la
+    clé privée ne quitte jamais l'authenticator (Face ID / clé physique…)."""
+    __tablename__ = "webauthn_credentials"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    credential_id = Column(String, unique=True, nullable=False, index=True)  # base64url
+    public_key = Column(String, nullable=False)            # COSE, base64url
+    sign_count = Column(Integer, nullable=False, default=0)
+    transports = Column(JSON, nullable=True)               # ["internal","hybrid",…]
+    name = Column(String, nullable=False, default="Passkey")
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
 
 
 # --- Schemas Pydantic ---
@@ -140,6 +170,9 @@ class UserOut(BaseModel):
     # app/src/types/auth.ts). Reste accessible en `.billing_enabled` côté serveur.
     billing_enabled: bool = Field(False, serialization_alias="is_billing_enabled")
     owned_org_ids: list[int] = Field(default_factory=list)  # orgs où owner_user_id == user.id
+    # --- 2FA (pilote l'UI : invite/force l'enrôlement) ---
+    twofa_enabled: bool = False    # TOTP actif OU au moins une passkey
+    twofa_required: bool = False   # vrai pour les superadmins (obligatoire)
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

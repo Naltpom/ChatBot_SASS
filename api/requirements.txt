@@ -17,3 +17,6 @@ redis>=5.0.0
 alembic==1.13.1
 fastembed>=0.4
 pypdf>=4.0
+# 2FA : TOTP (authenticator) + WebAuthn (passkeys)
+pyotp==2.9.0
+webauthn==2.5.2

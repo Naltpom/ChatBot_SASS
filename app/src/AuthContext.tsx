@@ -1,20 +1,25 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { api, getToken, setToken } from './api'
-import type { AuthResponse, Org, RegisterPayload, User } from './types/auth'
+import type { AuthResponse, LoginChallenge, Org, RegisterPayload, User } from './types/auth'
 
 // Source de vérité des formes auth = types/auth (fidèles à l'API). On les
 // re-exporte pour les consommateurs historiques (Layout/MyOrgs : `Org` ;
 // permissions/Header : `User`). Une organisation = une ÉQUIPE ; un compte solo
 // a organizations: [].
-export type { AuthResponse, Org, RegisterPayload, User }
+export type { AuthResponse, LoginChallenge, Org, RegisterPayload, User }
 
 interface AuthState {
   user: User | null
   loading: boolean
   activeOrg: Org | null
   setActiveOrg: (org: Org) => void
-  login: (email: string, password: string) => Promise<void>
-  loginWithGoogle: (credential: string) => Promise<void>
+  // login/loginWithGoogle : renvoient un LoginChallenge si la 2FA est requise
+  // (aucun token posé alors — l'appelant doit finir via finish2fa), sinon null.
+  login: (email: string, password: string) => Promise<LoginChallenge | null>
+  loginWithGoogle: (credential: string) => Promise<LoginChallenge | null>
+  // Finalise une connexion 2FA : applique le token + le user renvoyés par
+  // /api/auth/2fa/login/*.
+  finish2fa: (resp: AuthResponse) => void
   register: (payload: RegisterPayload) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
@@ -45,6 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       is_billing_enabled: u.is_billing_enabled ?? false,
       owned_org_ids:
         u.owned_org_ids ?? u.organizations.filter(o => o.is_owner).map(o => o.id),
+      twofa_enabled: u.twofa_enabled ?? false,
+      twofa_required: u.twofa_required ?? u.is_superadmin ?? false,
     }
   }
 
@@ -88,16 +95,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActive(org)
   }
 
+  // Réponse de login : soit un AuthResponse (token), soit un LoginChallenge
+  // (2FA requise). On distingue par la présence de `twofa_required`.
+  function handleAuthResult(data: AuthResponse | LoginChallenge): LoginChallenge | null {
+    if ((data as LoginChallenge).twofa_required) return data as LoginChallenge
+    const ok = data as AuthResponse
+    setToken(ok.access_token)
+    applyUser(ok.user)
+    return null
+  }
+
   async function login(email: string, password: string) {
-    const data = await api<AuthResponse>('/api/auth/login', { method: 'POST', body: { email, password } })
-    setToken(data.access_token)
-    applyUser(data.user)
+    const data = await api<AuthResponse | LoginChallenge>(
+      '/api/auth/login', { method: 'POST', body: { email, password } })
+    return handleAuthResult(data)
   }
 
   async function loginWithGoogle(credential: string) {
-    const data = await api<AuthResponse>('/api/auth/google', { method: 'POST', body: { credential } })
-    setToken(data.access_token)
-    applyUser(data.user)
+    const data = await api<AuthResponse | LoginChallenge>(
+      '/api/auth/google', { method: 'POST', body: { credential } })
+    return handleAuthResult(data)
+  }
+
+  // Finalise une connexion 2FA (token issu de /api/auth/2fa/login/*).
+  function finish2fa(resp: AuthResponse) {
+    setToken(resp.access_token)
+    applyUser(resp.user)
   }
 
   async function register(payload: RegisterPayload) {
@@ -117,7 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, activeOrg, setActiveOrg, login, loginWithGoogle, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, activeOrg, setActiveOrg, login, loginWithGoogle, finish2fa, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )
