@@ -12,7 +12,7 @@ import re
 import httpx
 
 from src.core.config import settings
-from src.services.tree_engine import TreeError, validate_tree
+from src.services.tree_engine import AI_NODE, TreeError, validate_tree
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ SYSTEM_PROMPT = """Tu construis des arbres de décision pour des chatbots de sit
 }
 
 Règles :
-- Chaque option "next" pointe vers un nœud existant, vers "root" (retour au menu), ou vers "__ai__" (bascule vers l'IA pour les questions libres).
+- Chaque option "next" est TOUJOURS un id de nœud existant, "root" (retour au menu) ou "__ai__" (bascule vers l'IA). JAMAIS une URL : un lien externe se met dans le "message" en markdown [libellé](https://…), jamais dans "next".
 - Ids de nœuds courts en snake_case. Messages concis (2-3 phrases max), ton chaleureux, en français. Markdown LÉGER autorisé (**gras**, *italique*, [libellé](https://…), sauts de ligne) ; pas de titres, pas de HTML, pas d'emoji.
 - Regroupe les sujets en 3 à 6 choix racine maximum. Ajoute une option "Autre question" -> "__ai__" sur le nœud racine.
 - N'ajoute JAMAIS de clé "type" aux nœuds : ce sont tous des messages avec options. Le nœud "root" est TOUJOURS un menu d'accueil (jamais une mise en relation/un formulaire).
@@ -66,6 +66,46 @@ MOCK_TREE = {
 
 class TreeGenerationError(Exception):
     pass
+
+
+_URL_RE = re.compile(r"^https?://", re.I)
+
+
+def _sanitize_tree(tree: dict) -> dict:
+    """Répare les arbres « presque valides » produits par l'IA avant validation.
+
+    Cas observé en prod : l'IA met parfois une URL externe dans le "next" d'une
+    option (ex. bouton « Voir la démo » -> https://…) au lieu d'un id de nœud.
+    validate_tree rejette alors TOUT l'arbre pour une seule option fautive et la
+    génération retombe sur l'ébauche par défaut. On replie plutôt ces liens dans
+    le message du nœud (markdown) et on retire les options pointant vers un nœud
+    inexistant — une génération par ailleurs correcte n'est plus jetée.
+    """
+    nodes = tree.get("nodes")
+    if not isinstance(nodes, dict):
+        return tree
+    for node in nodes.values():
+        if not isinstance(node, dict) or not isinstance(node.get("options"), list):
+            continue
+        kept, links = [], []
+        for opt in node["options"]:
+            if not isinstance(opt, dict):
+                continue
+            target, label = opt.get("next"), opt.get("label")
+            # next = URL externe -> lien markdown dans le message, option retirée
+            if isinstance(target, str) and _URL_RE.match(target):
+                if label:
+                    links.append(f"[{label}]({target})")
+                continue
+            # next pointant vers un nœud inexistant (hors __ai__) : option retirée
+            if target != AI_NODE and target not in nodes:
+                continue
+            kept.append(opt)
+        if links:
+            msg = (node.get("message") or "").rstrip()
+            node["message"] = (msg + "\n\n" + " · ".join(links)).strip()
+        node["options"] = kept
+    return tree
 
 
 async def fetch_page_text(url: str) -> str:
@@ -147,6 +187,7 @@ async def generate_tree(source_text: str) -> dict:
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
     try:
         tree = json.loads(raw)
+        tree = _sanitize_tree(tree)
         validate_tree(tree)
     except (json.JSONDecodeError, TreeError) as e:
         logger.error("Génération d'arbre : sortie invalide (%s) : %.300s", e, raw)
