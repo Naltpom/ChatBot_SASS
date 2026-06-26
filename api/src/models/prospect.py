@@ -71,6 +71,32 @@ class Prospect(Base):
     sent_at = Column(DateTime, nullable=True)
 
 
+class ProspectingProfile(Base):
+    """Profil cible persistant du superadmin (1 ligne par operateur).
+
+    Memorise le critere de recherche prefere (mode web ou annuaire SIRENE)
+    pour prefiller les champs de decouverte, et des notes libres injectees
+    dans le contexte de scoring IA (en plus du few-shot des decisions).
+    """
+    __tablename__ = "prospecting_profiles"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    web_query = Column(String, nullable=True)
+    sector = Column(String, nullable=True)
+    departement = Column(String, nullable=True)
+    code_postal = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 # --- Schemas Pydantic ---
 
 class ProspectOut(BaseModel):
@@ -112,3 +138,14 @@ class ProspectPatch(BaseModel):
     email_subject: str | None = None
     email_body: str | None = None
     status: str | None = None
+
+
+class ProfileOut(BaseModel):
+    """Profil cible renvoye au front (None partout si pas encore enregistre)."""
+    web_query: str | None = None
+    sector: str | None = None
+    departement: str | None = None
+    code_postal: str | None = None
+    notes: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)

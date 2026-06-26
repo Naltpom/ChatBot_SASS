@@ -1,11 +1,22 @@
 // Vue ADMIN — Prospection commerciale : recherche d'entreprises (API publique
 // SIRENE), import en base, puis suivi des prospects (enrichissement + email IA).
 import { useEffect, useState } from 'react'
-import { Building2, ChevronRight, Search, Send, Sparkles, ThumbsDown, ThumbsUp, UserPlus } from 'lucide-react'
+import { Building2, ChevronDown, ChevronRight, Globe, Save, Search, Send, Sparkles, Target, ThumbsDown, ThumbsUp, UserPlus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { Btn, Card, Chip, Field, InfoBox, SectionTitle, Stat } from '../ui'
+import { Btn, Card, Chip, Field, InfoBox, SectionTitle, Seg, Stat } from '../ui'
 import { errMsg } from '../utils/errors'
+
+// Profil cible persistant (1 ligne par superadmin) — sert à préremplir la
+// découverte et à injecter les notes de l'opérateur dans le scoring IA. Tous
+// les champs sont optionnels côté API (ProfileOut).
+interface ProspectingProfile {
+  web_query: string | null
+  sector: string | null
+  departement: string | null
+  code_postal: string | null
+  notes: string | null
+}
 
 export interface ProspectCandidate {
   siren: string | null
@@ -104,18 +115,50 @@ export default function AdminProspecting() {
   const [info, setInfo] = useState('')
 
   // Découverte automatique (SIRENE + web + scoring IA) — déclenchée à la demande.
+  // Mode 'web' (défaut) = recherche en langage naturel (Brave) ; 'sirene' = annuaire.
+  const [discoverMode, setDiscoverMode] = useState<'web' | 'sirene'>('web')
+  const [dQuery, setDQuery] = useState('')
   const [dSector, setDSector] = useState('')
   const [dDept, setDDept] = useState('')
   const [dCp, setDCp] = useState('')
   const [dCount, setDCount] = useState(5)
   const [discovering, setDiscovering] = useState(false)
+  const [discoveringWeb, setDiscoveringWeb] = useState(false)
+  const [discoveringAuto, setDiscoveringAuto] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [deciding, setDeciding] = useState<number | null>(null)
+
+  // Profil cible persistant (carte repliable) : critères + notes pour l'IA.
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [pWebQuery, setPWebQuery] = useState('')
+  const [pSector, setPSector] = useState('')
+  const [pDept, setPDept] = useState('')
+  const [pCp, setPCp] = useState('')
+  const [pNotes, setPNotes] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
 
   function loadProspects() {
     api<Prospect[]>('/api/admin/prospecting/prospects').then(setProspects)
       .catch((err: unknown) => setError(`Chargement des prospects impossible : ${errMsg(err)}`))
   }
   useEffect(() => { loadProspects() }, [])
+
+  // Au montage : charge le profil cible et préremplit les champs de découverte
+  // (init uniquement — pas d'écrasement d'une saisie en cours). Profil absent =
+  // repli silencieux (le GET renvoie des champs null, jamais 404).
+  useEffect(() => {
+    api<ProspectingProfile>('/api/admin/prospecting/profile').then(pr => {
+      setPWebQuery(pr.web_query || '')
+      setPSector(pr.sector || '')
+      setPDept(pr.departement || '')
+      setPCp(pr.code_postal || '')
+      setPNotes(pr.notes || '')
+      if (pr.web_query) setDQuery(pr.web_query)
+      if (pr.sector) setDSector(pr.sector)
+      if (pr.departement) setDDept(pr.departement)
+      if (pr.code_postal) setDCp(pr.code_postal)
+    }).catch(() => { /* profil non critique : repli silencieux */ })
+  }, [])
 
   async function runSearch() {
     setError(''); setInfo(''); setSearching(true); setResults([])
@@ -168,6 +211,64 @@ export default function AdminProspecting() {
     }
   }
 
+  // Découverte web (mode intuitif) : une description libre → Brave → scrape →
+  // scoring IA côté serveur. Même temporalité (~30 s) que la découverte SIRENE.
+  async function runDiscoverWeb() {
+    setError(''); setInfo(''); setDiscoveringWeb(true)
+    try {
+      const created = await api<Prospect[]>('/api/admin/prospecting/discover-web', {
+        method: 'POST',
+        body: { query: dQuery, count: dCount },
+      })
+      if (created.length === 0) setInfo('Aucune nouvelle entreprise trouvée pour cette recherche.')
+      else setInfo(`${created.length} entreprise(s) trouvée(s) et analysée(s) par l'IA.`)
+      loadProspects()
+    } catch (err: unknown) {
+      setError(`Recherche impossible : ${errMsg(err)}`)
+    } finally {
+      setDiscoveringWeb(false)
+    }
+  }
+
+  // Prospection 100% AUTOMATIQUE : aucune saisie. L'IA choisit elle-même les
+  // cibles (client idéal Chapote + profil + décisions passées), cherche, scrape
+  // et score. L'opérateur ne fait que valider 👍/👎 ensuite.
+  async function runAuto() {
+    setError(''); setInfo(''); setDiscoveringAuto(true)
+    try {
+      const created = await api<Prospect[]>('/api/admin/prospecting/auto', {
+        method: 'POST', body: { count: dCount },
+      })
+      if (created.length === 0) setInfo('Aucun nouveau prospect cette fois — relancez ou précisez votre profil cible.')
+      else setInfo(`${created.length} prospect(s) trouvé(s) et analysé(s) par l'IA. Validez ceux qui vous intéressent 👍/👎.`)
+      loadProspects()
+    } catch (err: unknown) {
+      setError(`Prospection automatique impossible : ${errMsg(err)}`)
+    } finally {
+      setDiscoveringAuto(false)
+    }
+  }
+
+  // Enregistre le profil cible (upsert côté API). On envoie tous les champs
+  // (vide → null) pour que la sauvegarde reflète exactement le formulaire.
+  async function saveProfile() {
+    setError(''); setInfo(''); setSavingProfile(true)
+    try {
+      await api<ProspectingProfile>('/api/admin/prospecting/profile', {
+        method: 'PUT',
+        body: {
+          web_query: pWebQuery || null, sector: pSector || null,
+          departement: pDept || null, code_postal: pCp || null, notes: pNotes || null,
+        },
+      })
+      setInfo('Profil cible enregistré.')
+    } catch (err: unknown) {
+      setError(`Enregistrement impossible : ${errMsg(err)}`)
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
   // Pouce-haut / pouce-bas depuis la liste. stopPropagation : ne pas naviguer
   // vers le détail quand on clique le bouton de décision dans une ligne cliquable.
   async function decide(e: React.MouseEvent, prospectId: number, decision: 'accepted' | 'rejected') {
@@ -213,34 +314,137 @@ export default function AdminProspecting() {
         <Stat label="Envoyés" value={sent} icon={<Send size={15} />} sub="emails partis" />
       </div>
 
-      {/* Découverte automatique (SIRENE + web + scoring IA) */}
+      {/* Profil cible persistant (repliable) — préremplit la découverte et
+          alimente le scoring IA via les notes de l'opérateur. */}
       <Card>
-        <div className="card-title"><span className="row g6"><Sparkles size={15} />Trouver automatiquement</span></div>
+        <button type="button" className="row g8" onClick={() => setProfileOpen(o => !o)}
+          style={{ background: 'none', border: 'none', padding: 0, width: '100%', cursor: 'pointer', justifyContent: 'space-between', textAlign: 'left' }}>
+          <span className="card-title" style={{ marginBottom: 0 }}>
+            <span className="row g6"><Target size={15} />Profil cible</span>
+          </span>
+          <ChevronDown size={16} style={{ color: 'var(--faint)', flexShrink: 0, transition: 'transform .15s', transform: profileOpen ? 'rotate(180deg)' : 'none' }} />
+        </button>
+        {profileOpen && (
+          <div className="col g10" style={{ marginTop: 12 }}>
+            <div className="muted" style={{ fontSize: 12.5 }}>
+              Décrivez votre cible idéale : ces critères préremplissent la recherche et vos notes
+              affinent le scoring de l'IA (en plus des décisions passées).
+            </div>
+            <div className="row g10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ flex: 2, minWidth: 200 }}>
+                <Field label="Recherche web"><input type="text" value={pWebQuery} placeholder="ex. restaurants à Versailles"
+                  onChange={e => setPWebQuery(e.target.value)} style={{ width: '100%' }} /></Field>
+              </div>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <Field label="Secteur / activité"><input type="text" value={pSector} placeholder="ex. restaurant"
+                  onChange={e => setPSector(e.target.value)} style={{ width: '100%' }} /></Field>
+              </div>
+              <div style={{ flex: 1, minWidth: 100 }}>
+                <Field label="Département"><input type="text" value={pDept} placeholder="78"
+                  onChange={e => setPDept(e.target.value)} style={{ width: '100%' }} /></Field>
+              </div>
+              <div style={{ flex: 1, minWidth: 110 }}>
+                <Field label="Code postal"><input type="text" value={pCp} placeholder="78000"
+                  onChange={e => setPCp(e.target.value)} style={{ width: '100%' }} /></Field>
+              </div>
+            </div>
+            <Field label="Notes pour l'IA" hint="Ce que vous recherchez (taille, signaux, exclusions…) — injecté dans le scoring.">
+              <textarea value={pNotes} rows={4} placeholder="ex. PME locales sans chatbot, plutôt restauration et commerces de proximité…"
+                onChange={e => setPNotes(e.target.value)} style={{ width: '100%' }} />
+            </Field>
+            <div className="row">
+              <Btn onClick={saveProfile} disabled={savingProfile}>
+                <span className="row g6"><Save size={15} />{savingProfile ? 'Enregistrement…' : 'Enregistrer'}</span>
+              </Btn>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Découverte automatique (web Brave OU annuaire SIRENE + scoring IA) */}
+      <Card>
+        <div className="card-title"><span className="row g6"><Sparkles size={15} />Trouver des prospects</span></div>
+        {/* PRINCIPAL : prospection 100% automatique — l'IA choisit les cibles, zéro saisie. */}
         <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>
-          L'IA déniche des entreprises (base SIRENE + web), retrouve leur site et estime leur besoin de
-          chatbot. Comptez ~30 s : les prospects sont créés, analysés et triés par score.
+          Laissez l'IA trouver pour vous des entreprises susceptibles d'avoir besoin de Chapote : elle
+          choisit les cibles (profil client idéal + votre profil cible + vos décisions passées), retrouve
+          leur site et estime leur besoin. Vous n'avez plus qu'à valider 👍/👎 — vos choix affinent les
+          recherches suivantes. Comptez ~30 s.
         </div>
-        <div className="row g10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: 2, minWidth: 180 }}>
-            <Field label="Secteur / activité"><input type="text" value={dSector} placeholder="ex. restaurant, garage auto"
-              onChange={e => setDSector(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
-          </div>
-          <div style={{ flex: 1, minWidth: 110 }}>
-            <Field label="Département"><input type="text" value={dDept} placeholder="69"
-              onChange={e => setDDept(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
-          </div>
-          <div style={{ flex: 1, minWidth: 120 }}>
-            <Field label="Code postal"><input type="text" value={dCp} placeholder="69001"
-              onChange={e => setDCp(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
-          </div>
+        <div className="row g10" style={{ flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
           <div style={{ width: 90 }}>
             <Field label="Nombre"><input type="number" min={1} max={10} value={dCount}
               onChange={e => setDCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} style={{ width: '100%' }} /></Field>
           </div>
-          <Btn onClick={runDiscover} disabled={discovering}>
-            <span className="row g6"><Sparkles size={15} />{discovering ? 'Recherche IA…' : 'Trouver'}</span>
+          <Btn kind="primary" onClick={runAuto} disabled={discoveringAuto}>
+            <span className="row g6"><Sparkles size={15} />{discoveringAuto ? 'Recherche en cours… (~30 s)' : 'Trouve-moi des prospects'}</span>
           </Btn>
         </div>
+
+        {/* AVANCÉ : recherche ciblée manuelle (description libre ou annuaire SIRENE). */}
+        <button onClick={() => setAdvancedOpen(o => !o)} className="row g6"
+          style={{ background: 'none', border: 'none', color: 'var(--mut)', cursor: 'pointer', fontSize: 12.5, padding: 0 }}>
+          {advancedOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}Recherche ciblée (avancée)
+        </button>
+        {advancedOpen && (<div style={{ marginTop: 12 }}>
+        <div style={{ marginBottom: 12 }}>
+          <Seg small value={discoverMode} onChange={v => setDiscoverMode(v as 'web' | 'sirene')}
+            options={[
+              { value: 'web', label: <span className="row g6"><Globe size={13} />Recherche web</span> },
+              { value: 'sirene', label: <span className="row g6"><Building2 size={13} />Annuaire SIRENE</span> },
+            ]} />
+        </div>
+        {discoverMode === 'web' ? (
+          <>
+            <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>
+              Décrivez qui vous cherchez en langage naturel. L'IA cherche sur le web, identifie les
+              entreprises, retrouve leur site et estime leur besoin. Comptez ~30 s : les prospects sont
+              créés, analysés et triés par score.
+            </div>
+            <div className="row g10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ flex: 3, minWidth: 240 }}>
+                <Field label="Décrivez qui vous cherchez"><input type="text" value={dQuery} placeholder="ex. restaurants à Versailles"
+                  onChange={e => setDQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discoveringWeb && runDiscoverWeb()} style={{ width: '100%' }} /></Field>
+              </div>
+              <div style={{ width: 90 }}>
+                <Field label="Nombre"><input type="number" min={1} max={10} value={dCount}
+                  onChange={e => setDCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} style={{ width: '100%' }} /></Field>
+              </div>
+              <Btn onClick={runDiscoverWeb} disabled={discoveringWeb}>
+                <span className="row g6"><Sparkles size={15} />{discoveringWeb ? 'Recherche IA…' : 'Trouver'}</span>
+              </Btn>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>
+              L'IA déniche des entreprises (base SIRENE), retrouve leur site et estime leur besoin de
+              chatbot. Comptez ~30 s : les prospects sont créés, analysés et triés par score.
+            </div>
+            <div className="row g10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ flex: 2, minWidth: 180 }}>
+                <Field label="Secteur / activité"><input type="text" value={dSector} placeholder="ex. restaurant, garage auto"
+                  onChange={e => setDSector(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
+              </div>
+              <div style={{ flex: 1, minWidth: 110 }}>
+                <Field label="Département"><input type="text" value={dDept} placeholder="69"
+                  onChange={e => setDDept(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
+              </div>
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <Field label="Code postal"><input type="text" value={dCp} placeholder="69001"
+                  onChange={e => setDCp(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
+              </div>
+              <div style={{ width: 90 }}>
+                <Field label="Nombre"><input type="number" min={1} max={10} value={dCount}
+                  onChange={e => setDCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} style={{ width: '100%' }} /></Field>
+              </div>
+              <Btn onClick={runDiscover} disabled={discovering}>
+                <span className="row g6"><Sparkles size={15} />{discovering ? 'Recherche IA…' : 'Trouver'}</span>
+              </Btn>
+            </div>
+          </>
+        )}
+        </div>)}
       </Card>
 
       {/* Formulaire de recherche */}
