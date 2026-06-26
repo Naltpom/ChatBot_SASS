@@ -1,7 +1,7 @@
 // Landing publique « Chapote » — composition des sections (refacto R4).
 // Le contenu présentationnel est éclaté dans app/src/components/landing/* :
 // header sticky, hero + widget animé, 4 piliers, comparatif, installation,
-// logos, tarifs (modulaires, essai 7 j carte requise), témoignages, CTA final,
+// logos, tarifs (modulaires, 1er mois remisé), témoignages, CTA final,
 // footer. Les données statiques + tokens vivent dans landing/data, les assets
 // (polices/keyframes/reveal) dans landing/assets. Rétro-compat DOM/visuelle
 // préservée (landing.spec + responsive.spec).

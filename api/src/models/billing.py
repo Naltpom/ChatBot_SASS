@@ -52,9 +52,9 @@ class BotEntitlement(Base):
     overage_cap = Column(Integer, nullable=True)
     status = Column(String, nullable=False, default="active",
                     server_default=text("'active'"))        # active | trialing | past_due | canceled | inactive
-    # Fin de l'essai 7 j AVEC carte (status='trialing', carte posée au Checkout) :
-    # au-delà -> GATE (resolver) si non débité. NULL quand status != 'trialing'
-    # (essai converti => status='active', trial_end ignoré).
+    # Fin d'essai LEGACY (plus d'essai créé : abonnement actif/payant immédiat).
+    # Conservé pour les abonnements antérieurs encore en 'trialing' chez Stripe :
+    # au-delà -> GATE (resolver) si non débité. NULL hors d'un 'trialing' résiduel.
     trial_end = Column(DateTime, nullable=True)
     # source : stripe (payé / essai avec carte) | staff (override) | free (billing-OFF)
     source = Column(String, nullable=False, default="free",

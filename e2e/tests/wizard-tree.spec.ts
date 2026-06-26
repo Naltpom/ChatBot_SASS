@@ -85,7 +85,7 @@ test('wizard conversationnel : création d\'un bot en mode arbre de bout en bout
   await expect(page.getByText('Votre chatbot est créé')).toBeVisible()
 
   // Ouvrir l'éditeur → on atterrit sur la page du bot ; l'id sert au nettoyage.
-  await page.getByRole('button', { name: /Ouvrir l'éditeur/ }).click()
+  await page.getByRole('button', { name: /mon chatbot/i }).click()
   await expect(page).toHaveURL(/\/app\/bots\/\d+$/)
   const m = page.url().match(/\/app\/bots\/(\d+)/)
   createdBotId = m ? Number(m[1]) : null

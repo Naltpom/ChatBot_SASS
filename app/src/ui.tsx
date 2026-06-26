@@ -273,18 +273,17 @@ export function statusChip(isActive: boolean) {
 // Chip de FACTURATION d'un bot — DISTINCT de statusChip (widget on/off). Un bot
 // peut être is_active=true tout en étant 'inactive' côté paiement (« Paiement
 // requis »). Réutilise la primitive Chip. Rien à afficher si billing OFF
-// (status null/undefined) ou 'active' (payé, état nominal — pas de bruit visuel).
+// (status null/undefined), 'active' (payé, état nominal — pas de bruit visuel)
+// ou 'trialing' (statut LEGACY résiduel, traité comme actif — plus de badge essai).
 //   - 'inactive'  -> « Paiement requis » (danger) : Checkout annulé/abandonné ou résilié.
-//   - 'trialing'  -> « Essai » (+ jours restants depuis trial_end si fourni) (acc).
 //   - 'past_due'  -> « Impayé » (warn) : abonnement en relance.
+// `trialEnd` : param LEGACY conservé pour la signature des appelants (plus utilisé).
 export function billingChip(status?: BotBillingStatus | null, trialEnd?: number | null) {
-  if (!status || status === 'active') return null
+  void trialEnd
+  if (!status || status === 'active' || status === 'trialing') return null
   if (status === 'inactive') return <Chip tone="danger">Paiement requis</Chip>
   if (status === 'past_due') return <Chip tone="warn">Impayé</Chip>
-  // 'trialing' : on ajoute les jours restants si trial_end est dans le futur.
-  const days = trialEnd ? Math.ceil((trialEnd * 1000 - Date.now()) / 86_400_000) : null
-  const label = days && days > 0 ? `Essai · ${days} j` : 'Essai'
-  return <Chip tone="acc">{label}</Chip>
+  return null
 }
 
 export function modeChip(mode: string) {

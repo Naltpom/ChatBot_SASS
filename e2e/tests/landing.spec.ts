@@ -12,7 +12,7 @@ test('la landing Chapote affiche hero/comparatif/installation, le CTA mène à /
 
   // Hero
   await expect(page.getByRole('heading', { level: 1 })).toContainText('hybride français')
-  await expect(page.getByRole('link', { name: /Ajouter gratuitement la balise/ })).toBeVisible()
+  await expect(page.getByRole('link', { name: /Démarrer maintenant/ })).toBeVisible()
 
   // Comparatif (design : pas de cartes tarifs, « Tarifs » renvoie à l'installation)
   await expect(page.locator('#why').getByRole('heading', { name: /Ni Intercom/ })).toBeVisible()
@@ -27,7 +27,7 @@ test('la landing Chapote affiche hero/comparatif/installation, le CTA mène à /
   await expect(page.getByRole('link', { name: 'Se connecter' })).toBeVisible()
 
   // CTA hero -> inscription
-  await page.getByRole('link', { name: /Ajouter gratuitement la balise/ }).click()
+  await page.getByRole('link', { name: /Démarrer maintenant/ }).click()
   await expect(page).toHaveURL(/\/register$/)
   await expect(page.getByRole('heading', { name: 'Créez votre compte' })).toBeVisible()
 })

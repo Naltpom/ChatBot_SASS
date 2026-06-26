@@ -6,6 +6,11 @@ import { authenticate, authenticateWithToken, devLoginToken, loadState } from '.
 
 const state = loadState()
 
+// Viewport haut : la sidebar (nombreuses entrées + toggle Back-office/Espace
+// client en bas) dépasse 720px ; sans ça le toggle tombe hors viewport et le
+// clic timeout (« element is outside of the viewport »).
+test.use({ viewport: { width: 1280, height: 1200 } })
+
 test('superadmin : aller-retour Espace client ↔ Back-office (4 pages admin)', async ({ page, request }) => {
   const adminToken = await devLoginToken(request, state.apiUrl)
   await authenticateWithToken(page, adminToken) // sans cbsaas_org : pickActiveOrg choisit

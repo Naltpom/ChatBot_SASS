@@ -104,8 +104,9 @@ test('lead : validation → POST /lead 200 → page Analytics (tableau Leads + e
   await page.goto('/app/analytics')
   // Sélecteur de bot : pilule (button aria-pressed) dont le nom accessible est
   // le nom unique du bot dédié — clic explicite (le bot dédié n'est pas
-  // forcément le 1er, donc pas auto-sélectionné).
-  await page.getByRole('button', { name: botName }).click()
+  // forcément le 1er, donc pas auto-sélectionné). exact:true : le bouton de la
+  // sidebar préfixe le nom par les initiales (« BN … ») et matcherait sinon aussi.
+  await page.getByRole('button', { name: botName, exact: true }).click()
 
   // Titre de section Leads (sub = « N contact(s) capturé(s) par « <bot> ». ») —
   // scopé sur le sous-titre qui parle de leads (la page a un autre .section-sub).

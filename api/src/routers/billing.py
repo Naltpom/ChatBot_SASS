@@ -74,11 +74,6 @@ _MODULE_REQUIRES: dict[str, list[str]] = {
     MODULE_MCP: [MODULE_AI],
 }
 
-# Durée de l'essai AVEC carte (point 1) : 7 j de trial sur l'abonnement Stripe
-# ouvert au Checkout (subscription_data[trial_period_days]). Auto-débit à J+7
-# sauf résiliation au portail. Aligné sur stripe_service.create_checkout_session.
-TRIAL_DAYS = 7
-
 
 # --- Payloads -------------------------------------------------------------
 
@@ -531,11 +526,11 @@ async def _project_mock_update(
       période ». L'état CIBLE (après période) = `target_modules` — non appliqué
       tant que la période n'est pas écoulée.
 
-    Le STATUT existant est préservé (un essai reste `trialing`, un abonnement
-    `active` reste `active`) : une modification ne réinitialise PAS l'essai 7 j et
-    ne « rétrograde » jamais un abonnement payant en essai. Pendant l'essai, les
-    changements ne font que remodeler ce qui sera facturé en fin d'essai (le
-    plafond IA reste appliqué par `ai_quota_for`).
+    Le STATUT existant est préservé (un abonnement `active` reste `active`, un essai
+    LEGACY résiduel reste `trialing`) : une modification ne « rétrograde » jamais un
+    abonnement payant en essai. Pour un essai legacy encore en cours, les changements
+    ne font que remodeler ce qui sera facturé en fin d'essai (le plafond IA reste
+    appliqué par `ai_quota_for`).
     """
     # Modules effectifs MAINTENANT = cible ∪ retraits (les retraits NE quittent PAS
     # l'accès avant la fin de période).
@@ -696,10 +691,11 @@ async def get_summary(db: AsyncSession = Depends(get_db),
     )).scalars().all()
     bots = await _billable_bots(db, user)
 
-    # Essais EN COURS du payeur (essai AVEC carte, point 4) : un abonnement Stripe
-    # `trialing` projette `status='trialing'` + `trial_end` (= subscription.trial_end)
-    # sur bot_entitlements. `trial_end` agrégé = le plus PROCHE parmi les essais
-    # encore en cours (epoch s) ; null hors essai.
+    # Essais LEGACY du payeur (clients legacy encore en essai : on ne CRÉE plus
+    # d'essai, mais des abonnements Stripe `trialing` antérieurs peuvent subsister).
+    # Un tel sub projette `status='trialing'` + `trial_end` (= subscription.trial_end)
+    # sur bot_entitlements. `trial_end` agrégé = le plus PROCHE parmi ces essais
+    # résiduels encore en cours (epoch s) ; null sinon.
     now = utcnow()
     trial_end: int | None = None
     if bots:
@@ -715,8 +711,9 @@ async def get_summary(db: AsyncSession = Depends(get_db),
 
     # subscription_status agrégé du payeur (contrat front) : 'active' dès qu'une
     # sub est VRAIMENT active (1er débit passé), sinon 'trialing' si au moins un
-    # abonnement est en essai avec carte (point 4), sinon 'past_due' si au moins
-    # une est past_due, sinon 'none' (tout résilié / aucune sub).
+    # abonnement LEGACY est encore en essai (clients legacy, plus jamais créé —
+    # affiché en neutre « Actif » côté front), sinon 'past_due' si au moins une est
+    # past_due, sinon 'none' (tout résilié / aucune sub).
     statuses = {s.status for s in subs}
     if "active" in statuses:
         subscription_status = "active"
@@ -764,7 +761,7 @@ async def get_summary(db: AsyncSession = Depends(get_db),
         "has_customer": bool(user.stripe_customer_id),
         "billing_email": user.billing_email or user.email,
         "subscription_status": subscription_status,
-        # Fin du plus proche essai 7 j en cours (epoch s), null hors essai (point 4).
+        # Fin du plus proche essai LEGACY en cours (clients legacy, epoch s), null sinon.
         "trial_end": trial_end,
         "next_invoice_cents": next_invoice_cents,
         "next_invoice_at": next_invoice_at,
@@ -883,12 +880,16 @@ async def _open_checkout(
 @router.post("/billing/checkout")
 async def checkout(body: CheckoutPayload, db: AsyncSession = Depends(get_db),
                    user: User = Depends(get_current_user)):
-    """Crée une session de Checkout Stripe : c'est le SEUL chemin d'essai (point 1).
+    """Crée une session de Checkout Stripe : c'est le SEUL chemin de souscription.
 
-    Essai AVEC CARTE : le Checkout ouvre un abonnement Stripe en statut `trialing`
-    (`subscription_data[trial_period_days]=7` + `payment_method_collection=always`)
-    — la carte est OBLIGATOIRE, 0 € est débité pendant 7 j, puis auto-débit du plan
-    à J+7 SAUF résiliation au Customer Portal (-> subscription.deleted -> bot gaté).
+    Abonnement PAYANT IMMÉDIAT : le Checkout ouvre un abonnement Stripe ACTIF dès la
+    1re facture (plus d'essai gratuit). Cette 1re facture est REMISÉE par le coupon
+    d'intro (`duration:once`, % borné par palier IA — offre de bienvenue, 1x/client).
+    La carte n'est demandée que s'il reste un montant dû
+    (`payment_method_collection='if_required'`) : oui pour un plan payant (intro 1er
+    mois > 0 €), sautée si un coupon 100 % ramène le dû à 0 €. Sans engagement :
+    l'abonnement reste annulable à tout moment au Customer Portal (-> subscription.
+    deleted -> bot gaté à la fin de période).
 
     Sert AUSSI à RELANCER le paiement d'un bot 'inactive' (Checkout annulé/abandonné,
     point 3) : même payload, même chemin.
@@ -932,7 +933,8 @@ async def subscription_update(body: SubscriptionUpdatePayload,
       rétrogradation est PROGRAMMÉE en FIN DE PÉRIODE via un Subscription Schedule
       (`schedule_subscription_downgrade`) : le module reste actif et facturé
       jusqu'à `current_period_end`, puis la composition réduite prend effet ;
-    - ESSAI (`status='trialing'`) : AUCUN débit immédiat. Les ajouts sont posés avec
+    - ESSAI LEGACY (`status='trialing'`, clients legacy encore en essai : on n'en
+      crée plus) : AUCUN débit immédiat. Les ajouts sont posés avec
       `proration_behavior='none'` -> le prix PLEIN s'appliquera en fin d'essai (la
       facture de fin d'essai porte les items alors présents). Les retraits prennent
       aussi effet en fin de période/essai.
@@ -945,7 +947,7 @@ async def subscription_update(body: SubscriptionUpdatePayload,
 
     Sans subscription ACTIVE sur le bot (bot 'inactive' : Checkout annulé/abandonné,
     point 3) ⇒ on relance le Checkout et renvoie {status:'needs_checkout',
-    checkout_url} (l'owner repasse par l'essai avec carte).
+    checkout_url} (l'owner repasse par le Checkout payant, intro 1er mois remisé).
 
     Owner-only. MOCK_BILLING ⇒ on simule la MÊME sémantique sur l'entitlement
     projeté (ajouts effectifs maintenant, retraits différés en fin de période),
@@ -964,7 +966,7 @@ async def subscription_update(body: SubscriptionUpdatePayload,
 
     if settings.MOCK_BILLING:
         # MOCK : pas de subscription Stripe réelle. Le bot est « souscrit » dès que
-        # son entitlement a un statut actif/essai/impayé (posé par un Checkout MOCK
+        # son entitlement a un statut actif/essai legacy/impayé (posé par un Checkout MOCK
         # antérieur). Un bot jamais souscrit (status 'inactive' / pas d'entitlement)
         # -> relance Checkout (point 3) ; sinon on projette la MÊME sémantique de
         # proration (ajouts maintenant, retraits différés en fin de période).
@@ -1040,8 +1042,9 @@ async def subscription_update(body: SubscriptionUpdatePayload,
     # --- (1) MODIFICATIONS IMMÉDIATES (ajout de module / swap de palier dans un
     # slot conservé) : appliquées MAINTENANT. Les RETRAITS de module restent sur la
     # sub (toujours facturés jusqu'à la fin de période). always_invoice hors essai
-    # (prorata facturé tout de suite) ; none pendant l'essai (prix plein en fin
-    # d'essai). Pas de modif immédiate -> on ne touche PAS la sub (pas de facture).
+    # (prorata facturé tout de suite) ; none pour un essai LEGACY résiduel (clients
+    # legacy : prix plein en fin d'essai). Pas de modif immédiate -> on ne touche PAS
+    # la sub (pas de facture).
     if changed_now:
         now_target: list[dict] = list(other_bot_items)
         bot_existing = [it for it in existing
@@ -1460,7 +1463,7 @@ async def _ai_tier_id_for_quota(db: AsyncSession, quota: int | None) -> Optional
     """Déduit le palier IA managé (`ai_*`) à partir du quota mensuel stocké sur
     l'entitlement. Le palier précis n'est pas persisté : on le retrouve via le
     quota (paliers à `included_replies` distincts — 1000/3000/10000). None si pas
-    de correspondance (BYOK, pas d'IA, ou quota plafonné pendant l'essai). Sert au
+    de correspondance (BYOK, pas d'IA, ou quota plafonné sur un essai legacy). Sert au
     pré-remplissage du configurateur (Facturation) et au diff « évolution du plan »."""
     if not quota:
         return None
@@ -1483,8 +1486,9 @@ async def _bot_entitlement_response(db: AsyncSession, bot: Bot) -> dict:
 
     # subscription_status : 'none' tant que le billing est OFF ou que le bot n'a
     # pas d'entitlement projeté (gratuit). Sinon on remonte le statut de la ligne
-    # (active | trialing | past_due | canceled). 'trialing' = essai 7 j en cours
-    # (point 4) — le gate à l'expiration est porté par `ent.status` (resolve).
+    # (active | trialing | past_due | canceled). 'trialing' = essai LEGACY encore en
+    # cours (clients legacy, plus jamais créé) — le gate à l'expiration est porté par
+    # `ent.status` (resolve).
     row = (await db.execute(
         select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
     )).scalar_one_or_none()
@@ -1533,10 +1537,10 @@ async def _bot_entitlement_response(db: AsyncSession, bot: Bot) -> dict:
         # `subscription_status` = même info sous la clé du contrat front BotBilling.
         "status": ent.status,
         "subscription_status": sub_status,
-        # Fin d'essai 7 j (epoch s) si en essai, sinon null (point 4).
+        # Fin d'essai LEGACY (epoch s) pour un essai résiduel, sinon null.
         "trial_end": trial_end_epoch,
-        # Essai expiré : le front affiche le message « essai terminé, souscrivez »
-        # (distinct du quota épuisé). False hors essai / essai en cours / payé.
+        # Essai LEGACY expiré (clients legacy uniquement) : distinct du quota épuisé.
+        # False hors essai / essai en cours / payé.
         "trial_expired": ent.trial_expired,
         # --- Dépassement IA métré (contrat front BotBilling) ---
         "overage_mode": ent.overage_mode,                 # block | meter

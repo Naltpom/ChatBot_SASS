@@ -12,8 +12,9 @@ import { Btn, Card, Chip } from '../../ui'
 import type { Bot, BotUpdate } from '../../types/bot'
 import type { BotBilling } from '../../types/billing'
 
-// L'entitlement enrichi exposé par GET /api/bots/{id}/entitlement (mêmes champs
-// additifs que dans BotPage : status brut, fin d'essai, essai expiré).
+// L'entitlement enrichi exposé par GET /api/bots/{id}/entitlement. `status` brut.
+// `trial_end`/`trial_expired` : champs LEGACY conservés (abonnements 'trialing'
+// résiduels) mais plus consommés ici — l'essai n'est plus généré ni affiché.
 type BotEntitlementView = BotBilling & {
   status?: string
   trial_end?: number | null
@@ -28,12 +29,6 @@ interface SetupStep {
   done: boolean
   doneHint?: string
   cta?: { label: string; onClick: () => void; tone: 'primary' | 'soft' | 'danger' }
-}
-
-// Jours restants avant une échéance epoch (s) — arrondi au jour supérieur.
-function daysUntil(epochSeconds: number): number {
-  const ms = epochSeconds * 1000 - Date.now()
-  return ms <= 0 ? 0 : Math.ceil(ms / 86_400_000)
 }
 
 // Anneau de progression SVG (sweep animé au montage via le style transition).
@@ -96,11 +91,9 @@ export default function OverviewTab({
   // État de facturation : on ne propose l'étape « paiement » que si le billing
   // est actif ET visible pour ce payeur (sinon le bot est gratuit -> pas d'étape).
   const status = billing?.status ?? billing?.subscription_status
-  const trialEnd = billing?.trial_end ?? null
-  const onTrial = status === 'trialing' && trialEnd != null && trialEnd * 1000 > Date.now()
-  const trialDaysLeft = trialEnd != null ? daysUntil(trialEnd) : 0
-  const paymentRequired = billingTabVisible && (status === 'inactive' || !!billing?.trial_expired)
-  const paymentDone = !billingTabVisible || status === 'active' || onTrial
+  // 'trialing' = statut LEGACY résiduel, traité comme actif (accès OK, pas d'essai affiché).
+  const paymentRequired = billingTabVisible && status === 'inactive'
+  const paymentDone = !billingTabVisible || status === 'active' || status === 'trialing'
 
   // --- Étapes de mise en route (dérivées des champs réels) ------------------
   const steps: SetupStep[] = [
@@ -125,10 +118,8 @@ export default function OverviewTab({
   if (billingTabVisible) {
     steps.push({
       key: 'payment', label: 'Finaliser le paiement',
-      sub: onTrial
-        ? `Essai en cours — ${trialDaysLeft} ${trialDaysLeft > 1 ? 'jours restants' : 'jour restant'}.`
-        : "L'IA et les modules payants sont suspendus tant que le paiement n'est pas réglé.",
-      done: paymentDone, doneHint: onTrial ? `Essai · ${trialDaysLeft} j` : 'Actif',
+      sub: "L'IA et les modules payants sont suspendus tant que le paiement n'est pas réglé.",
+      done: paymentDone, doneHint: 'Actif',
       cta: paymentDone ? undefined : { label: 'Finaliser le paiement', onClick: subscribeNow, tone: 'danger' },
     })
   }

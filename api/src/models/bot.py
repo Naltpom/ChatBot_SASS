@@ -274,7 +274,8 @@ class BotOut(BaseModel):
     # modulaire) : alimente le badge front (règle 4). 'trialing' | 'active' |
     # 'past_due' | 'inactive' | None (billing OFF — invariant D0, aucun badge).
     billing_status: str | None = None
-    # Fin de l'essai 7 j AVEC carte (epoch s) si status='trialing', sinon None.
+    # Fin d'essai LEGACY (epoch s) si status='trialing' résiduel, sinon None
+    # (plus d'essai créé : l'abonnement est actif/payant dès la souscription).
     trial_end: int | None = None
 
     model_config = ConfigDict(from_attributes=True)

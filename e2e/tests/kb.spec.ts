@@ -48,8 +48,9 @@ test('onglet IA → ajout source texte → Prête → recherche hybride/fts → 
   // L'attente interne « Prête » est à 180 s, on aligne le test (+ marge réseau).
   test.setTimeout(220_000)
 
-  // Onglet IA (héberge la section « Base de connaissances »)
+  // Onglet IA → sous-onglet « Connaissances (RAG) » (héberge « Base de connaissances »)
   await page.locator('.tabs').getByRole('button', { name: 'IA', exact: true }).click()
+  await page.getByRole('button', { name: 'Connaissances (RAG)', exact: true }).click()
   await expect(page.getByText('Base de connaissances')).toBeVisible()
 
   // --- Ajout d'une source TEXTE ---

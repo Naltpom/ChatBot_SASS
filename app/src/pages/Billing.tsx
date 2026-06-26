@@ -40,21 +40,18 @@ const INVOICE_STATUS_LABELS: Record<Invoice['status'], string> = {
 
 // Résumé d'abonnement renvoyé par GET /api/billing/summary. On reste tolérant
 // (champs optionnels) : le backend peut enrichir sans casser le front.
-// `subscription_status` peut valoir 'trialing' : l'essai 7 j est un ABONNEMENT
-// Stripe en statut 'trialing' (carte saisie au Checkout, 0 € pendant 7 j, auto-
-// débité à J+7 sauf annulation). `trial_end` porte l'échéance du plus proche essai
-// en cours (epoch s, null hors essai). Voir routers/billing.get_summary.
+// `subscription_status` peut encore valoir 'trialing' : état RÉSIDUEL d'anciens
+// abonnements Stripe legacy (ce statut n'est plus créé désormais). Il reste
+// considéré ACTIF (accès modules) et s'affiche en neutre « Actif ». `trial_end`
+// (epoch s) n'est plus exploité côté front mais conservé (legacy). Voir get_summary.
 interface BillingSummary {
   subscription_status?: 'active' | 'past_due' | 'canceled' | 'none' | 'trialing'
   billable_bots?: number
-  trial_end?: number | null      // epoch secondes (essai 7 j) ou null
+  trial_end?: number | null      // epoch secondes — legacy résiduel, conservé
   next_invoice_cents?: number | null
   next_invoice_at?: number | null // epoch secondes
 }
 
-// Plafond IA pendant l'essai 7 j (carte requise), aligné backend (point 1). Le
-// quota plein est rétabli au premier débit (J+7). Affiché à titre informatif.
-const TRIAL_AI_CAP = 50
 // Seuil d'alerte « quota proche » (>= 80 % de la conso IA mensuelle).
 const QUOTA_WARN_PCT = 80
 
@@ -82,12 +79,6 @@ function fmtEur(cents: number): string {
 }
 function fmtDate(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-}
-// Jours restants avant la fin d'essai (epoch s -> ms). Arrondi au jour supérieur
-// (un essai qui finit dans 6 h affiche « 1 jour »). 0 si déjà échu.
-function daysUntil(epochSeconds: number): number {
-  const ms = epochSeconds * 1000 - Date.now()
-  return ms <= 0 ? 0 : Math.ceil(ms / 86_400_000)
 }
 
 export default function Billing() {
@@ -287,16 +278,6 @@ export default function Billing() {
   const currentGrouping: BillingGrouping = user?.billing_grouping ?? 'total'
   const subStatus = summary?.subscription_status
 
-  // Essai 7 j en cours : status='trialing' ET échéance future. Le backend
-  // (get_summary) n'agrège QUE les essais ENCORE en cours dans `trial_end` (les
-  // essais échus en sont retirés -> trial_end null) : l'état « essai terminé » au
-  // niveau payeur n'est donc pas dérivable ici. Il est traité par bot dans
-  // l'onglet Facturation (entitlement.trial_expired). On reste sur le compte à
-  // rebours + l'info auto-débit + l'accès au portail pour annuler avant J+7.
-  const trialEnd = summary?.trial_end ?? null
-  const onTrial = subStatus === 'trialing' && trialEnd != null && trialEnd * 1000 > Date.now()
-  const trialDaysLeft = trialEnd != null ? daysUntil(trialEnd) : 0
-
   // Bots du payeur dont la conso IA approche / atteint le quota (managés, non BYOK,
   // quota fini). >= seuil => alerte ; >= 100 % => IA en pause (blocage v1).
   const quotaAlerts = (usage ?? [])
@@ -312,24 +293,6 @@ export default function Billing() {
   return (
     <div className="col" style={{ gap: 18 }}>
       <Header />
-
-      {/* ESSAI 7 j en cours : compte à rebours + auto-débit à J+7 + gérer/annuler
-          via le Customer Portal (avant J+7 -> 0 € débité). L'IA reste plafonnée. */}
-      {onTrial && (
-        <InfoBox tone="info" title={`Essai jusqu'au ${fmtDate(trialEnd as number)}`}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
-            <span>
-              Essai gratuit jusqu'au {fmtDate(trialEnd as number)}, débité automatiquement à la fin
-              sauf annulation. L'IA est plafonnée à {TRIAL_AI_CAP} réponses pendant l'essai (plafond
-              levé au premier débit). Annulez avant la fin depuis le portail : aucun montant ne sera prélevé.
-            </span>
-            <button onClick={openPortal} disabled={portalBusy} className="btn btn-primary"
-                    style={{ whiteSpace: 'nowrap' }}>
-              {portalBusy ? 'Ouverture…' : "Gérer / Annuler l'essai"}
-            </button>
-          </div>
-        </InfoBox>
-      )}
 
       {/* ALERTE QUOTA IA proche / atteint (par bot). Au quota : soit l'IA est en
           pause (mode 'block', défaut -> message « plan supérieur »), soit le
@@ -393,7 +356,8 @@ export default function Billing() {
             <div style={{ fontSize: 14.5, fontWeight: 800 }}>Votre abonnement</div>
             <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 4 }}>
               {subStatus === 'active' && 'Abonnement actif.'}
-              {subStatus === 'trialing' && 'Essai gratuit en cours — débité automatiquement à la fin, sauf annulation depuis le portail.'}
+              {/* 'trialing' = état RÉSIDUEL (abonnement legacy) : affiché en neutre « actif ». */}
+              {subStatus === 'trialing' && 'Abonnement actif.'}
               {subStatus === 'past_due' && 'Paiement en retard — régularisez via le portail.'}
               {subStatus === 'canceled' && 'Abonnement résilié.'}
               {(subStatus === 'none' || subStatus === undefined) && 'Aucun abonnement payant — vous êtes sur le socle gratuit.'}
@@ -444,8 +408,8 @@ export default function Billing() {
           <div className="col" style={{ gap: 10 }}>
             {billableBots.map(b => {
               const inactive = b.billing_status === 'inactive'
-              // Plan modifiable EN APP tant que l'abonnement est vivant
-              // (essai/payé/relance). 'inactive' -> relance du Checkout.
+              // Plan modifiable EN APP tant que l'abonnement est vivant (actif/relance,
+              // + 'trialing' RÉSIDUEL legacy). 'inactive' -> relance du Checkout.
               const manageable = b.billing_status === 'active' || b.billing_status === 'trialing' || b.billing_status === 'past_due'
               const busy = botActionBusy === b.id
               const rowErr = botActionErr[b.id]

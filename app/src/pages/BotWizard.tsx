@@ -963,15 +963,14 @@ export default function BotWizard() {
             </p>
           </div>
 
-          {/* Essai 7 j AVEC carte — l'abonnement composé démarre en essai (0 € pendant
-              7 jours), la carte est saisie au paiement sécurisé. Auto-débité à J+7 sauf
-              annulation. L'IA est plafonnée à 50 réponses pendant l'essai. */}
+          {/* Offre de bienvenue — l'abonnement composé démarre dès le paiement
+              sécurisé. Le 1er mois est remisé (détail dans le panier), puis plein
+              tarif. Annulable à tout moment depuis l'espace facturation. */}
           <div style={{ marginBottom: 18 }}>
-            <InfoBox tone="info" title="Essai 7 jours, carte requise, annulable">
-              Votre chatbot démarre par un essai gratuit de 7 jours. La carte est demandée au paiement
-              sécurisé mais rien n'est débité avant la fin de l'essai : à J+7, l'abonnement est débité
-              automatiquement sauf si vous annulez avant depuis votre espace facturation. Pendant l'essai,
-              l'IA managée est plafonnée à 50 réponses ; ce plafond est levé à la souscription.
+            <InfoBox tone="info" title="Sans engagement, annulable à tout moment">
+              Votre abonnement démarre dès le paiement sécurisé : le 1er mois est remisé
+              (voir le détail dans le panier), puis vous passez au plein tarif. Vous pouvez
+              annuler à tout moment depuis votre espace facturation.
             </InfoBox>
           </div>
 
@@ -989,17 +988,17 @@ export default function BotWizard() {
             <PriceCart catalog={catalog} config={botConfig} />
           </div>
 
-          {/* Récap de l'essai facturable : si la compo a un coût (owner + total > 0),
-              on rappelle qu'à J+7 l'abonnement sera débité sauf annulation. Le seul
-              chemin de démarrage est le Checkout (carte) à la création — plus de
-              choix « essai sans carte / souscrire maintenant ». */}
+          {/* Récap facturable : si la compo a un coût (owner + total > 0), on
+              rappelle que le paiement démarre l'abonnement (1er mois remisé). Le
+              seul chemin de démarrage est le Checkout (carte) à la création. */}
           {isOwnerDest && totalCents > 0 && (
             <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 18 }}>
               <Label>À la création</Label>
               <div style={{ fontSize: 12.5, color: FAINT, lineHeight: 1.5 }}>
-                Vous serez redirigé vers le paiement sécurisé pour saisir votre carte (essai 7 jours,
-                0 € aujourd'hui). À J+7, {formatCents(totalCents, catalog.currency)} /mois seront débités
-                automatiquement, sauf si vous annulez avant depuis votre espace facturation.
+                Vous serez redirigé vers le paiement sécurisé pour saisir votre carte. Votre abonnement
+                à {formatCents(totalCents, catalog.currency)} /mois démarre dès le paiement (1er mois
+                remisé, voir le panier), puis se renouvelle automatiquement sauf si vous annulez depuis
+                votre espace facturation.
               </div>
             </div>
           )}

@@ -29,14 +29,13 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('.tabs').getByRole('button', { name: 'Apparence', exact: true })).toBeVisible()
 })
 
-test('les 7 onglets de l\'éditeur en mode arbre (IA et Actions masqués)', async ({ page }) => {
+test('les onglets de l\'éditeur en mode arbre (Actions masqué, IA visible)', async ({ page }) => {
   const tabs = page.locator('.tabs')
-  // Bot en mode arbre → aiTabRelevant=false : les onglets « IA » et
-  // « Actions » n'ont pas lieu d'être (ils n'apparaissent que si mode !== 'tree').
-  for (const label of ['Apparence', 'Arbre', 'Humain', 'Intégration', 'Sécurité']) {
+  // Bot en mode arbre : l'onglet « IA » reste visible (la config IA est
+  // accessible), seul « Actions » est masqué (aiTabRelevant=false).
+  for (const label of ['Apparence', 'Arbre', 'IA', 'Humain', 'Intégration', 'Sécurité']) {
     await expect(tabs.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
-  await expect(tabs.getByRole('button', { name: 'IA', exact: true })).toHaveCount(0)
   await expect(tabs.getByRole('button', { name: 'Actions', exact: true })).toHaveCount(0)
 })
 
@@ -102,10 +101,9 @@ test('onglet Arbre : ajouter une branche, l\'éditer via l\'inspecteur, enregist
   await expect(page.locator('input[value="Choix E2E"]')).toBeVisible()
 })
 
-test('onglet Sécurité : la zone de danger expose le bouton de suppression', async ({ page }) => {
+test('onglet Sécurité : domaines autorisés, limites de débit et captcha', async ({ page }) => {
   await page.locator('.tabs').getByRole('button', { name: 'Sécurité', exact: true }).click()
   await expect(page.getByText('Domaines autorisés').first()).toBeVisible()
-  await expect(page.getByText('Zone de danger')).toBeVisible()
-  // Présence seulement — la suppression réelle est gérée par deleteBot (afterAll)
-  await expect(page.getByRole('button', { name: /Supprimer ce chatbot/ })).toBeVisible()
+  await expect(page.getByText('Limites de débit')).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: 'Vérification anti-bot (captcha)' })).toBeVisible()
 })

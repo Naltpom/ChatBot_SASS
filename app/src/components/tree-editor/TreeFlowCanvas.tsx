@@ -693,7 +693,7 @@ function CanvasInner({ tree, onChange, allowAI = true }: Props) {
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable style={{ background: '#FBFCFD' }}
                      nodeColor={(n) => KIND_COLOR[((n.data as RFNodeData | undefined)?.kind) || 'q']} />
-            <Panel position="top-left">
+            <Panel position="top-left" style={{ pointerEvents: 'none' }}>
               <div style={{ fontSize: 11.5, color: '#6B7B8D', background: 'rgba(255,255,255,.9)', border: '1px solid #E8ECF0', borderRadius: 8, padding: '5px 9px', maxWidth: 280 }}>
                 Astuce : tirez depuis le point <b style={{ color: '#1C3F5C' }}>●</b> en bas d'un nœud — vers un autre nœud pour <b>relier</b>, vers le vide pour <b>créer</b>. Sélectionnez une flèche puis glissez son <b>point</b> pour la <b>plier</b> (double-clic = redresser). Ou sélectionnez un nœud et « + Ajouter une réponse ».
               </div>

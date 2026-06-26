@@ -105,8 +105,7 @@ const FALLBACK_MODULES: CatalogModule[] = [
 ]
 
 // Paliers IA managés (kind='ai_tier'). Choisir un palier active le module 'ai'.
-// Plus de palier 'ai_free' : l'IA gratuite à vie est supprimée (point 7). L'IA
-// reste plafonnée à 50 réponses PENDANT l'essai 7 j, levée à la souscription.
+// Plus de palier 'ai_free' : l'IA gratuite à vie est supprimée (point 7).
 const FALLBACK_AI_TIERS: AiTier[] = [
   { id: 'ai_starter', included_replies: 1000, price_cents: 1900, desc: 'Pour démarrer : volume confortable pour un petit site.' },
   { id: 'ai_growth', included_replies: 3000, price_cents: 3900, desc: 'Trafic régulier : marge pour un site actif.' },

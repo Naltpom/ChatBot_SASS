@@ -52,9 +52,10 @@ test('création d\'un bot perso, badge « Perso », déplacement vers une équip
   await authenticate(page, state)
   await page.goto('/app')
   await expect(page.getByText('Mes chatbots').first()).toBeVisible()
-  const card = page.locator('.bot-card', { hasText: name })
+  // « Mes chatbots » a migré dans l'aside (BotNav) : le bot perso est un bouton
+  // de navigation (plus de grille .bot-card ni de badge « Perso » dans cette vue).
+  const card = page.getByRole('navigation').getByRole('button', { name })
   await expect(card).toBeVisible()
-  await expect(card.getByText('Perso', { exact: true })).toBeVisible()
 
   // --- 4. Déplacement vers l'équipe partagée du state → scope:'team' ---
   const moveRes = await request.post(`${state.apiUrl}/api/bots/${createdBotId}/move`, {

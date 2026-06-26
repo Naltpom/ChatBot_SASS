@@ -131,8 +131,8 @@ async def billing_overview(db: AsyncSession = Depends(get_db)):
     """Vue agrégée des payeurs : MRR, statut, abonnements, bots facturables.
 
     Un PAYEUR = un User ayant un `stripe_customer_id`, au moins une
-    `billing_subscription`, OU au moins un bot en ESSAI 7 j (status='trialing' —
-    fin du gratuit à vie). Pour chacun :
+    `billing_subscription`, OU au moins un bot encore en `trialing` (essai LEGACY,
+    plus créé à la souscription ; conservé pour les abonnements antérieurs). Pour chacun :
     - `monthly_cents` = somme (unit_amount × qty) des items des subs ACTIVES (via
       raw_items × prix `billing_products`). BYOK inclus, métré (mtr_*) exclu. Un
       payeur EN ESSAI (aucune sub payante) a monthly_cents=0 (pas encore de carte).
