@@ -281,6 +281,56 @@ async def billing_overview(db: AsyncSession = Depends(get_db)):
     }
 
 
+# --- GET /api/admin/billing/bots ------------------------------------------
+
+@router.get("/billing/bots")
+async def billing_all_bots(db: AsyncSession = Depends(get_db)):
+    """TOUS les bots du SaaS avec leur statut de facturation effectif — pas
+    seulement ceux d'un payeur (vue « tous les bots » de la console admin).
+
+    Pour chaque bot : propriétaire (compte perso = son user ; équipe = nom de
+    l'org + email de l'owner de l'org), scope, statut entitlement
+    (active/trialing/past_due/inactive, ou `free` si aucun entitlement = billing
+    OFF/legacy = capacités gratuites), modules débloqués, quota IA, source,
+    date de création. Lecture seule ; renvoyé MÊME billing OFF (tous `free`)."""
+    bots = (await db.execute(
+        select(Bot).order_by(Bot.created_at.desc())
+    )).scalars().all()
+    ent_by_bot = {
+        e.bot_id: e
+        for e in (await db.execute(select(BotEntitlement))).scalars().all()
+    }
+    users_by_id = {u.id: u for u in (await db.execute(select(User))).scalars().all()}
+    orgs_by_id = {o.id: o for o in (await db.execute(select(Organization))).scalars().all()}
+
+    rows = []
+    for b in bots:
+        ent = ent_by_bot.get(b.id)
+        if b.owner_user_id is not None:
+            owner = users_by_id.get(b.owner_user_id)
+            owner_label = owner.name if owner else f"#{b.owner_user_id}"
+            owner_email = owner.email if owner else None
+        else:
+            org = orgs_by_id.get(b.organization_id)
+            owner_label = org.name if org else f"org#{b.organization_id}"
+            org_owner = users_by_id.get(org.owner_user_id) if org and org.owner_user_id else None
+            owner_email = org_owner.email if org_owner else None
+        rows.append({
+            "bot_id": b.id,
+            "name": b.name,
+            "scope": "personal" if b.owner_user_id else "team",
+            "owner_label": owner_label,
+            "owner_email": owner_email,
+            # `free` = aucun entitlement (billing OFF/legacy) = tout gratuit.
+            "status": ent.status if ent is not None else "free",
+            "modules": sorted(ent.modules or []) if ent is not None else [],
+            "ai_monthly_quota": ent.ai_monthly_quota if ent is not None else None,
+            "source": ent.source if ent is not None else "free",
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+        })
+    return {"bots": rows}
+
+
 # --- GET /api/admin/billing/invoices --------------------------------------
 
 @router.get("/billing/invoices")

@@ -63,6 +63,29 @@ function scopeChip(scope: AdminPayerBot['scope']) {
   return <Chip tone="mut">{scope === 'personal' ? 'Perso' : 'Équipe'}</Chip>
 }
 
+// Une ligne de la vue « Tous les bots » (GET /api/admin/billing/bots).
+interface AdminAllBot {
+  bot_id: number
+  name: string
+  scope: 'personal' | 'team'
+  owner_label: string
+  owner_email: string | null
+  status: 'free' | 'inactive' | 'trialing' | 'active' | 'past_due'
+  modules: string[]
+  ai_monthly_quota: number | null
+  source: string
+  created_at: string | null
+}
+
+// Chip de statut de paiement d'un bot (vue « Tous les bots »).
+function botStatusChip(status: AdminAllBot['status']) {
+  if (status === 'active') return <Chip tone="go">Payé</Chip>
+  if (status === 'trialing') return <Chip tone="acc">Essai</Chip>
+  if (status === 'past_due') return <Chip tone="danger">Paiement en retard</Chip>
+  if (status === 'inactive') return <Chip tone="warn">Non payé</Chip>
+  return <Chip tone="mut">Gratuit</Chip>   // free = aucun entitlement
+}
+
 export default function AdminBilling() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -75,6 +98,11 @@ export default function AdminBilling() {
   // Nombre de factures — alimente uniquement le KPI « Factures » de cette vue
   // (le détail vit sur la sous-page /admin/billing/invoices).
   const [invoiceCount, setInvoiceCount] = useState<number | null>(null)
+
+  // Vue « Tous les bots » : chaque bot du SaaS + son statut de paiement, même
+  // sans abonnement (≠ « Clients facturés » qui ne liste que les payeurs).
+  const [allBots, setAllBots] = useState<AdminAllBot[] | null>(null)
+  const [allBotsErr, setAllBotsErr] = useState('')
 
   // Bot dont l'éditeur d'entitlement est ouvert (modale).
   const [editingBot, setEditingBot] = useState<AdminPayerBot | null>(null)
@@ -129,6 +157,17 @@ export default function AdminBilling() {
         setInvoiceCount(isDisabled(d) ? 0 : (d as Invoice[]).length)
       })
       .catch(() => { if (alive) setInvoiceCount(null) })
+    return () => { alive = false }
+  }, [billingOff, tick])
+
+  // Tous les bots + statut de paiement — seulement si le billing est actif.
+  useEffect(() => {
+    if (billingOff) return
+    let alive = true
+    setAllBotsErr('')
+    api<{ bots: AdminAllBot[] }>('/api/admin/billing/bots')
+      .then(d => { if (alive) setAllBots(d.bots) })
+      .catch((err: unknown) => { if (alive) setAllBotsErr(errMsg(err, 'Chargement impossible.')) })
     return () => { alive = false }
   }, [billingOff, tick])
 
@@ -239,6 +278,63 @@ export default function AdminBilling() {
                           </div>
                         ))}
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          </Card>
+        )}
+      </div>
+
+      {/* ---- Vue TOUS LES BOTS (avec statut de paiement) ---- */}
+      <div>
+        <div className="card-title" style={{ marginBottom: 11 }}>
+          Tous les bots {allBots && <span style={{ color: 'var(--faint)', fontWeight: 400 }}>· {allBots.length}</span>}
+        </div>
+        {allBotsErr ? (
+          <Card><div className="error">{allBotsErr}</div></Card>
+        ) : allBots == null ? (
+          <Card style={{ color: 'var(--faint)' }}>Chargement…</Card>
+        ) : allBots.length === 0 ? (
+          <Card style={{ color: 'var(--faint)' }}>Aucun bot.</Card>
+        ) : (
+          <Card nopad>
+            <div className="table-scroll">
+            <table className="kc">
+              <thead>
+                <tr>
+                  <th>Bot</th><th>Propriétaire</th><th>Scope</th>
+                  <th>Paiement</th><th>Modules</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {allBots.map(b => (
+                  <tr key={b.bot_id}>
+                    <td>
+                      <span style={{ display: 'block', fontWeight: 700 }}>{b.name}</span>
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--faint)', fontFamily: 'monospace' }}>#{b.bot_id}</span>
+                    </td>
+                    <td>
+                      <span style={{ display: 'block', fontSize: 12.5 }}>{b.owner_label}</span>
+                      {b.owner_email && <span style={{ display: 'block', fontSize: 11, color: 'var(--faint)' }}>{b.owner_email}</span>}
+                    </td>
+                    <td>{scopeChip(b.scope)}</td>
+                    <td>
+                      {botStatusChip(b.status)}
+                      {b.source === 'staff' && <span style={{ marginLeft: 6 }}><Chip tone="warn">Override</Chip></span>}
+                    </td>
+                    <td style={{ fontSize: 11, color: 'var(--mut)' }}>
+                      {b.modules.length === 0 ? '—' : b.modules.join(', ')}
+                      {b.ai_monthly_quota != null && ` · quota ${b.ai_monthly_quota.toLocaleString('fr-FR')}`}
+                    </td>
+                    <td>
+                      <Btn kind="ghost" small onClick={() => setEditingBot({
+                        bot_id: b.bot_id, name: b.name, scope: b.scope,
+                        modules: b.modules, ai_monthly_quota: b.ai_monthly_quota,
+                        status: b.status, source: b.source,
+                      } as AdminPayerBot)}>Entitlements</Btn>
                     </td>
                   </tr>
                 ))}

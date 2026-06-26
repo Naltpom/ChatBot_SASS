@@ -6,10 +6,11 @@ L'ingestion part en tache de fond (asyncio.create_task) : la requete repond
 immediatement avec status='pending', le front poll GET /kb/sources.
 """
 import asyncio
+import json
 from datetime import timedelta
 from typing import Coroutine
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,6 +126,81 @@ async def create_pdf_source(
 
     _spawn_ingest(ingest_source(source.id, pdf_bytes=data))
     return source
+
+
+@router.post("/bots/{bot_id}/kb/import-wizard")
+async def import_wizard_sources(
+    bot_id: int,
+    sources: str = Form("[]"),
+    files: list[UploadFile] = File(default=[]),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Ingestion des sources saisies au WIZARD de création (URLs validées + PDF)
+    dans la KB du bot — SANS gate MODULE_RAG (décision produit : les sources
+    fournies pour générer l'arbre alimentent AUSSI le RAG, même si le module
+    n'est pas encore souscrit ; la RECHERCHE/réponse RAG reste, elle, gatée au
+    runtime tant que le module n'est pas pris). Owner/perm 'context'.
+
+    Best-effort : on dédoublonne les URLs déjà présentes, on respecte le plafond
+    MAX_SOURCES_PER_BOT (sources en trop ignorées) et on saute silencieusement un
+    PDF invalide/trop gros. `sources` = JSON [{url,type}] ou ["https://…"]. Renvoie
+    {created} = nombre de sources lancées en ingestion."""
+    bot, membership = await _get_accessible_bot(db, bot_id, user)
+    _check_bot_perm(user, membership, bot, "context")
+
+    try:
+        raw = json.loads(sources) if sources else []
+    except (json.JSONDecodeError, TypeError):
+        raw = []
+    urls: list[str] = []
+    for item in raw if isinstance(raw, list) else []:
+        u = (item.get("url") if isinstance(item, dict) else str(item)) or ""
+        u = u.strip()
+        if u.startswith("https://"):
+            urls.append(u)
+
+    # Dédup des URLs déjà ingérées + plafond restant.
+    existing = {
+        ref for (ref,) in (await db.execute(
+            select(KbSource.ref).where(KbSource.bot_id == bot.id)
+        )).all()
+    }
+    used = len(existing)
+    created = 0
+
+    for u in urls:
+        if used >= MAX_SOURCES_PER_BOT:
+            break
+        if u in existing:
+            continue
+        source = KbSource(bot_id=bot.id, type="url", ref=u, status="pending")
+        db.add(source)
+        await db.commit()
+        await db.refresh(source)
+        _spawn_ingest(ingest_source(source.id))  # type 'url' -> fetch interne
+        existing.add(u)
+        used += 1
+        created += 1
+
+    for f in files:
+        if used >= MAX_SOURCES_PER_BOT:
+            break
+        data = await f.read(MAX_PDF_BYTES + 1)
+        # Best-effort : un PDF trop gros ou non valide est ignoré (pas de 4xx
+        # bloquant — la création du bot ne doit jamais échouer pour ça).
+        if len(data) > MAX_PDF_BYTES or not data.startswith(b"%PDF-"):
+            continue
+        source = KbSource(bot_id=bot.id, type="pdf",
+                          ref=(f.filename or "document.pdf")[:200], status="pending")
+        db.add(source)
+        await db.commit()
+        await db.refresh(source)
+        _spawn_ingest(ingest_source(source.id, pdf_bytes=data))
+        used += 1
+        created += 1
+
+    return {"created": created}
 
 
 @router.get("/bots/{bot_id}/kb/sources")
