@@ -591,7 +591,7 @@ async def test_subscription_cancel_mock_marque_sub(client, overrides, db,
     cpe = datetime(2030, 1, 1)
     db.seed(BillingSubscription(
         user_id=1, stripe_subscription_id="sub_mock_1", grouping="per_bot",
-        scope_kind="bot", scope_bot_id=1, status="trialing",
+        scope_kind="bot", scope_bot_id=1, status="active",
         current_period_end=cpe,
         raw_items=[{"si_id": "si_1", "price_id": "price_rag", "code": "mod_rag",
                     "bot_id": 1, "qty": 1}]))

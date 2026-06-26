@@ -30,7 +30,7 @@ test('app mobile : sidebar en drawer via le hamburger', async ({ page }) => {
   // Ouverture du drawer → la sidebar et ses entrées apparaissent.
   await burger.click()
   await expect(page.locator('aside.sidebar.open')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Mes chatbots' })).toBeVisible()
+  await expect(page.locator('aside.sidebar.open').getByRole('button', { name: 'Mes chatbots' })).toBeVisible()
   // Fermeture via le backdrop.
   await page.locator('.sidebar-backdrop').click()
   await expect(page.locator('aside.sidebar.open')).toHaveCount(0)

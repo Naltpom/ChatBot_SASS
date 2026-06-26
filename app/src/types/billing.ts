@@ -78,8 +78,9 @@ export interface CatalogPreset {
 }
 
 // Statut d'abonnement effectif d'un bot tel que renvoyé par l'API (entitlement /
-// summary). 'trialing' = essai avec carte ; 'inactive' = paiement requis (Checkout
-// abandonné) ou abonnement annulé (cf. RÈGLES PRODUIT §3/§4) ; 'none' = pas
+// summary). 'trialing' = statut LEGACY résiduel (plus généré ; lu et traité comme
+// actif pour les abonnements Stripe historiques) ; 'inactive' = paiement requis
+// (Checkout abandonné) ou abonnement annulé (cf. RÈGLES PRODUIT §3/§4) ; 'none' = pas
 // d'abonnement (socle gratuit). null jamais ici (billing-OFF est traité côté front).
 export type SubscriptionStatus =
   | 'active'

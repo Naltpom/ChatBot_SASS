@@ -129,7 +129,6 @@ async def create_checkout_session(
     bots_map: dict[str, list[str]],
     group_key: str,
     user_id: int,
-    trial_period_days: int = 0,
     intro_coupon: Optional[str] = None,
     consent_immediate_execution_at: Optional[str] = None,
 ) -> str:
@@ -201,8 +200,6 @@ async def create_checkout_session(
     # horodatage ISO stocké en métadonnée d'abonnement (lisible Dashboard / API Stripe).
     if consent_immediate_execution_at:
         data["subscription_data[metadata][consent_immediate_execution_at]"] = consent_immediate_execution_at
-    if trial_period_days:
-        data["subscription_data[trial_period_days]"] = str(trial_period_days)
 
     resp = await _stripe_request("POST", "/checkout/sessions", data=data)
     return resp["url"]

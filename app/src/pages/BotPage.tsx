@@ -41,17 +41,19 @@ import type {
 } from '../types/billing'
 
 // L'entitlement (GET /api/bots/{id}/entitlement) enrichit `BotBilling` avec
-// l'état d'essai 7 j (fin du gratuit à vie) : `status` brut (incl. 'trialing'),
-// `trial_end` (epoch s|null) et `trial_expired`. Ces champs ne figurent pas
-// encore sur le contrat partagé `BotBilling` ; on les déclare ici (lecture seule,
-// alignés routers/billing.get_bot_entitlement) sans modifier le type partagé.
+// `status` brut (qui peut encore valoir 'trialing' pour des abonnements Stripe
+// LEGACY — traités comme actifs). `trial_end`/`trial_expired` sont LEGACY : on ne
+// crée plus d'essai et l'UI n'affiche plus de compte à rebours, mais le back peut
+// encore les renvoyer, donc on garde les champs (lecture seule, optionnels). Ces
+// champs ne figurent pas sur le contrat partagé `BotBilling` ; on les déclare ici
+// (alignés routers/billing.get_bot_entitlement) sans modifier le type partagé.
 // Les champs de DÉPASSEMENT IA métré (overage_mode/_enabled/_cap, reported_overage,
 // overage_cents_per_reply, metering_available) vivent désormais sur `BotBilling`
 // (CONTRAT 2) — hérités ici, pas redéclarés.
 type BotEntitlementView = BotBilling & {
   status?: string
-  trial_end?: number | null
-  trial_expired?: boolean
+  trial_end?: number | null   // legacy — plus dérivé en UI
+  trial_expired?: boolean      // legacy — plus dérivé en UI
 }
 
 // perm = permission par bot requise pour un MEMBER (admins : tout). Libellés
@@ -124,10 +126,12 @@ export default function BotPage() {
   // État de facturation du bot (onglet Facturation) : modules actifs / quota IA /
   // statut d'abonnement. Chargé paresseusement quand l'onglet devient visible.
   const [botBilling, setBotBilling] = useState<BotEntitlementView | null>(null)
-  // Souscription / réactivation via Checkout (essai expiré) : busy + erreur.
+  // Souscription / réactivation via Checkout (paiement requis / abonnement
+  // annulé) : busy + erreur.
   const [subscribeBusy, setSubscribeBusy] = useState(false)
   const [subscribeErr, setSubscribeErr] = useState('')
-  // Gestion / annulation de l'essai via le Customer Portal : busy + erreur.
+  // Gestion de l'abonnement via le Customer Portal (carte, annulation) : busy +
+  // erreur. (legacy : servait aussi à annuler l'essai avant J+7.)
   const [portalBusy, setPortalBusy] = useState(false)
   const [portalErr, setPortalErr] = useState('')
   // Gestion du plan EN APP (spec §1/§2) : catalogue (configurateur), bloc
@@ -365,11 +369,11 @@ export default function BotPage() {
     setNewDomain('')
   }
 
-  // Réactivation via Checkout (essai expiré / abonnement annulé -> bot gate) :
-  // recrée un abonnement (essai 7 j, carte requise) sur la config DÉJÀ active
-  // (modules + variante BYOK) via POST /api/billing/checkout. Le backend recalcule
-  // les line_items. checkout_url -> redirection Stripe ; null/free -> souscription
-  // immédiate (MOCK / catalogue gratuit), on recharge l'entitlement.
+  // Réactivation via Checkout (paiement requis / abonnement annulé -> bot gate) :
+  // recrée un abonnement PAYANT immédiat (carte requise, remise 1er mois en place)
+  // sur la config DÉJÀ active (modules + variante BYOK) via POST /api/billing/checkout.
+  // Le backend recalcule les line_items. checkout_url -> redirection Stripe ;
+  // null/free -> souscription immédiate (MOCK / catalogue gratuit), on recharge l'entitlement.
   async function subscribeNow() {
     if (!botBilling) return
     setSubscribeBusy(true)
@@ -397,10 +401,10 @@ export default function BotPage() {
     }
   }
 
-  // « Gérer / Annuler l'essai » : ouvre le Customer Portal Stripe (POST
-  // /api/billing/portal -> {portal_url|url}). Le client y annule l'abonnement
-  // d'essai avant J+7 (-> subscription.deleted -> bot gate, 0 € débité) ou met à
-  // jour sa carte. Redirection directe vers l'URL renvoyée.
+  // « Gérer l'abonnement » : ouvre le Customer Portal Stripe (POST
+  // /api/billing/portal -> {portal_url|url}) pour mettre à jour la carte ou
+  // résilier l'abonnement. (legacy : servait aussi à annuler l'essai avant J+7.)
+  // Redirection directe vers l'URL renvoyée.
   async function openPortal() {
     setPortalBusy(true)
     setPortalErr('')
@@ -815,29 +819,17 @@ const MODULE_LABELS: Record<string, string> = {
 }
 const SUB_STATUS_LABELS: Record<string, string> = {
   active: 'Actif',
-  trialing: 'Essai gratuit',
+  // 'trialing' résiduel (abonnements Stripe legacy) : affiché en NEUTRE « Actif »
+  // (plus d'essai créé). On GARDE la clé : ces abonnements restent actifs (accès modules).
+  trialing: 'Actif',
   past_due: 'Paiement en retard',
   inactive: 'Paiement requis',
   canceled: 'Résilié',
   none: 'Aucun abonnement',
 }
 
-// Plafond IA pendant l'essai 7 j (carte requise). Levé au premier débit (J+7).
-// Informatif (pas un prix codé en dur).
-const TRIAL_AI_CAP = 50
-// Jours restants avant la fin d'essai (epoch s -> ms, arrondi au jour supérieur).
-function daysUntil(epochSeconds: number): number {
-  const ms = epochSeconds * 1000 - Date.now()
-  return ms <= 0 ? 0 : Math.ceil(ms / 86_400_000)
-}
-// Date FR de fin d'essai (epoch s -> ms).
-function fmtDate(epochSeconds: number): string {
-  return new Date(epochSeconds * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-}
-
-// Onglet Facturation d'un bot : état d'essai 7 j avec carte (compte à rebours +
-// auto-débit à J+7 sauf annulation + plafond IA + bouton portail d'annulation),
-// état « Paiement requis » (status='inactive' -> relance du Checkout), bloc
+// Onglet Facturation d'un bot : état « Paiement requis » (status='inactive' ->
+// relance du Checkout), bloc
 // « Modifier mon plan » (configurateur pré-rempli + application AU PRORATA +
 // annulation FIN DE PÉRIODE), récap des modules actifs, quota IA (Meter) avec
 // alerte « quota proche / atteint », et renvoi vers la page Facturation pour les
@@ -888,14 +880,12 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
   const nearQuota = !overQuota && quota != null && quota > 0 && pct >= 80
   const modules = billing.active_modules || []
 
-  // État d'essai (fin du gratuit à vie). `status`/`subscription_status` peut valoir
-  // 'trialing' ; `trial_end` (epoch s) porte l'échéance ; `trial_expired` = essai
-  // échu sans souscription (bot bloqué).
+  // Statut d'abonnement. `status`/`subscription_status` peut encore valoir
+  // 'trialing' pour des abonnements Stripe LEGACY : on le traite comme ACTIF
+  // (cf. planManageable + SUB_STATUS_LABELS neutre « Actif »), sans plus créer
+  // ni afficher d'essai. (legacy : trial_end/trial_expired restent lus côté back
+  // mais ne sont plus dérivés ici.)
   const status = billing.status ?? billing.subscription_status
-  const trialEnd = billing.trial_end ?? null
-  const onTrial = status === 'trialing' && trialEnd != null && trialEnd * 1000 > Date.now()
-  const trialDaysLeft = trialEnd != null ? daysUntil(trialEnd) : 0
-  const trialExpired = !!billing.trial_expired
   // « Paiement requis » : Checkout abandonné ou abonnement annulé (point 3/4).
   // Le bot est gardé (config sauvegardée) mais ses modules sont gate tant que pas
   // payé -> on propose de relancer le Checkout.
@@ -907,45 +897,6 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
 
   return (
     <div className="col" style={{ gap: 16 }}>
-      {/* ESSAI EN COURS : compte à rebours + auto-débit à J+7 + plafond IA + bouton
-          portail pour annuler avant la fin (0 € débité). */}
-      {onTrial && (
-        <InfoBox tone="info" title={`Essai : ${trialDaysLeft} ${trialDaysLeft > 1 ? 'jours restants' : 'jour restant'}`}>
-          <div className="col" style={{ gap: 12 }}>
-            <span style={{ fontSize: 12.5 }}>
-              {trialEnd != null && <>Essai gratuit jusqu'au {fmtDate(trialEnd)}. </>}
-              L'abonnement sera débité automatiquement à la fin de l'essai (J+7) sauf annulation.
-              L'IA est plafonnée à {TRIAL_AI_CAP} réponses pendant l'essai ; ce plafond est levé au
-              premier débit. Annulez avant la fin depuis le portail : aucun montant ne sera prélevé.
-            </span>
-            <div>
-              <Btn kind="soft" onClick={onPortal} disabled={portalBusy}>
-                {portalBusy ? 'Ouverture…' : "Gérer / Annuler l'essai"}
-              </Btn>
-            </div>
-            {portalErr && <div className="error">{portalErr}</div>}
-          </div>
-        </InfoBox>
-      )}
-
-      {/* ESSAI TERMINÉ : bot bloqué jusqu'à souscription. */}
-      {trialExpired && (
-        <InfoBox tone="warn" title="Essai terminé, souscrivez pour réactiver">
-          <div className="col" style={{ gap: 12 }}>
-            <span style={{ fontSize: 12.5 }}>
-              L'essai gratuit de « {botName} » est terminé. Souscrivez pour réactiver le bot
-              et ses modules.
-            </span>
-            <div>
-              <Btn kind="primary" onClick={onSubscribe} disabled={subscribeBusy}>
-                {subscribeBusy ? 'Redirection…' : 'Souscrire maintenant'}
-              </Btn>
-            </div>
-            {subscribeErr && <div className="error">{subscribeErr}</div>}
-          </div>
-        </InfoBox>
-      )}
-
       {/* PAIEMENT REQUIS (point 3) : Checkout abandonné ou abonnement annulé. Le
           bot est conservé (config sauvegardée) ; on relance le Checkout pour le
           (ré)activer. Avec BILLING_ENFORCE, l'IA & les modules restent coupés
@@ -974,7 +925,6 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
             <div style={{ fontSize: 14.5, fontWeight: 800 }}>Abonnement de « {botName} »</div>
             <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 3 }}>
               Statut : {SUB_STATUS_LABELS[status] ?? SUB_STATUS_LABELS.none}
-              {onTrial && trialEnd != null && ` · fin de l'essai dans ${trialDaysLeft} ${trialDaysLeft > 1 ? 'jours' : 'jour'}`}
             </div>
           </div>
           <Link to="/app/billing" className="btn btn-soft" style={{ textDecoration: 'none' }}>

@@ -125,8 +125,8 @@ QUOTA_EXHAUSTED_MESSAGE = (
     "Vous pouvez naviguer dans le menu ou revenir un peu plus tard."
 )
 
-# --- Fin du gratuit à vie : essai de 7 jours expiré (point 4/5) ---
-# Un bot dont l'essai est terminé (status='trialing' ET utcnow()>=trial_end) est
+# --- Abonnement d'essai LEGACY expiré (plus d'essai créé ; clients antérieurs) ---
+# Un bot dont l'essai legacy est terminé (status='trialing' ET utcnow()>=trial_end) est
 # GATÉ : l'IA ne répond plus tant que l'éditeur n'a pas souscrit. Message visiteur
 # DÉDIÉ, DISTINCT de QUOTA_EXHAUSTED_MESSAGE (le quota concerne un bot souscrit qui
 # a consommé son forfait du mois ; ici c'est l'essai qui est échu). Même forme de
