@@ -183,3 +183,13 @@ feedback_limiter = RateLimiter("rl:feedback:", 30, 3600)
 # Analyses insights (cout IA cote SaaS) : 3 / 24 h / organisation, verifie
 # AVANT tout appel
 insights_limiter = RateLimiter("rl:insights:", 3, 86400)
+# --- Demo publique « 1 URL -> chatbot » (page /demo, sans auth) ---
+# Deux garde-fous anti-cout, fenetre glissante 24 h, verifies AVANT tout appel IA
+# (uniquement sur cache MISS) :
+#  - PAR IP : anti-abus individuel, cle = IP du visiteur.
+#  - GLOBAL : coupe-circuit de depense Gemini, cle CONSTANTE ("demo") partagee.
+# Tous deux fail-open (repli memoire) comme les autres limiteurs : une panne
+# Redis ne bloque pas la demo ; en multi-worker prod, Redis rend le global exact.
+# Le faible plafond (quelques centaines/jour) garde le ZSET global tout petit.
+demo_ip_limiter = RateLimiter("rl:demoip:", settings.DEMO_IP_PER_DAY, 86400)
+demo_global_limiter = RateLimiter("rl:demoglobal:", settings.DEMO_GLOBAL_PER_DAY, 86400)

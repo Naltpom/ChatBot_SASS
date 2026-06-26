@@ -54,6 +54,11 @@ services:
       - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}
       - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
       - MOCK_AI=${MOCK_AI:-true}
+      # Démo publique « 1 URL -> chatbot » (défauts sains, surcharge optionnelle).
+      - DEMO_ENABLED=${DEMO_ENABLED:-true}
+      - DEMO_IP_PER_DAY=${DEMO_IP_PER_DAY:-5}
+      - DEMO_GLOBAL_PER_DAY=${DEMO_GLOBAL_PER_DAY:-300}
+      - DEMO_CACHE_TTL_DAYS=${DEMO_CACHE_TTL_DAYS:-14}
       # MOCK_BILLING=true : stripe_service n'émet aucun appel Stripe sortant
       # (checkout/portail mockés, entitlement appliqué directement). Interdit en
       # prod (validate_production). Défaut true = dev/CI sans clés Stripe.
@@ -155,6 +160,9 @@ services:
       - VITE_API_URL=${VITE_API_URL:-http://localhost:8001}
       # SSO Google : même Client ID que côté API (valeur publique). Vide = bouton masqué.
       - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID:-}
+      # Turnstile (démo /demo) : site key publique. Défaut = TURNSTILE_SITE_KEY
+      # (une seule variable pilote front+back). Vide = pas de captcha affiché.
+      - VITE_TURNSTILE_SITE_KEY=${VITE_TURNSTILE_SITE_KEY:-${TURNSTILE_SITE_KEY:-}}
     ports:
       - "3001:3000"
     volumes:

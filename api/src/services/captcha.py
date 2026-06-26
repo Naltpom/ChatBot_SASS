@@ -45,6 +45,21 @@ async def verify_captcha(bot: Bot, token: str | None, remote_ip: str | None) -> 
     return False
 
 
+async def verify_turnstile_token(token: str | None, remote_ip: str | None) -> bool:
+    """Verifie un token Turnstile avec NOTRE cle SaaS, HORS contexte bot.
+
+    Utilise par la demo publique (page /demo) : il n'y a pas de Bot, donc on
+    s'appuie sur la cle globale TURNSTILE_SECRET_KEY (env). Cle absente (dev) =>
+    on laisse passer en loggant (meme politique que verify_captcha pour le widget),
+    pour ne pas casser le dev/CI sans Turnstile configure.
+    """
+    secret = settings.TURNSTILE_SECRET_KEY
+    if not secret:
+        logger.warning("Turnstile non configuré (TURNSTILE_SECRET_KEY absente) : vérification ignorée")
+        return True
+    return await _verify(TURNSTILE_VERIFY_URL, secret, token, remote_ip)
+
+
 async def _verify(url: str, secret: str, token: str | None, remote_ip: str | None, check_score: bool = False) -> bool:
     if not token:
         return False
