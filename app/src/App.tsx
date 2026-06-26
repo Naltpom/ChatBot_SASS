@@ -22,6 +22,8 @@ import AdminHome, { AdminClient } from './pages/Admin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminUsers from './pages/AdminUsers'
 import AdminBilling from './pages/AdminBilling'
+import AdminProspecting from './pages/AdminProspecting'
+import AdminProspect from './pages/AdminProspect'
 import AdminBillingInvoices from './pages/AdminBillingInvoices'
 import AdminBillingCatalog from './pages/AdminBillingCatalog'
 import LegalPage from './pages/LegalPage'
@@ -67,6 +69,8 @@ export function AppRoutes() {
       <Route path="/admin/clients" element={<Protected adminOnly><AdminHome /></Protected>} />
       <Route path="/admin/clients/:orgId" element={<Protected adminOnly><AdminClient /></Protected>} />
       <Route path="/admin/users" element={<Protected adminOnly><AdminUsers /></Protected>} />
+      <Route path="/admin/prospecting" element={<Protected adminOnly><AdminProspecting /></Protected>} />
+      <Route path="/admin/prospecting/:id" element={<Protected adminOnly><AdminProspect /></Protected>} />
       <Route path="/admin/billing" element={<Protected adminOnly><AdminBilling /></Protected>} />
       <Route path="/admin/billing/invoices" element={<Protected adminOnly><AdminBillingInvoices /></Protected>} />
       <Route path="/admin/billing/catalog" element={<Protected adminOnly><AdminBillingCatalog /></Protected>} />

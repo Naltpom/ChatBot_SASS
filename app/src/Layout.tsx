@@ -4,7 +4,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Building2, Check, ChevronDown, CircleUser,
-  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Users,
+  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Target, Users,
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
@@ -196,6 +196,10 @@ export default function Layout({ children }: { children: ReactNode }) {
               <button className={`nav-item ${path.startsWith('/admin/users') ? 'active' : ''}`}
                       onClick={() => navigate('/admin/users')}>
                 <span className="nav-ico"><Users size={16} /></span>Utilisateurs
+              </button>
+              <button className={`nav-item ${path.startsWith('/admin/prospecting') ? 'active' : ''}`}
+                      onClick={() => navigate('/admin/prospecting')}>
+                <span className="nav-ico"><Target size={16} /></span>Prospection
               </button>
               <button className={`nav-item ${path === '/admin/billing' ? 'active' : ''}`}
                       onClick={() => navigate('/admin/billing')}>
