@@ -742,6 +742,19 @@ export default function BotWizard() {
         body: { design_json: design, tree_json: tree, captcha_provider: 'turnstile' },
       })
 
+      // 3) RAG : les sources fournies à l'étape SOURCES (URLs validées + PDF) —
+      // utilisées pour générer l'arbre — alimentent AUSSI la base de connaissances
+      // du bot. Ingestion best-effort (n'échoue jamais la création) ; la
+      // récupération RAG reste gatée au runtime tant que le module n'est pas pris.
+      if (okRows.length || pdfs.length) {
+        try {
+          const kbForm = new FormData()
+          kbForm.append('sources', JSON.stringify(okRows.map(r => ({ url: r.url.trim(), type: r.type }))))
+          pdfs.forEach(f => kbForm.append('files', f))
+          await postForm(`/api/bots/${botId}/kb/import-wizard`, kbForm)
+        } catch { /* best-effort : l'échec d'ingestion KB ne bloque pas la création */ }
+      }
+
       setCreatedBotId(botId)
       setStep('done')
     } catch (err: unknown) {
