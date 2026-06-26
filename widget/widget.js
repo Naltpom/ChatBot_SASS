@@ -822,6 +822,46 @@
     if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
   }
 
+  // Accessibilité : si l'OS/navigateur demande de réduire les animations, on
+  // n'anime jamais le révélé progressif (rendu direct, instantané).
+  function prefersReducedMotion() {
+    try {
+      return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    } catch (e) { return false; }
+  }
+
+  // Révélé progressif « machine à écrire » : on dévoile le texte par salves de
+  // 1 à 5 mots (longueur aléatoire), à cadence BORNÉE (~≤1 s même pour un long
+  // message), puis l'état FINAL repasse par renderMd(container, text) -> DOM
+  // strictement identique au rendu direct (anti-XSS conservé, sélecteurs e2e
+  // toHaveText/contains intacts une fois l'animation terminée). On dévoile dans
+  // un conteneur dédié (.kc-msg-body) sans toucher au tag IA/Conseiller.
+  function typeInto(container, text) {
+    // « mot + espaces suivants » : préserve la ponctuation, les \n et la mise en
+    // forme. Un texte mono-bloc (un seul token) ressort direct (aucune animation).
+    const chunks = text.match(/\S+\s*/g) || [text];
+    if (chunks.length <= 1) { renderMd(container, text); return; }
+    // Cadence : ~900 ms répartis sur le nombre estimé de salves (≈3 mots/salve),
+    // bornée [16, 55] ms -> jamais d'animation interminable sur un long message.
+    const salves = Math.max(1, Math.ceil(chunks.length / 3));
+    const base = Math.min(55, Math.max(16, Math.round(900 / salves)));
+    let shown = 0;
+    function paint(full) {
+      container.textContent = "";
+      renderMd(container, full ? text : chunks.slice(0, shown).join(""));
+      if (ui.msgs) ui.msgs.scrollTop = ui.msgs.scrollHeight;
+    }
+    function step() {
+      // Conteneur détaché (panneau vidé/réinitialisé pendant l'animation) : stop.
+      if (!container.isConnected) return;
+      shown += 1 + Math.floor(Math.random() * 5); // 1..5 mots par salve
+      if (shown >= chunks.length) { paint(true); return; } // état final exact
+      paint(false);
+      setTimeout(step, base + Math.floor(Math.random() * 22) - 6);
+    }
+    step(); // première salve visible immédiatement (pas de bulle vide au départ)
+  }
+
   // restore=true : re-rendu d'un message PERSISTÉ au boot -> ne pas le ré-empiler
   // dans l'historique ni re-persister (et pas de CSAT, msgId non rejoué).
   function addMsg(role, text, tag, msgId, restore) {
@@ -836,7 +876,11 @@
       th.innerHTML = SVG.userSmall + t("tag_advisor"); // constantes statiques
       m.appendChild(th);
     }
-    renderMd(m, text);
+    // Corps du message isolé dans un conteneur dédié : permet le révélé
+    // progressif (typeInto) sans jamais effacer le tag IA/Conseiller. Le span
+    // hérite de white-space:pre-wrap (.kc-msg) -> \n et markdown rendus pareil.
+    const body = el("span", "kc-msg-body");
+    m.appendChild(body);
     row.appendChild(m);
     // Horodatage (timestamps) : heure locale courante (HH:MM), placeholder non
     // persisté — aucun stockage. Posé en textContent (anti-XSS).
@@ -848,6 +892,15 @@
     // Son (sound) : court « ping » de synthèse à l'arrivée d'un message bot, hors
     // restauration (pas de boucle au boot). Garde-fous anti-autoplay dans playPing.
     if (role === "bot" && !restore && dsg.sound === true) playPing();
+    // Révélé progressif : SEULEMENT les bulles bot fraîches (jamais l'utilisateur,
+    // jamais la restauration d'historique), désactivé si l'OS demande moins
+    // d'animations. Sinon rendu direct. L'historique persiste le texte COMPLET
+    // dès maintenant -> un rechargement en cours d'animation restaure tout.
+    if (role === "bot" && !restore && text != null && text !== "" && !prefersReducedMotion()) {
+      typeInto(body, String(text));
+    } else {
+      renderMd(body, text);
+    }
     if (!restore) {
       if (!state.history) state.history = [];
       state.history.push({ r: role, t: text, g: tag || null });

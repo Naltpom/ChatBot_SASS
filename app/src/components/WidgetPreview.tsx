@@ -325,6 +325,12 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
   }, [msgs, typing, options])
 
+  // Suit le scroll pendant le révélé progressif d'une bulle (le texte grandit
+  // sans changer la référence `msgs`, donc l'effet ci-dessus ne se redéclenche pas).
+  function scrollDown() {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
+  }
+
   function botSay(text: string, opts: { label: string; next: string }[] | null, delay = 650, ai = false,
                   extras?: { appt?: string | null; lead?: LeadSim | null }) {
     setTyping(true)
@@ -333,7 +339,9 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     setLead(null)
     schedule(() => {
       setTyping(false)
-      setMsgs(m => [...m, { from: 'bot', text, ai }])
+      // animate : révélé progressif (parité typeInto de widget.js) — réponse bot
+      // issue d'une interaction, par opposition au message d'accueil/reset.
+      setMsgs(m => [...m, { from: 'bot', text, ai, animate: true }])
       playPing()
       if (opts) setOptions(opts)
       setAppt(extras?.appt || null)
@@ -385,7 +393,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
       }, 760)
       schedule(() => {
         setMsgs(m => [...m, {
-          from: 'bot', advisor: true,
+          from: 'bot', advisor: true, animate: true,
           text: lang === 'en' ? '(Preview) A human advisor would reply here.' : '(Aperçu) Un conseiller humain vous répondrait ici.',
         }])
         playPing()
@@ -441,7 +449,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     // Défaut : réponse IA SIMULÉE (aperçu wizard/dashboard, zéro réseau).
     schedule(() => {
       setTyping(false)
-      setMsgs(m => [...m, { from: 'bot', text: AI_PREVIEW_REPLIES[aiIdx % AI_PREVIEW_REPLIES.length], ai: true }])
+      setMsgs(m => [...m, { from: 'bot', text: AI_PREVIEW_REPLIES[aiIdx % AI_PREVIEW_REPLIES.length], ai: true, animate: true }])
       playPing()
       setAiIdx(i => i + 1)
     }, 1200)
@@ -530,7 +538,8 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
             {msgs.map((m, i) => (
               <PreviewBubble key={i} m={m} i={i} st={st} t={t}
                              rating={ratings[i]}
-                             onRate={(idx, v) => setRatings(r => ({ ...r, [idx]: v }))} />
+                             onRate={(idx, v) => setRatings(r => ({ ...r, [idx]: v }))}
+                             onReveal={scrollDown} />
             ))}
             {typing && <PreviewTyping st={st} />}
             {!typing && (options.length > 0 || appt) && (
