@@ -76,12 +76,7 @@ test('éditeur webhook : hints, save, secret jamais re-affiché', async ({ page,
   expect('secret_encrypted' in action).toBeFalsy()
 })
 
-// FIXME (pré-existant, non lié au retrait essai) : au renommage d'une action AVEC
-// secret, la valeur du champ revient à l'original après l'apparition de la save bar
-// (le draft d'actions se re-synchronise mi-parcours -> warning + dirty disparaissent,
-// le bouton « Annuler » se démonte). Bug d'état réel de l'éditeur (useBotEditor /
-// ActionsTab), à corriger séparément ; le clic « Annuler » côté test n'y peut rien.
-test.fixme('renommage avec secret_set : warning affiché, Annuler ne persiste rien', async ({ page, request }) => {
+test('renommage avec secret_set : warning affiché, Annuler ne persiste rien', async ({ page, request }) => {
   // Auto-suffisant (anti-flake) : un retry relance le test dans un worker NEUF
   // dont le beforeAll crée un bot SANS action — on seed donc webhook_e2e via
   // l'API (PATCH idempotent, identique à ce que sauvegarde le test précédent,
