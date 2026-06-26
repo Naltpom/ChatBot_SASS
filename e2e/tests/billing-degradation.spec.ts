@@ -54,7 +54,7 @@ async function activate(
 async function enforcementArmed(request: APIRequestContext): Promise<boolean> {
   const res = await request.patch(`${state.apiUrl}/api/bots/${botId}`, {
     headers: authHeaders(state.token),
-    data: { actions_json: [{ type: 'webhook', name: 'probe', url: 'https://e2e.invalid' }] },
+    data: { actions_json: [{ type: 'webhook', name: 'probe', description: 'Sonde e2e', url: 'https://e2e.invalid' }] },
   })
   if (res.status() === 402) return true
   // Pas de 402 : on annule l'effet éventuel (mode observe a pu écrire) et on saute.
@@ -82,7 +82,7 @@ test('bot free : PATCH actions/ab → 402, POST KB → 402 ; activation MOCK_BIL
   // --- 1. PATCH actions_json (non vide) sans module Actions → 402(actions) ---
   const patchActions = await request.patch(botUrl, {
     headers,
-    data: { actions_json: [{ type: 'webhook', name: 'lead', url: 'https://e2e.invalid' }] },
+    data: { actions_json: [{ type: 'webhook', name: 'lead', description: 'Capture un lead', url: 'https://e2e.invalid' }] },
   })
   expect(patchActions.status()).toBe(402)
   expect((await patchActions.json()).detail).toMatchObject({ error: 'module_required', module: 'actions' })
@@ -121,7 +121,7 @@ test('bot free : PATCH actions/ab → 402, POST KB → 402 ; activation MOCK_BIL
   // --- 5. Mêmes mutations → 200 désormais ---
   const okActions = await request.patch(botUrl, {
     headers,
-    data: { actions_json: [{ type: 'webhook', name: 'lead', url: 'https://e2e.invalid' }] },
+    data: { actions_json: [{ type: 'webhook', name: 'lead', description: 'Capture un lead', url: 'https://e2e.invalid' }] },
   })
   expect(okActions.ok()).toBe(true)
 

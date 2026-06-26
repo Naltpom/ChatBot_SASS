@@ -118,11 +118,17 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
   const [loadTry, setLoadTry] = useState(0)
 
   useEffect(() => {
+    // Garde `alive` : sous StrictMode (double-montage en dev) ou si l'id change,
+    // une réponse tardive ne doit PAS réécrire setBot/setSavedBot et écraser une
+    // édition en cours (sinon la saisie est avalée « mi-parcours »).
+    let alive = true
     setLoadError('')
     api<Bot>(`/api/bots/${botId}`).then(b => {
+      if (!alive) return
       setBot(b)
       setSavedBot(b)
-    }).catch((err: unknown) => setLoadError(errMsg(err, 'Erreur')))
+    }).catch((err: unknown) => { if (alive) setLoadError(errMsg(err, 'Erreur')) })
+    return () => { alive = false }
   }, [botId, loadTry])
 
   // hasPerm délègue à canAccessBotPerm (source unique) — perm null = onglet

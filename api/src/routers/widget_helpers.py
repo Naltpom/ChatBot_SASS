@@ -249,6 +249,7 @@ def _sanitize_design(design: dict) -> dict:
     if out.get("openAnimation") not in ("zoom", "fade", "slide", "pop", "flip"):
         out["openAnimation"] = "zoom"
     out["bubbleTail"] = out.get("bubbleTail") is not False  # bool strict, defaut True
+    out["bordered"] = out.get("bordered") is True  # bool strict, defaut False (etait en passthrough)
     # THEME
     if out.get("chatBg") not in ("plain", "soft", "pattern"):
         out["chatBg"] = "plain"
