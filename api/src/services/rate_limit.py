@@ -200,3 +200,12 @@ demo_global_limiter = RateLimiter("rl:demoglobal:", settings.DEMO_GLOBAL_PER_DAY
 # l'abus. Memes semantiques fenetre glissante 24 h + fail-open.
 demo_chat_ip_limiter = RateLimiter("rl:demochatip:", settings.DEMO_CHAT_IP_PER_DAY, 86400)
 demo_chat_global_limiter = RateLimiter("rl:demochatglobal:", settings.DEMO_CHAT_GLOBAL_PER_DAY, 86400)
+# --- OAuth « plugin » (device flow, surface externe) ---
+# Émission d'autorisations device (par IP) : anti-abus de création.
+oauth_device_limiter = RateLimiter("rl:oauthdev:", 10, 60)
+# Approbation par user_code (par IP) : anti-bruteforce de la saisie du code court.
+oauth_approve_limiter = RateLimiter("rl:oauthapprove:", 10, 60)
+# Polling /token par device (cadence conseillée ~5 s) : borne haute généreuse.
+oauth_poll_limiter = RateLimiter("rl:oauthpoll:", 30, 60)
+# Rotation refresh (par user) : 30 / jour.
+oauth_refresh_limiter = RateLimiter("rl:oauthrefresh:", 30, 86400)

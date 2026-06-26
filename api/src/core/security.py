@@ -260,3 +260,41 @@ async def require_billing_owner(bot: "Bot", user: "User", db: AsyncSession):
             "Réservé au propriétaire de l'organisation (facturation)",
         )
     return None
+
+
+# --- OAuth « plugin » : surface EXTERNE (plugin WordPress), device flow RFC 8628 ---
+# Token scope='plugin' (JAMAIS 'dashboard') : un access JWT volé ne donne accès
+# qu'à l'API de compte (/api/account/*), bornée par l'ownership (require_billing_owner).
+# Constantes de module (même pattern que TWOFA_CHALLENGE_EXPIRE_MINUTES).
+OAUTH_PLUGIN_CLIENT_ID = "chapote_wp"
+OAUTH_PLUGIN_ACCESS_EXPIRE_MINUTES = 1440  # access JWT scope='plugin' (24h ; refresh opaque rotatif 90j en base)
+
+
+def create_oauth_token(user_id: int) -> str:
+    """Access token JWT pour la surface EXTERNE (plugin). Scope 'plugin' (jamais
+    'dashboard'). Stateless ; le refresh opaque rotatif vit en base (oauth_tokens)."""
+    return _encode(
+        {"sub": str(user_id), "scope": "plugin"},
+        timedelta(minutes=OAUTH_PLUGIN_ACCESS_EXPIRE_MINUTES),
+    )
+
+
+async def require_oauth_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    """Authentifie un appel de la surface EXTERNE (plugin) via un access token
+    scope='plugin'. Renvoie le User (is_active) — calque get_current_user — afin
+    que les routes /api/account/* réutilisent TELLES QUELLES require_billing_owner
+    / require_bot_access (même anti-énumération 404, zéro logique d'ownership
+    dupliquée)."""
+    from src.models.user import User
+
+    if credentials is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentification requise")
+    payload = decode_token(credentials.credentials, expected_scope="plugin")
+    result = await db.execute(select(User).where(User.id == int(payload["sub"])))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Utilisateur introuvable")
+    return user

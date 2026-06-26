@@ -232,3 +232,29 @@ class BotUsageOut(BaseModel):
     usage_ai_replies: int = 0              # conso durable (source = Message)
     quota_ai_replies: int | None = None    # None = illimité (BYOK / pas de quota)
     reported_overage: int = 0
+
+
+# --- Lien bot <-> site WordPress (plugin back-office) ----------------------
+
+class BillingWordPressLink(Base):
+    """Lien canonique bot <-> site WordPress (plugin back-office). Peuplé par un
+    appel EXPLICITE du plugin (POST /api/account/bots/{id}/link), jamais par
+    post-meta fragile ni inférence webhook. 1 site canonique par bot (bot_id
+    UNIQUE) ; wordpress_site_url modifiable si le client migre."""
+    __tablename__ = "billing_wordpress_links"
+
+    id = Column(Integer, primary_key=True)
+    bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"),
+                    unique=True, nullable=False, index=True)
+    wordpress_site_url = Column(String, nullable=False, index=True)
+    wordpress_post_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class BillingWordPressLinkOut(BaseModel):
+    bot_id: int
+    wordpress_site_url: str
+    wordpress_post_id: int | None = None
+
+    model_config = ConfigDict(from_attributes=True)
