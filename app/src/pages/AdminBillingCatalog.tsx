@@ -119,7 +119,7 @@ export default function AdminBillingCatalog() {
                 <thead>
                   <tr>
                     <th>Code</th><th>Libellé</th><th>Type</th>
-                    <th>Prix</th><th>Réponses incluses</th><th>Intro 1er mois</th><th>Actif</th>
+                    <th>Prix</th><th>Réponses incluses</th><th>Intro 1er mois</th><th>Actif</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -175,6 +175,7 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
   const [introStr, setIntroStr] = useState(
     product.intro_percent == null ? '' : String(product.intro_percent),
   )
+  const [activeLocal, setActiveLocal] = useState(product.is_active)
   const [busy, setBusy] = useState(false)
   const [rowError, setRowError] = useState('')
 
@@ -186,70 +187,72 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
   useEffect(() => {
     setIntroStr(product.intro_percent == null ? '' : String(product.intro_percent))
   }, [product.intro_percent])
-
-  async function patch(body: { label?: string; is_active?: boolean; included_replies?: number | null }) {
-    setBusy(true)
-    setRowError('')
-    try {
-      await api<CatalogProduct>(`/api/admin/billing/catalog/${product.code}`, { method: 'PATCH', body })
-      onChanged()
-    } catch (err: unknown) {
-      setRowError(errMsg(err, 'La mise à jour a échoué.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function saveLabel() {
-    const next = label.trim()
-    if (next === '' || next === product.label) { setLabel(product.label); return }
-    patch({ label: next })
-  }
-
-  function saveReplies() {
-    const trimmed = repliesStr.trim()
-    const value = trimmed === '' ? null : Number(trimmed)
-    if (value != null && (!Number.isInteger(value) || value < 0)) {
-      setRowError('Les réponses incluses doivent être un entier positif (ou vide).')
-      setRepliesStr(product.included_replies == null ? '' : String(product.included_replies))
-      return
-    }
-    if (value === product.included_replies) return
-    patch({ included_replies: value })
-  }
+  useEffect(() => { setActiveLocal(product.is_active) }, [product.is_active])
 
   // Remise d'intro (1er mois) : éditable sur les paliers IA + le socle ('base').
-  // POST dédié (rotation du coupon Stripe côté serveur). Vide = 0 (pas de remise).
   const introEditable = product.kind === 'ai_tier' || product.code === 'base'
-  async function saveIntro() {
-    const trimmed = introStr.trim()
-    const value = trimmed === '' ? 0 : Number(trimmed)
-    if (!Number.isInteger(value) || value < 0 || value > 100) {
-      setRowError('La remise d’intro doit être un entier entre 0 et 100 (vide = 0).')
-      setIntroStr(product.intro_percent == null ? '' : String(product.intro_percent))
+
+  // Valeurs saisies normalisées + détection des champs modifiés (pas de save
+  // automatique : l'enregistrement est déclenché explicitement par le bouton).
+  const labelTrim = label.trim()
+  const repliesVal = repliesStr.trim() === '' ? null : Number(repliesStr.trim())
+  const introVal = introStr.trim() === '' ? 0 : Number(introStr.trim())
+  const labelChanged = labelTrim !== '' && labelTrim !== product.label
+  const repliesChanged = product.kind === 'ai_tier' && repliesVal !== (product.included_replies ?? null)
+  const introChanged = introEditable && introVal !== (product.intro_percent ?? 0)
+  const activeChanged = activeLocal !== product.is_active
+  const dirty = labelChanged || repliesChanged || introChanged || activeChanged
+
+  function discard() {
+    setLabel(product.label)
+    setRepliesStr(product.included_replies == null ? '' : String(product.included_replies))
+    setIntroStr(product.intro_percent == null ? '' : String(product.intro_percent))
+    setActiveLocal(product.is_active)
+    setRowError('')
+  }
+
+  // Enregistrement EXPLICITE : un seul PATCH pour label/quota/actif + un POST
+  // dédié pour la remise d'intro (rotation du coupon Stripe côté serveur).
+  async function save() {
+    if (!dirty) return
+    setRowError('')
+    if (repliesChanged && repliesVal != null && (!Number.isInteger(repliesVal) || repliesVal < 0)) {
+      setRowError('Les réponses incluses doivent être un entier positif (ou vide).')
       return
     }
-    if (value === (product.intro_percent ?? 0)) return
+    if (introChanged && (!Number.isInteger(introVal) || introVal < 0 || introVal > 100)) {
+      setRowError('La remise d’intro doit être un entier entre 0 et 100 (vide = 0).')
+      return
+    }
     setBusy(true)
-    setRowError('')
     try {
-      await api<CatalogProduct>(`/api/admin/billing/catalog/${product.code}/intro`,
-        { method: 'POST', body: { intro_percent: value } })
+      const body: { label?: string; included_replies?: number | null; is_active?: boolean } = {}
+      if (labelChanged) body.label = labelTrim
+      if (repliesChanged) body.included_replies = repliesVal
+      if (activeChanged) body.is_active = activeLocal
+      if (Object.keys(body).length > 0) {
+        await api<CatalogProduct>(`/api/admin/billing/catalog/${product.code}`, { method: 'PATCH', body })
+      }
+      if (introChanged) {
+        await api<CatalogProduct>(`/api/admin/billing/catalog/${product.code}/intro`,
+          { method: 'POST', body: { intro_percent: introVal } })
+      }
       onChanged()
     } catch (err: unknown) {
-      setRowError(errMsg(err, 'La mise à jour de la remise a échoué.'))
+      setRowError(errMsg(err, "L'enregistrement a échoué."))
     } finally {
       setBusy(false)
     }
   }
+
+  const onEnterSave = (e: React.KeyboardEvent) => { if (e.key === 'Enter') save() }
 
   return (
     <tr>
       <td style={{ fontFamily: 'monospace', fontSize: 11.5, color: 'var(--mut)' }}>{product.code}</td>
       <td>
         <input type="text" value={label} onChange={e => setLabel(e.target.value)}
-               onBlur={saveLabel}
-               onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+               onKeyDown={onEnterSave}
                disabled={busy} style={{ width: '100%', minWidth: 140 }} />
         {rowError && <div className="error" style={{ marginTop: 4, fontSize: 11.5 }}>{rowError}</div>}
       </td>
@@ -265,8 +268,7 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
           <input type="number" min={0} step={1} value={repliesStr}
                  placeholder="—"
                  onChange={e => setRepliesStr(e.target.value)}
-                 onBlur={saveReplies}
-                 onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                 onKeyDown={onEnterSave}
                  disabled={busy} style={{ width: 96 }} />
         ) : (
           <span style={{ color: 'var(--faint)' }}>—</span>
@@ -278,8 +280,7 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
             <input type="number" min={0} max={100} step={1} value={introStr}
                    placeholder="0"
                    onChange={e => setIntroStr(e.target.value)}
-                   onBlur={saveIntro}
-                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                   onKeyDown={onEnterSave}
                    disabled={busy} style={{ width: 60 }} />
             <span style={{ color: 'var(--mut)' }}>%</span>
           </div>
@@ -288,8 +289,18 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
         )}
       </td>
       <td>
-        <Toggle on={product.is_active} disabled={busy}
-                onChange={v => patch({ is_active: v })} />
+        <Toggle on={activeLocal} disabled={busy}
+                onChange={setActiveLocal} />
+      </td>
+      <td>
+        <div className="row g6" style={{ justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+          {dirty && (
+            <Btn kind="ghost" small onClick={discard} disabled={busy}>Annuler</Btn>
+          )}
+          <Btn kind="primary" small onClick={save} disabled={busy || !dirty}>
+            {busy ? 'Enregistrement…' : 'Sauvegarder'}
+          </Btn>
+        </div>
       </td>
     </tr>
   )

@@ -4,6 +4,7 @@ import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +13,10 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import (
     create_dashboard_token,
+    create_twofa_challenge_token,
     get_current_user,
     hash_password,
+    user_has_2fa,
     verify_password,
 )
 from src.models.user import (
@@ -25,6 +28,7 @@ from src.models.user import (
     User,
     UserLogin,
     UserOut,
+    WebAuthnCredential,
     UserRegister,
 )
 from src.core.time import utcnow
@@ -76,7 +80,30 @@ async def _user_out(db: AsyncSession, user: User) -> UserOut:
         ]
     out.owned_org_ids = [o.id for o in out.organizations if o.is_owner]
     out.billing_enabled = billing_enabled()
+    # 2FA : obligatoire pour le staff ; `enabled` si TOTP OU au moins une passkey.
+    out.twofa_required = user.is_superadmin
+    out.twofa_enabled = await user_has_2fa(db, user)
     return out
+
+
+async def _twofa_challenge_or_none(db: AsyncSession, user: User):
+    """Si la 2FA est active pour ce user, renvoie la réponse *challenge* (à
+    échanger contre un token via /api/auth/2fa/login/*). Sinon None (le login
+    peut émettre directement un token dashboard)."""
+    if not await user_has_2fa(db, user):
+        return None
+    has_pk = (await db.execute(
+        select(WebAuthnCredential.id).where(WebAuthnCredential.user_id == user.id).limit(1)
+    )).first() is not None
+    return JSONResponse({
+        "twofa_required": True,
+        "challenge": create_twofa_challenge_token(user.id),
+        "methods": {
+            "totp": user.totp_enabled,
+            "passkey": has_pk,
+            "recovery": bool(user.twofa_recovery),
+        },
+    })
 
 
 @router.post("/register", response_model=TokenOut)
@@ -135,6 +162,10 @@ async def login(body: UserLogin, request: Request, db: AsyncSession = Depends(ge
         user = await authenticate(db, body.email.lower().strip(), body.password)
     except AuthenticationError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e))
+    # 2FA active -> on n'émet PAS de token : un challenge à valider (2nd facteur).
+    challenge = await _twofa_challenge_or_none(db, user)
+    if challenge is not None:
+        return challenge
     return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
 
 
@@ -180,6 +211,10 @@ async def google_login(body: GoogleAuthPayload, request: Request,
     user.last_login = utcnow()
     await db.commit()
     await db.refresh(user)
+    # 2FA active (même via SSO Google) -> challenge avant émission du token.
+    challenge = await _twofa_challenge_or_none(db, user)
+    if challenge is not None:
+        return challenge
     return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
 
 

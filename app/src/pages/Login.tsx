@@ -1,10 +1,12 @@
 import { FormEvent, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
+import type { LoginChallenge } from '../types/auth'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { errMsg } from '../utils/errors'
 import HatIcon from '../components/HatIcon'
 import GoogleButton, { GOOGLE_ENABLED } from '../components/GoogleButton'
+import { loginPasskey, loginRecovery, loginTotp, passkeysSupported } from '../utils/twofa'
 
 const NAVY = '#1C3F5C'
 const INPUT_BASE: React.CSSProperties = {
@@ -37,14 +39,18 @@ export default function Login() {
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Challenge 2FA reçu après le 1er facteur (mot de passe / Google) : tant qu'il
+  // est posé, on affiche l'étape de vérification au lieu du formulaire.
+  const [challenge, setChallenge] = useState<LoginChallenge | null>(null)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
     setBusy(true)
     try {
-      await login(email, password)
-      navigate('/app')
+      const ch = await login(email, password)
+      if (ch) setChallenge(ch)
+      else navigate('/app')
     } catch (err: unknown) {
       setError(errMsg(err, 'Connexion impossible.'))
     } finally {
@@ -56,8 +62,9 @@ export default function Login() {
     setError('')
     setBusy(true)
     try {
-      await loginWithGoogle(credential)
-      navigate('/app')
+      const ch = await loginWithGoogle(credential)
+      if (ch) setChallenge(ch)
+      else navigate('/app')
     } catch (err: unknown) {
       setError(errMsg(err, 'Connexion Google impossible.'))
     } finally {
@@ -163,6 +170,14 @@ export default function Login() {
 
         {/* Right — form */}
         <div style={{ padding: isMobile ? '32px 22px' : '48px 44px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          {challenge ? (
+            <TwoFAStep
+              challenge={challenge}
+              onCancel={() => { setChallenge(null); setError('') }}
+              onSuccess={() => navigate('/app')}
+            />
+          ) : (
+          <>
           <h3 style={{ fontFamily: "'Clash Display', sans-serif", fontWeight: 600, fontSize: 23, margin: '0 0 24px' }}>
             Se connecter
           </h3>
@@ -269,7 +284,107 @@ export default function Login() {
               Créer un compte gratuitement
             </Link>
           </p>
+          </>
+          )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Étape « 2nd facteur » : code TOTP, passkey, ou code de secours. Échange le
+// challenge contre un vrai token (finish2fa) puis laisse le parent naviguer.
+function TwoFAStep({ challenge, onCancel, onSuccess }: {
+  challenge: LoginChallenge
+  onCancel: () => void
+  onSuccess: () => void
+}) {
+  const { finish2fa } = useAuth()
+  const [code, setCode] = useState('')
+  const [recoveryMode, setRecoveryMode] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const canPasskey = challenge.methods.passkey && passkeysSupported()
+
+  async function run(fn: () => Promise<any>, fallback: string) {
+    setError(''); setBusy(true)
+    try { const r = await fn(); finish2fa(r); onSuccess() }
+    catch (err: unknown) { setError(errMsg(err, fallback)) }
+    finally { setBusy(false) }
+  }
+
+  function submitCode(e: FormEvent) {
+    e.preventDefault()
+    run(() => recoveryMode
+      ? loginRecovery(challenge.challenge, code)
+      : loginTotp(challenge.challenge, code), 'Code invalide.')
+  }
+
+  return (
+    <div>
+      <h3 style={{ fontFamily: "'Clash Display', sans-serif", fontWeight: 600, fontSize: 23, margin: '0 0 8px' }}>
+        Vérification en deux étapes
+      </h3>
+      <p style={{ fontSize: 13.5, color: '#6B7B8D', margin: '0 0 22px', lineHeight: 1.5 }}>
+        {recoveryMode
+          ? 'Saisissez un de vos codes de secours à usage unique.'
+          : 'Saisissez le code à 6 chiffres de votre application d’authentification.'}
+      </p>
+
+      {canPasskey && !recoveryMode && (
+        <>
+          <button type="button" disabled={busy}
+                  onClick={() => run(() => loginPasskey(challenge.challenge), 'Échec de la passkey.')}
+                  style={{ width: '100%', height: 48, background: '#fff', color: NAVY, border: `1px solid ${NAVY}`,
+                           borderRadius: 12, fontWeight: 600, fontSize: 15, cursor: busy ? 'default' : 'pointer',
+                           fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9 }}>
+            🔑 Utiliser une passkey
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '18px 0' }}>
+            <span style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
+            <span style={{ fontSize: 12.5, color: '#9AA7B4' }}>ou un code</span>
+            <span style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
+          </div>
+        </>
+      )}
+
+      <form onSubmit={submitCode}>
+        <input
+          type="text"
+          inputMode={recoveryMode ? 'text' : 'numeric'}
+          autoComplete="one-time-code"
+          value={code}
+          onChange={e => setCode(e.target.value)}
+          placeholder={recoveryMode ? 'abcde-fghij' : '123456'}
+          autoFocus
+          style={{ ...INPUT_BASE, letterSpacing: recoveryMode ? 'normal' : '.3em', textAlign: 'center', fontSize: 18 }}
+        />
+        {error && (
+          <div style={{ margin: '16px 0 0', padding: '11px 14px', borderRadius: 12,
+                        background: 'rgba(232,106,95,.1)', border: '1px solid rgba(232,106,95,.28)',
+                        color: '#C0473D', fontSize: 13.5, lineHeight: 1.4 }}>
+            {error}
+          </div>
+        )}
+        <button type="submit" disabled={busy || !code.trim()}
+                style={{ width: '100%', height: 48, marginTop: 18, background: NAVY, color: '#fff', border: 'none',
+                         borderRadius: 12, fontWeight: 600, fontSize: 15.5, fontFamily: 'inherit',
+                         cursor: busy || !code.trim() ? 'default' : 'pointer', opacity: busy || !code.trim() ? 0.7 : 1 }}>
+          {busy ? 'Vérification…' : 'Valider'}
+        </button>
+      </form>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18, fontSize: 13.5 }}>
+        <button type="button" onClick={onCancel}
+                style={{ background: 'none', border: 'none', padding: 0, color: '#6B7B8D', cursor: 'pointer', fontFamily: 'inherit' }}>
+          ← Retour
+        </button>
+        {challenge.methods.recovery && (
+          <button type="button" onClick={() => { setRecoveryMode(m => !m); setCode(''); setError('') }}
+                  style={{ background: 'none', border: 'none', padding: 0, color: NAVY, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            {recoveryMode ? 'Utiliser un code d’app' : 'Utiliser un code de secours'}
+          </button>
+        )}
       </div>
     </div>
   )

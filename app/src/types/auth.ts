@@ -61,6 +61,23 @@ export interface User {
   // Ids des orgs dont CE user est owner (org.owner_user_id == user.id). Dérivable
   // aussi de organizations[].is_owner ; exposé explicitement pour le gating billing.
   owned_org_ids: number[]
+  // --- 2FA (UserOut) ---
+  // twofa_enabled : au moins un 2nd facteur actif (TOTP ou passkey).
+  // twofa_required : 2FA obligatoire pour ce compte (vrai pour les superadmins).
+  twofa_enabled: boolean
+  twofa_required: boolean
+}
+
+// ============================================================================
+// LoginChallenge — réponse de /api/auth/login | google quand la 2FA est active :
+// pas de token, un *challenge* à échanger via /api/auth/2fa/login/* (TOTP,
+// passkey ou code de secours).
+// ============================================================================
+
+export interface LoginChallenge {
+  twofa_required: true
+  challenge: string
+  methods: { totp: boolean; passkey: boolean; recovery: boolean }
 }
 
 // ============================================================================
