@@ -1,7 +1,7 @@
 // Vue ADMIN — Prospection commerciale : recherche d'entreprises (API publique
 // SIRENE), import en base, puis suivi des prospects (enrichissement + email IA).
 import { useEffect, useState } from 'react'
-import { Building2, ChevronRight, Search, Send, UserPlus } from 'lucide-react'
+import { Building2, ChevronRight, Search, Send, Sparkles, ThumbsDown, ThumbsUp, UserPlus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { Btn, Card, Chip, Field, InfoBox, SectionTitle, Stat } from '../ui'
@@ -41,7 +41,16 @@ export interface WebInfo {
   pages_crawled?: string[]
   note?: string
 }
-export interface Enrichment { sirene?: SireneInfo; web?: WebInfo }
+// Détail de scoring IA (vit dans enrichment.scoring côté API). Proba de besoin +
+// formule/modules conseillés — alimente le bloc « Analyse IA » du détail prospect.
+export interface ProspectScoring {
+  reason: string
+  recommended_plan: string | null
+  recommended_byok: boolean
+  recommended_modules: string[]
+  suggested_integrations: string[]
+}
+export interface Enrichment { sirene?: SireneInfo; web?: WebInfo; scoring?: ProspectScoring }
 
 export interface Prospect extends ProspectCandidate {
   id: number
@@ -56,6 +65,10 @@ export interface Prospect extends ProspectCandidate {
   created_at: string
   updated_at: string
   sent_at: string | null
+  fit_score?: number | null
+  decision?: 'accepted' | 'rejected' | null
+  decision_reason?: string | null
+  decision_at?: string | null
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -67,6 +80,13 @@ const STATUS_TONE: Record<string, 'mut' | 'acc' | 'go' | 'danger'> = {
 
 export function prospectStatusChip(status: string) {
   return <Chip tone={STATUS_TONE[status] || 'mut'}>{STATUS_LABEL[status] || status}</Chip>
+}
+
+// Chip de score IA (probabilité de besoin, 0..100) : vert ≥70, accent ≥40, sinon
+// neutre. Tiret discret tant que le prospect n'a pas été scoré (fit_score null).
+export function scoreChip(fit: number | null | undefined) {
+  if (fit == null) return <span style={{ color: 'var(--faint)' }}>—</span>
+  return <Chip tone={fit >= 70 ? 'go' : fit >= 40 ? 'acc' : 'mut'}>{fit}</Chip>
 }
 
 export default function AdminProspecting() {
@@ -82,6 +102,14 @@ export default function AdminProspecting() {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+
+  // Découverte automatique (SIRENE + web + scoring IA) — déclenchée à la demande.
+  const [dSector, setDSector] = useState('')
+  const [dDept, setDDept] = useState('')
+  const [dCp, setDCp] = useState('')
+  const [dCount, setDCount] = useState(5)
+  const [discovering, setDiscovering] = useState(false)
+  const [deciding, setDeciding] = useState<number | null>(null)
 
   function loadProspects() {
     api<Prospect[]>('/api/admin/prospecting/prospects').then(setProspects)
@@ -121,8 +149,48 @@ export default function AdminProspecting() {
     }
   }
 
+  // Découverte autonome : l'IA déniche des entreprises, trouve leur site et les
+  // score. L'opération est longue (~30 s) ; on recharge la liste une fois finie.
+  async function runDiscover() {
+    setError(''); setInfo(''); setDiscovering(true)
+    try {
+      const created = await api<Prospect[]>('/api/admin/prospecting/discover', {
+        method: 'POST',
+        body: { sector: dSector || null, departement: dDept || null, code_postal: dCp || null, count: dCount },
+      })
+      if (created.length === 0) setInfo('Aucune nouvelle entreprise trouvée pour ces critères.')
+      else setInfo(`${created.length} entreprise(s) trouvée(s) et analysée(s) par l'IA.`)
+      loadProspects()
+    } catch (err: unknown) {
+      setError(`Découverte impossible : ${errMsg(err)}`)
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  // Pouce-haut / pouce-bas depuis la liste. stopPropagation : ne pas naviguer
+  // vers le détail quand on clique le bouton de décision dans une ligne cliquable.
+  async function decide(e: React.MouseEvent, prospectId: number, decision: 'accepted' | 'rejected') {
+    e.stopPropagation()
+    setError(''); setInfo(''); setDeciding(prospectId)
+    try {
+      await api(`/api/admin/prospecting/prospects/${prospectId}/decision`, { method: 'POST', body: { decision } })
+      loadProspects()
+    } catch (err: unknown) {
+      setError(`Décision impossible : ${errMsg(err)}`)
+    } finally {
+      setDeciding(null)
+    }
+  }
+
   const sent = prospects.filter(p => p.status === 'sent').length
   const importedSirens = new Set(prospects.map(p => p.siren).filter(Boolean))
+  // Tri par score décroissant (non scorés en dernier), puis plus récents d'abord.
+  const sortedProspects = [...prospects].sort((a, b) => {
+    const fa = a.fit_score ?? -1, fb = b.fit_score ?? -1
+    if (fa !== fb) return fb - fa
+    return b.created_at.localeCompare(a.created_at)
+  })
 
   return (
     <div className="col g18">
@@ -144,6 +212,36 @@ export default function AdminProspecting() {
         <Stat label="Brouillons" value={prospects.filter(p => p.status === 'drafted').length} sub="prêts à relire" />
         <Stat label="Envoyés" value={sent} icon={<Send size={15} />} sub="emails partis" />
       </div>
+
+      {/* Découverte automatique (SIRENE + web + scoring IA) */}
+      <Card>
+        <div className="card-title"><span className="row g6"><Sparkles size={15} />Trouver automatiquement</span></div>
+        <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>
+          L'IA déniche des entreprises (base SIRENE + web), retrouve leur site et estime leur besoin de
+          chatbot. Comptez ~30 s : les prospects sont créés, analysés et triés par score.
+        </div>
+        <div className="row g10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ flex: 2, minWidth: 180 }}>
+            <Field label="Secteur / activité"><input type="text" value={dSector} placeholder="ex. restaurant, garage auto"
+              onChange={e => setDSector(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
+          </div>
+          <div style={{ flex: 1, minWidth: 110 }}>
+            <Field label="Département"><input type="text" value={dDept} placeholder="69"
+              onChange={e => setDDept(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
+          </div>
+          <div style={{ flex: 1, minWidth: 120 }}>
+            <Field label="Code postal"><input type="text" value={dCp} placeholder="69001"
+              onChange={e => setDCp(e.target.value)} onKeyDown={e => e.key === 'Enter' && !discovering && runDiscover()} style={{ width: '100%' }} /></Field>
+          </div>
+          <div style={{ width: 90 }}>
+            <Field label="Nombre"><input type="number" min={1} max={10} value={dCount}
+              onChange={e => setDCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} style={{ width: '100%' }} /></Field>
+          </div>
+          <Btn onClick={runDiscover} disabled={discovering}>
+            <span className="row g6"><Sparkles size={15} />{discovering ? 'Recherche IA…' : 'Trouver'}</span>
+          </Btn>
+        </div>
+      </Card>
 
       {/* Formulaire de recherche */}
       <Card>
@@ -210,9 +308,9 @@ export default function AdminProspecting() {
           : (
             <Card nopad>
               <table className="kc">
-                <thead><tr><th>Entreprise</th><th>Ville</th><th>Email</th><th>Statut</th><th></th></tr></thead>
+                <thead><tr><th>Entreprise</th><th>Ville</th><th>Email</th><th>Score</th><th>Statut</th><th>Décision</th><th></th></tr></thead>
                 <tbody>
-                  {prospects.map(p => (
+                  {sortedProspects.map(p => (
                     <tr key={p.id} className="click" tabIndex={0}
                         onClick={() => navigate(`/admin/prospecting/${p.id}`)}
                         onKeyDown={e => {
@@ -223,7 +321,26 @@ export default function AdminProspecting() {
                       <td style={{ fontWeight: 700 }}>{p.company_name}</td>
                       <td style={{ color: 'var(--mut)' }}>{p.city || '—'}</td>
                       <td style={{ color: 'var(--mut)', fontSize: 12.5 }}>{p.contact_email || '—'}</td>
+                      <td>{scoreChip(p.fit_score)}</td>
                       <td>{prospectStatusChip(p.status)}</td>
+                      <td>
+                        {p.decision === 'accepted'
+                          ? <Chip tone="go">Validé</Chip>
+                          : p.decision === 'rejected'
+                            ? <Chip tone="danger">Écarté</Chip>
+                            : (
+                              // stopPropagation sur les boutons uniquement : un chip
+                              // statique (déjà décidé) laisse le clic ouvrir le détail.
+                              <div className="row g6" onClick={e => e.stopPropagation()}>
+                                <Btn kind="soft" small onClick={e => decide(e, p.id, 'accepted')} disabled={deciding === p.id}>
+                                  <ThumbsUp size={13} />
+                                </Btn>
+                                <Btn kind="ghost" small onClick={e => decide(e, p.id, 'rejected')} disabled={deciding === p.id}>
+                                  <ThumbsDown size={13} />
+                                </Btn>
+                              </div>
+                            )}
+                      </td>
                       <td style={{ color: 'var(--faint)', textAlign: 'right' }}><ChevronRight size={14} /></td>
                     </tr>
                   ))}

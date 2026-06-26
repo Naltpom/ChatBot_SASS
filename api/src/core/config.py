@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     PROSPECT_CRAWL_MAX_PAGES: int = 6
     PROSPECT_CRAWL_MAX_REDIRECTS: int = 4
     PROSPECT_FETCH_MAX_BYTES: int = 300_000
+    # Brave Search (decouverte web a la demande : trouver le vrai site d'une
+    # entreprise). Cle gratuite ; vide => decouverte web off, repli SIRENE.
+    BRAVE_SEARCH_API_KEY: str | None = None
+    BRAVE_SEARCH_URL: str = "https://api.search.brave.com/res/v1/web/search"
+    # Plafond du nombre de prospects decouverts/scores par appel /discover.
+    PROSPECT_DISCOVER_MAX: int = 10
 
     # Turnstile par defaut (nos cles)
     TURNSTILE_SITE_KEY: str | None = None

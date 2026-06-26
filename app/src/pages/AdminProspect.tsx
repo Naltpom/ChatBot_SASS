@@ -1,12 +1,22 @@
 // Vue ADMIN — Détail d'un prospect : données SIRENE complètes + scraping poussé
 // du site, brouillon d'email IA éditable, envoi manuel, suppression (RGPD).
 import { useCallback, useEffect, useState } from 'react'
-import { Globe, Mail, Phone, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { Globe, Mail, Phone, RefreshCw, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Btn, Card, Chip, Field, InfoBox, Stat } from '../ui'
 import { errMsg } from '../utils/errors'
-import { Enrichment, Prospect, prospectStatusChip } from './AdminProspecting'
+import { Enrichment, Prospect, prospectStatusChip, scoreChip } from './AdminProspecting'
+
+// Libellés FR des clés de module (entitlement) — alignés sur core/constants.MODULE_KEYS.
+const MODULE_LABEL: Record<string, string> = {
+  ai: 'Intelligence artificielle', inbox: 'Live chat / Inbox', rag: 'Connaissances (RAG)',
+  actions: 'Actions', mcp: 'MCP (outils IA)', ab: 'A/B testing', white_label: 'White-label',
+}
+// Libellés FR des paliers IA (catalog.ai_tiers) recommandables par le scoring.
+const PLAN_LABEL: Record<string, string> = {
+  ai_starter: 'IA Starter', ai_growth: 'IA Growth', ai_scale: 'IA Scale',
+}
 
 const SOCIAL_LABEL: Record<string, string> = {
   linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram',
@@ -122,6 +132,7 @@ export default function AdminProspect() {
   const [email, setEmail] = useState('')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [reason, setReason] = useState('') // raison libre de la décision (validation/écart)
 
   const sync = useCallback((data: Prospect) => {
     setP(data)
@@ -173,6 +184,19 @@ export default function AdminProspect() {
     return api<Prospect>(`/api/admin/prospecting/prospects/${id}/send`, { method: 'POST' })
   })
 
+  // Re-scoring IA (recharge catalogue + décisions passées côté API).
+  const rescore = () => run('score', () =>
+    api<Prospect>(`/api/admin/prospecting/prospects/${id}/score`, { method: 'POST' }))
+
+  // Décision opérateur (pouce-haut/pouce-bas) — affine le few-shot des analyses suivantes.
+  const decide = (decision: 'accepted' | 'rejected') => run('decision', async () => {
+    const res = await api<Prospect>(`/api/admin/prospecting/prospects/${id}/decision`, {
+      method: 'POST', body: { decision, reason: reason || null },
+    })
+    setReason('')   // vidé seulement en cas de succès (sinon run() catch sans reset)
+    return res
+  })
+
   async function remove() {
     if (!confirm('Supprimer définitivement ce prospect ?')) return
     setBusy('delete')
@@ -185,6 +209,14 @@ export default function AdminProspect() {
   }
 
   if (!p) return <div className="center-page">{error || 'Chargement…'}</div>
+
+  // Analyse IA : détail de scoring (peut être absent tant que non scoré).
+  const scoring = p.enrichment?.scoring
+  const formula = scoring?.recommended_byok
+    ? 'Clé API perso (BYOK)'
+    : scoring?.recommended_plan
+      ? (PLAN_LABEL[scoring.recommended_plan] || scoring.recommended_plan)
+      : 'Arbre guidé seul (sans IA)'
 
   return (
     <div className="col g18">
@@ -244,6 +276,70 @@ export default function AdminProspect() {
 
       {/* Tout l'enrichissement (contacts site + données légales) */}
       <EnrichmentView enr={p.enrichment} onPickEmail={setEmail} />
+
+      {/* Analyse IA : score de besoin, formule conseillée, décision opérateur */}
+      <Card>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div className="row g8" style={{ alignItems: 'center' }}>
+            <div className="card-title" style={{ margin: 0 }}><span className="row g6"><Sparkles size={15} />Analyse IA</span></div>
+            {scoreChip(p.fit_score)}
+          </div>
+          <Btn kind="soft" small onClick={rescore} disabled={busy === 'score'}>
+            <span className="row g6"><RefreshCw size={13} />{busy === 'score' ? 'Analyse…' : (scoring ? 'Re-scorer' : 'Scorer')}</span>
+          </Btn>
+        </div>
+
+        {scoring
+          ? <>
+              {scoring.reason && <div className="muted" style={{ fontSize: 12.5, marginTop: 8, lineHeight: 1.5 }}>{scoring.reason}</div>}
+              <div className="row g8" style={{ flexWrap: 'wrap', marginTop: 10, fontSize: 13 }}>
+                <span><strong>Formule conseillée :</strong> {formula}</span>
+              </div>
+              {!!scoring.recommended_modules?.length && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="field-label">Modules conseillés</div>
+                  <div className="row g6" style={{ flexWrap: 'wrap' }}>
+                    {scoring.recommended_modules.map(m => <Chip key={m} tone="acc">{MODULE_LABEL[m] || m}</Chip>)}
+                  </div>
+                </div>
+              )}
+              {!!scoring.suggested_integrations?.length && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="field-label">Intégrations suggérées</div>
+                  <div className="row g6" style={{ flexWrap: 'wrap' }}>
+                    {scoring.suggested_integrations.map(s => <Chip key={s} tone="info">{s}</Chip>)}
+                  </div>
+                </div>
+              )}
+            </>
+          : <div className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>
+              Pas encore analysé par l'IA. Lancez « Scorer » pour estimer le besoin et la formule conseillée.
+            </div>}
+
+        <div className="divider" />
+
+        {/* Décision de l'opérateur (apprentissage few-shot) */}
+        <div className="col g8">
+          <div className="field-label">Votre décision</div>
+          {p.decision && (
+            <div className="row g6" style={{ flexWrap: 'wrap', fontSize: 12.5, color: 'var(--mut)' }}>
+              {p.decision === 'accepted' ? <Chip tone="go">Validé</Chip> : <Chip tone="danger">Écarté</Chip>}
+              {p.decision_reason ? <span>— {p.decision_reason}</span> : null}
+              {p.decision_at ? <span>({new Date(p.decision_at).toLocaleDateString('fr-FR')})</span> : null}
+            </div>
+          )}
+          <Field label="Raison (facultatif)"><input type="text" value={reason} placeholder="ex. cible idéale, déjà équipé…"
+            onChange={e => setReason(e.target.value)} style={{ width: '100%' }} /></Field>
+          <div className="row g8">
+            <Btn kind="soft" small onClick={() => decide('accepted')} disabled={busy === 'decision'}>
+              <span className="row g6"><ThumbsUp size={13} />{busy === 'decision' ? '…' : 'Valider'}</span>
+            </Btn>
+            <Btn kind="ghost" small onClick={() => decide('rejected')} disabled={busy === 'decision'}>
+              <span className="row g6"><ThumbsDown size={13} />{busy === 'decision' ? '…' : 'Écarter'}</span>
+            </Btn>
+          </div>
+        </div>
+      </Card>
 
       {/* Étape 2 : brouillon IA */}
       <Card>
