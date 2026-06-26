@@ -1,6 +1,6 @@
 # Politique de confidentialité
 
-> ⚠️ **Modèle à faire valider par un juriste / DPO avant publication.** Dernière mise à jour : 25 juin 2026.
+> ⚠️ **Modèle à faire valider par un juriste / DPO avant publication.** Dernière mise à jour : 26 juin 2026.
 
 La présente politique décrit comment **Chapote** (« nous ») traite les données personnelles dans le cadre du Service, conformément au **RGPD** (Règlement (UE) 2016/679) et à la loi Informatique et Libertés.
 
@@ -42,6 +42,7 @@ Nous faisons appel à des prestataires agissant comme sous‑traitants ultérieu
 - **Hébergement :** [À COMPLÉTER — hébergeur, localisation UE de préférence].
 - **Paiement :** Stripe Payments Europe, Ltd.
 - **Fournisseurs d'IA :** selon le modèle utilisé — Anthropic, OpenAI, Google (Gemini). En mode **BYOK**, le Client utilise sa propre clé et sa propre relation contractuelle avec le fournisseur.
+- **Protection anti‑robot (captcha) :** **Cloudflare, Inc.** — widget **Turnstile** (mode invisible) protégeant le handshake du Widget et la démo publique `/demo`. À cette fin, l'**adresse IP** du visiteur et des **signaux techniques du navigateur** sont transmis à Cloudflare à des fins de vérification ; **aucun cookie publicitaire** n'est utilisé. Ce traitement est encadré par le **Cloudflare Turnstile Privacy Addendum** [lien officiel à insérer — cloudflare.com].
 - **Envoi d'e‑mails / notifications :** [À COMPLÉTER le cas échéant].
 
 Les données ne sont **ni vendues, ni louées**. Des transferts hors UE peuvent intervenir chez certains fournisseurs d'IA ; ils sont encadrés par des **clauses contractuelles types** ou un mécanisme de transfert valide [À COMPLÉTER / VÉRIFIER].
@@ -68,7 +69,7 @@ Vous pouvez introduire une réclamation auprès de la **CNIL** (www.cnil.fr).
 
 ## 8. Cookies et traceurs
 
-Le Service et le Widget peuvent utiliser des cookies/stockage strictement nécessaires au fonctionnement (session, sécurité) et, le cas échéant, des dispositifs anti‑abot (captcha). Le Client est responsable de l'information et du recueil des consentements requis sur son propre site. [À COMPLÉTER — bandeau cookies si applicable.]
+Le Service et le Widget peuvent utiliser des cookies/stockage strictement nécessaires au fonctionnement (session, sécurité) et, le cas échéant, des dispositifs anti‑robot (captcha **Cloudflare Turnstile**, qui transmet l'adresse IP et des signaux navigateur à Cloudflare pour la vérification, sans cookie publicitaire — cf. § 4). Le Client est responsable de l'information et du recueil des consentements requis sur son propre site. [À COMPLÉTER — bandeau cookies si applicable.]
 
 ## 9. Modifications
 

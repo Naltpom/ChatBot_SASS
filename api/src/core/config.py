@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     DEMO_IP_PER_DAY: int = 5          # generations REELLES / IP / 24h (cache hit non compte)
     DEMO_GLOBAL_PER_DAY: int = 300    # plafond global de generations IA / 24h (coupe-circuit cout)
     DEMO_CACHE_TTL_DAYS: int = 14     # au-dela, on regenere (les sites evoluent)
+    # Chat IA de la demo (V2) : vraies reponses bornees au contenu scrape. Quotas
+    # PAR MESSAGE (le captcha one-shot de la generation d'arbre fait office
+    # d'ouverture de session -> pas de captcha par message).
+    DEMO_CHAT_IP_PER_DAY: int = 30        # messages IA / IP / 24h
+    DEMO_CHAT_GLOBAL_PER_DAY: int = 2000  # plafond global messages IA / 24h (coupe-circuit cout)
 
     # --- Auth intranet (meme flux qu'ao_scrapping) ---
     # Les comptes @kertios.com authentifies via l'intranet deviennent

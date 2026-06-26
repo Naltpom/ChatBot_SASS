@@ -193,3 +193,10 @@ insights_limiter = RateLimiter("rl:insights:", 3, 86400)
 # Le faible plafond (quelques centaines/jour) garde le ZSET global tout petit.
 demo_ip_limiter = RateLimiter("rl:demoip:", settings.DEMO_IP_PER_DAY, 86400)
 demo_global_limiter = RateLimiter("rl:demoglobal:", settings.DEMO_GLOBAL_PER_DAY, 86400)
+# Chat IA de la demo (V2) : quotas PAR MESSAGE (chaque message = 1 appel Gemini),
+# budgets SEPARES de la generation d'arbre (prefixes distincts). Le captcha
+# one-shot de la generation fait office d'ouverture de session -> pas de captcha
+# par message ; ces deux limiteurs + le pre-requis « arbre deja genere » bornent
+# l'abus. Memes semantiques fenetre glissante 24 h + fail-open.
+demo_chat_ip_limiter = RateLimiter("rl:demochatip:", settings.DEMO_CHAT_IP_PER_DAY, 86400)
+demo_chat_global_limiter = RateLimiter("rl:demochatglobal:", settings.DEMO_CHAT_GLOBAL_PER_DAY, 86400)

@@ -44,6 +44,8 @@ export default function Demo() {
   const [error, setError] = useState('')
   const [tree, setTree] = useState<Tree | null>(null)
   const [cached, setCached] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(null)  // = url_hash, pour le chat IA
+  const [chatToken, setChatToken] = useState<string | null>(null)  // jeton (captcha) débloquant le chat
   const [token, setToken] = useState<string | null>(null)
   const widgetRef = useRef<HTMLDivElement | null>(null)
   const rendered = useRef(false)
@@ -100,10 +102,10 @@ export default function Demo() {
     if (!value || busy || captchaPending) return
     setBusy(true); setError(''); setTree(null)
     try {
-      const res = await api<{ tree_json: Tree; cached: boolean }>('/api/public/demo-tree', {
+      const res = await api<{ tree_json: Tree; cached: boolean; session_id: string; chat_token: string | null }>('/api/public/demo-tree', {
         method: 'POST', body: { url: value, turnstile_token: token },
       })
-      setTree(res.tree_json); setCached(res.cached)
+      setTree(res.tree_json); setCached(res.cached); setSessionId(res.session_id); setChatToken(res.chat_token)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Génération impossible, réessayez dans un instant.')
     } finally {
@@ -218,9 +220,22 @@ export default function Demo() {
       {tree && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 70, pointerEvents: 'none' }}>
           <div style={{ pointerEvents: 'auto' }}>
-            {/* mode hybrid : le menu généré + une bascule « Autre question » -> IA
-                (réponses SIMULÉES en local par WidgetPreview, aucun appel réseau). */}
-            <WidgetPreview design={design} mode="hybrid" tree={tree} botName={botName} defaultOpen />
+            {/* mode hybrid : le menu généré + bascule « Autre question » -> IA.
+                onAiMessage = VRAIE réponse IA bornée au contenu scrapé du site
+                (POST /api/public/demo-chat), via session_id = url_hash. */}
+            <WidgetPreview design={design} mode="hybrid" tree={tree} botName={botName} defaultOpen
+              onAiMessage={sessionId ? async (text, history) => {
+                try {
+                  const res = await api<{ reply: string }>('/api/public/demo-chat', {
+                    method: 'POST',
+                    body: { session_id: sessionId, chat_token: chatToken, message: text, history: history.slice(-6) },
+                  })
+                  return res.reply
+                } catch (e) {
+                  // Remonte le message FR précis (409 session / 429 quota / 503 capacité).
+                  return e instanceof ApiError ? e.message : 'Désolé, je ne peux pas répondre pour le moment.'
+                }
+              } : undefined} />
           </div>
         </div>
       )}

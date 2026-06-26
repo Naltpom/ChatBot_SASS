@@ -59,6 +59,9 @@ services:
       - DEMO_IP_PER_DAY=${DEMO_IP_PER_DAY:-5}
       - DEMO_GLOBAL_PER_DAY=${DEMO_GLOBAL_PER_DAY:-300}
       - DEMO_CACHE_TTL_DAYS=${DEMO_CACHE_TTL_DAYS:-14}
+      # Chat IA de la démo (V2) : quotas par message.
+      - DEMO_CHAT_IP_PER_DAY=${DEMO_CHAT_IP_PER_DAY:-30}
+      - DEMO_CHAT_GLOBAL_PER_DAY=${DEMO_CHAT_GLOBAL_PER_DAY:-2000}
       # MOCK_BILLING=true : stripe_service n'émet aucun appel Stripe sortant
       # (checkout/portail mockés, entitlement appliqué directement). Interdit en
       # prod (validate_production). Défaut true = dev/CI sans clés Stripe.

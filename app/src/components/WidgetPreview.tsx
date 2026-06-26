@@ -115,6 +115,11 @@ interface Props {
   // pousser l'aperçu hors des contrôles pendant l'édition. N'affecte PAS la
   // position réelle du widget (qui reste design.position).
   positionOverride?: 'left' | 'right'
+  // Handler de VRAIE réponse IA (démo publique uniquement). Absent (défaut) =>
+  // réponses IA SIMULÉES (AI_PREVIEW_REPLIES), comportement inchangé pour
+  // BotWizard/BotPage. `history` = tours PRÉCÉDENTS (le message courant est passé
+  // séparément en 1er argument).
+  onAiMessage?: (text: string, history: { role: 'user' | 'assistant'; content: string }[]) => Promise<string>
 }
 
 const AI_PREVIEW_REPLIES = [
@@ -123,7 +128,7 @@ const AI_PREVIEW_REPLIES = [
   "Voici un exemple de réponse IA. Les réponses arbre, elles, sont gratuites et illimitées.",
 ]
 
-export default function WidgetPreview({ design, mode, tree, botName, defaultOpen = true, positionOverride }: Props) {
+export default function WidgetPreview({ design, mode, tree, botName, defaultOpen = true, positionOverride, onAiMessage }: Props) {
   const d = design || {}
   const brand = d.primaryColor || '#0d9488'
   const bg = brandBg(d)
@@ -233,6 +238,10 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
   // retardée (ex. réponse « Conseiller » à +2,4 s) atterrir dans le mauvais
   // contexte après que live est repassé à false ou que msgs a été vidé.
   const pendingTimers = useRef<number[]>([])
+  // Garde anti-race des VRAIES réponses IA (onAiMessage) : un await réseau peut
+  // atterrir APRÈS un reset/back-to-menu. On incrémente ce compteur à chaque
+  // envoi ET à chaque reset/back ; une réponse dont le reqId est périmé est ignorée.
+  const aiReqRef = useRef(0)
   function schedule(fn: () => void, delay: number) {
     const h = window.setTimeout(() => {
       pendingTimers.current = pendingTimers.current.filter(x => x !== h)
@@ -279,6 +288,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
 
   // reset à chaque changement structurel
   useEffect(() => {
+    aiReqRef.current++   // invalide une réponse IA réelle en vol (reset structurel)
     const isIA = mode === 'ai'
     setAiMode(isIA)
     setAppt(null)
@@ -402,10 +412,33 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     const txt = input.trim()
     if (!txt || typing) return
     setInput('')
+    // Historique = tours PRÉCÉDENTS (avant d'ajouter le message courant, que le
+    // serveur ajoute lui-même). On exclut les bulles système/conseiller.
+    const priorHistory = msgs
+      .filter(m => !m.sys && !m.advisor)
+      .map(m => ({ role: (m.from === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.text }))
     setMsgs(m => [...m, { from: 'user', text: txt }])
     // Mode LIVE simulé : le message part « au conseiller », pas de réponse IA
     if (live) return
     setTyping(true)
+    // VRAIE IA (démo) : appel réseau borné, garde anti-race + typing dans le .then/.catch.
+    if (onAiMessage) {
+      const reqId = ++aiReqRef.current
+      onAiMessage(txt, priorHistory)
+        .then(reply => {
+          if (reqId !== aiReqRef.current) return   // reset/back survenu entre-temps
+          setTyping(false)
+          setMsgs(m => [...m, { from: 'bot', text: reply, ai: true }])
+          playPing()
+        })
+        .catch(() => {
+          if (reqId !== aiReqRef.current) return
+          setTyping(false)
+          setMsgs(m => [...m, { from: 'bot', text: t('ai_unavailable'), ai: true }])
+        })
+      return
+    }
+    // Défaut : réponse IA SIMULÉE (aperçu wizard/dashboard, zéro réseau).
     schedule(() => {
       setTyping(false)
       setMsgs(m => [...m, { from: 'bot', text: AI_PREVIEW_REPLIES[aiIdx % AI_PREVIEW_REPLIES.length], ai: true }])
@@ -418,6 +451,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     // Annule les bulles différées du flux handoff simulé (jusqu'à +2,4 s) :
     // elles ne doivent pas atterrir au milieu du menu arbre redessiné
     clearPendingTimers()
+    aiReqRef.current++   // invalide une réponse IA réelle en vol (retour menu)
     setLive(false)
     setAiMode(false)
     setMsgs(m => [...m, { from: 'user', text: t('back_to_menu_user') }])

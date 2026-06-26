@@ -57,6 +57,9 @@ services:
       - DEMO_IP_PER_DAY=${DEMO_IP_PER_DAY:-5}
       - DEMO_GLOBAL_PER_DAY=${DEMO_GLOBAL_PER_DAY:-300}
       - DEMO_CACHE_TTL_DAYS=${DEMO_CACHE_TTL_DAYS:-14}
+      # Chat IA de la démo (V2) : quotas par message.
+      - DEMO_CHAT_IP_PER_DAY=${DEMO_CHAT_IP_PER_DAY:-30}
+      - DEMO_CHAT_GLOBAL_PER_DAY=${DEMO_CHAT_GLOBAL_PER_DAY:-2000}
       - MOCK_AI=${MOCK_AI:-false}
       # Facturation Stripe (go-live). Vides => billing OFF (app gratuite). MOCK_BILLING
       # défaut false = sûr en prod ; métrage IA off par défaut (activable plus tard).

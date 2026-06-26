@@ -1,6 +1,8 @@
 """Endpoints PUBLICS (sans authentification) — données marketing non sensibles."""
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +12,10 @@ from src.core.database import get_db
 from src.models.billing import BillingProduct
 from src.services import demo_service
 from src.services.captcha import verify_turnstile_token
-from src.services.rate_limit import demo_global_limiter, demo_ip_limiter, ip_limiter
+from src.services.rate_limit import (
+    demo_chat_global_limiter, demo_chat_ip_limiter, demo_global_limiter,
+    demo_ip_limiter, ip_limiter,
+)
 
 router = APIRouter(prefix="/api", tags=["public"])
 
@@ -77,9 +82,11 @@ async def public_demo_tree(
       1. flag DEMO_ENABLED (404 si coupé) ;
       2. anti-flood IP grossier (même bucket que le widget) — borne aussi les
          cache hits qui écrivent hits++ ;
-      3. CACHE : URL déjà vue et fraîche => on resert l'arbre SANS IA, sans
-         captcha ni quota consommés (gratuit, instantané) ;
-      4. sinon génération réelle : captcha Turnstile, puis quota/IP/jour, puis
+      3. captcha vérifié EN AMONT : sa réussite émet un `chat_token` (jeton court
+         signé) qui débloque le chat IA (sinon le chat — dépense par message —
+         serait accessible sans captcha sur une URL déjà en cache) ;
+      4. CACHE : URL déjà vue et fraîche => arbre resservi instantanément ;
+      5. sinon génération réelle : captcha OBLIGATOIRE, puis quota IP/jour, puis
          plafond GLOBAL/jour (coupe-circuit Gemini) — le tout AVANT l'appel IA.
     """
     if not settings.demo_active:
@@ -95,19 +102,22 @@ async def public_demo_tree(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     h = demo_service.url_hash(url_norm)
 
-    # 3) Cache (pas d'IA, pas de captcha, pas de quota).
+    # Captcha EN AMONT (token Turnstile à usage unique) : sa réussite conditionne
+    # l'émission du chat_token qui gardera la dépense IA par message de /demo-chat.
+    captcha_ok = await verify_turnstile_token(body.turnstile_token, ip)
+    chat_token = demo_service.make_chat_token(h, ip) if captcha_ok else None
+
+    # Cache (arbre gratuit/instantané ; le chat n'est débloqué que si captcha OK).
     row = await demo_service.get_row(db, h)
     if row is not None and demo_service.is_fresh(row, settings.DEMO_CACHE_TTL_DAYS):
         row.hits += 1
         await db.commit()
-        return {"tree_json": row.tree_json, "cached": True}
+        return {"tree_json": row.tree_json, "cached": True, "session_id": h, "chat_token": chat_token}
 
-    # 4) Génération réelle. Ordre = captcha -> fetch -> quotas -> IA. On lit la
-    #    page AVANT de décompter les quotas : ainsi un site injoignable/vide
-    #    (422) ne brûle NI le quota du visiteur NI le plafond global, qui ne
-    #    compte donc que de vraies générations IA. Le fetch reste borné par
-    #    l'anti-flood IP + le captcha ci-dessus.
-    if not await verify_turnstile_token(body.turnstile_token, ip):
+    # Cache miss : génération réelle, captcha OBLIGATOIRE. On lit la page AVANT de
+    # décompter les quotas : un site injoignable/vide (422) ne brûle ni le quota
+    # du visiteur ni le plafond global (qui ne compte que de vraies générations IA).
+    if not captcha_ok:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Vérification anti-robot échouée, réessayez.")
     try:
         source = await demo_service.build_demo_source(url_norm)
@@ -124,5 +134,94 @@ async def public_demo_tree(
     except demo_service.TreeGenerationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
-    await demo_service.upsert(db, h, url_norm, tree, existing=row)
-    return {"tree_json": tree, "cached": False}
+    await demo_service.upsert(db, h, url_norm, tree, source, existing=row)
+    return {"tree_json": tree, "cached": False, "session_id": h, "chat_token": chat_token}
+
+
+class HistoryItem(BaseModel):
+    # Borne la taille PAR ITEM dès la validation (endpoint public sans auth) :
+    # extra ignoré, role contraint, content plafonné.
+    model_config = ConfigDict(extra="ignore")
+    role: Literal["user", "assistant"]
+    content: str = Field(..., max_length=2000)
+
+
+class DemoChatIn(BaseModel):
+    # session_id = url_hash renvoyé par /demo-tree ; url = repli si absent.
+    session_id: str | None = Field(None, max_length=128)
+    url: str | None = Field(None, max_length=2000)
+    # Jeton émis par /demo-tree après un captcha valide (preuve d'ouverture de session).
+    chat_token: str | None = Field(None, max_length=512)
+    message: str = Field(..., min_length=1, max_length=2000)
+    history: list[HistoryItem] = Field(default_factory=list, max_length=40)
+
+
+@router.post("/public/demo-chat")
+async def public_demo_chat(
+    body: DemoChatIn, request: Request, db: AsyncSession = Depends(get_db),
+):
+    """Chat IA de la démo : réponse bornée AU CONTENU SCRAPÉ de l'URL générée.
+
+    Le chat IA est une dépense PAR MESSAGE sur un endpoint public : il est gardé
+    par un `chat_token` (jeton court signé émis par /demo-tree APRÈS un captcha,
+    lié à url_hash + IP). Ainsi un session_id devinable (= sha256 de l'URL) ne
+    suffit pas à chatter sans captcha. Quotas PAR MESSAGE dédiés (IP/jour +
+    global/jour). Ordre : flag -> flood IP -> jeton -> row fraîche -> quotas ->
+    contexte (backfill éventuel, métré) -> IA.
+    """
+    if not settings.demo_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Démo indisponible.")
+
+    ip = request.client.host if request.client else "unknown"
+    if not await ip_limiter.check(ip):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de requêtes, patientez un instant.")
+
+    # Retrouve la génération (session_id = url_hash, ou repli sur l'URL).
+    h = (body.session_id or "").strip()
+    if not h:
+        if not body.url:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Session de démo manquante.")
+        try:
+            h = demo_service.url_hash(demo_service.normalize_url(body.url))
+        except ValueError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    # Jeton de chat OBLIGATOIRE (preuve d'un captcha récent pour cette génération+IP).
+    if not demo_service.check_chat_token(body.chat_token, h, ip):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Session de chat expirée — régénérez le chatbot.")
+
+    row = await demo_service.get_row(db, h)
+    if row is None or not demo_service.is_fresh(row, settings.DEMO_CACHE_TTL_DAYS):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Générez d'abord le chatbot (session expirée).")
+
+    # Quotas PAR MESSAGE (chaque message = 1 appel Gemini), AVANT tout fetch/IA
+    # — y compris le backfill paresseux ci-dessous, qui est ainsi métré.
+    if not await demo_chat_ip_limiter.check(ip):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            "Limite de messages atteinte pour aujourd'hui — réessayez demain.")
+    if not await demo_chat_global_limiter.check("demo"):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "Le chat de démo a atteint sa capacité du jour — revenez plus tard.")
+
+    # Contexte = texte scrapé. Lignes pré-V2 : backfill paresseux (une fois).
+    source = row.source_text
+    if not source:
+        try:
+            source = await demo_service.build_demo_source(row.url)
+        except demo_service.TreeGenerationError as e:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "Régénérez le chatbot pour activer le chat.") from e
+        row.source_text = source
+        await db.commit()
+
+    host = demo_service.host_of(row.url)
+    try:
+        reply = await demo_service.demo_reply(
+            source, host, [h.model_dump() for h in body.history], body.message)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    except demo_service.TreeGenerationError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from e
+    return {"reply": reply}
