@@ -92,7 +92,7 @@ export default function StatsPanel({ botId, botName, tree, variantTree, abSplit 
         <Stat label="Réponses arbre" value={stats.tree_replies.toLocaleString('fr-FR')} icon={<GitBranch size={15} />} sub="gratuites, illimitées" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 14, alignItems: 'start' }}>
+      <div className="stats-grid-a">
         <Card>
           <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
             <div className="card-title" style={{ marginBottom: 0 }}>Messages par jour</div>
@@ -127,7 +127,7 @@ export default function StatsPanel({ botId, botName, tree, variantTree, abSplit 
 
       <FunnelCard funnel={funnel} funnelError={funnelError} tree={tree} variantTree={variantTree} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, alignItems: 'start' }}>
+      <div className="stats-grid-b">
         <Card>
           <div className="card-title">Pages d'ouverture du chat</div>
           {stats.top_pages.length === 0 && <div style={{ color: 'var(--faint)', fontSize: 12 }}>Aucune donnée.</div>}

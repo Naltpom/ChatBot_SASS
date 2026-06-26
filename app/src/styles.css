@@ -290,7 +290,7 @@ textarea { resize: vertical; line-height: 1.55; }
 .meter.danger > div { background: var(--danger); }
 .meter.h6 { height: 6px; }
 
-.infobox { border-radius: 10px; padding: 10px 13px; font-size: 12px; line-height: 1.55; color: var(--ink); }
+.infobox { border-radius: 10px; padding: 10px 13px; font-size: 12px; line-height: 1.55; color: var(--ink); overflow-wrap: anywhere; }
 .infobox .ib-title { font-weight: 800; margin-bottom: 3px; font-size: 11.5px; }
 .infobox.info { background: var(--info-soft); border: 1px solid rgba(37,99,235,.2); }
 .infobox.info .ib-title { color: var(--info); }
@@ -579,6 +579,31 @@ pre.snippet {
 .grid-controls { display: grid; grid-template-columns: 330px 1fr; gap: 14px; align-items: start; }
 @media (max-width: 900px) {
   .grid2, .grid-controls { grid-template-columns: 1fr; }
+}
+
+/* ---------- Responsive : grilles 2 colonnes des pages app ----------
+   Desktop/tablette : 2 colonnes (rendu inchangé). Mobile (≤760px) : 1 colonne
+   empilée, sinon les colonnes fixes (Inbox 340px) débordent le viewport et les
+   colonnes en fr écrasent leur contenu. */
+.inbox-layout { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
+.stats-grid-a { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; align-items: start; }
+.stats-grid-b { display: grid; grid-template-columns: 1fr 1.2fr; gap: 14px; align-items: start; }
+@media (max-width: 760px) {
+  .inbox-layout, .stats-grid-a, .stats-grid-b { grid-template-columns: 1fr; }
+}
+
+/* Conteneur à défilement horizontal pour les tableaux larges (admin facturation,
+   catalogue, conversations récentes). Sans lui, la .card.nopad (overflow:hidden)
+   tronque les colonnes en mobile au lieu d'autoriser le scroll latéral. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* Ligne du funnel (stats) : la jauge fixe + le texte de sortie sont réservés au
+   desktop ; sous 560px on masque la jauge et on laisse le % suivre le flux. */
+.funnel-meter { width: 150px; flex-shrink: 0; }
+.funnel-exit { width: 112px; text-align: right; flex-shrink: 0; }
+@media (max-width: 560px) {
+  .funnel-meter { display: none; }
+  .funnel-exit { width: auto; }
 }
 
 /* ---------- Inbox live chat (InboxPanel) ---------- */

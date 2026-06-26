@@ -40,8 +40,12 @@ const CHAPOTE_CSS = `
 .ch-menu-btn{display:none;}
 .ch-cmp-scroll{-webkit-overflow-scrolling:touch;}
 .ch-cmp-table{min-width:0;}
+/* Widget animé du hero : largeur naturelle 340px mais autorisé à rétrécir
+   pour ne jamais forcer la largeur du hero sous l'écran (mobile étroit). */
+.ch-hero-widget{width:100%;max-width:340px;}
 @media (max-width:920px){
   .ch-nav-links{display:none !important;}
+  .ch-desktop-actions{display:none !important;}
   .ch-hero-split{grid-template-columns:1fr !important;gap:38px !important;text-align:center;}
   .ch-hero-split .ch-hero-cta,.ch-hero-split .ch-hero-trust{justify-content:center;}
   .ch-piliers-grid{grid-template-columns:1fr 1fr !important;}

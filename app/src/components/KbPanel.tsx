@@ -270,7 +270,8 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
         </Card>
       ) : (
         <Card nopad>
-          <table className="kc">
+          <div className="table-scroll">
+<table className="kc">
             <thead>
               <tr><th>Type</th><th>Source</th><th>Statut</th><th>Extraits</th><th>Ajoutée</th><th></th></tr>
             </thead>
@@ -313,6 +314,7 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
               ))}
             </tbody>
           </table>
+</div>
         </Card>
       )}
 
