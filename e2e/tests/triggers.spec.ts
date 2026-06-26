@@ -30,6 +30,8 @@ test('éditeur triggers : hints FR + types + save → bootstrap sanitisé', asyn
   await page.locator('.tabs').getByRole('button', { name: 'Apparence' }).click()
   await expect(page.getByText('Apparence du widget')).toBeVisible()
 
+  // Les déclencheurs vivent dans le sous-onglet « Conversation » de l'apparence.
+  await page.getByRole('button', { name: 'Conversation', exact: true }).click()
   // La carte « Déclencheurs proactifs » contient l'éditeur ; on scope dedans
   // pour éviter la collision « Message » avec « Message d'accueil (mode IA) »
   // d'AppearanceForm (getByLabel = sous-chaîne).
