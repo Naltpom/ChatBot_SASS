@@ -5,7 +5,7 @@ Une URL deja generee n'appelle PAS l'IA : on resert le tree_json mis en cache
 un signal commercial (prospects). Table alimentee UNIQUEMENT par l'endpoint
 public /api/public/demo-tree — aucune donnee personnelle/sensible.
 """
-from sqlalchemy import JSON, Column, DateTime, Integer, String, text
+from sqlalchemy import JSON, Column, DateTime, Integer, String, Text, text
 
 from src.core.database import Base
 from src.core.time import utcnow
@@ -21,6 +21,9 @@ class DemoGeneration(Base):
     url = Column(String, nullable=False)
     # Arbre genere (tree_json valide), reservi tel quel sur un cache hit.
     tree_json = Column(JSON, nullable=False)
+    # Texte scrape de la page (borne), CONTEXTE du chat IA de la demo (V2). NULL
+    # pour les lignes creees avant la V2 -> backfill paresseux au 1er chat.
+    source_text = Column(Text, nullable=True)
     # Nombre de fois ou cette entree a ete RE-servie depuis le cache (sans IA).
     hits = Column(Integer, nullable=False, default=0, server_default=text("'0'"))
     # created_at = horloge de fraicheur (TTL). updated_at bouge a chaque hit.
