@@ -8,6 +8,9 @@ export interface Msg {
   ai?: boolean
   sys?: boolean      // bulle système du flux LIVE (attente conseiller) : italique, sans CSAT
   advisor?: boolean  // réponse « Conseiller » simulée : étiquette, sans CSAT (parité : jamais sur human)
+  animate?: boolean  // révélé progressif « machine à écrire » (parité typeInto de widget.js) :
+                     // posé sur les réponses bot ISSUES D'UNE INTERACTION ; jamais sur le
+                     // message d'accueil/reset (sinon il se re-taperait à chaque frappe d'édition).
 }
 
 // Formulaire de contact simulé (nœud d'arbre type 'lead') — mêmes clés que
