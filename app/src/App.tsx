@@ -7,6 +7,7 @@ import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import Landing from './pages/Landing'
 import Showcase from './pages/Showcase'
+import Demo from './pages/Demo'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import BotList from './pages/BotList'
@@ -78,6 +79,7 @@ export function AppRoutes() {
       {/* Public (/ et /showcase sont prérendus pour le SEO) */}
       <Route path="/" element={<Landing />} />
       <Route path="/showcase" element={<Showcase />} />
+      <Route path="/demo" element={<Demo />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       {/* Pages légales (publiques) — rendues depuis les .md de src/legal. */}

@@ -40,6 +40,19 @@ class Settings(BaseSettings):
     TURNSTILE_SITE_KEY: str | None = None
     TURNSTILE_SECRET_KEY: str | None = None
 
+    # --- Demo publique « 1 URL -> chatbot » (page /demo, SANS auth) ---
+    # Genere un arbre de demo depuis UNE seule URL. Anti-abus en couches :
+    #  - captcha Turnstile (cles TURNSTILE_* ci-dessus ; vides => verification
+    #    ignoree, pratique en dev) ;
+    #  - limite PAR IP / 24h (fenetre glissante, fail-open) ;
+    #  - plafond GLOBAL / 24h (coupe-circuit de depense Gemini, fenetre glissante).
+    # Cache DB url->arbre (TTL) : une URL deja vue ne rappelle PAS l'IA. Mettre
+    # DEMO_ENABLED=false coupe la fonctionnalite (l'endpoint repond 404).
+    DEMO_ENABLED: bool = True
+    DEMO_IP_PER_DAY: int = 5          # generations REELLES / IP / 24h (cache hit non compte)
+    DEMO_GLOBAL_PER_DAY: int = 300    # plafond global de generations IA / 24h (coupe-circuit cout)
+    DEMO_CACHE_TTL_DAYS: int = 14     # au-dela, on regenere (les sites evoluent)
+
     # --- Auth intranet (meme flux qu'ao_scrapping) ---
     # Les comptes @kertios.com authentifies via l'intranet deviennent
     # superadmins du SaaS (vue sur tous les clients).
@@ -150,6 +163,22 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENV.lower() not in ("dev", "development")
+
+    @property
+    def demo_active(self) -> bool:
+        """La démo publique /demo est-elle réellement servie ?
+
+        En PRODUCTION elle EXIGE une clé Turnstile : l'endpoint est public et
+        dépense de l'IA, le captcha en est la vraie barrière anti-coût/anti-DoS.
+        Sans TURNSTILE_SECRET_KEY en prod -> démo DÉSACTIVÉE (404) plutôt
+        qu'exposée sans captcha (gate SOUPLE : ne coupe QUE la démo, jamais le
+        reste de l'API). En dev, le captcha est optionnel (verify_turnstile_token
+        laisse passer si la clé est absente)."""
+        if not self.DEMO_ENABLED:
+            return False
+        if self.is_production and not self.TURNSTILE_SECRET_KEY:
+            return False
+        return True
 
     def validate_production(self) -> None:
         """Garde-fous : refuse de demarrer en prod avec des secrets par defaut

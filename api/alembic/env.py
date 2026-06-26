@@ -30,6 +30,7 @@ import src.models.lead  # noqa: F401
 import src.models.kb  # noqa: F401
 import src.models.analytics  # noqa: F401
 import src.models.billing  # noqa: F401   # BotEntitlement, BillingSubscription, BillingProduct, BillingWebhookEvent, BotUsageCounter
+import src.models.demo  # noqa: F401   # DemoGeneration (cache demo publique)
 
 config = context.config
 

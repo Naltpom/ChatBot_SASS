@@ -16,6 +16,11 @@ ENV VITE_API_URL=${VITE_API_URL}
 ARG VITE_GOOGLE_CLIENT_ID
 ENV VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
 
+# Turnstile (démo publique /demo) : site key PUBLIQUE bakée dans le bundle.
+# Vide = pas de captcha affiché (le serveur ignore alors la vérification).
+ARG VITE_TURNSTILE_SITE_KEY
+ENV VITE_TURNSTILE_SITE_KEY=${VITE_TURNSTILE_SITE_KEY}
+
 # ⚠ Bun ne positionne pas NODE_ENV=production au build (quirk vite+bun) :
 # sans ça, @vitejs/plugin-react n'est pas en mode prod et émet le runtime JSX
 # DEV (jsxDEV), alors que le `define` de vite.config résout les libs React en
