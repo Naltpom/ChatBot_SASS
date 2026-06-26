@@ -75,7 +75,7 @@ export const NAV: NavLink[] = [
   { href: '#features', label: 'Fonctionnalités' },
   { href: '#why', label: 'Comparatif' },
   { href: '#pricing', label: 'Tarifs' },
-  { href: '#demo', label: 'Démo' },
+  { href: '/demo', label: 'Démo' },
 ]
 
 // ---- Colonnes de liens du footer (types explicites — §8) -------------------
@@ -83,7 +83,7 @@ export type FooterColumn = { title: string; links: NavLink[] }
 // Liens en « / » → routes internes (rendues en <Link> par Footer). « # » → ancre
 // ou placeholder. Le pack légal pointe vers les pages publiques réelles.
 export const FOOTER_COLUMNS: FooterColumn[] = [
-  { title: 'Produit', links: [{ href: '#features', label: 'Fonctionnalités' }, { href: '#why', label: 'Comparatif' }, { href: '#pricing', label: 'Tarifs' }, { href: '#install', label: 'Installation' }, { href: '#demo', label: 'Démo' }] },
+  { title: 'Produit', links: [{ href: '#features', label: 'Fonctionnalités' }, { href: '#why', label: 'Comparatif' }, { href: '#pricing', label: 'Tarifs' }, { href: '#install', label: 'Installation' }, { href: '/demo', label: 'Démo' }] },
   { title: 'Légal', links: [{ href: '/mentions-legales', label: 'Mentions légales' }, { href: '/cgu', label: 'CGU' }, { href: '/cgv', label: 'CGV' }, { href: '/confidentialite', label: 'Confidentialité' }] },
   { title: 'Ressources', links: [{ href: '#', label: 'Documentation' }, { href: '#', label: 'Contact' }, { href: '#', label: 'GitHub' }] },
 ]

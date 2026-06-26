@@ -9,6 +9,7 @@ import { useAuth } from '../AuthContext'
 import { api, ApiError } from '../api'
 import { Header } from '../components/landing/Header'
 import { Footer } from '../components/landing/Footer'
+import { useChapoteAssets } from '../components/landing/assets'
 import WidgetPreview from '../components/WidgetPreview'
 import type { DesignJson, Tree } from '../types/bot'
 
@@ -32,6 +33,11 @@ function hostOf(url: string): string {
 
 export default function Demo() {
   const { user } = useAuth()
+  // Header/Footer partagés s'appuient sur les classes globales de la landing
+  // (.ch-navlink, .ch-flink, .ch-menu-btn, .ch-footer-grid…) injectées par ce
+  // hook : sans lui, les liens du footer héritent de la couleur de lien par
+  // défaut (invisibles sur le bleu foncé) et le burger s'affiche en desktop.
+  useChapoteAssets()
   const [enabled, setEnabled] = useState(true)
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)

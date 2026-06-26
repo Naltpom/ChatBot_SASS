@@ -1,8 +1,11 @@
 // Footer : marque + colonnes de liens (types explicites, §8) + mentions.
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { CLASH, FOOTER_COLUMNS, HatIcon } from './data'
 
 export function Footer() {
+  // Hors landing (ex. /demo), les ancres « #features » sont préfixées par « / »
+  // pour pointer vers la section de l'accueil (cf. Header — même logique).
+  const onLanding = useLocation().pathname === '/'
   return (
     <footer style={{ background: '#1C3F5C', color: '#fff', padding: '62px 0 28px' }}>
       <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
@@ -19,14 +22,17 @@ export function Footer() {
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14, color: '#fff' }}>{col.title}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                 {col.links.map((link, i) =>
-                  // §8 a11y : ancres réelles (#features…) en <a> ; routes internes
-                  // (/cgu…) en <Link> react-router ; placeholders « # » en <button>
-                  // (focusables, pas de saut en haut de page).
+                  // §8 a11y : routes internes (/cgu…) en <Link> ; placeholders « # »
+                  // en <button> (focusables, pas de saut en haut). Ancres « #x » :
+                  // sur la landing → <a> (saut natif même page) ; hors landing →
+                  // <Link to="/#x"> (nav SPA vers l'accueil + ScrollToHash App.tsx).
                   link.href.startsWith('/')
                     ? <Link key={link.label + i} className="ch-flink" to={link.href}>{link.label}</Link>
                     : link.href === '#'
                       ? <button key={link.label + i} type="button" className="ch-flink" style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}>{link.label}</button>
-                      : <a key={link.label + i} className="ch-flink" href={link.href}>{link.label}</a>,
+                      : onLanding
+                        ? <a key={link.label + i} className="ch-flink" href={link.href}>{link.label}</a>
+                        : <Link key={link.label + i} className="ch-flink" to={`/${link.href}`}>{link.label}</Link>,
                 )}
               </div>
             </div>
