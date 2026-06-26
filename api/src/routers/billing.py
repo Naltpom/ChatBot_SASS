@@ -819,6 +819,7 @@ async def _user_has_subscription(db: AsyncSession, user: User) -> bool:
 async def _open_checkout(
     db: AsyncSession, user: User, bot: Bot, grouping: str,
     config: BotConfigPayload, consent: bool = False,
+    success_url: str | None = None, cancel_url: str | None = None,
 ) -> dict:
     """Ouvre une session de Checkout Stripe pour `bot` selon `config` (intro 1er
     mois remisé) et renvoie le dict de réponse — SANS commit (l'appelant commit).
@@ -826,7 +827,11 @@ async def _open_checkout(
     Factorisé pour servir DEUX chemins (point 3) : la 1re souscription
     (POST /billing/checkout) ET la relance de paiement d'un bot 'inactive'
     (POST /billing/subscription/update sans sub active sur le bot). Le caller a
-    déjà validé la config et l'ownership."""
+    déjà validé la config et l'ownership.
+
+    `success_url`/`cancel_url` (P4) : surchargent les redirections par défaut
+    (APP_URL) — la surface EXTERNE (plugin WordPress) y passe les URLs de retour
+    sur le site client. None (chemins dashboard) ⇒ redirections APP_URL inchangées."""
     codes, modules = _config_to_codes(config)
     line_items = await _line_items_for_codes(db, codes)
 
@@ -869,6 +874,9 @@ async def _open_checkout(
         # Intro 1er mois remisée selon le palier IA (coupon `duration:once`, base).
         intro_coupon=intro_coupon,
         consent_immediate_execution_at=consent_at,
+        # P4 : redirections surchargées par la surface plugin (retour site client).
+        success_url=success_url,
+        cancel_url=cancel_url,
     )
 
     if settings.MOCK_BILLING:

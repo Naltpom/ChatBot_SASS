@@ -26,6 +26,7 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
 from src.routers import admin, admin_billing, admin_prospecting, auth, billing, bots, inbox, kb, orgs, public, stats, tree, twofa, uploads, widget
+from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
 from src.services.auth_service import ensure_dev_admin
 
@@ -152,6 +153,8 @@ app.include_router(tree.router)
 app.include_router(billing.router)
 app.include_router(public.router)
 app.include_router(widget.router)
-# Surface EXTERNE (plugin WordPress) : OAuth « plugin » (device flow). Scope
-# 'plugin' distinct du dashboard ; appels server-to-server (PHP) => hors CORS widget.
+# Surface EXTERNE (plugin WordPress) : OAuth « plugin » (device flow) + API de
+# compte (/api/account/*, scope 'plugin'). Distinct du dashboard ; appels
+# server-to-server (PHP) => hors CORS widget.
 app.include_router(ext_oauth.router)
+app.include_router(ext_account.router)

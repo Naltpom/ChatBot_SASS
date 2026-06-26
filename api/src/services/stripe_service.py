@@ -131,6 +131,8 @@ async def create_checkout_session(
     user_id: int,
     intro_coupon: Optional[str] = None,
     consent_immediate_execution_at: Optional[str] = None,
+    success_url: Optional[str] = None,
+    cancel_url: Optional[str] = None,
 ) -> str:
     """Session de checkout abonnement -> URL de paiement hebergee par Stripe.
 
@@ -159,9 +161,18 @@ async def create_checkout_session(
     billing_address_collection. PAS de payment_method_types (dynamic methods).
     `customer_update[name]=auto` met à jour le nom du Customer depuis le paiement.
 
+    `success_url`/`cancel_url` (P4) : SURCHARGENT les redirections par défaut (sur
+    APP_URL) quand fournis — sert à la surface EXTERNE (plugin WordPress) pour
+    ramener le client sur SON site après paiement. None (appels dashboard) ⇒
+    comportement historique inchangé (redirections APP_URL).
+
     MOCK_BILLING ⇒ URL locale, aucun appel Stripe (l'entitlement est appliqué
     directement par l'appelant / le routeur, simulant le webhook)."""
     if settings.MOCK_BILLING:
+        # P4 : en MOCK, on redirige vers le success_url fourni (parcours plugin)
+        # s'il existe, sinon l'URL locale dashboard historique (mock_session).
+        if success_url:
+            return success_url
         return (f"{settings.APP_URL}/app/billing?checkout=success"
                 f"&mock_session=cs_test_{uuid.uuid4().hex[:16]}")
 
@@ -177,9 +188,11 @@ async def create_checkout_session(
         # (parcours « offert » sans carte). Compatible désormais car il n'y a plus
         # d'essai à 0 € (qui aurait fait sauter la carte pour tout le monde).
         "payment_method_collection": "if_required",
-        "success_url": (f"{settings.APP_URL}/app/billing"
+        # P4 : redirections surchargeables (plugin WordPress -> retour sur le site
+        # client) ; fallback = comportement historique sur APP_URL si non fournies.
+        "success_url": success_url or (f"{settings.APP_URL}/app/billing"
                         f"?checkout=success&session_id={{CHECKOUT_SESSION_ID}}"),
-        "cancel_url": f"{settings.APP_URL}/app/billing?checkout=cancelled",
+        "cancel_url": cancel_url or f"{settings.APP_URL}/app/billing?checkout=cancelled",
         # MAJ du nom du Customer depuis l'étape de paiement.
         "customer_update[name]": "auto",
         # PAS de `allow_promotion_codes` : Stripe l'INTERDIT avec `discounts` (un seul
