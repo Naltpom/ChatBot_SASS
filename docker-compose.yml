@@ -84,6 +84,20 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM=${SMTP_FROM:-}
+      # Prospection commerciale (back-office superadmin). API publique gratuite
+      # recherche-entreprises (SIRENE), aucune clé. Brouillon = ANTHROPIC_API_KEY
+      # (ou MOCK_AI), envoi = SMTP ci-dessus. Défauts sains, surcharge optionnelle.
+      - PROSPECTING_ENABLED=${PROSPECTING_ENABLED:-true}
+      - RECHERCHE_ENTREPRISES_URL=${RECHERCHE_ENTREPRISES_URL:-https://recherche-entreprises.api.gouv.fr/search}
+      - PROSPECT_CRAWL_MAX_PAGES=${PROSPECT_CRAWL_MAX_PAGES:-6}
+      - PROSPECT_CRAWL_MAX_REDIRECTS=${PROSPECT_CRAWL_MAX_REDIRECTS:-4}
+      - PROSPECT_FETCH_MAX_BYTES=${PROSPECT_FETCH_MAX_BYTES:-300000}
+      # 2FA (TOTP + WebAuthn/passkeys). RP_ID dérivé de APP_URL si vide (host).
+      # En dev (ENV=dev) l'enforcement admin ne mord pas : auto-login conservé.
+      - TWOFA_ISSUER=${TWOFA_ISSUER:-Chapote}
+      - TWOFA_ENFORCE_ADMIN=${TWOFA_ENFORCE_ADMIN:-true}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-}
+      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-Chapote}
       # Stripe : SECRET_KEY + WEBHOOK_SECRET vides = billing désactivé (app 100%
       # gratuite). Le catalogue (Products/Prices) vit en base via seed_billing_catalog,
       # plus de STRIPE_PRICE_* (catalogue modulaire).

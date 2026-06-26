@@ -17,10 +17,14 @@ export function Header({ user, ctaTo }: { user: User | null; ctaTo: string }) {
           {NAV.map(({ href, label }) => <a key={label} className="ch-navlink" href={href}>{label}</a>)}
         </nav>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {!user && <Link className="ch-navlink" to="/login" style={{ whiteSpace: 'nowrap' }}>Se connecter</Link>}
-          <Link to={ctaTo} className="ch-cta-primary" style={{ background: '#1C3F5C', color: '#fff', borderRadius: 12, padding: '11px 18px', fontWeight: 600, fontSize: 14.5, whiteSpace: 'nowrap', textDecoration: 'none', boxShadow: '0 6px 16px -8px rgba(28,63,92,.6)' }}>
-            {user ? "Ouvrir l'application" : 'Installer la balise'}
-          </Link>
+          {/* Actions « bureau » : masquées sous 920px (le burger prend le relais)
+              pour éviter que le gros CTA ne déborde la barre en mobile. */}
+          <div className="ch-desktop-actions" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {!user && <Link className="ch-navlink" to="/login" style={{ whiteSpace: 'nowrap' }}>Se connecter</Link>}
+            <Link to={ctaTo} className="ch-cta-primary" style={{ background: '#1C3F5C', color: '#fff', borderRadius: 12, padding: '11px 18px', fontWeight: 600, fontSize: 14.5, whiteSpace: 'nowrap', textDecoration: 'none', boxShadow: '0 6px 16px -8px rgba(28,63,92,.6)' }}>
+              {user ? "Ouvrir l'application" : 'Installer la balise'}
+            </Link>
+          </div>
           <button className="ch-menu-btn" aria-label="Menu" aria-expanded={mobileOpen} onClick={() => setMobileOpen(o => !o)} style={{ width: 42, height: 42, border: '1px solid #E2E8F0', borderRadius: 11, background: '#fff', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1E2A32" strokeWidth="2" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
           </button>
@@ -29,6 +33,13 @@ export function Header({ user, ctaTo }: { user: User | null; ctaTo: string }) {
       {mobileOpen && (
         <div style={{ borderTop: '1px solid #E2E8F0', background: '#fff', padding: '14px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {NAV.map(({ href, label }) => <a key={label} href={href} onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 500 }}>{label}</a>)}
+          {/* Connexion + CTA repliés dans le menu (masqués dans la barre en mobile). */}
+          <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {!user && <Link to="/login" onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 600 }}>Se connecter</Link>}
+            <Link to={ctaTo} onClick={() => setMobileOpen(false)} className="ch-cta-primary" style={{ background: '#1C3F5C', color: '#fff', borderRadius: 12, padding: '12px 18px', fontWeight: 600, fontSize: 15, textDecoration: 'none', textAlign: 'center' }}>
+              {user ? "Ouvrir l'application" : 'Installer la balise'}
+            </Link>
+          </div>
         </div>
       )}
     </header>

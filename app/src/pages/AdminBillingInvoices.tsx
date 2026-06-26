@@ -129,7 +129,8 @@ export default function AdminBillingInvoices() {
           <Card style={{ color: 'var(--faint)' }}>Aucune facture émise.</Card>
         ) : (
           <Card nopad>
-            <table className="kc">
+            <div className="table-scroll">
+<table className="kc">
               <thead>
                 <tr>
                   <th>Date</th><th>N°</th><th>Client</th>
@@ -173,6 +174,7 @@ export default function AdminBillingInvoices() {
                 })}
               </tbody>
             </table>
+</div>
           </Card>
         )}
       </div>

@@ -4,10 +4,11 @@
 // d'action (take/reply/close) restent dans des divs locales — jamais le canal
 // setError de la save bar.
 import { useEffect, useRef, useState } from 'react'
-import { Send, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { ArrowLeft, Send, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { ApiError, api } from '../api'
 import { Btn, Card, Chip, SectionTitle, Seg } from '../ui'
 import { errMsg } from '../utils/errors'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { minutesSince, pathnameOf, timeAgo } from '../utils/time'
 
 interface LastMessage { role: string; source: string; content: string; created_at: string }
@@ -185,16 +186,37 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
   const conv = transcript?.conversation
   const canReply = conv && (conv.status === 'human_requested' || conv.status === 'human')
 
+  // Vue mobile « maître/détail » : on n'affiche qu'un panneau à la fois — la
+  // liste tant qu'aucune conversation n'est ouverte, sinon le fil seul (avec un
+  // bouton retour). En desktop/tablette (≥760px) les deux restent côte à côte.
+  const isMobile = useIsMobile(760)
+  const showList = !isMobile || !selectedId
+  const showDetail = !isMobile || !!selectedId
+
+  // Retour à la liste depuis le fil (mobile) : on désélectionne et on purge le
+  // transcript pour que la réouverture reparte proprement.
+  function backToList() {
+    setSelectedId(null)
+    setTranscript(null)
+    setActionError('')
+    selRef.current = null
+  }
+
   return (
     <div className="col g18">
-      <SectionTitle sub="Les visiteurs qui demandent un conseiller arrivent ici. Prenez la main, répondez, clôturez.">
-        Conversations en direct
-      </SectionTitle>
+      {/* En mobile, le titre n'apparaît qu'en vue liste (le fil a son propre
+          en-tête + bouton retour). */}
+      {showList && (
+        <SectionTitle sub="Les visiteurs qui demandent un conseiller arrivent ici. Prenez la main, répondez, clôturez.">
+          Conversations en direct
+        </SectionTitle>
+      )}
 
-      {listError && <div className="error">{listError}</div>}
+      {listError && showList && <div className="error">{listError}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 14, alignItems: 'start' }}>
+      <div className="inbox-layout">
         {/* ---- Liste ---- */}
+        {showList && (
         <Card nopad>
           <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
             <Seg small value={filter} onChange={setFilter} options={FILTERS} />
@@ -241,9 +263,18 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
             })
           )}
         </Card>
+        )}
 
         {/* ---- Transcript ---- */}
+        {showDetail && (
         <Card>
+          {/* Retour à la liste (mobile uniquement). */}
+          {isMobile && (
+            <button className="back-link" style={{ marginBottom: 10, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    onClick={backToList}>
+              <ArrowLeft size={14} /> Toutes les conversations
+            </button>
+          )}
           {!selectedId ? (
             <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--faint)', fontSize: 12.5 }}>
               Sélectionnez une conversation.
@@ -342,6 +373,7 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
             </div>
           )}
         </Card>
+        )}
       </div>
     </div>
   )

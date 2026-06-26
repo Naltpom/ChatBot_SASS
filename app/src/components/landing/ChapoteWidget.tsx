@@ -41,7 +41,7 @@ export function ChapoteWidget() {
   const items = WIDGET_PHASES[phase]
 
   return (
-    <div style={{ width: 340, fontFamily: "'Inter',system-ui,sans-serif", background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 24, boxShadow: '0 26px 64px -20px rgba(28,63,92,.32)', overflow: 'hidden' }}>
+    <div className="ch-hero-widget" style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 24, boxShadow: '0 26px 64px -20px rgba(28,63,92,.32)', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '15px 18px', background: '#1C3F5C', color: '#fff' }}>
         <span style={{ width: 38, height: 38, borderRadius: 12, background: 'rgba(255,255,255,.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><HatIcon size={21} /></span>
         <div style={{ flex: 1, lineHeight: 1.25 }}>

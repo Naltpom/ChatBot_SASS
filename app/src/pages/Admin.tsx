@@ -63,7 +63,8 @@ export default function AdminHome() {
       </div>
 
       <Card nopad>
-        <table className="kc">
+        <div className="table-scroll">
+<table className="kc">
           <thead>
             <tr>
               <th>Client</th><th>Type</th><th>Bots</th><th>Msgs / 7 j</th>
@@ -103,6 +104,7 @@ export default function AdminHome() {
             ))}
           </tbody>
         </table>
+</div>
       </Card>
     </div>
   )

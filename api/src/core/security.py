@@ -57,6 +57,37 @@ def create_dashboard_token(user_id: int) -> str:
     )
 
 
+# Challenge 2FA : émis après un 1er facteur (mot de passe/SSO) valide quand la
+# 2FA est active. À échanger contre un dashboard token via /api/auth/2fa/login/*.
+# Scope dédié (jamais accepté comme token dashboard) + courte durée (10 min).
+TWOFA_CHALLENGE_EXPIRE_MINUTES = 10
+
+
+def create_twofa_challenge_token(user_id: int) -> str:
+    return _encode(
+        {"sub": str(user_id), "scope": "twofa"},
+        timedelta(minutes=TWOFA_CHALLENGE_EXPIRE_MINUTES),
+    )
+
+
+def decode_twofa_challenge(token: str) -> int:
+    """Renvoie l'user_id porté par un challenge 2FA valide, sinon 401."""
+    payload = decode_token(token, expected_scope="twofa")
+    return int(payload["sub"])
+
+
+async def user_has_2fa(db: AsyncSession, user: "User") -> bool:
+    """True si l'utilisateur a au moins un 2nd facteur configuré (TOTP ou passkey)."""
+    from src.models.user import WebAuthnCredential
+
+    if user.totp_enabled:
+        return True
+    n = await db.execute(
+        select(WebAuthnCredential.id).where(WebAuthnCredential.user_id == user.id).limit(1)
+    )
+    return n.first() is not None
+
+
 def create_widget_token(bot_id: int, conversation_id: str, domain: str) -> str:
     return _encode(
         {
@@ -113,9 +144,19 @@ def get_widget_session(
     return decode_token(credentials.credentials, expected_scope="widget")
 
 
-async def require_superadmin(user: "User" = Depends(get_current_user)):
+async def require_superadmin(
+    user: "User" = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     if not user.is_superadmin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé aux administrateurs")
+    # 2FA OBLIGATOIRE pour le staff (prod) : tant qu'aucun 2nd facteur n'est
+    # configuré, l'accès à l'administration est refusé. Le détail `twofa_setup_required`
+    # est reconnu côté front pour rediriger vers l'enrôlement. Non appliqué en dev
+    # (auto-login admin, e2e) ni si TWOFA_ENFORCE_ADMIN est désactivé.
+    if settings.is_production and settings.TWOFA_ENFORCE_ADMIN:
+        if not await user_has_2fa(db, user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "twofa_setup_required")
     return user
 
 

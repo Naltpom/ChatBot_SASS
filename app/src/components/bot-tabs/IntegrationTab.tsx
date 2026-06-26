@@ -39,7 +39,7 @@ export default function IntegrationTab({
 
       {/* Intégration : extrait + timeline. Empilé en 1 colonne en mobile
           (grille inline, pas de classe globale à dépendre). */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 14, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
         <Card>
           <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
             <div className="card-title" style={{ marginBottom: 0 }}>Extrait à insérer</div>

@@ -3,7 +3,7 @@
 // prérendu statique de « / »). Chaque entrée fournit son propre Router ;
 // au prérendu, seule la route « / » (Landing) est matchée et sérialisée.
 import React from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import Landing from './pages/Landing'
 import Showcase from './pages/Showcase'
@@ -33,11 +33,42 @@ import cgvMd from './legal/CGV.md?raw'
 import confidMd from './legal/POLITIQUE_CONFIDENTIALITE.md?raw'
 import Layout from './Layout'
 
+// La 2FA n'est imposée côté front qu'en dehors des hôtes locaux (mirroir du
+// gate dev-login : l'auto-login admin DEV et les e2e tournent sur localhost,
+// où le serveur n'applique pas non plus l'obligation). En prod (chapote.fr),
+// un superadmin sans 2FA est redirigé vers sa configuration.
+function twofaEnforcedHere(): boolean {
+  if (typeof window === 'undefined') return false
+  const h = window.location.hostname
+  return !(h === 'localhost' || h === '127.0.0.1' || h === '[::1]')
+}
+
+// Écran-passerelle : superadmin devant configurer sa 2FA avant l'administration.
+function TwoFAGate() {
+  return (
+    <div className="card" style={{ maxWidth: 560, margin: '40px auto', textAlign: 'center' }}>
+      <div className="section-title" style={{ marginBottom: 10 }}>Sécurisez votre accès staff</div>
+      <p className="muted" style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 auto 18px', maxWidth: 440 }}>
+        L'accès à l'administration exige une authentification à deux facteurs.
+        Configurez une application d'authentification ou une passkey pour continuer.
+      </p>
+      <Link to="/app/profile" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+        Configurer la 2FA →
+      </Link>
+    </div>
+  )
+}
+
 function Protected({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
   const { user, loading } = useAuth()
   if (loading) return <div className="center-page">Chargement…</div>
   if (!user) return <Navigate to="/login" replace />
   if (adminOnly && !user.is_superadmin) return <Navigate to="/app" replace />
+  // 2FA obligatoire pour le staff : tant qu'aucun 2nd facteur n'est configuré,
+  // on présente la passerelle de configuration au lieu de la page admin.
+  if (adminOnly && user.twofa_required && !user.twofa_enabled && twofaEnforcedHere()) {
+    return <Layout><TwoFAGate /></Layout>
+  }
   return <Layout>{children}</Layout>
 }
 

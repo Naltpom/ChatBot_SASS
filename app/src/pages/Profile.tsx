@@ -8,6 +8,7 @@ import { useAuth } from '../AuthContext'
 import { Btn, Card, Chip, Field, InfoBox, SectionTitle } from '../ui'
 import { formatFr } from '../utils/time'
 import { errMsg } from '../utils/errors'
+import TwoFASection from '../components/TwoFASection'
 
 // §5.1 D9 : l'API renvoie des datetimes UTC naïfs. formatFr() les interprète
 // comme UTC (au lieu de `new Date(iso)` qui les lisait en heure locale).
@@ -141,6 +142,9 @@ export default function Profile() {
           )}
         </Card>
       </div>
+
+      {/* Authentification à deux facteurs (TOTP + passkeys). */}
+      <TwoFASection />
     </div>
   )
 }
