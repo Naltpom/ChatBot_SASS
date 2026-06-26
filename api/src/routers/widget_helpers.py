@@ -72,7 +72,16 @@ async def _assert_bot_servable(db: AsyncSession, bot: Optional[Bot]) -> Bot:
     public_key dans _get_active_bot, session via id signé dans _session_active_bot).
 
     Bot d'équipe : organisation suspendue (impayé, abus...) -> widgets coupés.
-    Bot perso (organization_id null) : pas de suspension d'org applicable."""
+    Bot perso (organization_id null) : pas de suspension d'org applicable.
+
+    DÉCISION plugin WordPress (activation = payante, côté CLIENT) : le bootstrap ET
+    la session servent un bot quel que soit son billing_status (active|inactive|...).
+    Le verrou « n'activer le widget sur le site QUE si le bot est payé » est 100 %
+    dans le plugin WordPress (il lit billing_status via /api/account et n'injecte la
+    balise que si 'active'). On NE rejette donc PAS ici un bot non payé — rationale :
+    (a) l'apparence reste éditable / en aperçu avant paiement ; (b) on évite de couper
+    un visiteur pendant la fenêtre de latence du webhook Stripe juste après un
+    paiement réussi (pas d'état pending_payment côté serveur)."""
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     if bot.organization_id is not None:
