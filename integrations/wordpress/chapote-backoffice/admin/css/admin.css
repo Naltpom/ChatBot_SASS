@@ -1,0 +1,99 @@
+/* Chapote Back-Office — styles admin (chargés uniquement sur la page du plugin). */
+
+.chapote-bo-wrap { max-width: 1040px; }
+#chapote-bo-app { margin-top: 16px; }
+
+.cbo-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.cbo-nav-left { display: flex; gap: 6px; }
+.cbo-nav-right { display: flex; gap: 10px; align-items: center; }
+.cbo-conn { color: #50575e; font-size: 13px; }
+.cbo-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.cbo-dot-ok { background: #2f9e79; }
+.cbo-dot-off { background: #b0b5ba; }
+
+.cbo-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 4px; cursor: pointer; font-size: 14px; color: #50575e; }
+.cbo-tab.is-active { color: #135e96; border-bottom-color: #135e96; }
+
+.cbo-card { background: #fff; border: 1px solid #dcdcde; border-radius: 8px; padding: 20px; margin-bottom: 18px; }
+.cbo-body { }
+.cbo-muted { color: #646970; }
+.cbo-error { color: #b32d2e; }
+.cbo-hint { color: #646970; font-size: 12px; font-style: italic; margin: 6px 0 0; }
+
+.cbo-notice { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; border-left: 4px solid #72aee6; background: #f0f6fc; }
+.cbo-notice-ok { border-left-color: #2f9e79; background: #edfaf4; }
+.cbo-notice-warn { border-left-color: #dba617; background: #fcf9e8; }
+.cbo-notice-info { border-left-color: #72aee6; background: #f0f6fc; }
+.cbo-notice-x { background: none; border: 0; font-size: 18px; cursor: pointer; line-height: 1; color: #50575e; }
+
+.cbo-connect { text-align: center; padding: 40px 20px; }
+.cbo-device { margin: 18px 0; }
+.cbo-steps { display: inline-block; text-align: left; }
+.cbo-usercode { font-family: monospace; font-size: 30px; letter-spacing: 6px; font-weight: 700; background: #f6f7f7; border: 1px dashed #c3c4c7; border-radius: 8px; padding: 12px 18px; margin: 12px 0; text-align: center; }
+
+.cbo-row-between { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.cbo-table { margin-top: 10px; }
+.cbo-deeplink { margin-top: 16px; }
+.cbo-create-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+
+.cbo-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.cbo-badge-ok { background: #edfaf4; color: #1a7a5a; }
+.cbo-badge-off { background: #f0f0f1; color: #646970; }
+.cbo-badge-warn { background: #fcf9e8; color: #8a6d1a; }
+
+.cbo-bothead { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+.cbo-bothead h2 { margin: 0; }
+.cbo-subtabs { display: flex; gap: 4px; border-bottom: 1px solid #dcdcde; margin-bottom: 16px; }
+.cbo-subtab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; font-size: 14px; color: #50575e; }
+.cbo-subtab.is-active { color: #135e96; border-bottom-color: #135e96; font-weight: 600; }
+.cbo-pane { }
+
+.cbo-grid2 { display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
+@media (max-width: 900px) { .cbo-grid2 { grid-template-columns: 1fr; } }
+.cbo-field { margin-bottom: 14px; }
+.cbo-field > label { display: block; font-weight: 600; margin-bottom: 4px; }
+.cbo-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cbo-checks { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.cbo-check { display: inline-flex; align-items: center; gap: 7px; }
+.cbo-radio { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
+.cbo-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+
+/* Aperçu apparence */
+.cbo-previewcol { position: sticky; top: 40px; align-self: start; }
+.cbo-preview { position: relative; height: 360px; background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 10px; overflow: hidden; }
+.cbo-wp { position: absolute; top: 16px; left: 16px; right: 16px; bottom: 70px; background: #fff; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.12); display: flex; flex-direction: column; overflow: hidden; }
+.cbo-wp-dark { background: #1f2329; color: #e6e6e6; }
+.cbo-wp-head { color: #fff; padding: 12px 14px; font-weight: 600; }
+.cbo-wp-body { flex: 1; padding: 12px; }
+.cbo-wp-msg { background: #f0f0f1; color: #1d2327; border-radius: 10px; padding: 8px 12px; font-size: 13px; max-width: 85%; }
+.cbo-wp-dark .cbo-wp-msg { background: #2c313a; color: #e6e6e6; }
+.cbo-wp-input { border-top: 1px solid #e0e0e0; padding: 10px 14px; color: #8a8f94; font-size: 13px; }
+.cbo-wp-launcher { position: absolute; bottom: 16px; right: 16px; min-width: 52px; height: 52px; border-radius: 26px; box-shadow: 0 4px 14px rgba(0,0,0,.2); display: flex; align-items: center; justify-content: center; color: #fff; padding: 0 16px; font-size: 13px; }
+.cbo-wp-left { right: auto; left: 16px; }
+
+/* Paiement */
+.cbo-modules, .cbo-aitiers { margin-bottom: 18px; }
+.cbo-modline { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f0f0f1; }
+.cbo-modname { flex: 1; }
+.cbo-modprice { color: #50575e; font-variant-numeric: tabular-nums; }
+.cbo-modtag { font-size: 11px; background: #f0f6fc; color: #135e96; padding: 1px 7px; border-radius: 8px; }
+.cbo-airow { display: flex; gap: 18px; flex-wrap: wrap; margin: 8px 0; }
+.cbo-airadio { display: inline-flex; align-items: center; gap: 6px; }
+.cbo-tiers { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.cbo-tier { display: flex; align-items: center; gap: 10px; }
+.cbo-tier span:nth-child(2) { flex: 1; }
+.cbo-total { padding: 12px 0; border-top: 1px solid #dcdcde; font-size: 15px; }
+.cbo-consent { margin: 12px 0; align-items: flex-start; }
+.cbo-statusline { background: #edfaf4; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; }
+.cbo-danger { color: #b32d2e; border-color: #b32d2e; }
+
+/* Activation */
+.cbo-lock { background: #fcf9e8; border: 1px solid #f0e6b0; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; }
+.cbo-lock p { margin: 6px 0 0; }
+.cbo-toggle { margin: 12px 0 18px; }
+.cbo-targetmodes { display: flex; gap: 18px; }
+.cbo-custom { background: #f6f7f7; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; margin: 10px 0; }
+.cbo-types { display: flex; gap: 16px; flex-wrap: wrap; }
+
+/* Domaine */
+.cbo-host { display: inline-block; background: #f6f7f7; border: 1px solid #c3c4c7; border-radius: 6px; padding: 6px 12px; font-size: 15px; margin: 6px 0; }

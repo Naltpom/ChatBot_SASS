@@ -45,6 +45,7 @@ services:
     volumes:
       - chapote_wp_core:/var/www/html
       - ./chapote-chatbot:/var/www/html/wp-content/plugins/chapote-chatbot
+      - ./chapote-backoffice:/var/www/html/wp-content/plugins/chapote-backoffice
     restart: unless-stopped
 
   # Service outil (WP-CLI) : ne démarre QUE via `--profile cli` (cf. setup.sh).
@@ -63,6 +64,7 @@ services:
     volumes:
       - chapote_wp_core:/var/www/html
       - ./chapote-chatbot:/var/www/html/wp-content/plugins/chapote-chatbot
+      - ./chapote-backoffice:/var/www/html/wp-content/plugins/chapote-backoffice
 
 volumes:
   chapote_wp_db:
