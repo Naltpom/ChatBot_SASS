@@ -25,6 +25,17 @@ class Settings(BaseSettings):
     # true = aucune API IA appelee, reponses simulees (dev / demo)
     MOCK_AI: bool = True
 
+    # --- Outil de prospection commerciale (back-office superadmin) ---
+    # API publique gratuite recherche-entreprises (base SIRENE) : aucune cle
+    # requise. Sert a trouver des entreprises candidates par secteur/localisation.
+    RECHERCHE_ENTREPRISES_URL: str = "https://recherche-entreprises.api.gouv.fr/search"
+    PROSPECTING_ENABLED: bool = True
+    # Plafonds du crawl d'enrichissement (par prospect) : nombre de pages clés
+    # crawlees, redirections suivies par page, et taille lue par page.
+    PROSPECT_CRAWL_MAX_PAGES: int = 6
+    PROSPECT_CRAWL_MAX_REDIRECTS: int = 4
+    PROSPECT_FETCH_MAX_BYTES: int = 300_000
+
     # Turnstile par defaut (nos cles)
     TURNSTILE_SITE_KEY: str | None = None
     TURNSTILE_SECRET_KEY: str | None = None

@@ -67,6 +67,27 @@ services:
       - INTRANET_AUTH_ENABLED=${INTRANET_AUTH_ENABLED:-true}
       # SSO Google : Client ID public (= audience des tokens). Vide = désactivé.
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      # SMTP (envoi des emails : leads, demandes de conseiller, prospection).
+      # HOST vide = fallback log, jamais bloquant (les emails ne partent PAS).
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      # Prospection commerciale (back-office superadmin). API publique gratuite
+      # recherche-entreprises (SIRENE), aucune clé. Brouillon = ANTHROPIC_API_KEY
+      # (ou MOCK_AI), envoi = SMTP ci-dessus. Défauts sains, surcharge optionnelle.
+      - PROSPECTING_ENABLED=${PROSPECTING_ENABLED:-true}
+      - RECHERCHE_ENTREPRISES_URL=${RECHERCHE_ENTREPRISES_URL:-https://recherche-entreprises.api.gouv.fr/search}
+      - PROSPECT_CRAWL_MAX_PAGES=${PROSPECT_CRAWL_MAX_PAGES:-6}
+      - PROSPECT_CRAWL_MAX_REDIRECTS=${PROSPECT_CRAWL_MAX_REDIRECTS:-4}
+      - PROSPECT_FETCH_MAX_BYTES=${PROSPECT_FETCH_MAX_BYTES:-300000}
+      # 2FA (TOTP + WebAuthn/passkeys). RP_ID dérivé de APP_URL si vide (host).
+      # TWOFA_ENFORCE_ADMIN=true => un superadmin sans 2FA est bloqué sur /api/admin/*.
+      - TWOFA_ISSUER=${TWOFA_ISSUER:-Chapote}
+      - TWOFA_ENFORCE_ADMIN=${TWOFA_ENFORCE_ADMIN:-true}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-}
+      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-Chapote}
       # Rate-limiters partagés via Redis : prérequis du multi-worker ci-dessous.
       # Si Redis tombe, repli mémoire fail-open (limites par process, dégradé
       # mais le produit reste up).

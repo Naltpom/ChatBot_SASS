@@ -12,7 +12,7 @@ import ipaddress
 import json
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 
@@ -122,6 +122,34 @@ async def safe_get(url: str, max_bytes: int) -> str:
             raise FetchError(f"réponse HTTP {resp.status_code}")
         data = await _read_bounded(resp, max_bytes)
     return data.decode("utf-8", errors="replace")
+
+
+async def safe_get_follow(url: str, max_bytes: int, max_redirects: int = 4) -> tuple[str, str]:
+    """GET qui SUIT les redirections, en restant 100 % anti-SSRF : CHAQUE saut
+    repasse par `_pinned_stream` (resolution DNS unique + rejet des IP non
+    publiques + epinglage sur l'IP validee, Host/SNI = hostname d'origine). La
+    cible d'un 3xx est resolue via urljoin (Location relatif accepte) puis
+    re-validee au tour suivant ; un saut vers http:// (non https) ou une IP
+    privee leve FetchError. Boucle bornee a `max_redirects`.
+
+    Renvoie (texte decode, url_finale). Sert au crawl des sites prospects, qui
+    redirigent quasi toujours (www<->apex, http->https, slash final)."""
+    current = url
+    for _ in range(max_redirects + 1):
+        async with _pinned_stream(
+            "GET", current, headers={"User-Agent": "Chapote-KB/1.0"},
+        ) as resp:
+            if 300 <= resp.status_code < 400:
+                location = resp.headers.get("location")
+                if not location:
+                    raise FetchError("Redirection sans cible")
+                current = urljoin(current, location)
+                continue
+            if resp.status_code != 200:
+                raise FetchError(f"réponse HTTP {resp.status_code}")
+            data = await _read_bounded(resp, max_bytes)
+            return data.decode("utf-8", errors="replace"), current
+    raise FetchError("Trop de redirections")
 
 
 async def safe_probe(url: str) -> int:
