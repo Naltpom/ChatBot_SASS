@@ -24,7 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, postForm, streamSSE } from '../api'
 import { useAuth } from '../AuthContext'
-import { MODEL_OPTIONS, WIDGET_BRAND_COLORS, GRADIENT_SECOND_COLORS } from '../botConstants'
+import { WIDGET_BRAND_COLORS, GRADIENT_SECOND_COLORS } from '../botConstants'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import TreeFlow from '../components/TreeFlow'
 import WidgetPreview from '../components/WidgetPreview'
@@ -695,70 +695,60 @@ export default function BotWizard() {
   }
 
   // -------------------------------------------------------------------------
-  // Création réelle du bot (étape ARBRE -> DONE)
+  // Idempotence : l'id du bot déjà créé est mémorisé. Si le PATCH échoue ou si
+  // l'utilisateur reclique « Créer », on NE recrée PAS un bot — on réutilise
+  // celui-ci. Corrige le bug des doublons (un clic répété = un seul bot).
+  const createdBotIdRef = useRef<number | null>(null)
+  // Garde SYNCHRONE contre les double-clics ultra-rapides : `disabled={busy}` ne
+  // prend effet qu'au prochain rendu, deux clics consécutifs pourraient sinon
+  // entrer dans createBot avant que le bouton ne se désactive (-> 2 POST).
+  const creatingRef = useRef(false)
+
+  // Création réelle du bot (étape ARBRE -> DONE). Le PAIEMENT est ENSUITE, au
+  // choix de l'utilisateur (écran DONE : payer maintenant -> Facturation du bot,
+  // ou plus tard). On ne force donc PLUS de redirection Stripe ici.
   async function createBot() {
+    if (creatingRef.current) return   // une création est déjà en cours
+    creatingRef.current = true
     setError('')
     setBusy(true)
     try {
       // Source UNIQUE : l'arbre édité dans TreeFlow. Repli sur une construction
       // fraîche si l'étape ARBRE n'a jamais été ouverte (parcours direct improbable).
       const tree = treeJson ?? presetTree()
-      const name = botName(answers.company, answers.sector)
 
-      // 1) création du bot (name + mode) — perso (POST /api/bots) ou équipe
-      // (POST /api/orgs/{id}/bots) selon la destination choisie.
-      const createPath = dest === 'perso' ? '/api/bots' : `/api/orgs/${dest}/bots`
-      const bot = await api(createPath, {
-        method: 'POST', body: { name, mode: botMode },
+      // 1) création du bot (name + mode) — UNE SEULE FOIS (idempotent). Perso
+      // (POST /api/bots) ou équipe (POST /api/orgs/{id}/bots) selon la destination.
+      let botId = createdBotIdRef.current
+      if (botId == null) {
+        const name = botName(answers.company, answers.sector)
+        const createPath = dest === 'perso' ? '/api/bots' : `/api/orgs/${dest}/bots`
+        const bot = await api<{ id: number }>(createPath, {
+          method: 'POST', body: { name, mode: botMode },
+        })
+        botId = bot.id
+        createdBotIdRef.current = botId
+        setCreatedBotId(botId)
+      }
+
+      // 2) configuration : design + arbre + captcha. On N'ENVOIE PAS les champs IA
+      // (ai_provider/ai_model/api_key_mode) ici : sur un bot pas encore souscrit,
+      // ils déclencheraient le gate IA (402) qui ferait échouer TOUT le PATCH —
+      // arbre compris (cause du bug « arbre/options non reportés »). Le bot garde
+      // ses défauts IA, ajustables dans l'onglet IA une fois activé ; le plan
+      // choisi (botConfig) est porté au paiement (écran DONE -> Facturation).
+      await api(`/api/bots/${botId}`, {
+        method: 'PATCH',
+        body: { design_json: design, tree_json: tree, captcha_provider: 'turnstile' },
       })
 
-      // 2) configuration (design, arbre, modèle IA, captcha). Le mode de clé IA
-      // suit le choix du configurateur : BYOK (clé du client) ou géré (managed).
-      const model = MODEL_OPTIONS[1] // Claude Sonnet par défaut
-      const body: Record<string, any> = {
-        design_json: design,
-        tree_json: tree,
-        captcha_provider: 'turnstile',
-      }
-      if (botMode !== 'tree') {
-        body.ai_provider = model.provider
-        body.ai_model = model.model
-        body.api_key_mode = botConfig.ai_byok ? 'byok' : 'managed'
-      }
-      await api(`/api/bots/${bot.id}`, { method: 'PATCH', body })
-
-      // 3) facturation : l'essai = un ABONNEMENT Stripe en statut 'trialing', créé
-      // au Checkout (CARTE requise, 0 € pendant 7 jours, auto-débité à J+7 sauf
-      // annulation). Le SEUL chemin d'essai est désormais le Checkout : on poste
-      // donc TOUJOURS /api/billing/checkout (plus de chemin sans-carte/gratuit-à-vie).
-      //   - checkout_url renvoyé => redirection vers le Checkout hébergé (la carte
-      //     y est saisie). Retour Stripe (?checkout=success) sur /app/billing.
-      //   - free=true / url absente (catalogue non seedé, rien à facturer) => pas de
-      //     redirection, le bot reste créé (gate jusqu'à un éventuel abonnement).
-      // Invariant billing-OFF (D0) : si billing OFF, AUCUN appel /api/billing/*
-      // (billingActive=false) — le bot est gratuit, sans checkout, pas de crash.
-      if (billingActive && isOwnerDest) {
-        const { checkout_url, free } = await api<{ checkout_url: string | null; free?: boolean }>(
-          '/api/billing/checkout', {
-            method: 'POST',
-            body: { bot_id: bot.id, config: botConfig, grouping: user?.billing_grouping ?? 'total' },
-          },
-        )
-        if (checkout_url && !free) {
-          // Redirection vers le Checkout hébergé. On ne navigue JAMAIS vers un url
-          // null/undefined.
-          window.location.href = checkout_url
-          return
-        }
-        // Rien à payer (free / url absente) : état déjà projeté côté serveur.
-      }
-
-      setCreatedBotId(bot.id)
+      setCreatedBotId(botId)
       setStep('done')
     } catch (err: unknown) {
       setError(errMsg(err, 'La création a échoué.'))
     } finally {
       setBusy(false)
+      creatingRef.current = false
     }
   }
 
@@ -1229,11 +1219,22 @@ export default function BotWizard() {
           </span>
           <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 30, margin: '22px 0 0', letterSpacing: '-.02em' }}>Votre chatbot est créé 🎉</h1>
           <p style={{ fontSize: 15, color: MUT, margin: '12px auto 0', maxWidth: 400, lineHeight: 1.55 }}>
-            Dernière étape : activez‑le pour le mettre en ligne. Vous pouvez aussi le configurer d'abord — il reste hors ligne tant qu'il n'est pas activé.
+            {billingActive && isOwnerDest
+              ? 'Votre arbre et votre apparence sont enregistrés. Choisissez votre abonnement pour le mettre en ligne — ou plus tard : il reste hors ligne en attendant.'
+              : 'Votre arbre et votre apparence sont enregistrés. Vous pouvez maintenant le configurer et le mettre en ligne.'}
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11, marginTop: 30 }}>
-            <button onClick={() => navigate(`/app/bots/${createdBotId}?tab=billing`)} style={{ ...primaryBtnLg, padding: 15, fontSize: 15.5 }}>Activer mon bot →</button>
-            <button onClick={() => navigate(`/app/bots/${createdBotId}`)} style={{ background: 'transparent', color: MUT, border: 'none', fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}>Le configurer d'abord</button>
+            {billingActive && isOwnerDest ? (
+              <>
+                {/* Payer MAINTENANT : on ouvre l'onglet Facturation du bot avec la
+                    config choisie au wizard pré-remplie (configurateur + consentement
+                    + Checkout y vivent déjà). « initialConfig » est lu par BotPage. */}
+                <button onClick={() => navigate(`/app/bots/${createdBotId}?tab=billing`, { state: { initialConfig: botConfig } })} style={{ ...primaryBtnLg, padding: 15, fontSize: 15.5 }}>Payer et activer maintenant →</button>
+                <button onClick={() => navigate(`/app/bots/${createdBotId}`)} style={{ background: 'transparent', color: MUT, border: 'none', fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}>Payer plus tard — voir mon chatbot</button>
+              </>
+            ) : (
+              <button onClick={() => navigate(`/app/bots/${createdBotId}`)} style={{ ...primaryBtnLg, padding: 15, fontSize: 15.5 }}>Aller à mon chatbot →</button>
+            )}
           </div>
         </div>
       )}

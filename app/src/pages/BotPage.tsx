@@ -10,7 +10,7 @@
 // sont importés ailleurs — ils ne sont plus montés ici).
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { useIsMobile } from '../hooks/useMediaQuery'
@@ -79,6 +79,11 @@ export default function BotPage() {
   const botId = Number(id)
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  // Config d'abonnement pré-remplie par le wizard de création (« Payer et activer
+  // maintenant ») : portée via l'état de navigation, sert à amorcer le
+  // configurateur de l'onglet Facturation (report des options choisies au wizard).
+  const initialPlanConfig = (location.state as { initialConfig?: BotConfig } | null)?.initialConfig ?? null
   const { user } = useAuth()
   // Responsive : le shell passe la sidebar en drawer sous 860px (contrat
   // burger). La save bar sombre est fixée et alignée sur la sidebar (left:248px) ;
@@ -129,7 +134,9 @@ export default function BotPage() {
   // « Modifier mon plan » ouvert + config en cours d'édition, application au
   // prorata (busy/err) et annulation fin de période (busy/err).
   const [catalog, setCatalog] = useState<BillingCatalog>(FALLBACK_CATALOG)
-  const [planConfig, setPlanConfig] = useState<BotConfig | null>(null)
+  // Amorcé depuis le wizard si présent (initialPlanConfig) ; sinon depuis
+  // l'entitlement du bot (effet ci-dessous, sans écraser une édition en cours).
+  const [planConfig, setPlanConfig] = useState<BotConfig | null>(initialPlanConfig)
   // Consentement à l'exécution immédiate (renonciation rétractation 14 j) coché au
   // checkout — obligatoire pour une souscription initiale (envoyé à /subscription/update).
   const [planConsent, setPlanConsent] = useState(false)
