@@ -3,7 +3,7 @@
 // prérendu statique de « / »). Chaque entrée fournit son propre Router ;
 // au prérendu, seule la route « / » (Landing) est matchée et sérialisée.
 import React from 'react'
-import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import Landing from './pages/Landing'
 import Showcase from './pages/Showcase'
@@ -73,8 +73,41 @@ function Protected({ children, adminOnly = false }: { children: React.ReactNode;
   return <Layout>{children}</Layout>
 }
 
+// Scroll vers l'ancre après navigation. Indispensable pour les liens INTER-pages
+// (« /#pricing » depuis /demo) : au chargement de la route d'accueil la section
+// n'existe pas encore dans le DOM (rendu React asynchrone) et, juste après une
+// nav SPA, le montage peut réinitialiser le scroll. On réaligne donc la section
+// en tête à intervalles courts pendant ~800 ms ; une fois calée, les passages
+// suivants sont des no-op (on ne lutte pas contre un scroll volontaire ensuite).
+// No-op au prérendu (les effets ne tournent pas en SSR).
+function ScrollToHash() {
+  const { pathname, hash } = useLocation()
+  React.useEffect(() => {
+    if (!hash) return
+    const id = decodeURIComponent(hash.slice(1))
+    let cancelled = false
+    let tries = 0
+    const tick = () => {
+      if (cancelled) return
+      const el = document.getElementById(id)
+      // Saut natif instantané (cohérent avec les ancres même-page) tant que la
+      // section n'est pas alignée sous le header. scrollIntoView 'smooth' est
+      // ignoré ici juste après le montage -> on garde le comportement 'auto'.
+      if (el && Math.abs(el.getBoundingClientRect().top) > 4) {
+        el.scrollIntoView({ block: 'start' })
+      }
+      if (++tries < 10) setTimeout(tick, 80)
+    }
+    setTimeout(tick, 0)
+    return () => { cancelled = true }
+  }, [pathname, hash])
+  return null
+}
+
 export function AppRoutes() {
   return (
+    <>
+    <ScrollToHash />
     <Routes>
       {/* Public (/ et /showcase sont prérendus pour le SEO) */}
       <Route path="/" element={<Landing />} />
@@ -111,5 +144,6 @@ export function AppRoutes() {
       <Route path="/app/admin/billing" element={<Navigate to="/admin/billing" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   )
 }

@@ -1,11 +1,18 @@
 // Header sticky (blur) + nav desktop + menu burger mobile.
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import type { User } from '../../AuthContext'
 import { CLASH, HatIcon, NAV } from './data'
 
 export function Header({ user, ctaTo }: { user: User | null; ctaTo: string }) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  // 3 cas de liens de nav :
+  //  • « /… » (ex. /demo) → vraie route en <Link>.
+  //  • ancre « #x » SUR la landing → <a href="#x"> (saut natif, même page).
+  //  • ancre « #x » HORS landing (ex. /demo) → <Link to="/#x"> : navigation SPA
+  //    vers l'accueil (sans reload, donc pas de restauration de scroll qui
+  //    parasite), puis ScrollToHash (App.tsx) scrolle jusqu'à la section.
+  const onLanding = useLocation().pathname === '/'
   return (
     <header style={{ position: 'sticky', top: 0, zIndex: 60, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', background: 'rgba(249,249,251,.82)', borderBottom: '1px solid rgba(226,232,240,.7)' }}>
       <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
@@ -14,7 +21,11 @@ export function Header({ user, ctaTo }: { user: User | null; ctaTo: string }) {
           <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 22, color: '#1E2A32', letterSpacing: '-.01em' }}>Chapote</span>
         </Link>
         <nav className="ch-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 30 }}>
-          {NAV.map(({ href, label }) => <a key={label} className="ch-navlink" href={href}>{label}</a>)}
+          {NAV.map(({ href, label }) => href.startsWith('/')
+            ? <Link key={label} className="ch-navlink" to={href}>{label}</Link>
+            : onLanding
+              ? <a key={label} className="ch-navlink" href={href}>{label}</a>
+              : <Link key={label} className="ch-navlink" to={`/${href}`}>{label}</Link>)}
         </nav>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {/* Actions « bureau » : masquées sous 920px (le burger prend le relais)
@@ -32,7 +43,11 @@ export function Header({ user, ctaTo }: { user: User | null; ctaTo: string }) {
       </div>
       {mobileOpen && (
         <div style={{ borderTop: '1px solid #E2E8F0', background: '#fff', padding: '14px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {NAV.map(({ href, label }) => <a key={label} href={href} onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 500 }}>{label}</a>)}
+          {NAV.map(({ href, label }) => href.startsWith('/')
+            ? <Link key={label} to={href} onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 500 }}>{label}</Link>
+            : onLanding
+              ? <a key={label} href={href} onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 500 }}>{label}</a>
+              : <Link key={label} to={`/${href}`} onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 500 }}>{label}</Link>)}
           {/* Connexion + CTA repliés dans le menu (masqués dans la barre en mobile). */}
           <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {!user && <Link to="/login" onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 600 }}>Se connecter</Link>}

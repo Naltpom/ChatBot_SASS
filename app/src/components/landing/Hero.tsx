@@ -13,7 +13,7 @@ export function Hero({ ctaTo }: { ctaTo: string }) {
           <p style={{ fontFamily: JAKARTA, fontWeight: 500, fontSize: 20, lineHeight: 1.5, color: '#6B7B8D', margin: '20px 0 0', maxWidth: 520 }}>Arbre guidé illimité + IA + relais humain — en une seule balise. 1er mois remisé, RGPD par défaut.</p>
           <div className="ch-hero-cta" style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 32 }}>
             <Link to={ctaTo} className="ch-cta-primary" style={btnPrimary}>Démarrer maintenant →</Link>
-            <a href="#demo" className="ch-cta-secondary" style={btnSecondary}><svg width="15" height="15" viewBox="0 0 24 24" fill="#1C3F5C"><path d="M7 5v14l12-7z" /></svg>Voir la démo interactive</a>
+            <Link to="/demo" className="ch-cta-secondary" style={btnSecondary}><svg width="15" height="15" viewBox="0 0 24 24" fill="#1C3F5C"><path d="M7 5v14l12-7z" /></svg>Voir la démo interactive</Link>
           </div>
           <div className="ch-hero-trust" style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 22 }}>
             {['1er mois remisé', 'Installation en 2 min', 'Sans engagement'].map(t => (
