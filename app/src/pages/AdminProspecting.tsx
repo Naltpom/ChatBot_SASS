@@ -18,12 +18,38 @@ export interface ProspectCandidate {
   contact_name: string | null
 }
 
+export interface SireneInfo {
+  forme_juridique?: string | null
+  date_creation?: string | null
+  tranche_effectif?: string | null
+  etat_administratif?: string | null
+  naf_libelle?: string | null
+  adresse?: string | null
+  dirigeants?: { nom: string; qualite?: string | null }[]
+  finances?: Record<string, { ca?: number; resultat_net?: number }>
+  complements?: Record<string, boolean | null>
+}
+export interface WebInfo {
+  emails?: { value: string; page: string }[]
+  phones?: string[]
+  socials?: Record<string, string>
+  description?: string | null
+  logo?: string | null
+  cms?: string | null
+  tech?: string[]
+  opening_hours?: unknown
+  pages_crawled?: string[]
+  note?: string
+}
+export interface Enrichment { sirene?: SireneInfo; web?: WebInfo }
+
 export interface Prospect extends ProspectCandidate {
   id: number
   website: string | null
   contact_email: string | null
   site_summary: string | null
   has_existing_chatbot: boolean | null
+  enrichment: Enrichment | null
   email_subject: string | null
   email_body: string | null
   status: string

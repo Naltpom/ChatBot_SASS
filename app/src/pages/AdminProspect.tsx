@@ -1,12 +1,114 @@
-// Vue ADMIN — Détail d'un prospect : métadonnées SIRENE, analyse best-effort du
-// site, brouillon d'email IA éditable, envoi manuel, suppression (RGPD).
+// Vue ADMIN — Détail d'un prospect : données SIRENE complètes + scraping poussé
+// du site, brouillon d'email IA éditable, envoi manuel, suppression (RGPD).
 import { useCallback, useEffect, useState } from 'react'
-import { Globe, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { Globe, Mail, Phone, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
-import { Btn, Card, Field, InfoBox, Stat } from '../ui'
+import { Btn, Card, Chip, Field, InfoBox, Stat } from '../ui'
 import { errMsg } from '../utils/errors'
-import { Prospect, prospectStatusChip } from './AdminProspecting'
+import { Enrichment, Prospect, prospectStatusChip } from './AdminProspecting'
+
+const SOCIAL_LABEL: Record<string, string> = {
+  linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram',
+  twitter: 'X/Twitter', youtube: 'YouTube', tiktok: 'TikTok',
+}
+
+// Bloc d'affichage de tout l'enrichissement (contacts site + données légales).
+function EnrichmentView({ enr, onPickEmail }: { enr: Enrichment | null; onPickEmail: (e: string) => void }) {
+  const web = enr?.web
+  const sirene = enr?.sirene
+  if (!web && !sirene) return null
+  const finances = sirene?.finances ? Object.entries(sirene.finances).sort().reverse() : []
+  return (
+    <div className="col g10">
+      {web && (
+        <Card>
+          <div className="card-title">Contacts du site {web.cms && <Chip tone="mut">{web.cms}</Chip>}</div>
+          {web.note && <div className="muted" style={{ fontSize: 12.5 }}>{web.note}</div>}
+          {!!web.emails?.length && (
+            <div style={{ marginTop: 8 }}>
+              <div className="field-label">Emails ({web.emails.length})</div>
+              <div className="row g6" style={{ flexWrap: 'wrap' }}>
+                {web.emails.map(e => (
+                  <button key={e.value} className="chip chip-acc" title={`Définir comme destinataire — trouvé sur ${e.page}`}
+                          style={{ cursor: 'pointer', border: 'none' }} onClick={() => onPickEmail(e.value)}>
+                    <Mail size={11} style={{ marginRight: 4, verticalAlign: -1 }} />{e.value}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {!!web.phones?.length && (
+            <div style={{ marginTop: 8 }}>
+              <div className="field-label">Téléphones</div>
+              <div className="row g6" style={{ flexWrap: 'wrap' }}>
+                {web.phones.map(p => <Chip key={p} tone="mut"><Phone size={11} style={{ marginRight: 4, verticalAlign: -1 }} />{p}</Chip>)}
+              </div>
+            </div>
+          )}
+          {web.socials && Object.keys(web.socials).length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div className="field-label">Réseaux sociaux</div>
+              <div className="row g6" style={{ flexWrap: 'wrap' }}>
+                {Object.entries(web.socials).map(([k, url]) => (
+                  <a key={k} href={url} target="_blank" rel="noreferrer noopener" className="chip chip-go" style={{ textDecoration: 'none' }}>
+                    {SOCIAL_LABEL[k] || k}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          {!!web.tech?.length && (
+            <div style={{ marginTop: 8 }}>
+              <div className="field-label">Techno détectée</div>
+              <div className="row g6" style={{ flexWrap: 'wrap' }}>
+                {web.tech.map(t => <Chip key={t} tone="mut">{t}</Chip>)}
+              </div>
+            </div>
+          )}
+          {!!web.pages_crawled?.length && (
+            <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+              {web.pages_crawled.length} page(s) analysée(s).
+            </div>
+          )}
+        </Card>
+      )}
+      {sirene && (
+        <Card>
+          <div className="card-title">Données légales (SIRENE)</div>
+          <div className="row g16" style={{ flexWrap: 'wrap', fontSize: 13 }}>
+            {sirene.forme_juridique && <span><strong>Forme :</strong> {sirene.forme_juridique}</span>}
+            {sirene.date_creation && <span><strong>Création :</strong> {sirene.date_creation}</span>}
+            {sirene.tranche_effectif && <span><strong>Effectif :</strong> {sirene.tranche_effectif}</span>}
+            {sirene.etat_administratif && <span><strong>État :</strong> {sirene.etat_administratif === 'A' ? 'Actif' : sirene.etat_administratif}</span>}
+            {sirene.adresse && <span><strong>Adresse :</strong> {sirene.adresse}</span>}
+          </div>
+          {!!sirene.dirigeants?.length && (
+            <div style={{ marginTop: 10 }}>
+              <div className="field-label">Dirigeants</div>
+              <div className="row g6" style={{ flexWrap: 'wrap' }}>
+                {sirene.dirigeants.map((d, i) => (
+                  <Chip key={i} tone="acc">{d.nom}{d.qualite ? ` — ${d.qualite}` : ''}</Chip>
+                ))}
+              </div>
+            </div>
+          )}
+          {finances.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div className="field-label">Finances</div>
+              <div className="row g10" style={{ flexWrap: 'wrap', fontSize: 12.5, color: 'var(--mut)' }}>
+                {finances.slice(0, 3).map(([year, f]) => (
+                  <span key={year}>{year} : CA {f.ca != null ? f.ca.toLocaleString('fr-FR') + ' €' : '—'}
+                    {f.resultat_net != null ? `, résultat ${f.resultat_net.toLocaleString('fr-FR')} €` : ''}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+    </div>
+  )
+}
 
 export default function AdminProspect() {
   const { id } = useParams()
@@ -139,6 +241,9 @@ export default function AdminProspect() {
           </div>
         </div>
       </Card>
+
+      {/* Tout l'enrichissement (contacts site + données légales) */}
+      <EnrichmentView enr={p.enrichment} onPickEmail={setEmail} />
 
       {/* Étape 2 : brouillon IA */}
       <Card>

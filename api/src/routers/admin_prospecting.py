@@ -93,6 +93,9 @@ async def import_prospects(
             continue
         if siren:
             existing.add(siren)  # evite les doublons au sein du meme lot
+        # Donnees legales SIRENE completes stockees des l'import (l'API les
+        # renvoie deja) ; le crawl du site remplira enrichment["web"] ensuite.
+        enrichment = {"sirene": c["sirene"]} if c.get("sirene") else None
         p = Prospect(
             siren=siren,
             siret=c.get("siret"),
@@ -102,6 +105,7 @@ async def import_prospects(
             city=c.get("city"),
             postal_code=c.get("postal_code"),
             contact_name=c.get("contact_name"),
+            enrichment=enrichment,
             status="found",
             created_by_user_id=user.id,
         )

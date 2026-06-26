@@ -11,7 +11,8 @@ d'entreprises. Le superadmin peut effacer un prospect a tout moment (RGPD).
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (JSON, Boolean, Column, DateTime, ForeignKey, Integer,
+                        String, Text)
 
 from src.core.database import Base
 from src.core.time import utcnow
@@ -40,6 +41,12 @@ class Prospect(Base):
     site_summary = Column(Text, nullable=True)
     has_existing_chatbot = Column(Boolean, nullable=True)
 
+    # Enrichissement riche et variable (scraping pousse) : { sirene: {...},
+    # web: {emails, phones, socials, description, logo, cms, tech, ...} }.
+    # Les colonnes scalaires ci-dessus restent les valeurs « principales »
+    # retenues pour le flux email.
+    enrichment = Column(JSON, nullable=True)
+
     # Brouillon d'email de prospection (IA), editable par le superadmin.
     email_subject = Column(Text, nullable=True)
     email_body = Column(Text, nullable=True)
@@ -67,6 +74,7 @@ class ProspectOut(BaseModel):
     contact_email: str | None = None
     site_summary: str | None = None
     has_existing_chatbot: bool | None = None
+    enrichment: dict | None = None
     email_subject: str | None = None
     email_body: str | None = None
     status: str
