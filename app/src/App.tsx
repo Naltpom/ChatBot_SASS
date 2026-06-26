@@ -10,6 +10,8 @@ import Showcase from './pages/Showcase'
 import Demo from './pages/Demo'
 import Login from './pages/Login'
 import Register from './pages/Register'
+// Page /link aliasée : `Link` est déjà importé de react-router-dom ci-dessus.
+import LinkDevice from './pages/Link'
 import BotList from './pages/BotList'
 import BotWizard from './pages/BotWizard'
 import BotPage from './pages/BotPage'
@@ -115,6 +117,9 @@ export function AppRoutes() {
       <Route path="/demo" element={<Demo />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      {/* Appairage plugin WordPress (device flow). Auth gérée DANS la page :
+          si non connecté, elle mémorise le retour puis renvoie vers /login. */}
+      <Route path="/link" element={<LinkDevice />} />
       {/* Pages légales (publiques) — rendues depuis les .md de src/legal. */}
       <Route path="/mentions-legales" element={<LegalPage md={mentionsMd} />} />
       <Route path="/cgu" element={<LegalPage md={cguMd} />} />

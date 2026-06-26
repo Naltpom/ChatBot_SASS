@@ -22,6 +22,17 @@ const INPUT_BASE: React.CSSProperties = {
   fontFamily: 'inherit',
 }
 
+// Destination post-connexion : honore un retour mémorisé (ex. page /link
+// d'appairage WordPress qui a renvoyé l'utilisateur vers le login), sinon
+// l'application par défaut. Consommé une seule fois. Rétrocompatible : sans clé
+// mémorisée, comportement inchangé (-> /app).
+function postLoginDest(): string {
+  if (typeof window === 'undefined') return '/app'
+  const dest = sessionStorage.getItem('cbsaas_after_login')
+  if (dest) { sessionStorage.removeItem('cbsaas_after_login'); return dest }
+  return '/app'
+}
+
 function Check() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
@@ -50,7 +61,7 @@ export default function Login() {
     try {
       const ch = await login(email, password)
       if (ch) setChallenge(ch)
-      else navigate('/app')
+      else navigate(postLoginDest())
     } catch (err: unknown) {
       setError(errMsg(err, 'Connexion impossible.'))
     } finally {
@@ -64,7 +75,7 @@ export default function Login() {
     try {
       const ch = await loginWithGoogle(credential)
       if (ch) setChallenge(ch)
-      else navigate('/app')
+      else navigate(postLoginDest())
     } catch (err: unknown) {
       setError(errMsg(err, 'Connexion Google impossible.'))
     } finally {
@@ -174,7 +185,7 @@ export default function Login() {
             <TwoFAStep
               challenge={challenge}
               onCancel={() => { setChallenge(null); setError('') }}
-              onSuccess={() => navigate('/app')}
+              onSuccess={() => navigate(postLoginDest())}
             />
           ) : (
           <>
