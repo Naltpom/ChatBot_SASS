@@ -99,6 +99,12 @@ class Chapote_BO_REST {
             array('methods' => 'GET',  'permission_callback' => $perm, 'callback' => array(__CLASS__, 'local_get')),
             array('methods' => 'POST', 'permission_callback' => $perm, 'callback' => array(__CLASS__, 'local_set')),
         ));
+
+        // --- SEO (rendu serveur : backlink opt-in + FAQ JSON-LD) ------------
+        register_rest_route($ns, '/seo', array(
+            array('methods' => 'GET',  'permission_callback' => $perm, 'callback' => array(__CLASS__, 'seo_get')),
+            array('methods' => 'POST', 'permission_callback' => $perm, 'callback' => array(__CLASS__, 'seo_set')),
+        ));
     }
 
     /* ---------------------------------------------------------------------- */
@@ -497,5 +503,57 @@ class Chapote_BO_REST {
             'exclude_types' => $valid_types(isset($raw['exclude_types']) ? $raw['exclude_types'] : array()),
             'exclude_ids'   => $to_int_list(isset($raw['exclude_ids']) ? $raw['exclude_ids'] : array()),
         );
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* SEO (option locale chapote_bo_seo, rendue côté serveur)                */
+    /* ---------------------------------------------------------------------- */
+
+    public static function seo_get($request) {
+        // Source unique (lecture défensive + défauts) = Chapote_BO_SEO::get_settings().
+        return new WP_REST_Response(Chapote_BO_SEO::get_settings(), 200);
+    }
+
+    public static function seo_set($request) {
+        // powered_by : booléen strict (backlink opt-in).
+        $powered_by = (bool) $request->get_param('powered_by');
+
+        // faq : liste de paires { q, a } nettoyées et BORNÉES côté serveur (les
+        // maxlength du JS sont cosmétiques/contournables). q = texte simple,
+        // a = wp_kses_post (un peu de HTML toléré). Cap : 50 paires, q<=300, a<=2000.
+        $raw_faq = $request->get_param('faq');
+        $faq = array();
+        if (is_array($raw_faq)) {
+            foreach ($raw_faq as $item) {
+                if (count($faq) >= 50) {
+                    break; // cap dur : évite une option démesurée
+                }
+                if (!is_array($item)) {
+                    continue;
+                }
+                $q = isset($item['q']) ? sanitize_text_field((string) $item['q']) : '';
+                $a = isset($item['a']) ? trim(wp_kses_post((string) $item['a'])) : '';
+                if ($q === '' || $a === '') {
+                    continue;
+                }
+                $faq[] = array(
+                    'q' => self::str_cap($q, 300),
+                    'a' => self::str_cap($a, 2000),
+                );
+            }
+        }
+
+        update_option('chapote_bo_seo', array(
+            'powered_by' => $powered_by,
+            'faq'        => array_values($faq),
+        ));
+
+        // État re-normalisé (forme garantie côté JS).
+        return new WP_REST_Response(Chapote_BO_SEO::get_settings(), 200);
+    }
+
+    /** Tronque une chaîne à $max caractères (multibyte-safe si dispo). */
+    private static function str_cap($s, $max) {
+        return function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
     }
 }

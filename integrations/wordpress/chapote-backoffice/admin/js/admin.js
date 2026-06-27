@@ -117,6 +117,7 @@
     root.appendChild(body);
     if (!state.connected) body.appendChild(renderConnect());
     else if (state.view === 'bot') body.appendChild(renderBot());
+    else if (state.view === 'seo') body.appendChild(renderSeo());
     else body.appendChild(renderBots());
   }
 
@@ -124,7 +125,8 @@
     var nav = h('div', { class: 'cbo-nav' });
     var left = h('div', { class: 'cbo-nav-left' });
     if (state.connected) {
-      left.appendChild(navBtn('Mes bots', state.view !== 'bot', function () { state.view = 'bots'; state.botId = null; render(); }));
+      left.appendChild(navBtn('Mes bots', state.view !== 'bot' && state.view !== 'seo', function () { state.view = 'bots'; state.botId = null; render(); }));
+      left.appendChild(navBtn('SEO', state.view === 'seo', function () { state.view = 'seo'; state.botId = null; render(); }));
     }
     nav.appendChild(left);
     var right = h('div', { class: 'cbo-nav-right' });
@@ -890,6 +892,88 @@
       btn.disabled = false;
       if (res.ok) setNotice('Ciblage enregistré.', 'ok');
       else setNotice('Enregistrement impossible.', 'warn');
+    });
+  }
+
+  /* ------------------------------------------------------------------- SEO */
+  // Leviers SEO rendus CÔTÉ SERVEUR (crawlables), pilotés par l'option WP
+  // chapote_bo_seo : lien « Powered by » opt-in + FAQ JSON-LD (schema.org).
+  function renderSeo() {
+    var wrap = h('div', { class: 'cbo-card' });
+    wrap.appendChild(h('h2', { text: 'SEO (référencement)' }));
+    wrap.appendChild(h('p', { class: 'cbo-muted', text: 'Chargement…' }));
+    call('GET', '/seo').then(function (res) {
+      var s = (res.data && typeof res.data === 'object') ? res.data : {};
+      buildSeoForm(wrap, {
+        powered_by: !!s.powered_by,
+        faq: Array.isArray(s.faq) ? s.faq : []
+      });
+    });
+    return wrap;
+  }
+
+  function buildSeoForm(wrap, seo) {
+    clear(wrap);
+    wrap.appendChild(h('h2', { text: 'SEO (référencement)' }));
+    wrap.appendChild(h('p', { class: 'cbo-muted', text:
+      'Ces leviers sont rendus côté serveur (visibles des moteurs de recherche), contrairement au widget chargé en JavaScript.' }));
+
+    // 1) Backlink opt-in.
+    var poweredCb = h('input', { type: 'checkbox', checked: !!seo.powered_by });
+    wrap.appendChild(h('div', { class: 'cbo-field' },
+      h('h4', { text: 'Lien « Chatbot par Chapote »' }),
+      h('label', { class: 'cbo-check' }, poweredCb,
+        h('span', { text: 'Afficher un petit lien crawlable vers Chapote dans le pied de page (désactivé par défaut).' }))
+    ));
+
+    // 2) Éditeur de paires FAQ (Question / Réponse) -> JSON-LD.
+    wrap.appendChild(h('h4', { text: 'FAQ (données structurées schema.org)' }));
+    wrap.appendChild(h('p', { class: 'cbo-muted', text:
+      'Chaque paire Question / Réponse est publiée en JSON-LD (FAQPage), éligible aux résultats enrichis Google.' }));
+
+    var list = h('div', { class: 'cbo-faqlist' });
+    var rows = [];
+
+    function addRow(q, a) {
+      var qInput = h('input', { type: 'text', class: 'regular-text', value: q || '', placeholder: 'Question', maxlength: 300 });
+      var aInput = h('textarea', { rows: 2, class: 'large-text', maxlength: 2000, placeholder: 'Réponse' });
+      aInput.value = a || '';
+      var row = { q: qInput, a: aInput };
+      rows.push(row);
+      var node = h('div', { class: 'cbo-faqrow' },
+        h('div', { class: 'cbo-field' }, qInput),
+        h('div', { class: 'cbo-field' }, aInput),
+        h('button', { class: 'button cbo-danger', onClick: function () {
+          var i = rows.indexOf(row); if (i !== -1) rows.splice(i, 1);
+          if (node.parentNode) node.parentNode.removeChild(node);
+        } }, 'Retirer')
+      );
+      list.appendChild(node);
+    }
+
+    (seo.faq || []).forEach(function (p) { addRow(p.q, p.a); });
+    wrap.appendChild(list);
+    wrap.appendChild(h('p', null,
+      h('button', { class: 'button', onClick: function () { addRow('', ''); } }, 'Ajouter une question')
+    ));
+
+    // Enregistrement.
+    wrap.appendChild(h('div', { class: 'cbo-actions' },
+      h('button', { class: 'button button-primary', onClick: function (e) {
+        var faq = rows.map(function (r) {
+          return { q: (r.q.value || '').trim(), a: (r.a.value || '').trim() };
+        }).filter(function (p) { return p.q && p.a; });
+        saveSeo(e.target, { powered_by: poweredCb.checked, faq: faq });
+      } }, 'Enregistrer le SEO')
+    ));
+  }
+
+  function saveSeo(btn, payload) {
+    btn.disabled = true;
+    call('POST', '/seo', payload).then(function (res) {
+      btn.disabled = false;
+      if (res.ok) setNotice('Réglages SEO enregistrés.', 'ok');
+      else setNotice('Enregistrement SEO impossible.', 'warn');
     });
   }
 
