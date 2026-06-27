@@ -24,7 +24,13 @@ from src.core.constants import MODULE_AI, MODULE_KEYS
 from src.core.database import get_db
 from src.core.security import require_superadmin
 from src.core.time import utcnow
-from src.models.billing import BillingPreset, BillingProduct, BillingSubscription, BotEntitlement
+from src.models.billing import (
+    BillingPreset,
+    BillingProduct,
+    BillingSubscription,
+    BotEntitlement,
+    BotStatusHistory,
+)
 from src.models.bot import Bot
 from src.models.user import Organization, User
 from src.services import stripe_service
@@ -682,6 +688,34 @@ async def set_bot_entitlement(bot_id: int, body: EntitlementOverride,
         "status": row.status,
         "source": row.source,
     }
+
+
+# --- GET /api/admin/bots/{bot_id}/status-history --------------------------
+
+@router.get("/bots/{bot_id}/status-history")
+async def bot_status_history(bot_id: int, db: AsyncSession = Depends(get_db)):
+    """Journal d'éligibilité d'un bot (audit qui/quand/comment/pourquoi), du plus
+    récent au plus ancien. Chaque ligne = une transition de statut écrite par
+    l'unique writer (set_bot_status). `actor_kind` = stripe|staff|owner|system ;
+    `actor_email` résolu pour un acteur staff/owner. Superadmin only."""
+    rows = (await db.execute(
+        select(BotStatusHistory, User.email)
+        .outerjoin(User, BotStatusHistory.actor_user_id == User.id)
+        .where(BotStatusHistory.bot_id == bot_id)
+        .order_by(BotStatusHistory.id.desc())
+    )).all()
+    return [
+        {
+            "old_status": h.old_status,
+            "new_status": h.new_status,
+            "actor_kind": h.actor_kind,
+            "actor_user_id": h.actor_user_id,
+            "actor_email": email,
+            "reason": h.reason,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+        }
+        for h, email in rows
+    ]
 
 
 # --- POST /api/admin/bots/{bot_id}/block ----------------------------------

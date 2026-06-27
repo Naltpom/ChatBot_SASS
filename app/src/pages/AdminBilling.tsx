@@ -383,10 +383,21 @@ function Header({ navigate, onResync, resyncBusy }: {
 }
 
 // ---------------------------------------------------------------------------
+// Une ligne du journal d'éligibilité (GET .../status-history).
+interface StatusHistoryRow {
+  old_status: string | null
+  new_status: string
+  actor_kind: string
+  actor_email: string | null
+  reason: string | null
+  created_at: string | null
+}
+
 // Éditeur d'entitlement d'un bot : charge l'état courant (GET .../entitlement),
 // permet de basculer les modules + fixer le quota IA, puis POST l'override manuel
-// (source='staff', SANS Stripe). La validation modules ⊂ MODULE_KEYS est refaite
-// côté serveur ; ici on n'expose QUE les clés valides.
+// (source='staff', SANS Stripe). Affiche aussi le journal de statut (qui/quand/
+// comment) et permet de BLOQUER le bot (abus). La validation modules ⊂ MODULE_KEYS
+// est refaite côté serveur ; ici on n'expose QUE les clés valides.
 // ---------------------------------------------------------------------------
 function EntitlementEditor({ bot, onClose, onSaved }: {
   bot: AdminPayerBot
@@ -401,7 +412,17 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
   const [quotaStr, setQuotaStr] = useState('') // vide = illimité (null)
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [blocking, setBlocking] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [history, setHistory] = useState<StatusHistoryRow[] | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    api<StatusHistoryRow[]>(`/api/admin/bots/${bot.bot_id}/status-history`)
+      .then(d => { if (alive) setHistory(Array.isArray(d) ? d : []) })
+      .catch(() => { if (alive) setHistory([]) })
+    return () => { alive = false }
+  }, [bot.bot_id])
 
   useEffect(() => {
     let alive = true
@@ -478,6 +499,26 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
     }
   }
 
+  // Bloque le bot (abus) : status=suspended COLLANT. Le widget est coupé et aucun
+  // paiement Stripe ne le réactive ; seul « Réinitialiser » (re-dérivation) le
+  // débloque. Voir POST /api/admin/bots/{id}/block.
+  async function block() {
+    const reason = window.prompt(
+      "Bloquer ce bot (abus) ?\n\nLe widget sera COUPÉ et aucun paiement Stripe ne le réactivera. "
+      + "Seul « Réinitialiser (état Stripe) » le débloquera (re-dérivation).\n\nMotif (optionnel) :", '')
+    if (reason === null) return  // annulé
+    setBlocking(true)
+    setSaveError('')
+    try {
+      await api(`/api/admin/bots/${bot.bot_id}/block`, { method: 'POST', body: { reason: reason || null } })
+      onSaved()
+    } catch (err: unknown) {
+      setSaveError(errMsg(err, 'Le blocage a échoué.'))
+    } finally {
+      setBlocking(false)
+    }
+  }
+
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(28,63,92,.45)',
@@ -531,18 +572,63 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
               </label>
             </div>
 
+            {ent && ent.status === 'suspended' && (
+              <InfoBox tone="danger" title="Bot bloqué">
+                Ce bot est <strong>bloqué</strong> (abus) : son widget est coupé et aucun
+                paiement Stripe ne le réactive. Utilisez <strong>« Réinitialiser (état Stripe) »</strong>
+                pour le débloquer (l'état réel est re-dérivé depuis la facturation).
+              </InfoBox>
+            )}
+
             {saveError && <div className="error" style={{ marginTop: 12 }}>{saveError}</div>}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 22 }}>
-              <Btn kind="ghost" onClick={reset} disabled={saving || resetting}>
-                {resetting ? 'Réinitialisation…' : '↺ Réinitialiser (état Stripe)'}
-              </Btn>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Btn kind="ghost" onClick={reset} disabled={saving || resetting || blocking}>
+                  {resetting ? 'Réinitialisation…' : '↺ Réinitialiser (état Stripe)'}
+                </Btn>
+                {ent && ent.status !== 'suspended' && (
+                  <Btn kind="ghost" onClick={block} disabled={saving || resetting || blocking}>
+                    {blocking ? 'Blocage…' : '⛔ Bloquer'}
+                  </Btn>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <Btn kind="ghost" onClick={onClose} disabled={saving || resetting}>Annuler</Btn>
-                <Btn kind="primary" onClick={save} disabled={saving || resetting}>
+                <Btn kind="ghost" onClick={onClose} disabled={saving || resetting || blocking}>Annuler</Btn>
+                <Btn kind="primary" onClick={save} disabled={saving || resetting || blocking}>
                   {saving ? 'Enregistrement…' : 'Enregistrer (staff)'}
                 </Btn>
               </div>
+            </div>
+
+            {/* ---- Journal d'éligibilité (qui / quand / comment / pourquoi) ---- */}
+            <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <div className="field-label" style={{ marginBottom: 8 }}>Historique du statut</div>
+              {history == null ? (
+                <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>Chargement…</div>
+              ) : history.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>Aucune transition enregistrée.</div>
+              ) : (
+                <div className="col" style={{ gap: 6 }}>
+                  {history.map((h, i) => (
+                    <div key={i} style={{
+                      fontSize: 12, display: 'flex', justifyContent: 'space-between',
+                      gap: 10, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 8,
+                    }}>
+                      <span>
+                        <strong>{h.old_status || '—'}</strong> → <strong>{h.new_status}</strong>
+                        <span style={{ color: 'var(--faint)' }}>
+                          {' · '}{h.actor_kind}{h.actor_email ? ` (${h.actor_email})` : ''}
+                          {h.reason ? ` · ${h.reason}` : ''}
+                        </span>
+                      </span>
+                      <span style={{ color: 'var(--faint)', whiteSpace: 'nowrap' }}>
+                        {h.created_at ? new Date(h.created_at).toLocaleString('fr-FR') : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}

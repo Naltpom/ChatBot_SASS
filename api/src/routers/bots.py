@@ -160,8 +160,15 @@ async def _billing_status_for_bots(
     )).scalars().all()
     out: dict[int, tuple[str | None, int | None]] = {}
     for row in rows:
-        status_ = row.status if row.status in (
-            "trialing", "active", "past_due", "inactive", "suspended") else None
+        # 'canceled' (legacy) est replié sur 'inactive' (= paiement requis) ; les
+        # autres statuts hors liste -> None (aucun badge).
+        raw = row.status
+        if raw == "canceled":
+            status_ = "inactive"
+        elif raw in ("trialing", "active", "past_due", "inactive", "suspended"):
+            status_ = raw
+        else:
+            status_ = None
         trial_end: int | None = None
         if row.status == "trialing" and row.trial_end is not None:
             trial_end = calendar.timegm(row.trial_end.utctimetuple())
