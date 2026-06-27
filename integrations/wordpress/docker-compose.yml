@@ -1,6 +1,6 @@
-# WordPress JETABLE pour tester le plugin Chapote Chatbot en local.
+# WordPress JETABLE pour tester le plugin Chapote (back-office) en local.
 #
-# - Le plugin (./chapote-chatbot) est monté en volume : on édite, on recharge, c'est à jour.
+# - Le plugin (./chapote-backoffice) est monté en volume : on édite, on recharge, c'est à jour.
 # - Le coeur WordPress et la base vivent dans des VOLUMES DOCKER NOMMÉS
 #   (chapote_wp_core / chapote_wp_db) -> RIEN n'est écrit dans le dépôt git.
 #
@@ -44,7 +44,6 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - chapote_wp_core:/var/www/html
-      - ./chapote-chatbot:/var/www/html/wp-content/plugins/chapote-chatbot
       - ./chapote-backoffice:/var/www/html/wp-content/plugins/chapote-backoffice
     restart: unless-stopped
 
@@ -63,7 +62,6 @@ services:
     user: "33:33" # www-data
     volumes:
       - chapote_wp_core:/var/www/html
-      - ./chapote-chatbot:/var/www/html/wp-content/plugins/chapote-chatbot
       - ./chapote-backoffice:/var/www/html/wp-content/plugins/chapote-backoffice
 
 volumes:
