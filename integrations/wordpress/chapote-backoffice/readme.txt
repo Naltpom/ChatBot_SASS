@@ -1,4 +1,4 @@
-=== Chapote Back-Office ===
+=== Chapote Chatbot ===
 Contributors: chapote
 Tags: chatbot, chat, support, assistant, ai
 Requires at least: 5.8
@@ -12,7 +12,7 @@ Manage your Chapote chatbots from WordPress: connect, manage bots, edit appearan
 
 == Description ==
 
-Chapote Back-Office turns your WordPress admin into a lightweight dashboard for your Chapote account. From the "Chapote" menu in wp-admin you can:
+Chapote Chatbot turns your WordPress admin into a lightweight dashboard for your Chapote account. From the "Chapote" menu in wp-admin you can:
 
 * Sign in with Chapote ("Sign in with Chapote", OAuth Authorization Code + PKCE — you are redirected to the Chapote consent screen; no Chapote password is entered or stored in WordPress).
 * Manage your bots: list, create, and edit the appearance with a live preview.

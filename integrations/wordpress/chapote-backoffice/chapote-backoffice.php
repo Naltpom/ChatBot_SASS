@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name:       Chapote Back-Office
+ * Plugin Name:       Chapote Chatbot
  * Plugin URI:        https://chapote.fr
  * Description:       Le back-office Chapote dans WordPress : connectez-vous, gérez vos bots, éditez l'apparence, payez (Stripe), activez le widget sur le site et ciblez les pages. UI mince au-dessus de l'API Chapote ; le token reste côté serveur (jamais exposé au JavaScript).
  * Version:           2.1.0
