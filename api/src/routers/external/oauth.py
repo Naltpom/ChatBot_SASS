@@ -79,8 +79,10 @@ async def device_start(body: DeviceStartIn, request: Request, db: AsyncSession =
     /link. Appelé par le backend PHP du plugin."""
     if not await oauth_device_limiter.check(_ip(request)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de requêtes")
-    if body.client_id and body.client_id != OAUTH_PLUGIN_CLIENT_ID:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "client_id inconnu")
+    # client_id OBLIGATOIRE : le device flow est réservé au plugin officiel. Absent
+    # OU différent ⇒ 400 (None != constante couvre les deux cas en un test).
+    if body.client_id != OAUTH_PLUGIN_CLIENT_ID:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "client_id requis ou inconnu")
     device_code, row = await svc.new_device_authorization(db, body.site_url)
     await db.commit()
     base = settings.APP_URL.rstrip("/")

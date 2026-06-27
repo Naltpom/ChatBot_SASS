@@ -77,7 +77,8 @@ class Chapote_BO_Options {
             'include_front' => true,
             'include_types' => array(),      // slugs de types de contenu publics
             'include_ids'   => array(),      // IDs de contenus précis
-            'exclude_ids'   => array(),      // exclusions (prioritaires)
+            'exclude_types' => array(),      // types de contenu exclus (prioritaires)
+            'exclude_ids'   => array(),      // IDs exclus (prioritaires)
         );
     }
 }

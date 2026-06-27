@@ -48,6 +48,16 @@
     catch (e) { return (cents / 100).toFixed(2) + ' €'; }
   }
 
+  // Couleur HEX sûre (#abc ou #aabbcc) avant injection en style inline (#27) :
+  // toute valeur non conforme retombe sur la couleur par défaut.
+  var HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+  function hexColor(v, fallback) {
+    return (typeof v === 'string' && HEX_RE.test(v)) ? v : fallback;
+  }
+
+  // Note TVA statique (le catalogue LIVE ne porte pas de tax_note racine).
+  var TAX_NOTE = 'TVA non applicable, art. 293 B du CGI';
+
   function call(method, path, body) {
     return fetch(CFG.restBase + path, {
       method: method,
@@ -69,6 +79,7 @@
 
   var state = {
     connected: false,
+    account: null,     // { email, name } du compte Chapote connecté
     bots: [],
     view: 'connect',   // connect | bots | bot
     botId: null,
@@ -120,7 +131,9 @@
     var right = h('div', { class: 'cbo-nav-right' });
     if (state.connected) {
       right.appendChild(h('span', { class: 'cbo-dot cbo-dot-ok' }));
-      right.appendChild(h('span', { class: 'cbo-conn', text: 'Connecté à Chapote' }));
+      var conn = 'Connecté à Chapote';
+      if (state.account && state.account.email) conn += ' — ' + state.account.email;
+      right.appendChild(h('span', { class: 'cbo-conn', text: conn }));
       right.appendChild(h('button', { class: 'button', onClick: disconnect }, 'Déconnexion'));
     } else {
       right.appendChild(h('span', { class: 'cbo-dot cbo-dot-off' }));
@@ -184,6 +197,7 @@
           state.connected = true;
           state.view = 'bots';
           setNotice('Connexion réussie.', 'ok');
+          loadAccount();
           loadBots();
           return;
         }
@@ -202,9 +216,17 @@
   function disconnect() {
     if (state.poll) { clearTimeout(state.poll); state.poll = null; }
     call('POST', '/disconnect').then(function () {
-      state.connected = false; state.bots = []; state.view = 'connect';
+      state.connected = false; state.account = null; state.bots = []; state.view = 'connect';
       render();
       setNotice('Déconnecté.', 'info');
+    });
+  }
+
+  // Récupère le compte connecté (email/nom) via /status puis rafraîchit l'en-tête.
+  function loadAccount() {
+    call('GET', '/status').then(function (res) {
+      state.account = (res.data && res.data.account) ? res.data.account : null;
+      if (state.connected) render();
     });
   }
 
@@ -305,7 +327,7 @@
     ));
     var tabs = h('div', { class: 'cbo-subtabs' },
       subTab('Apparence', 'appearance'),
-      subTab('Paiement', 'payment'),
+      subTab('Mon offre', 'payment'),
       subTab('Activation & ciblage', 'activation'),
       subTab('Domaine', 'domain')
     );
@@ -405,19 +427,54 @@
     refresh();
   }
 
+  // Aperçu FIDÈLE du widget, reconstruit à chaque changement de champ. Toutes les
+  // couleurs passent par hexColor() avant injection inline (#27).
   function renderPreview(node, d, botName) {
     clear(node);
+    var primary = hexColor(d.primaryColor, '#0d9488');
+    var secondary = hexColor(d.secondaryColor, primary);
     var dark = d.darkMode === true;
-    var primary = d.primaryColor || '#0d9488';
-    var panel = h('div', { class: 'cbo-wp' + (dark ? ' cbo-wp-dark' : '') });
-    panel.appendChild(h('div', { class: 'cbo-wp-head', style: 'background:' + primary }, h('span', { text: d.title || botName })));
-    var body = h('div', { class: 'cbo-wp-body' });
-    body.appendChild(h('div', { class: 'cbo-wp-msg', text: d.welcomeMessage || 'Bonjour ! Comment puis-je vous aider ?' }));
-    panel.appendChild(body);
-    panel.appendChild(h('div', { class: 'cbo-wp-input', text: d.placeholder || 'Écrivez votre message…' }));
+    var pos = (d.position === 'left') ? 'left' : 'right';
+    var size = (d.size === 'sm' || d.size === 'lg') ? d.size : 'md';
+
+    // Fenêtre de chat (état ouvert).
+    var panel = h('div', { class: 'cbo-wp cbo-pos-' + pos + ' cbo-size-' + size + (dark ? ' cbo-wp-dark' : '') });
+
+    // En-tête : couleur principale, avatar, titre, croix de fermeture.
+    panel.appendChild(h('div', { class: 'cbo-wp-head', style: 'background:' + primary },
+      h('span', { class: 'cbo-wp-avatar' }),
+      h('span', { class: 'cbo-wp-title', text: d.title || botName || 'Assistant' }),
+      h('span', { class: 'cbo-wp-close', text: '×' })
+    ));
+
+    // Corps : message d'accueil (bot) + message visiteur (couleur secondaire).
+    panel.appendChild(h('div', { class: 'cbo-wp-body' },
+      h('div', { class: 'cbo-wp-msg cbo-wp-bot', text: d.welcomeMessage || 'Bonjour ! Comment puis-je vous aider ?' }),
+      h('div', { class: 'cbo-wp-msg cbo-wp-user', style: 'background:' + secondary, text: 'Bonjour, j’ai une question.' })
+    ));
+
+    // Zone de saisie : placeholder + bouton d'envoi (couleur principale).
+    panel.appendChild(h('div', { class: 'cbo-wp-inputrow' },
+      h('span', { class: 'cbo-wp-input', text: d.placeholder || 'Écrivez votre message…' }),
+      h('span', { class: 'cbo-wp-send', style: 'background:' + primary, text: '→' })
+    ));
+
+    // Mention « Powered by » (affichée tant que white-label non décoché).
+    if (d.poweredBy !== false) {
+      panel.appendChild(h('div', { class: 'cbo-wp-powered', text: 'Powered by Chapote' }));
+    }
     node.appendChild(panel);
-    var launcher = h('div', { class: 'cbo-wp-launcher' + (d.position === 'left' ? ' cbo-wp-left' : ''), style: 'background:' + primary });
-    if (d.launcherText) launcher.appendChild(h('span', { text: d.launcherText }));
+
+    // Bulle d'accroche, à côté du lanceur, si activée.
+    if (d.greeting === true) {
+      node.appendChild(h('div', { class: 'cbo-wp-greeting cbo-pos-' + pos,
+        text: d.launcherText || d.title || botName || 'Une question ?' }));
+    }
+
+    // Lanceur (bouton bulle) dans le même coin que la fenêtre.
+    var launcher = h('div', { class: 'cbo-wp-launcher cbo-pos-' + pos, style: 'background:' + primary });
+    launcher.appendChild(h('span', { class: 'cbo-wp-launcher-ico', text: '💬' }));
+    if (d.launcherText) launcher.appendChild(h('span', { class: 'cbo-wp-launcher-txt', text: d.launcherText }));
     node.appendChild(launcher);
   }
 
@@ -434,18 +491,48 @@
 
   function renderPayment(pane) {
     clear(pane);
-    pane.appendChild(h('p', { class: 'cbo-muted', text: 'Chargement du plan…' }));
-    call('GET', '/bots/' + encodeURIComponent(state.botId)).then(function (res) {
-      if (!res.ok) { clear(pane); pane.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de charger ce bot.' })); return; }
-      buildPaymentForm(pane, res.data || {});
+    pane.appendChild(h('p', { class: 'cbo-muted', text: 'Chargement de l’offre…' }));
+    // Bot + catalogue LIVE en parallèle (repli CFG.catalog si le proxy échoue).
+    Promise.all([
+      call('GET', '/bots/' + encodeURIComponent(state.botId)),
+      call('GET', '/catalog')
+    ]).then(function (r) {
+      var botRes = r[0], catRes = r[1];
+      if (!botRes.ok) { clear(pane); pane.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de charger ce bot.' })); return; }
+      // billing OFF renvoie {billing:'disabled'} (sans `modules`) : le compter comme
+      // « live » pour que buildPaymentForm atteigne sa branche dédiée (sinon repli
+      // statique = configurateur payant affiché à tort sur un compte sans facturation).
+      var live = (catRes.ok && catRes.data && (Array.isArray(catRes.data.modules) || catRes.data.billing === 'disabled')) ? catRes.data : null;
+      var catalog = live || CFG.catalog || { modules: [], ai_tiers: [] };
+      buildPaymentForm(pane, botRes.data || {}, catalog);
     });
   }
 
-  function buildPaymentForm(pane, bot) {
+  function buildPaymentForm(pane, bot, catalog) {
     clear(pane);
-    var catalog = CFG.catalog || { modules: [], ai_tiers: [] };
-    var active = bot.billing_status === 'active';
+    catalog = catalog || { modules: [], ai_tiers: [] };
+    var allModules = Array.isArray(catalog.modules) ? catalog.modules : [];
+    var aiTiers = Array.isArray(catalog.ai_tiers) ? catalog.ai_tiers : [];
 
+    // Forme RÉELLE : l'IA est un module (key === 'ai') porteur de byok_price_cents.
+    // On l'isole pour l'afficher dans sa propre section et on ne propose à la
+    // case à cocher que les AUTRES modules.
+    var aiModule = allModules.filter(function (m) { return m.key === 'ai'; })[0] || null;
+    var payableModules = allModules.filter(function (m) { return m.key !== 'ai'; });
+    var byokCents = (aiModule && aiModule.byok_price_cents != null)
+      ? aiModule.byok_price_cents
+      : (catalog.ai_byok_price_cents != null ? catalog.ai_byok_price_cents : 2900);
+
+    // Facturation désactivée côté compte : on n'affiche pas le configurateur.
+    if (catalog.billing === 'disabled') {
+      pane.appendChild(h('div', { class: 'cbo-statusline' },
+        h('strong', { text: 'Facturation désactivée.' }),
+        ' La facturation est désactivée sur ce compte Chapote : aucune souscription n’est requise pour ce bot.'
+      ));
+      return;
+    }
+
+    var active = bot.billing_status === 'active';
     if (active) {
       pane.appendChild(h('div', { class: 'cbo-statusline' },
         h('strong', { text: 'Abonnement actif.' }),
@@ -456,8 +543,9 @@
     // État du configurateur.
     var selected = {};
     (Array.isArray(bot.modules) ? bot.modules : []).forEach(function (m) { if (m !== 'ai') selected[m] = true; });
-    var aiMode = (Array.isArray(bot.modules) && bot.modules.indexOf('ai') !== -1) ? 'managed' : 'off';
-    var aiTier = (catalog.ai_tiers[0] || {}).id || 'ai_starter';
+    var aiMode = (Array.isArray(bot.modules) && bot.modules.indexOf('ai') !== -1)
+      ? (bot.ai_byok ? 'byok' : 'managed') : 'off';
+    var aiTier = bot.ai_tier_id || (aiTiers[0] || {}).id || 'ai_starter';
 
     var modBox = h('div', { class: 'cbo-modules' });
     var aiBox = h('div', { class: 'cbo-aitiers' });
@@ -465,7 +553,7 @@
 
     function requiresAi() {
       return Object.keys(selected).some(function (k) {
-        var m = catalog.modules.filter(function (x) { return x.key === k; })[0];
+        var m = payableModules.filter(function (x) { return x.key === k; })[0];
         return m && Array.isArray(m.requires) && m.requires.indexOf('ai') !== -1;
       });
     }
@@ -478,14 +566,18 @@
     function renderModules() {
       clear(modBox);
       modBox.appendChild(h('h4', { text: 'Modules' }));
-      catalog.modules.forEach(function (m) {
+      payableModules.forEach(function (m) {
         var cb = h('input', { type: 'checkbox', checked: !!selected[m.key] });
         cb.addEventListener('change', function () {
           if (cb.checked) selected[m.key] = true; else delete selected[m.key];
           recompute();
         });
         modBox.appendChild(h('label', { class: 'cbo-modline' },
-          cb, h('span', { class: 'cbo-modname', text: m.label }),
+          cb,
+          h('span', { class: 'cbo-modname' },
+            h('span', { text: m.label }),
+            m.desc ? h('span', { class: 'cbo-moddesc', text: m.desc }) : null
+          ),
           h('span', { class: 'cbo-modprice', text: euros(m.price_cents) + ' /mois' }),
           (m.requires && m.requires.indexOf('ai') !== -1) ? h('span', { class: 'cbo-modtag', text: 'IA requise' }) : null
         ));
@@ -505,17 +597,17 @@
       aiBox.appendChild(row);
       if (aiMode === 'managed') {
         var tiers = h('div', { class: 'cbo-tiers' });
-        (catalog.ai_tiers || []).forEach(function (t) {
+        aiTiers.forEach(function (t) {
           var r = h('input', { type: 'radio', name: 'cbo-aitier', checked: aiTier === t.id });
           r.addEventListener('change', function () { if (r.checked) { aiTier = t.id; renderTotal(); } });
           tiers.appendChild(h('label', { class: 'cbo-tier' }, r,
-            h('span', { text: t.included_replies.toLocaleString('fr-FR') + ' réponses/mois' }),
+            h('span', { text: (t.included_replies || 0).toLocaleString('fr-FR') + ' réponses/mois' }),
             h('span', { class: 'cbo-modprice', text: euros(t.price_cents) + ' /mois' })
           ));
         });
         aiBox.appendChild(tiers);
       } else if (aiMode === 'byok') {
-        aiBox.appendChild(h('p', { class: 'cbo-hint', text: 'Avec votre propre clé : ' + euros(catalog.ai_byok_price_cents || 2900) + ' /mois, réponses illimitées (clé configurée dans le dashboard).' }));
+        aiBox.appendChild(h('p', { class: 'cbo-hint', text: 'Avec votre propre clé : ' + euros(byokCents) + ' /mois, réponses illimitées (clé configurée dans le dashboard).' }));
       }
     }
 
@@ -530,11 +622,11 @@
 
     function estimate() {
       var total = 0;
-      catalog.modules.forEach(function (m) { if (selected[m.key]) total += m.price_cents; });
+      payableModules.forEach(function (m) { if (selected[m.key]) total += (m.price_cents || 0); });
       if (aiMode === 'managed') {
-        var t = (catalog.ai_tiers || []).filter(function (x) { return x.id === aiTier; })[0];
-        if (t) total += t.price_cents;
-      } else if (aiMode === 'byok') total += (catalog.ai_byok_price_cents || 2900);
+        var t = aiTiers.filter(function (x) { return x.id === aiTier; })[0];
+        if (t) total += (t.price_cents || 0);
+      } else if (aiMode === 'byok') total += byokCents;
       return total;
     }
 
@@ -542,7 +634,7 @@
       clear(totalLine);
       totalLine.appendChild(h('span', { text: 'Estimation : ' }));
       totalLine.appendChild(h('strong', { text: euros(estimate()) + ' /mois' }));
-      totalLine.appendChild(h('span', { class: 'cbo-muted', text: ' (' + (catalog.tax_note || '') + '). Tarif réel appliqué par Stripe.' }));
+      totalLine.appendChild(h('span', { class: 'cbo-muted', text: ' (' + TAX_NOTE + '). Tarif réel appliqué par Stripe.' }));
     }
 
     var consent = h('input', { type: 'checkbox' });
@@ -629,13 +721,13 @@
   function buildActivation(pane, local, bot) {
     clear(pane);
     var active = bot.billing_status === 'active';
-    var t = local.targeting || { mode: 'everywhere', include_front: true, include_types: [], include_ids: [], exclude_ids: [] };
+    var t = local.targeting || { mode: 'everywhere', include_front: true, include_types: [], include_ids: [], exclude_types: [], exclude_ids: [] };
 
     // Verrou produit : activation impossible tant que non payé.
     if (!active) {
       pane.appendChild(h('div', { class: 'cbo-lock' },
         h('strong', { text: '🔒 Activation verrouillée' }),
-        h('p', { text: 'Le widget ne peut être activé sur le site qu’une fois l’abonnement payé (statut « actif »). Rendez-vous dans l’onglet Paiement.' })
+        h('p', { text: 'Le widget ne peut être activé sur le site qu’une fois l’abonnement payé (statut « actif »). Rendez-vous dans l’onglet Mon offre.' })
       ));
     }
 
@@ -655,21 +747,43 @@
     modeEverywhere.addEventListener('change', renderCustom);
     modeCustom.addEventListener('change', renderCustom);
 
+    // Construit un jeu de cases « types de contenu publics » et renvoie l'index
+    // de cases (slug -> input) pour relire la sélection à l'enregistrement.
+    function typeChecks(selectedSlugs) {
+      var boxes = {};
+      var wrap = h('div', { class: 'cbo-types' });
+      var pts = CFG.postTypes || [];
+      if (!pts.length) {
+        wrap.appendChild(h('span', { class: 'cbo-muted', text: 'Aucun type de contenu public détecté.' }));
+      }
+      pts.forEach(function (pt) {
+        var cb = h('input', { type: 'checkbox', checked: (selectedSlugs || []).indexOf(pt.slug) !== -1 });
+        boxes[pt.slug] = cb;
+        wrap.appendChild(h('label', { class: 'cbo-check' }, cb, h('span', { text: pt.label })));
+      });
+      return { boxes: boxes, wrap: wrap };
+    }
+    function checkedSlugs(boxes) {
+      return Object.keys(boxes).filter(function (k) { return boxes[k].checked; });
+    }
+
     var frontCb = h('input', { type: 'checkbox', checked: !!t.include_front });
-    var typeBoxes = {};
-    var typesWrap = h('div', { class: 'cbo-types' });
-    (CFG.postTypes || []).forEach(function (pt) {
-      var cb = h('input', { type: 'checkbox', checked: (t.include_types || []).indexOf(pt.slug) !== -1 });
-      typeBoxes[pt.slug] = cb;
-      typesWrap.appendChild(h('label', { class: 'cbo-check' }, cb, h('span', { text: pt.label })));
-    });
+    var inc = typeChecks(t.include_types);
+    var exc = typeChecks(t.exclude_types);
     var includeIds = h('input', { type: 'text', class: 'regular-text', value: (t.include_ids || []).join(', '), placeholder: 'ex. 12, 34' });
     var excludeIds = h('input', { type: 'text', class: 'regular-text', value: (t.exclude_ids || []).join(', '), placeholder: 'ex. 7, 99' });
 
+    // Inclusions.
+    customBox.appendChild(h('h4', { class: 'cbo-custom-h', text: 'Afficher sur' }));
     customBox.appendChild(h('label', { class: 'cbo-check' }, frontCb, h('span', { text: 'Page d’accueil' })));
-    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'Types de contenu' }), typesWrap));
+    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'Types de contenu à inclure' }), inc.wrap));
     customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'IDs de contenus à inclure' }), includeIds));
-    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'IDs à exclure (prioritaire)' }), excludeIds));
+
+    // Exclusions (PRIORITAIRES sur toute inclusion).
+    customBox.appendChild(h('h4', { class: 'cbo-custom-h', text: 'Ne jamais afficher sur (prioritaire)' }));
+    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'Types de contenu à exclure' }), exc.wrap));
+    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'IDs de contenus à exclure' }), excludeIds));
+    customBox.appendChild(h('p', { class: 'cbo-hint', text: 'Une exclusion (type ou ID) l’emporte toujours sur une inclusion.' }));
 
     pane.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'Où afficher le widget ?' }),
       h('div', { class: 'cbo-targetmodes' },
@@ -689,8 +803,9 @@
         var targeting = {
           mode: modeCustom.checked ? 'custom' : 'everywhere',
           include_front: frontCb.checked,
-          include_types: Object.keys(typeBoxes).filter(function (k) { return typeBoxes[k].checked; }),
+          include_types: checkedSlugs(inc.boxes),
           include_ids: idList(includeIds.value),
+          exclude_types: checkedSlugs(exc.boxes),
           exclude_ids: idList(excludeIds.value)
         };
         saveActivation(e.target, toggle.checked, targeting);
@@ -739,6 +854,7 @@
     if (!root) return;
     call('GET', '/status').then(function (res) {
       state.connected = !!(res.data && res.data.connected);
+      state.account = (res.data && res.data.account) ? res.data.account : null;
       if (state.connected) {
         // Retour Stripe : ouvrir directement le bon bot sur l'onglet paiement.
         if (CFG.returnBot && (CFG.returnStatus === 'success' || CFG.returnStatus === 'cancel')) {

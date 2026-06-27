@@ -109,15 +109,21 @@ class Chapote_BO_Admin {
     /**
      * Miroir front du catalogue de facturation (modules + paliers IA).
      *
-     * Source de vérité = backend (GET /api/billing/catalog) ; ici un repli
-     * statique pour l'affichage sans round-trip. Les PRIX restent indicatifs :
-     * Stripe applique le tarif réel au checkout.
-     * Aligné sur app/src/utils/billing.ts (FALLBACK_CATALOG).
+     * Source de vérité = backend (GET /api/account/catalog, MÊME forme que
+     * /api/billing/catalog). Ici un repli STATIQUE pour l'affichage sans
+     * round-trip ; la SPA récupère le catalogue LIVE via /catalog et ne retombe
+     * sur ce repli qu'en cas d'échec. Les PRIX restent indicatifs : Stripe
+     * applique le tarif réel au checkout.
+     *
+     * Forme RÉELLE respectée : le module IA est DANS `modules` (key === 'ai') et
+     * porte `byok_price_cents` ; il n'y a PAS de `ai_byok_price_cents` ni de
+     * `tax_note` au niveau racine. Aligné sur app/src/utils/billing.ts.
      */
     private static function catalog() {
         return array(
             'currency' => 'eur',
             'modules'  => array(
+                array('key' => 'ai',          'label' => __('Intelligence artificielle', 'chapote-backoffice'), 'price_cents' => 0,    'requires' => array(), 'byok_price_cents' => 2900),
                 array('key' => 'rag',         'label' => __('Connaissances (RAG)', 'chapote-backoffice'),  'price_cents' => 900,  'requires' => array('ai')),
                 array('key' => 'inbox',       'label' => __('Live chat / Inbox', 'chapote-backoffice'),    'price_cents' => 1500, 'requires' => array()),
                 array('key' => 'actions',     'label' => __('Actions', 'chapote-backoffice'),              'price_cents' => 1200, 'requires' => array()),
@@ -125,13 +131,11 @@ class Chapote_BO_Admin {
                 array('key' => 'ab',          'label' => __('A/B testing', 'chapote-backoffice'),          'price_cents' => 700,  'requires' => array()),
                 array('key' => 'white_label', 'label' => __('White-label', 'chapote-backoffice'),          'price_cents' => 900,  'requires' => array()),
             ),
-            'ai_byok_price_cents' => 2900,
             'ai_tiers' => array(
                 array('id' => 'ai_starter', 'included_replies' => 1000,  'price_cents' => 1900),
                 array('id' => 'ai_growth',  'included_replies' => 3000,  'price_cents' => 3900),
                 array('id' => 'ai_scale',   'included_replies' => 10000, 'price_cents' => 8900),
             ),
-            'tax_note' => __('TVA non applicable, art. 293 B du CGI', 'chapote-backoffice'),
         );
     }
 }

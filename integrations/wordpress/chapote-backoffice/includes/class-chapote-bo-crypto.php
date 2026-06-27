@@ -31,9 +31,18 @@ class Chapote_BO_Crypto {
 
     /** Clé brute 32 octets dérivée (constantes wp-config + secret d'install). */
     private static function key() {
-        $material = '';
+        // Matériel de clé = constantes secrètes de wp-config si présentes. À défaut
+        // (hébergeur qui ne définit pas AUTH_KEY/SECURE_AUTH_KEY), on REPLIE sur un
+        // sel WordPress plutôt que sur un matériel vide qui produirait une clé faible
+        // dérivée du seul secret d'install (cf. #24/#25).
         if (defined('AUTH_KEY') && AUTH_KEY && defined('SECURE_AUTH_KEY') && SECURE_AUTH_KEY) {
             $material = AUTH_KEY . '|' . SECURE_AUTH_KEY;
+        } else {
+            $material = function_exists('wp_salt') ? wp_salt('secure_auth') : '';
+            // Garde-fou ultime : jamais de matériel vide.
+            if ($material === '') {
+                $material = 'chapote-bo|' . self::KEY_OPTION;
+            }
         }
 
         $secret = get_option(self::KEY_OPTION);
@@ -43,6 +52,12 @@ class Chapote_BO_Crypto {
             update_option(self::KEY_OPTION, $secret, false);
         }
 
+        // HKDF (RFC 5869) : dérivation de clé dédiée à partir du matériel, avec le
+        // secret d'install comme sel. Disponible depuis PHP 7.1.2 (le plugin exige
+        // PHP 7.4) ; repli sha256 par prudence.
+        if (function_exists('hash_hkdf')) {
+            return hash_hkdf('sha256', $material, 0, 'chapote-bo-token', $secret); // 32 octets bruts
+        }
         return hash('sha256', $material . '|' . $secret, true); // 32 octets bruts
     }
 

@@ -64,24 +64,34 @@ class AccountLinkPayload(BaseModel):
 class AccountSubUpdatePayload(BaseModel):
     config: billing_router.BotConfigPayload
     consent: Optional[bool] = False
+    # P4 : redirections de retour si la modif relance un Checkout (bot pas encore
+    # souscrit). Optionnelles ; validées + threadées par billing.subscription_update
+    # (anti open-redirect, même hôte que le site WP lié — comme le Checkout plugin).
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
 
 
 # --- Helpers (anti open-redirect du checkout) ------------------------------
 
 def _redirect_host(raw: str) -> str:
-    """Hôte (hostname minuscule) d'une URL de redirection http(s) ABSOLUE, ou 400.
+    """Origine réseau (netloc = host[:port], minuscule) d'une URL de redirection
+    http(s) ABSOLUE, ou 400.
 
     Anti open-redirect : success_url/cancel_url sont des URLs vers lesquelles
     Stripe renverra le NAVIGATEUR du client après paiement. Sans contrôle, un appel
     authentifié pourrait fabriquer une redirection vers un site de phishing maquillé
-    en suite du paiement. On exige donc une URL http(s) absolue (scheme + host)."""
+    en suite du paiement. On exige donc une URL http(s) absolue (scheme + netloc).
+
+    On compare le NETLOC (host:port), pas le seul hostname : un site WP lié sur un
+    port non standard (https://exemple.fr:8443) ne doit pas valider une redirection
+    vers le même host sur un AUTRE port (https://exemple.fr:9000)."""
     parsed = urlparse((raw or "").strip())
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "URL de redirection invalide (http(s) absolu requis)",
         )
-    return parsed.hostname.lower()
+    return parsed.netloc.lower()
 
 
 async def _assert_checkout_urls(
@@ -106,12 +116,34 @@ async def _assert_checkout_urls(
         select(BillingWordPressLink).where(BillingWordPressLink.bot_id == bot.id)
     )).scalar_one_or_none()
     if link is not None:
-        link_host = urlparse(link.wordpress_site_url).hostname
+        # Comparaison sur le NETLOC (host:port) — même critère que _redirect_host —
+        # pour que le PORT du site lié soit pris en compte.
+        link_host = urlparse(link.wordpress_site_url).netloc
         if link_host and link_host.lower() != s_host:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 "Les URLs de redirection doivent pointer vers le site WordPress lié",
             )
+
+
+# --- Compte (identité / catalogue) -----------------------------------------
+
+@router.get("/me")
+async def account_me(user: User = Depends(require_oauth_token)):
+    """Identité du détenteur du token plugin (couche MINIME) : {email, name}.
+    Sert au plugin à afficher le compte connecté côté WordPress. Aucune lecture DB
+    (require_oauth_token a déjà chargé le User)."""
+    return {"email": user.email, "name": user.name}
+
+
+@router.get("/catalog")
+async def account_catalog(db: AsyncSession = Depends(get_db),
+                          user: User = Depends(require_oauth_token)):
+    """Catalogue de facturation pour le plugin — SORTIE STRICTEMENT IDENTIQUE à
+    GET /api/billing/catalog (même contrat de prix, aucun prix codé en dur côté
+    plugin). RÉUTILISE le corps factorisé billing._catalog_payload (zéro
+    duplication). Billing OFF ⇒ {billing: disabled}."""
+    return await billing_router._catalog_payload(db)
 
 
 # --- Bots (lecture / création) ---------------------------------------------
@@ -292,9 +324,15 @@ async def account_subscription_update(
     """Modifie le plan/modules d'un bot déjà souscrit (prorata). DÉLÈGUE au chemin
     dashboard billing.subscription_update (require_billing_owner inclus ; mêmes
     réponses : {status:'updated'} | {status:'needs_checkout', checkout_url} | billing
-    OFF {billing:'disabled'})."""
+    OFF {billing:'disabled'}).
+
+    success_url/cancel_url (P4) sont threadés tels quels : ils ne servent QUE si la
+    modif relance un Checkout (bot non encore souscrit -> needs_checkout). Validés
+    par billing.subscription_update (anti open-redirect, même hôte que le site WP
+    lié) comme le Checkout plugin. Absents ⇒ fallback APP_URL."""
     payload = billing_router.SubscriptionUpdatePayload(
-        bot_id=bot_id, config=body.config, consent=bool(body.consent))
+        bot_id=bot_id, config=body.config, consent=bool(body.consent),
+        success_url=body.success_url, cancel_url=body.cancel_url)
     return await billing_router.subscription_update(payload, db, user)
 
 

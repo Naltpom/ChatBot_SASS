@@ -58,23 +58,50 @@
 .cbo-radio { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
 .cbo-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
 
-/* Aperçu apparence */
+/* Aperçu apparence — rendu fidèle du widget (mis à jour à chaque champ) */
 .cbo-previewcol { position: sticky; top: 40px; align-self: start; }
-.cbo-preview { position: relative; height: 360px; background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 10px; overflow: hidden; }
-.cbo-wp { position: absolute; top: 16px; left: 16px; right: 16px; bottom: 70px; background: #fff; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.12); display: flex; flex-direction: column; overflow: hidden; }
+.cbo-preview { position: relative; height: 400px; background: linear-gradient(135deg, #eef1f5, #e2e6ec); border: 1px solid #dcdcde; border-radius: 10px; overflow: hidden; }
+
+.cbo-wp { position: absolute; bottom: 86px; width: 262px; background: #fff; border-radius: 14px; box-shadow: 0 14px 34px rgba(0,0,0,.20); display: flex; flex-direction: column; overflow: hidden; font-size: 13px; }
+.cbo-wp.cbo-pos-right { right: 16px; }
+.cbo-wp.cbo-pos-left { left: 16px; }
+.cbo-wp.cbo-size-sm { width: 232px; }
+.cbo-wp.cbo-size-lg { width: 290px; }
 .cbo-wp-dark { background: #1f2329; color: #e6e6e6; }
-.cbo-wp-head { color: #fff; padding: 12px 14px; font-weight: 600; }
-.cbo-wp-body { flex: 1; padding: 12px; }
-.cbo-wp-msg { background: #f0f0f1; color: #1d2327; border-radius: 10px; padding: 8px 12px; font-size: 13px; max-width: 85%; }
-.cbo-wp-dark .cbo-wp-msg { background: #2c313a; color: #e6e6e6; }
-.cbo-wp-input { border-top: 1px solid #e0e0e0; padding: 10px 14px; color: #8a8f94; font-size: 13px; }
-.cbo-wp-launcher { position: absolute; bottom: 16px; right: 16px; min-width: 52px; height: 52px; border-radius: 26px; box-shadow: 0 4px 14px rgba(0,0,0,.2); display: flex; align-items: center; justify-content: center; color: #fff; padding: 0 16px; font-size: 13px; }
-.cbo-wp-left { right: auto; left: 16px; }
+
+.cbo-wp-head { color: #fff; padding: 11px 13px; font-weight: 600; display: flex; align-items: center; gap: 9px; }
+.cbo-wp-avatar { width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,.35); flex: 0 0 auto; }
+.cbo-wp-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cbo-wp-close { opacity: .85; font-size: 17px; line-height: 1; }
+
+.cbo-wp-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; min-height: 86px; background: #f7f8fa; }
+.cbo-wp-dark .cbo-wp-body { background: #23272e; }
+.cbo-wp-msg { border-radius: 12px; padding: 8px 11px; font-size: 13px; line-height: 1.35; max-width: 84%; word-wrap: break-word; }
+.cbo-wp-bot { background: #fff; color: #1d2327; border: 1px solid #e6e8eb; align-self: flex-start; border-bottom-left-radius: 4px; }
+.cbo-wp-dark .cbo-wp-bot { background: #2c313a; color: #e6e6e6; border-color: #353b45; }
+.cbo-wp-user { color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+
+.cbo-wp-inputrow { display: flex; align-items: center; gap: 8px; border-top: 1px solid #e6e8eb; padding: 9px 12px; background: #fff; }
+.cbo-wp-dark .cbo-wp-inputrow { background: #1f2329; border-top-color: #353b45; }
+.cbo-wp-input { flex: 1; color: #8a8f94; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cbo-wp-send { width: 26px; height: 26px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; flex: 0 0 auto; }
+.cbo-wp-powered { text-align: center; font-size: 10px; color: #9aa0a6; padding: 5px 0 7px; background: #fff; }
+.cbo-wp-dark .cbo-wp-powered { background: #1f2329; }
+
+.cbo-wp-greeting { position: absolute; bottom: 28px; max-width: 150px; background: #fff; color: #1d2327; border-radius: 12px; padding: 7px 11px; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.16); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cbo-wp-greeting.cbo-pos-right { right: 82px; }
+.cbo-wp-greeting.cbo-pos-left { left: 82px; }
+
+.cbo-wp-launcher { position: absolute; bottom: 16px; min-width: 54px; height: 54px; border-radius: 27px; box-shadow: 0 6px 18px rgba(0,0,0,.28); display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; padding: 0 18px; font-size: 13px; font-weight: 600; }
+.cbo-wp-launcher.cbo-pos-right { right: 16px; }
+.cbo-wp-launcher.cbo-pos-left { left: 16px; }
+.cbo-wp-launcher-ico { font-size: 20px; line-height: 1; }
 
 /* Paiement */
 .cbo-modules, .cbo-aitiers { margin-bottom: 18px; }
 .cbo-modline { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f0f0f1; }
-.cbo-modname { flex: 1; }
+.cbo-modname { flex: 1; display: flex; flex-direction: column; }
+.cbo-moddesc { color: #646970; font-size: 12px; }
 .cbo-modprice { color: #50575e; font-variant-numeric: tabular-nums; }
 .cbo-modtag { font-size: 11px; background: #f0f6fc; color: #135e96; padding: 1px 7px; border-radius: 8px; }
 .cbo-airow { display: flex; gap: 18px; flex-wrap: wrap; margin: 8px 0; }
@@ -93,6 +120,8 @@
 .cbo-toggle { margin: 12px 0 18px; }
 .cbo-targetmodes { display: flex; gap: 18px; }
 .cbo-custom { background: #f6f7f7; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; margin: 10px 0; }
+.cbo-custom-h { margin: 4px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #50575e; }
+.cbo-custom-h + * { margin-top: 0; }
 .cbo-types { display: flex; gap: 16px; flex-wrap: wrap; }
 
 /* Domaine */

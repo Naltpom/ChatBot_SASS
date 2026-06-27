@@ -38,6 +38,12 @@ class Chapote_BO_REST {
             array('methods' => 'GET',  'permission_callback' => $perm, 'callback' => array(__CLASS__, 'settings_get')),
             array('methods' => 'POST', 'permission_callback' => $perm, 'callback' => array(__CLASS__, 'settings_set')),
         ));
+        // Catalogue de facturation LIVE (proxy de GET /api/account/catalog).
+        register_rest_route($ns, '/catalog', array(
+            'methods'             => 'GET',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'catalog'),
+        ));
 
         // --- Connexion (device flow) ----------------------------------------
         register_rest_route($ns, '/connect/start', array(
@@ -112,11 +118,35 @@ class Chapote_BO_REST {
     /* ---------------------------------------------------------------------- */
 
     public static function status($request) {
-        return new WP_REST_Response(array(
-            'connected'         => Chapote_BO_Tokens::is_connected(),
-            'crypto_available'  => Chapote_BO_Crypto::available(),
-            'api_base'          => Chapote_BO_Options::api_base(),
-        ), 200);
+        $connected = Chapote_BO_Tokens::is_connected();
+        $out = array(
+            'connected'        => $connected,
+            'crypto_available' => Chapote_BO_Crypto::available(),
+            'api_base'         => Chapote_BO_Options::api_base(),
+        );
+
+        // Compte connecté : on récupère email/nom pour l'afficher dans l'en-tête.
+        // L'appel passe par account() (refresh auto + purge si session morte) ;
+        // on reflète l'état RÉEL de la session après l'appel.
+        if ($connected) {
+            $me = Chapote_BO_API::account('GET', '/api/account/me');
+            if ($me['status'] === 200 && is_array($me['data'])) {
+                $out['account'] = array(
+                    'email' => isset($me['data']['email']) ? sanitize_text_field((string) $me['data']['email']) : '',
+                    'name'  => isset($me['data']['name']) ? sanitize_text_field((string) $me['data']['name']) : '',
+                );
+            } elseif ($me['status'] === 401) {
+                // Session expirée/purgée pendant l'appel : on dit la vérité au JS.
+                $out['connected'] = Chapote_BO_Tokens::is_connected();
+            }
+        }
+
+        return new WP_REST_Response($out, 200);
+    }
+
+    /** Catalogue de facturation LIVE relayé depuis Chapote. */
+    public static function catalog($request) {
+        return self::forward(Chapote_BO_API::account('GET', '/api/account/catalog'));
     }
 
     public static function settings_get($request) {
@@ -423,22 +453,27 @@ class Chapote_BO_REST {
             return array_values(array_unique($out));
         };
 
-        $types = array();
-        if (isset($raw['include_types']) && is_array($raw['include_types'])) {
-            $public_types = get_post_types(array('public' => true), 'names');
-            foreach ($raw['include_types'] as $t) {
-                $t = sanitize_key((string) $t);
-                if (isset($public_types[$t])) {
-                    $types[] = $t;
+        // Filtre une liste de slugs sur les types de contenu publics réels.
+        $public_types = get_post_types(array('public' => true), 'names');
+        $valid_types = function ($v) use ($public_types) {
+            $out = array();
+            if (is_array($v)) {
+                foreach ($v as $t) {
+                    $t = sanitize_key((string) $t);
+                    if (isset($public_types[$t])) {
+                        $out[] = $t;
+                    }
                 }
             }
-        }
+            return array_values(array_unique($out));
+        };
 
         return array(
             'mode'          => $mode,
             'include_front' => !empty($raw['include_front']),
-            'include_types' => array_values(array_unique($types)),
+            'include_types' => $valid_types(isset($raw['include_types']) ? $raw['include_types'] : array()),
             'include_ids'   => $to_int_list(isset($raw['include_ids']) ? $raw['include_ids'] : array()),
+            'exclude_types' => $valid_types(isset($raw['exclude_types']) ? $raw['exclude_types'] : array()),
             'exclude_ids'   => $to_int_list(isset($raw['exclude_ids']) ? $raw['exclude_ids'] : array()),
         );
     }

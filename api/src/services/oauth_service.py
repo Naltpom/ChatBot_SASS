@@ -15,6 +15,7 @@ en module (même pattern que les constantes 2FA de core/security)."""
 import hashlib
 import secrets
 from datetime import timedelta
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,12 +62,28 @@ def _new_user_code() -> str:
     return f"{raw[:4]}-{raw[4:]}"
 
 
+def _clean_site_url(raw: str | None) -> str | None:
+    """Origine http(s) absolue (scheme://netloc) du site WP appelant, ou None.
+
+    `site_url` est purement INFORMATIF (affiché à l'utilisateur sur /link pour qu'il
+    reconnaisse le site qui s'appaire). On REJETTE donc toute valeur non http(s)
+    absolue (javascript:, data:, chemin relatif, host vide…) plutôt que de la stocker
+    et l'afficher telle quelle dans la page de consentement -> None."""
+    parsed = urlparse((raw or "").strip())
+    if parsed.scheme in ("http", "https") and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return None
+
+
 async def new_device_authorization(db: AsyncSession, site_url: str | None) -> tuple[str, OAuthDeviceAuthorization]:
     """Crée une autorisation device. Retourne (device_code_clair, row).
     Le user_code (affiché au client) est porté par la row."""
     device_code = secrets.token_urlsafe(32)
     user_code = None
-    for _ in range(6):
+    # Anti-collision du user_code court (8 chars, alphabet réduit) : on retente
+    # jusqu'à 10 fois avant d'abandonner (server_error) — marge confortable même si
+    # beaucoup d'appairages 'pending' coexistent.
+    for _ in range(10):
         candidate = _new_user_code()
         exists = await db.execute(
             select(OAuthDeviceAuthorization.id).where(OAuthDeviceAuthorization.user_code == candidate)
@@ -82,7 +99,7 @@ async def new_device_authorization(db: AsyncSession, site_url: str | None) -> tu
         user_code=user_code,
         scope="plugin",
         status="pending",
-        site_url=(site_url or None),
+        site_url=_clean_site_url(site_url),
         interval_seconds=OAUTH_DEVICE_POLL_INTERVAL_SECONDS,
         expires_at=utcnow() + timedelta(minutes=OAUTH_DEVICE_CODE_EXPIRE_MINUTES),
     )

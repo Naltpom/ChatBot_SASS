@@ -69,8 +69,12 @@ class Chapote_BO_Frontend {
     private static function matches(array $t) {
         $current_id = (int) get_queried_object_id();
 
-        // 1) Exclusions prioritaires.
+        // 1) Exclusions prioritaires (par ID puis par type de contenu).
         if ($current_id && in_array($current_id, self::ids($t, 'exclude_ids'), true)) {
+            return false;
+        }
+        $exclude_types = isset($t['exclude_types']) && is_array($t['exclude_types']) ? $t['exclude_types'] : array();
+        if (!empty($exclude_types) && is_singular($exclude_types)) {
             return false;
         }
 

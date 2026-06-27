@@ -97,6 +97,12 @@ class SubscriptionUpdatePayload(BaseModel):
     bot_id: int
     config: BotConfigPayload
     consent: bool = False
+    # P4 (surface plugin) : redirections de retour Checkout surchargées vers le site
+    # WordPress, threadées à _open_checkout SI la modif relance un Checkout (branche
+    # needs_checkout). None (dashboard) ⇒ fallback APP_URL — appelants existants
+    # intacts. Validées (anti open-redirect) comme le Checkout quand présentes.
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
 
 
 class SubscriptionCancelPayload(BaseModel):
@@ -555,14 +561,13 @@ async def _project_mock_update(
 
 # --- GET /api/billing/catalog ---------------------------------------------
 
-@router.get("/billing/catalog")
-async def get_catalog(db: AsyncSession = Depends(get_db),
-                      user: User = Depends(get_current_user)):
-    """Catalogue de facturation (lit `billing_products`, valide contre
-    MODULE_KEYS). Le front ne code aucun prix en dur : il consomme ce contrat.
+async def _catalog_payload(db: AsyncSession) -> dict:
+    """Corps du contrat de catalogue, FACTORISÉ pour être servi À L'IDENTIQUE sur
+    DEUX surfaces : GET /api/billing/catalog (dashboard, get_current_user) ET
+    GET /api/account/catalog (plugin, require_oauth_token). Le front ET le plugin
+    consomment ainsi le MÊME contrat de prix (aucun prix codé en dur, parité D4).
 
-    Billing OFF ⇒ {billing: disabled} (la nav/UI billing est masquée côté front).
-    """
+    Billing OFF ⇒ {billing: disabled}."""
     if not stripe_service.billing_enabled():
         return _DISABLED
 
@@ -674,6 +679,18 @@ async def get_catalog(db: AsyncSession = Depends(get_db),
         # Lecture seule, utile au debug / parité (jamais source de prix front).
         "products": [BillingProductOut.model_validate(r).model_dump() for r in rows],
     }
+
+
+@router.get("/billing/catalog")
+async def get_catalog(db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Catalogue de facturation (lit `billing_products`, valide contre
+    MODULE_KEYS). Le front ne code aucun prix en dur : il consomme ce contrat.
+
+    Billing OFF ⇒ {billing: disabled} (la nav/UI billing est masquée côté front).
+    Corps factorisé dans `_catalog_payload`, réutilisé TEL QUEL par la surface
+    plugin (GET /api/account/catalog) — sortie strictement identique."""
+    return await _catalog_payload(db)
 
 
 # --- GET /api/billing/summary ---------------------------------------------
@@ -970,6 +987,19 @@ async def subscription_update(body: SubscriptionUpdatePayload,
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
     await require_billing_owner(bot, user, db)
 
+    # P4 : si la modif relance un Checkout (branche needs_checkout), ses redirections
+    # de retour peuvent être surchargées vers le site WordPress (surface plugin).
+    # Présentes UNIQUEMENT via /api/account/* — le dashboard ne les envoie pas
+    # (None ⇒ fallback APP_URL, appelants existants intacts). On les VALIDE ici
+    # (anti open-redirect, même hôte que le site WP lié) comme le Checkout plugin, en
+    # RÉUTILISANT son helper. _assert_checkout_urls vit dans la surface plugin (qui
+    # importe ce module) ⇒ import différé pour casser le cycle d'import.
+    ck_success = ck_cancel = None
+    if body.success_url and body.cancel_url:
+        from src.routers.external.account import _assert_checkout_urls
+        await _assert_checkout_urls(db, bot, body.success_url, body.cancel_url)
+        ck_success, ck_cancel = body.success_url, body.cancel_url
+
     codes, modules = _config_to_codes(body.config)
 
     if settings.MOCK_BILLING:
@@ -985,7 +1015,8 @@ async def subscription_update(body: SubscriptionUpdatePayload,
             "active", "trialing", "past_due")
         if not subscribed:
             result = await _open_checkout(
-                db, user, bot, user.billing_grouping, body.config, consent=body.consent)
+                db, user, bot, user.billing_grouping, body.config,
+                consent=body.consent, success_url=ck_success, cancel_url=ck_cancel)
             await db.commit()
             return {"status": "needs_checkout",
                     "checkout_url": result.get("checkout_url")}
@@ -1004,7 +1035,8 @@ async def subscription_update(body: SubscriptionUpdatePayload,
     if sub is None:
         # Bot sans sub active (jamais payé / annulé) : relance Checkout (point 3).
         result = await _open_checkout(
-            db, user, bot, user.billing_grouping, body.config, consent=body.consent)
+            db, user, bot, user.billing_grouping, body.config,
+            consent=body.consent, success_url=ck_success, cancel_url=ck_cancel)
         await db.commit()
         return {"status": "needs_checkout",
                 "checkout_url": result.get("checkout_url")}
