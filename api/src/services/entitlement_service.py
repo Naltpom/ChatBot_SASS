@@ -474,6 +474,31 @@ async def set_bot_status(
     return row
 
 
+async def grace(db: AsyncSession, bot_id: int, *, reason: str) -> BotEntitlement:
+    """Met un bot en GRÂCE (`past_due`) : modules payants dégradés, socle gratuit
+    conservé, jusqu'à régularisation. Façade unique du changement de payeur (move
+    perso->équipe, transfert d'org). actor_kind='system'. Respecte la garde sticky
+    (un bot suspended reste suspended)."""
+    return await set_bot_status(
+        db, bot_id,
+        new_status="past_due", actor_kind="system", reason=reason,
+        plan=PlanState(modules=[], ai_monthly_quota=0),
+    )
+
+
+async def baseline(db: AsyncSession, bot_id: int, *, actor_kind: str,
+                   actor_user_id: int | None = None, reason: str | None = None) -> BotEntitlement:
+    """Repasse un bot au socle GATÉ (`inactive`, modules=[], quota=0) — jamais
+    ALL_UNLOCKED (on garde une ligne). Utilisé au seed (system) et au reset
+    d'override staff avant reprojection Stripe."""
+    return await set_bot_status(
+        db, bot_id,
+        new_status="inactive", actor_kind=actor_kind,
+        actor_user_id=actor_user_id, reason=reason,
+        plan=PlanState(modules=[], ai_monthly_quota=0, trial_end=None),
+    )
+
+
 async def _project_bot(
     db: AsyncSession,
     bot_id: int,

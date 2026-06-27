@@ -28,6 +28,11 @@ from src.models.billing import BillingPreset, BillingProduct, BillingSubscriptio
 from src.models.bot import Bot
 from src.models.user import Organization, User
 from src.services import stripe_service
+from src.services.entitlement_service import (
+    PlanState,
+    baseline as es_baseline,
+    set_bot_status,
+)
 
 logger = logging.getLogger("billing")
 
@@ -619,13 +624,15 @@ async def get_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/bots/{bot_id}/entitlement")
 async def set_bot_entitlement(bot_id: int, body: EntitlementOverride,
+                              actor: User = Depends(require_superadmin),
                               db: AsyncSession = Depends(get_db)):
     """Override manuel staff de l'entitlement d'un bot (sans Stripe).
 
-    Upsert la ligne `bot_entitlements` avec `source='staff'`. Valide
-    `modules ⊂ MODULE_KEYS` et `ai_monthly_quota` (int ≥ 0 | null). Superadmin
-    only. Billing OFF ⇒ {billing: disabled} (aucune mutation : le resolver
-    renvoie ALL_UNLOCKED de toute façon, un override serait inerte)."""
+    Upsert la ligne `bot_entitlements` avec `source='staff'` via l'unique writer
+    (capture QUEL staff dans l'historique). Valide `modules ⊂ MODULE_KEYS` et
+    `ai_monthly_quota` (int ≥ 0 | null). Superadmin only. Billing OFF ⇒
+    {billing: disabled} (aucune mutation : le resolver renvoie ALL_UNLOCKED de
+    toute façon, un override serait inerte)."""
     if not stripe_service.billing_enabled():
         return _DISABLED
 
@@ -654,20 +661,17 @@ async def set_bot_entitlement(bot_id: int, body: EntitlementOverride,
     if MODULE_AI not in modules:
         ai_quota = 0
 
-    row = (await db.execute(
-        select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
-    )).scalar_one_or_none()
-    if row is None:
-        row = BotEntitlement(bot_id=bot_id)
-        db.add(row)
-    row.modules = modules
-    row.ai_monthly_quota = ai_quota
     # Normalisation : `none` (pas d'override) / `trialing` (essai) -> `active`.
     # Un override manuel staff est par définition actif (statuts de gestion
-    # réelle = active/past_due/canceled/inactive).
-    row.status = body.status if body.status not in (None, "none", "trialing") else "active"
-    row.source = "staff"
-    row.synced_at = utcnow()
+    # réelle = active/past_due/canceled/inactive/suspended). actor=staff -> peut
+    # lever un statut collant (suspended) de façon explicite et tracée.
+    target_status = body.status if body.status not in (None, "none", "trialing") else "active"
+    row = await set_bot_status(
+        db, bot_id,
+        new_status=target_status, actor_kind="staff", actor_user_id=actor.id,
+        reason="override_staff",
+        plan=PlanState(modules=modules, ai_monthly_quota=ai_quota),
+    )
     await db.commit()
 
     return {
@@ -683,17 +687,22 @@ async def set_bot_entitlement(bot_id: int, body: EntitlementOverride,
 # --- DELETE /api/admin/bots/{bot_id}/entitlement --------------------------
 
 @router.delete("/bots/{bot_id}/entitlement")
-async def reset_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db)):
-    """Réinitialise l'entitlement d'un bot : retire un override staff et REVIENT
-    à l'état dérivé de la FACTURATION réelle (Stripe).
+async def reset_bot_entitlement(bot_id: int, actor: User = Depends(require_superadmin),
+                                db: AsyncSession = Depends(get_db)):
+    """Réinitialise l'entitlement d'un bot : retire un override staff (ET lève un
+    blocage `suspended`) et REVIENT à l'état dérivé de la FACTURATION réelle.
+
+    C'est aussi le chemin de DÉBLOCAGE d'un bot suspended : la baseline `staff`
+    lève le verrou collant, puis la reprojection Stripe RE-DÉRIVE l'état réel
+    (jamais un `active` forcé : si l'abo a lapsé pendant la suspension, le bot
+    reste gaté).
 
     ⚠ On NE supprime PAS la ligne : sans entitlement, le resolver renvoie
     ALL_UNLOCKED (RÈGLE 2 — tout débloqué gratuitement). On fait donc :
-      1. baseline GATÉE (modules=[], quota=0, status='inactive', source='stripe')
-         — identique au seed d'un bot fraîchement créé, jamais débloqué ;
+      1. baseline GATÉE staff (modules=[], quota=0, status='inactive') — identique
+         au seed d'un bot jamais débloqué, et tracée dans l'historique ;
       2. reprojection depuis les abonnements RÉELS du payeur du bot (même chemin
-         que le webhook / reconcile : `_sync_subscription_mirror` +
-         `apply_subscription_event`). Si un abo actif couvre ce bot, son état
+         que le webhook / reconcile). Si un abo actif couvre ce bot, son état
          payant est restauré ; sinon il reste gaté (= non activé).
     Superadmin only. Billing OFF ⇒ disabled (un override y est de toute façon
     inerte, le resolver renvoie ALL_UNLOCKED)."""
@@ -704,19 +713,10 @@ async def reset_bot_entitlement(bot_id: int, db: AsyncSession = Depends(get_db))
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
 
-    # 1. Baseline gatée (jamais ALL_UNLOCKED) sur la ligne existante ou une neuve.
-    row = (await db.execute(
-        select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
-    )).scalar_one_or_none()
-    if row is None:
-        row = BotEntitlement(bot_id=bot_id)
-        db.add(row)
-    row.modules = []
-    row.ai_monthly_quota = 0
-    row.status = "inactive"
-    row.trial_end = None
-    row.source = "stripe"
-    row.synced_at = utcnow()
+    # 1. Baseline gatée STAFF (jamais ALL_UNLOCKED) : lève le verrou collant et
+    # trace QUI réinitialise. La reprojection Stripe (étape 3) re-dérive ensuite.
+    await es_baseline(db, bot_id, actor_kind="staff", actor_user_id=actor.id,
+                      reason="reset_override")
     await db.commit()
 
     # 2. Payeur du bot : perso = owner_user_id ; équipe = owner de l'org.

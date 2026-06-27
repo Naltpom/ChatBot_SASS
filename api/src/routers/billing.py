@@ -52,7 +52,13 @@ from src.models.billing import (
 from src.models.bot import Bot
 from src.models.user import Organization, User
 from src.services import stripe_service
-from src.services.entitlement_service import apply_subscription_event, resolve
+from src.services.entitlement_service import (
+    PlanState,
+    apply_subscription_event,
+    grace as es_grace,
+    resolve,
+    set_bot_status,
+)
 from src.services.quota_service import ai_quota_usage, quota_period
 
 logger = logging.getLogger("billing")
@@ -337,19 +343,10 @@ async def billing_on_org_owner_change(
             if not kept:
                 sub.status = "canceled"
 
-    # (b) Côté nouveau payeur : chaque bot de l'org en grâce jusqu'à régularisation.
+    # (b) Côté nouveau payeur : chaque bot de l'org en grâce jusqu'à régularisation
+    # (même façade `grace` que le move perso->équipe ; actor=system, garde sticky).
     for bid in bot_id_set:
-        ent = (await db.execute(
-            select(BotEntitlement).where(BotEntitlement.bot_id == bid)
-        )).scalar_one_or_none()
-        if ent is None:
-            ent = BotEntitlement(bot_id=bid, source="stripe")
-            db.add(ent)
-        ent.modules = []
-        ent.ai_monthly_quota = 0
-        ent.status = "past_due"  # grâce : modules payants dégradés, socle gratuit OK
-        ent.source = "stripe"
-        ent.synced_at = utcnow()
+        await es_grace(db, bid, reason="org_owner_change")
     await db.commit()
 
 
@@ -499,20 +496,13 @@ async def _project_mock_entitlement(
     `duration:once`, carte via if_required). On reflète donc `status='active'`,
     PAS de `trial_end`, et AUCUN plafond IA (le client paie dès le 1er mois)."""
     ai_quota = await _ai_quota_for_codes(db, codes)
-    ent = (await db.execute(
-        select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
-    )).scalar_one_or_none()
-    if ent is None:
-        ent = BotEntitlement(bot_id=bot.id)
-        db.add(ent)
-    ent.modules = sorted(set(modules))
-    ent.ai_monthly_quota = ai_quota
-    # Plus d'essai gratuit : l'abo est ACTIF dès la 1re facture (intro 1er mois
-    # remisé, carte via if_required). Pas de trial_end ni de plafond IA d'essai.
-    ent.status = "active"
-    ent.source = "stripe"
-    ent.trial_end = None
-    ent.synced_at = utcnow()
+    # Abo ACTIF dès la 1re facture (intro 1er mois remisé, carte via if_required).
+    # Pas de trial_end ni de plafond IA d'essai. Via l'unique writer (actor=stripe).
+    await set_bot_status(
+        db, bot.id,
+        new_status="active", actor_kind="stripe", reason="mock_checkout",
+        plan=PlanState(modules=sorted(set(modules)), ai_monthly_quota=ai_quota, trial_end=None),
+    )
 
 
 async def _project_mock_update(
@@ -550,13 +540,16 @@ async def _project_mock_update(
     else:
         ai_quota = await _ai_quota_for_codes(db, target_codes)
 
-    ent.modules = effective_modules
-    ent.ai_monthly_quota = ai_quota
-    # Statut préservé (jamais de retour en arrière vers l'essai sur un payant).
-    if ent.status not in ("active", "trialing", "past_due"):
-        ent.status = "active"
-    ent.source = "stripe"
-    ent.synced_at = utcnow()
+    # Statut préservé (jamais de retour en arrière vers l'essai sur un payant) ; un
+    # statut hors gestion réelle est normalisé en 'active'. Via l'unique writer
+    # (actor=stripe) : préserve la garde sticky (un bot suspended reste suspended).
+    target_status = ent.status if ent.status in ("active", "trialing", "past_due") else "active"
+    await set_bot_status(
+        db, bot.id,
+        new_status=target_status, actor_kind="stripe", reason="mock_update",
+        plan=PlanState(modules=effective_modules, ai_monthly_quota=ai_quota,
+                       trial_end=ent.trial_end),
+    )
 
 
 # --- GET /api/billing/catalog ---------------------------------------------
