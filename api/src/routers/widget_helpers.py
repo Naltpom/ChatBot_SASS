@@ -20,6 +20,7 @@ from src.core.config import settings
 from src.core.security import create_widget_token, widget_token_needs_refresh
 from src.core.triggers import _MAX_TRIGGERS, _TRIGGER_TYPES, _trigger_value_valid
 from src.models.analytics import TreeEvent
+from src.models.billing import BotEntitlement
 from src.models.bot import Bot
 from src.models.conversation import Conversation
 from src.models.user import Organization
@@ -75,19 +76,31 @@ async def _assert_bot_servable(db: AsyncSession, bot: Optional[Bot]) -> Bot:
     Bot perso (organization_id null) : pas de suspension d'org applicable.
 
     DÉCISION plugin WordPress (activation = payante, côté CLIENT) : le bootstrap ET
-    la session servent un bot quel que soit son billing_status (active|inactive|...).
-    Le verrou « n'activer le widget sur le site QUE si le bot est payé » est 100 %
-    dans le plugin WordPress (il lit billing_status via /api/account et n'injecte la
-    balise que si 'active'). On NE rejette donc PAS ici un bot non payé — rationale :
-    (a) l'apparence reste éditable / en aperçu avant paiement ; (b) on évite de couper
-    un visiteur pendant la fenêtre de latence du webhook Stripe juste après un
-    paiement réussi (pas d'état pending_payment côté serveur)."""
+    la session servent un bot quel que soit son billing_status PAYANT
+    (active|inactive|past_due). Le verrou « n'activer le widget sur le site QUE si
+    le bot est payé » est 100 % dans le plugin WordPress (il lit billing_status via
+    /api/account et n'injecte la balise que si 'active'). On NE rejette donc PAS ici
+    un bot non payé — rationale : (a) l'apparence reste éditable / en aperçu avant
+    paiement ; (b) on évite de couper un visiteur pendant la fenêtre de latence du
+    webhook Stripe juste après un paiement réussi (pas d'état pending_payment).
+
+    SEULE EXCEPTION — `status='suspended'` (BLOCAGE ADMIN pour abus) : ce bot
+    précis est COUPÉ côté serveur (404). C'est la seule éligibilité-billing qui
+    coupe réellement le widget (décision produit : « bloquer un bot » bloque le
+    bot, pas seulement ses modules)."""
     if bot is None or not bot.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     if bot.organization_id is not None:
         org = await db.get(Organization, bot.organization_id)
         if org is None or not org.is_active:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    # Blocage admin (abus) : un bot suspended est coupé (anti-énumération : 404
+    # comme un widget inconnu). Lecture scalaire indexée (bot_id unique).
+    bot_status = (await db.execute(
+        select(BotEntitlement.status).where(BotEntitlement.bot_id == bot.id)
+    )).scalar_one_or_none()
+    if bot_status == "suspended":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
     return bot
 
 

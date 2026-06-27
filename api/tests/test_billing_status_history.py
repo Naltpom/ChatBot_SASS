@@ -18,10 +18,13 @@ from datetime import timedelta
 
 import pytest
 
-from conftest import FakeSession
+from fastapi import HTTPException
+
+from conftest import FakeSession, Obj
 from src.core.constants import MODULE_AI, MODULE_RAG
 from src.core.time import utcnow
 from src.models.billing import BotEntitlement, BotStatusHistory
+from src.routers import widget_helpers as wh
 from src.services import entitlement_service as es
 
 
@@ -160,3 +163,25 @@ def test_is_usable_essai_en_cours_vs_expire():
                             trial_end=utcnow() - timedelta(days=1), trial_expired=True)
     assert es.is_usable(en_cours) is True
     assert es.is_usable(expire) is False
+
+
+# --- Widget cut : suspended coupe le widget (404), pas les autres états ---
+
+@pytest.mark.asyncio
+async def test_widget_coupe_si_suspended():
+    db = FakeSession()
+    db.seed(BotEntitlement(bot_id=5, status="suspended", modules=[MODULE_RAG]))
+    bot = Obj(id=5, is_active=True, organization_id=None)
+    with pytest.raises(HTTPException) as ei:
+        await wh._assert_bot_servable(db, bot)
+    assert ei.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_widget_sert_si_past_due_ou_sans_ligne():
+    db = FakeSession()
+    db.seed(BotEntitlement(bot_id=6, status="past_due", modules=[]))
+    bot_pd = Obj(id=6, is_active=True, organization_id=None)
+    assert await wh._assert_bot_servable(db, bot_pd) is bot_pd   # past_due servi
+    bot_free = Obj(id=7, is_active=True, organization_id=None)
+    assert await wh._assert_bot_servable(db, bot_free) is bot_free  # pas de ligne -> servi

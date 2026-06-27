@@ -59,7 +59,7 @@ class EntitlementOverride(BaseModel):
     # valeurs synthétiques (none = aucune ligne d'override, trialing = essai),
     # et le front les renvoie tel quel au save. On les accepte ici puis on les
     # normalise en `active` côté handler (un override staff est par nature actif).
-    status: Optional[str] = Field(None, pattern="^(active|past_due|canceled|inactive|trialing|none)$")
+    status: Optional[str] = Field(None, pattern="^(active|past_due|canceled|inactive|trialing|suspended|none)$")
 
 
 class CatalogPatch(BaseModel):
@@ -674,6 +674,49 @@ async def set_bot_entitlement(bot_id: int, body: EntitlementOverride,
     )
     await db.commit()
 
+    return {
+        "bot_id": bot_id,
+        "modules": sorted(row.modules or []),
+        "ai_monthly_quota": row.ai_monthly_quota,
+        "overage_mode": row.overage_mode or "block",
+        "status": row.status,
+        "source": row.source,
+    }
+
+
+# --- POST /api/admin/bots/{bot_id}/block ----------------------------------
+
+class BlockPayload(BaseModel):
+    """Motif (libre) du blocage admin d'un bot."""
+    reason: Optional[str] = None
+
+
+@router.post("/bots/{bot_id}/block")
+async def block_bot(bot_id: int, body: BlockPayload,
+                    actor: User = Depends(require_superadmin),
+                    db: AsyncSession = Depends(get_db)):
+    """Bloque un bot (abus) : `status='suspended'`, COLLANT. Aucun événement
+    Stripe (même un paiement réussi le mois suivant) ne le débloque — Stripe
+    continue d'encaisser, le bot reste inutilisable. SEUL le déblocage admin
+    (DELETE .../entitlement = reset, re-dérivation) lève le verrou.
+
+    N'altère PAS le plan (plan non fourni) : le bot conserve ses modules, mais
+    devient inutilisable (is_usable False) ET son widget est coupé côté serveur
+    (_assert_bot_servable -> 404). Superadmin only. Billing OFF ⇒ disabled (le
+    resolver renvoie ALL_UNLOCKED, un blocage y serait inerte)."""
+    if not stripe_service.billing_enabled():
+        return _DISABLED
+
+    bot = await db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+
+    row = await set_bot_status(
+        db, bot_id,
+        new_status="suspended", actor_kind="staff", actor_user_id=actor.id,
+        reason=body.reason or "admin_block",
+    )
+    await db.commit()
     return {
         "bot_id": bot_id,
         "modules": sorted(row.modules or []),
