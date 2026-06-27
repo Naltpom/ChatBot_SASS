@@ -55,7 +55,12 @@ from src.routers.bots_helpers import (
     attach_week_stats,
 )
 from src.services.crypto import encrypt_secret
-from src.services.entitlement_service import gate, resolve
+from src.services.entitlement_service import (
+    baseline as es_baseline,
+    gate,
+    grace as es_grace,
+    resolve,
+)
 from src.services.rate_limit import insights_limiter, treegen_limiter
 from src.services.stripe_service import StripeError, billing_enabled, update_subscription_items
 from src.services.tree_engine import TreeError, validate_tree
@@ -146,8 +151,8 @@ async def _billing_status_for_bots(
     INVARIANT billing OFF (D0) : billing_enabled()==False -> {} (tous les bots
     ressortent (None, None), aucun badge). Sinon on lit les bot_entitlements en
     UN seul select : status = le statut de la ligne (trialing|active|past_due|
-    inactive), un bot sans ligne (legacy/dev) reste None. trial_end n'est porte
-    que pour un status='trialing'."""
+    inactive|suspended), un bot sans ligne (legacy/dev) reste None. trial_end
+    n'est porte que pour un status='trialing'."""
     if not billing_enabled() or not bot_ids:
         return {}
     rows = (await db.execute(
@@ -155,8 +160,15 @@ async def _billing_status_for_bots(
     )).scalars().all()
     out: dict[int, tuple[str | None, int | None]] = {}
     for row in rows:
-        status_ = row.status if row.status in (
-            "trialing", "active", "past_due", "inactive") else None
+        # 'canceled' (legacy) est replié sur 'inactive' (= paiement requis) ; les
+        # autres statuts hors liste -> None (aucun badge).
+        raw = row.status
+        if raw == "canceled":
+            status_ = "inactive"
+        elif raw in ("trialing", "active", "past_due", "inactive", "suspended"):
+            status_ = raw
+        else:
+            status_ = None
         trial_end: int | None = None
         if row.status == "trialing" and row.trial_end is not None:
             trial_end = calendar.timegm(row.trial_end.utctimetuple())
@@ -179,13 +191,10 @@ async def _seed_pending_entitlement(db: AsyncSession, bot_id: int) -> None:
     (RÈGLE 2). A commiter par l'appelant (le bot vient d'etre commit)."""
     if not billing_enabled():
         return
-    db.add(BotEntitlement(
-        bot_id=bot_id,
-        modules=[],
-        ai_monthly_quota=0,
-        status="inactive",   # gaté tant que le Checkout (essai avec carte) n'a pas eu lieu
-        source="stripe",
-    ))
+    # Seed GATÉ (inactive) via l'unique writer : pose le statut + la ligne de genèse
+    # d'historique (actor=system, reason=bot_created). Gaté tant que le Checkout
+    # (abonnement payant immédiat) n'a pas eu lieu.
+    await es_baseline(db, bot_id, actor_kind="system", reason="bot_created")
     await db.commit()
 
 
@@ -264,17 +273,9 @@ async def _billing_on_move_payer_change(db: AsyncSession, bot_id: int,
             if not kept:
                 sub.status = "canceled"
 
-    # (b) Cote nouveau payeur : bot en grace jusqu'a regularisation.
-    ent = (await db.execute(
-        select(BotEntitlement).where(BotEntitlement.bot_id == bot_id)
-    )).scalar_one_or_none()
-    if ent is None:
-        ent = BotEntitlement(bot_id=bot_id, source="stripe")
-        db.add(ent)
-    ent.modules = []
-    ent.ai_monthly_quota = 0
-    ent.status = "past_due"  # grace : modules payants degrades, socle gratuit OK
-    ent.synced_at = utcnow()
+    # (b) Cote nouveau payeur : bot en grace jusqu'a regularisation (facade unique
+    # `grace`, actor=system ; respecte la garde sticky si le bot etait suspended).
+    await es_grace(db, bot_id, reason="move_payer_change")
     await db.commit()
 
 

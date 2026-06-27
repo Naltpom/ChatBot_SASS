@@ -72,6 +72,52 @@ class BotEntitlement(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class BotStatusHistory(Base):
+    """Journal d'éligibilité d'un bot (audit qui/quand/comment/pourquoi).
+
+    Source de vérité de l'AUDIT du statut (`bot_entitlements.status` reste le cache
+    lu sur le chemin chaud). Une ligne est écrite UNIQUEMENT quand le statut change
+    (`old_status != new_status`), par l'unique point d'écriture
+    `entitlement_service.set_bot_status`. Genèse : la migration backfill 1 ligne par
+    entitlement existant (`old_status=NULL`, `actor_kind='system'`,
+    `reason='backfill'`) pour que l'audit ne démarre pas vide.
+
+    - actor_kind : QUI/COMMENT a déclenché la transition — `stripe` (webhook),
+      `staff` (override/blocage admin), `owner` (action propriétaire), `system`
+      (création, grâce move/transfert, genèse).
+    - actor_user_id : QUEL utilisateur précis (staff/owner), NULL pour stripe/system.
+    - reason : POURQUOI (subscription.deleted, override staff, admin_block,
+      move_payer_change, bot_created, backfill…).
+    - stripe_event_id : corrélation webhook (NULL hors stripe). PAS unique : un même
+      event Stripe couvre potentiellement plusieurs bots (1 ligne / bot).
+    """
+    __tablename__ = "bot_status_history"
+
+    id = Column(Integer, primary_key=True)
+    bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"),
+                    nullable=False, index=True)
+    old_status = Column(String, nullable=True)   # NULL = genèse (1re ligne)
+    new_status = Column(String, nullable=False)
+    actor_kind = Column(String, nullable=False)  # stripe | staff | owner | system
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"),
+                           nullable=True)
+    reason = Column(String, nullable=True)
+    stripe_event_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class BotStatusHistoryOut(BaseModel):
+    bot_id: int
+    old_status: str | None = None
+    new_status: str
+    actor_kind: str
+    actor_user_id: int | None = None
+    reason: str | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class BillingSubscription(Base):
     """Miroir local des subscriptions Stripe (multi-sub sous 1 customer = le User).
     Index Stripe↔scope que le webhook traduit en entitlements. Schéma CANONIQUE."""
@@ -232,3 +278,29 @@ class BotUsageOut(BaseModel):
     usage_ai_replies: int = 0              # conso durable (source = Message)
     quota_ai_replies: int | None = None    # None = illimité (BYOK / pas de quota)
     reported_overage: int = 0
+
+
+# --- Lien bot <-> site WordPress (plugin back-office) ----------------------
+
+class BillingWordPressLink(Base):
+    """Lien canonique bot <-> site WordPress (plugin back-office). Peuplé par un
+    appel EXPLICITE du plugin (POST /api/account/bots/{id}/link), jamais par
+    post-meta fragile ni inférence webhook. 1 site canonique par bot (bot_id
+    UNIQUE) ; wordpress_site_url modifiable si le client migre."""
+    __tablename__ = "billing_wordpress_links"
+
+    id = Column(Integer, primary_key=True)
+    bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"),
+                    unique=True, nullable=False, index=True)
+    wordpress_site_url = Column(String, nullable=False, index=True)
+    wordpress_post_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class BillingWordPressLinkOut(BaseModel):
+    bot_id: int
+    wordpress_site_url: str
+    wordpress_post_id: int | None = None
+
+    model_config = ConfigDict(from_attributes=True)

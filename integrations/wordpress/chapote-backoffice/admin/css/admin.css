@@ -1,0 +1,150 @@
+/* Chapote Back-Office — styles admin (chargés uniquement sur la page du plugin). */
+
+.chapote-bo-wrap { max-width: 1040px; }
+#chapote-bo-app { margin-top: 16px; }
+
+.cbo-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.cbo-nav-left { display: flex; gap: 6px; }
+.cbo-nav-right { display: flex; gap: 10px; align-items: center; }
+.cbo-conn { color: #50575e; font-size: 13px; }
+.cbo-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.cbo-dot-ok { background: #2f9e79; }
+.cbo-dot-off { background: #b0b5ba; }
+
+.cbo-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 4px; cursor: pointer; font-size: 14px; color: #50575e; }
+.cbo-tab.is-active { color: #135e96; border-bottom-color: #135e96; }
+
+.cbo-card { background: #fff; border: 1px solid #dcdcde; border-radius: 8px; padding: 20px; margin-bottom: 18px; }
+.cbo-body { }
+.cbo-muted { color: #646970; }
+.cbo-error { color: #b32d2e; }
+.cbo-hint { color: #646970; font-size: 12px; font-style: italic; margin: 6px 0 0; }
+
+.cbo-notice { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; border-left: 4px solid #72aee6; background: #f0f6fc; }
+.cbo-notice-ok { border-left-color: #2f9e79; background: #edfaf4; }
+.cbo-notice-warn { border-left-color: #dba617; background: #fcf9e8; }
+.cbo-notice-info { border-left-color: #72aee6; background: #f0f6fc; }
+.cbo-notice-x { background: none; border: 0; font-size: 18px; cursor: pointer; line-height: 1; color: #50575e; }
+
+.cbo-connect { text-align: center; padding: 40px 20px; }
+.cbo-device { margin: 18px 0; }
+.cbo-steps { display: inline-block; text-align: left; }
+.cbo-usercode { font-family: monospace; font-size: 30px; letter-spacing: 6px; font-weight: 700; background: #f6f7f7; border: 1px dashed #c3c4c7; border-radius: 8px; padding: 12px 18px; margin: 12px 0; text-align: center; }
+
+.cbo-row-between { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.cbo-table { margin-top: 10px; }
+.cbo-deeplink { margin-top: 16px; }
+.cbo-create-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+
+.cbo-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.cbo-badge-ok { background: #edfaf4; color: #1a7a5a; }
+.cbo-badge-off { background: #f0f0f1; color: #646970; }
+.cbo-badge-warn { background: #fcf9e8; color: #8a6d1a; }
+
+.cbo-bothead { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+.cbo-bothead h2 { margin: 0; }
+.cbo-subtabs { display: flex; gap: 4px; border-bottom: 1px solid #dcdcde; margin-bottom: 16px; }
+.cbo-subtab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; font-size: 14px; color: #50575e; }
+.cbo-subtab.is-active { color: #135e96; border-bottom-color: #135e96; font-weight: 600; }
+.cbo-pane { }
+
+.cbo-grid2 { display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
+@media (max-width: 900px) { .cbo-grid2 { grid-template-columns: 1fr; } }
+.cbo-field { margin-bottom: 14px; }
+.cbo-field > label { display: block; font-weight: 600; margin-bottom: 4px; }
+.cbo-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cbo-checks { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.cbo-check { display: inline-flex; align-items: center; gap: 7px; }
+.cbo-radio { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
+.cbo-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+
+/* Aperçu apparence — rendu fidèle du vrai widget (widget.js), mis à jour live */
+.cbo-previewcol { position: sticky; top: 40px; align-self: start; }
+.cbo-preview { position: relative; height: 470px; background: linear-gradient(135deg, #eef1f5, #e2e6ec); border: 1px solid #dcdcde; border-radius: 10px; overflow: hidden; }
+
+.cbo-wp { position: absolute; bottom: 126px; width: 300px; background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(10,30,25,.22), 0 2px 8px rgba(10,30,25,.08); display: flex; flex-direction: column; overflow: hidden; font-size: 13px; font-family: 'Public Sans', -apple-system, sans-serif; }
+.cbo-wp.cbo-pos-right { right: 16px; }
+.cbo-wp.cbo-pos-left { left: 16px; }
+.cbo-wp.cbo-size-sm { width: 272px; }
+.cbo-wp.cbo-size-lg { width: 312px; }
+.cbo-wp-dark { background: #101816; color: #e8efed; }
+
+.cbo-wp-head { color: #fff; padding: 11px 13px; display: flex; align-items: center; gap: 10px; }
+.cbo-wp-avatar { width: 32px; height: 32px; border-radius: 10px; background: rgba(255,255,255,.18); color: #fff; display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
+.cbo-wp-avatar svg { width: 18px; height: 18px; }
+.cbo-wp-avatar.cbo-wp-hasimg { background: rgba(255,255,255,.9); }
+.cbo-wp-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cbo-wp-headmid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cbo-wp-title { font-weight: 700; font-size: 14px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cbo-wp-status { font-size: 11px; opacity: .85; display: flex; align-items: center; gap: 5px; }
+.cbo-wp-dot { width: 7px; height: 7px; border-radius: 50%; background: #7CF5C8; flex: 0 0 auto; }
+.cbo-wp-close { opacity: .85; font-size: 18px; line-height: 1; flex: 0 0 auto; }
+
+.cbo-wp-body { padding: 14px 13px; display: flex; flex-direction: column; gap: 9px; min-height: 92px; background: #fafbfb; }
+.cbo-wp-dark .cbo-wp-body { background: #0c1311; }
+.cbo-wp-msg { padding: 9px 12px; font-size: 13px; line-height: 1.45; max-width: 82%; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.cbo-wp-bot { background: #fff; color: #1d2b27; border: 1px solid #e6eae8; align-self: flex-start; border-radius: 4px 14px 14px 14px; }
+.cbo-wp-dark .cbo-wp-bot { background: #1b2624; color: #e8efed; border-color: #233330; }
+.cbo-wp-user { color: #fff; align-self: flex-end; border-radius: 14px 14px 4px 14px; }
+
+.cbo-wp-inputrow { display: flex; align-items: center; gap: 8px; border-top: 1px solid #e9edec; padding: 10px; background: #fff; }
+.cbo-wp-dark .cbo-wp-inputrow { background: #101816; border-top-color: #233330; }
+.cbo-wp-input { flex: 1; color: #8a949a; background: #fff; border: 1px solid #dde3e1; border-radius: 99px; padding: 8px 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cbo-wp-dark .cbo-wp-input { background: #18221f; border-color: #233330; color: #9fb0ab; }
+.cbo-wp-send { width: 34px; height: 34px; border-radius: 50%; color: #fff; display: grid; place-items: center; flex: 0 0 auto; }
+.cbo-wp-send svg { width: 16px; height: 16px; }
+.cbo-wp-powered { text-align: center; font-size: 10px; color: #9aa7a3; padding: 2px 0 8px; background: #fff; }
+.cbo-wp-powered b { font-weight: 700; color: #0d9488; }
+.cbo-wp-dark .cbo-wp-powered { background: #101816; color: #6b7a76; }
+
+.cbo-wp-greeting { position: absolute; bottom: 84px; max-width: 168px; background: #fff; color: #1d2b27; border: 1px solid #e6eae8; border-radius: 14px; padding: 8px 12px; font-size: 12px; line-height: 1.4; box-shadow: 0 8px 26px rgba(10,30,25,.18); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cbo-wp-greeting.cbo-pos-right { right: 16px; }
+.cbo-wp-greeting.cbo-pos-left { left: 16px; }
+
+.cbo-wp-launcher { position: absolute; bottom: 18px; width: 54px; height: 54px; border-radius: 50%; box-shadow: 0 8px 26px rgba(10,30,25,.3); display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 13px; font-weight: 700; }
+.cbo-wp-launcher.cbo-wp-launcher-pill { width: auto; border-radius: 99px; padding: 0 16px 0 12px; }
+.cbo-wp-launcher.cbo-pos-right { right: 16px; }
+.cbo-wp-launcher.cbo-pos-left { left: 16px; }
+.cbo-wp-launcher-ico { width: 26px; height: 26px; display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
+.cbo-wp-launcher-ico svg { width: 24px; height: 24px; }
+.cbo-wp-launcher-ico img { width: 100%; height: 100%; object-fit: cover; border-radius: 35%; display: block; }
+.cbo-wp-launcher-txt { white-space: nowrap; }
+
+/* Paiement */
+.cbo-modules, .cbo-aitiers { margin-bottom: 18px; }
+.cbo-modline { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f0f0f1; }
+.cbo-modname { flex: 1; display: flex; flex-direction: column; }
+.cbo-moddesc { color: #646970; font-size: 12px; }
+.cbo-modprice { color: #50575e; font-variant-numeric: tabular-nums; }
+.cbo-modtag { font-size: 11px; background: #f0f6fc; color: #135e96; padding: 1px 7px; border-radius: 8px; }
+.cbo-airow { display: flex; gap: 18px; flex-wrap: wrap; margin: 8px 0; }
+.cbo-airadio { display: inline-flex; align-items: center; gap: 6px; }
+.cbo-tiers { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.cbo-tier { display: flex; align-items: center; gap: 10px; }
+.cbo-tier span:nth-child(2) { flex: 1; }
+.cbo-total { padding: 12px 0; border-top: 1px solid #dcdcde; font-size: 15px; }
+.cbo-consent { margin: 12px 0; align-items: flex-start; }
+.cbo-statusline { background: #edfaf4; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; }
+.cbo-danger { color: #b32d2e; border-color: #b32d2e; }
+
+/* Activation */
+.cbo-freenote { background: #f0f6fc; border-left: 4px solid #72aee6; border-radius: 6px; padding: 11px 14px; margin-bottom: 16px; }
+.cbo-freenote p { margin: 0; color: #3c5a72; }
+.cbo-freenote a { white-space: nowrap; }
+.cbo-toggle { margin: 12px 0 18px; }
+.cbo-targetmodes { display: flex; gap: 18px; }
+.cbo-custom { background: #f6f7f7; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; margin: 10px 0; }
+.cbo-custom-h { margin: 4px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #50575e; }
+.cbo-custom-h + * { margin-top: 0; }
+.cbo-types { display: flex; gap: 16px; flex-wrap: wrap; }
+
+/* Rappel domaine (bas de l'onglet Activation & ciblage) */
+.cbo-domain { margin-top: 22px; padding-top: 18px; border-top: 1px solid #dcdcde; }
+.cbo-domain p { margin: 6px 0; }
+.cbo-host { display: inline-block; background: #f6f7f7; border: 1px solid #c3c4c7; border-radius: 6px; padding: 6px 12px; font-size: 15px; margin: 6px 0; font-family: monospace; }
+
+/* Toggle d'AFFICHAGE du widget (en-tête du bot + colonne « Sur le site »). */
+.cbo-bothead-toggle { margin-left: auto; }
+.cbo-actoggle { gap: 7px; white-space: nowrap; }
+.cbo-table td .cbo-actoggle { justify-content: center; }
+.cbo-actoggle input[disabled] { cursor: not-allowed; }

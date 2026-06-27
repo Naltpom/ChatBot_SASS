@@ -277,12 +277,14 @@ export function statusChip(isActive: boolean) {
 // ou 'trialing' (statut LEGACY résiduel, traité comme actif — plus de badge essai).
 //   - 'inactive'  -> « Paiement requis » (danger) : Checkout annulé/abandonné ou résilié.
 //   - 'past_due'  -> « Impayé » (warn) : abonnement en relance.
+//   - 'suspended' -> « Bloqué » (danger) : blocage admin (abus). Widget coupé.
 // `trialEnd` : param LEGACY conservé pour la signature des appelants (plus utilisé).
 export function billingChip(status?: BotBillingStatus | null, trialEnd?: number | null) {
   void trialEnd
   if (!status || status === 'active' || status === 'trialing') return null
   if (status === 'inactive') return <Chip tone="danger">Paiement requis</Chip>
   if (status === 'past_due') return <Chip tone="warn">Impayé</Chip>
+  if (status === 'suspended') return <Chip tone="danger">Bloqué</Chip>
   return null
 }
 

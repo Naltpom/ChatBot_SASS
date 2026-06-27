@@ -4,6 +4,7 @@
 // data.tsx (SNIPPET) et GET /api/bots/{id}/embed côté backend.
 import { useState } from 'react'
 import { MONO, SNIPPET, WIDGET_SRC, EXAMPLE_BOT_KEY, eyebrow, sectionH2 } from './data'
+import { WP_PLUGIN_URL } from '../../integrations'
 
 // Snippet colorisé (repris du design). Doit rester cohérent avec SNIPPET :
 // même src, même attribut data-bot-key, même defer.
@@ -42,6 +43,14 @@ export function Install() {
           <div style={{ padding: '22px 22px', fontFamily: MONO, fontSize: 14, lineHeight: 1.7, color: '#E2E8F0', overflowX: 'auto', whiteSpace: 'nowrap' }}><Snippet big /></div>
         </div>
         <p style={{ fontSize: 13.5, color: '#9AA7B4', marginTop: 16 }}>Compatible WordPress, Shopify, Webflow et tout site HTML.</p>
+        {/* CTA discret : pour WordPress, le plugin Chapote pilote tout depuis
+            l'administration (téléchargement du zip — cf. integrations.ts). */}
+        <p style={{ fontSize: 13.5, color: '#6B7B8D', marginTop: 6 }}>
+          Sur WordPress&nbsp;?{' '}
+          <a href={WP_PLUGIN_URL} download style={{ color: '#2F9E79', fontWeight: 600, textDecoration: 'none' }}>
+            Ajouter le plugin à mon WordPress →
+          </a>
+        </p>
       </div>
     </section>
   )

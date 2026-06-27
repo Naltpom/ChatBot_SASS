@@ -1,0 +1,10 @@
+# Le WordPress de test vit dans des volumes Docker nommés (chapote_wp_core /
+# chapote_wp_db) : rien n'arrive normalement ici. On ignore tout de même les
+# éventuels dossiers locaux si l'on bascule un jour sur des bind-mounts, pour
+# ne JAMAIS committer le coeur WP, la base ou les téléversements.
+.local/
+wp-core/
+wp-data/
+wp-content/uploads/
+*.sql
+*.sqlite

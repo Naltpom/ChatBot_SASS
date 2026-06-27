@@ -4,7 +4,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Building2, Check, ChevronDown, CircleUser,
-  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, ShieldCheck, Target, Users,
+  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, Plug, ShieldCheck, Target, Users,
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
@@ -147,6 +147,12 @@ export default function Layout({ children }: { children: ReactNode }) {
               <button className={`nav-item ${path.startsWith('/app/inbox') ? 'active' : ''}`}
                       onClick={() => navigate('/app/inbox')}>
                 <span className="nav-ico"><Inbox size={16} /></span>Inbox
+              </button>
+              {/* Intégrations : connecter un site WordPress via le plugin Chapote
+                  (mode d'emploi + téléchargement + écran de consentement OAuth). */}
+              <button className={`nav-item ${path.startsWith('/app/integrations') ? 'active' : ''}`}
+                      onClick={() => navigate('/app/integrations')}>
+                <span className="nav-ico"><Plug size={16} /></span>Intégrations
               </button>
               {/* Facturation : visible uniquement pour un payeur (owner d'org ou
                   compte perso) ; masquée pour un admin non-owner (canSeeBilling).

@@ -200,3 +200,10 @@ demo_global_limiter = RateLimiter("rl:demoglobal:", settings.DEMO_GLOBAL_PER_DAY
 # l'abus. Memes semantiques fenetre glissante 24 h + fail-open.
 demo_chat_ip_limiter = RateLimiter("rl:demochatip:", settings.DEMO_CHAT_IP_PER_DAY, 86400)
 demo_chat_global_limiter = RateLimiter("rl:demochatglobal:", settings.DEMO_CHAT_GLOBAL_PER_DAY, 86400)
+# --- OAuth « plugin » (Authorization Code + PKCE, surface externe) ---
+# Émission de codes d'autorisation (par IP, dashboard authentifié) : anti-abus.
+oauth_authorize_limiter = RateLimiter("rl:oauthauthz:", 20, 60)
+# Échange /token (par IP) : couvre authorization_code + refresh_token.
+oauth_token_limiter = RateLimiter("rl:oauthtoken:", 30, 60)
+# Rotation refresh (par IP) : 30 / jour.
+oauth_refresh_limiter = RateLimiter("rl:oauthrefresh:", 30, 86400)
