@@ -17,16 +17,16 @@ Marque : chapeau Chapote blanc sur fond navy `#1C3F5C`, accent menthe `#2F9E79`
 (source : `app/public/brand/icon.svg`). Rendus en PNG via un navigateur headless
 (Playwright) à partir du SVG de marque.
 
-## À CAPTURER avant soumission (screenshots)
-Captures à faire **sur une install propre** (données neutres, pas de bots de test),
-puis à déposer ici. Décrits dans `readme.txt` (section `== Screenshots ==`) :
+## Screenshots (fournis)
+Rendus **fidèles** de l'interface réelle (CSS et balisage réels du plugin, données
+de démo neutres). Tu peux les garder tels quels ou les remplacer par des captures
+brutes prises sur ton install. Décrits dans `readme.txt` (`== Screenshots ==`) :
 
-1. `screenshot-1.png` — « Mes bots » : liste, badge de facturation, **interrupteur
-   « Sur le site »** par bot.
+1. `screenshot-1.png` — « Mes bots » : liste + **interrupteur « Sur le site »** par bot.
 2. `screenshot-2.png` — Gestion d'un bot : en-tête avec l'**interrupteur d'affichage**
    + onglet « Ciblage des pages ».
-3. `screenshot-3.png` — « Mon offre » : catalogue/abonnement (Stripe Checkout).
-4. `screenshot-4.png` — Onglet **SEO** : lien « Powered by » opt-in + éditeur de FAQ
+3. `screenshot-3.png` — Onglet **SEO** : lien « Powered by » opt-in + éditeur de FAQ
    (données structurées schema.org).
 
-Format conseillé : largeur ~1200 px, PNG, cadré sur la zone du plugin.
+*(Optionnel : `screenshot-4.png` — « Mon offre » / catalogue Stripe, à capturer si tu
+veux montrer le paiement.)* Format : ~1120 px de large, PNG.
