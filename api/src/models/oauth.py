@@ -1,20 +1,23 @@
-"""OAuth « plugin » (device flow RFC 8628) — connexion des intégrations externes
-(plugin WordPress) au compte Chapote, SANS exposer le JWT dashboard.
+"""OAuth « plugin » (Authorization Code + PKCE, RFC 7636) — connexion des
+intégrations externes (plugin WordPress) au compte Chapote, SANS exposer le JWT
+dashboard.
 
 Surface EXTERNE (cf. routers/external/) : authentifiée par un access token JWT de
 scope 'plugin' (jamais 'dashboard'). Deux tables :
 
-- OAuthDeviceAuthorization : appairage par device flow. Le plugin obtient un
-  device_code + un user_code court ; l'utilisateur (connecté au dashboard) saisit
-  le user_code sur /link et approuve ; le plugin échange ensuite le device_code
-  contre une paire de tokens. Aucune URL de redirection => zéro open-redirect,
-  fonctionne sur des domaines WordPress arbitraires.
+- OAuthAuthorizationCode : code d'autorisation à usage unique, émis par le
+  dashboard (page /authorize, utilisateur CONNECTÉ) après consentement. Lié à un
+  redirect_uri (la page admin du plugin) + un code_challenge PKCE (S256). Le
+  plugin échange ensuite le code (server-to-server) contre une paire de tokens en
+  prouvant la possession du code_verifier. Sécurité : PKCE + redirect_uri lié +
+  state CSRF (côté client) + code one-time + TTL court.
 - OAuthToken : refresh token OPAQUE persistant (rotation + détection de rejeu).
   L'access token est un JWT stateless scope='plugin' (aucune ligne ici).
 
-Sécurité : les secrets (device_code, refresh_token) sont stockés HACHÉS (SHA-256)
-— la valeur en clair n'est connue que du client. Conventions repo : utcnow()
-(src/core/time), DateTime SANS timezone, server_default=text(...) pour les NOT NULL.
+Sécurité : les secrets (code d'autorisation, refresh_token) sont stockés HACHÉS
+(SHA-256) — la valeur en clair n'est connue que du client. Conventions repo :
+utcnow() (src/core/time), DateTime SANS timezone, server_default=text(...) pour
+les NOT NULL.
 """
 from sqlalchemy import (
     Boolean,
@@ -30,31 +33,27 @@ from src.core.database import Base
 from src.core.time import utcnow
 
 
-class OAuthDeviceAuthorization(Base):
-    """Appairage device flow (RFC 8628).
+class OAuthAuthorizationCode(Base):
+    """Code d'autorisation OAuth (Authorization Code + PKCE S256).
 
-    Statuts : pending -> approved -> consumed (token émis) ; ou denied / expired.
-    Codes à usage unique et courts (TTL ~10 min). Le device_code est haché ;
-    le user_code (court, affiché/saisi) est stocké en clair sous forme canonique
-    « XXXX-XXXX »."""
-    __tablename__ = "oauth_device_authorizations"
+    Émis par le dashboard après consentement de l'utilisateur connecté, à usage
+    UNIQUE (used_at) et TTL court (~5 min). Le `code` est haché ; la valeur en
+    clair n'est connue que du client. Lié à un redirect_uri (page admin du plugin)
+    et à un code_challenge : l'échange exige redirect_uri identique + preuve PKCE
+    (base64url-sans-padding(sha256(code_verifier)) == code_challenge)."""
+    __tablename__ = "oauth_authorization_codes"
 
     id = Column(Integer, primary_key=True)
-    client_id = Column(String, nullable=False)                                  # ex. 'chapote_wp'
-    device_code_hash = Column(String, unique=True, nullable=False, index=True)  # sha256 du device_code
-    user_code = Column(String, unique=True, nullable=False, index=True)         # court, saisi par l'utilisateur
+    code_hash = Column(String, unique=True, nullable=False, index=True)  # sha256 du code clair
+    client_id = Column(String, nullable=False)                          # ex. 'chapote_wp'
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    redirect_uri = Column(String, nullable=False)                       # page admin du plugin (lié au code)
+    code_challenge = Column(String, nullable=False)                     # PKCE : base64url-no-pad(sha256(verifier))
+    code_challenge_method = Column(String, nullable=False, default="S256", server_default=text("'S256'"))
     scope = Column(String, nullable=False, default="plugin", server_default=text("'plugin'"))
-    # pending | approved | consumed | denied | expired
-    status = Column(String, nullable=False, default="pending", server_default=text("'pending'"))
-    # Lié à l'approbation (NULL tant que pending) :
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
-    # Contexte facultatif fourni par le plugin (affiché dans l'écran de consentement) :
-    site_url = Column(String, nullable=True)
-    interval_seconds = Column(Integer, nullable=False, default=5, server_default=text("'5'"))
     created_at = Column(DateTime, default=utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    approved_at = Column(DateTime, nullable=True)
-    last_polled_at = Column(DateTime, nullable=True)
+    used_at = Column(DateTime, nullable=True)  # NULL tant que non échangé (usage unique)
 
 
 class OAuthToken(Base):

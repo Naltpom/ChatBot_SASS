@@ -16,13 +16,13 @@ delete_option('chapote_bo_bots_local');
 delete_option('chapote_bo_tokens');
 delete_option('chapote_bo_enc_secret');
 
-// Transients de device flow éventuellement laissés (par utilisateur).
+// Transients PKCE (state + code_verifier) éventuellement laissés (par utilisateur).
 global $wpdb;
-$like = $wpdb->esc_like('_transient_chapote_bo_device_') . '%';
+$like = $wpdb->esc_like('_transient_chapote_bo_pkce_') . '%';
 $wpdb->query(
     $wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $like)
 );
-$like_to = $wpdb->esc_like('_transient_timeout_chapote_bo_device_') . '%';
+$like_to = $wpdb->esc_like('_transient_timeout_chapote_bo_pkce_') . '%';
 $wpdb->query(
     $wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $like_to)
 );

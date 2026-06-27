@@ -14,7 +14,7 @@ Le back-office Chapote dans WordPress : connectez-vous, gérez vos bots, l'appar
 
 Chapote Back-Office transforme WordPress en tableau de bord léger de votre compte Chapote. Depuis l'admin, vous pouvez :
 
-* Vous connecter à Chapote (« Se connecter avec Chapote », flux device OAuth — aucun mot de passe saisi dans WordPress).
+* Vous connecter à Chapote (« Se connecter avec Chapote », OAuth Authorization Code + PKCE — redirection vers l'écran de consentement Chapote, aucun mot de passe saisi dans WordPress).
 * Voir et créer vos bots.
 * Éditer l'apparence du widget (couleurs, position, textes, mode sombre…) avec un aperçu.
 * Souscrire un abonnement (modules + IA) : le paiement se fait sur la page sécurisée hébergée par Stripe (redirection), pas dans WordPress.
@@ -30,7 +30,7 @@ Le jeton d'accès à votre compte ne transite JAMAIS par le navigateur : le Java
 
 Ce plugin communique avec des services externes :
 
-1. **API Chapote** (par défaut https://chapote.fr, configurable) — connexion OAuth (device flow), gestion des bots, apparence, abonnement. Le widget public charge le script `/widget.js` depuis ce domaine sur les pages où il est activé.
+1. **API Chapote** (par défaut https://chapote.fr, configurable) — connexion OAuth (Authorization Code + PKCE), gestion des bots, apparence, abonnement. L'écran de consentement s'affiche sur le dashboard Chapote (réglage « adresse du dashboard », par défaut identique à l'API). Le widget public charge le script `/widget.js` depuis ce domaine sur les pages où il est activé.
    * Conditions : https://chapote.fr/legal/cgu
    * Confidentialité : https://chapote.fr/legal/confidentialite
 2. **Stripe** (https://stripe.com) — uniquement par **redirection** vers la page de paiement hébergée (Stripe Checkout). Aucune donnée de carte ne transite par WordPress. L'activation après paiement est confirmée par un webhook côté Chapote.
@@ -47,7 +47,7 @@ Ce plugin communique avec des services externes :
 == Frequently Asked Questions ==
 
 = Mes identifiants Chapote sont-ils stockés dans WordPress ? =
-Non. La connexion utilise un flux OAuth « device » : vous validez le code sur le site Chapote. WordPress ne stocke qu'un jeton d'accès, chiffré, jamais exposé au navigateur.
+Non. La connexion utilise OAuth Authorization Code + PKCE : vous êtes redirigé vers Chapote pour autoriser ce site (écran de consentement affichant le domaine), puis ramené dans l'admin. WordPress ne stocke qu'un jeton d'accès, chiffré, jamais exposé au navigateur.
 
 = Pourquoi le widget ne s'active-t-il pas ? =
 L'activation sur le site n'est possible que si l'abonnement du bot est « actif » (payé). Vérifiez l'onglet Paiement.

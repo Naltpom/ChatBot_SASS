@@ -268,6 +268,7 @@ async def require_billing_owner(bot: "Bot", user: "User", db: AsyncSession):
 # Constantes de module (même pattern que TWOFA_CHALLENGE_EXPIRE_MINUTES).
 OAUTH_PLUGIN_CLIENT_ID = "chapote_wp"
 OAUTH_PLUGIN_ACCESS_EXPIRE_MINUTES = 1440  # access JWT scope='plugin' (24h ; refresh opaque rotatif 90j en base)
+OAUTH_AUTH_CODE_EXPIRE_MINUTES = 5  # code d'autorisation (Authorization Code + PKCE) : usage unique, TTL court
 
 
 def create_oauth_token(user_id: int) -> str:

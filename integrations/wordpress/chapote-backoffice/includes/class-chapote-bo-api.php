@@ -2,10 +2,10 @@
 /**
  * Client HTTP server-to-server vers l'API Chapote.
  *
- * Toute la mécanique OAuth (device flow, refresh par rotation, revoke) et tous
- * les appels « account » passent par ici, DEPUIS LE PHP. Le navigateur ne voit
- * jamais le token : il parle au proxy REST (class-chapote-bo-rest.php), qui
- * appelle ces méthodes.
+ * Toute la mécanique OAuth (Authorization Code + PKCE, refresh par rotation,
+ * revoke) et tous les appels « account » passent par ici, DEPUIS LE PHP. Le
+ * navigateur ne voit jamais le token : il parle au proxy REST
+ * (class-chapote-bo-rest.php), qui appelle ces méthodes.
  *
  * Toutes les méthodes renvoient un tableau uniforme :
  *   array( 'status' => int, 'data' => array )
@@ -63,23 +63,115 @@ class Chapote_BO_API {
     }
 
     /* ---------------------------------------------------------------------- */
-    /* OAuth device flow (RFC 8628)                                           */
+    /* OAuth Authorization Code + PKCE (S256, RFC 7636)                        */
     /* ---------------------------------------------------------------------- */
 
-    /** POST /api/oauth/device → device_code + user_code + verification_uri… */
-    public static function device_start($site_url) {
-        return self::request('POST', '/api/oauth/device', array(
-            'client_id' => CHAPOTE_BO_OAUTH_CLIENT_ID,
-            'site_url'  => $site_url,
-        ));
+    /**
+     * redirect_uri = page admin du plugin. Constante et IDENTIQUE entre la
+     * construction de l'URL d'autorisation et l'échange du code (le serveur
+     * d'autorisation exige une correspondance stricte). Sans code/state.
+     */
+    public static function redirect_uri() {
+        return admin_url('admin.php?page=chapote-backoffice');
     }
 
-    /** POST /api/oauth/token (grant device_code) → polling. */
-    public static function device_poll($device_code) {
-        return self::request('POST', '/api/oauth/token', array(
-            'grant_type'  => 'urn:ietf:params:oauth:grant-type:device_code',
-            'device_code' => $device_code,
+    /** Clé du transient PKCE (un en-cours par utilisateur WP). */
+    private static function pkce_key() {
+        return 'chapote_bo_pkce_' . get_current_user_id();
+    }
+
+    /** base64url SANS padding : '+/' → '-_' et '=' retiré (RFC 7636 §A). */
+    public static function b64url($bin) {
+        return rtrim(strtr(base64_encode($bin), '+/', '-_'), '=');
+    }
+
+    /** Octets aléatoires cryptographiques (random_bytes, repli openssl). */
+    private static function random_bytes_safe($len) {
+        try {
+            return random_bytes($len);
+        } catch (Exception $e) {
+            return openssl_random_pseudo_bytes($len);
+        }
+    }
+
+    /**
+     * Construit l'URL d'autorisation (Authorization Code + PKCE/S256).
+     *
+     * Génère un state (anti-CSRF), un code_verifier (86 car. base64url, dans la
+     * borne 43-128) et le code_challenge = base64url(sha256(verifier)). Le state
+     * ET le verifier sont conservés CÔTÉ SERVEUR (transient par utilisateur),
+     * jamais exposés au navigateur. Renvoie l'URL ABSOLUE à ouvrir, pointant vers
+     * l'écran de consentement du DASHBOARD (app_base), pas l'API.
+     *
+     * @return string
+     */
+    public static function build_authorize_url() {
+        $state     = self::b64url(self::random_bytes_safe(32));
+        $verifier  = self::b64url(self::random_bytes_safe(64));
+        $challenge = self::b64url(hash('sha256', $verifier, true));
+
+        set_transient(self::pkce_key(), array(
+            'state'    => $state,
+            'verifier' => $verifier,
+        ), 10 * MINUTE_IN_SECONDS);
+
+        $args = array(
+            'response_type'         => 'code',
+            'client_id'             => CHAPOTE_BO_OAUTH_CLIENT_ID,
+            'redirect_uri'          => self::redirect_uri(),
+            'state'                 => $state,
+            'code_challenge'        => $challenge,
+            'code_challenge_method' => 'S256',
+            'scope'                 => 'plugin',
+        );
+        return Chapote_BO_Options::app_base()
+            . '/authorize?' . http_build_query($args, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    /** PKCE en attente { state, verifier } pour l'utilisateur courant, ou null. */
+    public static function pkce_pending() {
+        $p = get_transient(self::pkce_key());
+        if (is_array($p) && !empty($p['verifier']) && isset($p['state'])) {
+            return $p;
+        }
+        return null;
+    }
+
+    /** Purge le PKCE en attente (code one-time : on nettoie après échange). */
+    public static function clear_pkce_pending() {
+        delete_transient(self::pkce_key());
+    }
+
+    /**
+     * Échange le code d'autorisation contre une paire de tokens
+     * (grant authorization_code, server-to-server) puis stocke les tokens
+     * chiffrés. Le redirect_uri envoyé est IDENTIQUE à celui de l'autorisation.
+     *
+     * @return array{status:int,data:array}
+     */
+    public static function exchange_code($code, $code_verifier) {
+        $res = self::request('POST', '/api/oauth/token', array(
+            'grant_type'    => 'authorization_code',
+            'code'          => (string) $code,
+            'redirect_uri'  => self::redirect_uri(),
+            'code_verifier' => (string) $code_verifier,
+            'client_id'     => CHAPOTE_BO_OAUTH_CLIENT_ID,
         ));
+
+        if ($res['status'] === 200 && !empty($res['data']['access_token'])) {
+            $d  = $res['data'];
+            $ok = Chapote_BO_Tokens::save(
+                $d['access_token'],
+                isset($d['refresh_token']) ? $d['refresh_token'] : '',
+                isset($d['expires_in']) ? $d['expires_in'] : 0,
+                isset($d['scope']) ? $d['scope'] : '',
+                isset($d['token_type']) ? $d['token_type'] : 'Bearer'
+            );
+            if (!$ok) {
+                return array('status' => 500, 'data' => array('error' => 'storage_failed'));
+            }
+        }
+        return $res;
     }
 
     /** POST /api/oauth/token (grant refresh_token) → rotation. */

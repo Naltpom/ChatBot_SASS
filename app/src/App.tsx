@@ -10,8 +10,7 @@ import Showcase from './pages/Showcase'
 import Demo from './pages/Demo'
 import Login from './pages/Login'
 import Register from './pages/Register'
-// Page /link aliasée : `Link` est déjà importé de react-router-dom ci-dessus.
-import LinkDevice from './pages/Link'
+import Authorize from './pages/Authorize'
 import BotList from './pages/BotList'
 import BotWizard from './pages/BotWizard'
 import BotPage from './pages/BotPage'
@@ -21,6 +20,7 @@ import MyOrgs from './pages/MyOrgs'
 import Analytics from './pages/Analytics'
 import Inbox from './pages/Inbox'
 import Billing from './pages/Billing'
+import Integrations from './pages/Integrations'
 import AdminHome, { AdminClient } from './pages/Admin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminUsers from './pages/AdminUsers'
@@ -117,9 +117,10 @@ export function AppRoutes() {
       <Route path="/demo" element={<Demo />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      {/* Appairage plugin WordPress (device flow). Auth gérée DANS la page :
-          si non connecté, elle mémorise le retour puis renvoie vers /login. */}
-      <Route path="/link" element={<LinkDevice />} />
+      {/* Consentement OAuth du plugin WordPress (Authorization Code + PKCE).
+          Auth gérée DANS la page : si non connecté, elle mémorise le retour
+          puis renvoie vers /login (cbsaas_after_login). */}
+      <Route path="/authorize" element={<Authorize />} />
       {/* Pages légales (publiques) — rendues depuis les .md de src/legal. */}
       <Route path="/mentions-legales" element={<LegalPage md={mentionsMd} />} />
       <Route path="/cgu" element={<LegalPage md={cguMd} />} />
@@ -131,6 +132,7 @@ export function AppRoutes() {
       <Route path="/app/bots/:id" element={<Protected><BotPage /></Protected>} />
       <Route path="/app/analytics" element={<Protected><Analytics /></Protected>} />
       <Route path="/app/inbox" element={<Protected><Inbox /></Protected>} />
+      <Route path="/app/integrations" element={<Protected><Integrations /></Protected>} />
       <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
       <Route path="/app/team" element={<Protected><Team /></Protected>} />
       <Route path="/app/orgs" element={<Protected><MyOrgs /></Protected>} />

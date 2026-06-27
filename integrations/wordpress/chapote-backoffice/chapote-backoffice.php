@@ -18,7 +18,8 @@
  *   Le JS du navigateur n'appelle JAMAIS Chapote directement (CORS + secret) :
  *   il parle au proxy REST WordPress, qui détient le token CHIFFRÉ et le relaie.
  *
- *   Connexion = device flow OAuth (RFC 8628) « Se connecter avec Chapote ».
+ *   Connexion = OAuth Authorization Code + PKCE (S256) « Se connecter avec Chapote »
+ *               (redirection vers l'écran de consentement du dashboard, retour /wp-admin).
  *   Paiement  = Stripe Checkout hébergé (redirection), retour /wp-admin, activation par webhook Chapote.
  *   Le ciblage des pages et l'activation du widget sont 100 % WordPress (options locales).
  */
@@ -86,7 +87,7 @@ function chapote_bo_register_privacy_content() {
         return;
     }
     $content = wp_kses_post(
-        '<p>' . __('Le plugin Chapote Back-Office se connecte à l\'API Chapote (OAuth device flow) pour gérer vos bots et déclenche une redirection vers Stripe Checkout pour le paiement. Le widget public charge un script depuis le domaine Chapote configuré.', 'chapote-backoffice') . '</p>'
+        '<p>' . __('Le plugin Chapote Back-Office se connecte à l\'API Chapote (OAuth Authorization Code + PKCE) pour gérer vos bots et déclenche une redirection vers Stripe Checkout pour le paiement. Le widget public charge un script depuis le domaine Chapote configuré.', 'chapote-backoffice') . '</p>'
     );
     wp_add_privacy_policy_content('Chapote Back-Office', $content);
 }

@@ -2,8 +2,14 @@
 /**
  * Accès centralisé aux options du plugin.
  *
- * - chapote_bo_settings   : { api_base }
+ * - chapote_bo_settings   : { api_base, app_base }
  * - chapote_bo_bots_local : { <bot_id> : { enabled, public_key, billing_status, name, targeting } }
+ *
+ * api_base = API Chapote (server-to-server, ex. https://chapote.fr ou, en local,
+ *            http://host.docker.internal:8001).
+ * app_base = Dashboard Chapote (écran de consentement OAuth /authorize, ouvert
+ *            DANS LE NAVIGATEUR, ex. https://chapote.fr ou, en local,
+ *            http://host.docker.internal:3001). Par défaut = api_base.
  *
  * Le ciblage des pages et l'activation du widget sont 100 % WordPress : ces
  * données ne quittent jamais le site (aucun appel Chapote pour les lire).
@@ -45,6 +51,40 @@ class Chapote_BO_Options {
         $s['api_base'] = untrailingslashit($url);
         update_option(self::SETTINGS, $s);
         return $s['api_base'];
+    }
+
+    /**
+     * Adresse du dashboard Chapote (écran de consentement OAuth ouvert dans le
+     * navigateur). Par défaut = api_base : en production l'API et le dashboard
+     * partagent le même domaine (https://chapote.fr) ; en local on les sépare
+     * (app_base=:3001, api_base=:8001).
+     */
+    public static function app_base() {
+        $s = get_option(self::SETTINGS, array());
+        if (is_array($s) && !empty($s['app_base'])) {
+            return untrailingslashit($s['app_base']);
+        }
+        return self::api_base();
+    }
+
+    /**
+     * Enregistre l'adresse du dashboard après assainissement. Une valeur vide
+     * supprime le réglage : app_base retombe alors sur api_base.
+     */
+    public static function set_app_base($url) {
+        $url = esc_url_raw(trim((string) $url), array('http', 'https'));
+        $s = get_option(self::SETTINGS, array());
+        if (!is_array($s)) {
+            $s = array();
+        }
+        if ($url === '') {
+            unset($s['app_base']);
+            update_option(self::SETTINGS, $s);
+            return self::api_base();
+        }
+        $s['app_base'] = untrailingslashit($url);
+        update_option(self::SETTINGS, $s);
+        return $s['app_base'];
     }
 
     /** @return array tous les états locaux des bots. */

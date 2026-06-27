@@ -84,7 +84,6 @@
     view: 'connect',   // connect | bots | bot
     botId: null,
     botTab: 'appearance',
-    poll: null,
     notice: null
   };
 
@@ -157,64 +156,36 @@
       wrap.appendChild(h('p', { class: 'cbo-error', text:
         'OpenSSL (AES-256-GCM) indisponible : impossible de stocker vos identifiants de façon chiffrée.' }));
     }
-    var panel = h('div', { class: 'cbo-device' });
-    wrap.appendChild(panel);
-    wrap.appendChild(h('button', { class: 'button button-primary button-hero', disabled: CFG.cryptoOk === false,
-      onClick: function () { startDevice(panel); } }, 'Se connecter avec Chapote'));
+    wrap.appendChild(h('p', { class: 'cbo-muted', text:
+      'Vous serez redirigé vers Chapote pour autoriser ce site, puis ramené ici automatiquement.' }));
+    var info = h('div', { class: 'cbo-device' });
+    wrap.appendChild(info);
+    var btn = h('button', { class: 'button button-primary button-hero', disabled: CFG.cryptoOk === false,
+      onClick: function () { startConnect(btn, info); } }, 'Se connecter avec Chapote');
+    wrap.appendChild(btn);
     return wrap;
   }
 
-  function startDevice(panel) {
-    clear(panel);
-    panel.appendChild(h('p', { class: 'cbo-muted', text: 'Préparation de la connexion…' }));
-    call('POST', '/connect/start').then(function (res) {
-      if (!res.ok || !res.data.user_code) {
-        clear(panel);
-        panel.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de démarrer la connexion. Vérifiez l’adresse de l’API dans Réglages.' }));
+  // Authorization Code + PKCE : on demande au proxy l'URL d'autorisation (qui a
+  // généré state + code_verifier CÔTÉ SERVEUR) puis on quitte WordPress vers
+  // l'écran de consentement Chapote. Aucun secret ne transite par le JS.
+  function startConnect(btn, info) {
+    btn.disabled = true;
+    clear(info);
+    info.appendChild(h('p', { class: 'cbo-muted', text: 'Redirection vers Chapote…' }));
+    call('GET', '/connect/url').then(function (res) {
+      if (!res.ok || !res.data || !res.data.url) {
+        btn.disabled = (CFG.cryptoOk === false);
+        clear(info);
+        info.appendChild(h('p', { class: 'cbo-error', text:
+          'Impossible de démarrer la connexion. Vérifiez les adresses (API et dashboard) dans les réglages.' }));
         return;
       }
-      var d = res.data;
-      clear(panel);
-      panel.appendChild(h('div', { class: 'cbo-steps' },
-        h('p', null, '1. Ouvrez la page de validation Chapote.'),
-        h('p', null, '2. Connectez-vous puis confirmez le code ci-dessous.'),
-        h('div', { class: 'cbo-usercode', text: d.user_code }),
-        h('a', { class: 'button button-primary', href: d.verification_uri_complete || d.verification_uri, target: '_blank', rel: 'noopener' },
-          'Ouvrir la page de validation'),
-        h('p', { class: 'cbo-muted cbo-poll', text: 'En attente de validation…' })
-      ));
-      pollDevice(panel, Math.max(2, parseInt(d.interval, 10) || 5));
+      window.location.href = res.data.url;
     });
   }
 
-  function pollDevice(panel, interval) {
-    if (state.poll) clearTimeout(state.poll);
-    state.poll = setTimeout(function () {
-      call('POST', '/connect/poll').then(function (res) {
-        var s = res.data && res.data.status;
-        if (s === 'connected') {
-          state.poll = null;
-          state.connected = true;
-          state.view = 'bots';
-          setNotice('Connexion réussie.', 'ok');
-          loadAccount();
-          loadBots();
-          return;
-        }
-        if (s === 'pending') {
-          pollDevice(panel, Math.max(2, parseInt(res.data.interval, 10) || interval));
-          return;
-        }
-        // expired | error
-        state.poll = null;
-        var poll = panel.querySelector('.cbo-poll');
-        if (poll) { poll.textContent = 'Connexion expirée ou refusée. Relancez la connexion.'; poll.className = 'cbo-error'; }
-      });
-    }, interval * 1000);
-  }
-
   function disconnect() {
-    if (state.poll) { clearTimeout(state.poll); state.poll = null; }
     call('POST', '/disconnect').then(function () {
       state.connected = false; state.account = null; state.bots = []; state.view = 'connect';
       render();
@@ -273,7 +244,7 @@
 
     wrap.appendChild(h('p', { class: 'cbo-muted cbo-deeplink' },
       'L’arbre de conversation, la base de connaissances et la sécurité se configurent dans le dashboard Chapote : ',
-      h('a', { href: CFG.apiBase + '/app', target: '_blank', rel: 'noopener', text: 'ouvrir le dashboard' }),
+      h('a', { href: (CFG.appBase || CFG.apiBase) + '/app', target: '_blank', rel: 'noopener', text: 'ouvrir le dashboard' }),
       '.'
     ));
     return wrap;
@@ -832,7 +803,7 @@
       h('p', null, 'Pour que le widget réponde aux visiteurs, ajoutez ce domaine à la liste des domaines autorisés de votre bot (onglet Sécurité dans Chapote) :'),
       h('code', { class: 'cbo-host', text: CFG.siteHost || '' }),
       h('p', { class: 'cbo-muted', text: 'La sécurité (domaines autorisés, captcha, limites) se gère côté Chapote, pas dans WordPress.' }),
-      h('p', null, h('a', { href: CFG.apiBase + '/app', target: '_blank', rel: 'noopener', text: 'Ouvrir le dashboard Chapote' }))
+      h('p', null, h('a', { href: (CFG.appBase || CFG.apiBase) + '/app', target: '_blank', rel: 'noopener', text: 'Ouvrir le dashboard Chapote' }))
     ));
   }
 
@@ -850,8 +821,30 @@
 
   /* ------------------------------------------------------------------ boot */
 
-  function boot() {
-    if (!root) return;
+  // Lit un éventuel retour OAuth (?code=&state= ou ?error=) sur l'URL admin.
+  function readOAuthCallback() {
+    try {
+      var p = new URLSearchParams(window.location.search);
+      var err = p.get('error');
+      if (err) return { error: err };
+      var code = p.get('code'), st = p.get('state');
+      if (code && st) return { code: code, state: st };
+    } catch (e) {}
+    return null;
+  }
+
+  // Retire code/state/error de la barre d'adresse SANS recharger (anti-rejeu au refresh).
+  function cleanUrl() {
+    try {
+      var u = new URL(window.location.href);
+      ['code', 'state', 'error', 'error_description'].forEach(function (k) { u.searchParams.delete(k); });
+      window.history.replaceState({}, document.title, u.pathname + u.search + u.hash);
+    } catch (e) {}
+  }
+
+  // Charge /status puis peint l'écran adéquat (connecté → bots, sinon → connexion).
+  // `after` est appelé une fois le rendu effectué (pour poser une notice).
+  function loadStatusAndRender(after) {
     call('GET', '/status').then(function (res) {
       state.connected = !!(res.data && res.data.connected);
       state.account = (res.data && res.data.account) ? res.data.account : null;
@@ -874,7 +867,43 @@
         state.view = 'connect';
         render();
       }
+      if (typeof after === 'function') after();
     });
+  }
+
+  // Retour OAuth : on nettoie l'URL d'abord, puis on échange le code côté serveur
+  // (le proxy vérifie le state et détient le code_verifier). Le code est one-time.
+  function handleOAuthCallback(cb) {
+    cleanUrl();
+    if (cb.error) {
+      loadStatusAndRender(function () {
+        setNotice('Connexion annulée ou refusée (' + cb.error + '). Vous pouvez réessayer.', 'warn');
+      });
+      return;
+    }
+    state.connected = false; state.view = 'connect';
+    render();
+    setNotice('Finalisation de la connexion…', 'info');
+    call('POST', '/connect/callback', { code: cb.code, state: cb.state }).then(function (res) {
+      if (res.ok && res.data && res.data.status === 'connected') {
+        state.connected = true; state.view = 'bots';
+        render();
+        setNotice('Connexion réussie.', 'ok');
+        loadAccount();
+        loadBots();
+        return;
+      }
+      state.connected = false; state.view = 'connect';
+      render();
+      setNotice('Échec de la connexion. Relancez « Se connecter avec Chapote ».', 'warn');
+    });
+  }
+
+  function boot() {
+    if (!root) return;
+    var cb = readOAuthCallback();
+    if (cb) { handleOAuthCallback(cb); return; }
+    loadStatusAndRender();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

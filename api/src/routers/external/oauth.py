@@ -1,18 +1,21 @@
-"""OAuth « plugin » — device flow (RFC 8628).
+"""OAuth « plugin » — Authorization Code + PKCE (RFC 7636).
+
+Endpoint DASHBOARD (page /authorize, auth get_current_user) :
+- POST /api/oauth/authorize : après consentement de l'utilisateur connecté, crée
+  un code d'autorisation lié au redirect_uri (page admin du plugin) + code_challenge
+  PKCE, et renvoie l'URL de redirection (code + state) à suivre.
 
 Endpoints EXTERNES (appelés server-to-server par le backend PHP du plugin, sans
 JWT dashboard ; bornés par rate-limit) :
-- POST /api/oauth/device   : démarre l'appairage -> device_code + user_code.
-- POST /api/oauth/token    : grant device_code (polling) OU refresh_token (rotation).
-- POST /api/oauth/revoke   : révoque un refresh (déconnexion).
+- POST /api/oauth/token  : grant authorization_code (échange + PKCE) OU
+  refresh_token (rotation).
+- POST /api/oauth/revoke : révoque un refresh (déconnexion).
 
-Endpoints DASHBOARD (page /link, auth get_current_user) :
-- GET  /api/oauth/device/info    : ce que le code autorise (consentement).
-- POST /api/oauth/device/approve : approuve l'appairage.
-- POST /api/oauth/device/deny    : refuse l'appairage.
-
-Aucune URL de redirection => zéro open-redirect, fonctionne sur tout domaine WP.
+Sécurité = PKCE (S256) + redirect_uri lié au code + state CSRF (côté client) +
+code one-time + écran de consentement côté dashboard (domaine affiché).
 """
+from urllib.parse import urlencode, urlparse
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -24,89 +27,115 @@ from src.core.security import OAUTH_PLUGIN_CLIENT_ID, get_current_user
 from src.models.user import User
 from src.services import oauth_service as svc
 from src.services.rate_limit import (
-    oauth_approve_limiter,
-    oauth_device_limiter,
-    oauth_poll_limiter,
+    oauth_authorize_limiter,
     oauth_refresh_limiter,
+    oauth_token_limiter,
 )
 
 router = APIRouter(prefix="/api/oauth", tags=["oauth-plugin"])
 
-DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
-
 
 # --- Schémas ---------------------------------------------------------------
 
-class DeviceStartIn(BaseModel):
-    client_id: str | None = None
-    site_url: str | None = None
+class AuthorizeIn(BaseModel):
+    client_id: str
+    redirect_uri: str
+    state: str | None = None
+    code_challenge: str
+    code_challenge_method: str = "S256"
+    scope: str = "plugin"
 
 
-class DeviceStartOut(BaseModel):
-    device_code: str
-    user_code: str
-    verification_uri: str
-    verification_uri_complete: str
-    expires_in: int
-    interval: int
+class AuthorizeOut(BaseModel):
+    redirect_url: str
 
 
 class TokenIn(BaseModel):
     grant_type: str | None = None
-    device_code: str | None = None
+    # grant authorization_code
+    code: str | None = None
+    redirect_uri: str | None = None
+    code_verifier: str | None = None
+    client_id: str | None = None
+    # grant refresh_token / revoke
     refresh_token: str | None = None
-
-
-class UserCodeIn(BaseModel):
-    user_code: str
-
-
-class DeviceInfoOut(BaseModel):
-    user_code: str
-    site_url: str | None = None
-    status: str
 
 
 def _ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-# --- Surface EXTERNE (plugin) ---------------------------------------------
+def _redirect_uri_ok(uri: str) -> bool:
+    """redirect_uri http(s) ABSOLU : https en tout env, OU http://localhost*/
+    127.0.0.1* en dev uniquement. Borne l'open-redirect : la cible doit être une
+    URL absolue et, hors localhost de dev, chiffrée."""
+    parsed = urlparse(uri or "")
+    if not parsed.netloc:
+        return False
+    if parsed.scheme == "https":
+        return True
+    if parsed.scheme == "http" and not settings.is_production:
+        host = (parsed.hostname or "").lower()
+        return host == "localhost" or host == "127.0.0.1" or host.startswith("127.") or host == "::1"
+    return False
 
-@router.post("/device", response_model=DeviceStartOut)
-async def device_start(body: DeviceStartIn, request: Request, db: AsyncSession = Depends(get_db)):
-    """Démarre l'appairage : crée un device_code + user_code court à saisir sur
-    /link. Appelé par le backend PHP du plugin."""
-    if not await oauth_device_limiter.check(_ip(request)):
+
+# --- Surface DASHBOARD (page /authorize, get_current_user) -----------------
+
+@router.post("/authorize", response_model=AuthorizeOut)
+async def authorize(
+    body: AuthorizeIn,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Émet un code d'autorisation après consentement de l'utilisateur CONNECTÉ.
+    Valide client_id/redirect_uri/PKCE/scope, crée le code (lié au redirect_uri +
+    code_challenge) et renvoie l'URL de redirection (code + state) à suivre."""
+    if not await oauth_authorize_limiter.check(_ip(request)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de requêtes")
-    # client_id OBLIGATOIRE : le device flow est réservé au plugin officiel. Absent
-    # OU différent ⇒ 400 (None != constante couvre les deux cas en un test).
     if body.client_id != OAUTH_PLUGIN_CLIENT_ID:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "client_id requis ou inconnu")
-    device_code, row = await svc.new_device_authorization(db, body.site_url)
-    await db.commit()
-    base = settings.APP_URL.rstrip("/")
-    return DeviceStartOut(
-        device_code=device_code,
-        user_code=row.user_code,
-        verification_uri=f"{base}/link",
-        verification_uri_complete=f"{base}/link?code={row.user_code}",
-        expires_in=svc.OAUTH_DEVICE_CODE_EXPIRE_MINUTES * 60,
-        interval=row.interval_seconds,
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "client_id inconnu")
+    if body.scope != "plugin":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "scope non supporté")
+    if body.code_challenge_method != "S256" or not body.code_challenge:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PKCE requis (code_challenge_method=S256)")
+    if not _redirect_uri_ok(body.redirect_uri):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "redirect_uri invalide")
+    code = await svc.create_authorization_code(
+        db,
+        user_id=user.id,
+        client_id=body.client_id,
+        redirect_uri=body.redirect_uri,
+        code_challenge=body.code_challenge,
+        code_challenge_method=body.code_challenge_method,
+        scope=body.scope,
     )
+    await db.commit()
+    params = {"code": code}
+    if body.state:
+        params["state"] = body.state
+    # Bon séparateur : & si le redirect_uri porte déjà une query (cas WP
+    # admin.php?page=...), ? sinon.
+    sep = "&" if urlparse(body.redirect_uri).query else "?"
+    return AuthorizeOut(redirect_url=f"{body.redirect_uri}{sep}{urlencode(params)}")
 
+
+# --- Surface EXTERNE (plugin, server-to-server) ----------------------------
 
 @router.post("/token")
 async def token(body: TokenIn, request: Request, db: AsyncSession = Depends(get_db)):
-    """grant_type = device_code (polling) ou refresh_token (rotation). Erreurs au
-    format OAuth (HTTP 400 + {"error": code})."""
+    """grant_type = authorization_code (échange + PKCE) ou refresh_token
+    (rotation). Erreurs au format OAuth (HTTP 400 + {"error": code})."""
+    if not await oauth_token_limiter.check(_ip(request)):
+        return JSONResponse(status_code=400, content={"error": "slow_down"})
     try:
-        if body.grant_type == DEVICE_GRANT:
-            if not body.device_code:
+        if body.grant_type == "authorization_code":
+            if not (body.code and body.redirect_uri and body.code_verifier):
                 return JSONResponse(status_code=400, content={"error": "invalid_request"})
-            if not await oauth_poll_limiter.check(body.device_code):
-                return JSONResponse(status_code=400, content={"error": "slow_down"})
-            access, refresh, expires_in = await svc.exchange_device_code(db, body.device_code)
+            access, refresh, expires_in = await svc.exchange_authorization_code(
+                db, body.code, body.redirect_uri, body.code_verifier
+            )
         elif body.grant_type == "refresh_token":
             if not body.refresh_token:
                 return JSONResponse(status_code=400, content={"error": "invalid_request"})
@@ -115,8 +144,8 @@ async def token(body: TokenIn, request: Request, db: AsyncSession = Depends(get_
             access, refresh, expires_in = await svc.rotate_refresh(db, body.refresh_token)
         else:
             return JSONResponse(status_code=400, content={"error": "unsupported_grant_type"})
-    except svc.DeviceFlowError as e:
-        await db.commit()  # persiste last_polled_at / transitions (expired, lignée révoquée)
+    except svc.OAuthError as e:
+        await db.commit()  # persiste les transitions (ex. lignée refresh révoquée sur rejeu)
         return JSONResponse(status_code=400, content={"error": e.code})
     await db.commit()
     return {
@@ -136,61 +165,3 @@ async def revoke_token(body: TokenIn, db: AsyncSession = Depends(get_db)):
         await svc.revoke(db, body.refresh_token)
         await db.commit()
     return {}
-
-
-# --- Surface DASHBOARD (page /link, get_current_user) ----------------------
-
-@router.get("/device/info", response_model=DeviceInfoOut)
-async def device_info(
-    user_code: str,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    # Anti-énumération : borne la fréquence de lookup d'un user_code (par IP, en
-    # plus de l'auth dashboard) — sinon oracle d'existence des appairages pending.
-    if not await oauth_approve_limiter.check(_ip(request)):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives")
-    row = await svc.find_pending_by_user_code(db, user_code)
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Code inconnu")
-    return DeviceInfoOut(user_code=row.user_code, site_url=row.site_url, status=row.status)
-
-
-@router.post("/device/approve", response_model=DeviceInfoOut)
-async def device_approve(
-    body: UserCodeIn,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    # Anti-bruteforce de la saisie du user_code (par IP, en plus de l'auth dashboard).
-    if not await oauth_approve_limiter.check(_ip(request)):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives")
-    row = await svc.find_pending_by_user_code(db, body.user_code)
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Code inconnu ou expiré")
-    try:
-        await svc.approve_device(db, row, user.id)
-    except svc.DeviceFlowError as e:
-        await db.commit()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, e.code)
-    await db.commit()
-    return DeviceInfoOut(user_code=row.user_code, site_url=row.site_url, status=row.status)
-
-
-@router.post("/device/deny", response_model=DeviceInfoOut)
-async def device_deny(
-    body: UserCodeIn,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    if not await oauth_approve_limiter.check(_ip(request)):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives")
-    row = await svc.find_pending_by_user_code(db, body.user_code)
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Code inconnu")
-    await svc.deny_device(db, row)
-    await db.commit()
-    return DeviceInfoOut(user_code=row.user_code, site_url=row.site_url, status=row.status)

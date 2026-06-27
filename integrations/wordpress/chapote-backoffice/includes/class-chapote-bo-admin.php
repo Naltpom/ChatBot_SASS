@@ -60,6 +60,7 @@ class Chapote_BO_Admin {
             'restBase'      => esc_url_raw(rest_url(CHAPOTE_BO_REST_NS)),
             'nonce'         => wp_create_nonce('wp_rest'),
             'apiBase'       => Chapote_BO_Options::api_base(),
+            'appBase'       => Chapote_BO_Options::app_base(),
             'adminUrl'      => admin_url('admin.php?page=' . self::PAGE_SLUG),
             'siteHost'      => $host,
             'homeUrl'       => home_url(),
@@ -68,7 +69,7 @@ class Chapote_BO_Admin {
             'cryptoOk'      => Chapote_BO_Crypto::available(),
             'postTypes'     => self::public_post_types(),
             'catalog'       => self::catalog(),
-            'dashboardBase' => Chapote_BO_Options::api_base(),
+            'dashboardBase' => Chapote_BO_Options::app_base(),
         ));
     }
 

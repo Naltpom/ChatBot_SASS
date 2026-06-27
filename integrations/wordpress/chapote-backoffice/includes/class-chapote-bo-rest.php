@@ -45,16 +45,17 @@ class Chapote_BO_REST {
             'callback'            => array(__CLASS__, 'catalog'),
         ));
 
-        // --- Connexion (device flow) ----------------------------------------
-        register_rest_route($ns, '/connect/start', array(
-            'methods'             => 'POST',
-            'permission_callback' => $perm,
-            'callback'            => array(__CLASS__, 'connect_start'),
+        // --- Connexion (OAuth Authorization Code + PKCE) --------------------
+        // connect/url    : renvoie l'URL d'autorisation à ouvrir dans le navigateur.
+        // connect/callback : échange le code (au retour ?code=&state=) contre des tokens.
+        register_rest_route($ns, '/connect/url', array(
+            array('methods' => 'GET',  'permission_callback' => $perm, 'callback' => array(__CLASS__, 'connect_url')),
+            array('methods' => 'POST', 'permission_callback' => $perm, 'callback' => array(__CLASS__, 'connect_url')),
         ));
-        register_rest_route($ns, '/connect/poll', array(
+        register_rest_route($ns, '/connect/callback', array(
             'methods'             => 'POST',
             'permission_callback' => $perm,
-            'callback'            => array(__CLASS__, 'connect_poll'),
+            'callback'            => array(__CLASS__, 'connect_callback'),
         ));
         register_rest_route($ns, '/disconnect', array(
             'methods'             => 'POST',
@@ -123,6 +124,7 @@ class Chapote_BO_REST {
             'connected'        => $connected,
             'crypto_available' => Chapote_BO_Crypto::available(),
             'api_base'         => Chapote_BO_Options::api_base(),
+            'app_base'         => Chapote_BO_Options::app_base(),
         );
 
         // Compte connecté : on récupère email/nom pour l'afficher dans l'en-tête.
@@ -150,91 +152,74 @@ class Chapote_BO_REST {
     }
 
     public static function settings_get($request) {
-        return new WP_REST_Response(array('api_base' => Chapote_BO_Options::api_base()), 200);
-    }
-
-    public static function settings_set($request) {
-        $api = $request->get_param('api_base');
-        $saved = Chapote_BO_Options::set_api_base($api);
-        return new WP_REST_Response(array('api_base' => $saved), 200);
-    }
-
-    /* ---------------------------------------------------------------------- */
-    /* Connexion device flow                                                  */
-    /* ---------------------------------------------------------------------- */
-
-    private static function device_transient_key() {
-        return 'chapote_bo_device_' . get_current_user_id();
-    }
-
-    public static function connect_start($request) {
-        if (!Chapote_BO_Crypto::available()) {
-            return new WP_REST_Response(array('error' => 'crypto_unavailable'), 500);
-        }
-        $res = Chapote_BO_API::device_start(home_url());
-        if ($res['status'] !== 200 || empty($res['data']['device_code'])) {
-            return self::forward($res);
-        }
-        $d        = $res['data'];
-        $interval = isset($d['interval']) ? max(1, (int) $d['interval']) : 5;
-        $expires  = isset($d['expires_in']) ? max(60, (int) $d['expires_in']) : 600;
-
-        // device_code conservé CÔTÉ SERVEUR (transient par utilisateur), jamais exposé au JS.
-        set_transient(self::device_transient_key(), array(
-            'device_code' => $d['device_code'],
-            'interval'    => $interval,
-        ), $expires);
-
-        // On ne renvoie au navigateur que les éléments publics du flow.
         return new WP_REST_Response(array(
-            'user_code'                 => isset($d['user_code']) ? $d['user_code'] : '',
-            'verification_uri'          => isset($d['verification_uri']) ? $d['verification_uri'] : '',
-            'verification_uri_complete' => isset($d['verification_uri_complete']) ? $d['verification_uri_complete'] : (isset($d['verification_uri']) ? $d['verification_uri'] : ''),
-            'expires_in'                => $expires,
-            'interval'                  => $interval,
+            'api_base' => Chapote_BO_Options::api_base(),
+            'app_base' => Chapote_BO_Options::app_base(),
         ), 200);
     }
 
-    public static function connect_poll($request) {
-        $key     = self::device_transient_key();
-        $pending = get_transient($key);
-        if (!$pending || empty($pending['device_code'])) {
-            return new WP_REST_Response(array('status' => 'expired'), 200);
+    public static function settings_set($request) {
+        $saved_api = Chapote_BO_Options::set_api_base($request->get_param('api_base'));
+        // app_base optionnel : si absent du corps, on ne touche pas au réglage.
+        if ($request->get_param('app_base') !== null) {
+            Chapote_BO_Options::set_app_base($request->get_param('app_base'));
+        }
+        return new WP_REST_Response(array(
+            'api_base' => $saved_api,
+            'app_base' => Chapote_BO_Options::app_base(),
+        ), 200);
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* Connexion OAuth (Authorization Code + PKCE)                            */
+    /* ---------------------------------------------------------------------- */
+
+    /**
+     * Renvoie l'URL d'autorisation à ouvrir dans le navigateur. Le state et le
+     * code_verifier sont générés et stockés CÔTÉ SERVEUR par build_authorize_url().
+     */
+    public static function connect_url($request) {
+        if (!Chapote_BO_Crypto::available()) {
+            return new WP_REST_Response(array('error' => 'crypto_unavailable'), 500);
+        }
+        $url = Chapote_BO_API::build_authorize_url();
+        return new WP_REST_Response(array('url' => $url), 200);
+    }
+
+    /**
+     * Retour d'autorisation : reçoit {code, state} (lus par le JS sur l'URL admin).
+     * Vérifie le state (anti-CSRF, comparaison stricte/constant-time) contre le
+     * PKCE stocké, échange le code server-to-server, stocke les tokens chiffrés.
+     * Le code est one-time : on purge le PKCE quoi qu'il advienne.
+     */
+    public static function connect_callback($request) {
+        if (!Chapote_BO_Crypto::available()) {
+            return new WP_REST_Response(array('error' => 'crypto_unavailable'), 500);
+        }
+        $code  = trim((string) $request->get_param('code'));
+        $state = (string) $request->get_param('state');
+        if ($code === '' || $state === '') {
+            return new WP_REST_Response(array('error' => 'invalid_request'), 400);
         }
 
-        $res = Chapote_BO_API::device_poll($pending['device_code']);
+        $pending = Chapote_BO_API::pkce_pending();
+        if (!$pending) {
+            return new WP_REST_Response(array('error' => 'no_pending_authorization'), 400);
+        }
+        // State comparé en STRICT (constant-time). Toute divergence = abandon.
+        if (!hash_equals((string) $pending['state'], $state)) {
+            Chapote_BO_API::clear_pkce_pending();
+            return new WP_REST_Response(array('error' => 'state_mismatch'), 400);
+        }
 
-        if ($res['status'] === 200 && !empty($res['data']['access_token'])) {
-            $d  = $res['data'];
-            $ok = Chapote_BO_Tokens::save(
-                $d['access_token'],
-                isset($d['refresh_token']) ? $d['refresh_token'] : '',
-                isset($d['expires_in']) ? $d['expires_in'] : 0,
-                isset($d['scope']) ? $d['scope'] : '',
-                isset($d['token_type']) ? $d['token_type'] : 'Bearer'
-            );
-            delete_transient($key);
-            if (!$ok) {
-                return new WP_REST_Response(array('status' => 'error', 'error' => 'storage_failed'), 200);
-            }
+        $res = Chapote_BO_API::exchange_code($code, $pending['verifier']);
+        Chapote_BO_API::clear_pkce_pending();
+
+        if ($res['status'] === 200 && Chapote_BO_Tokens::is_connected()) {
             return new WP_REST_Response(array('status' => 'connected'), 200);
         }
-
-        $err = isset($res['data']['error']) ? $res['data']['error'] : 'unknown';
-        if (in_array($err, array('authorization_pending', 'slow_down'), true)) {
-            if ($err === 'slow_down') {
-                $pending['interval'] = (isset($pending['interval']) ? (int) $pending['interval'] : 5) + 5;
-                set_transient($key, $pending, 600);
-            }
-            return new WP_REST_Response(array(
-                'status'   => 'pending',
-                'interval' => isset($pending['interval']) ? (int) $pending['interval'] : 5,
-            ), 200);
-        }
-
-        // Terminal : expired_token / access_denied / autre.
-        delete_transient($key);
-        return new WP_REST_Response(array('status' => 'error', 'error' => $err), 200);
+        // Remonte l'erreur du serveur d'autorisation (invalid_grant / invalid_request…).
+        return self::forward($res);
     }
 
     public static function disconnect($request) {
@@ -243,7 +228,7 @@ class Chapote_BO_REST {
             Chapote_BO_API::revoke($t['refresh_token']);
         }
         Chapote_BO_Tokens::clear();
-        delete_transient(self::device_transient_key());
+        Chapote_BO_API::clear_pkce_pending();
         return new WP_REST_Response(array('status' => 'disconnected'), 200);
     }
 

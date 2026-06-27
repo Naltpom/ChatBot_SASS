@@ -22,8 +22,8 @@ const INPUT_BASE: React.CSSProperties = {
   fontFamily: 'inherit',
 }
 
-// Destination post-connexion : honore un retour mémorisé (ex. page /link
-// d'appairage WordPress qui a renvoyé l'utilisateur vers le login), sinon
+// Destination post-connexion : honore un retour mémorisé (ex. écran /authorize
+// du plugin WordPress qui a renvoyé l'utilisateur vers le login), sinon
 // l'application par défaut. Consommé une seule fois. Rétrocompatible : sans clé
 // mémorisée, comportement inchangé (-> /app).
 function postLoginDest(): string {
