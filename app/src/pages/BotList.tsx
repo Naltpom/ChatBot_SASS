@@ -165,7 +165,8 @@ export function BotCard({ bot, onOpen, canCopy = true, ownerLabel }: {
 // configuration à finaliser (hors ligne ou sans domaine autorisé), 2 = en ligne &
 // configuré. À priorité égale, ordre alphabétique (FR, insensible à la casse).
 function botLandingPriority(b: BotSummary): number {
-  if (b.billing_status === 'inactive' || b.billing_status === 'past_due') return 0
+  if (b.billing_status === 'inactive' || b.billing_status === 'past_due'
+      || b.billing_status === 'suspended') return 0
   if (!b.is_active || b.allowed_domains.length === 0) return 1
   return 2
 }

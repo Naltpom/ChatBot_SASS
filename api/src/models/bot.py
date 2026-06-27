@@ -272,7 +272,8 @@ class BotOut(BaseModel):
     visitors_7d: int = 0
     # Facturation effective du bot (renseigné par GET /api/bots, spec billing
     # modulaire) : alimente le badge front (règle 4). 'trialing' | 'active' |
-    # 'past_due' | 'inactive' | None (billing OFF — invariant D0, aucun badge).
+    # 'past_due' | 'inactive' | 'suspended' (blocage admin) | None (billing OFF —
+    # invariant D0, aucun badge).
     billing_status: str | None = None
     # Fin d'essai LEGACY (epoch s) si status='trialing' résiduel, sinon None
     # (plus d'essai créé : l'abonnement est actif/payant dès la souscription).

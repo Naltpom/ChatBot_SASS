@@ -16,7 +16,8 @@ import type { BotSummary } from '../types/bot'
 type DotKind = 'online' | 'attn' | 'paused'
 const DOT_COLOR: Record<DotKind, string> = { online: '#2F9E79', attn: '#E0A82E', paused: '#C7D0DA' }
 function botDot(b: BotSummary): DotKind {
-  if (b.billing_status === 'inactive' || b.billing_status === 'past_due') return 'attn'
+  if (b.billing_status === 'inactive' || b.billing_status === 'past_due'
+      || b.billing_status === 'suspended') return 'attn'
   if (!b.is_active) return b.allowed_domains.length === 0 ? 'attn' : 'paused'
   return 'online'
 }

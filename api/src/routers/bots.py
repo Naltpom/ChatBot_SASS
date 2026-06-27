@@ -151,8 +151,8 @@ async def _billing_status_for_bots(
     INVARIANT billing OFF (D0) : billing_enabled()==False -> {} (tous les bots
     ressortent (None, None), aucun badge). Sinon on lit les bot_entitlements en
     UN seul select : status = le statut de la ligne (trialing|active|past_due|
-    inactive), un bot sans ligne (legacy/dev) reste None. trial_end n'est porte
-    que pour un status='trialing'."""
+    inactive|suspended), un bot sans ligne (legacy/dev) reste None. trial_end
+    n'est porte que pour un status='trialing'."""
     if not billing_enabled() or not bot_ids:
         return {}
     rows = (await db.execute(
@@ -161,7 +161,7 @@ async def _billing_status_for_bots(
     out: dict[int, tuple[str | None, int | None]] = {}
     for row in rows:
         status_ = row.status if row.status in (
-            "trialing", "active", "past_due", "inactive") else None
+            "trialing", "active", "past_due", "inactive", "suspended") else None
         trial_end: int | None = None
         if row.status == "trialing" and row.trial_end is not None:
             trial_end = calendar.timegm(row.trial_end.utctimetuple())

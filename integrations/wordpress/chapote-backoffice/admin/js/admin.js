@@ -253,7 +253,7 @@
   function billingBadge(status) {
     // billing_status null/undefined = bot servable sans abonnement payant = « Gratuit ».
     if (status == null || status === '') return h('span', { class: 'cbo-badge cbo-badge-off', text: 'Gratuit' });
-    var map = { active: ['Actif', 'ok'], trialing: ['Essai', 'ok'], inactive: ['Inactif', 'off'], past_due: ['Impayé', 'warn'], canceled: ['Résilié', 'off'] };
+    var map = { active: ['Actif', 'ok'], trialing: ['Essai', 'ok'], inactive: ['Inactif', 'off'], past_due: ['Impayé', 'warn'], canceled: ['Résilié', 'off'], suspended: ['Bloqué', 'warn'] };
     var m = map[status] || [status, 'off'];
     return h('span', { class: 'cbo-badge cbo-badge-' + m[1], text: m[0] });
   }

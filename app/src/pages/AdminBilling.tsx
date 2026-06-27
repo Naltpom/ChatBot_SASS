@@ -70,7 +70,7 @@ interface AdminAllBot {
   scope: 'personal' | 'team'
   owner_label: string
   owner_email: string | null
-  status: 'free' | 'inactive' | 'trialing' | 'active' | 'past_due'
+  status: 'free' | 'inactive' | 'trialing' | 'active' | 'past_due' | 'suspended'
   modules: string[]
   ai_monthly_quota: number | null
   source: string
@@ -83,6 +83,7 @@ function botStatusChip(status: AdminAllBot['status']) {
   if (status === 'trialing') return <Chip tone="acc">Essai</Chip>
   if (status === 'past_due') return <Chip tone="danger">Paiement en retard</Chip>
   if (status === 'inactive') return <Chip tone="warn">Non payé</Chip>
+  if (status === 'suspended') return <Chip tone="danger">Bloqué</Chip>
   return <Chip tone="mut">Gratuit</Chip>   // free = aucun entitlement
 }
 

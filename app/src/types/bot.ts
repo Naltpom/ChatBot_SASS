@@ -242,7 +242,7 @@ export interface Bot {
   // État de facturation effectif du bot, exposé par GET /api/bots pour le badge.
   // 'trialing' (LEGACY résiduel — plus généré, traité comme actif) | 'active' (payé)
   // | 'past_due' (impayé en relance) | 'inactive' (paiement requis / annulé)
-  // | null (billing OFF — aucun badge).
+  // | 'suspended' (blocage admin — abus, widget coupé) | null (billing OFF — aucun badge).
   // INVARIANT billing OFF : null quand billing_enabled()==False (pas de gating).
   billing_status?: BotBillingStatus | null
   // Fin d'essai (epoch secondes) — champ LEGACY conservé pour les abonnements
@@ -252,7 +252,8 @@ export interface Bot {
 
 // États de facturation d'un bot (cf. RÈGLES PRODUIT §4). null = billing OFF.
 // 'trialing' conservé : statut LEGACY résiduel (plus généré, lu comme actif).
-export type BotBillingStatus = 'trialing' | 'active' | 'past_due' | 'inactive'
+// 'suspended' : blocage admin d'un bot (abus) — widget coupé côté serveur.
+export type BotBillingStatus = 'trialing' | 'active' | 'past_due' | 'inactive' | 'suspended'
 
 // ============================================================================
 // BotSummary — forme de la LISTE (GET /api/bots). C'est le MÊME schéma BotOut
