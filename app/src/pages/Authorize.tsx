@@ -42,6 +42,22 @@ function hostOf(raw: string): string | null {
   }
 }
 
+// redirect_uri légitime = page admin du plugin WordPress en http(s), sans userinfo.
+// Empêche l'open-redirect (y compris via le bouton « Refuser » qui redirige vers
+// redirect_uri). La validation fine (https/localhost, client, PKCE) reste backend ;
+// ici on refuse d'afficher le consentement ET de rediriger vers une cible arbitraire.
+function isPluginRedirect(raw: string): boolean {
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
+    if (u.username || u.password) return false
+    if (!u.pathname.endsWith('/wp-admin/admin.php')) return false
+    return u.searchParams.get('page') === 'chapote-backoffice'
+  } catch {
+    return false
+  }
+}
+
 export default function Authorize() {
   const { user, loading } = useAuth()
   const location = useLocation()
@@ -68,10 +84,11 @@ export default function Authorize() {
   }, [loading, user, location.search])
 
   const host = redirectUri ? hostOf(redirectUri) : null
-  // Le redirect_uri doit être absolu et http(s) pour pouvoir afficher l'hôte et
-  // construire la redirection de refus. La validation FINE (https/localhost,
-  // S256, scope, client) reste côté backend ; ici on filtre l'évidemment cassé.
-  const redirectOk = !!host && /^https?:\/\//i.test(redirectUri)
+  // Le redirect_uri doit être la page admin du plugin WordPress (allowlist de
+  // forme) : on n'affiche le consentement — ni ne redirige « Refuser » — que vers
+  // une telle cible (anti open-redirect). La validation FINE (https/localhost,
+  // S256, scope, client) reste côté backend.
+  const redirectOk = !!host && isPluginRedirect(redirectUri)
   // Demande structurellement valide → on présente le consentement. Sinon, écran
   // d'erreur (avec « Refuser » si on peut au moins renvoyer vers le site).
   const requestOk =

@@ -66,18 +66,33 @@ def _ip(request: Request) -> str:
 
 
 def _redirect_uri_ok(uri: str) -> bool:
-    """redirect_uri http(s) ABSOLU : https en tout env, OU http://localhost*/
-    127.0.0.1* en dev uniquement. Borne l'open-redirect : la cible doit être une
-    URL absolue et, hors localhost de dev, chiffrée."""
+    """redirect_uri du client public 'chapote_wp' : DOIT être la page admin du
+    plugin WordPress (allowlist de FORME, pas un redirect_uri arbitraire).
+
+    Anti-prise de contrôle de compte (OAuth) : sans contrainte, un attaquant peut
+    fabriquer une URL d'autorisation pointant vers un domaine qu'il contrôle, faire
+    cliquer « Autoriser » à un utilisateur Chapote connecté, et récupérer le code →
+    échange (il détient le code_verifier qu'il a généré) → token sur le compte de la
+    victime. PKCE NE protège PAS ce phishing de consentement (l'initiateur a le
+    verifier). On borne donc à : URL absolue, https (http toléré uniquement sur
+    localhost/127.0.0.1 en dev), pas d'userinfo, et chemin/param de la page admin du
+    plugin. Le consentement (domaine affiché) reste la défense de tête."""
     parsed = urlparse(uri or "")
-    if not parsed.netloc:
+    if not parsed.netloc or parsed.username or parsed.password:
         return False
     if parsed.scheme == "https":
-        return True
-    if parsed.scheme == "http" and not settings.is_production:
+        pass
+    elif parsed.scheme == "http" and not settings.is_production:
         host = (parsed.hostname or "").lower()
-        return host == "localhost" or host == "127.0.0.1" or host.startswith("127.") or host == "::1"
-    return False
+        if not (host == "localhost" or host == "127.0.0.1" or host.startswith("127.") or host == "::1"):
+            return False
+    else:
+        return False
+    # Forme RESTREINTE à la page admin du plugin (endswith gère les installs WP en
+    # sous-répertoire, ex. /blog/wp-admin/admin.php).
+    if not parsed.path.endswith("/wp-admin/admin.php"):
+        return False
+    return "page=chapote-backoffice" in (parsed.query or "")
 
 
 # --- Surface DASHBOARD (page /authorize, get_current_user) -----------------
