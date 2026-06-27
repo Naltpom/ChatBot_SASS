@@ -1,7 +1,6 @@
 <?php
 /**
  * Plugin Name:       Chapote Chatbot
- * Plugin URI:        https://chapote.fr
  * Description:       Le chatbot Chapote dans WordPress : connectez-vous, gérez vos bots, éditez l'apparence, payez (Stripe), activez le widget sur le site et ciblez les pages. UI mince au-dessus de l'API Chapote ; le token reste côté serveur (jamais exposé au JavaScript).
  * Version:           2.1.0
  * Requires at least: 5.8
