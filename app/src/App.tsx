@@ -121,11 +121,17 @@ export function AppRoutes() {
           Auth gérée DANS la page : si non connecté, elle mémorise le retour
           puis renvoie vers /login (cbsaas_after_login). */}
       <Route path="/authorize" element={<Authorize />} />
-      {/* Pages légales (publiques) — rendues depuis les .md de src/legal. */}
-      <Route path="/mentions-legales" element={<LegalPage md={mentionsMd} />} />
-      <Route path="/cgu" element={<LegalPage md={cguMd} />} />
-      <Route path="/cgv" element={<LegalPage md={cgvMd} />} />
-      <Route path="/confidentialite" element={<LegalPage md={confidMd} />} />
+      {/* Pages légales (publiques) — rendues depuis les .md de src/legal.
+          URL canoniques sous /legal/… (référencées par le plugin WordPress,
+          readme.txt). Les anciens chemins redirigent (compat liens/bookmarks). */}
+      <Route path="/legal/mentions-legales" element={<LegalPage md={mentionsMd} />} />
+      <Route path="/legal/cgu" element={<LegalPage md={cguMd} />} />
+      <Route path="/legal/cgv" element={<LegalPage md={cgvMd} />} />
+      <Route path="/legal/confidentialite" element={<LegalPage md={confidMd} />} />
+      <Route path="/mentions-legales" element={<Navigate to="/legal/mentions-legales" replace />} />
+      <Route path="/cgu" element={<Navigate to="/legal/cgu" replace />} />
+      <Route path="/cgv" element={<Navigate to="/legal/cgv" replace />} />
+      <Route path="/confidentialite" element={<Navigate to="/legal/confidentialite" replace />} />
       {/* Application (clients) */}
       <Route path="/app" element={<Protected><BotList /></Protected>} />
       <Route path="/app/bots/new" element={<Protected><BotWizard /></Protected>} />

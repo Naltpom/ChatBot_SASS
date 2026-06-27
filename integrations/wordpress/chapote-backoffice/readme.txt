@@ -4,7 +4,7 @@ Tags: chatbot, chat, support, assistant, ia
 Requires at least: 5.8
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 2.0.0
+Stable tag: 2.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -91,6 +91,10 @@ Oui. L'adresse de l'API et celle du dashboard sont configurables ; par défaut e
 
 == Changelog ==
 
+= 2.1.0 =
+* Référencement (SEO) : nouvel onglet « SEO ». Lien « Powered by Chapote » optionnel (désactivé par défaut) et FAQ en données structurées schema.org (FAQPage, JSON-LD) rendues côté serveur, éligibles aux résultats enrichis.
+* Mises à jour automatiques pour les installations hors WordPress.org (vérification de version et installation depuis l'administration WordPress).
+
 = 2.0.0 =
 * Back-office complet dans WordPress, interface mince au-dessus de l'API de compte Chapote.
 * Connexion « Se connecter avec Chapote » via OAuth Authorization Code + PKCE (S256) ; jeton chiffré côté serveur (AES-256-GCM), jamais exposé au navigateur.
@@ -100,6 +104,9 @@ Oui. L'adresse de l'API et celle du dashboard sont configurables ; par défaut e
 * Proxy REST (namespace `chapote-bo/v1`) protégé par `manage_options` + nonce ; déclaration des services externes et contenu de confidentialité RGPD ; nettoyage complet à la désinstallation.
 
 == Upgrade Notice ==
+
+= 2.1.0 =
+Ajoute l'onglet SEO (lien optionnel + FAQ schema.org) et les mises à jour automatiques hors WordPress.org.
 
 = 2.0.0 =
 Refonte en back-office complet : connexion OAuth « Se connecter avec Chapote », gestion des bots, apparence, paiement Stripe hébergé et activation/ciblage du widget. Nécessite un compte Chapote et PHP 7.4+ avec OpenSSL.
