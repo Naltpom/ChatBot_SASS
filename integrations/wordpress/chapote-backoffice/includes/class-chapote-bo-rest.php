@@ -237,7 +237,32 @@ class Chapote_BO_REST {
     /* ---------------------------------------------------------------------- */
 
     public static function bots_list($request) {
-        return self::forward(Chapote_BO_API::account('GET', '/api/account/bots'));
+        $res = Chapote_BO_API::account('GET', '/api/account/bots');
+        // Annote chaque bot avec son état d'AFFICHAGE local (WP) pour le toggle
+        // on/off direct dans « Mes bots » et l'en-tête (évite un appel /local par bot).
+        if (!empty($res['status']) && (int) $res['status'] === 200 && is_array($res['data'])) {
+            $res['data'] = self::annotate_local_enabled($res['data']);
+        }
+        return self::forward($res);
+    }
+
+    /** Ajoute `enabled` (état d'affichage local WP) à chaque bot d'une liste, que
+     *  la réponse soit un tableau de bots ou une enveloppe { bots: [...] }. */
+    private static function annotate_local_enabled($data) {
+        $annotate = function (&$b) {
+            if (is_array($b) && isset($b['id'])) {
+                $local = Chapote_BO_Options::bot_local((string) $b['id']);
+                $b['enabled'] = !empty($local['enabled']);
+            }
+        };
+        if (isset($data['bots']) && is_array($data['bots'])) {
+            foreach ($data['bots'] as &$b) { $annotate($b); }
+            unset($b);
+        } elseif (is_array($data)) {
+            foreach ($data as &$b) { $annotate($b); }
+            unset($b);
+        }
+        return $data;
     }
 
     public static function bots_create($request) {
@@ -373,24 +398,31 @@ class Chapote_BO_REST {
     }
 
     public static function local_set($request) {
-        $id        = (string) $request->get_param('id');
-        $enabled   = (bool) $request->get_param('enabled');
-        $targeting = self::sanitize_targeting($request->get_param('targeting'));
+        $id = (string) $request->get_param('id');
 
-        // VERROU PRODUIT : on n'active sur le site QUE si le bot est payé (active).
-        // On revalide TOUJOURS côté serveur (jamais sur la foi du client).
+        // `enabled` ET `targeting` sont INDÉPENDAMMENT optionnels : un paramètre
+        // ABSENT est PRÉSERVÉ (save_bot_local fusionne). Ainsi le toggle on/off
+        // direct (« Mes bots » / en-tête, n'envoie que `enabled`) ne réinitialise
+        // PAS le ciblage, et l'enregistrement du ciblage (onglet, n'envoie que
+        // `targeting`) ne change PAS l'état d'affichage.
+        $existing    = Chapote_BO_Options::bot_local($id);
+        $raw_enabled = $request->get_param('enabled');
+        $enabled = ($raw_enabled !== null) ? (bool) $raw_enabled : !empty($existing['enabled']);
+
+        $raw_targeting = $request->get_param('targeting');
+        $has_targeting = ($raw_targeting !== null);
+        $targeting = $has_targeting ? self::sanitize_targeting($raw_targeting) : null;
+
+        // Le widget Chapote sert TOUS les bots servables : l'activation sur le site
+        // n'exige PAS d'abonnement payant (un bot gratuit/essai fonctionne, l'IA étant
+        // simplement bornée au quota gratuit). On récupère le détail pour la clé
+        // publique + le nom + le statut de facturation (affichage), sans bloquer.
         if ($enabled) {
             $detail = Chapote_BO_API::account('GET', '/api/account/bots/' . rawurlencode($id));
             if ($detail['status'] !== 200) {
                 return self::forward($detail);
             }
-            $billing = isset($detail['data']['billing_status']) ? (string) $detail['data']['billing_status'] : '';
-            if ($billing !== 'active') {
-                return new WP_REST_Response(array(
-                    'error'          => 'not_active',
-                    'billing_status' => $billing,
-                ), 403);
-            }
+            $billing    = isset($detail['data']['billing_status']) ? (string) $detail['data']['billing_status'] : '';
             $public_key = isset($detail['data']['public_key']) ? (string) $detail['data']['public_key'] : '';
             $name       = isset($detail['data']['name']) ? sanitize_text_field((string) $detail['data']['name']) : '';
 
@@ -399,19 +431,23 @@ class Chapote_BO_REST {
                 'wordpress_site_url' => home_url(),
             ));
 
-            Chapote_BO_Options::save_bot_local($id, array(
+            $save = array(
                 'enabled'        => true,
                 'public_key'     => $public_key,
                 'billing_status' => $billing,
                 'name'           => $name,
-                'targeting'      => $targeting,
-            ));
+            );
+            if ($has_targeting) {
+                $save['targeting'] = $targeting;  // sinon ciblage existant préservé (merge)
+            }
+            Chapote_BO_Options::save_bot_local($id, $save);
         } else {
-            // Désactivation : on conserve la clé mais on coupe l'injection.
-            Chapote_BO_Options::save_bot_local($id, array(
-                'enabled'   => false,
-                'targeting' => $targeting,
-            ));
+            // Désactivation : on conserve la clé/le ciblage mais on coupe l'injection.
+            $save = array('enabled' => false);
+            if ($has_targeting) {
+                $save['targeting'] = $targeting;
+            }
+            Chapote_BO_Options::save_bot_local($id, $save);
         }
 
         return self::local_get($request);

@@ -227,13 +227,15 @@
 
     var table = h('table', { class: 'widefat striped cbo-table' });
     table.appendChild(h('thead', null, h('tr', null,
-      h('th', { text: 'Nom' }), h('th', { text: 'Facturation' }), h('th', { text: 'Plan / modules' }), h('th', { text: '' })
+      h('th', { text: 'Nom' }), h('th', { text: 'Sur le site' }), h('th', { text: 'Facturation' }),
+      h('th', { text: 'Plan / modules' }), h('th', { text: '' })
     )));
     var tb = h('tbody');
     state.bots.forEach(function (b) {
       var modules = Array.isArray(b.modules) ? b.modules.join(', ') : (b.modules ? String(b.modules) : '—');
       tb.appendChild(h('tr', null,
         h('td', null, h('strong', { text: b.name || '(sans nom)' })),
+        h('td', null, activationToggle(b, { compact: true })),
         h('td', null, billingBadge(b.billing_status)),
         h('td', { text: modules }),
         h('td', null, h('button', { class: 'button', onClick: function () { openBot(b.id); } }, 'Gérer'))
@@ -256,6 +258,41 @@
     var map = { active: ['Actif', 'ok'], trialing: ['Essai', 'ok'], inactive: ['Inactif', 'off'], past_due: ['Impayé', 'warn'], canceled: ['Résilié', 'off'], suspended: ['Bloqué', 'warn'] };
     var m = map[status] || [status, 'off'];
     return h('span', { class: 'cbo-badge cbo-badge-' + m[1], text: m[0] });
+  }
+
+  // Toggle d'AFFICHAGE du widget sur le site (on/off), réutilisé dans « Mes bots »
+  // ET l'en-tête du bot (plus dans un onglet). N'envoie QUE { enabled } : le ciblage
+  // est préservé côté serveur. Un bot 'suspended' (bloqué admin) ne peut pas être
+  // exposé (widget coupé) -> toggle désactivé. `bot` est muté (bot.enabled) pour
+  // rester cohérent entre la liste et l'en-tête.
+  function activationToggle(bot, opts) {
+    opts = opts || {};
+    var blocked = bot.billing_status === 'suspended';
+    var cb = h('input', { type: 'checkbox', checked: !!bot.enabled });
+    if (blocked) { cb.disabled = true; cb.title = 'Bot bloqué : le widget est coupé.'; }
+    var txt = opts.compact ? null
+      : h('span', { text: bot.enabled ? 'Affiché sur le site' : 'Afficher sur le site' });
+    cb.addEventListener('change', function () {
+      var want = cb.checked;
+      cb.disabled = true;
+      call('POST', '/bots/' + encodeURIComponent(bot.id) + '/local', { enabled: want }).then(function (res) {
+        cb.disabled = blocked;
+        if (res.ok) {
+          bot.enabled = !!(res.data && res.data.enabled);
+          cb.checked = bot.enabled;
+          if (txt) txt.textContent = bot.enabled ? 'Affiché sur le site' : 'Afficher sur le site';
+          setNotice(bot.enabled ? 'Widget activé sur le site.' : 'Widget désactivé du site.', 'ok');
+          if (typeof opts.onChange === 'function') opts.onChange(bot.enabled);
+        } else {
+          cb.checked = !want; // revert visuel
+          setNotice('Action impossible.', 'warn');
+        }
+      });
+    });
+    var label = h('label', { class: 'cbo-check cbo-actoggle' }, cb);
+    if (txt) label.appendChild(txt);
+    if (blocked && !opts.compact) label.appendChild(h('span', { class: 'cbo-muted', text: ' — bloqué' }));
+    return label;
   }
 
   function openCreate() {
@@ -296,10 +333,12 @@
     wrap.appendChild(h('div', { class: 'cbo-bothead' },
       h('button', { class: 'button-link', onClick: function () { state.view = 'bots'; render(); } }, '← Mes bots'),
       h('h2', { text: bot.name || 'Bot' }),
-      billingBadge(bot.billing_status)
+      billingBadge(bot.billing_status),
+      // Toggle d'affichage du widget DIRECTEMENT dans l'en-tête (plus dans un onglet).
+      h('span', { class: 'cbo-bothead-toggle' }, activationToggle(bot, {}))
     ));
     var tabs = h('div', { class: 'cbo-subtabs' },
-      subTab('Activation & ciblage', 'activation'),
+      subTab('Ciblage des pages', 'activation'),
       subTab('Mon offre', 'payment'),
       subTab('Apparence', 'appearance')
     );
@@ -751,10 +790,10 @@
       ));
     }
 
-    var toggle = h('input', { type: 'checkbox', checked: !!local.enabled });
-    pane.appendChild(h('div', { class: 'cbo-toggle' },
-      h('label', { class: 'cbo-check' }, toggle, h('span', { text: 'Afficher le widget de ce bot sur le site' }))
-    ));
+    // L'activation on/off du widget vit désormais dans l'en-tête du bot et dans la
+    // liste « Mes bots » (plus ici). Cet onglet ne gère QUE le ciblage des pages.
+    pane.appendChild(h('p', { class: 'cbo-muted', text:
+      'L’affichage du widget sur le site (on/off) se règle avec l’interrupteur en haut de cette page, ou dans « Mes bots ». Ci-dessous : sur quelles pages l’afficher.' }));
 
     // Ciblage.
     var modeEverywhere = h('input', { type: 'radio', name: 'cbo-target', checked: t.mode !== 'custom' });
@@ -828,8 +867,8 @@
           exclude_types: checkedSlugs(exc.boxes),
           exclude_ids: idList(excludeIds.value)
         };
-        saveActivation(e.target, toggle.checked, targeting);
-      } }, 'Enregistrer l’activation')
+        saveActivation(e.target, targeting);
+      } }, 'Enregistrer le ciblage')
     ));
 
     // Rappel domaine (anciennement onglet « Domaine », fusionné ici) : pour que le
@@ -843,12 +882,13 @@
     ));
   }
 
-  function saveActivation(btn, enabled, targeting) {
+  // Enregistre UNIQUEMENT le ciblage (on omet `enabled` -> l'état d'affichage est
+  // préservé côté serveur ; il se règle via le toggle de l'en-tête / « Mes bots »).
+  function saveActivation(btn, targeting) {
     btn.disabled = true;
-    call('POST', '/bots/' + encodeURIComponent(state.botId) + '/local', { enabled: enabled, targeting: targeting }).then(function (res) {
+    call('POST', '/bots/' + encodeURIComponent(state.botId) + '/local', { targeting: targeting }).then(function (res) {
       btn.disabled = false;
-      if (res.ok) setNotice(enabled ? 'Widget activé sur le site.' : 'Réglages enregistrés.', 'ok');
-      else if (res.status === 403 && res.data && res.data.error === 'not_active') setNotice('Activation refusée : l’abonnement n’est pas actif.', 'warn');
+      if (res.ok) setNotice('Ciblage enregistré.', 'ok');
       else setNotice('Enregistrement impossible.', 'warn');
     });
   }

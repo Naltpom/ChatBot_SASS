@@ -142,3 +142,9 @@
 .cbo-domain { margin-top: 22px; padding-top: 18px; border-top: 1px solid #dcdcde; }
 .cbo-domain p { margin: 6px 0; }
 .cbo-host { display: inline-block; background: #f6f7f7; border: 1px solid #c3c4c7; border-radius: 6px; padding: 6px 12px; font-size: 15px; margin: 6px 0; font-family: monospace; }
+
+/* Toggle d'AFFICHAGE du widget (en-tête du bot + colonne « Sur le site »). */
+.cbo-bothead-toggle { margin-left: auto; }
+.cbo-actoggle { gap: 7px; white-space: nowrap; }
+.cbo-table td .cbo-actoggle { justify-content: center; }
+.cbo-actoggle input[disabled] { cursor: not-allowed; }
