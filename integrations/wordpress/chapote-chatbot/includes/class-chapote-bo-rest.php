@@ -315,8 +315,8 @@ class Chapote_BO_REST {
 
         // success_url / cancel_url DOIVENT pointer vers l'admin WP (même host).
         $admin   = admin_url('admin.php');
-        $success = add_query_arg(array('page' => 'chapote-backoffice', 'cbo_status' => 'success', 'cbo_bot' => $id), $admin);
-        $cancel  = add_query_arg(array('page' => 'chapote-backoffice', 'cbo_status' => 'cancel',  'cbo_bot' => $id), $admin);
+        $success = add_query_arg(array('page' => 'chapote-chatbot', 'cbo_status' => 'success', 'cbo_bot' => $id), $admin);
+        $cancel  = add_query_arg(array('page' => 'chapote-chatbot', 'cbo_status' => 'cancel',  'cbo_bot' => $id), $admin);
 
         return self::forward(Chapote_BO_API::account(
             'POST',

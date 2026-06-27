@@ -12,12 +12,12 @@ if (!defined('ABSPATH')) {
 
 class Chapote_BO_Admin {
 
-    const PAGE_SLUG = 'chapote-backoffice';
+    const PAGE_SLUG = 'chapote-chatbot';
 
     public static function register_menu() {
         add_menu_page(
-            __('Chapote Back-Office', 'chapote-backoffice'),
-            __('Chapote', 'chapote-backoffice'),
+            __('Chapote Chatbot', 'chapote-chatbot'),
+            __('Chapote', 'chapote-chatbot'),
             'manage_options',
             self::PAGE_SLUG,
             array(__CLASS__, 'render_page'),
@@ -53,8 +53,12 @@ class Chapote_BO_Admin {
         }
 
         // Statut de retour Stripe (success/cancel) lu côté serveur, transmis au JS.
+        // Pas de nonce possible (paramètres d'une redirection externe Stripe) ; la
+        // valeur est seulement assainie puis affichée, aucune action mutative.
+        // phpcs:disable WordPress.Security.NonceVerification.Recommended
         $return_status = isset($_GET['cbo_status']) ? sanitize_key(wp_unslash($_GET['cbo_status'])) : '';
         $return_bot    = isset($_GET['cbo_bot']) ? sanitize_text_field(wp_unslash($_GET['cbo_bot'])) : '';
+        // phpcs:enable WordPress.Security.NonceVerification.Recommended
 
         wp_localize_script('chapote-bo-admin', 'CHAPOTE_BO', array(
             'restBase'      => esc_url_raw(rest_url(CHAPOTE_BO_REST_NS)),
@@ -78,15 +82,15 @@ class Chapote_BO_Admin {
             return;
         }
         echo '<div class="wrap chapote-bo-wrap">';
-        echo '<h1>' . esc_html__('Chapote Back-Office', 'chapote-backoffice') . '</h1>';
+        echo '<h1>' . esc_html__('Chapote Chatbot', 'chapote-chatbot') . '</h1>';
         if (!Chapote_BO_Crypto::available()) {
             echo '<div class="notice notice-error"><p>'
-                . esc_html__('Le module PHP OpenSSL (AES-256-GCM) est requis pour stocker vos identifiants de façon chiffrée. Contactez votre hébergeur.', 'chapote-backoffice')
+                . esc_html__('Le module PHP OpenSSL (AES-256-GCM) est requis pour stocker vos identifiants de façon chiffrée. Contactez votre hébergeur.', 'chapote-chatbot')
                 . '</p></div>';
         }
         // Conteneur monté par la SPA vanilla. Fallback no-JS pour l'accessibilité.
         echo '<div id="chapote-bo-app"><noscript>'
-            . esc_html__('Ce back-office nécessite JavaScript.', 'chapote-backoffice')
+            . esc_html__('Ce back-office nécessite JavaScript.', 'chapote-chatbot')
             . '</noscript></div>';
         echo '</div>';
     }
@@ -124,13 +128,13 @@ class Chapote_BO_Admin {
         return array(
             'currency' => 'eur',
             'modules'  => array(
-                array('key' => 'ai',          'label' => __('Intelligence artificielle', 'chapote-backoffice'), 'price_cents' => 0,    'requires' => array(), 'byok_price_cents' => 2900),
-                array('key' => 'rag',         'label' => __('Connaissances (RAG)', 'chapote-backoffice'),  'price_cents' => 900,  'requires' => array('ai')),
-                array('key' => 'inbox',       'label' => __('Live chat / Inbox', 'chapote-backoffice'),    'price_cents' => 1500, 'requires' => array()),
-                array('key' => 'actions',     'label' => __('Actions', 'chapote-backoffice'),              'price_cents' => 1200, 'requires' => array()),
-                array('key' => 'mcp',         'label' => __('MCP (outils IA)', 'chapote-backoffice'),      'price_cents' => 900,  'requires' => array('ai')),
-                array('key' => 'ab',          'label' => __('A/B testing', 'chapote-backoffice'),          'price_cents' => 700,  'requires' => array()),
-                array('key' => 'white_label', 'label' => __('White-label', 'chapote-backoffice'),          'price_cents' => 900,  'requires' => array()),
+                array('key' => 'ai',          'label' => __('Intelligence artificielle', 'chapote-chatbot'), 'price_cents' => 0,    'requires' => array(), 'byok_price_cents' => 2900),
+                array('key' => 'rag',         'label' => __('Connaissances (RAG)', 'chapote-chatbot'),  'price_cents' => 900,  'requires' => array('ai')),
+                array('key' => 'inbox',       'label' => __('Live chat / Inbox', 'chapote-chatbot'),    'price_cents' => 1500, 'requires' => array()),
+                array('key' => 'actions',     'label' => __('Actions', 'chapote-chatbot'),              'price_cents' => 1200, 'requires' => array()),
+                array('key' => 'mcp',         'label' => __('MCP (outils IA)', 'chapote-chatbot'),      'price_cents' => 900,  'requires' => array('ai')),
+                array('key' => 'ab',          'label' => __('A/B testing', 'chapote-chatbot'),          'price_cents' => 700,  'requires' => array()),
+                array('key' => 'white_label', 'label' => __('White-label', 'chapote-chatbot'),          'price_cents' => 900,  'requires' => array()),
             ),
             'ai_tiers' => array(
                 array('id' => 'ai_starter', 'included_replies' => 1000,  'price_cents' => 1900),

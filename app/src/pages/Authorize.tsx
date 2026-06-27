@@ -52,7 +52,10 @@ function isPluginRedirect(raw: string): boolean {
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
     if (u.username || u.password) return false
     if (!u.pathname.endsWith('/wp-admin/admin.php')) return false
-    return u.searchParams.get('page') === 'chapote-backoffice'
+    // Slug de la page admin du plugin : 'chapote-chatbot' (nouveau) ou
+    // 'chapote-backoffice' (anciennes installs) — transition.
+    const page = u.searchParams.get('page')
+    return page === 'chapote-chatbot' || page === 'chapote-backoffice'
   } catch {
     return false
   }

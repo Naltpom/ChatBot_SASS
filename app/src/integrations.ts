@@ -8,7 +8,7 @@
 // dans app/public/downloads/ et servi par nginx sous /downloads/. C'est CE zip que
 // le client installe sur son WordPress (la variante .org « -wporg.zip », sans
 // updater, ne sert qu'à la soumission au répertoire WordPress.org, pas au public).
-export const WP_PLUGIN_URL = '/downloads/chapote-backoffice.zip'
+export const WP_PLUGIN_URL = '/downloads/chapote-chatbot.zip'
 
 // Fiche WordPress.org du plugin — PLACEHOLDER tant que le plugin n'est pas
 // publié sur le répertoire officiel. À remplacer par l'URL réelle.

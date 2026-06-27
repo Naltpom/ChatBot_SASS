@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name:       Chapote Back-Office
+ * Plugin Name:       Chapote Chatbot
  * Plugin URI:        https://chapote.fr
- * Description:       Le back-office Chapote dans WordPress : connectez-vous, gérez vos bots, éditez l'apparence, payez (Stripe), activez le widget sur le site et ciblez les pages. UI mince au-dessus de l'API Chapote ; le token reste côté serveur (jamais exposé au JavaScript).
+ * Description:       Le chatbot Chapote dans WordPress : connectez-vous, gérez vos bots, éditez l'apparence, payez (Stripe), activez le widget sur le site et ciblez les pages. UI mince au-dessus de l'API Chapote ; le token reste côté serveur (jamais exposé au JavaScript).
  * Version:           2.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
@@ -10,8 +10,7 @@
  * Author URI:        https://chapote.fr
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain:       chapote-backoffice
- * Domain Path:       /languages
+ * Text Domain:       chapote-chatbot
  *
  * Architecture (cf. PLUGIN_V2_BACKOFFICE_SPEC.md) :
  *   Admin SPA (vanilla JS)  --proxy /wp-json/chapote-bo/v1/*-->  API Chapote (/api/oauth/*, /api/account/*)
@@ -59,22 +58,15 @@ if (file_exists(CHAPOTE_BO_DIR . 'includes/class-chapote-bo-updater.php')) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* i18n                                                                       */
-/* -------------------------------------------------------------------------- */
-
-add_action('init', 'chapote_bo_load_textdomain');
-function chapote_bo_load_textdomain() {
-    load_plugin_textdomain('chapote-backoffice', false, dirname(plugin_basename(__FILE__)) . '/languages');
-}
-
-/* -------------------------------------------------------------------------- */
 /* Bootstrap des modules                                                      */
 /* -------------------------------------------------------------------------- */
+/* i18n : WordPress charge automatiquement les traductions par slug (depuis 4.6),
+   pas d'appel load_plugin_textdomain requis (Plugin Check le déconseille). */
 
 add_action('rest_api_init', array('Chapote_BO_REST', 'register_routes'));
 add_action('admin_menu', array('Chapote_BO_Admin', 'register_menu'));
 add_action('admin_enqueue_scripts', array('Chapote_BO_Admin', 'enqueue_assets'));
-add_action('wp_footer', array('Chapote_BO_Frontend', 'inject_widgets'));
+Chapote_BO_Frontend::init();
 
 // SEO (rendu serveur, crawlable) : FAQ JSON-LD + backlink opt-in.
 Chapote_BO_SEO::init();
@@ -86,10 +78,10 @@ if (class_exists('Chapote_BO_Updater')) {
 /** Lien « Réglages » direct depuis la liste des extensions. */
 add_filter('plugin_action_links_' . plugin_basename(__FILE__), 'chapote_bo_action_links');
 function chapote_bo_action_links($links) {
-    $url = admin_url('admin.php?page=chapote-backoffice');
+    $url = admin_url('admin.php?page=chapote-chatbot');
     array_unshift(
         $links,
-        '<a href="' . esc_url($url) . '">' . esc_html__('Ouvrir le back-office', 'chapote-backoffice') . '</a>'
+        '<a href="' . esc_url($url) . '">' . esc_html__('Ouvrir Chapote Chatbot', 'chapote-chatbot') . '</a>'
     );
     return $links;
 }
@@ -104,7 +96,7 @@ function chapote_bo_register_privacy_content() {
         return;
     }
     $content = wp_kses_post(
-        '<p>' . __('Le plugin Chapote Back-Office se connecte à l\'API Chapote (OAuth Authorization Code + PKCE) pour gérer vos bots et déclenche une redirection vers Stripe Checkout pour le paiement. Le widget public charge un script depuis le domaine Chapote configuré.', 'chapote-backoffice') . '</p>'
+        '<p>' . __('Le plugin Chapote Chatbot se connecte à l\'API Chapote (OAuth Authorization Code + PKCE) pour gérer vos bots et déclenche une redirection vers Stripe Checkout pour le paiement. Le widget public charge un script depuis le domaine Chapote configuré.', 'chapote-chatbot') . '</p>'
     );
-    wp_add_privacy_policy_content('Chapote Back-Office', $content);
+    wp_add_privacy_policy_content('Chapote Chatbot', $content);
 }

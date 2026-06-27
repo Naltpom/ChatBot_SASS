@@ -16,10 +16,10 @@
  * réseau à chaque rafraîchissement ; un échec réseau est silencieux (pas de
  * mise à jour proposée, jamais de fatal). Transport : wp_remote_get UNIQUEMENT.
  *
- * Manifeste attendu (https://chapote.fr/downloads/chapote-backoffice.json) :
+ * Manifeste attendu (https://chapote.fr/downloads/chapote-chatbot.json) :
  *   {
  *     "version":      "2.1.0",
- *     "download_url": "https://chapote.fr/downloads/chapote-backoffice.zip",
+ *     "download_url": "https://chapote.fr/downloads/chapote-chatbot.zip",
  *     "homepage":     "https://chapote.fr",
  *     "requires":     "5.8",
  *     "tested":       "6.5",
@@ -36,10 +36,10 @@ if (!defined('ABSPATH')) {
 class Chapote_BO_Updater {
 
     /** Slug du plugin (dossier) = Text Domain. */
-    const SLUG = 'chapote-backoffice';
+    const SLUG = 'chapote-chatbot';
 
     /** URL du manifeste d'auto-update (servi par nginx app). */
-    const MANIFEST_URL = 'https://chapote.fr/downloads/chapote-backoffice.json';
+    const MANIFEST_URL = 'https://chapote.fr/downloads/chapote-chatbot.json';
 
     /** Transient de cache du manifeste. */
     const TRANSIENT = 'chapote_bo_updater_manifest';
@@ -151,7 +151,7 @@ class Chapote_BO_Updater {
         }
 
         $info = new stdClass();
-        $info->name          = !empty($manifest['name']) ? (string) $manifest['name'] : 'Chapote Back-Office';
+        $info->name          = !empty($manifest['name']) ? (string) $manifest['name'] : 'Chapote Chatbot';
         $info->slug          = self::SLUG;
         $info->version       = (string) $manifest['version'];
         $info->author        = !empty($manifest['author']) ? (string) $manifest['author'] : '<a href="https://chapote.fr">Chapote</a>';
@@ -179,7 +179,7 @@ class Chapote_BO_Updater {
             }
         }
         if (empty($sections['description'])) {
-            $sections['description'] = esc_html__('Le back-office Chapote dans WordPress.', 'chapote-backoffice');
+            $sections['description'] = esc_html__('Le chatbot Chapote dans WordPress.', 'chapote-chatbot');
         }
         $info->sections = $sections;
 

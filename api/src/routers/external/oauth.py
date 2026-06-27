@@ -92,7 +92,10 @@ def _redirect_uri_ok(uri: str) -> bool:
     # sous-répertoire, ex. /blog/wp-admin/admin.php).
     if not parsed.path.endswith("/wp-admin/admin.php"):
         return False
-    return "page=chapote-backoffice" in (parsed.query or "")
+    # Slug de la page admin du plugin : 'chapote-chatbot' (nouveau) ou
+    # 'chapote-backoffice' (anciennes installs encore déployées) — transition.
+    query = parsed.query or ""
+    return "page=chapote-chatbot" in query or "page=chapote-backoffice" in query
 
 
 # --- Surface DASHBOARD (page /authorize, get_current_user) -----------------

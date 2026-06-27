@@ -17,7 +17,21 @@ if (!defined('ABSPATH')) {
 
 class Chapote_BO_Frontend {
 
-    public static function inject_widgets() {
+    /** handle WordPress => clé publique du bot, pour ajouter data-bot-key au
+     *  bon <script> via le filtre script_loader_tag. */
+    private static $handles = array();
+
+    public static function init() {
+        add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueue_widgets'));
+        add_filter('script_loader_tag', array(__CLASS__, 'script_tag'), 10, 2);
+    }
+
+    /**
+     * Met en file (wp_enqueue_script) la balise officielle du widget pour chaque
+     * bot ACTIVÉ (toggle ON) dont le ciblage matche la page courante. Un handle
+     * par clé publique ; l'attribut data-bot-key est posé par script_tag().
+     */
+    public static function enqueue_widgets() {
         if (is_admin()) {
             return;
         }
@@ -32,9 +46,7 @@ class Chapote_BO_Frontend {
             return;
         }
 
-        // Le ciblage s'évalue sur la requête principale (réinitialisée).
-        wp_reset_query();
-
+        $src  = $api_base . '/widget.js';
         $seen = array();
         foreach ($bots as $bot) {
             if (empty($bot['enabled']) || empty($bot['public_key'])) {
@@ -42,7 +54,7 @@ class Chapote_BO_Frontend {
             }
             $pk = (string) $bot['public_key'];
             if (isset($seen[$pk])) {
-                continue; // évite une double balise pour la même clé
+                continue; // évite un double enqueue pour la même clé
             }
 
             $targeting = isset($bot['targeting']) && is_array($bot['targeting'])
@@ -54,12 +66,22 @@ class Chapote_BO_Frontend {
             }
 
             $seen[$pk] = true;
-            printf(
-                '<script src="%1$s" data-bot-key="%2$s" defer></script>' . "\n",
-                esc_url($api_base . '/widget.js'),
-                esc_attr($pk)
-            );
+            $handle = 'chapote-widget-' . substr(md5($pk), 0, 12);
+            wp_enqueue_script($handle, $src, array(), CHAPOTE_BO_VERSION, true);
+            self::$handles[$handle] = $pk;
         }
+    }
+
+    /**
+     * Ajoute data-bot-key (et defer) au <script> de NOS handles uniquement, en
+     * laissant tous les autres scripts intacts (filtre script_loader_tag).
+     */
+    public static function script_tag($tag, $handle) {
+        if (!isset(self::$handles[$handle])) {
+            return $tag;
+        }
+        $attrs = 'data-bot-key="' . esc_attr(self::$handles[$handle]) . '" defer ';
+        return str_replace('<script ', '<script ' . $attrs, $tag);
     }
 
     /**
