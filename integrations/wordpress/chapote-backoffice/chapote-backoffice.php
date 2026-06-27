@@ -3,7 +3,7 @@
  * Plugin Name:       Chapote Back-Office
  * Plugin URI:        https://chapote.fr
  * Description:       Le back-office Chapote dans WordPress : connectez-vous, gérez vos bots, éditez l'apparence, payez (Stripe), activez le widget sur le site et ciblez les pages. UI mince au-dessus de l'API Chapote ; le token reste côté serveur (jamais exposé au JavaScript).
- * Version:           2.0.0
+ * Version:           2.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Chapote
@@ -28,7 +28,7 @@ if (!defined('ABSPATH')) {
     exit; // Pas d'accès direct.
 }
 
-define('CHAPOTE_BO_VERSION', '2.0.0');
+define('CHAPOTE_BO_VERSION', '2.1.0');
 define('CHAPOTE_BO_FILE', __FILE__);
 define('CHAPOTE_BO_DIR', plugin_dir_path(__FILE__));
 define('CHAPOTE_BO_URL', plugin_dir_url(__FILE__));
@@ -47,6 +47,16 @@ require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-api.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-rest.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-admin.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-frontend.php';
+require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-seo.php';
+
+// Mise à jour automatique SELF-HOSTED (depuis chapote.fr). EXCLU du paquet
+// WordPress.org : un plugin hébergé sur le dépôt .org ne DOIT PAS embarquer son
+// propre updater (il court-circuiterait les MAJ du dépôt). Le build .org retire
+// ce fichier ; le `file_exists` évite alors tout fatal et laisse WordPress.org
+// gérer les mises à jour (cf. docs/PLUGIN_DISTRIBUTION.md).
+if (file_exists(CHAPOTE_BO_DIR . 'includes/class-chapote-bo-updater.php')) {
+    require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-updater.php';
+}
 
 /* -------------------------------------------------------------------------- */
 /* i18n                                                                       */
@@ -65,6 +75,13 @@ add_action('rest_api_init', array('Chapote_BO_REST', 'register_routes'));
 add_action('admin_menu', array('Chapote_BO_Admin', 'register_menu'));
 add_action('admin_enqueue_scripts', array('Chapote_BO_Admin', 'enqueue_assets'));
 add_action('wp_footer', array('Chapote_BO_Frontend', 'inject_widgets'));
+
+// SEO (rendu serveur, crawlable) : FAQ JSON-LD + backlink opt-in.
+Chapote_BO_SEO::init();
+// Auto-update self-hosted (présent hors paquet WordPress.org, cf. ci-dessus).
+if (class_exists('Chapote_BO_Updater')) {
+    Chapote_BO_Updater::init();
+}
 
 /** Lien « Réglages » direct depuis la liste des extensions. */
 add_filter('plugin_action_links_' . plugin_basename(__FILE__), 'chapote_bo_action_links');

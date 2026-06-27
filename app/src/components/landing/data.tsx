@@ -84,6 +84,6 @@ export type FooterColumn = { title: string; links: NavLink[] }
 // ou placeholder. Le pack légal pointe vers les pages publiques réelles.
 export const FOOTER_COLUMNS: FooterColumn[] = [
   { title: 'Produit', links: [{ href: '#features', label: 'Fonctionnalités' }, { href: '#why', label: 'Comparatif' }, { href: '#pricing', label: 'Tarifs' }, { href: '#install', label: 'Installation' }, { href: '/demo', label: 'Démo' }] },
-  { title: 'Légal', links: [{ href: '/mentions-legales', label: 'Mentions légales' }, { href: '/cgu', label: 'CGU' }, { href: '/cgv', label: 'CGV' }, { href: '/confidentialite', label: 'Confidentialité' }] },
+  { title: 'Légal', links: [{ href: '/legal/mentions-legales', label: 'Mentions légales' }, { href: '/legal/cgu', label: 'CGU' }, { href: '/legal/cgv', label: 'CGV' }, { href: '/legal/confidentialite', label: 'Confidentialité' }] },
   { title: 'Ressources', links: [{ href: '#', label: 'Documentation' }, { href: '#', label: 'Contact' }, { href: '#', label: 'GitHub' }] },
 ]
