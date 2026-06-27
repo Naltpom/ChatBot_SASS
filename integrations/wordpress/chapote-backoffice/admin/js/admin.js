@@ -83,7 +83,7 @@
     bots: [],
     view: 'connect',   // connect | bots | bot
     botId: null,
-    botTab: 'appearance',
+    botTab: 'activation',
     notice: null
   };
 
@@ -251,8 +251,10 @@
   }
 
   function billingBadge(status) {
-    var map = { active: ['Actif', 'ok'], inactive: ['Inactif', 'off'], past_due: ['Impayé', 'warn'], canceled: ['Résilié', 'off'] };
-    var m = map[status] || [status || 'Inconnu', 'off'];
+    // billing_status null/undefined = bot servable sans abonnement payant = « Gratuit ».
+    if (status == null || status === '') return h('span', { class: 'cbo-badge cbo-badge-off', text: 'Gratuit' });
+    var map = { active: ['Actif', 'ok'], trialing: ['Essai', 'ok'], inactive: ['Inactif', 'off'], past_due: ['Impayé', 'warn'], canceled: ['Résilié', 'off'] };
+    var m = map[status] || [status, 'off'];
     return h('span', { class: 'cbo-badge cbo-badge-' + m[1], text: m[0] });
   }
 
@@ -284,7 +286,7 @@
   /* ----------------------------------------------------------- bot (détail) */
 
   function openBot(id) {
-    state.view = 'bot'; state.botId = id; state.botTab = 'appearance';
+    state.view = 'bot'; state.botId = id; state.botTab = 'activation';
     render();
   }
 
@@ -297,19 +299,17 @@
       billingBadge(bot.billing_status)
     ));
     var tabs = h('div', { class: 'cbo-subtabs' },
-      subTab('Apparence', 'appearance'),
-      subTab('Mon offre', 'payment'),
       subTab('Activation & ciblage', 'activation'),
-      subTab('Domaine', 'domain')
+      subTab('Mon offre', 'payment'),
+      subTab('Apparence', 'appearance')
     );
     wrap.appendChild(tabs);
     var pane = h('div', { class: 'cbo-pane', id: 'cbo-pane' });
     wrap.appendChild(pane);
 
-    if (state.botTab === 'appearance') renderAppearance(pane);
-    else if (state.botTab === 'payment') renderPayment(pane);
-    else if (state.botTab === 'activation') renderActivation(pane);
-    else renderDomain(pane);
+    if (state.botTab === 'payment') renderPayment(pane);
+    else if (state.botTab === 'appearance') renderAppearance(pane);
+    else renderActivation(pane); // 'activation' par défaut (onglet Domaine fusionné ici)
     return wrap;
   }
   function subTab(label, key) {
@@ -398,12 +398,48 @@
     refresh();
   }
 
-  // Aperçu FIDÈLE du widget, reconstruit à chaque changement de champ. Toutes les
-  // couleurs passent par hexColor() avant injection inline (#27).
+  // Icônes SVG du vrai widget (tracés constants repris de widget.js) construites
+  // sans innerHTML (createElementNS) -> aucune surface d'injection.
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var ICON_CHAT = 'M12 3C7 3 3 6.6 3 11c0 2.2 1 4.2 2.7 5.6-.1 1-.5 2.1-1.4 3 1.7-.1 3.1-.7 4.1-1.4 1.1.4 2.3.7 3.6.7 5 0 9-3.6 9-7.9S17 3 12 3z';
+  var ICON_SEND = 'M3.4 20.6 21.8 12 3.4 3.4l.01 6.6L15 12 3.41 14z';
+  function svgIcon(pathD) {
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'currentColor');
+    var p = document.createElementNS(SVG_NS, 'path');
+    p.setAttribute('d', pathD);
+    svg.appendChild(p);
+    return svg;
+  }
+  // Avatar : image du bot (icon === 'image' + avatarImage, posée en PROPRIÉTÉ
+  // img.src, jamais interpolée) sinon l'icône chat du widget.
+  function avatarNode(d, cls) {
+    var box = h('span', { class: cls });
+    if (d.icon === 'image' && typeof d.avatarImage === 'string' && d.avatarImage) {
+      box.classList.add('cbo-wp-hasimg');
+      var img = h('img', { alt: '' });
+      img.src = String(d.avatarImage);
+      box.appendChild(img);
+    } else {
+      box.appendChild(svgIcon(ICON_CHAT));
+    }
+    return box;
+  }
+
+  // Aperçu FIDÈLE du widget (mêmes proportions/arrondis/couleurs/typo que
+  // widget.js), reconstruit à chaque changement de champ. Toutes les couleurs
+  // passent par hexColor() avant injection inline (#27). Affiche la fenêtre
+  // OUVERTE + le lanceur fermé (comme sur le site).
   function renderPreview(node, d, botName) {
     clear(node);
     var primary = hexColor(d.primaryColor, '#0d9488');
     var secondary = hexColor(d.secondaryColor, primary);
+    // En-tête / lanceur : dégradé 135° si une secondaire distincte est posée,
+    // sinon couleur pleine (parité widget : color2 ? linear-gradient : brand).
+    var brandBg = (d.secondaryColor && secondary !== primary)
+      ? 'linear-gradient(135deg,' + primary + ',' + secondary + ')'
+      : primary;
     var dark = d.darkMode === true;
     var pos = (d.position === 'left') ? 'left' : 'right';
     var size = (d.size === 'sm' || d.size === 'lg') ? d.size : 'md';
@@ -411,40 +447,48 @@
     // Fenêtre de chat (état ouvert).
     var panel = h('div', { class: 'cbo-wp cbo-pos-' + pos + ' cbo-size-' + size + (dark ? ' cbo-wp-dark' : '') });
 
-    // En-tête : couleur principale, avatar, titre, croix de fermeture.
-    panel.appendChild(h('div', { class: 'cbo-wp-head', style: 'background:' + primary },
-      h('span', { class: 'cbo-wp-avatar' }),
-      h('span', { class: 'cbo-wp-title', text: d.title || botName || 'Assistant' }),
+    // En-tête : fond marque, avatar, nom + statut « En ligne » (point vert), croix.
+    panel.appendChild(h('div', { class: 'cbo-wp-head', style: 'background:' + brandBg },
+      avatarNode(d, 'cbo-wp-avatar'),
+      h('div', { class: 'cbo-wp-headmid' },
+        h('span', { class: 'cbo-wp-title', text: d.title || botName || 'Assistant' }),
+        h('span', { class: 'cbo-wp-status' }, h('span', { class: 'cbo-wp-dot' }), h('span', { text: 'En ligne' }))
+      ),
       h('span', { class: 'cbo-wp-close', text: '×' })
     ));
 
-    // Corps : message d'accueil (bot) + message visiteur (couleur secondaire).
+    // Corps : bulle bot (accueil, ergot haut-gauche) + bulle visiteur (marque,
+    // ergot bas-droite). Le visiteur reprend la couleur PRINCIPALE (parité widget).
     panel.appendChild(h('div', { class: 'cbo-wp-body' },
       h('div', { class: 'cbo-wp-msg cbo-wp-bot', text: d.welcomeMessage || 'Bonjour ! Comment puis-je vous aider ?' }),
-      h('div', { class: 'cbo-wp-msg cbo-wp-user', style: 'background:' + secondary, text: 'Bonjour, j’ai une question.' })
+      h('div', { class: 'cbo-wp-msg cbo-wp-user', style: 'background:' + primary, text: 'Bonjour, j’ai une question.' })
     ));
 
-    // Zone de saisie : placeholder + bouton d'envoi (couleur principale).
+    // Zone de saisie : champ pilule + bouton d'envoi rond (couleur principale).
+    var send = h('span', { class: 'cbo-wp-send', style: 'background:' + primary });
+    send.appendChild(svgIcon(ICON_SEND));
     panel.appendChild(h('div', { class: 'cbo-wp-inputrow' },
       h('span', { class: 'cbo-wp-input', text: d.placeholder || 'Écrivez votre message…' }),
-      h('span', { class: 'cbo-wp-send', style: 'background:' + primary, text: '→' })
+      send
     ));
 
-    // Mention « Powered by » (affichée tant que white-label non décoché).
+    // Mention « Propulsé par Chapote » (affichée tant que white-label non décoché).
     if (d.poweredBy !== false) {
-      panel.appendChild(h('div', { class: 'cbo-wp-powered', text: 'Powered by Chapote' }));
+      panel.appendChild(h('div', { class: 'cbo-wp-powered' }, 'Propulsé par ', h('b', { text: 'Chapote' })));
     }
     node.appendChild(panel);
 
-    // Bulle d'accroche, à côté du lanceur, si activée.
+    // Bulle d'accroche, au-dessus/à côté du lanceur, si activée.
     if (d.greeting === true) {
       node.appendChild(h('div', { class: 'cbo-wp-greeting cbo-pos-' + pos,
-        text: d.launcherText || d.title || botName || 'Une question ?' }));
+        text: d.greetingText || d.launcherText || d.title || botName || 'Une question ?' }));
     }
 
-    // Lanceur (bouton bulle) dans le même coin que la fenêtre.
-    var launcher = h('div', { class: 'cbo-wp-launcher cbo-pos-' + pos, style: 'background:' + primary });
-    launcher.appendChild(h('span', { class: 'cbo-wp-launcher-ico', text: '💬' }));
+    // Lanceur fermé (bulle flottante marque) dans le même coin que la fenêtre.
+    // Pilule [icône + libellé] si launcherText, sinon bouton rond icône seule.
+    var launcher = h('div', { class: 'cbo-wp-launcher cbo-pos-' + pos + (d.launcherText ? ' cbo-wp-launcher-pill' : ''),
+      style: 'background:' + brandBg });
+    launcher.appendChild(avatarNode(d, 'cbo-wp-launcher-ico'));
     if (d.launcherText) launcher.appendChild(h('span', { class: 'cbo-wp-launcher-txt', text: d.launcherText }));
     node.appendChild(launcher);
   }
@@ -691,18 +735,23 @@
 
   function buildActivation(pane, local, bot) {
     clear(pane);
-    var active = bot.billing_status === 'active';
+    var billed = bot.billing_status;
     var t = local.targeting || { mode: 'everywhere', include_front: true, include_types: [], include_ids: [], exclude_types: [], exclude_ids: [] };
 
-    // Verrou produit : activation impossible tant que non payé.
-    if (!active) {
-      pane.appendChild(h('div', { class: 'cbo-lock' },
-        h('strong', { text: '🔒 Activation verrouillée' }),
-        h('p', { text: 'Le widget ne peut être activé sur le site qu’une fois l’abonnement payé (statut « actif »). Rendez-vous dans l’onglet Mon offre.' })
+    // Décision produit : le widget Chapote sert TOUS les bots servables. Un bot
+    // gratuit (socle, billing_status null) ou en essai reste utilisable -> pas de
+    // verrou dur. Si aucun abonnement payant n'est actif, on affiche seulement une
+    // note informative (non bloquante) renvoyant vers l'onglet « Mon offre ».
+    if (billed !== 'active' && billed !== 'trialing') {
+      pane.appendChild(h('div', { class: 'cbo-freenote' },
+        h('p', null,
+          'Ce bot fonctionne en mode gratuit (pas d’abonnement payant actif) : les réponses IA sont limitées au quota gratuit. Vous pouvez quand même l’activer sur le site. ',
+          h('a', { href: '#', onClick: function (e) { e.preventDefault(); state.botTab = 'payment'; render(); } }, 'Voir « Mon offre »')
+        )
       ));
     }
 
-    var toggle = h('input', { type: 'checkbox', checked: !!local.enabled, disabled: !active });
+    var toggle = h('input', { type: 'checkbox', checked: !!local.enabled });
     pane.appendChild(h('div', { class: 'cbo-toggle' },
       h('label', { class: 'cbo-check' }, toggle, h('span', { text: 'Afficher le widget de ce bot sur le site' }))
     ));
@@ -782,6 +831,16 @@
         saveActivation(e.target, toggle.checked, targeting);
       } }, 'Enregistrer l’activation')
     ));
+
+    // Rappel domaine (anciennement onglet « Domaine », fusionné ici) : pour que le
+    // widget réponde aux visiteurs, ce domaine doit être autorisé côté Chapote.
+    pane.appendChild(h('div', { class: 'cbo-domain' },
+      h('h4', { class: 'cbo-custom-h', text: 'Autoriser ce domaine dans Chapote' }),
+      h('p', { class: 'cbo-muted', text: 'Pour que le widget réponde aux visiteurs, ajoutez ce domaine à la liste des domaines autorisés de votre bot (onglet Sécurité dans Chapote) :' }),
+      h('code', { class: 'cbo-host', text: CFG.siteHost || '' }),
+      h('p', { class: 'cbo-muted', text: 'La sécurité (domaines autorisés, captcha, limites) se gère côté Chapote, pas dans WordPress.' }),
+      h('p', null, h('a', { href: (CFG.appBase || CFG.apiBase) + '/app', target: '_blank', rel: 'noopener', text: 'Ouvrir le dashboard Chapote' }))
+    ));
   }
 
   function saveActivation(btn, enabled, targeting) {
@@ -792,19 +851,6 @@
       else if (res.status === 403 && res.data && res.data.error === 'not_active') setNotice('Activation refusée : l’abonnement n’est pas actif.', 'warn');
       else setNotice('Enregistrement impossible.', 'warn');
     });
-  }
-
-  /* ------------------------------------------------------------- domaine */
-
-  function renderDomain(pane) {
-    clear(pane);
-    pane.appendChild(h('div', { class: 'cbo-card cbo-domain' },
-      h('h3', { text: 'Autoriser ce domaine dans Chapote' }),
-      h('p', null, 'Pour que le widget réponde aux visiteurs, ajoutez ce domaine à la liste des domaines autorisés de votre bot (onglet Sécurité dans Chapote) :'),
-      h('code', { class: 'cbo-host', text: CFG.siteHost || '' }),
-      h('p', { class: 'cbo-muted', text: 'La sécurité (domaines autorisés, captcha, limites) se gère côté Chapote, pas dans WordPress.' }),
-      h('p', null, h('a', { href: (CFG.appBase || CFG.apiBase) + '/app', target: '_blank', rel: 'noopener', text: 'Ouvrir le dashboard Chapote' }))
-    ));
   }
 
   /* ----------------------------------------------------------- helpers UI */
