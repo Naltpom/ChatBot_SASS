@@ -126,7 +126,7 @@ PY
   "version": "${version}",
   "download_url": "https://chapote.fr/downloads/chapote-backoffice.zip",
   "requires": "5.8",
-  "tested": "6.6",
+  "tested": "7.0",
   "requires_php": "7.4",
   "last_updated": "${now_iso}",
   "homepage": "https://chapote.fr"

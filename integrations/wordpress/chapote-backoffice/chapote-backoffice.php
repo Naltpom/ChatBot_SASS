@@ -11,7 +11,6 @@
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       chapote-backoffice
- * Domain Path:       /languages
  *
  * Architecture (cf. PLUGIN_V2_BACKOFFICE_SPEC.md) :
  *   Admin SPA (vanilla JS)  --proxy /wp-json/chapote-bo/v1/*-->  API Chapote (/api/oauth/*, /api/account/*)
@@ -59,22 +58,15 @@ if (file_exists(CHAPOTE_BO_DIR . 'includes/class-chapote-bo-updater.php')) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* i18n                                                                       */
-/* -------------------------------------------------------------------------- */
-
-add_action('init', 'chapote_bo_load_textdomain');
-function chapote_bo_load_textdomain() {
-    load_plugin_textdomain('chapote-backoffice', false, dirname(plugin_basename(__FILE__)) . '/languages');
-}
-
-/* -------------------------------------------------------------------------- */
 /* Bootstrap des modules                                                      */
 /* -------------------------------------------------------------------------- */
+/* i18n : WordPress charge automatiquement les traductions par slug (depuis 4.6),
+   pas d'appel load_plugin_textdomain requis (Plugin Check le déconseille). */
 
 add_action('rest_api_init', array('Chapote_BO_REST', 'register_routes'));
 add_action('admin_menu', array('Chapote_BO_Admin', 'register_menu'));
 add_action('admin_enqueue_scripts', array('Chapote_BO_Admin', 'enqueue_assets'));
-add_action('wp_footer', array('Chapote_BO_Frontend', 'inject_widgets'));
+Chapote_BO_Frontend::init();
 
 // SEO (rendu serveur, crawlable) : FAQ JSON-LD + backlink opt-in.
 Chapote_BO_SEO::init();

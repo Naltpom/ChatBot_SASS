@@ -1,112 +1,95 @@
 === Chapote Back-Office ===
 Contributors: chapote
-Tags: chatbot, chat, support, assistant, ia
+Tags: chatbot, chat, support, assistant, ai
 Requires at least: 5.8
-Tested up to: 6.6
+Tested up to: 7.0
 Requires PHP: 7.4
 Stable tag: 2.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Le back-office Chapote dans WordPress : connectez-vous, gérez vos bots, l'apparence, le paiement, et activez le widget sur votre site.
+Manage your Chapote chatbots from WordPress: connect, manage bots, edit appearance, pay (Stripe), and enable the widget on your site.
 
 == Description ==
 
-Chapote Back-Office transforme l'administration WordPress en tableau de bord léger de votre compte Chapote. Depuis le menu « Chapote » de wp-admin, vous pouvez :
+Chapote Back-Office turns your WordPress admin into a lightweight dashboard for your Chapote account. From the "Chapote" menu in wp-admin you can:
 
-* Vous connecter à Chapote (« Se connecter avec Chapote », OAuth Authorization Code + PKCE — redirection vers l'écran de consentement de Chapote, aucun mot de passe Chapote n'est saisi ni stocké dans WordPress).
-* Voir et créer vos chatbots.
-* Éditer l'apparence du widget (couleurs, position, taille, textes, mode sombre, mention « Powered by »…) avec un aperçu en direct, fidèle au widget réel.
-* Souscrire ou faire évoluer un abonnement (modules + niveau d'IA) : le paiement se fait sur la page sécurisée hébergée par Stripe (redirection), jamais dans WordPress.
-* Activer le widget sur votre site (interrupteur on/off par bot) et cibler les pages où il s'affiche (tout le site, ou inclusions/exclusions par type de contenu et par identifiant).
+* Sign in with Chapote ("Sign in with Chapote", OAuth Authorization Code + PKCE — you are redirected to the Chapote consent screen; no Chapote password is entered or stored in WordPress).
+* Manage your bots: list, create, and edit the appearance with a live preview.
+* Pay and subscribe through hosted Stripe Checkout (redirect), then manage the plan or cancel.
+* Enable the widget per bot and target the pages where it appears (handled entirely in WordPress, in local options).
+* Improve SEO with server-rendered output the JavaScript widget cannot provide: an optional "Powered by Chapote" link and a schema.org FAQ (FAQPage, JSON-LD) eligible for rich results.
 
-L'arbre de conversation, la base de connaissances et la sécurité (domaines autorisés) restent gérés dans le dashboard Chapote.
+= External service (required) =
 
-= Service externe requis (divulgation) =
+**This plugin requires a Chapote account, a paid third-party service hosted at https://chapote.fr.** Without an active Chapote account the plugin cannot work: it is a thin interface over the Chapote account API and performs no chatbot processing locally.
 
-**Ce plugin nécessite un compte Chapote, un service tiers payant hébergé sur https://chapote.fr.** Sans compte Chapote actif, le plugin ne peut pas fonctionner : il sert d'interface au-dessus de l'API de compte Chapote et n'effectue aucun traitement de chatbot localement.
+**Communication with Chapote.** The plugin communicates with chapote.fr (address configurable in the settings) to:
 
-**Communication avec Chapote.** Le plugin communique avec chapote.fr (adresse configurable dans les réglages) pour :
+* sign in: an OAuth exchange (Authorization Code + PKCE, S256) opens the Chapote consent screen in your browser, then WordPress exchanges the authorization code for an access token, server to server;
+* manage your bots: read the list of your bots, create a bot, update its appearance, open a Stripe Checkout session, and read the billing catalog.
 
-* la **connexion** : un échange OAuth (Authorization Code + PKCE, S256) ouvre l'écran de consentement de Chapote dans votre navigateur, puis WordPress échange le code d'autorisation contre un jeton d'accès, de serveur à serveur ;
-* la **gestion des bots** via l'API de compte Chapote (`/api/account/*`) : lister/créer des bots, lire et enregistrer l'apparence, créer une session de paiement, mettre à jour ou résilier un abonnement.
+**Data sent to Chapote.**
 
-**Données transmises à Chapote.**
+* On sign-in: the OAuth authorization (no Chapote credentials are entered in WordPress); the email and name of the connected account are then read, only to be displayed in the interface.
+* When managing a bot: its configuration (name, appearance, subscription) and your site URL.
+* On the public side: on pages where you enable the widget, the **visitor's** browser loads the `/widget.js` script from the configured Chapote domain and sends Chapote the conversation messages and associated technical data (e.g. IP address, user agent) in order to receive the chatbot's answers.
 
-* À la connexion : l'autorisation OAuth (aucun identifiant Chapote n'est saisi dans WordPress) ; l'adresse e-mail et le nom du compte connecté sont ensuite lus, uniquement pour affichage dans l'interface.
-* À la gestion des bots : le nom et le mode d'un bot créé, la configuration d'apparence (`design_json`), la configuration d'abonnement (modules choisis, palier d'IA), le consentement horodaté à l'exécution immédiate, l'URL de votre site WordPress et, le cas échéant, l'identifiant du contenu lié.
-* Côté public : sur les pages où vous activez le widget, le navigateur **du visiteur** charge le script `/widget.js` depuis le domaine Chapote configuré et envoie à Chapote les messages de conversation ainsi que les données techniques associées (par ex. adresse IP, user-agent) afin d'obtenir les réponses du chatbot.
+**Data that never leaves WordPress.** The widget activation state and page targeting are stored locally in WordPress and are never sent to Chapote.
 
-**Données qui ne quittent pas WordPress.** L'état d'activation du widget et le ciblage des pages sont stockés localement dans WordPress et ne sont jamais envoyés à Chapote pour lecture.
-
-**Paiement.** Le paiement est délégué à Stripe Checkout en mode **hébergé** (redirection vers la page de paiement Stripe). Aucune donnée de carte bancaire ne transite par WordPress. L'activation après paiement est confirmée côté Chapote par un webhook.
-
-En utilisant ce plugin, vous acceptez les conditions et la politique de confidentialité du service Chapote :
-
-* Conditions générales d'utilisation : https://chapote.fr/legal/cgu
-* Politique de confidentialité : https://chapote.fr/legal/confidentialite
-
-= Sécurité =
-
-Le jeton d'accès à votre compte Chapote ne transite **jamais** par le navigateur. Le JavaScript de l'administration appelle un proxy REST WordPress (côté serveur PHP) qui détient le jeton chiffré (AES-256-GCM, clé hors base de données) et le relaie vers Chapote. Capacité requise : `manage_options`. Toutes les routes du proxy sont protégées par un nonce WordPress.
+Terms of service: https://chapote.fr/legal/cgu — Privacy policy: https://chapote.fr/legal/confidentialite
 
 == Installation ==
 
-1. Téléversez le dossier `chapote-backoffice` dans `wp-content/plugins/`, ou installez le fichier zip depuis Extensions → Ajouter une extension → Téléverser une extension, puis activez l'extension.
-2. Ouvrez le menu « Chapote » dans l'administration, puis cliquez sur « Se connecter avec Chapote » (vous êtes redirigé vers l'écran de consentement Chapote, puis ramené dans wp-admin).
-3. Créez ou sélectionnez un bot, réglez son apparence, souscrivez si nécessaire, puis activez le widget et ciblez les pages d'affichage.
-4. Dans le dashboard Chapote (onglet Sécurité), ajoutez le domaine de votre site à la liste des domaines autorisés du bot.
+1. Upload the plugin to `wp-content/plugins/` and activate it, or install it from the ZIP via Plugins > Add New > Upload Plugin.
+2. Open the "Chapote" menu in the WordPress admin.
+3. Click "Sign in with Chapote" and approve access on the Chapote consent screen.
+4. Manage your bots, then enable the widget on the pages of your choice.
 
-Prérequis : PHP 7.4 ou supérieur avec l'extension OpenSSL (AES-256-GCM) pour le stockage chiffré du jeton ; un compte sur https://chapote.fr.
+Requires an active Chapote account (https://chapote.fr), PHP 7.4+ with the OpenSSL extension (used to encrypt the access token at rest).
 
 == Frequently Asked Questions ==
 
-= Le plugin est-il utilisable sans compte Chapote ? =
-Non. Le plugin est l'interface WordPress d'un service tiers payant (Chapote, https://chapote.fr). Un compte Chapote est nécessaire ; voir la sous-section « Service externe requis » de la description.
+= Do I need a Chapote account? =
 
-= Mes identifiants Chapote sont-ils stockés dans WordPress ? =
-Non. La connexion utilise OAuth Authorization Code + PKCE : vous êtes redirigé vers Chapote pour autoriser ce site (écran de consentement affichant le domaine), puis ramené dans l'administration. WordPress ne conserve qu'un jeton d'accès, chiffré côté serveur, jamais exposé au navigateur.
+Yes. This plugin is an interface over the Chapote service (chapote.fr) and requires an active account. All chatbot processing happens on Chapote, not in WordPress.
 
-= Quelles données sont envoyées à Chapote ? =
-La configuration des bots (nom, apparence, abonnement), l'URL de votre site, et — sur les pages où le widget est activé — les messages des visiteurs et les données techniques associées, traités par Chapote pour générer les réponses. Détail complet dans la sous-section « Service externe requis » et dans la politique de confidentialité : https://chapote.fr/legal/confidentialite
+= Is my access token exposed to the browser? =
 
-= Comment se passe le paiement ? =
-Le paiement est délégué à Stripe Checkout en mode hébergé : vous êtes redirigé vers la page de paiement de Stripe, puis ramené dans l'administration. Aucune donnée de carte ne transite par WordPress.
+No. The token is stored encrypted (AES-256-GCM) on the server and is never sent to the page JavaScript. The browser talks to a WordPress REST proxy (protected by `manage_options` capability and a nonce), which relays calls to Chapote.
 
-= Pourquoi le widget ne s'affiche-t-il pas sur le site ? =
-Vérifiez que l'interrupteur d'affichage du bot est activé (en haut de la page du bot, ou dans « Mes bots ») et que le ciblage des pages inclut bien la page consultée.
+= Where does the widget load from? =
 
-= Le chat ne répond pas aux visiteurs =
-Assurez-vous que le domaine de votre site figure dans les domaines autorisés du bot (onglet Sécurité du dashboard Chapote).
+On the pages where you enable it, the visitor's browser loads the official widget script (`widget.js`) from your configured Chapote domain.
 
-= Le plugin fonctionne-t-il avec mon propre serveur Chapote ? =
-Oui. L'adresse de l'API et celle du dashboard sont configurables ; par défaut elles pointent vers https://chapote.fr.
+= Does activating a bot on my site require a paid plan? =
+
+No, the widget serves any usable bot; a free bot works with the free reply quota. Billing and modules are managed on Chapote.
 
 == Screenshots ==
 
-1. Écran de connexion « Se connecter avec Chapote » (OAuth Authorization Code + PKCE) : un seul bouton, redirection vers l'écran de consentement Chapote, aucun mot de passe saisi dans WordPress.
-2. Liste « Mes bots » : tableau des chatbots avec l'interrupteur d'affichage sur le site, le statut de facturation et le plan/modules, plus la création d'un bot.
-3. Onglet « Apparence » : éditeur des couleurs, position, taille et textes du widget, avec un aperçu en direct fidèle au widget public.
-4. Onglet « Ciblage des pages » : choix « tout le site » ou pages personnalisées (inclusions/exclusions par type de contenu et par identifiant), et rappel du domaine à autoriser dans Chapote.
+1. "My bots": list of your bots with the "On the site" toggle per bot.
+2. Managing a bot: header display toggle and the "Page targeting" tab.
+3. SEO tab: optional "Powered by" link and the FAQ editor (schema.org structured data).
 
 == Changelog ==
 
 = 2.1.0 =
-* Référencement (SEO) : nouvel onglet « SEO ». Lien « Powered by Chapote » optionnel (désactivé par défaut) et FAQ en données structurées schema.org (FAQPage, JSON-LD) rendues côté serveur, éligibles aux résultats enrichis.
-* Mises à jour automatiques pour les installations hors WordPress.org (vérification de version et installation depuis l'administration WordPress).
+* SEO: new "SEO" tab. Optional "Powered by Chapote" link (off by default) and schema.org FAQ structured data (FAQPage, JSON-LD) rendered server-side, eligible for rich results.
+* Automatic updates for installations hosted outside WordPress.org (version check and install from the WordPress admin).
 
 = 2.0.0 =
-* Back-office complet dans WordPress, interface mince au-dessus de l'API de compte Chapote.
-* Connexion « Se connecter avec Chapote » via OAuth Authorization Code + PKCE (S256) ; jeton chiffré côté serveur (AES-256-GCM), jamais exposé au navigateur.
-* Gestion des bots : liste, création, édition de l'apparence avec aperçu en direct.
-* Paiement et abonnement via Stripe Checkout hébergé (redirection), avec consentement à l'exécution immédiate ; mise à jour de plan et résiliation.
-* Activation du widget par bot et ciblage des pages (100 % WordPress, options locales).
-* Proxy REST (namespace `chapote-bo/v1`) protégé par `manage_options` + nonce ; déclaration des services externes et contenu de confidentialité RGPD ; nettoyage complet à la désinstallation.
+* Full back-office in WordPress, a thin interface over the Chapote account API.
+* "Sign in with Chapote" via OAuth Authorization Code + PKCE (S256); token encrypted server-side (AES-256-GCM), never exposed to the browser.
+* Bot management: list, create, edit appearance with a live preview.
+* Payment and subscription via hosted Stripe Checkout (redirect), with consent to immediate execution; plan change and cancellation.
+* Per-bot widget activation and page targeting (entirely in WordPress, local options).
+* REST proxy (namespace `chapote-bo/v1`) protected by `manage_options` + nonce; external services disclosure and GDPR privacy content; full cleanup on uninstall.
 
 == Upgrade Notice ==
 
 = 2.1.0 =
-Ajoute l'onglet SEO (lien optionnel + FAQ schema.org) et les mises à jour automatiques hors WordPress.org.
+Adds the SEO tab (optional link + schema.org FAQ) and automatic updates outside WordPress.org.
 
 = 2.0.0 =
-Refonte en back-office complet : connexion OAuth « Se connecter avec Chapote », gestion des bots, apparence, paiement Stripe hébergé et activation/ciblage du widget. Nécessite un compte Chapote et PHP 7.4+ avec OpenSSL.
+Rebuilt as a full back-office: "Sign in with Chapote", bot management, appearance, hosted Stripe payment, and widget activation/targeting. Requires a Chapote account and PHP 7.4+ with OpenSSL.

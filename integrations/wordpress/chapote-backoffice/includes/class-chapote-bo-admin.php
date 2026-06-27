@@ -53,8 +53,12 @@ class Chapote_BO_Admin {
         }
 
         // Statut de retour Stripe (success/cancel) lu côté serveur, transmis au JS.
+        // Pas de nonce possible (paramètres d'une redirection externe Stripe) ; la
+        // valeur est seulement assainie puis affichée, aucune action mutative.
+        // phpcs:disable WordPress.Security.NonceVerification.Recommended
         $return_status = isset($_GET['cbo_status']) ? sanitize_key(wp_unslash($_GET['cbo_status'])) : '';
         $return_bot    = isset($_GET['cbo_bot']) ? sanitize_text_field(wp_unslash($_GET['cbo_bot'])) : '';
+        // phpcs:enable WordPress.Security.NonceVerification.Recommended
 
         wp_localize_script('chapote-bo-admin', 'CHAPOTE_BO', array(
             'restBase'      => esc_url_raw(rest_url(CHAPOTE_BO_REST_NS)),
