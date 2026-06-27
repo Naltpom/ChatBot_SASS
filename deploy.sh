@@ -13,15 +13,15 @@ git pull --ff-only
 # Build du plugin WordPress « Chapote Back-Office » (AVANT le build de l'app)
 # -----------------------------------------------------------------------------
 # Produit, dans app/public/downloads/ (servi par nginx de l'app sous /downloads/) :
-#   - chapote-backoffice-VERSION.zip  archive versionnée (dossier racine chapote-backoffice/)
-#   - chapote-backoffice.zip          dernier stable (copie de l'archive ci-dessus)
-#   - chapote-backoffice.json         manifeste d'auto-update WordPress
+#   - chapote-chatbot-VERSION.zip  archive versionnée (dossier racine chapote-chatbot/)
+#   - chapote-chatbot.zip          dernier stable (copie de l'archive ci-dessus)
+#   - chapote-chatbot.json         manifeste d'auto-update WordPress
 # Idempotent : régénère tout à chaque exécution ; ne conserve que les 5 archives
 # versionnées les plus récentes. Robuste : n'interrompt jamais le déploiement de
 # l'app (warnings non bloquants).
 build_wp_plugin() {
   local plugin_parent="integrations/wordpress"
-  local plugin_slug="chapote-backoffice"
+  local plugin_slug="chapote-chatbot"
   local plugin_dir="${plugin_parent}/${plugin_slug}"
   local plugin_main="${plugin_dir}/${plugin_slug}.php"
   local downloads_dir="app/public/downloads"
@@ -45,7 +45,7 @@ build_wp_plugin() {
   mkdir -p "$downloads_dir"
 
   # Chemins absolus : l'archive est créée depuis le dossier parent du plugin
-  # pour que le zip contienne un dossier racine « chapote-backoffice/ » (exigence WP).
+  # pour que le zip contienne un dossier racine « chapote-chatbot/ » (exigence WP).
   local downloads_abs zip_abs
   downloads_abs="$(cd "$downloads_dir" && pwd)"
   zip_abs="${downloads_abs}/${plugin_slug}-${version}.zip"
@@ -69,7 +69,7 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
                 continue
             full = os.path.join(root, name)
             rel = os.path.relpath(full, src)
-            # Préfixe « chapote-backoffice/ » = dossier racine dans l'archive.
+            # Préfixe « chapote-chatbot/ » = dossier racine dans l'archive.
             z.write(full, os.path.join(slug, rel))
 PY
   else
@@ -122,9 +122,9 @@ PY
   cat > "${downloads_abs}/${plugin_slug}.json" <<JSON
 {
   "name": "Chapote Back-Office",
-  "slug": "chapote-backoffice",
+  "slug": "chapote-chatbot",
   "version": "${version}",
-  "download_url": "https://chapote.fr/downloads/chapote-backoffice.zip",
+  "download_url": "https://chapote.fr/downloads/chapote-chatbot.zip",
   "requires": "5.8",
   "tested": "7.0",
   "requires_php": "7.4",
@@ -135,7 +135,7 @@ JSON
   echo "   ✓ manifeste : ${downloads_abs}/${plugin_slug}.json"
 
   # 5) Prune : ne garder que les 5 archives versionnées les plus récentes
-  #    (chapote-backoffice-X.Y.Z.zip uniquement ; le « dernier stable » sans
+  #    (chapote-chatbot-X.Y.Z.zip uniquement ; le « dernier stable » sans
   #    version et la variante « -wporg » ne commencent pas par un chiffre -> préservés).
   local old
   old="$(ls -1t "${downloads_abs}/${plugin_slug}"-[0-9]*.zip 2>/dev/null | tail -n +6 || true)"
@@ -146,7 +146,7 @@ JSON
     done <<< "$old"
   fi
 }
-echo "==> build plugin WordPress (chapote-backoffice)"
+echo "==> build plugin WordPress (chapote-chatbot)"
 build_wp_plugin
 
 echo "==> build images (api + app)"

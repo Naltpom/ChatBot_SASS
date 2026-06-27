@@ -1,5 +1,5 @@
 /**
- * Chapote Back-Office — SPA admin en vanilla JS (aucune étape de build).
+ * Chapote Chatbot — SPA admin en vanilla JS (aucune étape de build).
  *
  * Le navigateur ne parle JAMAIS à Chapote directement : il appelle le proxy
  * REST WordPress (CHAPOTE_BO.restBase) avec le nonce wp_rest. Le token reste

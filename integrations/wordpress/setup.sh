@@ -48,7 +48,7 @@ else
 fi
 
 echo "→ Activation du plugin Chapote (back-office)…"
-wp plugin activate chapote-backoffice
+wp plugin activate chapote-chatbot
 
 echo "→ Configuration du plugin (api=${API_BASE}, app=${APP_BASE})…"
 wp option update chapote_bo_settings \
@@ -59,5 +59,5 @@ echo
 echo "✓ Prêt."
 echo "  Site  : ${SITE_URL}"
 echo "  Admin : ${SITE_URL}/wp-admin  (admin / admin)"
-echo "  Plugin Chapote : ${SITE_URL}/wp-admin/admin.php?page=chapote-backoffice"
+echo "  Plugin Chapote : ${SITE_URL}/wp-admin/admin.php?page=chapote-chatbot"
 echo "  → Connectez-vous avec Chapote (OAuth), puis gérez vos bots."

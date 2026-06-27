@@ -72,7 +72,7 @@ class Chapote_BO_API {
      * d'autorisation exige une correspondance stricte). Sans code/state.
      */
     public static function redirect_uri() {
-        return admin_url('admin.php?page=chapote-backoffice');
+        return admin_url('admin.php?page=chapote-chatbot');
     }
 
     /** Clé du transient PKCE (un en-cours par utilisateur WP). */

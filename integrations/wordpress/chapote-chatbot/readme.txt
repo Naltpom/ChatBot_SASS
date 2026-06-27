@@ -79,7 +79,7 @@ No, the widget serves any usable bot; a free bot works with the free reply quota
 * Automatic updates for installations hosted outside WordPress.org (version check and install from the WordPress admin).
 
 = 2.0.0 =
-* Full back-office in WordPress, a thin interface over the Chapote account API.
+* Full management interface in WordPress, a thin interface over the Chapote account API.
 * "Sign in with Chapote" via OAuth Authorization Code + PKCE (S256); token encrypted server-side (AES-256-GCM), never exposed to the browser.
 * Bot management: list, create, edit appearance with a live preview.
 * Payment and subscription via hosted Stripe Checkout (redirect), with consent to immediate execution; plan change and cancellation.
@@ -92,4 +92,4 @@ No, the widget serves any usable bot; a free bot works with the free reply quota
 Adds the SEO tab (optional link + schema.org FAQ) and automatic updates outside WordPress.org.
 
 = 2.0.0 =
-Rebuilt as a full back-office: "Sign in with Chapote", bot management, appearance, hosted Stripe payment, and widget activation/targeting. Requires a Chapote account and PHP 7.4+ with OpenSSL.
+Rebuilt as a full management interface: "Sign in with Chapote", bot management, appearance, hosted Stripe payment, and widget activation/targeting. Requires a Chapote account and PHP 7.4+ with OpenSSL.
