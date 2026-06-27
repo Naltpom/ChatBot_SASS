@@ -33,6 +33,7 @@ from src.models.billing import (
     BillingSubscription,
     BillingWebhookEvent,
     BotEntitlement,
+    BotStatusHistory,
 )
 from src.services.stripe_service import billing_enabled, metering_enabled
 
@@ -151,19 +152,31 @@ async def resolve(db: AsyncSession, bot) -> Entitlement:
     return ent
 
 
-def has_module(ent: Entitlement, module: str) -> bool:
-    """True si `module` est débloqué ET l'abonnement est utilisable.
+def is_usable(ent: Entitlement) -> bool:
+    """Dérivé UNIQUE d'éligibilité : le bot est-il utilisable (modules du plan
+    exposés) ? = `status='active'` (souscrit OU activé par un admin/bypass) OU
+    essai EN COURS (`status='trialing'` non expiré). TOUT le reste — past_due,
+    canceled, inactive, **suspended** (blocage admin), essai EXPIRÉ — ⇒ False.
 
-    Utilisable = `status='active'` (souscrit) OU essai EN COURS (`status=
-    'trialing'` non expiré : `trial_expired=False`). status past_due/canceled/
-    inactive — et un essai EXPIRÉ (trial_expired) — ⇒ False pour TOUS les modules
-    (dégradation §6 / gate fin d'essai, point 4). ALL_UNLOCKED a status='active'
-    ⇒ tout passe (billing OFF).
+    Source unique de la notion « utilisable » : has_module / ai_quota_for /
+    overage_active la consomment au lieu de recalculer chacun le bool inline.
+    ALL_UNLOCKED a status='active' ⇒ True (billing OFF, tout passe).
     """
-    usable = ent.status == "active" or (
-        ent.status == "trialing" and not ent.trial_expired
-    )
-    return usable and module in ent.modules
+    if ent.status == "active":
+        return True
+    if ent.status == "trialing":
+        return not ent.trial_expired
+    return False
+
+
+def has_module(ent: Entitlement, module: str) -> bool:
+    """True si `module` est débloqué ET l'abonnement est utilisable (is_usable).
+
+    status past_due/canceled/inactive/suspended — et un essai EXPIRÉ — ⇒ False
+    pour TOUS les modules (dégradation §6 / gate fin d'essai / blocage admin).
+    ALL_UNLOCKED a status='active' ⇒ tout passe (billing OFF).
+    """
+    return is_usable(ent) and module in ent.modules
 
 
 TRIAL_AI_CAP = 50  # plafond de réponses IA managées pendant l'essai (anti-abus coût provider)
@@ -344,49 +357,158 @@ async def _bots_covered(subs: list[BillingSubscription]) -> set[int]:
     return bot_ids
 
 
+# --- Point d'écriture UNIQUE du statut d'éligibilité (D-unified) -----------
+
+# Valeur de statut COLLANTE : un bot 'suspended' (blocage admin) ne peut être
+# levé QUE par un acteur 'staff'. Aucun event Stripe (même un paiement réussi le
+# mois suivant) ne le déverrouille — Stripe continue d'encaisser, le bot reste
+# inutilisable tant qu'un admin ne débloque pas.
+STICKY_STATUSES = {"suspended"}
+_STAFF = "staff"
+
+
+def _source_for(actor_kind: str) -> str:
+    """Mappe actor_kind -> colonne `source` (compat lectures admin/WP, domaine
+    inchangé {stripe, staff, free}). staff -> 'staff' ; tout le reste -> 'stripe'.
+    `source` n'est utilisée par AUCUNE logique d'éligibilité (le statut gate) ;
+    l'audit fin vit désormais dans bot_status_history (candidate suppression)."""
+    return _STAFF if actor_kind == _STAFF else "stripe"
+
+
+@dataclass
+class PlanState:
+    """État MOTEUR projeté d'un bot (séparé de l'AUDIT statut/acteur/raison).
+
+    Passé à set_bot_status pour (ré)écrire les droits effectifs. `None` côté
+    helper = NE PAS toucher au moteur (transition de statut seule ⇒ on ne vide
+    jamais les modules). overage_mode/overage_cap ne sont JAMAIS portés ici
+    (choix owner préservé)."""
+    modules: list[str]
+    ai_monthly_quota: int | None
+    trial_end: datetime | None = None
+
+
+async def set_bot_status(
+    db: AsyncSession,
+    bot_id: int,
+    *,
+    new_status: str,
+    actor_kind: str,
+    actor_user_id: int | None = None,
+    reason: str | None = None,
+    stripe_event_id: str | None = None,
+    plan: PlanState | None = None,
+) -> BotEntitlement:
+    """UNIQUE point d'écriture du statut d'éligibilité d'un bot.
+
+    Écrit `bot_entitlements.status` (cache lu sur le chemin chaud) ET journalise
+    la transition dans `bot_status_history` (audit qui/quand/comment/pourquoi),
+    dans la MÊME transaction → zéro drift par construction.
+
+    - Charge la ligne FOR UPDATE (verrou anti-concurrence pour évaluer la garde
+      sticky sur une valeur stable). Crée la ligne si absente (genèse).
+    - GARDE STICKY : si le statut courant est dans STICKY_STATUSES (suspended) et
+      l'acteur n'est pas 'staff', le statut RESTE collé (un paiement Stripe ne
+      débloque pas), mais le MOTEUR (plan) est tout de même rafraîchi si fourni.
+    - MOTEUR : n'écrit modules/quota/trial_end QUE si `plan` est fourni (jamais
+      de vidage de modules sur une transition de statut seule). overage_*
+      jamais touchés.
+    - JOURNAL : une ligne SEULEMENT si le statut effectif change (ou genèse).
+    - NE COMMIT PAS : l'appelant orchestre la transaction (cohérence avec le
+      miroir Stripe). Retourne la ligne entitlement.
+    """
+    row = (
+        await db.execute(
+            select(BotEntitlement)
+            .where(BotEntitlement.bot_id == bot_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    created = row is None
+    old_status = None if created else (row.status or "active")
+
+    # Garde sticky : un statut collant ne se lève que par 'staff'.
+    target_status = new_status
+    if (
+        not created
+        and old_status in STICKY_STATUSES
+        and actor_kind != _STAFF
+        and new_status != old_status
+    ):
+        logger.warning(
+            "billing: transition '%s' -> '%s' ignorée pour bot %s "
+            "(statut collant, acteur=%s)",
+            old_status, new_status, bot_id, actor_kind,
+        )
+        target_status = old_status
+
+    if created:
+        row = BotEntitlement(bot_id=bot_id)
+        db.add(row)
+
+    # MOTEUR (optionnel) — jamais de vidage implicite sur transition de statut.
+    if plan is not None:
+        row.modules = sorted(plan.modules)
+        row.ai_monthly_quota = plan.ai_monthly_quota
+        row.trial_end = plan.trial_end
+    # overage_mode / overage_cap : JAMAIS touchés ici (choix owner).
+
+    # JOURNAL — uniquement si le statut effectif change (genèse incluse).
+    if created or target_status != old_status:
+        db.add(
+            BotStatusHistory(
+                bot_id=bot_id,
+                old_status=old_status,
+                new_status=target_status,
+                actor_kind=actor_kind,
+                actor_user_id=actor_user_id,
+                reason=reason,
+                stripe_event_id=stripe_event_id,
+            )
+        )
+
+    row.status = target_status
+    row.source = _source_for(actor_kind)
+    row.synced_at = utcnow()
+    return row
+
+
 async def _project_bot(
     db: AsyncSession,
     bot_id: int,
     subs: list[BillingSubscription],
     products: dict[str, BillingProduct],
     trial_end: datetime | None = None,
+    *,
+    stripe_event_id: str | None = None,
+    reason: str | None = None,
 ) -> None:
-    """Réécrit (déclaratif) la ligne bot_entitlements du bot depuis l'état NET.
+    """Réécrit (déclaratif) la ligne bot_entitlements du bot depuis l'état NET,
+    via l'unique writer set_bot_status (actor_kind='stripe').
 
-    `trial_end` (issu de `subscription.trial_end` Stripe, converti naïf UTC) n'est
-    posé que si l'état NET est 'trialing' (essai avec carte en cours) ; il est
-    EFFACÉ dès que le statut quitte l'essai (status='active' après le 1er débit,
-    'inactive'/'past_due' après résiliation), conformément au point produit
-    (trial_end ignoré hors essai)."""
+    `trial_end` (issu de `subscription.trial_end` Stripe, naïf UTC) n'est posé que
+    si l'état NET est 'trialing' ; effacé sinon (point produit). Préserve RÈGLE 2 :
+    si aucune sub ne couvre le bot ET qu'aucune ligne n'existe, on NE crée PAS de
+    ligne ex nihilo (absence de ligne = socle gratuit, has_module débloqué)."""
     modules, ai_quota, status = _net_modules_quota(bot_id, subs, products)
-    row = await _load(db, bot_id)
 
     if not modules and status == "inactive":
-        # Plus aucune sub active ne couvre ce bot : repasser au socle gratuit.
-        # On garde la ligne (source='stripe') mais vidée + status inactive, ce
-        # qui dégrade tous les modules (has_module -> False) sans supprimer
-        # l'historique de synchro.
-        if row is not None:
-            row.modules = []
-            row.ai_monthly_quota = 0
-            row.status = "inactive"
-            row.trial_end = None
-            row.synced_at = utcnow()
-        return
+        # Plus aucune sub couvrante : on ne dégrade QUE si une ligne existe déjà
+        # (sinon on flipperait un bot legacy gratuit vers 'inactive' gaté).
+        if await _load(db, bot_id) is None:
+            return
 
-    if row is None:
-        row = BotEntitlement(bot_id=bot_id, source="stripe")
-        db.add(row)
-    row.modules = sorted(modules)
-    row.ai_monthly_quota = ai_quota
-    row.status = status
-    # CHOIX OWNER PRÉSERVÉ : on ne touche JAMAIS overage_mode / overage_cap ici
-    # (toggle dépassement IA posé via POST /api/bots/{id}/overage). Le reprojet
-    # webhook ne doit pas réinitialiser le dépassement armé par l'owner.
-    # Essai avec carte : trial_end porté tant que l'essai dure, effacé sinon.
-    row.trial_end = trial_end if status == "trialing" else None
-    row.source = "stripe"
-    row.synced_at = utcnow()
+    te = trial_end if status == "trialing" else None
+    await set_bot_status(
+        db,
+        bot_id,
+        new_status=status,
+        actor_kind="stripe",
+        stripe_event_id=stripe_event_id,
+        reason=reason,
+        plan=PlanState(modules=sorted(modules), ai_monthly_quota=ai_quota, trial_end=te),
+    )
 
 
 async def apply_subscription_event(db: AsyncSession, event: dict) -> None:
@@ -484,7 +606,10 @@ async def apply_subscription_event(db: AsyncSession, event: dict) -> None:
         )
 
     for bot_id in affected_bot_ids:
-        await _project_bot(db, bot_id, user_subs, products, trial_end=trial_end)
+        await _project_bot(
+            db, bot_id, user_subs, products, trial_end=trial_end,
+            stripe_event_id=event_id, reason=event.get("type") or "subscription.event",
+        )
 
     # Marque l'event traité (idempotence). On stocke un payload léger.
     db.add(
