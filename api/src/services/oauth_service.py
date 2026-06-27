@@ -140,10 +140,13 @@ async def exchange_device_code(db: AsyncSession, device_code: str) -> tuple[str,
     l'échange n'est pas possible (authorization_pending | expired_token |
     access_denied | invalid_grant). Sur succès : émet la paire et CONSOMME (usage
     unique)."""
+    # with_for_update : verrou ligne pour que deux polls concurrents du même
+    # device_code ne puissent pas tous deux franchir status=='approved' et émettre
+    # deux paires (le 2e attend, puis voit status='consumed'). No-op sous SQLite.
     res = await db.execute(
         select(OAuthDeviceAuthorization).where(
             OAuthDeviceAuthorization.device_code_hash == _hash(device_code)
-        )
+        ).with_for_update()
     )
     row = res.scalar_one_or_none()
     if row is None:
@@ -184,8 +187,11 @@ async def rotate_refresh(db: AsyncSession, refresh_token: str) -> tuple[str, str
     """Rotation : valide le refresh, émet une NOUVELLE paire, révoque l'ancien.
     Détection de rejeu : un refresh déjà révoqué/remplacé -> révoque la lignée et
     lève invalid_grant."""
+    # with_for_update : verrou ligne anti-TOCTOU. Deux rotations concurrentes du
+    # même refresh sont sérialisées ; la 2e voit is_revoked=True -> _revoke_lineage
+    # + invalid_grant (sinon le rejeu d'un refresh volé passerait). No-op sous SQLite.
     res = await db.execute(
-        select(OAuthToken).where(OAuthToken.refresh_token_hash == _hash(refresh_token))
+        select(OAuthToken).where(OAuthToken.refresh_token_hash == _hash(refresh_token)).with_for_update()
     )
     tok = res.scalar_one_or_none()
     if tok is None:

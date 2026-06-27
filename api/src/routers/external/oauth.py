@@ -141,9 +141,14 @@ async def revoke_token(body: TokenIn, db: AsyncSession = Depends(get_db)):
 @router.get("/device/info", response_model=DeviceInfoOut)
 async def device_info(
     user_code: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Anti-énumération : borne la fréquence de lookup d'un user_code (par IP, en
+    # plus de l'auth dashboard) — sinon oracle d'existence des appairages pending.
+    if not await oauth_approve_limiter.check(_ip(request)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives")
     row = await svc.find_pending_by_user_code(db, user_code)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Code inconnu")
@@ -175,9 +180,12 @@ async def device_approve(
 @router.post("/device/deny", response_model=DeviceInfoOut)
 async def device_deny(
     body: UserCodeIn,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if not await oauth_approve_limiter.check(_ip(request)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives")
     row = await svc.find_pending_by_user_code(db, body.user_code)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Code inconnu")

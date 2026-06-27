@@ -207,5 +207,5 @@ oauth_device_limiter = RateLimiter("rl:oauthdev:", 10, 60)
 oauth_approve_limiter = RateLimiter("rl:oauthapprove:", 10, 60)
 # Polling /token par device (cadence conseillée ~5 s) : borne haute généreuse.
 oauth_poll_limiter = RateLimiter("rl:oauthpoll:", 30, 60)
-# Rotation refresh (par user) : 30 / jour.
+# Rotation refresh (par IP) : 30 / jour.
 oauth_refresh_limiter = RateLimiter("rl:oauthrefresh:", 30, 86400)
