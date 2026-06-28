@@ -6,6 +6,7 @@ Deux types de tokens, distingues par le claim `scope` :
                       liee a un bot + un domaine + une conversation
 """
 import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Optional
 
@@ -344,17 +345,21 @@ async def require_billing_owner(bot: "Bot", user: "User", db: AsyncSession):
 # qu'à l'API de compte (/api/account/*), bornée par l'ownership (require_billing_owner).
 # Constantes de module (même pattern que TWOFA_CHALLENGE_EXPIRE_MINUTES).
 OAUTH_PLUGIN_CLIENT_ID = "chapote_wp"
-OAUTH_PLUGIN_ACCESS_EXPIRE_MINUTES = 1440  # access JWT scope='plugin' (24h ; refresh opaque rotatif 90j en base)
+OAUTH_PLUGIN_ACCESS_EXPIRE_MINUTES = 30  # access JWT scope='plugin' (30 min ; refresh opaque rotatif 90j en base — le plugin refresh réactivement sur 401)
 OAUTH_AUTH_CODE_EXPIRE_MINUTES = 5  # code d'autorisation (Authorization Code + PKCE) : usage unique, TTL court
 
 
-def create_oauth_token(user_id: int) -> str:
+def create_oauth_token(user_id: int) -> tuple[str, str]:
     """Access token JWT pour la surface EXTERNE (plugin). Scope 'plugin' (jamais
-    'dashboard'). Stateless ; le refresh opaque rotatif vit en base (oauth_tokens)."""
-    return _encode(
-        {"sub": str(user_id), "scope": "plugin"},
+    'dashboard'). Porte un `jti` (uuid4) qui lie l'access à la ligne OAuthToken du
+    pair (access_jti) : révoquer cette ligne (déconnexion / rotation) rejette
+    l'access IMMÉDIATEMENT (audit §3.4). Renvoie (token, jti)."""
+    jti = uuid.uuid4().hex
+    token = _encode(
+        {"sub": str(user_id), "scope": "plugin", "jti": jti},
         timedelta(minutes=OAUTH_PLUGIN_ACCESS_EXPIRE_MINUTES),
     )
+    return token, jti
 
 
 async def require_oauth_token(
@@ -366,11 +371,25 @@ async def require_oauth_token(
     que les routes /api/account/* réutilisent TELLES QUELLES require_billing_owner
     / require_bot_access (même anti-énumération 404, zéro logique d'ownership
     dupliquée)."""
+    from src.models.oauth import OAuthToken
     from src.models.user import User
 
     if credentials is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentification requise")
     payload = decode_token(credentials.credentials, expected_scope="plugin")
+    # Révocation stateful (audit §3.4) : l'access porte un `jti` lié à la ligne
+    # OAuthToken du pair (access_jti). Un access sans jti = ancien token émis
+    # avant ce durcissement -> rejeté (le plugin le refresh sur 401). Sinon on
+    # exige que la ligne existe ET ne soit PAS révoquée : déconnexion (revoke) et
+    # rotation (rotate_refresh) marquent is_revoked sur cette ligne -> l'access
+    # est rejeté immédiatement, sans attendre l'expiration du JWT.
+    jti = payload.get("jti")
+    if not jti:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token invalide ou expiré")
+    res = await db.execute(select(OAuthToken).where(OAuthToken.access_jti == jti))
+    tok = res.scalar_one_or_none()
+    if tok is None or tok.is_revoked:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token révoqué")
     result = await db.execute(select(User).where(User.id == int(payload["sub"])))
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:

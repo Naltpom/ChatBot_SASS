@@ -156,16 +156,19 @@ async def _issue_token_pair(db: AsyncSession, user_id: int) -> tuple[str, str, i
     """Émet (access JWT, refresh opaque clair, expires_in access en secondes) et
     persiste le HASH du refresh."""
     refresh = secrets.token_urlsafe(48)
+    # `jti` de l'access lié à CETTE ligne refresh (access_jti) : révoquer la ligne
+    # (revoke/rotate -> is_revoked) rejette l'access immédiatement (audit §3.4).
+    access, jti = create_oauth_token(user_id)
     tok = OAuthToken(
         user_id=user_id,
         client_id=OAUTH_PLUGIN_CLIENT_ID,
         refresh_token_hash=_hash(refresh),
+        access_jti=jti,
         scope="plugin",
         expires_at=utcnow() + timedelta(days=OAUTH_PLUGIN_REFRESH_EXPIRE_DAYS),
     )
     db.add(tok)
     await db.flush()
-    access = create_oauth_token(user_id)
     return access, refresh, OAUTH_PLUGIN_ACCESS_EXPIRE_MINUTES * 60
 
 

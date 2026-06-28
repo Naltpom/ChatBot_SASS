@@ -90,6 +90,11 @@ class _Result:
             raise AssertionError("scalar_one_or_none: plusieurs lignes")
         return self._rows[0]
 
+    def scalar_one(self):
+        if len(self._rows) != 1:
+            raise AssertionError("scalar_one: attendu exactement 1 ligne")
+        return self._rows[0]
+
     def scalar(self):
         return self._rows[0] if self._rows else None
 

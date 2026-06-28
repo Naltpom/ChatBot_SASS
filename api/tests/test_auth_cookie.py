@@ -111,7 +111,7 @@ async def test_me_with_wrong_scope_cookie_is_401(client, seeded_db):
     from src.core.security import create_oauth_token
 
     async with client as c:
-        c.cookies.set(AUTH_COOKIE_NAME, create_oauth_token(1))
+        c.cookies.set(AUTH_COOKIE_NAME, create_oauth_token(1)[0])
         resp = await c.get("/api/auth/me")
     assert resp.status_code == 401
 

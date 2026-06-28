@@ -70,6 +70,11 @@ class OAuthToken(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     client_id = Column(String, nullable=False)
     refresh_token_hash = Column(String, unique=True, nullable=False, index=True)  # sha256
+    # `jti` de l'access JWT (scope='plugin') émis avec CE refresh (même pair).
+    # Révocation stateful (audit §3.4) : require_oauth_token charge la ligne par ce
+    # jti et rejette l'access si is_revoked -> déconnexion/rotation coupent l'access
+    # immédiatement (sans attendre l'expiration du JWT). Nullable (lignes héritées).
+    access_jti = Column(String, nullable=True, index=True)
     scope = Column(String, nullable=False, default="plugin", server_default=text("'plugin'"))
     created_at = Column(DateTime, default=utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=False)
