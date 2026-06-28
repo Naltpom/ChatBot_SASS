@@ -32,8 +32,13 @@ logger = logging.getLogger(__name__)
 # une réponse de l'utilisateur arrive sur le support plutôt que sur l'expéditeur
 # technique (SMTP_FROM, souvent no-reply).
 SUPPORT_EMAIL = "support@chapote.fr"
-# Boîte commerciale (prospection sortante) : Reply-To des cold emails.
+# Boîte commerciale (prospection sortante + Reply-To des cold emails) ET
+# expéditeur des emails RELATIONNELS (bienvenue, invitation) : une adresse
+# « humaine » tombe en onglet Principale de Gmail là où no-reply va en
+# Notifications. Le système pur (confirmation, reset, facturation) reste sur
+# SMTP_FROM (no-reply).
 HELLO_EMAIL = "hello@chapote.fr"
+HELLO_FROM = f"Chapote <{HELLO_EMAIL}>"
 # Signature commune des emails compte/facturation FR.
 EMAIL_SIGNATURE = "— L'équipe Chapote"
 
@@ -50,9 +55,12 @@ def _role_fr(role: str) -> str:
 
 def _send_sync(to: list[str], subject: str, body: str,
                reply_to: Optional[str] = None,
-               html: Optional[str] = None) -> None:
+               html: Optional[str] = None,
+               from_addr: Optional[str] = None) -> None:
     msg = EmailMessage()
-    msg["From"] = settings.SMTP_FROM or settings.SMTP_USER
+    # from_addr permet de surcharger l'expéditeur (ex. hello@ pour les emails
+    # relationnels) ; défaut = SMTP_FROM (no-reply). L'auth SMTP reste SMTP_USER.
+    msg["From"] = from_addr or settings.SMTP_FROM or settings.SMTP_USER
     msg["To"] = ", ".join(to)
     if reply_to:
         msg["Reply-To"] = reply_to
@@ -74,18 +82,20 @@ def _send_sync(to: list[str], subject: str, body: str,
 
 async def send_email(to: list[str], subject: str, body: str,
                      reply_to: Optional[str] = None,
-                     html: Optional[str] = None) -> bool:
+                     html: Optional[str] = None,
+                     from_addr: Optional[str] = None) -> bool:
     """Envoi email. JAMAIS d'exception (appele en create_task) : SMTP non
     configure ou echec d'envoi => log + False. `reply_to` optionnel (defaut
     None). `html` optionnel : si fourni, l'email part en multipart/alternative
-    (texte = fallback) ; défaut None = texte brut, comportement inchange."""
+    (texte = fallback) ; défaut None = texte brut, comportement inchange.
+    `from_addr` optionnel : surcharge l'expéditeur (défaut SMTP_FROM)."""
     if not settings.SMTP_HOST:
         logger.info("SMTP non configuré — email non envoyé : %s", subject)
         return False
     if not to:
         return False
     try:
-        await asyncio.to_thread(_send_sync, to, subject, body, reply_to, html)
+        await asyncio.to_thread(_send_sync, to, subject, body, reply_to, html, from_addr)
         return True
     except Exception as exc:
         logger.error("Envoi email échoué (%s) : %s", subject, exc)
@@ -445,13 +455,18 @@ def render_email_html(text_body: str) -> str:
 
 
 def send_account_email(recipients: list[str], subject: str, text: str, *,
-                       error_label: str) -> None:
+                       error_label: str, reply_to: str = SUPPORT_EMAIL,
+                       from_addr: Optional[str] = None) -> None:
     """Envoi BRANDÉ (multipart/alternative) d'un email compte/facturation :
-    construit la version HTML à partir du texte, Reply-To = support, et planifie
-    l'envoi en tâche de fond (fire-and-forget, ne bloque jamais l'endpoint)."""
+    construit la version HTML à partir du texte et planifie l'envoi en tâche de
+    fond (fire-and-forget, ne bloque jamais l'endpoint). `reply_to` défaut
+    support ; `from_addr` défaut None (= SMTP_FROM no-reply). Les emails
+    RELATIONNELS (bienvenue, invitation) passent from_addr=HELLO_FROM +
+    reply_to=HELLO_EMAIL pour mieux tomber en boîte Principale."""
     html = render_email_html(text)
     spawn_background(
-        send_email(recipients, subject, text, reply_to=SUPPORT_EMAIL, html=html),
+        send_email(recipients, subject, text, reply_to=reply_to, html=html,
+                   from_addr=from_addr),
         error_label=error_label)
 
 
@@ -464,5 +479,8 @@ def send_org_member_email(email: str, org_name: str, role: str, *,
         subject, body = build_added_to_org_email(org_name, role, app_url)
     else:
         subject, body = build_invite_email(org_name, role, app_url)
-    send_account_email([email], subject, body,
+    # Email relationnel -> expéditeur hello@ (au lieu de no-reply) : meilleur
+    # placement Gmail (Principale) et une réponse arrive sur une boîte suivie.
+    send_account_email([email], subject, body, from_addr=HELLO_FROM,
+                       reply_to=HELLO_EMAIL,
                        error_label="Envoi e-mail invitation échoué")

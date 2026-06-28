@@ -40,6 +40,8 @@ from src.core.time import utcnow
 from src.services.auth_service import AuthenticationError, authenticate
 from src.services.avatar import fetch_and_store_avatar
 from src.services.email_service import (
+    HELLO_EMAIL,
+    HELLO_FROM,
     build_password_changed_email,
     build_reset_email,
     build_verify_email,
@@ -380,7 +382,9 @@ async def confirm_email_verification(body: TokenBody, db: AsyncSession = Depends
         # Bienvenue : envoyé UNE SEULE fois, à la transition False->True (jamais à
         # l'inscription ni sur un confirm idempotent déjà vérifié).
         subject, body = build_welcome_email(user, settings.APP_URL)
-        send_account_email([user.email], subject, body,
+        # Email relationnel -> expéditeur hello@ (meilleur placement Gmail).
+        send_account_email([user.email], subject, body, from_addr=HELLO_FROM,
+                           reply_to=HELLO_EMAIL,
                            error_label="Envoi e-mail bienvenue échoué")
     return {"verified": True}
 
