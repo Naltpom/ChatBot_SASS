@@ -1117,7 +1117,7 @@ function OverageCard({ billing, catalog, onToggleOverage, overageBusy, overageEr
             d'un plafond de sécurité que vous fixez.
           </div>
         </div>
-        <Toggle on={enabled} disabled={overageBusy}
+        <Toggle label="Dépassement facturé" on={enabled} disabled={overageBusy}
                 onChange={v => onToggleOverage(v, v ? cap : null)} />
       </div>
 

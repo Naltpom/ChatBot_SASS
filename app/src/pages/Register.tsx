@@ -137,7 +137,7 @@ export default function Register() {
   }
 
   const errBox = error && (
-    <div style={{ marginTop: 14, background: 'rgba(232,106,95,.08)', color: '#C4524A', border: '1px solid rgba(232,106,95,.3)', borderRadius: 11, padding: '10px 13px', fontSize: 13 }}>{error}</div>
+    <div role="alert" style={{ marginTop: 14, background: 'rgba(232,106,95,.08)', color: '#C4524A', border: '1px solid rgba(232,106,95,.3)', borderRadius: 11, padding: '10px 13px', fontSize: 13 }}>{error}</div>
   )
 
   // ---------- Étape 0 : type de compte ----------
@@ -238,8 +238,10 @@ export default function Register() {
         <input style={{ ...inputStyle, flex: 1, minWidth: 200 }} type="email" value={inviteEmail}
                onChange={e => setInviteEmail(e.target.value)}
                onKeyDown={e => e.key === 'Enter' && addInvite()}
+               aria-label="E-mail du collègue à inviter"
                placeholder="collegue@entreprise.fr" />
         <select style={{ ...inputStyle, width: 130, cursor: 'pointer' }} value={inviteRole}
+                aria-label="Rôle de l'invité"
                 onChange={e => setInviteRole(e.target.value as 'admin' | 'member')}>
           <option value="member">Membre</option>
           <option value="admin">Admin</option>

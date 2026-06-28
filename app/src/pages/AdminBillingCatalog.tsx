@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, Card, Chip, InfoBox, SectionTitle, Toggle } from '../ui'
+import { Btn, Card, Chip, InfoBox, Modal, SectionTitle, Toggle } from '../ui'
 import { errMsg } from '../utils/errors'
 import type { AdminBillingOverview, CatalogProduct } from '../types/billing'
 
@@ -289,7 +289,7 @@ function CatalogRow({ product, onEditPrice, onChanged }: {
         )}
       </td>
       <td>
-        <Toggle on={activeLocal} disabled={busy}
+        <Toggle label="Produit actif" on={activeLocal} disabled={busy}
                 onChange={setActiveLocal} />
       </td>
       <td>
@@ -451,10 +451,10 @@ function PresetCard({ preset, tiers, onChanged }: {
       </div>
       <div className="row g14" style={{ flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
         <label className="row g6" style={{ alignItems: 'center', fontSize: 12.5 }}>
-          <Toggle on={preset.recommended} disabled={busy} onChange={v => patch({ recommended: v })} /> Recommandé
+          <Toggle label="Recommandé" on={preset.recommended} disabled={busy} onChange={v => patch({ recommended: v })} /> Recommandé
         </label>
         <label className="row g6" style={{ alignItems: 'center', fontSize: 12.5 }}>
-          <Toggle on={preset.is_active} disabled={busy} onChange={v => patch({ is_active: v })} /> Actif
+          <Toggle label="Présélection active" on={preset.is_active} disabled={busy} onChange={v => patch({ is_active: v })} /> Actif
         </label>
         <label className="row g6" style={{ alignItems: 'center', fontSize: 12.5, color: 'var(--mut)' }}>
           Ordre
@@ -507,12 +507,8 @@ function PriceEditor({ product, billingOff, onClose, onSaved }: {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(28,63,92,.45)',
-      backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-    }}>
-      <Card style={{ maxWidth: 440, width: '100%', padding: '26px 24px' }}>
-        <div style={{ fontSize: 16, fontWeight: 800 }}>Changer le prix — {product.label}</div>
+    <Modal title={`Changer le prix — ${product.label}`} maxWidth={440}
+           onClose={saving ? undefined : onClose}>
         <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 4 }}>
           Prix actuel : <strong>{fmtEur(product.unit_amount)}</strong>
           <span style={{ color: 'var(--faint)' }}> / {product.interval}</span>
@@ -538,7 +534,7 @@ function PriceEditor({ product, billingOff, onClose, onSaved }: {
           </label>
         </div>
 
-        {saveError && <div className="error" style={{ marginTop: 12 }}>{saveError}</div>}
+        {saveError && <div className="error" role="alert" style={{ marginTop: 12 }}>{saveError}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 22 }}>
           <Btn kind="ghost" onClick={onClose} disabled={saving}>Annuler</Btn>
@@ -546,7 +542,6 @@ function PriceEditor({ product, billingOff, onClose, onSaved }: {
             {saving ? 'Application…' : 'Appliquer le nouveau prix'}
           </Btn>
         </div>
-      </Card>
-    </div>
+    </Modal>
   )
 }

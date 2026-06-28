@@ -193,16 +193,19 @@ export default function Layout({ children }: { children: ReactNode }) {
                   (Analytics/Inbox/Facturation…), comme la maquette de référence. */}
               <div className="nav-divider" />
               <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/app/analytics') ? 'page' : undefined}
                       onClick={() => navigate('/app/analytics')}>
                 <span className="nav-ico"><BarChart3 size={16} /></span>Analytics
               </button>
               <button className={`nav-item ${path.startsWith('/app/inbox') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/app/inbox') ? 'page' : undefined}
                       onClick={() => navigate('/app/inbox')}>
                 <span className="nav-ico"><Inbox size={16} /></span>Inbox
               </button>
               {/* Intégrations : connecter un site WordPress via le plugin Chapote
                   (mode d'emploi + téléchargement + écran de consentement OAuth). */}
               <button className={`nav-item ${path.startsWith('/app/integrations') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/app/integrations') ? 'page' : undefined}
                       onClick={() => navigate('/app/integrations')}>
                 <span className="nav-ico"><Plug size={16} /></span>Intégrations
               </button>
@@ -211,6 +214,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                   Défense en profondeur : le backend rejette (403) les non-owners. */}
               {canSeeBilling(user) && (
                 <button className={`nav-item ${path.startsWith('/app/billing') ? 'active' : ''}`}
+                        aria-current={path.startsWith('/app/billing') ? 'page' : undefined}
                         onClick={() => navigate('/app/billing')}>
                   <span className="nav-ico"><CreditCard size={16} /></span>Facturation
                 </button>
@@ -218,16 +222,19 @@ export default function Layout({ children }: { children: ReactNode }) {
               {/* Lien team-scoped : visible seulement avec une équipe active. */}
               {activeOrg && (
                 <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
+                        aria-current={path.startsWith('/app/team') ? 'page' : undefined}
                         onClick={() => navigate('/app/team')}>
                   <span className="nav-ico"><Users size={16} /></span>Équipe
                 </button>
               )}
               <div className="nav-divider" />
               <button className={`nav-item ${path.startsWith('/app/orgs') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/app/orgs') ? 'page' : undefined}
                       onClick={() => navigate('/app/orgs')}>
                 <span className="nav-ico"><Layers size={16} /></span>Mes équipes
               </button>
               <button className={`nav-item ${path.startsWith('/app/profile') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/app/profile') ? 'page' : undefined}
                       onClick={() => navigate('/app/profile')}>
                 <span className="nav-ico"><CircleUser size={16} /></span>Profil
               </button>
@@ -244,22 +251,27 @@ export default function Layout({ children }: { children: ReactNode }) {
           {inAdmin && (
             <>
               <button className={`nav-item ${path === '/admin' ? 'active' : ''}`}
+                      aria-current={path === '/admin' ? 'page' : undefined}
                       onClick={() => navigate('/admin')}>
                 <span className="nav-ico"><LayoutDashboard size={16} /></span>Dashboard
               </button>
               <button className={`nav-item ${path.startsWith('/admin/clients') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/admin/clients') ? 'page' : undefined}
                       onClick={() => navigate('/admin/clients')}>
                 <span className="nav-ico"><Building2 size={16} /></span>Clients
               </button>
               <button className={`nav-item ${path.startsWith('/admin/users') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/admin/users') ? 'page' : undefined}
                       onClick={() => navigate('/admin/users')}>
                 <span className="nav-ico"><Users size={16} /></span>Utilisateurs
               </button>
               <button className={`nav-item ${path.startsWith('/admin/prospecting') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/admin/prospecting') ? 'page' : undefined}
                       onClick={() => navigate('/admin/prospecting')}>
                 <span className="nav-ico"><Target size={16} /></span>Prospection
               </button>
               <button className={`nav-item ${path === '/admin/billing' ? 'active' : ''}`}
+                      aria-current={path === '/admin/billing' ? 'page' : undefined}
                       onClick={() => navigate('/admin/billing')}>
                 <span className="nav-ico"><CreditCard size={16} /></span>Facturation
               </button>
@@ -268,16 +280,19 @@ export default function Layout({ children }: { children: ReactNode }) {
               {path.startsWith('/admin/billing') && (
                 <div className="col" style={{ gap: 4, paddingLeft: 30 }}>
                   <button className={`nav-item ${path === '/admin/billing' ? 'active' : ''}`}
+                          aria-current={path === '/admin/billing' ? 'page' : undefined}
                           style={{ fontSize: 13.5 }}
                           onClick={() => navigate('/admin/billing')}>
                     Vue d'ensemble
                   </button>
                   <button className={`nav-item ${path.startsWith('/admin/billing/invoices') ? 'active' : ''}`}
+                          aria-current={path.startsWith('/admin/billing/invoices') ? 'page' : undefined}
                           style={{ fontSize: 13.5 }}
                           onClick={() => navigate('/admin/billing/invoices')}>
                     Factures
                   </button>
                   <button className={`nav-item ${path.startsWith('/admin/billing/catalog') ? 'active' : ''}`}
+                          aria-current={path.startsWith('/admin/billing/catalog') ? 'page' : undefined}
                           style={{ fontSize: 13.5 }}
                           onClick={() => navigate('/admin/billing/catalog')}>
                     Catalogue

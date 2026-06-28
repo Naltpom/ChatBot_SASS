@@ -67,18 +67,18 @@ export default function ResetPassword() {
         </>
       ) : (
         <form onSubmit={submit}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 7 }}>
+          <label htmlFor="reset-pwd" style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 7 }}>
             Nouveau mot de passe <span style={{ fontWeight: 500, color: '#9AA7B4' }}>({PASSWORD_MIN_LENGTH} caractères min.)</span>
           </label>
-          <input type="password" value={pwd} onChange={e => setPwd(e.target.value)} required
-                 autoComplete="new-password" placeholder="••••••••" style={INPUT_BASE} />
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, margin: '18px 0 7px' }}>
+          <input id="reset-pwd" type="password" value={pwd} onChange={e => setPwd(e.target.value)} required
+                 autoComplete="new-password" aria-invalid={error ? true : undefined} placeholder="••••••••" style={INPUT_BASE} />
+          <label htmlFor="reset-pwd-confirm" style={{ display: 'block', fontSize: 13, fontWeight: 600, margin: '18px 0 7px' }}>
             Confirmer le mot de passe
           </label>
-          <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required
-                 autoComplete="new-password" placeholder="••••••••" style={INPUT_BASE} />
+          <input id="reset-pwd-confirm" type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required
+                 autoComplete="new-password" aria-invalid={error ? true : undefined} placeholder="••••••••" style={INPUT_BASE} />
           {error && (
-            <div style={{ margin: '18px 0 0', padding: '11px 14px', borderRadius: 12,
+            <div role="alert" style={{ margin: '18px 0 0', padding: '11px 14px', borderRadius: 12,
                           background: 'rgba(232,106,95,.1)', border: '1px solid rgba(232,106,95,.28)',
                           color: '#C0473D', fontSize: 13.5, lineHeight: 1.4 }}>
               {error}

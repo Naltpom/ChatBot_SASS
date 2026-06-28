@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, Card, Chip, InfoBox, Meter, Seg, billingChip } from '../ui'
+import { Btn, Card, Chip, InfoBox, Meter, Modal, Seg, billingChip } from '../ui'
 import { errMsg } from '../utils/errors'
 import { isBotBillingOwner } from '../utils/permissions'
 import type { BotSummary } from '../types/bot'
@@ -501,25 +501,20 @@ export default function Billing() {
 
       {/* Modale de confirmation du changement de format. */}
       {pendingGrouping && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(28,63,92,.45)',
-          backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-        }}>
-          <Card style={{ maxWidth: 460, width: '100%', padding: '26px 24px' }}>
-            <div style={{ fontSize: 16, fontWeight: 800 }}>Changer le format de facture ?</div>
-            <p style={{ fontSize: 13.5, color: 'var(--mut)', lineHeight: 1.55, margin: '10px 0 0' }}>
-              Vos abonnements vont passer en «&nbsp;{GROUPING_OPTIONS.find(o => o.value === pendingGrouping)?.label}&nbsp;».
-              Les abonnements sont réorganisés au prorata, sans perte de vos modules.
-            </p>
-            {groupingErr && <div className="error" style={{ marginTop: 12 }}>{groupingErr}</div>}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 22 }}>
-              <Btn kind="ghost" onClick={() => { setPendingGrouping(null); setGroupingErr('') }} disabled={groupingBusy}>Annuler</Btn>
-              <Btn kind="primary" onClick={confirmGrouping} disabled={groupingBusy}>
-                {groupingBusy ? 'Application…' : 'Confirmer'}
-              </Btn>
-            </div>
-          </Card>
-        </div>
+        <Modal title="Changer le format de facture ?"
+               onClose={groupingBusy ? undefined : () => { setPendingGrouping(null); setGroupingErr('') }}>
+          <p style={{ fontSize: 13.5, color: 'var(--mut)', lineHeight: 1.55, margin: '10px 0 0' }}>
+            Vos abonnements vont passer en «&nbsp;{GROUPING_OPTIONS.find(o => o.value === pendingGrouping)?.label}&nbsp;».
+            Les abonnements sont réorganisés au prorata, sans perte de vos modules.
+          </p>
+          {groupingErr && <div className="error" role="alert" style={{ marginTop: 12 }}>{groupingErr}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 22 }}>
+            <Btn kind="ghost" onClick={() => { setPendingGrouping(null); setGroupingErr('') }} disabled={groupingBusy}>Annuler</Btn>
+            <Btn kind="primary" onClick={confirmGrouping} disabled={groupingBusy}>
+              {groupingBusy ? 'Application…' : 'Confirmer'}
+            </Btn>
+          </div>
+        </Modal>
       )}
     </div>
   )

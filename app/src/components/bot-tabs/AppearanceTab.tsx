@@ -157,7 +157,7 @@ export default function AppearanceTab({
                 {/* once_per_session peut être ABSENT du JSON stocké → défaut true */}
                 <div className="toggle-row">
                   <div className="tl">Une seule fois par session</div>
-                  <Toggle on={tr.once_per_session ?? true}
+                  <Toggle label="Une seule fois par session" on={tr.once_per_session ?? true}
                           onChange={v => updateTrigger(i, { once_per_session: v })} />
                 </div>
                 <div>

@@ -112,7 +112,7 @@ export default function SecurityTab({
                   <div className="tl">Widget actif</div>
                   <div className="ts">Désactivé : le chat disparaît des sites, sans rien supprimer.</div>
                 </div>
-                <Toggle on={bot.is_active} onChange={v => patch({ is_active: v })} />
+                <Toggle label="Widget actif" on={bot.is_active} onChange={v => patch({ is_active: v })} />
               </div>
             </Card>
           )}

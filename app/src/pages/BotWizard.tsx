@@ -32,7 +32,7 @@ import HatIcon from '../components/HatIcon'
 import BotConfigurator from '../components/billing/BotConfigurator'
 import PriceCart, { formatCents } from '../components/billing/PriceCart'
 import { errMsg } from '../utils/errors'
-import { InfoBox } from '../ui'
+import { InfoBox, useDialogA11y } from '../ui'
 import { computeCart, deriveConfigFromChat } from '../utils/billing'
 import type { DesignJson, Tree, TreeNode } from '../types/bot'
 import type { BillingCatalog, BotConfig } from '../types/billing'
@@ -813,19 +813,8 @@ export default function BotWizard() {
       {/* Reprise après coupure/rafraîchissement : POPUP modale (plus visible
           qu'un bandeau) proposant de reprendre le brouillon ou de repartir. */}
       {draftRestored && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(28,63,92,.45)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, animation: 'cin .2s ease' }}>
-          <div style={{ background: '#fff', borderRadius: 18, padding: mobile ? '24px 20px' : '30px 28px', maxWidth: 440, width: '100%', boxShadow: '0 30px 80px -20px rgba(28,63,92,.5)', textAlign: 'center' }}>
-            <span style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>↩</span>
-            <h2 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 22, margin: '16px 0 0', letterSpacing: '-.02em' }}>Reprendre votre configuration ?</h2>
-            <p style={{ fontSize: 14.5, color: MUT, margin: '10px 0 0', lineHeight: 1.55 }}>
-              Nous avons retrouvé un chatbot en cours de création{answers.company ? <> pour <strong>{answers.company}</strong></> : null} (étape «&nbsp;{STEP_CAPTION[step]}&nbsp;»). Voulez-vous continuer là où vous en étiez ?
-            </p>
-            <div style={{ display: 'flex', flexDirection: mobile ? 'column-reverse' : 'row', gap: 11, marginTop: 24 }}>
-              <button onClick={discardDraft} style={{ ...ghostBtn, flex: 1 }}>Recommencer à zéro</button>
-              <button onClick={() => setDraftRestored(false)} style={{ ...primaryBtnLg, flex: 1, background: MINT }}>Reprendre</button>
-            </div>
-          </div>
-        </div>
+        <DraftRestoreModal mobile={mobile} company={answers.company} step={step}
+                           onDiscard={discardDraft} onResume={() => setDraftRestored(false)} />
       )}
 
       {/* ============================ ÉTAPE 1 : CHAT ============================ */}
@@ -1309,6 +1298,30 @@ function BotBubble({ text }: { text: string }) {
         <HatIcon size={18} color="#fff" />
       </span>
       <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: '4px 16px 16px 16px', padding: '12px 16px', fontSize: 15, lineHeight: 1.5, maxWidth: '85%', boxShadow: '0 3px 10px -6px rgba(28,63,92,.2)' }}>{text}</div>
+    </div>
+  )
+}
+// Modale de reprise de brouillon — extraite en composant pour que le piège à
+// focus (useDialogA11y) se monte/démonte avec elle. Markup centré conservé
+// (icône + titre), enrichi de role="dialog"/aria-modal/labelledby. Échap = Reprendre.
+function DraftRestoreModal({ mobile, company, step, onDiscard, onResume }: {
+  mobile: boolean; company?: string; step: Step; onDiscard: () => void; onResume: () => void
+}) {
+  const ref = useDialogA11y<HTMLDivElement>(onResume)
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(28,63,92,.45)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, animation: 'cin .2s ease' }}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="wiz-draft-title" tabIndex={-1}
+           style={{ background: '#fff', borderRadius: 18, padding: mobile ? '24px 20px' : '30px 28px', maxWidth: 440, width: '100%', boxShadow: '0 30px 80px -20px rgba(28,63,92,.5)', textAlign: 'center', outline: 'none' }}>
+        <span style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(47,158,121,.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>↩</span>
+        <h2 id="wiz-draft-title" style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 22, margin: '16px 0 0', letterSpacing: '-.02em' }}>Reprendre votre configuration ?</h2>
+        <p style={{ fontSize: 14.5, color: MUT, margin: '10px 0 0', lineHeight: 1.55 }}>
+          Nous avons retrouvé un chatbot en cours de création{company ? <> pour <strong>{company}</strong></> : null} (étape «&nbsp;{STEP_CAPTION[step]}&nbsp;»). Voulez-vous continuer là où vous en étiez ?
+        </p>
+        <div style={{ display: 'flex', flexDirection: mobile ? 'column-reverse' : 'row', gap: 11, marginTop: 24 }}>
+          <button onClick={onDiscard} style={{ ...ghostBtn, flex: 1 }}>Recommencer à zéro</button>
+          <button onClick={onResume} style={{ ...primaryBtnLg, flex: 1, background: MINT }}>Reprendre</button>
+        </div>
+      </div>
     </div>
   )
 }
