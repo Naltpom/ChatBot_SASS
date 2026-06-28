@@ -26,6 +26,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
     text,
 )
 
@@ -76,3 +77,23 @@ class OAuthToken(Base):
     revoked_at = Column(DateTime, nullable=True)
     replaced_by_id = Column(Integer, ForeignKey("oauth_tokens.id", ondelete="SET NULL"), nullable=True)
     last_used_at = Column(DateTime, nullable=True)
+
+
+class OAuthRedirectDomain(Base):
+    """Allowlist des domaines WordPress (hôte du redirect_uri) ENREGISTRÉS par un
+    utilisateur pour le client public 'chapote_wp'.
+
+    Anti-phishing de consentement (§3.2 audit) : la validation par FORME seule
+    laissait un attaquant fabriquer une URL d'autorisation vers un WP qu'il
+    contrôle. Désormais l'/authorize n'accepte un redirect_uri que si son hôte est
+    enregistré ici pour CET utilisateur. Bootstrap : le 1er domaine d'un user
+    s'auto-enregistre au consentement ; tout domaine NOUVEAU ensuite exige une
+    confirmation explicite (re-consentement). Hôte stocké en clair, minuscule,
+    exact (anti sous-domaine forgé : evil.site.com != site.com)."""
+    __tablename__ = "oauth_redirect_domains"
+    __table_args__ = (UniqueConstraint("user_id", "domain", name="uq_oauth_redirect_user_domain"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    domain = Column(String, nullable=False)  # hôte exact du redirect_uri, minuscule
+    created_at = Column(DateTime, default=utcnow, nullable=False)

@@ -11,6 +11,12 @@
 //   Autoriser → POST /api/oauth/authorize (JWT dashboard via api()) renvoie
 //     {redirect_url} (= redirect_uri + ?code=…&state=…) → on y redirige.
 //   Refuser   → on redirige vers redirect_uri avec error=access_denied&state.
+//
+// L'API est l'AUTORITÉ sur la validité du redirect_uri et l'allowlist par
+// utilisateur (anti consent-phishing) : le front ne RE-DÉCIDE PAS la validité, il
+// consomme GET /api/oauth/authorize/preview et affiche ce qu'elle dit. Le seul
+// contrôle côté front est STRUCTUREL (présence/forme des params PKCE) pour choisir
+// l'écran à montrer.
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
@@ -33,33 +39,13 @@ function appendQuery(base: string, params: Record<string, string>): string {
   return base + (base.includes('?') ? '&' : '?') + qs
 }
 
-// Hôte affichable d'une URL absolue (sans schéma), ou null si non parseable.
-function hostOf(raw: string): string | null {
-  try {
-    return new URL(raw).host.replace(/^www\./, '')
-  } catch {
-    return null
-  }
-}
-
-// redirect_uri légitime = page admin du plugin WordPress en http(s), sans userinfo.
-// Empêche l'open-redirect (y compris via le bouton « Refuser » qui redirige vers
-// redirect_uri). La validation fine (https/localhost, client, PKCE) reste backend ;
-// ici on refuse d'afficher le consentement ET de rediriger vers une cible arbitraire.
-function isPluginRedirect(raw: string): boolean {
-  try {
-    const u = new URL(raw)
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
-    if (u.username || u.password) return false
-    if (!u.pathname.endsWith('/wp-admin/admin.php')) return false
-    // Slug de la page admin du plugin : 'chapote-chatbot' (nouveau) ou
-    // 'chapote-backoffice' (anciennes installs) — transition.
-    const page = u.searchParams.get('page')
-    return page === 'chapote-chatbot' || page === 'chapote-backoffice'
-  } catch {
-    return false
-  }
-}
+// Réponse de l'endpoint de prévisualisation : l'API est l'AUTORITÉ sur la validité
+// du redirect_uri et l'allowlist par utilisateur. Le front n'affiche que ça.
+//  - valid                 : redirect_uri de forme acceptable (page admin du plugin).
+//  - host                  : hôte EXACT à afficher (jamais re-parsé côté client).
+//  - requires_confirmation : hôte valide mais NON enregistré alors que l'user a déjà
+//                            d'autres sites → ajout d'un nouveau site à confirmer.
+type Preview = { valid: boolean; host: string | null; requires_confirmation: boolean }
 
 export default function Authorize() {
   const { user, loading } = useAuth()
@@ -76,6 +62,12 @@ export default function Authorize() {
 
   const [acting, setActing] = useState(false)
   const [error, setError] = useState('')
+  // Coche de confirmation DÉLIBÉRÉE pour l'ajout d'un nouveau site (requires_confirmation).
+  // Sans elle, l'ajout d'un domaine non enregistré se ferait en 1 clic (le verrou 400
+  // de l'API serait contourné côté front). Inutile pour le 1er domaine / un domaine déjà connu.
+  const [confirmChecked, setConfirmChecked] = useState(false)
+  const [preview, setPreview] = useState<Preview | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(true)
 
   // Non connecté : on mémorise le retour (params inclus) puis on redirige vers
   // le login. Après authentification, Login consomme cbsaas_after_login et y
@@ -86,26 +78,41 @@ export default function Authorize() {
     }
   }, [loading, user, location.search])
 
-  const host = redirectUri ? hostOf(redirectUri) : null
-  // Le redirect_uri doit être la page admin du plugin WordPress (allowlist de
-  // forme) : on n'affiche le consentement — ni ne redirige « Refuser » — que vers
-  // une telle cible (anti open-redirect). La validation FINE (https/localhost,
-  // S256, scope, client) reste côté backend.
-  const redirectOk = !!host && isPluginRedirect(redirectUri)
-  // Demande structurellement valide → on présente le consentement. Sinon, écran
-  // d'erreur (avec « Refuser » si on peut au moins renvoyer vers le site).
-  const requestOk =
-    redirectOk &&
+  // Connecté : on demande à l'API si le redirect_uri est acceptable et si son
+  // hôte est déjà enregistré (allowlist). L'API décide ; le front affiche. Une
+  // erreur réseau est traitée comme un preview invalide (fail-closed).
+  useEffect(() => {
+    if (loading || !user) return
+    let cancelled = false
+    setPreviewLoading(true)
+    api<Preview>('/api/oauth/authorize/preview?redirect_uri=' + encodeURIComponent(redirectUri))
+      .then(p => { if (!cancelled) setPreview(p) })
+      .catch(() => { if (!cancelled) setPreview({ valid: false, host: null, requires_confirmation: false }) })
+      .finally(() => { if (!cancelled) setPreviewLoading(false) })
+    return () => { cancelled = true }
+  }, [loading, user, redirectUri])
+
+  // Contrôle STRUCTUREL d'affichage (PAS de sécurité) : choisit l'écran à montrer
+  // selon la présence/forme des params PKCE. La validité du redirect_uri vient
+  // EXCLUSIVEMENT de l'API (preview).
+  const structurelOk =
     (responseType === '' || responseType === 'code') &&
     clientId === 'chapote_wp' &&
     !!codeChallenge &&
     codeChallengeMethod === 'S256' &&
     scope === 'plugin'
+  // Demande présentable au consentement : l'API valide le redirect_uri ET les
+  // params PKCE sont structurellement corrects. Sinon → écran d'erreur.
+  const requestOk = !!preview?.valid && structurelOk
+  const host = preview?.host || null
+  const needsConfirm = !!preview?.requires_confirmation
 
   // En attente de la résolution d'auth (init AuthContext / auto-login local).
   if (loading) return <div className="center-page">Chargement…</div>
   // Pas connecté → login (le retour a été mémorisé par l'effet ci-dessus).
   if (!user) return <Navigate to="/login" replace />
+  // Connecté mais preview pas encore résolue.
+  if (previewLoading) return <div className="center-page">Chargement…</div>
 
   async function authorize() {
     setError('')
@@ -120,6 +127,10 @@ export default function Authorize() {
           code_challenge: codeChallenge,
           code_challenge_method: codeChallengeMethod,
           scope,
+          // Re-consentement : confirme explicitement l'ajout d'un site non encore
+          // enregistré (sinon l'API refuse, anti consent-phishing). Jamais auto-true :
+          // exige la coche délibérée de l'utilisateur.
+          confirm_unregistered: needsConfirm && confirmChecked,
         },
       })
       // Succès → on quitte le dashboard vers le site WordPress (code one-time).
@@ -134,6 +145,11 @@ export default function Authorize() {
   function deny() {
     // Refus explicite → on renvoie l'utilisateur au site avec error=access_denied
     // (le plugin interprète et nettoie son URL). state rejoué pour l'anti-CSRF.
+    // Anti open-redirect : on ne redirige QUE si preview.valid, c.-à-d. que le
+    // redirect_uri a la FORME d'une page admin du plugin (/wp-admin/admin.php?page=…) ;
+    // ce n'est PAS un test d'appartenance à l'allowlist. Le refus ne transmet aucun
+    // secret (seulement error=access_denied&state) et le chemin reste borné à
+    // /wp-admin/admin.php — pas d'exfiltration de code.
     window.location.href = appendQuery(redirectUri, { error: 'access_denied', state })
   }
 
@@ -159,26 +175,43 @@ export default function Authorize() {
               Autoriser le site <strong style={{ color: 'var(--ink)' }}>{host}</strong> à gérer vos
               chatbots Chapote (création, mise à jour, statistiques) ?
             </p>
-            <div className="infobox info" style={{ marginBottom: 16 }}>
+            {needsConfirm && (
+              <InfoBox tone="warn" title="Site non reconnu">
+                Vous avez déjà autorisé d'autres sites. Confirmez que <strong>{host}</strong> est
+                bien votre site WordPress.
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={confirmChecked}
+                    onChange={e => setConfirmChecked(e.target.checked)}
+                    style={{ marginTop: 3 }}
+                  />
+                  <span>Je confirme que <strong>{host}</strong> est bien mon site WordPress.</span>
+                </label>
+              </InfoBox>
+            )}
+            <div className="infobox info" style={{ marginTop: needsConfirm ? 14 : 0, marginBottom: 16 }}>
               Connecté en tant que <strong>{user.email}</strong>. Vous pourrez révoquer cet accès à tout moment.
             </div>
             {error && <InfoBox tone="danger" title="Erreur">{error}</InfoBox>}
             <div style={{ display: 'flex', gap: 10, marginTop: error ? 14 : 0 }}>
-              <Btn kind="primary" disabled={acting} onClick={authorize}>
-                {acting ? 'Autorisation…' : 'Autoriser'}
+              <Btn kind="primary" disabled={acting || (needsConfirm && !confirmChecked)} onClick={authorize}>
+                {acting ? 'Autorisation…' : needsConfirm ? 'Confirmer et autoriser' : 'Autoriser'}
               </Btn>
               <Btn kind="ghost" disabled={acting} onClick={deny}>Refuser</Btn>
             </div>
           </>
         ) : (
-          /* ---- Demande invalide (params manquants / malformés) ---- */
+          /* ---- Demande invalide (params manquants / malformés ou redirect_uri refusé) ---- */
           <>
             <div className="section-title" style={{ marginBottom: 8 }}>Demande d'autorisation invalide</div>
             <InfoBox tone="warn" title="Lien incomplet">
               Cette page d'autorisation a été ouverte avec des paramètres manquants ou incorrects.
               Relancez la connexion depuis le menu <strong>Chapote</strong> de votre administration WordPress.
             </InfoBox>
-            {redirectOk && (
+            {/* Anti open-redirect : « Retourner sur … » seulement si preview.valid,
+                c.-à-d. forme de page admin du plugin (pas un test d'allowlist). */}
+            {preview?.valid && (
               <div style={{ marginTop: 16 }}>
                 <Btn kind="ghost" onClick={deny}>Retourner sur {host}</Btn>
               </div>
