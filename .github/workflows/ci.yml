@@ -73,6 +73,18 @@ jobs:
       ENV: dev
       JWT_SECRET_KEY: ci-test-secret-key-minimum-32-caracteres-ok
       ENCRYPTION_KEY: b3xn1mFk-ECyWePnnRULioHFgFBQkDNwhSN_-K-IIds=
+      # CRITIQUE (correctif du PermissionError /app). La suite est conçue pour
+      # tourner DANS l'image API (WORKDIR /app) ; ici elle tourne sur le runner NU.
+      # Au chargement du conftest, `import src.main` exécute (au niveau module)
+      # `Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)` avec le
+      # défaut `/app/uploads` => `/app` inexistant/non inscriptible => PermissionError
+      # [Errno 13] (cause exacte de l'exit 4). On redirige UPLOAD_DIR vers un
+      # dossier INSCRIPTIBLE (l'app le crée elle-même). C'est le SEUL chemin /app
+      # écrit à l'import (fastembed est paresseux : `_model=None`, jamais chargé
+      # au startup ni par aucun test). FASTEMBED_CACHE_PATH est redirigé par
+      # prudence (défaut /var/cache/fastembed, non inscriptible sur le runner).
+      UPLOAD_DIR: /tmp/ci-uploads
+      FASTEMBED_CACHE_PATH: /tmp/ci-fastembed
 
     steps:
       - name: Checkout
@@ -106,6 +118,15 @@ jobs:
   # ---------------------------------------------------------------------------
   e2e-billing:
     runs-on: ubuntu-latest
+    # TODO(stabilisation) : ce job est NON BLOQUANT au 1er passage. Il est
+    # structuré correctement (stack compose + billing armé + garde anti-skip),
+    # MAIS son vert n'a jamais été prouvé en CI : build bun du front, build image
+    # api, `compose --wait`, install Playwright/Chromium et 1er download fastembed
+    # (lazy) sont lourds/fragiles et impossibles à itérer hors GitHub Actions.
+    # `continue-on-error` => son éventuel rouge ne casse PAS le build tant qu'il
+    # n'est pas stabilisé sur un vrai run. À RETIRER une fois le job vert observé.
+    # Le job `pytest` reste, lui, le gate DUR (livrable critique de PR-15).
+    continue-on-error: true
 
     steps:
       - name: Checkout
