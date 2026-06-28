@@ -6,6 +6,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Btn, Card, Chip, Field, InfoBox, Stat } from '../ui'
 import { errMsg } from '../utils/errors'
+import { safeHref } from '../utils/url'
 import { Enrichment, Prospect, prospectStatusChip, scoreChip } from './AdminProspecting'
 
 // Libellés FR des clés de module (entitlement) — alignés sur core/constants.MODULE_KEYS.
@@ -60,11 +61,16 @@ function EnrichmentView({ enr, onPickEmail }: { enr: Enrichment | null; onPickEm
             <div style={{ marginTop: 8 }}>
               <div className="field-label">Réseaux sociaux</div>
               <div className="row g6" style={{ flexWrap: 'wrap' }}>
-                {Object.entries(web.socials).map(([k, url]) => (
-                  <a key={k} href={url} target="_blank" rel="noreferrer noopener" className="chip chip-go" style={{ textDecoration: 'none' }}>
-                    {SOCIAL_LABEL[k] || k}
-                  </a>
-                ))}
+                {Object.entries(web.socials).map(([k, url]) => {
+                  // URL scrapée -> valide le schéma (http/https) avant de la rendre
+                  // cliquable ; sinon chip non cliquable (anti-XSS javascript:/data:).
+                  const safe = safeHref(url)
+                  return safe
+                    ? <a key={k} href={safe} target="_blank" rel="noreferrer noopener" className="chip chip-go" style={{ textDecoration: 'none' }}>
+                        {SOCIAL_LABEL[k] || k}
+                      </a>
+                    : <Chip key={k} tone="mut">{SOCIAL_LABEL[k] || k}</Chip>
+                })}
               </div>
             </div>
           )}

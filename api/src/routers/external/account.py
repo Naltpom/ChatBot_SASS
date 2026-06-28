@@ -46,6 +46,7 @@ from src.models.bot import Bot, BotCreate, BotOut
 from src.models.user import User
 # Logique métier PARTAGÉE via SERVICES (PR-19) — plus d'appel aux symboles privés
 # des routers frères.
+from src.routers.bots_helpers import FIELD_PERMS, _check_bot_perm
 from src.routers.widget_helpers import sanitize_design
 from src.services import stripe_service
 from src.services.billing_service import (
@@ -263,12 +264,21 @@ async def update_account_appearance(
     reste personnalisable (le verrou d'activation est côté plugin). require_bot_access
     (l'owner / membership None = accès complet ; pas de nouvelle permission BOT_PERMS).
 
+    Permission par champ (parité dashboard) : design_json exige la permission
+    `appearance` (FIELD_PERMS). Pour un bot d'ÉQUIPE, require_bot_access autorise
+    TOUT membre de l'org ; sans cette garde, un membre SANS la perm `appearance`
+    pourrait éditer l'apparence via le plugin (escalade). On RÉUTILISE donc
+    _check_bot_perm (la même garde que le PATCH dashboard) : owner perso / admin /
+    superadmin (membership None ou rôle admin) passent toujours.
+
     NB : contrairement au PATCH dashboard (qui stocke design_json tel quel), la
     surface plugin SANITISE l'entrée — choix plus sûr pour une entrée externe."""
     bot = await db.get(Bot, bot_id)
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    await require_bot_access(bot, user, db)
+    membership = await require_bot_access(bot, user, db)
+    # Parité dashboard : design_json -> permission `appearance` (FIELD_PERMS).
+    _check_bot_perm(user, membership, bot, FIELD_PERMS["design_json"])
 
     # Même pipeline que le PATCH dashboard, restreint à design_json.
     data = {"design_json": sanitize_design(body.design_json)}

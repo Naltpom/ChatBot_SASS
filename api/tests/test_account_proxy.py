@@ -29,7 +29,7 @@ from src.main import app
 from src.models.billing import BillingWordPressLink
 from src.models.bot import Bot
 from src.models.oauth import OAuthToken
-from src.models.user import User
+from src.models.user import Membership, Organization, User
 from src.routers.external import account
 from src.services import oauth_service as oauth
 from src.services.crypto import decrypt_secret, encrypt_secret
@@ -69,6 +69,27 @@ async def _mk_bot(session: AsyncSession, owner: User) -> Bot:
     session.add(bot)
     await session.flush()
     return bot
+
+
+async def _mk_team_bot(session: AsyncSession, owner: User) -> tuple[Organization, Bot]:
+    """Org (owner=admin) + un bot d'ÉQUIPE rattaché (organization_id)."""
+    org = Organization(name="Org", owner_user_id=owner.id)
+    session.add(org)
+    await session.flush()
+    bot = Bot(name="B", owner_user_id=None, organization_id=org.id)
+    session.add(bot)
+    await session.flush()
+    return org, bot
+
+
+async def _mk_membership(session: AsyncSession, user: User, org: Organization,
+                         bot: Bot, perms: list[str]) -> Membership:
+    """Membership 'member' (pas admin) avec permissions par bot restreintes."""
+    m = Membership(user_id=user.id, organization_id=org.id, role="member",
+                   permissions={str(bot.id): perms})
+    session.add(m)
+    await session.flush()
+    return m
 
 
 async def _plugin_token(session: AsyncSession, user: User) -> str:
@@ -193,6 +214,52 @@ async def test_owner_get_own_bot_ok(pg_session: AsyncSession):
         r = await c.get(f"/api/account/bots/{bot_a.id}", headers=_bearer(token_a))
     assert r.status_code == 200, r.text
     assert r.json()["id"] == bot_a.id
+
+
+# ==========================================================================
+# B2bis — permission de champ `appearance` sur un bot d'ÉQUIPE (anti-escalade)
+# Le PATCH apparence plugin doit appliquer la MÊME garde field-perm que le
+# dashboard : un membre SANS la perm `appearance` ne peut pas éditer design_json.
+# ==========================================================================
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_team_member_without_appearance_perm_403(pg_session: AsyncSession):
+    """Bot d'ÉQUIPE, membre (role member) SANS la perm `appearance` -> 403 au
+    PATCH apparence (require_bot_access l'autorise comme membre de l'org, mais
+    _check_bot_perm refuse le champ design_json)."""
+    owner = await _mk_user(pg_session, "b2bisown@test.dev")
+    member = await _mk_user(pg_session, "b2bismem@test.dev")
+    org, bot = await _mk_team_bot(pg_session, owner)
+    # Membre avec une AUTRE perm (context) mais PAS `appearance`.
+    await _mk_membership(pg_session, member, org, bot, ["context"])
+    token = await _plugin_token(pg_session, member)
+    await pg_session.commit()
+
+    async with _RealApp(pg_session) as c:
+        r = await c.patch(f"/api/account/bots/{bot.id}/appearance",
+                          json={"design_json": {"primaryColor": "#123456"}},
+                          headers=_bearer(token))
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_team_member_with_appearance_perm_200(pg_session: AsyncSession):
+    """Contrôle positif : le MÊME bot d'équipe, un membre AVEC la perm `appearance`
+    -> 200 (la garde n'est pas un déni global)."""
+    owner = await _mk_user(pg_session, "b2bisown2@test.dev")
+    member = await _mk_user(pg_session, "b2bismem2@test.dev")
+    org, bot = await _mk_team_bot(pg_session, owner)
+    await _mk_membership(pg_session, member, org, bot, ["appearance"])
+    token = await _plugin_token(pg_session, member)
+    await pg_session.commit()
+
+    async with _RealApp(pg_session) as c:
+        r = await c.patch(f"/api/account/bots/{bot.id}/appearance",
+                          json={"design_json": {"primaryColor": "#123456"}},
+                          headers=_bearer(token))
+    assert r.status_code == 200, r.text
 
 
 # ==========================================================================
