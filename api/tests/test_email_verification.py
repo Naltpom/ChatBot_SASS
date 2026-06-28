@@ -167,6 +167,33 @@ async def test_reset_password_too_short(client, overrides, db):
     assert resp.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_reset_rejected_when_inactive(client, overrides, db):
+    # Compte désactivé entre l'émission du lien et son usage -> 401 (le lien ne
+    # doit pas survivre à la désactivation, même dans sa fenêtre de validité).
+    user = _user(hashed_password="hash-v1", is_active=False)
+    db.seed(user)
+    token = create_password_reset_token(user.id, user.hashed_password)
+    async with client as c:
+        resp = await c.post("/api/auth/password/reset",
+                            json={"token": token, "new_password": "brandnewpwd"})
+    assert resp.status_code == 401
+    assert user.hashed_password == "hash-v1"  # inchangé
+
+
+@pytest.mark.asyncio
+async def test_reset_rejected_when_not_local(client, overrides, db):
+    # Compte SSO (google/intranet) : pas de reset du mot de passe local -> 401.
+    user = _user(hashed_password="hash-v1", auth_source="google")
+    db.seed(user)
+    token = create_password_reset_token(user.id, user.hashed_password)
+    async with client as c:
+        resp = await c.post("/api/auth/password/reset",
+                            json={"token": token, "new_password": "brandnewpwd"})
+    assert resp.status_code == 401
+    assert user.hashed_password == "hash-v1"  # inchangé
+
+
 def test_fingerprint_changes_with_value():
     """L'empreinte change si la valeur liée change (email / hash) : c'est ce qui
     casse le lien à usage unique."""

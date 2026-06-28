@@ -7,9 +7,8 @@ import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { errMsg } from '../utils/errors'
-import { Shell } from './ForgotPassword'
+import { Shell, NAVY } from '../components/AuthShell'
 
-const NAVY = '#1C3F5C'
 const MINT = '#2F9E79'
 
 export default function VerifyEmail() {

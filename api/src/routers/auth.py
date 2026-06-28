@@ -1,8 +1,6 @@
 """Auth dashboard : inscription perso/entreprise (+ invitations), login
 (intranet -> local), SSO Google, auto-login admin en dev, profil (nom, mdp),
 vérification souple de l'email + réinitialisation de mot de passe."""
-import asyncio
-import logging
 import secrets
 from typing import Optional
 
@@ -41,6 +39,7 @@ from src.models.user import (
 from src.core.time import utcnow
 from src.services.auth_service import AuthenticationError, authenticate
 from src.services.avatar import fetch_and_store_avatar
+from src.services.background import spawn_background
 from src.services.email_service import (
     SUPPORT_EMAIL,
     build_reset_email,
@@ -49,43 +48,23 @@ from src.services.email_service import (
 )
 from src.services.google_oauth import GoogleAuthError, verify_google_id_token
 from src.services.org_service import consume_invitations
-from src.services.rate_limit import auth_limiter
+from src.services.rate_limit import auth_limiter, password_reset_email_limiter
 from src.services.stripe_service import billing_enabled
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# Longueur minimale du mot de passe — partagée par /register et /password/reset
-# (même règle de robustesse à l'inscription et à la réinitialisation).
+# Longueur minimale du mot de passe — partagée par /register, /password/reset et
+# le changement de mot de passe (même règle de robustesse partout).
 PASSWORD_MIN_LENGTH = 8
 
-# Tâches d'envoi d'email en fire-and-forget : référence forte conservée (sinon le
-# GC peut collecter la tâche avant la fin et avaler ses exceptions), même pattern
-# que services/action_executor._spawn_email.
-_background_tasks: set[asyncio.Task] = set()
-
-
-def _spawn_email(coro) -> None:
-    """Planifie un envoi d'email en tâche de fond (non bloquant). Ne lève jamais :
-    send_email avale déjà ses erreurs ; on logge l'éventuelle exception résiduelle."""
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-    def _log(t: asyncio.Task) -> None:
-        if not t.cancelled() and t.exception() is not None:
-            logger.error("Envoi email auth échoué : %s", t.exception())
-
-    task.add_done_callback(_log)
-
-
 def _send_verify_email(user: User) -> None:
-    """Construit le lien de confirmation et envoie le mail (fire-and-forget)."""
+    """Construit le lien de confirmation et envoie le mail (fire-and-forget via
+    le helper partagé services/background)."""
     token = create_verify_email_token(user.id, user.email)
     link = f"{settings.APP_URL}/verify-email?token={token}"
     subject, body = build_verify_email(user, link)
-    _spawn_email(send_email([user.email], subject, body, reply_to=SUPPORT_EMAIL))
+    spawn_background(send_email([user.email], subject, body, reply_to=SUPPORT_EMAIL),
+                     error_label="Envoi e-mail auth échoué")
 
 
 async def _check_auth_rate(request: Request) -> None:
@@ -160,8 +139,9 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
     existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, "Un compte existe déjà avec cet email")
-    if len(body.password) < 8:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Mot de passe trop court (8 caractères minimum)")
+    if len(body.password) < PASSWORD_MIN_LENGTH:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"Mot de passe trop court ({PASSWORD_MIN_LENGTH} caractères minimum)")
     if body.account_type == "entreprise" and not (body.organization_name or "").strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nom d'entreprise requis")
 
@@ -243,8 +223,10 @@ async def google_login(body: GoogleAuthPayload, request: Request,
         # est NOT NULL ; la connexion par mot de passe reste donc impossible).
         name = (claims.get("name") or email.split("@")[0]).strip()[:120] or email
         avatar = await fetch_and_store_avatar(claims.get("picture"))
+        # email_verified=True : Google a déjà vérifié l'adresse (verify_google_id_token
+        # rejette un email non vérifié) -> pas de bannière de confirmation inutile.
         user = User(email=email, hashed_password=hash_password(secrets.token_urlsafe(32)),
-                    name=name, auth_source="google", avatar_url=avatar)
+                    name=name, auth_source="google", avatar_url=avatar, email_verified=True)
         db.add(user)
         await db.flush()
         # Un nouvel arrivant peut avoir des invitations d'équipe en attente.
@@ -329,9 +311,9 @@ async def change_password(body: PasswordChange, request: Request,
         # 403 et non 401 : cote front, 401 = token invalide (purge + /login).
         # Une faute de frappe ne doit pas deconnecter une session valide.
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Mot de passe actuel incorrect")
-    if len(body.new_password) < 8:
+    if len(body.new_password) < PASSWORD_MIN_LENGTH:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "Mot de passe trop court (8 caractères minimum)")
+                            f"Mot de passe trop court ({PASSWORD_MIN_LENGTH} caractères minimum)")
     user.hashed_password = hash_password(body.new_password)
     await db.commit()
     return {"changed": True}
@@ -391,11 +373,16 @@ async def forgot_password(body: ForgotPasswordBody, request: Request,
     # Comptes intranet/google : le mot de passe local n'est pas la source de
     # vérité (réécrit/inutilisé) -> on n'envoie pas de lien, mais la réponse reste
     # neutre (pas d'énumération du type de compte non plus).
-    if user is not None and user.is_active and user.auth_source == "local":
+    # Plafond PAR DESTINATAIRE (anti email-bombing : le limiteur par IP ne protège
+    # pas la victime d'un attaquant multi-IP). Vérifié uniquement quand un envoi
+    # est dû -> ne révèle rien (réponse neutre identique quoi qu'il arrive).
+    if (user is not None and user.is_active and user.auth_source == "local"
+            and await password_reset_email_limiter.check(email)):
         token = create_password_reset_token(user.id, user.hashed_password)
         link = f"{settings.APP_URL}/reset-password?token={token}"
         subject, mail_body = build_reset_email(user, link)
-        _spawn_email(send_email([user.email], subject, mail_body, reply_to=SUPPORT_EMAIL))
+        spawn_background(send_email([user.email], subject, mail_body, reply_to=SUPPORT_EMAIL),
+                         error_label="Envoi e-mail auth échoué")
     return {"message": "Si un compte existe pour cette adresse, un e-mail vient d'être envoyé."}
 
 
@@ -409,11 +396,15 @@ async def reset_password(body: ResetPasswordBody, request: Request,
     await _check_auth_rate(request)
     payload = decode_token(body.token, expected_scope="password_reset")
     user = await db.get(User, int(payload["sub"]))
-    if user is None or payload.get("fp") != account_fingerprint(user.hashed_password):
+    # is_active + auth_source revérifiés ici (et pas seulement à l'émission du
+    # lien) : un compte désactivé entre-temps, ou non local, ne doit pas pouvoir
+    # réinitialiser via un lien encore dans sa fenêtre de validité.
+    if (user is None or not user.is_active or user.auth_source != "local"
+            or payload.get("fp") != account_fingerprint(user.hashed_password)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Lien de réinitialisation invalide ou expiré")
     if len(body.new_password) < PASSWORD_MIN_LENGTH:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "Mot de passe trop court (8 caractères minimum)")
+                            f"Mot de passe trop court ({PASSWORD_MIN_LENGTH} caractères minimum)")
     user.hashed_password = hash_password(body.new_password)
     await db.commit()
     return {"changed": True}

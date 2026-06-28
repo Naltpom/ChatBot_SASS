@@ -6,14 +6,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { errMsg } from '../utils/errors'
-import { Shell } from './ForgotPassword'
-
-const NAVY = '#1C3F5C'
-const INPUT_BASE: React.CSSProperties = {
-  width: '100%', height: 46, border: '1px solid #D8DEE6', borderRadius: 12,
-  padding: '0 14px', fontSize: 15, color: '#1E2A32', background: '#fff',
-  fontFamily: 'inherit', outline: 'none',
-}
+import { Shell, NAVY, INPUT_BASE, PASSWORD_MIN_LENGTH } from '../components/AuthShell'
 
 export default function ResetPassword() {
   const isMobile = useIsMobile(760)
@@ -36,7 +29,7 @@ export default function ResetPassword() {
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    if (pwd.length < 8) { setError('Mot de passe trop court (8 caractères minimum).'); return }
+    if (pwd.length < PASSWORD_MIN_LENGTH) { setError(`Mot de passe trop court (${PASSWORD_MIN_LENGTH} caractères minimum).`); return }
     if (pwd !== confirm) { setError('Les deux mots de passe ne correspondent pas.'); return }
     setBusy(true)
     try {
@@ -75,7 +68,7 @@ export default function ResetPassword() {
       ) : (
         <form onSubmit={submit}>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 7 }}>
-            Nouveau mot de passe <span style={{ fontWeight: 500, color: '#9AA7B4' }}>(8 caractères min.)</span>
+            Nouveau mot de passe <span style={{ fontWeight: 500, color: '#9AA7B4' }}>({PASSWORD_MIN_LENGTH} caractères min.)</span>
           </label>
           <input type="password" value={pwd} onChange={e => setPwd(e.target.value)} required
                  autoComplete="new-password" placeholder="••••••••" style={INPUT_BASE} />
