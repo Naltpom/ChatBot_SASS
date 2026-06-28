@@ -18,6 +18,18 @@ donc le gabarit de `test_tree_sources.py` : `app.dependency_overrides` pour
 C'est volontairement minimal mais suffisant : les requêtes billing sont des
 `select` simples (1 entité, égalités/`in_` sur des colonnes). Aucune jointure.
 
+⚠ LIMITES DE FakeSession (couverture en trompe-l'œil) — à connaître :
+  - `with_for_update()` est un NO-OP : aucun verrou n'est pris. Un test de
+    verrouillage passerait sans rien exercer.
+  - Les opérateurs WHERE autres que `==`/`in_` (`>=`, `<`, `LIKE`, `!=`, …)
+    deviennent un prédicat NEUTRE (« vrai ») dans `_build_predicate` : un filtre
+    cassé ne filtre RIEN et le test reste vert à tort.
+  - Pas de JOINTURE, pas d'agrégation SQL (GROUP BY/COUNT/SUM), pas de
+    contraintes (FK/UNIQUE/CHECK), pas de `ORDER BY`/`LIMIT` réels.
+Conséquence : tout test de VERROUS, JOINTURES, AGRÉGATIONS, FILTRES non triviaux
+ou d'ISOLATION TENANT DOIT utiliser la fixture DB réelle (`pg_session`/`pg_engine`,
+marqueur `@pytest.mark.real_db`, cf. `tests/real_db.py`), pas FakeSession.
+
 MOCK_BILLING est vrai par défaut (settings) ; `billing_enabled()` dépend des
 clés Stripe — les tests posent/retirent `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`
 via la fixture `billing_on` / monkeypatch selon le besoin.
@@ -38,6 +50,11 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import get_current_user
 from src.main import app
+
+# Harness DB réelle (PR-10) : importer les fixtures rend `pg_engine`/`pg_session`
+# disponibles à toute la suite (collectées via ce conftest). Le marqueur `real_db`
+# est déclaré dans pytest.ini (source unique). Voir tests/real_db.py.
+from real_db import pg_engine, pg_session  # noqa: E402,F401
 
 
 # --------------------------------------------------------------------------

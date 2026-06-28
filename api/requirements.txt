@@ -21,3 +21,6 @@ beautifulsoup4>=4.12
 # 2FA : TOTP (authenticator) + WebAuthn (passkeys)
 pyotp==2.9.0
 webauthn==2.5.2
+# Tests : épinglés (reproductibilité du harness). Config asyncio dans pytest.ini.
+pytest==8.4.2
+pytest-asyncio==1.4.0
