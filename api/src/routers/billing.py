@@ -19,7 +19,6 @@ et validé contre `MODULE_KEYS` (parité D4/F5).
 import calendar
 import json
 import logging
-from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -29,7 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.constants import (
-    CODE_TO_MODULE,
     MODULE_AI,
     OVERAGE_CAP_DEFAULT,
     is_metered_code,
@@ -40,10 +38,8 @@ from src.core.time import utcnow
 from src.models.billing import (
     BillingProduct,
     BillingSubscription,
-    BillingWebhookEvent,
     BotConfigPayload,
     BotEntitlement,
-    BotUsageCounter,
 )
 from src.models.bot import Bot
 from src.models.user import User
@@ -52,22 +48,49 @@ from src.services import stripe_service
 # pour être consommée par la surface plugin (routers/external/account.py) SANS
 # coupler les routers entre eux. Ré-exposée ici sous ses noms historiques (alias)
 # pour les appelants internes de ce module et les tests.
-from src.services.billing_service import (
+from src.services.billing_service import (  # noqa: F401 (ré-exports historiques)
     DISABLED as _DISABLED,
     _catalog_rows,
     _overage_cents_per_reply,
+    active_sub_for_bot as _active_sub_for_bot,
+    ai_quota_for_codes as _ai_quota_for_codes,
+    ai_tier_id_for_quota as _ai_tier_id_for_quota,
     billable_bots as _billable_bots,
     catalog_payload as _catalog_payload,
+    classify_code_changes as _classify_code_changes,
+    config_has_ai as _config_has_ai,
+    config_to_codes as _config_to_codes,
+    current_codes_for_bot as _current_codes_for_bot,
+    ensure_customer as _ensure_customer,
+    intro_coupon_for as _intro_coupon_for,
+    intro_product_code as _intro_product_code,
+    line_items_for_codes as _line_items_for_codes,
+    metering_available_for_bot as _metering_available_for_bot,
+    module_of_code as _module_of_code,
+    month_bounds_iso as _month_bounds_iso,
+    reported_overage_this_month as _reported_overage_this_month,
+    scope_for_bot as _scope_for_bot,
+    split_modules_delta as _split_modules_delta,
+    user_has_subscription as _user_has_subscription,
     validate_config_modules as _validate_config_modules,
 )
 from src.services.entitlement_service import (
     PlanState,
-    apply_subscription_event,
     grace as es_grace,
     resolve,
     set_bot_status,
 )
 from src.services.quota_service import ai_quota_usage, quota_period
+# PR-20 : l'orchestration du webhook Stripe (idempotence / garde d'ordre / miroir
+# + projection / commit) vit dans stripe_webhook_service. Le handler HTTP ci-dessous
+# se contente de vérifier la signature puis de déléguer. `_sync_subscription_mirror`
+# et `_last_event_created_for_sub` sont ré-exposés ici (alias) pour les appelants
+# internes (routers/admin_billing : reconcile / reset) et les tests.
+from src.services import stripe_webhook_service
+from src.services.stripe_webhook_service import (  # noqa: F401 (ré-export)
+    _last_event_created_for_sub,
+    _sync_subscription_mirror,
+)
 
 logger = logging.getLogger("billing")
 
@@ -124,105 +147,10 @@ class OveragePayload(BaseModel):
 
 # --- Helpers --------------------------------------------------------------
 
-# `_catalog_rows` / `_overage_cents_per_reply` / le contrat de catalogue complet
-# (`_catalog_payload`) ont été déplacés dans services/billing_service (PR-19).
-
-
-async def _reported_overage_this_month(db: AsyncSession, bot_id: int) -> int:
-    """Dépassement IA déjà facturé ce mois (BotUsageCounter, 0 si absent)."""
-    row = (await db.execute(
-        select(BotUsageCounter).where(
-            BotUsageCounter.bot_id == bot_id,
-            BotUsageCounter.period == quota_period(),
-        )
-    )).scalar_one_or_none()
-    return int(row.reported_overage or 0) if row is not None else 0
-
-
-def _metering_available_for_bot(ent) -> bool:
-    """metering_available (contrat front) : le toggle dépassement n'est proposé que
-    si le métrage est utilisable POUR CE BOT — metering_enabled() ET plan IA managé
-    (quota non None) ET non BYOK. Indépendant de l'état du toggle (overage_mode)."""
-    return (
-        stripe_service.metering_enabled()
-        and not ent.byok
-        and ent.ai_monthly_quota is not None
-        and MODULE_AI in ent.modules
-    )
-
-
-def _config_has_ai(config: BotConfigPayload) -> bool:
-    """True si la config embarque un plan IA (managé `ai_tier_id` OU BYOK forfait).
-
-    Sert à la règle de socle-inclusion (point 6) : `base` n'est facturé QUE pour un
-    bot arbre seul ; dès qu'un plan IA est pris, le socle est INCLUS dans le prix
-    du plan IA (donc retiré des line_items Checkout)."""
-    return bool(config.ai_byok or config.ai_tier_id)
-
-
-def _config_to_codes(config: BotConfigPayload) -> tuple[list[str], list[str]]:
-    """Traduit une config de bot en codes catalogue.
-
-    Renvoie (codes, modules_actifs). Codes = ['base', <ai_tier|mod_ai_byok>?,
-    'mod_<module>'...]. `base` (socle, 9 €) toujours présent dans `codes` pour
-    porter une ligne lisible / l'historique ; sa FACTURATION effective est décidée
-    à la construction des line_items (point 6 : facturé seul, inclus dès qu'un plan
-    IA est pris)."""
-    codes: list[str] = ["base"]
-    modules: list[str] = []
-    # Module IA : variante BYOK forfait OU plan IA managé. (`ai_free` supprimé du
-    # catalogue : plus d'IA gratuite à vie — point 7.)
-    if config.ai_byok:
-        codes.append("mod_ai_byok")
-        modules.append(MODULE_AI)
-    elif config.ai_tier_id:
-        codes.append(config.ai_tier_id)
-        modules.append(MODULE_AI)
-    # Add-ons : mapping module -> code mod_*.
-    _module_to_code = {v: k for k, v in CODE_TO_MODULE.items() if k != "mod_ai_byok"}
-    for mod in config.modules:
-        if mod == MODULE_AI:
-            continue  # géré par le plan IA / BYOK ci-dessus
-        code = _module_to_code.get(mod)
-        if code:
-            codes.append(code)
-            modules.append(mod)
-    return codes, modules
-
-
-async def _line_items_for_codes(
-    db: AsyncSession, codes: list[str]
-) -> list[dict]:
-    """Résout les codes en line_items Stripe [{price, quantity, code}].
-
-    Point 6 (socle-inclusion) : `base` n'est facturé QUE pour un bot arbre seul
-    (aucun plan IA dans `codes`). Dès qu'un plan IA est présent (`ai_*` ou
-    `mod_ai_byok`), le socle est INCLUS dans le prix du plan IA et donc RETIRÉ des
-    line_items (les prix unitaires des plans IA ne changent pas). Saute aussi les
-    produits sans `stripe_price_id` (non seedés / billing OFF) — Stripe refuse
-    `price=None`."""
-    has_ai = any(c.startswith("ai_") or c == "mod_ai_byok" for c in codes)
-    items: list[dict] = []
-    for code in codes:
-        if code == "base" and has_ai:
-            continue  # socle inclus dans le plan IA : pas de ligne séparée
-        if is_metered_code(code):
-            continue  # ligne MÉTRÉE (mtr_ai) : jamais un line_item à quantité
-            # fixe (Stripe 400 si quantity sur un price metered). Le dépassement
-            # est (dé)câblé exclusivement par le toggle (_sync_overage_item) ;
-            # il ne doit pas être (ré)injecté à la création/au swap de sub.
-        row = (await db.execute(
-            select(BillingProduct).where(
-                BillingProduct.code == code,
-                BillingProduct.is_active.is_(True),
-            )
-        )).scalar_one_or_none()
-        if row is None or row.unit_amount <= 0:
-            continue  # produit gratuit / absent : pas de ligne facturée
-        if not row.stripe_price_id:
-            continue
-        items.append({"price": row.stripe_price_id, "quantity": 1, "code": code})
-    return items
+# Helpers MÉTIER PURS (catalogue, config->codes->line_items, classification du
+# delta de proration, lecture miroir/quota) déplacés dans services/billing_service
+# (PR-19 + split PR-20). Ré-exposés ci-dessus sous leurs noms historiques (alias)
+# pour les endpoints de ce router et les tests.
 
 
 async def billing_on_org_owner_change(
@@ -290,140 +218,6 @@ async def billing_on_org_owner_change(
     for bid in bot_id_set:
         await es_grace(db, bid, reason="org_owner_change")
     await db.commit()
-
-
-async def _ensure_customer(db: AsyncSession, user: User) -> str:
-    """Customer Stripe du payeur (création paresseuse à la 1re souscription)."""
-    if user.stripe_customer_id:
-        return user.stripe_customer_id
-    cus = await stripe_service.create_customer(user, user.billing_email or user.email)
-    user.stripe_customer_id = cus
-    await db.flush()
-    return cus
-
-
-def _scope_for_bot(grouping: str, bot: Bot) -> tuple[str, int | None, int | None]:
-    """(scope_kind, scope_bot_id, scope_org_id) d'une sub par bot selon le format."""
-    if grouping == "per_bot":
-        return "bot", bot.id, None
-    if grouping == "per_org":
-        if bot.organization_id is not None:
-            return "org", None, bot.organization_id
-        return "user_personal", None, None
-    return "user_all", None, None  # total
-
-
-async def _active_sub_for_bot(
-    db: AsyncSession, user: User, bot_id: int
-) -> BillingSubscription | None:
-    """Sub du payeur ACTIVE (active|trialing|past_due) couvrant `bot_id`.
-
-    On parcourt les subs non résiliées du payeur et on retient la 1re dont un
-    `raw_items[].bot_id` pointe sur le bot. None si le bot n'a pas de sub active
-    (-> relance Checkout côté appelant, point 3 : bot 'inactive')."""
-    subs = (await db.execute(
-        select(BillingSubscription).where(
-            BillingSubscription.user_id == user.id,
-            BillingSubscription.status.in_(["active", "trialing", "past_due"]),
-        )
-    )).scalars().all()
-    for sub in subs:
-        for item in (sub.raw_items or []):
-            if item.get("bot_id") == bot_id:
-                return sub
-    return None
-
-
-def _current_codes_for_bot(sub: BillingSubscription, bot_id: int) -> list[str]:
-    """Codes catalogue ACTUELLEMENT portés pour `bot_id` par la sub (miroir local).
-
-    Sert au calcul du delta de proration (ADD vs REMOVE) : on compare la
-    composition courante du bot (ses `raw_items[].code`) à la composition demandée
-    (`_config_to_codes`). Les items des AUTRES bots de la sub sont ignorés."""
-    out: list[str] = []
-    for it in (sub.raw_items or []):
-        if it.get("bot_id") == bot_id and it.get("code"):
-            out.append(it["code"])
-    return out
-
-
-def _module_of_code(code: str) -> str | None:
-    """Module d'entitlement porté par un code catalogue (None = socle `base` /
-    code hors module). Les codes de plan IA (`ai_*`) et `mod_ai_byok` portent tous
-    le module IA — c'est le même SLOT (un seul plan IA à la fois)."""
-    if code == "base":
-        return None
-    if code.startswith("ai_") or code == "mod_ai_byok":
-        return MODULE_AI
-    return CODE_TO_MODULE.get(code)
-
-
-def _classify_code_changes(
-    current: list[str], target: list[str]
-) -> tuple[list[str], list[str]]:
-    """Classe le passage `current` -> `target` en (removed_codes, changed_now).
-
-    La décision « différé vs immédiat » se prend au niveau MODULE (un SLOT) :
-    - `removed_codes` = codes courants dont le MODULE n'est PLUS dans la cible
-      (vrai RETRAIT de module) -> à programmer en FIN DE PÉRIODE, sans crédit ;
-    - `changed_now` = codes cibles soit d'un module AJOUTÉ, soit d'un code MODIFIÉ
-      dans un slot CONSERVÉ (ex. swap de palier IA starter->growth : le module IA
-      reste, seul le price change) -> à appliquer MAINTENANT (prorata immédiat).
-      Un code cible inchangé (déjà porté) n'y figure pas (rien à facturer).
-
-    `base` (socle) n'est jamais un module : il suit la composition cible des
-    line_items (inclus dès qu'un plan IA est pris, point 6) et n'est ni un retrait
-    ni un ajout facturable séparé hors bascule arbre<->IA."""
-    cur_set = set(current)
-    cur_modules = {m for m in (_module_of_code(c) for c in current) if m}
-    tgt_modules = {m for m in (_module_of_code(c) for c in target) if m}
-
-    removed_codes = sorted(
-        c for c in current
-        if (mod := _module_of_code(c)) is not None and mod not in tgt_modules)
-
-    changed_now: list[str] = []
-    for c in target:
-        if c in cur_set:
-            continue  # code déjà porté à l'identique : rien à facturer
-        mod = _module_of_code(c)
-        if mod is None:
-            # `base` (socle) n'est jamais un changement immédiat À LUI SEUL : il ne
-            # (ré)apparaît que lors d'une bascule du slot IA (un plan IA retiré ->
-            # tree-only fait réapparaître `base`). Il suit donc la phase de cette
-            # bascule (différée si l'IA est retirée en fin de période) — jamais
-            # facturé maintenant en doublon du plan IA encore actif.
-            continue
-        # Module AJOUTÉ (mod ∉ courant) OU code MODIFIÉ dans un slot conservé
-        # (mod ∈ courant ET ∈ cible mais le code précis diffère) : immédiat.
-        if mod not in cur_modules or mod in tgt_modules:
-            changed_now.append(c)
-    return removed_codes, sorted(changed_now)
-
-
-def _split_modules_delta(
-    current: list[str], target: list[str]
-) -> tuple[list[str], list[str]]:
-    """Delta au niveau MODULE (added, removed) — utilisé par le MOCK, dont
-    l'entitlement ne porte que `modules` (pas les codes/paliers précis). Un
-    changement de palier IA qui ne change pas l'ensemble de modules n'apparaît donc
-    ni en ajout ni en retrait (le quota cible est réappliqué tel quel)."""
-    cur, tgt = set(current), set(target)
-    return sorted(tgt - cur), sorted(cur - tgt)
-
-
-async def _ai_quota_for_codes(db: AsyncSession, codes: list[str]) -> int | None:
-    """Quota IA mensuel induit par les codes d'une config : None = illimité (BYOK),
-    0 = pas d'IA, sinon `included_replies` du plan IA managé."""
-    if "mod_ai_byok" in codes:
-        return None  # illimité (BYOK)
-    tier = next((c for c in codes if c.startswith("ai_")), None)
-    if tier:
-        row = (await db.execute(
-            select(BillingProduct).where(BillingProduct.code == tier)
-        )).scalar_one_or_none()
-        return row.included_replies if row is not None else 0
-    return 0
 
 
 async def _project_mock_entitlement(
@@ -618,32 +412,9 @@ async def get_summary(db: AsyncSession = Depends(get_db),
 # Le % et l'id du coupon sont stockés sur `billing_products` (intro_percent /
 # intro_coupon_id) : sur les paliers IA (ai_*) et sur 'base' (= défaut IA off/BYOK).
 # Plus aucune valeur en dur : l'admin les édite (rotation du coupon au changement).
-def _intro_product_code(config: BotConfigPayload) -> str:
-    """Code du produit catalogue portant la remise d'intro de `config` : le palier
-    IA managé si présent, sinon 'base' (défaut IA off / BYOK)."""
-    if not config.ai_byok and config.ai_tier_id:
-        return config.ai_tier_id
-    return "base"
-
-
-async def _intro_coupon_for(db: AsyncSession, config: BotConfigPayload) -> Optional[str]:
-    """Id du coupon Stripe d'intro pour `config`, lu depuis billing_products
-    (intro_coupon_id). None si non posé => aucune remise appliquée."""
-    row = (await db.execute(
-        select(BillingProduct).where(BillingProduct.code == _intro_product_code(config))
-    )).scalar_one_or_none()
-    return row.intro_coupon_id if row else None
-
-
-async def _user_has_subscription(db: AsyncSession, user: User) -> bool:
-    """True si le client a DÉJÀ un abonnement (toute ligne billing_subscription,
-    statut quelconque — conservées même annulées). Sert à n'offrir la remise d'intro
-    qu'au PREMIER bot souscrit (offre de bienvenue, UNE FOIS par client, pas par bot)."""
-    row = (await db.execute(
-        select(BillingSubscription.id)
-        .where(BillingSubscription.user_id == user.id).limit(1)
-    )).first()
-    return row is not None
+# `_intro_product_code` / `_intro_coupon_for` / `_user_has_subscription` (offre de
+# bienvenue) déplacés dans services/billing_service (split PR-20), ré-exposés en
+# alias ci-dessus.
 
 
 # --- POST /api/billing/checkout -------------------------------------------
@@ -657,10 +428,11 @@ async def open_checkout(
     mois remisé) et renvoie le dict de réponse — SANS commit (l'appelant commit).
 
     PUBLIC (PR-19) : consommé aussi par la surface plugin (account.account_checkout)
-    pour passer des success_url/cancel_url vers le site WordPress. Reste dans ce
-    router car son extraction en service entraînerait toute la cascade de helpers
-    Checkout (_config_to_codes, _line_items_for_codes, _ensure_customer,
-    _intro_coupon_for, _project_mock_entitlement…) = chantier PR-20 (split billing).
+    pour passer des success_url/cancel_url vers le site WordPress. Reste un point
+    d'entrée de ce router (orchestration Checkout + projection MOCK) ; sa cascade de
+    helpers MÉTIER PURS (config_to_codes, line_items_for_codes, ensure_customer,
+    intro_coupon_for…) vit désormais dans services/billing_service (split PR-20),
+    consommée ici via les alias historiques (_config_to_codes, …).
 
     Factorisé pour servir DEUX chemins (point 3) : la 1re souscription
     (POST /billing/checkout) ET la relance de paiement d'un bot 'inactive'
@@ -1311,30 +1083,6 @@ async def get_usage(db: AsyncSession = Depends(get_db),
 
 # --- GET /api/bots/{id}/entitlement ---------------------------------------
 
-def _month_bounds_iso(period: str) -> tuple[str, str]:
-    """Bornes ISO (UTC) du mois calendaire "YYYY-MM" : (1er du mois, 1er du mois
-    suivant). Aligné sur quota_period()/count_ai_messages_month (D8)."""
-    year, month = (int(p) for p in period.split("-"))
-    start = datetime(year, month, 1)
-    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
-    return start.isoformat(), end.isoformat()
-
-
-async def _ai_tier_id_for_quota(db: AsyncSession, quota: int | None) -> Optional[str]:
-    """Déduit le palier IA managé (`ai_*`) à partir du quota mensuel stocké sur
-    l'entitlement. Le palier précis n'est pas persisté : on le retrouve via le
-    quota (paliers à `included_replies` distincts — 1000/3000/10000). None si pas
-    de correspondance (BYOK, pas d'IA, ou quota plafonné sur un essai legacy). Sert au
-    pré-remplissage du configurateur (Facturation) et au diff « évolution du plan »."""
-    if not quota:
-        return None
-    rows = await _catalog_rows(db)
-    for r in rows:
-        if r.kind == "ai_tier" and r.is_active and (r.included_replies or 0) == quota:
-            return r.code
-    return None
-
-
 async def _bot_entitlement_response(db: AsyncSession, bot: Bot) -> dict:
     """Construit la réponse `BotBilling` d'un bot (forme FIGÉE, réutilisée par
     GET /bots/{id}/entitlement ET POST /bots/{id}/overage : le front re-render avec
@@ -1578,17 +1326,19 @@ async def _sync_overage_item(db: AsyncSession, user: User, bot: Bot,
 async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """Webhook Stripe (subscription.*, checkout.session.completed).
 
-    Corps en BYTES BRUTS (await request.body() AVANT tout parse JSON) : la
-    signature HMAC porte sur les octets exacts. Idempotence par event.id
-    (billing_webhook_events, gérée par apply_subscription_event).
+    Handler FIN (PR-20) : intrinsèquement HTTP. Il lit le corps en BYTES BRUTS
+    (await request.body() AVANT tout parse JSON — la signature HMAC porte sur les
+    octets exacts), vérifie la signature, applique la garde billing-OFF, puis
+    DÉLÈGUE toute l'orchestration (idempotence par event.id, garde d'ordre, miroir
+    + projection d'entitlement, commit) au `stripe_webhook_service`.
 
     E1 : si `billing_enabled()==False`, no-op APRÈS vérification de signature
     (on retourne {received:True} sans appliquer — réversibilité R2 propre).
     Signature absente/invalide/expirée ⇒ 400."""
-    payload = await request.body()
+    raw_body = await request.body()
     sig = request.headers.get("Stripe-Signature")
     try:
-        event = stripe_service.verify_webhook_signature(payload, sig)
+        event = stripe_service.verify_webhook_signature(raw_body, sig)
     except stripe_service.StripeError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
 
@@ -1596,191 +1346,4 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if not stripe_service.billing_enabled():
         return {"received": True, "billing": "disabled"}
 
-    event_type = event.get("type") or ""
-
-    # Pour les events subscription.*, on reflète le miroir local AVANT de projeter
-    # (apply_subscription_event lit billing_subscriptions comme source de l'état
-    # cible). MAIS les gardes d'idempotence et d'ordre doivent passer AVANT tout
-    # _sync (#6) : sinon un event rejoué / arrivé dans le désordre réécrit le
-    # miroir et désynchronise l'état.
-    if event_type.startswith("customer.subscription."):
-        sub_obj = (event.get("data") or {}).get("object") or {}
-        stripe_sub_id = sub_obj.get("id")
-        event_id = event.get("id")
-
-        # (1) Idempotence AVANT _sync : event déjà traité ⇒ no-op total (on ne
-        #     touche pas au miroir). La projection a déjà été appliquée.
-        if event_id:
-            already = (await db.execute(
-                select(BillingWebhookEvent.id).where(
-                    BillingWebhookEvent.stripe_event_id == event_id)
-            )).scalar_one_or_none()
-            if already is not None:
-                return {"received": True, "duplicate": True}
-
-        # (2) Ordre : ne pas régresser sur un event PLUS ANCIEN que le dernier
-        #     déjà appliqué pour CETTE subscription (replay / out-of-order). On
-        #     compare le champ Stripe `created` (epoch s) mémorisé sur les events
-        #     déjà traités de cette sub.
-        incoming_created = event.get("created")
-        if stripe_sub_id and isinstance(incoming_created, int):
-            last_created = await _last_event_created_for_sub(db, stripe_sub_id)
-            if last_created is not None and incoming_created < last_created:
-                logger.info(
-                    "billing: event %s (created=%s) plus ancien que l'état "
-                    "synced (%s) pour %s — ignoré",
-                    event_id, incoming_created, last_created, stripe_sub_id)
-                return {"received": True, "stale": True}
-
-        # (3) Ne pas RESSUSCITER une sub déjà résiliée : un .deleted est terminal.
-        #     Un event non-.deleted arrivant après le .deleted (out-of-order) ne
-        #     doit pas réactiver le miroir.
-        if event_type != "customer.subscription.deleted" and stripe_sub_id:
-            mirror = (await db.execute(
-                select(BillingSubscription.status).where(
-                    BillingSubscription.stripe_subscription_id == stripe_sub_id)
-            )).scalar_one_or_none()
-            if mirror == "canceled":
-                logger.info(
-                    "billing: sub %s déjà résiliée (terminal) — event %s ignoré",
-                    stripe_sub_id, event_id)
-                return {"received": True, "stale": True}
-
-        await _sync_subscription_mirror(db, event)
-        await apply_subscription_event(db, event)
-        # Mémorise le `created` Stripe sur l'event tout juste enregistré par
-        # apply_subscription_event (sert à la garde d'ordre ci-dessus).
-        if event_id and isinstance(incoming_created, int):
-            ev_row = (await db.execute(
-                select(BillingWebhookEvent).where(
-                    BillingWebhookEvent.stripe_event_id == event_id)
-            )).scalar_one_or_none()
-            if ev_row is not None:
-                payload = dict(ev_row.payload or {})
-                payload["created"] = incoming_created
-                ev_row.payload = payload
-        await db.commit()
-    elif event_type == "checkout.session.completed":
-        # Le checkout crée la 1re sub : Stripe émet ensuite customer.subscription
-        # .created qui portera la cartographie. Ici on se contente d'accuser
-        # réception (idempotence/projection gérées par l'event subscription).
-        logger.info("billing: checkout.session.completed reçu (sub projetée via "
-                    "l'event subscription.*)")
-    else:
-        logger.info("billing: event %s ignoré (non géré)", event_type)
-
-    return {"received": True}
-
-
-async def _last_event_created_for_sub(db: AsyncSession, stripe_sub_id: str) -> int | None:
-    """Max du champ Stripe `created` (epoch s) parmi les events subscription.*
-    déjà traités pour CETTE subscription (garde d'ordre webhook, #6).
-
-    Le `created` est mémorisé dans `BillingWebhookEvent.payload['created']` par
-    le routeur après projection. On filtre côté Python (peu d'events, portable
-    SQLite/Postgres : pas d'accès JSON SQL)."""
-    rows = (await db.execute(
-        select(BillingWebhookEvent.payload).where(
-            BillingWebhookEvent.type.like("customer.subscription.%"))
-    )).scalars().all()
-    best: int | None = None
-    for payload in rows:
-        if not isinstance(payload, dict):
-            continue
-        if payload.get("subscription") != stripe_sub_id:
-            continue
-        created = payload.get("created")
-        if isinstance(created, int) and (best is None or created > best):
-            best = created
-    return best
-
-
-async def _sync_subscription_mirror(db: AsyncSession, event: dict) -> None:
-    """Met à jour `billing_subscriptions` depuis l'objet subscription de l'event.
-
-    Reconstruit `raw_items` ([{si_id, price_id, code, bot_id, qty}]) depuis les
-    items Stripe + la cartographie `metadata[bots]` (Checkout) ou les
-    `item.metadata.bot_id` (subs créées par API). Le payeur est résolu via
-    `metadata[user_id]` puis `User.stripe_customer_id`."""
-    sub_obj = (event.get("data") or {}).get("object") or {}
-    stripe_sub_id = sub_obj.get("id")
-    if not stripe_sub_id:
-        return
-
-    deleted = event.get("type") == "customer.subscription.deleted"
-    sub_status = "canceled" if deleted else (sub_obj.get("status") or "active")
-
-    # Résolution du payeur (user_id).
-    meta = sub_obj.get("metadata") or {}
-    user_id: int | None = None
-    raw_uid = meta.get("user_id")
-    if raw_uid and str(raw_uid).isdigit():
-        user_id = int(raw_uid)
-    if user_id is None:
-        customer = sub_obj.get("customer")
-        if customer:
-            user_id = await db.scalar(
-                select(User.id).where(User.stripe_customer_id == customer)
-            )
-
-    # Cartographie bot par item.
-    bots_map: dict[str, list[str]] = {}
-    raw_bots = meta.get("bots")
-    if raw_bots:
-        try:
-            bots_map = json.loads(raw_bots)
-        except (ValueError, TypeError):
-            bots_map = {}
-
-    # Index price_id -> code (catalogue).
-    products = (await db.execute(select(BillingProduct))).scalars().all()
-    code_by_price = {p.stripe_price_id: p.code for p in products if p.stripe_price_id}
-
-    raw_items: list[dict] = []
-    for item in ((sub_obj.get("items") or {}).get("data") or []):
-        price = (item.get("price") or {}).get("id")
-        code = code_by_price.get(price)
-        item_meta = item.get("metadata") or {}
-        bot_id: int | None = None
-        raw_bid = item_meta.get("bot_id")
-        if raw_bid and str(raw_bid).isdigit():
-            bot_id = int(raw_bid)
-        # Repli : cartographie Checkout (subscription_data.metadata.bots).
-        if bot_id is None and code:
-            for bid_str, codes in bots_map.items():
-                if code in codes and str(bid_str).isdigit():
-                    bot_id = int(bid_str)
-                    break
-        raw_items.append({
-            "si_id": item.get("id"),
-            "price_id": price,
-            "code": code,
-            "bot_id": bot_id,
-            "qty": item.get("quantity", 1),
-        })
-
-    row = (await db.execute(
-        select(BillingSubscription).where(
-            BillingSubscription.stripe_subscription_id == stripe_sub_id
-        )
-    )).scalar_one_or_none()
-
-    if row is None:
-        if user_id is None:
-            logger.warning("billing: sub %s sans payeur résoluble, miroir ignoré",
-                           stripe_sub_id)
-            return
-        row = BillingSubscription(
-            user_id=user_id,
-            stripe_subscription_id=stripe_sub_id,
-            grouping=meta.get("grouping") or "total",
-            scope_kind="user_all",
-        )
-        db.add(row)
-    row.status = sub_status
-    row.raw_items = raw_items
-    if not deleted:
-        cpe = sub_obj.get("cancel_at_period_end")
-        if cpe is not None:
-            row.cancel_at_period_end = bool(cpe)
-    await db.flush()
+    return await stripe_webhook_service.process_webhook_event(db, event)
