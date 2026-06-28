@@ -11,8 +11,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../api'
 import { canAccessBotPerm } from '../utils/permissions'
 import { errMsg } from '../utils/errors'
+import { ACTION_TYPES, makeAction } from '../actionRegistry'
 import type {
-  Bot, BotAction, BotUpdate, McpServer, Trigger, Tree,
+  Bot, BotAction, BotActionType, BotUpdate, McpServer, Trigger, Tree,
 } from '../types/bot'
 import type { User } from '../types/auth'
 
@@ -181,22 +182,21 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
     return (bot?.actions_json || []).map((a, i) => {
       const { secret_set, api_key_set, ...rest } = a as BotAction & Record<string, unknown>
       void secret_set; void api_key_set
-      // create_ticket : to_email vide = « envoi aux admins » → clé OMISE. Le
-      // serveur valide AVANT sa normalisation `or None` et rejette '' en 422 ;
-      // seuls null/clé absente passent. Couvre le template, le changement de
-      // type et le champ vidé à la main.
-      if (rest.type === 'create_ticket' && !(typeof rest.to_email === 'string' && rest.to_email.trim())) {
-        delete rest.to_email
-      }
-      // calendar_slots : timezone vidée → clé omise, le serveur retombe sur
-      // Europe/Paris — cohérent avec le fallback d'affichage de l'input.
-      if (rest.type === 'calendar_slots' && !(typeof rest.timezone === 'string' && rest.timezone.trim())) {
-        delete rest.timezone
+      const def = ACTION_TYPES[rest.type as BotActionType]
+      // Clés blanches OMISES selon le type (registre.pruneWhenBlank) : le serveur
+      // valide AVANT sa normalisation `or None` et rejette '' en 422 ; seuls
+      // null/clé absente passent. create_ticket to_email = envoi aux admins ;
+      // calendar_slots timezone = retombe sur Europe/Paris.
+      for (const key of def?.pruneWhenBlank || []) {
+        const val = (rest as Record<string, unknown>)[key]
+        if (!(typeof val === 'string' && val.trim())) delete (rest as Record<string, unknown>)[key]
       }
       if (!actionSecrets[i]) return rest as BotAction
-      return rest.type === 'calendar_slots'
-        ? { ...rest, api_key: actionSecrets[i] }
-        : { ...rest, secret: actionSecrets[i] }
+      // 1 secret max par action : nom de clé selon le type (api_key Cal.com,
+      // secret HMAC sinon — secretKind null retombe sur 'secret', jamais atteint
+      // en pratique car ces types n'ont pas de champ secret).
+      const secretKind = def?.secretKind ?? 'secret'
+      return { ...rest, [secretKind]: actionSecrets[i] } as BotAction
     })
   }
 
@@ -295,7 +295,9 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
   function addAction() {
     const list = bot?.actions_json || []
     if (list.length >= 5) return
-    patch({ actions_json: listAdd(list, { name: '', description: '', type: 'webhook', url: '', fields: [], secret_set: false }) })
+    // Nouvelle action = type 'webhook' par défaut, défauts du type tirés du
+    // registre. Forme conservée à l'identique (pas d'api_key_set seedé ici).
+    patch({ actions_json: listAdd(list, { name: '', description: '', type: 'webhook', ...ACTION_TYPES.webhook.defaults(), secret_set: false } as BotAction) })
   }
   function removeAction(i: number) {
     patch({ actions_json: listRemove(bot?.actions_json, i) })
@@ -311,15 +313,10 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
   function updateActionType(i: number, v: string) {
     const a = (bot?.actions_json || [])[i] || ({} as BotAction)
     if (a.type === v) return
-    const next: Record<string, unknown> = {
-      name: a.name || '', description: a.description || '', type: v,
-      secret_set: false, api_key_set: false,
-    }
-    if (v === 'webhook') { next.url = ''; next.fields = [] }
-    // create_ticket : PAS de to_email seedé — clé absente = envoi aux admins
-    // (le serveur rejette la chaîne vide ; serializeActions l'omet de toute façon)
-    else if (v === 'calendar_slots') { next.event_type_id = ''; next.timezone = 'Europe/Paris' }
-    patch({ actions_json: (bot?.actions_json || []).map((x, j) => (j === i ? (next as unknown as BotAction) : x)) })
+    // Reconstruction propre via le registre : nom/description conservés, flags
+    // *_set remis à plat, défauts du type posés (1 seul endroit = actionRegistry).
+    const next = makeAction(v as BotActionType, { name: a.name, description: a.description })
+    patch({ actions_json: (bot?.actions_json || []).map((x, j) => (j === i ? next : x)) })
     setActionSecrets(prev => {
       const rest = { ...prev }
       delete rest[i]
