@@ -213,7 +213,7 @@ app.include_router(tree.router)
 app.include_router(billing.router)
 app.include_router(public.router)
 app.include_router(widget.router)
-# Surface EXTERNE (plugin WordPress) : OAuth « plugin » (device flow) + API de
+# Surface EXTERNE (plugin WordPress) : OAuth « plugin » (Authorization Code + PKCE (S256), RFC 7636) + API de
 # compte (/api/account/*, scope 'plugin'). Distinct du dashboard ; appels
 # server-to-server (PHP) => hors CORS widget.
 app.include_router(ext_oauth.router)

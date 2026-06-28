@@ -787,16 +787,16 @@ _SCORING_SYSTEM = (
 def _heuristic_score(prospect) -> dict:
     """Score déterministe SANS IA (MOCK_AI, clé absente, ou repli sur erreur)."""
     score = 40
-    chatbot = getattr(prospect, "has_existing_chatbot", None)
+    chatbot = prospect.has_existing_chatbot
     if chatbot is False:
         score += 25
     elif chatbot is True:
         score -= 30
-    if getattr(prospect, "website", None):
+    if prospect.website:
         score += 10
-    if (getattr(prospect, "site_summary", None) or "").strip():
+    if (prospect.site_summary or "").strip():
         score += 10
-    sector = (getattr(prospect, "sector_label", None) or "").lower()
+    sector = (prospect.sector_label or "").lower()
     if any(w in sector for w in ("service", "commerce", "e-commerce", "ecommerce")):
         score += 10
     score = max(0, min(100, score))

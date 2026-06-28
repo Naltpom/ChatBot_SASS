@@ -104,6 +104,8 @@ def _trial_active(row: BotEntitlement) -> bool:
     """
     if (row.status or "active") != "trialing":
         return False
+    # getattr défensif : les helpers de test seedent des lignes PARTIELLES (Obj
+    # sans `trial_end`) ; sur une vraie BotEntitlement la colonne existe toujours.
     trial_end = getattr(row, "trial_end", None)
     return trial_end is not None and utcnow() < trial_end
 
@@ -123,6 +125,8 @@ def _to_entitlement(row: BotEntitlement) -> Entitlement:
         modules=set(row.modules or []),
         ai_monthly_quota=row.ai_monthly_quota,
         overage_mode=row.overage_mode or "block",
+        # getattr défensif : tolère les lignes partielles des helpers de test
+        # (Obj sans `overage_cap`/`trial_end`) ; colonnes déclarées sur le modèle.
         overage_cap=getattr(row, "overage_cap", None),
         status=status,
         byok=False,
