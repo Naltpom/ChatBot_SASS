@@ -22,14 +22,23 @@ if TYPE_CHECKING:  # imports type-only (pas de cout/cycle a l'import runtime)
     from src.models.bot import Bot
     from src.models.conversation import Conversation
     from src.models.lead import Lead
+    from src.models.user import User
 
 logger = logging.getLogger(__name__)
 
+# Reply-To des emails transactionnels de compte (confirmation / réinitialisation) :
+# une réponse de l'utilisateur arrive sur le support plutôt que sur l'expéditeur
+# technique (SMTP_FROM, souvent no-reply).
+SUPPORT_EMAIL = "support@chapote.fr"
 
-def _send_sync(to: list[str], subject: str, body: str) -> None:
+
+def _send_sync(to: list[str], subject: str, body: str,
+               reply_to: Optional[str] = None) -> None:
     msg = EmailMessage()
     msg["From"] = settings.SMTP_FROM or settings.SMTP_USER
     msg["To"] = ", ".join(to)
+    if reply_to:
+        msg["Reply-To"] = reply_to
     # Defensif : un CR/LF dans un en-tete fait lever EmailMessage (ValueError)
     # et l'envoi serait perdu en silence (send_email avale l'exception) —
     # bot.name, non contraint, alimente les sujets des builders
@@ -42,16 +51,18 @@ def _send_sync(to: list[str], subject: str, body: str) -> None:
         smtp.send_message(msg)
 
 
-async def send_email(to: list[str], subject: str, body: str) -> bool:
+async def send_email(to: list[str], subject: str, body: str,
+                     reply_to: Optional[str] = None) -> bool:
     """Envoi texte brut. JAMAIS d'exception (appele en create_task) :
-    SMTP non configure ou echec d'envoi => log + False."""
+    SMTP non configure ou echec d'envoi => log + False. `reply_to` optionnel
+    (defaut None = comportement inchange pour les appelants existants)."""
     if not settings.SMTP_HOST:
         logger.info("SMTP non configuré — email non envoyé : %s", subject)
         return False
     if not to:
         return False
     try:
-        await asyncio.to_thread(_send_sync, to, subject, body)
+        await asyncio.to_thread(_send_sync, to, subject, body, reply_to)
         return True
     except Exception as exc:
         logger.error("Envoi email échoué (%s) : %s", subject, exc)
@@ -144,3 +155,40 @@ def build_handoff_email(bot: "Bot", conversation: "Conversation") -> tuple[str, 
     lines.append("")
     lines.append(f"Répondre depuis le dashboard : {settings.APP_URL}/app/bots/{bot.id}")
     return (f"Un visiteur demande un conseiller — {bot.name}", "\n".join(lines))
+
+
+def build_verify_email(user: "User", link: str) -> tuple[str, str]:
+    """(sujet, corps texte brut FR) du mail de confirmation d'adresse email."""
+    lines = [
+        f"Bonjour {user.name},",
+        "",
+        "Merci d'avoir créé votre compte Chapote. Confirmez votre adresse email "
+        "en ouvrant le lien ci-dessous :",
+        "",
+        link,
+        "",
+        "Ce lien est valable 48 heures. Si vous n'êtes pas à l'origine de cette "
+        "inscription, vous pouvez ignorer ce message.",
+        "",
+        "— L'équipe Chapote",
+    ]
+    return ("Confirmez votre adresse email", "\n".join(lines))
+
+
+def build_reset_email(user: "User", link: str) -> tuple[str, str]:
+    """(sujet, corps texte brut FR) du mail de réinitialisation de mot de passe."""
+    lines = [
+        f"Bonjour {user.name},",
+        "",
+        "Vous avez demandé à réinitialiser le mot de passe de votre compte "
+        "Chapote. Choisissez un nouveau mot de passe via le lien ci-dessous :",
+        "",
+        link,
+        "",
+        "Ce lien est valable 1 heure et ne fonctionne qu'une seule fois. Si vous "
+        "n'êtes pas à l'origine de cette demande, ignorez ce message : votre mot "
+        "de passe actuel reste inchangé.",
+        "",
+        "— L'équipe Chapote",
+    ]
+    return ("Réinitialisation de votre mot de passe", "\n".join(lines))

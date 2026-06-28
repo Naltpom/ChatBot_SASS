@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
+import { api } from './api'
 import { canSeeBilling } from './utils/permissions'
 import { orgColor, orgInitials } from './ui'
 import BotNav from './components/BotNav'
@@ -61,6 +62,57 @@ function OrgSwitcher({ orgs, current, onSwitch }: { orgs: Org[]; current: Org | 
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Bannière non bloquante : invite à confirmer l'adresse e-mail tant que
+// user.email_verified === false. Refermable (mémorisée pour la session), ne
+// gêne aucune navigation. « Renvoyer l'e-mail » -> POST verify-email/request.
+function EmailVerifyBanner() {
+  const { user } = useAuth()
+  const [dismissed, setDismissed] = useState(
+    () => typeof sessionStorage !== 'undefined' && sessionStorage.getItem('cbsaas_emailbanner_off') === '1',
+  )
+  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle')
+
+  if (!user || user.email_verified || dismissed) return null
+
+  async function resend() {
+    setState('sending')
+    try { await api('/api/auth/verify-email/request', { method: 'POST' }) } catch { /* best-effort */ }
+    setState('sent')
+  }
+
+  function close() {
+    setDismissed(true)
+    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('cbsaas_emailbanner_off', '1')
+  }
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+      background: 'rgba(224,168,46,.12)', border: '1px solid rgba(224,168,46,.32)',
+      borderRadius: 12, padding: '11px 14px', marginBottom: 18, fontSize: 13.5, color: '#8A6212',
+    }}>
+      <span style={{ flex: 1, minWidth: 200, lineHeight: 1.45 }}>
+        <strong>Confirmez votre adresse e-mail.</strong>{' '}
+        Nous avons envoyé un lien à <strong>{user.email}</strong>.
+      </span>
+      {state === 'sent' ? (
+        <span style={{ fontWeight: 600, color: '#1C7A5C' }}>E-mail renvoyé ✓</span>
+      ) : (
+        <button onClick={resend} disabled={state === 'sending'}
+                style={{ background: '#fff', border: '1px solid rgba(224,168,46,.45)', color: '#8A6212',
+                         borderRadius: 9, padding: '7px 13px', fontWeight: 600, fontSize: 13,
+                         cursor: state === 'sending' ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+          {state === 'sending' ? 'Envoi…' : "Renvoyer l'e-mail"}
+        </button>
+      )}
+      <button onClick={close} aria-label="Fermer"
+              style={{ background: 'none', border: 'none', color: '#8A6212', cursor: 'pointer', padding: 2, fontSize: 16, lineHeight: 1 }}>
+        ×
+      </button>
     </div>
   )
 }
@@ -265,7 +317,10 @@ export default function Layout({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="main">
-        <div className="main-inner">{children}</div>
+        <div className="main-inner">
+          <EmailVerifyBanner />
+          {children}
+        </div>
       </main>
     </div>
   )

@@ -17,7 +17,6 @@ le Host HTTP et le SNI TLS — verification du certificat comprise — restent l
 hostname d'origine), aucun redirect suivi, timeout 10 s, reponse tronquee a
 2000 chars avant retour au modele.
 """
-import asyncio
 import hashlib
 import hmac
 import json
@@ -33,6 +32,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.bot import Bot
+from src.services.background import spawn_background
 from src.services.safe_fetch import FetchError, pin_url, resolve_public_ip
 
 logger = logging.getLogger(__name__)
@@ -42,28 +42,10 @@ _MAX_ARGS_CHARS = 4000
 _MAX_RESULT_CHARS = 2000
 
 # Notifications email envoyees en fire-and-forget (la reponse au modele ne doit
-# pas attendre l'email). asyncio.create_task ne garde qu'une weakref sur la
-# tache : sans reference forte, le GC peut la collecter avant la fin et ses
-# exceptions seraient avalees en silence. On retient donc chaque tache dans ce
-# set (auto-retire a la fin) et on logge tout echec via add_done_callback.
-_background_tasks: set[asyncio.Task] = set()
-
-
+# pas attendre l'email). Le pattern (reference forte + log d'exception) est
+# factorise dans services/background.spawn_background.
 def _spawn_email(coro) -> None:
-    """Planifie l'envoi d'un email en tache de fond, reference forte conservee
-    + log de l'eventuelle exception (sinon avalee). Ne leve jamais."""
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    task.add_done_callback(_log_task_exception)
-
-
-def _log_task_exception(task: "asyncio.Task") -> None:
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.error("Notification email en échec (tâche de fond) : %s", exc)
+    spawn_background(coro, error_label="Notification email en échec (tâche de fond)")
 
 
 class ActionError(Exception):

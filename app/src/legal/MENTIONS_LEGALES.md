@@ -13,7 +13,7 @@ Le site **chapote.fr** et le service **Chapote** (ci-après « le Service ») so
 - **Siège social :** [À COMPLÉTER — adresse complète]
 - **SIREN / SIRET :** [À COMPLÉTER]
 - **N° TVA intracommunautaire :** Non applicable — **TVA non applicable, art. 293 B du CGI** (franchise en base), ou [À COMPLÉTER si assujetti]
-- **Adresse e‑mail de contact :** [À COMPLÉTER — ex. contact@chapote.fr]
+- **Adresse e‑mail de contact :** contact@chapote.fr
 - **Téléphone :** [À COMPLÉTER le cas échéant]
 
 ## Directeur de la publication
@@ -36,4 +36,4 @@ L'ensemble des éléments du Service (marque « Chapote », logo, interface, cod
 
 ## Signalement de contenu
 
-Pour signaler un contenu illicite ou exercer un droit, contactez : [À COMPLÉTER — e‑mail].
+Pour signaler un contenu illicite ou un abus, contactez : abuse@chapote.fr. Pour exercer un droit relatif à vos données personnelles, contactez : rgpd@chapote.fr.

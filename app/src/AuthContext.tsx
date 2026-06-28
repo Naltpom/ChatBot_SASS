@@ -52,6 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         u.owned_org_ids ?? u.organizations.filter(o => o.is_owner).map(o => o.id),
       twofa_enabled: u.twofa_enabled ?? false,
       twofa_required: u.twofa_required ?? u.is_superadmin ?? false,
+      // Défaut vérifié si une réponse historique/SSR l'omet : évite d'afficher la
+      // bannière à tort (la vraie valeur vient de l'API).
+      email_verified: u.email_verified ?? true,
     }
   }
 

@@ -99,6 +99,7 @@ async def _get_or_create_intranet_user(db: AsyncSession, info: dict, password: s
     if user:
         user.auth_source = "intranet"
         user.is_superadmin = True
+        user.email_verified = True  # adresse corporate validée par l'intranet
         user.last_login = utcnow()
         user.hashed_password = hash_password(password)  # fallback local si intranet down
     else:
@@ -108,6 +109,7 @@ async def _get_or_create_intranet_user(db: AsyncSession, info: dict, password: s
             hashed_password=hash_password(password),
             auth_source="intranet",
             is_superadmin=True,
+            email_verified=True,  # adresse corporate validée par l'intranet
             last_login=utcnow(),
         )
         db.add(user)
@@ -128,6 +130,7 @@ async def ensure_dev_admin(db: AsyncSession) -> None:
         name="Admin Dev",
         hashed_password=hash_password(settings.ADMIN_PASSWORD),
         is_superadmin=True,
+        email_verified=True,
     ))
     await db.commit()
     logger.warning("Compte admin dev créé : %s (AUTO_LOGIN_ADMIN_DEV)", settings.ADMIN_EMAIL)

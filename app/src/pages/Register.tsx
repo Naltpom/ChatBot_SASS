@@ -9,6 +9,7 @@ import { useAuth } from '../AuthContext'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { errMsg } from '../utils/errors'
 import HatIcon from '../components/HatIcon'
+import { PASSWORD_MIN_LENGTH } from '../components/AuthShell'
 
 interface Invite { email: string; role: 'admin' | 'member' }
 interface RegisterForm { prenom: string; nom: string; email: string; pwd: string; org: string }
@@ -104,7 +105,7 @@ export default function Register() {
   // informations, [l'invitation équipe] puis l'écran « C'est prêt ! ».
   const totalDots = type === 'entreprise' ? 4 : 3
   const stepCaption = (i: number) => `Étape ${i + 1} sur ${totalDots} — ${i + 1 === totalDots ? "C'est prêt !" : i === 0 ? 'Type de compte' : i === 1 ? 'Votre compte' : 'Votre équipe'}`
-  const canSubmitInfo = !!(form.prenom.trim() && form.email.includes('@') && form.pwd.length >= 8
+  const canSubmitInfo = !!(form.prenom.trim() && form.email.includes('@') && form.pwd.length >= PASSWORD_MIN_LENGTH
     && (type === 'perso' || form.org.trim()))
 
   function addInvite() {

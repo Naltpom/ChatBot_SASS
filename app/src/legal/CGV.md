@@ -75,7 +75,7 @@ Le catalogue et les prix en vigueur sont affichés dans le Service au moment de 
 
 9.3. Si, malgré ce qui précède, un consommateur exerce une rétractation recevable dans le délai, le remboursement est calculé **au prorata du service déjà fourni** (réponses IA consommées et jours d'abonnement écoulés), le service effectivement rendu n'étant pas remboursable.
 
-9.4. **Formulaire / demande de rétractation** et toute réclamation : [À COMPLÉTER — e‑mail de contact].
+9.4. **Formulaire / demande de rétractation** et toute réclamation : support@chapote.fr.
 
 ## 10. Évolution du catalogue et des prix
 
