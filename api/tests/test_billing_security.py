@@ -137,15 +137,16 @@ async def test_webhook_signe_sans_jwt_accepte(client, overrides, db, billing_on,
     """Corps signé HMAC, AUCUN Authorization -> accepté (200).
 
     Le webhook ne passe PAS par get_current_user : la signature fait foi."""
-    from src.routers import billing as billing_router
+    # PR-20 : l'orchestration vit dans stripe_webhook_service (le handler délègue).
+    from src.services import stripe_webhook_service
     # On neutralise la projection (testée ailleurs) : ici on valide juste que la
     # signature seule ouvre l'accès, sans JWT.
     async def _noop(db, event):
         return None
-    monkeypatch.setattr(billing_router, "apply_subscription_event", _noop)
+    monkeypatch.setattr(stripe_webhook_service, "apply_subscription_event", _noop)
     async def _noop_mirror(db, event):
         return None
-    monkeypatch.setattr(billing_router, "_sync_subscription_mirror", _noop_mirror)
+    monkeypatch.setattr(stripe_webhook_service, "_sync_subscription_mirror", _noop_mirror)
 
     body = to_bytes(stripe_event("customer.subscription.updated"))
     sig = sign_stripe(body, "whsec_test_xxx")

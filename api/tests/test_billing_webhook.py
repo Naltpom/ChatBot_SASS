@@ -68,7 +68,9 @@ def test_signature_malformee(monkeypatch):
 @pytest.mark.asyncio
 async def test_webhook_corps_brut_signe(client, overrides, db, billing_on, monkeypatch):
     """La signature porte sur les BYTES exacts envoyés (request.body() avant JSON)."""
-    from src.routers import billing as billing_router
+    # PR-20 : l'orchestration (miroir + projection) vit dans stripe_webhook_service ;
+    # le handler HTTP délègue. On patche donc les fonctions sur le SERVICE.
+    from src.services import stripe_webhook_service
 
     captured = {}
 
@@ -78,8 +80,8 @@ async def test_webhook_corps_brut_signe(client, overrides, db, billing_on, monke
     async def _noop_apply(db, event):
         return None
 
-    monkeypatch.setattr(billing_router, "_sync_subscription_mirror", _capture)
-    monkeypatch.setattr(billing_router, "apply_subscription_event", _noop_apply)
+    monkeypatch.setattr(stripe_webhook_service, "_sync_subscription_mirror", _capture)
+    monkeypatch.setattr(stripe_webhook_service, "apply_subscription_event", _noop_apply)
 
     ev = stripe_event("customer.subscription.updated", event_id="evt_42")
     body = to_bytes(ev)
@@ -275,3 +277,114 @@ async def test_event_sans_id_ignore(db: FakeSession):
     await es.apply_subscription_event(db, ev)  # ne lève pas
     from src.models.billing import BotEntitlement
     assert db.rows(BotEntitlement) == []
+
+
+# --- Orchestration webhook (DB RÉELLE) : idempotence + garde d'ordre ------
+#
+# Ces deux axes exercent le COEUR revenue-critical du webhook (PR-20) sur un VRAI
+# Postgres (pg_session) : la garde d'idempotence (event.id) et la garde d'ORDRE
+# (champ Stripe `created`), cette dernière passant par la requête BORNÉE
+# `_last_event_created_for_sub` (accès JSON SQL + ORDER BY created DESC LIMIT 1)
+# que FakeSession ne sait pas exécuter (JSON/LIKE/ORDER BY neutralisés).
+
+def _sub_event(event_id: str, sub_id: str, created: int, *, items: list,
+               user_id: int, status_: str = "active",
+               etype: str = "customer.subscription.updated") -> dict:
+    return {
+        "id": event_id, "type": etype, "created": created,
+        "data": {"object": {
+            "id": sub_id, "status": status_,
+            "metadata": {"user_id": str(user_id)},
+            "items": {"data": items},
+        }},
+    }
+
+
+async def _seed_payer_bot_product(pg_session):
+    """User payeur + 1 bot + le palier IA growth (price_growth). Renvoie (user, bot)."""
+    from src.models.bot import Bot
+    from src.models.billing import BillingProduct
+    from src.models.user import User
+
+    user = User(email="payer@test.dev", hashed_password="x", name="Payer")
+    pg_session.add(user)
+    await pg_session.flush()
+    bot = Bot(name="B", owner_user_id=user.id)
+    pg_session.add(bot)
+    pg_session.add(BillingProduct(
+        stripe_price_id="price_growth", code="ai_growth", kind="ai_tier",
+        included_replies=3000, label="Growth", unit_amount=3900))
+    await pg_session.commit()
+    return user, bot
+
+
+def _ai_item(bot_id: int) -> dict:
+    return {"id": "si_1", "price": {"id": "price_growth"},
+            "metadata": {"bot_id": str(bot_id)}, "quantity": 1}
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_webhook_idempotence_real_db(pg_session):
+    """Le MÊME event rejoué 2× n'est appliqué qu'UNE fois (idempotence event.id) :
+    2e passage -> court-circuit {duplicate}, aucun doublon d'event, état stable."""
+    from sqlalchemy import select
+    from src.models.billing import BillingWebhookEvent, BotEntitlement
+    from src.services import stripe_webhook_service as wh
+    from src.core.constants import MODULE_AI
+
+    user, bot = await _seed_payer_bot_product(pg_session)
+    ev = _sub_event("evt_idem", "sub_1", 1000, items=[_ai_item(bot.id)],
+                    user_id=user.id)
+
+    r1 = await wh.process_webhook_event(pg_session, ev)
+    assert r1 == {"received": True}
+    events = (await pg_session.execute(select(BillingWebhookEvent))).scalars().all()
+    assert len(events) == 1
+    ent = (await pg_session.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
+    )).scalar_one()
+    assert ent.status == "active"
+    assert MODULE_AI in ent.modules
+
+    # Rejoue le MÊME event : court-circuit total (duplicate), aucune ré-application.
+    r2 = await wh.process_webhook_event(pg_session, ev)
+    assert r2 == {"received": True, "duplicate": True}
+    events2 = (await pg_session.execute(select(BillingWebhookEvent))).scalars().all()
+    assert len(events2) == 1
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_webhook_garde_ordre_real_db(pg_session):
+    """Garde d'ordre : un event PLUS ANCIEN (created<) arrivant APRÈS un plus
+    récent est IGNORÉ (stale) — l'état projeté par le récent est préservé.
+
+    Exerce la requête bornée `_last_event_created_for_sub` sur Postgres."""
+    from sqlalchemy import select
+    from src.models.billing import BillingWebhookEvent, BotEntitlement
+    from src.services import stripe_webhook_service as wh
+    from src.core.constants import MODULE_AI
+
+    user, bot = await _seed_payer_bot_product(pg_session)
+
+    # (1) Event RÉCENT (created=2000) : active le plan IA sur le bot.
+    ev_new = _sub_event("evt_new", "sub_1", 2000, items=[_ai_item(bot.id)],
+                        user_id=user.id)
+    assert await wh.process_webhook_event(pg_session, ev_new) == {"received": True}
+    ent = (await pg_session.execute(
+        select(BotEntitlement).where(BotEntitlement.bot_id == bot.id)
+    )).scalar_one()
+    assert MODULE_AI in ent.modules
+
+    # (2) Event PLUS ANCIEN (created=1000, autre event_id, MÊME sub) qui — s'il
+    #     était appliqué — viderait les items (perte de l'IA). Il doit être IGNORÉ.
+    ev_old = _sub_event("evt_old", "sub_1", 1000, items=[], user_id=user.id)
+    r = await wh.process_webhook_event(pg_session, ev_old)
+    assert r == {"received": True, "stale": True}
+
+    # État INCHANGÉ (IA conservée) + l'event ancien n'est PAS enregistré.
+    await pg_session.refresh(ent)
+    assert MODULE_AI in ent.modules
+    events = (await pg_session.execute(select(BillingWebhookEvent))).scalars().all()
+    assert {e.stripe_event_id for e in events} == {"evt_new"}
