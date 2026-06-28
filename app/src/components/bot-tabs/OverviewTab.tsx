@@ -10,16 +10,7 @@ import { useState } from 'react'
 import { Check, Clipboard, Plus } from 'lucide-react'
 import { Btn, Card, Chip } from '../../ui'
 import type { Bot, BotUpdate } from '../../types/bot'
-import type { BotBilling } from '../../types/billing'
-
-// L'entitlement enrichi exposé par GET /api/bots/{id}/entitlement. `status` brut.
-// `trial_end`/`trial_expired` : champs LEGACY conservés (abonnements 'trialing'
-// résiduels) mais plus consommés ici — l'essai n'est plus généré ni affiché.
-type BotEntitlementView = BotBilling & {
-  status?: string
-  trial_end?: number | null
-  trial_expired?: boolean
-}
+import type { BotEntitlementView } from '../../types/billing'
 
 // Une étape de mise en route dérivée de l'état réel du bot.
 interface SetupStep {

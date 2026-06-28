@@ -124,6 +124,20 @@ export interface BotBilling {
   metering_available?: boolean
 }
 
+// Vue ENRICHIE renvoyée par GET /api/bots/{id}/entitlement : `BotBilling` + le
+// `status` brut (qui peut encore valoir 'trialing' pour des abonnements Stripe
+// LEGACY, traités comme actifs). `trial_end`/`trial_expired` sont LEGACY (plus
+// d'essai créé, l'UI n'affiche plus de compte à rebours) mais le back peut encore
+// les renvoyer → conservés en lecture seule, optionnels. Les champs de DÉPASSEMENT
+// IA métré vivent déjà sur `BotBilling` (CONTRAT 2) — hérités ici, pas redéclarés.
+// Contrat PARTAGÉ (consommé par BotPage + ses onglets) pour ne pas le redéclarer
+// localement dans chaque module.
+export type BotEntitlementView = BotBilling & {
+  status?: string
+  trial_end?: number | null   // legacy — plus dérivé en UI
+  trial_expired?: boolean      // legacy — plus dérivé en UI
+}
+
 // ----------------------------------------------------------------------------
 // Réponses des routes de GESTION DE PLAN (spec produit §1/§2). Toutes peuvent
 // renvoyer la sentinelle billing-OFF { billing:'disabled' } (BillingDisabled).
