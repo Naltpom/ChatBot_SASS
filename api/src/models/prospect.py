@@ -65,6 +65,15 @@ class Prospect(Base):
     email_body = Column(Text, nullable=True)
 
     status = Column(String, default="found", nullable=False, index=True)
+
+    # Opt-out RGPD / prospection à froid (art. 21 RGPD, droit d'opposition).
+    # opt_out=True => le prospect ne doit JAMAIS recevoir de cold email (garde-fou
+    # à l'envoi) et ses PII sont purgeables immédiatement. Posé soit par le lien de
+    # désinscription (token signé, endpoint public), soit par une action admin.
+    opt_out = Column(Boolean, default=False, server_default="false",
+                     nullable=False, index=True)
+    opt_out_at = Column(DateTime, nullable=True)
+
     created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
@@ -122,6 +131,8 @@ class ProspectOut(BaseModel):
     email_subject: str | None = None
     email_body: str | None = None
     status: str
+    opt_out: bool = False
+    opt_out_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     sent_at: datetime | None = None

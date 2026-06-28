@@ -20,14 +20,19 @@ Trois etapes, toutes reutilisant l'existant :
    desinscription (conformite CNIL / prospection B2B).
 """
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import logging
 import re
 import unicodedata
+from datetime import timedelta
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from sqlalchemy import or_, select
 
 from src.core.anthropic import call_messages
 from src.core.config import settings
@@ -1038,3 +1043,82 @@ async def generate_target_queries(
     except Exception as e:  # best-effort : jamais bloquant
         logger.warning("Génération de requêtes cibles : repli ICP (%s)", e)
         return _fallback()
+
+
+# --------------------------------------------------------------------------
+# 7. RGPD : opt-out (lien de désinscription signé) + purge des PII
+# --------------------------------------------------------------------------
+#
+# Le lien de désinscription du cold email pointe vers un endpoint PUBLIC avec un
+# jeton HMAC de l'id prospect (pas l'id brut, non énumérable), sur le même modèle
+# que le jeton de chat de la démo (demo_service). Le jeton N'EXPIRE PAS : un lien
+# de désinscription doit rester valable indéfiniment.
+
+def _sign_optout(prospect_id: int) -> str:
+    payload = f"optout:{prospect_id}"
+    sig = hmac.new(settings.JWT_SECRET_KEY.encode(), payload.encode(), hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(sig).decode().rstrip("=")
+
+
+def make_optout_token(prospect_id: int) -> str:
+    """Jeton signé non énumérable pour le lien de désinscription d'un prospect."""
+    return f"{prospect_id}.{_sign_optout(prospect_id)}"
+
+
+def parse_optout_token(token: str | None) -> int | None:
+    """Vérifie la signature et renvoie l'id prospect, ou None si invalide."""
+    if not token or "." not in token:
+        return None
+    id_str, sig = token.split(".", 1)
+    if not id_str.isdigit():
+        return None
+    if not hmac.compare_digest(sig, _sign_optout(int(id_str))):
+        return None
+    return int(id_str)
+
+
+def optout_url(prospect_id: int) -> str:
+    """URL publique de désinscription (lien à insérer dans le cold email)."""
+    return f"{settings.APP_URL.rstrip('/')}/api/prospect/optout?token={make_optout_token(prospect_id)}"
+
+
+def anonymize_prospect_pii(prospect) -> None:
+    """Efface les PII collectées/scrapées d'un prospect (droit à l'effacement).
+
+    On NEUTRALISE les données personnelles (email/nom de contact, résumé et URL du
+    site, brouillon d'email, enrichissement scrapé qui contient emails/téléphones/
+    dirigeants). On CONSERVE les champs non personnels utiles à l'apprentissage
+    few-shot (raison sociale, secteur, ville, décision) : un nom d'entreprise et un
+    secteur ne sont pas des données personnelles au sens du cold email B2B."""
+    prospect.contact_email = None
+    prospect.contact_name = None
+    prospect.site_summary = None
+    prospect.email_subject = None
+    prospect.email_body = None
+    prospect.website = None
+    prospect.enrichment = None
+
+
+async def purge_old_prospects(db, retention_days: int | None = None) -> int:
+    """Anonymise les PII des prospects au-delà de la rétention OU opt_out.
+
+    Sélectionne les prospects dont `created_at` est plus vieux que la rétention
+    (par défaut settings.RGPD_PROSPECT_RETENTION_DAYS) OU qui se sont opposés
+    (`opt_out=True`), et efface leurs PII (anonymize_prospect_pii). Les prospects
+    récents et non opt-out sont préservés. Renvoie le nombre de lignes traitées.
+    Point d'entrée appelable manuellement (commande/endpoint admin) ou par un cron
+    futur — aucun ordonnanceur n'est câblé ici (choix documenté)."""
+    days = settings.RGPD_PROSPECT_RETENTION_DAYS if retention_days is None else retention_days
+    cutoff = utcnow() - timedelta(days=max(0, days))
+    # Importé localement pour éviter tout couplage de chargement de module.
+    from src.models.prospect import Prospect
+    rows = (await db.execute(
+        select(Prospect).where(
+            or_(Prospect.opt_out.is_(True), Prospect.created_at < cutoff)
+        )
+    )).scalars().all()
+    for p in rows:
+        anonymize_prospect_pii(p)
+    if rows:
+        await db.commit()
+    return len(rows)

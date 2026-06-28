@@ -31,20 +31,33 @@ from src.services.prospecting_service import (ProspectingError,
                                               _set_scoring, _website_host,
                                               draft_email, enrich_prospect,
                                               generate_target_queries,
+                                              optout_url, purge_old_prospects,
                                               score_prospect, search_companies,
                                               search_web)
 
 logger = logging.getLogger(__name__)
 
-# Pied de page légal des cold emails (prospection B2B) : identité de l'expéditeur
-# + opt-out. Ajouté à la copie SORTANTE uniquement (jamais persisté en base, donc
-# jamais de double ajout d'un appel à l'autre — l'endpoint /send envoie 1 fois).
-_PROSPECT_LEGAL_FOOTER = (
-    "—\n"
-    "Chapote · https://chapote.fr\n"
-    "Vous recevez ce message dans le cadre d'une prospection B2B. "
-    "Pour ne plus être contacté, répondez « STOP »."
-)
+# Adresse de contact RGPD (droits d'accès/opposition/effacement, art. 14 RGPD).
+_RGPD_CONTACT_EMAIL = "rgpd@chapote.fr"
+
+
+def _prospect_legal_footer(prospect: Prospect) -> str:
+    """Pied de page légal du cold email (information art. 14 RGPD : source des
+    données, finalité, droits, désinscription, contact). Construit PAR prospect
+    car il porte le lien de désinscription signé (token HMAC, non énumérable).
+    Ajouté à la copie SORTANTE uniquement (jamais persisté)."""
+    link = optout_url(prospect.id)
+    return (
+        "—\n"
+        "Chapote · https://chapote.fr\n"
+        "Vous recevez ce message dans le cadre d'une prospection commerciale B2B. "
+        "Vos coordonnées professionnelles proviennent de sources publiques "
+        "(annuaire des entreprises / site web de votre société) et sont utilisées "
+        "pour vous présenter notre service.\n"
+        "Conformément au RGPD, vous disposez d'un droit d'accès, d'opposition et "
+        f"d'effacement : écrivez à {_RGPD_CONTACT_EMAIL}.\n"
+        f"Pour ne plus être contacté, répondez « STOP » ou cliquez ici : {link}"
+    )
 
 router = APIRouter(
     prefix="/api/admin/prospecting",
@@ -628,14 +641,20 @@ async def send(prospect_id: int, db: AsyncSession = Depends(get_db)):
     """Envoie l'email de prospection au contact. Envoi MANUEL, un prospect a la
     fois. Refuse si destinataire ou brouillon manquant."""
     p = await _get_prospect(prospect_id, db)
+    # Garde-fou RGPD : un prospect qui s'est opposé ne reçoit JAMAIS de cold email.
+    if p.opt_out:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Ce prospect s'est désinscrit (opt-out) : envoi interdit")
     if not p.contact_email:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "Aucune adresse de destinataire renseignée")
     if not p.email_subject or not p.email_body:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "Aucun brouillon d'email à envoyer")
-    # Pied de page légal (identité + opt-out) ajouté à la copie sortante.
-    outgoing_body = f"{p.email_body}\n\n{_PROSPECT_LEGAL_FOOTER}"
+    # Pied de page légal (identité + info art. 14 + lien de désinscription signé)
+    # ajouté à la copie sortante.
+    outgoing_body = f"{p.email_body}\n\n{_prospect_legal_footer(p)}"
     # Reply-To = boîte commerciale : les réponses du prospect y atterrissent.
     ok = await send_email([p.contact_email], p.email_subject, outgoing_body,
                           reply_to=HELLO_EMAIL)
@@ -648,6 +667,32 @@ async def send(prospect_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(p)
     return ProspectOut.model_validate(p)
+
+
+@router.post("/prospects/{prospect_id}/optout", response_model=ProspectOut)
+async def optout_prospect(prospect_id: int, db: AsyncSession = Depends(get_db)):
+    """Marque un prospect en opt-out (droit d'opposition / RGPD) — action admin.
+    Idempotent : opt_out_at n'est posé qu'au premier passage. Le prospect ne
+    recevra plus de cold email et ses PII sont purgeables à la prochaine purge."""
+    p = await _get_prospect(prospect_id, db)
+    if not p.opt_out:
+        p.opt_out = True
+        p.opt_out_at = utcnow()
+        await db.commit()
+        await db.refresh(p)
+    return ProspectOut.model_validate(p)
+
+
+@router.post("/purge")
+async def purge_prospects(
+    retention_days: Optional[int] = Query(None, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Purge RGPD : anonymise les PII des prospects au-delà de la rétention OU
+    opt-out. Point d'entrée manuel (aucun cron câblé). `retention_days` surcharge
+    settings.RGPD_PROSPECT_RETENTION_DAYS. Renvoie le nombre de prospects traités."""
+    n = await purge_old_prospects(db, retention_days)
+    return {"purged": n}
 
 
 @router.delete("/prospects/{prospect_id}", status_code=status.HTTP_204_NO_CONTENT)
