@@ -32,6 +32,19 @@ from src.core.database import Base
 from src.core.time import utcnow
 
 
+class BotConfigPayload(BaseModel):
+    """Composition d'un bot choisie au configurateur (spec §5.1 BotConfig).
+
+    Schéma de REQUÊTE partagé : consommé par le router billing (checkout /
+    subscription update), le service billing (validation / checkout) ET la surface
+    plugin (/api/account). Il vit ICI (models) — et non dans routers/billing.py —
+    pour être importable des deux côtés sans coupler les routers entre eux ni créer
+    de cycle service↔router (PR-19, découplage surface externe)."""
+    modules: list[str] = Field(default_factory=list)   # sous-ensemble de MODULE_KEYS
+    ai_tier_id: str | None = None                       # ai_free | ai_starter | ...
+    ai_byok: bool = False
+
+
 class BotEntitlement(Base):
     """Droits d'un bot, projetés depuis Stripe (jamais édités via PATCH /api/bots).
     Absence de ligne = socle gratuit. Schéma CANONIQUE (corrige B3/B4)."""

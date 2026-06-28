@@ -191,7 +191,7 @@ def _assert_message_len(text: str) -> None:
 _HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{3,8}")
 
 
-def _sanitize_design(design: dict) -> dict:
+def sanitize_design(design: dict) -> dict:
     """design_json est saisi par les membres de l'org et injecte dans le
     <style> du widget cote client : on ne renvoie que des valeurs sures
     (anti injection CSS/URL). Les textes sont bornes par precaution meme si

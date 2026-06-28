@@ -5,8 +5,15 @@ qui renvoie un User EXACTEMENT comme get_current_user), puis bornée par l'owner
 RÉUTILISÉE du dashboard (require_billing_owner pour l'écriture/facturation,
 require_bot_access pour la lecture — même anti-énumération 404). Toute la logique
 métier (création de bot, sanitisation d'apparence, gating de modules, checkout /
-abonnement) est IMPORTÉE des routers dashboard (bots.py / billing.py) : ZÉRO
-duplication.
+abonnement) est consommée via des SERVICES PARTAGÉS (services/billing_service,
+services/bot_service, services/entitlement_service, widget_helpers) : ZÉRO
+duplication, et — depuis PR-19 — AUCUN appel à un symbole PRIVÉ d'un router frère.
+
+Dette PR-20 (résiduelle, documentée) : le checkout (`open_checkout`, entaché de
+toute la cascade Checkout) et les modifications d'abonnement (`subscription_update`
+/ `subscription_cancel`, des ENDPOINTS publics du router billing) sont encore
+délégués au router billing tant que son split en service n'est pas fait (PR-20).
+Ce sont des symboles PUBLICS — plus aucun `_privé` d'un autre router.
 
 Décision actée : l'apparence (design_json) reste éditable même si le bot n'est pas
 payé (status 'inactive') — AUCUNE garde de facturation sur l'édition. Le verrou
@@ -30,14 +37,40 @@ from src.core.security import (
     require_oauth_token,
 )
 from src.core.time import utcnow
-from src.models.billing import BillingWordPressLink, BillingWordPressLinkOut
+from src.models.billing import (
+    BillingWordPressLink,
+    BillingWordPressLinkOut,
+    BotConfigPayload,
+)
 from src.models.bot import Bot, BotCreate, BotOut
 from src.models.user import User
-from src.routers import billing as billing_router
-from src.routers import bots as bots_router
-from src.routers.widget_helpers import _sanitize_design
+# Logique métier PARTAGÉE via SERVICES (PR-19) — plus d'appel aux symboles privés
+# des routers frères.
+from src.routers.widget_helpers import sanitize_design
 from src.services import stripe_service
-from src.services.entitlement_service import resolve
+from src.services.billing_service import (
+    DISABLED,
+    billable_bots,
+    catalog_payload,
+    validate_config_modules,
+)
+from src.services.bot_service import (
+    billing_status_for_bots,
+    enforce_config_modules,
+    strip_notnull_nulls,
+)
+from src.services.entitlement_service import resolve, resolve_many
+# DETTE PR-20 (documentée) : délégation à des ENDPOINTS PUBLICS du router billing
+# (checkout/abonnement) + leurs schémas de requête, et à l'endpoint public de
+# création de bot. À remplacer par des services dédiés au split de billing.py.
+from src.routers.billing import (
+    SubscriptionCancelPayload,
+    SubscriptionUpdatePayload,
+    open_checkout,
+    subscription_cancel,
+    subscription_update,
+)
+from src.routers.bots import create_personal_bot
 
 router = APIRouter(prefix="/api/account", tags=["account-plugin"])
 
@@ -49,7 +82,7 @@ class AppearancePayload(BaseModel):
 
 
 class AccountCheckoutPayload(BaseModel):
-    config: billing_router.BotConfigPayload
+    config: BotConfigPayload
     grouping: Optional[str] = None
     consent: Optional[bool] = False
     success_url: str
@@ -62,7 +95,7 @@ class AccountLinkPayload(BaseModel):
 
 
 class AccountSubUpdatePayload(BaseModel):
-    config: billing_router.BotConfigPayload
+    config: BotConfigPayload
     consent: Optional[bool] = False
     # P4 : redirections de retour si la modif relance un Checkout (bot pas encore
     # souscrit). Optionnelles ; validées + threadées par billing.subscription_update
@@ -141,9 +174,9 @@ async def account_catalog(db: AsyncSession = Depends(get_db),
                           user: User = Depends(require_oauth_token)):
     """Catalogue de facturation pour le plugin — SORTIE STRICTEMENT IDENTIQUE à
     GET /api/billing/catalog (même contrat de prix, aucun prix codé en dur côté
-    plugin). RÉUTILISE le corps factorisé billing._catalog_payload (zéro
+    plugin). RÉUTILISE le service factorisé billing_service.catalog_payload (zéro
     duplication). Billing OFF ⇒ {billing: disabled}."""
-    return await billing_router._catalog_payload(db)
+    return await catalog_payload(db)
 
 
 # --- Bots (lecture / création) ---------------------------------------------
@@ -152,17 +185,21 @@ async def account_catalog(db: AsyncSession = Depends(get_db),
 async def list_account_bots(db: AsyncSession = Depends(get_db),
                             user: User = Depends(require_oauth_token)):
     """Bots facturables par le détenteur du token plugin (ses bots perso + bots des
-    orgs dont il est owner) — RÉUTILISE billing._billable_bots. Liste allégée pour
-    le plugin : {id, name, public_key, billing_status, modules}.
+    orgs dont il est owner) — RÉUTILISE billing_service.billable_bots. Liste allégée
+    pour le plugin : {id, name, public_key, billing_status, modules}.
 
     billing_status est calculé par le MÊME chemin que le badge dashboard
-    (bots._billing_status_for_bots : statut brut de la ligne d'entitlement, None si
-    billing OFF) ; `modules` provient du resolver d'entitlements (état effectif)."""
-    bots = await billing_router._billable_bots(db, user)
-    statuses = await bots_router._billing_status_for_bots(db, [b.id for b in bots])
+    (bot_service.billing_status_for_bots : statut brut de la ligne d'entitlement,
+    None si billing OFF) ; `modules` provient du resolver d'entitlements (état
+    effectif), résolu en UNE requête pour TOUTE la liste (resolve_many, anti N+1)."""
+    bots = await billable_bots(db, user)
+    statuses = await billing_status_for_bots(db, [b.id for b in bots])
+    # Résolution GROUPÉE des entitlements (1 select pour toute la liste) au lieu d'un
+    # resolve() par bot (N+1). Sémantique identique à resolve() bot par bot.
+    ents = await resolve_many(db, bots)
     out = []
     for b in bots:
-        ent = await resolve(db, b)
+        ent = ents[b.id]
         billing_status, _trial = statuses.get(b.id, (None, None))
         out.append({
             "id": b.id,
@@ -179,7 +216,7 @@ async def create_account_bot(body: BotCreate, db: AsyncSession = Depends(get_db)
                              user: User = Depends(require_oauth_token)):
     """Crée un bot PERSO (owner = détenteur du token). RÉUTILISE EXACTEMENT le
     chemin dashboard bots.create_personal_bot (-> _seed_pending_entitlement)."""
-    return await bots_router.create_personal_bot(body, db, user)
+    return await create_personal_bot(body, db, user)
 
 
 @router.get("/bots/{bot_id}")
@@ -195,7 +232,7 @@ async def get_account_bot(bot_id: int, db: AsyncSession = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
     await require_bot_access(bot, user, db)
     ent = await resolve(db, bot)
-    statuses = await bots_router._billing_status_for_bots(db, [bot.id])
+    statuses = await billing_status_for_bots(db, [bot.id])
     billing_status, _trial = statuses.get(bot.id, (None, None))
     return {
         "id": bot.id,
@@ -217,9 +254,10 @@ async def update_account_appearance(
     user: User = Depends(require_oauth_token),
 ):
     """Édite UNIQUEMENT design_json. RÉUTILISE la sanitisation du widget
-    (_sanitize_design) puis le gating dashboard (_strip_notnull_nulls, puis
-    _enforce_config_modules — qui ne gate QUE le retrait du badge « Powered by » ->
-    MODULE_WHITELABEL ; couleurs/polices restent gratuites).
+    (widget_helpers.sanitize_design) puis le gating dashboard
+    (bot_service.strip_notnull_nulls, puis bot_service.enforce_config_modules — qui
+    ne gate QUE le retrait du badge « Powered by » -> MODULE_WHITELABEL ;
+    couleurs/polices restent gratuites).
 
     Aucune garde de FACTURATION sur l'apparence (décision actée) : un bot 'inactive'
     reste personnalisable (le verrou d'activation est côté plugin). require_bot_access
@@ -233,17 +271,17 @@ async def update_account_appearance(
     await require_bot_access(bot, user, db)
 
     # Même pipeline que le PATCH dashboard, restreint à design_json.
-    data = {"design_json": _sanitize_design(body.design_json)}
-    bots_router._strip_notnull_nulls(data)               # parité (no-op si dict non-null)
+    data = {"design_json": sanitize_design(body.design_json)}
+    strip_notnull_nulls(data)                   # parité (no-op si dict non-null)
     ent = await resolve(db, bot)
-    bots_router._enforce_config_modules(bot, data, ent)  # gate poweredBy -> whitelabel
+    enforce_config_modules(bot, data, ent)      # gate poweredBy -> whitelabel
     if "design_json" in data:
         bot.design_json = data["design_json"]
     await db.commit()
     await db.refresh(bot)
 
     out = BotOut.from_bot(bot)
-    statuses = await bots_router._billing_status_for_bots(db, [bot.id])
+    statuses = await billing_status_for_bots(db, [bot.id])
     out.billing_status, out.trial_end = statuses.get(bot.id, (None, None))
     return out
 
@@ -258,10 +296,11 @@ async def account_checkout(
 ):
     """Ouvre un Checkout Stripe pour le bot, avec retour sur le site WordPress
     (success_url/cancel_url surchargés, P4). Owner-only (require_billing_owner).
-    RÉUTILISE billing._open_checkout. Billing OFF ⇒ {billing: disabled}."""
+    RÉUTILISE billing.open_checkout (endpoint public, dette PR-20). Billing OFF ⇒
+    {billing: disabled}."""
     if not stripe_service.billing_enabled():
-        return billing_router._DISABLED
-    billing_router._validate_config_modules(body.config)
+        return DISABLED
+    validate_config_modules(body.config)
     bot = await db.get(Bot, bot_id)
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
@@ -270,7 +309,7 @@ async def account_checkout(
     await _assert_checkout_urls(db, bot, body.success_url, body.cancel_url)
 
     grouping = body.grouping or user.billing_grouping
-    result = await billing_router._open_checkout(
+    result = await open_checkout(
         db, user, bot, grouping, body.config, consent=bool(body.consent),
         success_url=body.success_url, cancel_url=body.cancel_url,
     )
@@ -330,10 +369,10 @@ async def account_subscription_update(
     modif relance un Checkout (bot non encore souscrit -> needs_checkout). Validés
     par billing.subscription_update (anti open-redirect, même hôte que le site WP
     lié) comme le Checkout plugin. Absents ⇒ fallback APP_URL."""
-    payload = billing_router.SubscriptionUpdatePayload(
+    payload = SubscriptionUpdatePayload(
         bot_id=bot_id, config=body.config, consent=bool(body.consent),
         success_url=body.success_url, cancel_url=body.cancel_url)
-    return await billing_router.subscription_update(payload, db, user)
+    return await subscription_update(payload, db, user)
 
 
 @router.post("/bots/{bot_id}/subscription/cancel")
@@ -345,5 +384,5 @@ async def account_subscription_cancel(
     """Annule l'abonnement du bot en fin de période. DÉLÈGUE au chemin dashboard
     billing.subscription_cancel (require_billing_owner inclus ; renvoie
     {status:'cancel_scheduled', current_period_end} | billing OFF {billing:'disabled'})."""
-    payload = billing_router.SubscriptionCancelPayload(bot_id=bot_id)
-    return await billing_router.subscription_cancel(payload, db, user)
+    payload = SubscriptionCancelPayload(bot_id=bot_id)
+    return await subscription_cancel(payload, db, user)

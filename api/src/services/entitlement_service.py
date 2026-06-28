@@ -156,6 +156,40 @@ async def resolve(db: AsyncSession, bot) -> Entitlement:
     return ent
 
 
+async def resolve_many(db: AsyncSession, bots) -> dict[int, Entitlement]:
+    """Résout les droits effectifs de PLUSIEURS bots en UNE requête (anti N+1).
+
+    Sémantique STRICTEMENT identique à `resolve` appelé bot par bot (mêmes RÈGLES
+    1/2/3), mais les lignes `bot_entitlements` sont chargées en UN seul select
+    (`bot_id IN (...)`) au lieu d'un select par bot. Renvoie {bot_id: Entitlement}.
+
+    Utilisé par les listes plugin/dashboard qui résolvent une collection de bots.
+    """
+    # RÈGLE 1 — billing OFF : tout débloqué (= comportement actuel, 32 e2e verts).
+    if not billing_enabled():
+        return {b.id: _unlocked_for(b.id) for b in bots}
+    if not bots:
+        return {}
+    rows = (await db.execute(
+        select(BotEntitlement).where(
+            BotEntitlement.bot_id.in_([b.id for b in bots]))
+    )).scalars().all()
+    by_id = {r.bot_id: r for r in rows}
+    out: dict[int, Entitlement] = {}
+    for bot in bots:
+        row = by_id.get(bot.id)
+        # RÈGLE 2 — pas d'entitlement (bot legacy / dev) : tout débloqué (gratuit).
+        if row is None:
+            out[bot.id] = _unlocked_for(bot.id)
+            continue
+        ent = _to_entitlement(row)
+        # RÈGLE 3 — BYOK : module IA forfait, jamais métré (quota illimité).
+        if getattr(bot, "api_key_mode", "managed") == "byok":
+            ent.byok = True
+        out[bot.id] = ent
+    return out
+
+
 def is_usable(ent: Entitlement) -> bool:
     """Dérivé UNIQUE d'éligibilité : le bot est-il utilisable (modules du plan
     exposés) ? = `status='active'` (souscrit OU activé par un admin/bypass) OU

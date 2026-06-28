@@ -56,10 +56,10 @@ from src.routers.widget_helpers import (
     _get_active_bot,
     _maybe_refresh,
     _record_tree_event,
-    _sanitize_design,
     _sanitize_journey,
     _sanitize_triggers,
     _session_active_bot,
+    sanitize_design,
 )
 from src.services import tree_engine
 from src.services.ai_service import AIServiceError, generate_reply
@@ -230,7 +230,7 @@ async def bootstrap(key: str, request: Request, db: AsyncSession = Depends(get_d
     ent = await resolve(db, bot)
     if not has_module(ent, MODULE_WHITELABEL):
         design["poweredBy"] = True
-    design = _sanitize_design(design)
+    design = sanitize_design(design)
     return {
         "design": design,
         "mode": bot.mode,
