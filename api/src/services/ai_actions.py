@@ -92,6 +92,48 @@ def _openai_tool(name: str, description: str, schema: dict) -> dict:
     }
 
 
+# Types JSON Schema -> enum `Type` de l'API Gemini. Le JSON proto3 de Gemini
+# attend l'enum en MAJUSCULES (STRING, OBJECT, ...) : une valeur en minuscules
+# fait rejeter la functionDeclaration (parite providers, PR-23).
+_GEMINI_TYPES = {
+    "string": "STRING", "number": "NUMBER", "integer": "INTEGER",
+    "boolean": "BOOLEAN", "array": "ARRAY", "object": "OBJECT",
+}
+
+
+def _gemini_schema(schema: dict) -> dict:
+    """Traduit un schema JSON (produit par _object_schema) vers le sous-ensemble
+    OpenAPI attendu par Gemini : enum `type` en MAJUSCULES. Recursif sur
+    `properties` et `items` ; toute autre cle (description, required, enum...) est
+    conservee telle quelle."""
+    if not isinstance(schema, dict):
+        return schema
+    out = dict(schema)
+    t = out.get("type")
+    if isinstance(t, str):
+        out["type"] = _GEMINI_TYPES.get(t.lower(), t.upper())
+    props = out.get("properties")
+    if isinstance(props, dict):
+        out["properties"] = {k: _gemini_schema(v) for k, v in props.items()}
+    items = out.get("items")
+    if isinstance(items, dict):
+        out["items"] = _gemini_schema(items)
+    return out
+
+
+def _gemini_tool(name: str, description: str, schema: dict) -> dict:
+    """Enveloppe tool au format Gemini (functionDeclaration). `parameters` est
+    OMIS quand aucune propriete n'est declaree (ex calendar_slots, schema vide) :
+    Gemini rejette un objet de parametres vide. Formateur par-entree utilise par
+    ai_service (actions, search_docs ET MCP), encapsule ensuite dans le bloc
+    {"functionDeclarations": [...]} cote ai_service."""
+    decl = {"name": name, "description": description}
+    props = (schema or {}).get("properties") or {}
+    if props:
+        decl["parameters"] = _gemini_schema(schema)
+    return decl
+
+
 async def _run_action(bot: Bot, name: Optional[str], args: dict,
                       db, conversation_id: Optional[str]):
     """Retrouve l'action configuree par son nom et l'execute."""

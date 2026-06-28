@@ -10,7 +10,7 @@ Resolution de la cle :
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 import httpx
@@ -26,6 +26,7 @@ from src.services.ai_actions import (
     _action_schema,
     _anthropic_tool,
     _eligible_actions,
+    _gemini_tool,
     _object_schema,
     _openai_tool,
     _run_action,
@@ -167,21 +168,23 @@ async def generate_reply(
     system = build_system_prompt(bot, page_url, journey, has_kb=has_kb, locale=locale)
     temperature = bot.temperature / 100
 
+    # Dispatch provider par REGISTRE (OCP) : une seule boucle tool-use generique
+    # (_run_tool_loop) parametree par un adaptateur par-provider. Les trois
+    # providers exposent et EXECUTENT les memes tools (actions / search_docs /
+    # MCP) — plus de degradation silencieuse cote Gemini (PR-23).
+    adapter = _PROVIDER_ADAPTERS.get(bot.ai_provider)
+    if adapter is None:
+        raise AIServiceError(f"Provider inconnu : {bot.ai_provider}")
     try:
-        if bot.ai_provider == "anthropic":
-            return await _call_anthropic(api_key, bot, system, history, temperature, db, conversation_id, has_kb, allow_actions, allow_mcp)
-        if bot.ai_provider == "openai":
-            return await _call_openai(api_key, bot, system, history, temperature, db, conversation_id, has_kb, allow_actions, allow_mcp)
-        if bot.ai_provider == "gemini":
-            return await _call_gemini(api_key, bot, system, history, temperature, has_kb)
+        return await _run_tool_loop(
+            adapter, api_key, bot, system, history, temperature,
+            db, conversation_id, has_kb, allow_actions, allow_mcp)
     except httpx.HTTPStatusError as e:
         logger.error("Erreur provider %s (%s) : %s", bot.ai_provider, e.response.status_code, e.response.text[:500])
         raise AIServiceError(f"Le provider {bot.ai_provider} a renvoyé une erreur {e.response.status_code}")
     except httpx.HTTPError as e:
         logger.error("Erreur réseau provider %s : %s", bot.ai_provider, e)
         raise AIServiceError(f"Provider {bot.ai_provider} injoignable")
-
-    raise AIServiceError(f"Provider inconnu : {bot.ai_provider}")
 
 
 async def _mock_reply(
@@ -320,170 +323,250 @@ async def _build_tools(bot, has_kb: bool, conversation_id,
     return tools or None
 
 
-async def _call_anthropic(api_key: str, bot: Bot, system: str,
-                          history: list[dict], temperature: float,
-                          db=None, conversation_id: Optional[str] = None,
-                          has_kb: bool = False, allow_actions: bool = True,
-                          allow_mcp: bool = True) -> AIResult:
-    """Boucle tool-use bornee : les echanges intermediaires (tool_use /
-    tool_result) vivent dans la requete, seul le texte final est persiste.
+# --- Boucle tool-use generique + adaptateurs par-provider ------------------
+#
+# La boucle (appel provider -> si demande d'outil, executer via
+# _dispatch_tool_call -> renvoyer le resultat -> reboucler, bornee a
+# MAX_TOOL_TURNS) etait DUPLIQUEE entre Anthropic et OpenAI. Elle est ici
+# factorisee une seule fois (_run_tool_loop) et parametree par un ADAPTATEUR
+# qui isole les seules differences par-provider :
+#   - tool_formatter : encapsulation d'un tool au format du provider ;
+#   - init_messages  : forme initiale de la conversation (system inline ou non) ;
+#   - request        : un appel provider -> _ProviderTurn normalise ;
+#   - append_turn    : ré-injection du tour d'assistant + des resultats d'outils.
+# Comportement par-provider INCHANGE pour Anthropic/OpenAI ; Gemini gagne le
+# function-calling (parite, fin de la degradation silencieuse).
 
-    Transport delegue a core.anthropic.call_messages ; un seul httpx.AsyncClient
-    (timeout 60) est reutilise sur tous les tours de la boucle."""
-    tools = await _build_tools(bot, has_kb, conversation_id, _anthropic_tool, allow_actions, allow_mcp)
-    messages = list(history)
+
+@dataclass
+class _ToolCall:
+    """Un appel d'outil demande par le modele, normalise tous providers
+    confondus. `id` sert au reappariement du resultat (Anthropic tool_use_id /
+    OpenAI tool_call_id) ; Gemini reapparie par `name` (pas d'id natif)."""
+    id: Optional[str]
+    name: Optional[str]
+    args: dict
+
+
+@dataclass
+class _ProviderTurn:
+    """Sortie normalisee d'UN appel provider. `text` = texte de CE tour (suivi
+    de last_text), `tool_calls` = outils demandes (vide => reponse finale),
+    `raw_assistant` = message/contenu d'assistant brut a re-injecter au format
+    du provider pour le tour suivant."""
+    text: str = ""
+    tool_calls: list = field(default_factory=list)
+    tokens_in: int = 0
+    tokens_out: int = 0
+    raw_assistant: object = None
+
+
+async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
+                         history: list[dict], temperature: float,
+                         db=None, conversation_id: Optional[str] = None,
+                         has_kb: bool = False, allow_actions: bool = True,
+                         allow_mcp: bool = True) -> AIResult:
+    """Boucle tool-use bornee, provider-neutre : les echanges intermediaires
+    (tool_use / tool_result) vivent dans la requete, seul le texte final est
+    persiste. Un seul httpx.AsyncClient (timeout AI_TIMEOUT_S) est reutilise sur
+    tous les tours. Au DERNIER tour autorise, les tool-calls ne sont PAS executes
+    (pas d'effet de bord — lead, webhook — qui serait ensuite annonce en echec au
+    visiteur, ni de recherche dont le resultat serait jete)."""
+    tools = await _build_tools(bot, has_kb, conversation_id,
+                               adapter.tool_formatter, allow_actions, allow_mcp)
+    messages = adapter.init_messages(system, history)
     tokens_in = tokens_out = 0
     last_text = ""
     async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
         for turn in range(MAX_TOOL_TURNS):
-            result = await call_messages(
-                api_key=api_key,
-                model=bot.ai_model,
-                max_tokens=AI_MAX_TOKENS,
-                temperature=temperature,
-                system=system,
-                messages=messages,
-                tools=tools,
-                client=client,
-            )
-            tokens_in += result.tokens_in
-            tokens_out += result.tokens_out
-            content = result.content
-            text = "".join(b.get("text", "") for b in content)
-            if text:
-                last_text = text
-            if result.stop_reason != "tool_use":
-                return AIResult(content=text, tokens_in=tokens_in, tokens_out=tokens_out)
-
-            # Dernier tour autorise : ne PAS executer les tool_use demandes
-            # (l'action aurait lieu — lead persiste, webhook poste — puis
-            # serait annoncee en echec au visiteur -> doublons garantis)
-            if turn == MAX_TOOL_TURNS - 1:
-                break
-
-            # Tour d'outil : executer chaque tool_use, renvoyer les resultats
-            messages.append({"role": "assistant", "content": content})
-            results = []
-            for block in content:
-                if block.get("type") != "tool_use":
-                    continue
-                tool_content, is_error = await _dispatch_tool_call(
-                    bot, block.get("name"), block.get("input") or {}, db, conversation_id)
-                entry = {"type": "tool_result", "tool_use_id": block.get("id"),
-                         "content": tool_content}
-                if is_error:
-                    entry["is_error"] = True
-                results.append(entry)
-            messages.append({"role": "user", "content": results})
-    return AIResult(content=last_text or TOOL_EXHAUSTED_MESSAGE,
-                    tokens_in=tokens_in, tokens_out=tokens_out)
-
-
-async def _call_openai(api_key: str, bot: Bot, system: str,
-                       history: list[dict], temperature: float,
-                       db=None, conversation_id: Optional[str] = None,
-                       has_kb: bool = False, allow_actions: bool = True,
-                       allow_mcp: bool = True) -> AIResult:
-    """Meme boucle tool-use bornee que _call_anthropic, au format OpenAI
-    (tools / tool_calls / messages role=tool)."""
-    tools = await _build_tools(bot, has_kb, conversation_id, _openai_tool, allow_actions, allow_mcp)
-    messages = [{"role": "system", "content": system}, *history]
-    tokens_in = tokens_out = 0
-    last_text = ""
-    async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
-        for turn in range(MAX_TOOL_TURNS):
-            payload = {
-                "model": bot.ai_model,
-                "temperature": temperature,
-                "max_tokens": AI_MAX_TOKENS,
-                "messages": messages,
-            }
-            if tools:
-                payload["tools"] = tools
-            resp = await client.post(
-                OPENAI_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            usage = data.get("usage", {})
-            tokens_in += usage.get("prompt_tokens", 0)
-            tokens_out += usage.get("completion_tokens", 0)
-            message = data["choices"][0]["message"]
-            if message.get("content"):
-                last_text = message["content"]
-            tool_calls = message.get("tool_calls")
-            if not tool_calls:
-                return AIResult(content=message.get("content") or "",
+            res = await adapter.request(
+                client, api_key, bot, system, messages, tools, temperature)
+            tokens_in += res.tokens_in
+            tokens_out += res.tokens_out
+            if res.text:
+                last_text = res.text
+            if not res.tool_calls:
+                return AIResult(content=res.text,
                                 tokens_in=tokens_in, tokens_out=tokens_out)
 
-            # Dernier tour autorise : ne PAS executer les tool_calls demandes
-            # (meme regle que _call_anthropic : pas d'effet de bord annonce en
-            # echec au visiteur)
+            # Dernier tour autorise : ne PAS executer les tool-calls demandes.
             if turn == MAX_TOOL_TURNS - 1:
                 break
 
-            messages.append(message)
-            for call in tool_calls:
-                fn = call.get("function", {})
-                try:
-                    args = json.loads(fn.get("arguments") or "{}")
-                except json.JSONDecodeError:
-                    args = {}
-                # Dispatch provider-neutre (search_docs / mcp_ / action) ; au
-                # format OpenAI il n'y a pas de is_error -> erreur encapsulee en
-                # JSON {"error": ...} (search_docs, mcp et ActionError compris,
-                # comportement identique a l'original).
+            tool_results = []
+            for call in res.tool_calls:
                 content, is_error = await _dispatch_tool_call(
-                    bot, fn.get("name"), args, db, conversation_id)
-                if is_error:
-                    content = json.dumps({"error": content}, ensure_ascii=False)
-                messages.append({"role": "tool", "tool_call_id": call.get("id"),
-                                 "content": content})
+                    bot, call.name, call.args, db, conversation_id)
+                tool_results.append((call, content, is_error))
+            adapter.append_turn(messages, res, tool_results)
     return AIResult(content=last_text or TOOL_EXHAUSTED_MESSAGE,
                     tokens_in=tokens_in, tokens_out=tokens_out)
 
 
-async def _call_gemini(api_key: str, bot: Bot, system: str,
-                       history: list[dict], temperature: float,
-                       has_kb: bool = False) -> AIResult:
-    # Limitation documentee : le function-calling Gemini n'est pas branche
-    # (format proprietaire) — iteration future. Les actions sont ignorees,
-    # search_docs aussi (meme pattern, logge).
-    if bot.actions_json:
-        logger.info("Actions IA non supportées pour le provider gemini (bot %s)", bot.id)
-    if has_kb:
-        logger.info("search_docs non supporté pour le provider gemini (bot %s)", bot.id)
-    if getattr(bot, "mcp_servers_json", None):
-        logger.info("Tools MCP non supportés pour le provider gemini (bot %s)", bot.id)
-    contents = [
-        {"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]}
-        for m in history
-    ]
-    async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
+class _AnthropicAdapter:
+    """Format Anthropic (Messages API, via core.anthropic.call_messages)."""
+    tool_formatter = staticmethod(_anthropic_tool)
+
+    def init_messages(self, system: str, history: list[dict]) -> list[dict]:
+        return list(history)
+
+    async def request(self, client, api_key, bot, system, messages, tools,
+                      temperature) -> _ProviderTurn:
+        result = await call_messages(
+            api_key=api_key, model=bot.ai_model, max_tokens=AI_MAX_TOKENS,
+            temperature=temperature, system=system, messages=messages,
+            tools=tools, client=client,
+        )
+        content = result.content
+        text = "".join(b.get("text", "") for b in content)
+        calls = []
+        # Comme l'original : on n'execute des outils que sur stop_reason tool_use.
+        if result.stop_reason == "tool_use":
+            for b in content:
+                if b.get("type") == "tool_use":
+                    calls.append(_ToolCall(id=b.get("id"), name=b.get("name"),
+                                           args=b.get("input") or {}))
+        return _ProviderTurn(
+            text=text, tool_calls=calls,
+            tokens_in=result.tokens_in, tokens_out=result.tokens_out,
+            raw_assistant={"role": "assistant", "content": content})
+
+    def append_turn(self, messages, turn, tool_results):
+        messages.append(turn.raw_assistant)
+        results = []
+        for call, content, is_error in tool_results:
+            entry = {"type": "tool_result", "tool_use_id": call.id,
+                     "content": content}
+            if is_error:
+                entry["is_error"] = True
+            results.append(entry)
+        messages.append({"role": "user", "content": results})
+
+
+class _OpenAIAdapter:
+    """Format OpenAI (Chat Completions : tools / tool_calls / role=tool)."""
+    tool_formatter = staticmethod(_openai_tool)
+
+    def init_messages(self, system: str, history: list[dict]) -> list[dict]:
+        return [{"role": "system", "content": system}, *history]
+
+    async def request(self, client, api_key, bot, system, messages, tools,
+                      temperature) -> _ProviderTurn:
+        payload = {
+            "model": bot.ai_model,
+            "temperature": temperature,
+            "max_tokens": AI_MAX_TOKENS,
+            "messages": messages,
+        }
+        if tools:
+            payload["tools"] = tools
+        resp = await client.post(
+            OPENAI_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        usage = data.get("usage", {})
+        message = data["choices"][0]["message"]
+        text = message.get("content") or ""
+        calls = []
+        for call in message.get("tool_calls") or []:
+            fn = call.get("function", {})
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            calls.append(_ToolCall(id=call.get("id"), name=fn.get("name"),
+                                   args=args))
+        return _ProviderTurn(
+            text=text, tool_calls=calls,
+            tokens_in=usage.get("prompt_tokens", 0),
+            tokens_out=usage.get("completion_tokens", 0),
+            raw_assistant=message)
+
+    def append_turn(self, messages, turn, tool_results):
+        messages.append(turn.raw_assistant)
+        for call, content, is_error in tool_results:
+            # Pas de is_error natif cote OpenAI : erreur encapsulee en JSON
+            # {"error": ...} (search_docs, MCP et ActionError compris), comme
+            # l'original.
+            if is_error:
+                content = json.dumps({"error": content}, ensure_ascii=False)
+            messages.append({"role": "tool", "tool_call_id": call.id,
+                             "content": content})
+
+
+class _GeminiAdapter:
+    """Format Gemini (generateContent + functionCalling). Le no-tools reste
+    identique a l'appel single-shot d'origine ; quand des tools sont exposes, le
+    function-calling est branche (PR-23 : fin de la degradation silencieuse)."""
+    tool_formatter = staticmethod(_gemini_tool)
+
+    def init_messages(self, system: str, history: list[dict]) -> list[dict]:
+        return [
+            {"role": "user" if m["role"] == "user" else "model",
+             "parts": [{"text": m["content"]}]}
+            for m in history
+        ]
+
+    async def request(self, client, api_key, bot, system, messages, tools,
+                      temperature) -> _ProviderTurn:
+        payload = {
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": messages,
+            # thinkingConfig=0 : gemini-2.5-flash est un modele "thinking",
+            # sans ca le raisonnement interne mange les 1024 tokens et la
+            # reponse chat revient vide.
+            "generationConfig": {
+                "temperature": temperature, "maxOutputTokens": AI_MAX_TOKENS,
+                "thinkingConfig": {"thinkingBudget": 0},
+            },
+        }
+        if tools:
+            # Gemini attend les functionDeclarations groupees sous un bloc tool.
+            payload["tools"] = [{"functionDeclarations": tools}]
         resp = await client.post(
             GEMINI_URL.format(model=bot.ai_model),
             params={"key": api_key},
-            json={
-                "system_instruction": {"parts": [{"text": system}]},
-                "contents": contents,
-                # thinkingConfig=0 : gemini-2.5-flash est un modele "thinking",
-                # sans ca le raisonnement interne mange les 1024 tokens et la
-                # reponse chat revient vide.
-                "generationConfig": {"temperature": temperature, "maxOutputTokens": AI_MAX_TOKENS,
-                                     "thinkingConfig": {"thinkingBudget": 0}},
-            },
+            json=payload,
         )
         resp.raise_for_status()
         data = resp.json()
         usage = data.get("usageMetadata", {})
         candidates = data.get("candidates", [])
-        text = ""
-        if candidates:
-            text = "".join(p.get("text", "") for p in candidates[0].get("content", {}).get("parts", []))
-        return AIResult(
-            content=text,
+        content = candidates[0].get("content", {}) if candidates else {}
+        parts = content.get("parts", []) or []
+        text = "".join(p.get("text", "") for p in parts if "text" in p)
+        calls = []
+        for p in parts:
+            fc = p.get("functionCall")
+            if fc:
+                # Gemini n'a pas d'id natif : on reapparie le resultat par name.
+                calls.append(_ToolCall(id=fc.get("name"), name=fc.get("name"),
+                                       args=fc.get("args") or {}))
+        return _ProviderTurn(
+            text=text, tool_calls=calls,
             tokens_in=usage.get("promptTokenCount", 0),
             tokens_out=usage.get("candidatesTokenCount", 0),
-        )
+            raw_assistant=content or {"role": "model", "parts": parts})
+
+    def append_turn(self, messages, turn, tool_results):
+        messages.append(turn.raw_assistant)
+        parts = []
+        for call, content, is_error in tool_results:
+            # functionResponse.response doit etre un objet JSON (pas une chaine).
+            response = {"error": content} if is_error else {"result": content}
+            parts.append({"functionResponse": {"name": call.name,
+                                                "response": response}})
+        messages.append({"role": "user", "parts": parts})
+
+
+# Registre provider -> adaptateur (OCP : ajouter un provider = ajouter une
+# entree, sans toucher au dispatch ni a la boucle).
+_PROVIDER_ADAPTERS = {
+    "anthropic": _AnthropicAdapter(),
+    "openai": _OpenAIAdapter(),
+    "gemini": _GeminiAdapter(),
+}
+
