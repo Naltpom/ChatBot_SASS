@@ -40,7 +40,8 @@ import logging
 import time
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -296,40 +297,57 @@ async def ai_overage_consume(db: AsyncSession, bot_id: int,
     À appeler APRÈS un `generate_reply` réussi et AVANT la persistance du message,
     UNIQUEMENT quand le bot est en dépassement armé (overage_active + plafond non
     atteint au pré-check). Étapes :
-      1) upsert `BotUsageCounter` sur (bot_id, period) — period_start = 1er du mois
-         UTC — et INCR `reported_overage` ;
-      2) si le nouveau total dépasse le plafond (course concurrente du dernier
-         crédit) : ANNULE l'incrément (décrément) et renvoie False (refus, ne
-         consomme pas) — borne de sûreté, le gating est fait au pré-check ;
+      1) upsert ATOMIQUE de `BotUsageCounter` sur (bot_id, period) — period_start =
+         1er du mois UTC — via `INSERT ... ON CONFLICT DO NOTHING` (aucune
+         IntegrityError en course de création concurrente) ;
+      2) INCR ATOMIQUE et BORNÉ : un seul `UPDATE ... SET reported_overage =
+         reported_overage + 1 WHERE reported_overage < plafond RETURNING ...`.
+         Postgres verrouille la ligne pour la durée de l'UPDATE : deux réponses de
+         dépassement concurrentes du MÊME bot sont sérialisées — ni lost-update
+         (sous-facturation), ni dépassement du plafond en course. Si l'UPDATE ne
+         touche aucune ligne (plafond déjà atteint, course du dernier crédit) :
+         renvoie False (refus, ne consomme pas) — le gating principal reste le
+         pré-check ;
       3) si un `customer_id` payeur est résolu, rapporte le meter event Stripe
          (best-effort : StripeError AVALÉE et loggée — un hoquet Stripe ne casse
          pas la réponse au visiteur, le compteur local fait foi) avec
-         `identifier=f"{bot_id}:{period}:{new_count}"` (dédup Stripe 24 h). Sans
-         customer (org sans payeur Stripe, jamais souscrit) : on NE rapporte PAS,
-         mais l'INCRÉMENT durable (étapes 1-2) a TOUJOURS lieu — le plafond reste
-         enforce, jamais de dépassement illimité non plafonné. Renvoie True.
+         `identifier=f"{bot_id}:{period}:{new_count}"` où `new_count` est le compteur
+         ATOMIQUE renvoyé par l'UPDATE (jamais dérivé d'une lecture non verrouillée :
+         identifiant unique et monotone même en concurrence — dédup Stripe 24 h).
+         Sans customer (org sans payeur Stripe, jamais souscrit) : on NE rapporte
+         PAS, mais l'INCRÉMENT durable (étapes 1-2) a TOUJOURS lieu — le plafond
+         reste enforce, jamais de dépassement illimité non plafonné. Renvoie True.
+
+    Increment ATOMIQUE (≠ read-modify-write précédent) : indispensable car le
+    pré-check (lecture seule) ne verrouille rien et l'endpoint widget peut servir
+    plusieurs réponses de dépassement en parallèle pour un même bot.
     """
     period = quota_period()
     limit = cap if cap is not None else OVERAGE_CAP_DEFAULT
 
-    row = (await db.execute(
-        select(BotUsageCounter).where(
-            BotUsageCounter.bot_id == bot_id,
-            BotUsageCounter.period == period,
-        )
-    )).scalar_one_or_none()
-    if row is None:
-        row = BotUsageCounter(
-            bot_id=bot_id, period=period,
-            reported_overage=0, period_start=_month_start_utc())
-        db.add(row)
-        await db.flush()
+    # 1) Crée la ligne (bot_id, period) si absente, SANS écraser un compteur
+    #    existant ni lever d'IntegrityError en course de création concurrente.
+    await db.execute(
+        pg_insert(BotUsageCounter)
+        .values(bot_id=bot_id, period=period, reported_overage=0,
+                period_start=_month_start_utc())
+        .on_conflict_do_nothing(index_elements=["bot_id", "period"])
+    )
 
-    new_count = int(row.reported_overage or 0) + 1
-    if new_count > limit:
-        # Plafond atteint (course concurrente) : ne pas comptabiliser, refus.
+    # 2) Incrément atomique borné par le plafond. Le verrou ligne pris par l'UPDATE
+    #    sérialise les appels concurrents : `new_count` est exact et le plafond ne
+    #    peut pas être franchi (WHERE reported_overage < limit).
+    new_count = (await db.execute(
+        update(BotUsageCounter)
+        .where(BotUsageCounter.bot_id == bot_id,
+               BotUsageCounter.period == period,
+               BotUsageCounter.reported_overage < limit)
+        .values(reported_overage=BotUsageCounter.reported_overage + 1)
+        .returning(BotUsageCounter.reported_overage)
+    )).scalar_one_or_none()
+    if new_count is None:
+        # Plafond atteint (course concurrente du dernier crédit) : refus.
         return False
-    row.reported_overage = new_count
 
     # Report Stripe best-effort, UNIQUEMENT si un payeur (customer) est résolu : un
     # échec ne doit pas casser la réponse visiteur, et l'absence de customer ne doit

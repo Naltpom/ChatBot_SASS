@@ -15,6 +15,7 @@ Aucune DB réelle (FakeSession, cf. conftest). Stripe mocké (report_meter_event
 create_meter monkeypatchés — aucun appel réseau).
 """
 import pytest
+from sqlalchemy import select
 
 from conftest import FakeSession, Obj
 from src.core.constants import MODULE_AI, MODULE_RAG, OVERAGE_CAP_DEFAULT
@@ -125,61 +126,150 @@ async def test_overage_precheck_cap_none_defaut(db: FakeSession):
     assert await qs.ai_overage_precheck(db, bot_id=7, cap=None) is False
 
 
-# --- ai_overage_consume : INCR + report + identifier + refus au plafond --
+# --- ai_overage_consume : INCR ATOMIQUE + report + identifier + refus plafond -
+#
+# DB RÉELLE (PR-07, real_db.py) : l'incrément de dépassement est un upsert + UPDATE
+# atomique (ON CONFLICT + RETURNING, verrou ligne) — FakeSession ne sait PAS exécuter
+# ce SQL (insert pg, returning) ni prouver l'atomicité. Ces tests tournent donc sur un
+# vrai Postgres jetable (skip gracieux si la base de test est injoignable).
 
+
+async def _seed_bot(session, bot_id_email: str):
+    """Crée un user + un bot (FK requis par BotUsageCounter.bot_id) et renvoie l'id."""
+    from src.models.bot import Bot
+    from src.models.user import User
+    u = User(email=bot_id_email, hashed_password="x", name="T")
+    session.add(u)
+    await session.flush()
+    bot = Bot(name="ov", owner_user_id=u.id)
+    session.add(bot)
+    await session.flush()
+    return bot.id
+
+
+@pytest.mark.real_db
 @pytest.mark.asyncio
-async def test_overage_consume_incr_et_report(db: FakeSession, monkeypatch):
-    """Incrémente reported_overage ET rapporte le meter event (identifier idempotent)."""
+async def test_overage_consume_incr_et_report(pg_session, monkeypatch):
+    """Incrémente reported_overage ET rapporte le meter event (identifier atomique)."""
     calls = []
 
     async def _report(event_name, customer_id, value=1, identifier=None):
         calls.append((event_name, customer_id, value, identifier))
 
     monkeypatch.setattr(qs.stripe_service, "report_meter_event", _report)
+    bot_id = await _seed_bot(pg_session, "ov-incr@test.dev")
+    await pg_session.commit()
 
     ok = await qs.ai_overage_consume(
-        db, bot_id=7, customer_id="cus_x", event_name="ai_reply_overage", cap=5)
+        pg_session, bot_id=bot_id, customer_id="cus_x",
+        event_name="ai_reply_overage", cap=5)
+    await pg_session.commit()
     assert ok is True
     period = qs.quota_period()
-    row = db.rows(BotUsageCounter)[0]
+    row = (await pg_session.execute(
+        select(BotUsageCounter).where(BotUsageCounter.bot_id == bot_id)
+    )).scalar_one()
     assert row.reported_overage == 1
     assert row.period == period
-    # identifier = f"{bot_id}:{period}:{new_count}" (idempotence Stripe).
-    assert calls == [("ai_reply_overage", "cus_x", 1, f"7:{period}:1")]
+    # identifier = f"{bot_id}:{period}:{new_count}" (dérivé du compteur ATOMIQUE).
+    assert calls == [("ai_reply_overage", "cus_x", 1, f"{bot_id}:{period}:1")]
 
 
+@pytest.mark.real_db
 @pytest.mark.asyncio
-async def test_overage_consume_refus_au_plafond(db: FakeSession, monkeypatch):
-    """new_count > cap => annule l'incrément, refuse, NE rapporte PAS."""
+async def test_overage_consume_refus_au_plafond(pg_session, monkeypatch):
+    """reported_overage == cap => l'UPDATE ne touche aucune ligne, refus, NO report."""
     calls = []
 
     async def _report(**k):
         calls.append(k)
 
     monkeypatch.setattr(qs.stripe_service, "report_meter_event", _report)
-    db.seed(BotUsageCounter(id=1, bot_id=7, period=qs.quota_period(),
-                            reported_overage=5, period_start=qs._month_start_utc()))
+    bot_id = await _seed_bot(pg_session, "ov-cap@test.dev")
+    pg_session.add(BotUsageCounter(bot_id=bot_id, period=qs.quota_period(),
+                                   reported_overage=5,
+                                   period_start=qs._month_start_utc()))
+    await pg_session.commit()
 
     ok = await qs.ai_overage_consume(
-        db, bot_id=7, customer_id="cus_x", event_name="ai_reply_overage", cap=5)
+        pg_session, bot_id=bot_id, customer_id="cus_x",
+        event_name="ai_reply_overage", cap=5)
+    await pg_session.commit()
     assert ok is False
-    # Incrément annulé : compteur reste à 5, aucun report.
-    assert db.rows(BotUsageCounter)[0].reported_overage == 5
+    row = (await pg_session.execute(
+        select(BotUsageCounter).where(BotUsageCounter.bot_id == bot_id)
+    )).scalar_one()
+    assert row.reported_overage == 5  # inchangé
     assert calls == []
 
 
+@pytest.mark.real_db
 @pytest.mark.asyncio
-async def test_overage_consume_stripe_error_avalee(db: FakeSession, monkeypatch):
+async def test_overage_consume_stripe_error_avalee(pg_session, monkeypatch):
     """Un hoquet Stripe (StripeError) est AVALÉ : le compteur local fait foi."""
     async def _boom(**k):
         raise qs.stripe_service.StripeError("boom")
 
     monkeypatch.setattr(qs.stripe_service, "report_meter_event", _boom)
+    bot_id = await _seed_bot(pg_session, "ov-err@test.dev")
+    await pg_session.commit()
+
     ok = await qs.ai_overage_consume(
-        db, bot_id=7, customer_id="cus_x", event_name="ai_reply_overage", cap=5)
+        pg_session, bot_id=bot_id, customer_id="cus_x",
+        event_name="ai_reply_overage", cap=5)
+    await pg_session.commit()
     # Réponse servie malgré l'échec Stripe ; compteur local incrémenté.
     assert ok is True
-    assert db.rows(BotUsageCounter)[0].reported_overage == 1
+    row = (await pg_session.execute(
+        select(BotUsageCounter).where(BotUsageCounter.bot_id == bot_id)
+    )).scalar_one()
+    assert row.reported_overage == 1
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_overage_consume_concurrent_no_lost_update(pg_engine, monkeypatch):
+    """ATOMICITÉ : deux consume concurrents du MÊME bot au bord du plafond (4/5)
+    -> exactement UN succès, compteur final == 5 (plafond enforce, pas de
+    lost-update ni de double meter event). Sous l'ancien read-modify-write les
+    deux liraient 4 et écriraient 5 => 2 succès + sous-facturation. Impossible à
+    prouver sous FakeSession (with_for_update no-op, pas de SQL atomique)."""
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    reports = []
+
+    async def _report(event_name, customer_id, value=1, identifier=None):
+        reports.append(identifier)
+
+    monkeypatch.setattr(qs.stripe_service, "report_meter_event", _report)
+
+    Session = async_sessionmaker(pg_engine, class_=AsyncSession,
+                                 expire_on_commit=False)
+    async with Session() as seed:
+        bot_id = await _seed_bot(seed, "ov-race@test.dev")
+        seed.add(BotUsageCounter(bot_id=bot_id, period=qs.quota_period(),
+                                 reported_overage=4,
+                                 period_start=qs._month_start_utc()))
+        await seed.commit()
+
+    async def _worker():
+        async with Session() as s:
+            ok = await qs.ai_overage_consume(
+                s, bot_id=bot_id, customer_id="cus_x",
+                event_name="ai_reply_overage", cap=5)
+            await s.commit()
+            return ok
+
+    import asyncio
+    results = await asyncio.gather(_worker(), _worker())
+
+    assert sorted(results) == [False, True]      # un seul crédit accordé
+    assert len(reports) == 1                       # un seul meter event
+    async with Session() as check:
+        row = (await check.execute(
+            select(BotUsageCounter).where(BotUsageCounter.bot_id == bot_id)
+        )).scalar_one()
+        assert row.reported_overage == 5           # plafond exact, pas de dérive
 
 
 # --- _project_bot PRÉSERVE overage_mode/overage_cap (choix owner) --------
