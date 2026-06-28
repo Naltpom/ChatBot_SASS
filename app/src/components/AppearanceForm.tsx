@@ -131,7 +131,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
             </Field>
             <div className="toggle-row">
               <div className="tl">Dégradé</div>
-              <Toggle on={!!d.secondaryColor} onChange={v => onChange({ secondaryColor: v ? '#7c2d92' : null })} />
+              <Toggle label="Dégradé" on={!!d.secondaryColor} onChange={v => onChange({ secondaryColor: v ? '#7c2d92' : null })} />
             </div>
             {d.secondaryColor && (
               <Field label="Seconde couleur">
@@ -143,7 +143,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
                 <div className="tl">Mode sombre</div>
                 <div className="ts">Surfaces sombres, votre couleur conservée</div>
               </div>
-              <Toggle on={d.darkMode === true} onChange={v => onChange({ darkMode: v })} />
+              <Toggle label="Mode sombre" on={d.darkMode === true} onChange={v => onChange({ darkMode: v })} />
             </div>
           </div>
         </Card>
@@ -239,7 +239,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
                 <div className="tl">Bulle d'accroche</div>
                 <div className="ts">Petit message au-dessus de la bulle fermée</div>
               </div>
-              <Toggle on={d.greeting === true} onChange={v => onChange({ greeting: v })} />
+              <Toggle label="Bulle d'accroche" on={d.greeting === true} onChange={v => onChange({ greeting: v })} />
             </div>
             {d.greeting && (
               <Field label="Texte de l'accroche">
@@ -256,7 +256,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
                 <div className="tl">Liseré</div>
                 <div className="ts">Bordure blanche autour de la bulle</div>
               </div>
-              <Toggle on={!!d.bordered} onChange={v => onChange({ bordered: v })} />
+              <Toggle label="Liseré" on={!!d.bordered} onChange={v => onChange({ bordered: v })} />
             </div>
             <div className="grid2" style={{ gap: 10 }}>
               <Field label={`Marge latérale — ${ox} px`}>
@@ -303,7 +303,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
             </Field>
             <div className="toggle-row">
               <div className="tl">Avatar dans l'en-tête</div>
-              <Toggle on={d.headerAvatar !== false} onChange={v => onChange({ headerAvatar: v })} />
+              <Toggle label="Avatar dans l'en-tête" on={d.headerAvatar !== false} onChange={v => onChange({ headerAvatar: v })} />
             </div>
             {/* Statut + libellé CO-LOCALISÉS (le libellé n'a d'effet que si le
                 statut est activé : on ne l'affiche donc que dans ce cas). */}
@@ -312,7 +312,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
                 <div className="tl">Statut « En ligne »</div>
                 <div className="ts">Pastille + libellé sous le titre</div>
               </div>
-              <Toggle on={d.headerStatus === true} onChange={v => onChange({ headerStatus: v })} />
+              <Toggle label="Statut « En ligne »" on={d.headerStatus === true} onChange={v => onChange({ headerStatus: v })} />
             </div>
             {d.headerStatus && (
               <Field label="Libellé du statut" hint="Vide : « En ligne ».">
@@ -384,7 +384,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
                   <div className="ts">Lien discret en pied de widget</div>
                 )}
               </div>
-              <Toggle on={d.poweredBy !== false} onChange={v => onChange({ poweredBy: v })} />
+              <Toggle label="Mention « Propulsé par »" on={d.poweredBy !== false} onChange={v => onChange({ poweredBy: v })} />
             </div>
           </div>
         </Card>
@@ -422,7 +422,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
           </Field>
           <div className="toggle-row">
             <div className="tl">Horodatage des messages</div>
-            <Toggle on={d.timestamps === true} onChange={v => onChange({ timestamps: v })} />
+            <Toggle label="Horodatage des messages" on={d.timestamps === true} onChange={v => onChange({ timestamps: v })} />
           </div>
         </div>
       </Card>
@@ -455,7 +455,7 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
               <div className="tl">Son à la réception</div>
               <div className="ts">Petit « ping » quand le bot répond</div>
             </div>
-            <Toggle on={d.sound === true} onChange={v => onChange({ sound: v })} />
+            <Toggle label="Son à la réception" on={d.sound === true} onChange={v => onChange({ sound: v })} />
           </div>
         </div>
       </Card>

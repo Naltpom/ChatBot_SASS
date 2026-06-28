@@ -295,7 +295,7 @@ export default function BotConfigurator({
                         </div>
                       )}
                     </div>
-                    <Toggle on={on} disabled={readOnly || blockedRemoval}
+                    <Toggle label={`Module ${m.label}`} on={on} disabled={readOnly || blockedRemoval}
                             onChange={v => toggleAddon(m, v)} />
                   </div>
                 )

@@ -51,18 +51,20 @@ export default function ForgotPassword() {
             choisir un nouveau mot de passe.
           </p>
           <form onSubmit={submit}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 7 }}>Email</label>
+            <label htmlFor="forgot-email" style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 7 }}>Email</label>
             <input
+              id="forgot-email"
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               required
               autoComplete="email"
+              aria-invalid={error ? true : undefined}
               placeholder="vous@entreprise.fr"
               style={INPUT_BASE}
             />
             {error && (
-              <div style={{ margin: '18px 0 0', padding: '11px 14px', borderRadius: 12,
+              <div role="alert" style={{ margin: '18px 0 0', padding: '11px 14px', borderRadius: 12,
                             background: 'rgba(232,106,95,.1)', border: '1px solid rgba(232,106,95,.28)',
                             color: '#C0473D', fontSize: 13.5, lineHeight: 1.4 }}>
                 {error}

@@ -217,7 +217,7 @@ export default function ActionsTab({
                                  value={f.description || ''}
                                  onChange={e => updateActionField(i, fi, { description: e.target.value })} />
                           <span className="row g6" style={{ fontSize: 11, fontWeight: 700, color: 'var(--mut)' }}>
-                            requis <Toggle on={!!f.required} onChange={v => updateActionField(i, fi, { required: v })} />
+                            requis <Toggle label="Champ requis" on={!!f.required} onChange={v => updateActionField(i, fi, { required: v })} />
                           </span>
                           <button aria-label="Retirer le champ"
                                   onClick={() => updateAction(i, { fields: (a.fields || []).filter((_, j) => j !== fi) })}

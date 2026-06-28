@@ -194,8 +194,9 @@ export default function Login() {
           </h3>
 
           <form onSubmit={submit}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 7 }}>Email</label>
+            <label htmlFor="login-email" style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 7 }}>Email</label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
@@ -203,12 +204,14 @@ export default function Login() {
               onBlur={blur}
               required
               autoComplete="email"
+              aria-invalid={error ? true : undefined}
               placeholder="vous@entreprise.fr"
               style={INPUT_BASE}
             />
 
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, margin: '18px 0 7px' }}>Mot de passe</label>
+            <label htmlFor="login-password" style={{ display: 'block', fontSize: 13, fontWeight: 600, margin: '18px 0 7px' }}>Mot de passe</label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
@@ -216,6 +219,7 @@ export default function Login() {
               onBlur={blur}
               required
               autoComplete="current-password"
+              aria-invalid={error ? true : undefined}
               placeholder="Votre mot de passe"
               style={INPUT_BASE}
             />
@@ -237,6 +241,7 @@ export default function Login() {
 
             {error && (
               <div
+                role="alert"
                 style={{
                   margin: '18px 0 0',
                   padding: '11px 14px',
@@ -364,6 +369,8 @@ function TwoFAStep({ challenge, onCancel, onSuccess }: {
           type="text"
           inputMode={recoveryMode ? 'text' : 'numeric'}
           autoComplete="one-time-code"
+          aria-label={recoveryMode ? 'Code de secours' : 'Code de vérification à 6 chiffres'}
+          aria-invalid={error ? true : undefined}
           value={code}
           onChange={e => setCode(e.target.value)}
           placeholder={recoveryMode ? 'abcde-fghij' : '123456'}
@@ -371,7 +378,7 @@ function TwoFAStep({ challenge, onCancel, onSuccess }: {
           style={{ ...INPUT_BASE, letterSpacing: recoveryMode ? 'normal' : '.3em', textAlign: 'center', fontSize: 18 }}
         />
         {error && (
-          <div style={{ margin: '16px 0 0', padding: '11px 14px', borderRadius: 12,
+          <div role="alert" style={{ margin: '16px 0 0', padding: '11px 14px', borderRadius: 12,
                         background: 'rgba(232,106,95,.1)', border: '1px solid rgba(232,106,95,.28)',
                         color: '#C0473D', fontSize: 13.5, lineHeight: 1.4 }}>
             {error}

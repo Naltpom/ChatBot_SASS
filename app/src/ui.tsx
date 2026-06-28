@@ -1,6 +1,6 @@
 // Primitives UI portées du prototype Chapote (primitives.jsx + widget.jsx).
 // Icônes : lucide-react, même librairie qu'ao_scrapping.
-import { Children, Fragment, isValidElement, ReactNode, useId } from 'react'
+import { Children, Fragment, isValidElement, ReactNode, useEffect, useId, useRef } from 'react'
 import { Pause } from 'lucide-react'
 import type { BotBillingStatus, DesignJson } from './types/bot'
 
@@ -58,12 +58,85 @@ export function Btn({ children, kind = 'primary', small = false, onClick, disabl
   )
 }
 
-export function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+export function Toggle({ on, onChange, disabled, label }: {
+  on: boolean; onChange: (v: boolean) => void; disabled?: boolean
+  // `label` : nom accessible (a11y). Le bouton n'a aucun texte visible, donc sans
+  // lui un lecteur d'écran annonce un interrupteur anonyme. À renseigner avec le
+  // libellé visible adjacent (toggle-row .tl, etc.).
+  label?: string
+}) {
   return (
-    <button className={`toggle ${on ? 'on' : ''}`} aria-pressed={on} disabled={disabled}
+    <button type="button" className={`toggle ${on ? 'on' : ''}`} role="switch"
+            aria-checked={on} aria-label={label} disabled={disabled}
             onClick={() => !disabled && onChange(!on)}>
       <span className="knob" />
     </button>
+  )
+}
+
+// ---------- Modale accessible (role=dialog) ----------
+// Sélecteur des éléments focalisables d'une boîte de dialogue (piège à focus).
+const DIALOG_FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+// Hook a11y de boîte de dialogue : focus à l'ouverture, piège à focus (Tab boucle),
+// Échap ferme (via onClose), restauration du focus au déclencheur à la fermeture.
+// Retourne une ref à poser sur le conteneur du dialogue (qui doit avoir tabIndex=-1).
+// Pensé pour être consommé par <Modal> ET par des modales au markup sur-mesure.
+export function useDialogA11y<T extends HTMLElement = HTMLDivElement>(onClose?: () => void) {
+  const ref = useRef<T>(null)
+  // Ref vers le dernier onClose : évite de relancer l'effet (et de re-voler le
+  // focus) à chaque rendu quand l'appelant passe une closure recréée.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    const focusables = () =>
+      Array.from(node.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE)).filter(el => el.offsetParent !== null)
+    // Focus initial : 1er contrôle, sinon le conteneur lui-même.
+    ;(focusables()[0] ?? node).focus()
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.stopPropagation(); onCloseRef.current?.(); return }
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      if (items.length === 0) { e.preventDefault(); node!.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || active === node)) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
+    }
+    node.addEventListener('keydown', onKeyDown)
+    return () => {
+      node.removeEventListener('keydown', onKeyDown)
+      previouslyFocused?.focus?.()
+    }
+    // onClose passé via ref : dépendances vides => effet monté une seule fois.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return ref
+}
+
+// Boîte de dialogue modale réutilisable. Overlay + carte centrée, sémantique
+// role="dialog" + aria-modal + titre relié (aria-labelledby). Le piège à focus,
+// le focus à l'ouverture, Échap et le retour de focus sont gérés par useDialogA11y.
+// `onClose` (Échap) : passer `undefined` pour neutraliser la fermeture (ex. action
+// en cours). Le clic sur l'overlay ne ferme PAS (parité avec l'existant).
+export function Modal({ title, onClose, children, maxWidth = 460 }: {
+  title: ReactNode; onClose?: () => void; children: ReactNode; maxWidth?: number
+}) {
+  const titleId = useId()
+  const ref = useDialogA11y<HTMLDivElement>(onClose)
+  return (
+    <div className="modal-overlay">
+      <div ref={ref} className="modal-card" style={{ maxWidth }}
+           role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+        <h2 id={titleId} className="modal-title">{title}</h2>
+        {children}
+      </div>
+    </div>
   )
 }
 
@@ -121,7 +194,8 @@ export function Seg({ options, value, onChange, small = false }: {
       {options.map(o => {
         const v = typeof o === 'string' ? o : o.value
         const lab = typeof o === 'string' ? o : o.label
-        return <button key={v} className={v === value ? 'active' : ''} onClick={() => onChange(v)}>{lab}</button>
+        return <button type="button" key={v} className={v === value ? 'active' : ''}
+                       aria-pressed={v === value} onClick={() => onChange(v)}>{lab}</button>
       })}
     </div>
   )

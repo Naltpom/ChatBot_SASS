@@ -55,7 +55,7 @@ export default function AiTab({
             <div className="tl">Activer l'IA</div>
             <div className="ts">Mode hybride : arbre guidé d'abord, IA à la demande. Désactivé : arbre seul (gratuit).</div>
           </div>
-          <Toggle on={iaOn} onChange={v => patch({ mode: (v ? 'hybrid' : 'tree') as BotMode })} />
+          <Toggle label="Activer l'IA" on={iaOn} onChange={v => patch({ mode: (v ? 'hybrid' : 'tree') as BotMode })} />
         </div>
       </Card>
 

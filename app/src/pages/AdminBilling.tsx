@@ -20,7 +20,7 @@ import { useNavigate } from 'react-router-dom'
 import { CreditCard, ReceiptText, Users } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Btn, Card, Chip, InfoBox, SectionTitle, Stat, Toggle } from '../ui'
+import { Btn, Card, Chip, InfoBox, Modal, SectionTitle, Stat, Toggle } from '../ui'
 import { errMsg } from '../utils/errors'
 import type {
   AdminBillingOverview,
@@ -520,12 +520,8 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(28,63,92,.45)',
-      backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-    }}>
-      <Card style={{ maxWidth: 480, width: '100%', padding: '26px 24px', maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ fontSize: 16, fontWeight: 800 }}>Entitlements — {bot.name}</div>
+    <Modal title={`Entitlements — ${bot.name}`} maxWidth={480}
+           onClose={saving || resetting || blocking ? undefined : onClose}>
         <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 4 }}>
           Override manuel (source <code>staff</code>) — applique les modules et le quota
           sans passer par Stripe.
@@ -555,7 +551,7 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
                     <span style={{ fontSize: 13, fontWeight: 600 }}>
                       {m.label} <span style={{ color: 'var(--faint)', fontWeight: 400, fontSize: 11 }}>({m.key})</span>
                     </span>
-                    <Toggle on={modules.has(m.key)} onChange={v => toggleModule(m.key, v)} disabled={saving} />
+                    <Toggle label={`Module ${m.label}`} on={modules.has(m.key)} onChange={v => toggleModule(m.key, v)} disabled={saving} />
                   </div>
                 ))}
               </div>
@@ -580,7 +576,7 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
               </InfoBox>
             )}
 
-            {saveError && <div className="error" style={{ marginTop: 12 }}>{saveError}</div>}
+            {saveError && <div className="error" role="alert" style={{ marginTop: 12 }}>{saveError}</div>}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 22 }}>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -632,7 +628,6 @@ function EntitlementEditor({ bot, onClose, onSaved }: {
             </div>
           </>
         )}
-      </Card>
-    </div>
+    </Modal>
   )
 }
