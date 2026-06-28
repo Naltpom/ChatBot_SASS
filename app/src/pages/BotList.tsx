@@ -10,7 +10,36 @@ import { Btn, BubbleIcon, Card, Chip, billingChip, brandBg, orgInitials, statusC
 import { botOwnerLabel, canAccessBotPerm } from '../utils/permissions'
 import { BotSummary, Integration } from '../types/bot'
 
-function IntegrationMenu({ botId, onCopied }: { botId: number; onCopied: () => void }) {
+// Copie presse-papiers ROBUSTE : navigator.clipboard peut être absent (contexte
+// non sécurisé : http://, certains iframes) ou rejeter (permission refusée). On
+// renvoie un booléen de SUCCÈS réel — l'UI ne doit afficher « Copié ! » qu'en cas
+// de vraie réussite — avec repli execCommand pour les contextes non sécurisés.
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    /* permission/contexte refusé → on tente le repli execCommand ci-dessous */
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+function IntegrationMenu({ botId, onCopied }: { botId: number; onCopied: (ok: boolean) => void }) {
   const [open, setOpen] = useState(false)
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const ref = useRef<HTMLDivElement>(null)
@@ -24,16 +53,23 @@ function IntegrationMenu({ botId, onCopied }: { botId: number; onCopied: () => v
   async function toggle(e: React.MouseEvent) {
     e.stopPropagation()
     if (!open && integrations.length === 0) {
-      const data = await api(`/api/bots/${botId}/embed`)
-      setIntegrations(data.integrations)
+      // Échec réseau : on n'ouvre pas un menu vide silencieux ; on relaie l'échec
+      // via le même feedback que la copie (l'utilisateur peut réessayer).
+      try {
+        const data = await api(`/api/bots/${botId}/embed`)
+        setIntegrations(data.integrations)
+      } catch {
+        onCopied(false)
+        return
+      }
     }
     setOpen(o => !o)
   }
 
-  function copy(integ: Integration) {
-    navigator.clipboard.writeText(integ.snippet).catch(() => {})
+  async function copy(integ: Integration) {
+    const ok = await copyToClipboard(integ.snippet)
     setOpen(false)
-    onCopied()
+    onCopied(ok)
   }
 
   return (
@@ -72,20 +108,39 @@ export function BotCard({ bot, onOpen, canCopy = true, ownerLabel }: {
   ownerLabel?: string
 }) {
   const [copied, setCopied] = useState(false)
+  const [copyFail, setCopyFail] = useState(false)
   const d = bot.design_json || {}
   const initials = orgInitials(bot.name)
 
-  async function copyMain(e: React.MouseEvent) {
-    e.stopPropagation()
-    const data = await api(`/api/bots/${bot.id}/embed`)
-    await navigator.clipboard.writeText(data.integrations[0].snippet).catch(() => {})
+  function flashOk() {
+    setCopyFail(false)
     setCopied(true)
     setTimeout(() => setCopied(false), 1700)
   }
+  function flashFail() {
+    setCopied(false)
+    setCopyFail(true)
+    setTimeout(() => setCopyFail(false), 2200)
+  }
 
-  function flash() {
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1700)
+  async function copyMain(e: React.MouseEvent) {
+    e.stopPropagation()
+    // « Copié ! » UNIQUEMENT en cas de succès réel : la récupération de la balise
+    // (réseau) comme l'écriture presse-papiers peuvent échouer → feedback d'échec.
+    try {
+      const data = await api(`/api/bots/${bot.id}/embed`)
+      const ok = await copyToClipboard(data.integrations[0].snippet)
+      if (ok) flashOk()
+      else flashFail()
+    } catch {
+      flashFail()
+    }
+  }
+
+  // Relais du menu « Autres » : ok=true → « Copié ! », sinon feedback d'échec.
+  function flash(ok: boolean) {
+    if (ok) flashOk()
+    else flashFail()
   }
 
   // L'avatar suit la marque du bot : image perso si design_json le prévoit,
@@ -151,7 +206,11 @@ export function BotCard({ bot, onOpen, canCopy = true, ownerLabel }: {
       {canCopy && (
         <div className="bot-card-foot">
           <Btn kind={copied ? 'soft' : 'primary'} small onClick={copyMain} style={{ flex: 1, justifyContent: 'center' }}>
-            {copied ? <><Check size={13} /> Copié !</> : <><Clipboard size={13} /> {'Copier le <script>'}</>}
+            {copied
+              ? <><Check size={13} /> Copié !</>
+              : copyFail
+                ? <><AlertTriangle size={13} /> Échec — réessayez</>
+                : <><Clipboard size={13} /> {'Copier le <script>'}</>}
           </Btn>
           <IntegrationMenu botId={bot.id} onCopied={flash} />
         </div>

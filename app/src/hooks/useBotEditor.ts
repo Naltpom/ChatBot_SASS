@@ -367,6 +367,22 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
     patch({ triggers_json: listRemove(bot?.triggers_json, i) })
   }
 
+  // Garde « modifications non enregistrées » : tant qu'un onglet est dirty, on
+  // intercepte la fermeture/rechargement de l'onglet (beforeunload) pour que le
+  // navigateur affiche sa confirmation native « quitter le site ? » (#UX-7). On
+  // s'en tient au beforeunload : l'app monte un <BrowserRouter> classique (pas un
+  // data router), donc useBlocker/usePrompt de react-router 6 n'est pas
+  // disponible pour bloquer la navigation interne SPA — voir le rapport.
+  useEffect(() => {
+    if (!dirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = '' // requis par Chrome pour déclencher l'invite native
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
+
   // saveRef : Ctrl+S sans listener périmé (consommé par BotPage).
   const saveRef = useRef<{ dirty: boolean; save: () => void }>({ dirty: false, save: () => {} })
   saveRef.current = { dirty, save: () => { void save() } }

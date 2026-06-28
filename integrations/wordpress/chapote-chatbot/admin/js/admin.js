@@ -126,6 +126,14 @@
   // Note TVA statique (le catalogue LIVE ne porte pas de tax_note racine).
   var TAX_NOTE = 'TVA non applicable, art. 293 B du CGI';
 
+  // URL du dashboard Chapote (app) : on s'appuie UNIQUEMENT sur app_base, jamais
+  // sur api_base (l'hôte API ne sert pas le dashboard et renverrait une page
+  // d'erreur). Si app_base n'est pas configuré, on renvoie null et l'appelant
+  // affiche une note explicative au lieu d'un lien cassé (#UX-4).
+  function appDashboardUrl() {
+    return (typeof CFG.appBase === 'string' && CFG.appBase) ? (CFG.appBase + '/app') : null;
+  }
+
   // Extrait un message d'erreur AFFICHABLE d'une réponse {status, data} en
   // propageant la cause réelle renvoyée par le backend (contrat d'erreur unifié
   // {detail, code, message}) au lieu d'un générique opaque. Sécurité : on ne
@@ -163,6 +171,13 @@
         }
         return { status: res.status, ok: res.ok, data: data || {} };
       });
+    }).catch(function () {
+      // Échec réseau (hors-ligne, DNS, CORS, timeout) ou JSON illisible : on ne
+      // laisse JAMAIS la promesse pendre — chaque appelant reçoit une réponse
+      // synthétique non-ok et retombe ainsi dans sa branche d'échec (réactive son
+      // bouton, retire son spinner, affiche apiMsg). Sans cela, un `.then` jamais
+      // exécuté laissait spinners/boutons bloqués (#UX-1).
+      return { status: 0, ok: false, data: { error: 'network_error' } };
     });
   }
 
@@ -346,10 +361,12 @@
     table.appendChild(tb);
     wrap.appendChild(table);
 
+    var dash = appDashboardUrl();
     wrap.appendChild(h('p', { class: 'cbo-muted cbo-deeplink' },
-      'L’arbre de conversation, la base de connaissances et la sécurité se configurent dans le dashboard Chapote : ',
-      h('a', { href: (CFG.appBase || CFG.apiBase) + '/app', target: '_blank', rel: 'noopener', text: 'ouvrir le dashboard' }),
-      '.'
+      'L’arbre de conversation, la base de connaissances et la sécurité se configurent dans le dashboard Chapote',
+      dash ? ' : ' : ' (ouvrez le tableau de bord Chapote depuis votre navigateur).',
+      dash ? h('a', { href: dash, target: '_blank', rel: 'noopener', text: 'ouvrir le dashboard' }) : null,
+      dash ? '.' : null
     ));
     return wrap;
   }
@@ -413,17 +430,23 @@
       h('option', { value: 'tree' }, 'Arbre seul'),
       h('option', { value: 'ai' }, 'IA seule')
     );
+    // Bouton capturé en variable pour le désactiver pendant la requête : un
+    // double-clic ne crée pas deux bots (#UX-2). Réactivé dans tous les chemins
+    // de sortie (succès = re-render via loadBots, échec/réseau = ré-activation).
+    var createBtn = h('button', { class: 'button button-primary', onClick: function () {
+      var nm = (name.value || '').trim();
+      if (!nm) { setNotice('Donnez un nom au bot.', 'warn'); return; }
+      createBtn.disabled = true;
+      call('POST', '/bots', { name: nm, mode: mode.value }).then(function (res) {
+        createBtn.disabled = false;
+        if (!res.ok) { setNotice(apiMsg(res, 'Création impossible.'), 'warn'); return; }
+        setNotice('Bot créé.', 'ok');
+        loadBots();
+      });
+    } }, 'Créer');
     box.appendChild(h('div', { class: 'cbo-create-row' },
       name, mode,
-      h('button', { class: 'button button-primary', onClick: function () {
-        var nm = (name.value || '').trim();
-        if (!nm) { setNotice('Donnez un nom au bot.', 'warn'); return; }
-        call('POST', '/bots', { name: nm, mode: mode.value }).then(function (res) {
-          if (!res.ok) { setNotice(apiMsg(res, 'Création impossible.'), 'warn'); return; }
-          setNotice('Bot créé.', 'ok');
-          loadBots();
-        });
-      } }, 'Créer'),
+      createBtn,
       h('button', { class: 'button', onClick: function () { clear(box); } }, 'Annuler')
     ));
   }
@@ -828,7 +851,7 @@
     var actions = h('div', { class: 'cbo-actions' }, subscribeBtn);
     if (active) {
       actions.appendChild(h('button', { class: 'button',
-        onClick: function () { updateSubscription(buildConfig()); } }, 'Changer de plan (prorata)'));
+        onClick: function (e) { updateSubscription(e.currentTarget, buildConfig()); } }, 'Changer de plan (prorata)'));
       actions.appendChild(confirmButton('Résilier', 'Confirmer la résiliation', cancelSubscription));
     }
     pane.appendChild(actions);
@@ -849,19 +872,29 @@
     });
   }
 
-  function updateSubscription(config) {
+  // btn désactivé pendant la requête (anti double-soumission #UX-2) et ré-activé
+  // dans tous les chemins (succès = re-render via loadBots, échec/réseau).
+  function updateSubscription(btn, config) {
+    if (btn) btn.disabled = true;
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/subscription/update', { config: config }).then(function (res) {
+      if (btn) btn.disabled = false;
       if (res.ok) { setNotice('Plan mis à jour.', 'ok'); loadBots(); }
       else setNotice(apiMsg(res, 'Mise à jour impossible.'), 'warn');
     });
   }
-  function cancelSubscription() {
+  function cancelSubscription(btn) {
+    if (btn) btn.disabled = true;
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/subscription/cancel').then(function (res) {
+      if (btn) btn.disabled = false;
       if (res.ok) { setNotice('Abonnement résilié.', 'info'); loadBots(); }
       else setNotice(apiMsg(res, 'Résiliation impossible.'), 'warn');
     });
   }
 
+  // Polling d'activation après retour Stripe : borné à POLL_MAX essais. À
+  // l'expiration on ne laisse PAS la notice trompeuse « Activation en cours… »
+  // mais un message clair invitant à recharger / contacter le support (#UX-3).
+  var POLL_MAX = 12;
   function pollBillingActive(botId) {
     var tries = 0;
     (function loop() {
@@ -872,7 +905,11 @@
           loadBots(); // rafraîchit le badge + le pane courant
           return;
         }
-        if (tries < 12) setTimeout(loop, 3000);
+        if (tries < POLL_MAX) { setTimeout(loop, 3000); return; }
+        // Borne atteinte : le paiement est encaissé mais l'activation (webhook
+        // Stripe) tarde. On remplace la notice « en cours » par un message net.
+        setNotice('Paiement bien reçu, mais l’activation prend plus de temps que prévu. Rechargez la page dans un instant ; si le bot reste inactif, contactez le support.', 'warn');
+        loadBots();
       });
     })();
   }
@@ -886,6 +923,13 @@
       call('GET', '/bots/' + encodeURIComponent(state.botId) + '/local'),
       call('GET', '/bots/' + encodeURIComponent(state.botId))
     ]).then(function (r) {
+      // Échec (réseau ou serveur) : état d'erreur explicite plutôt qu'un
+      // formulaire vide trompeur (homogène avec apparence/paiement).
+      if (!r[0].ok || !r[1].ok) {
+        clear(pane);
+        pane.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de charger le ciblage de ce bot — réessayez dans un instant.' }));
+        return;
+      }
       var local = (r[0].data) || {};
       var bot = (r[1].data) || {};
       buildActivation(pane, local, bot);
@@ -997,7 +1041,12 @@
       h('p', { class: 'cbo-muted', text: 'Pour que le widget réponde aux visiteurs, ajoutez ce domaine à la liste des domaines autorisés de votre bot (onglet Sécurité dans Chapote) :' }),
       h('code', { class: 'cbo-host', text: CFG.siteHost || '' }),
       h('p', { class: 'cbo-muted', text: 'La sécurité (domaines autorisés, captcha, limites) se gère côté Chapote, pas dans WordPress.' }),
-      h('p', null, h('a', { href: (CFG.appBase || CFG.apiBase) + '/app', target: '_blank', rel: 'noopener', text: 'Ouvrir le dashboard Chapote' }))
+      h('p', null, (function () {
+        var dash = appDashboardUrl();
+        return dash
+          ? h('a', { href: dash, target: '_blank', rel: 'noopener', text: 'Ouvrir le dashboard Chapote' })
+          : h('span', { class: 'cbo-muted', text: 'Ouvrez le tableau de bord Chapote depuis votre navigateur (adresse de l’app non configurée).' });
+      })())
     ));
   }
 
@@ -1101,7 +1150,7 @@
     var armed = false;
     btn.addEventListener('click', function () {
       if (!armed) { armed = true; btn.textContent = confirmLabel; setTimeout(function () { armed = false; btn.textContent = label; }, 4000); return; }
-      action();
+      action(btn); // passe le bouton à l'action pour qu'elle puisse le désactiver
     });
     return btn;
   }
