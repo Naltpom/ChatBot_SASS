@@ -9,14 +9,11 @@ Surfaces :
 - /widget.js, /widget-frame     : le script a embarquer + la page iframe
 - /uploads/*                    : images uploadees (avatars, lanceurs)
 """
-import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from alembic import command as alembic_command
-from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -35,29 +32,22 @@ logger = logging.getLogger(__name__)
 
 WIDGET_JS = Path("/app/widget/widget.js")
 
-# /app dans le conteneur : alembic.ini et alembic/ vivent a cote de src/
-API_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _upgrade_database() -> None:
-    """`alembic upgrade head` — bloquant, lance dans un thread dedie.
-
-    L'env.py async fait son propre asyncio.run() : il doit tourner dans un
-    thread SANS event loop, d'ou l'asyncio.to_thread cote lifespan. Les
-    upgrades concurrents (multi-worker en prod) sont serialises par un
-    advisory lock Postgres pris dans env.py.
-    """
-    alembic_command.upgrade(AlembicConfig(str(API_ROOT / "alembic.ini")), "head")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Migrations Alembic au demarrage (remplace le create_all v1).
-    # Idempotent : base deja a head -> aucun DDL execute.
-    await asyncio.to_thread(_upgrade_database)
+    # IMPORTANT : l'app ne joue PLUS `alembic upgrade head` au démarrage.
+    # En multi-réplica/multi-worker, migrer au boot bloque le démarrage de TOUS
+    # les réplicas et provoque des courses. Les migrations sont désormais une
+    # ÉTAPE DE DÉPLOIEMENT DÉDIÉE, jouée UNE fois AVANT de (re)démarrer l'app :
+    #   - prod  : deploy.sh -> `docker compose run --rm api alembic upgrade head`
+    #   - dev   : service one-shot `migrate` (docker-compose.yml), dont l'api
+    #             dépend (service_completed_successfully)
+    #   - make  : `make migrate`
+    # L'app ASSUME donc une base déjà migrée. `ensure_dev_admin` n'est PAS une
+    # migration (simple upsert du compte admin de dev) : on le garde au boot.
     async with AsyncSessionLocal() as session:
         await ensure_dev_admin(session)
-    logger.info("Base de données prête (migrations Alembic à jour)")
+    logger.info("API prête (DB supposée déjà migrée — voir deploy.sh / make migrate)")
     yield
 
 
