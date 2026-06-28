@@ -22,7 +22,7 @@
 // masque l'option IA dans TreeFlow (allowAI=false).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, postForm, streamSSE } from '../api'
+import { api, postForm } from '../api'
 import { useAuth } from '../AuthContext'
 import { WIDGET_BRAND_COLORS, GRADIENT_SECOND_COLORS } from '../botConstants'
 import { useIsMobile } from '../hooks/useMediaQuery'
@@ -34,7 +34,10 @@ import PriceCart, { formatCents } from '../components/billing/PriceCart'
 import { errMsg } from '../utils/errors'
 import { InfoBox, useDialogA11y } from '../ui'
 import { computeCart, deriveConfigFromChat } from '../utils/billing'
-import type { DesignJson, Tree, TreeNode } from '../types/bot'
+import { buildTree, rawBranches } from '../lib/treeBuilder'
+import { useWizardChat, optLabel, dotIndex, STEP_DOTS, STEP_CAPTION, type Step } from '../hooks/useWizardChat'
+import { useTreeJob } from '../hooks/useTreeJob'
+import type { DesignJson, Tree } from '../types/bot'
 import type { BillingCatalog, BotConfig } from '../types/billing'
 
 // ---------------------------------------------------------------------------
@@ -47,198 +50,8 @@ const MUT = '#6B7B8D'
 const FAINT = '#9AA7B4'
 const BORDER = '#E8ECF0'
 
-// ---------------------------------------------------------------------------
-// Questions du chat — Q&R enrichie (portée de BotCreate.dc.html, Q()) :
-// personnalisation (nom d'entreprise + ton de voix) et UN branchement
-// conditionnel (la question de suivi n'apparaît que si 'orders' est coché).
-//   - 'single' : un choix parmi des chips.
-//   - 'multi'  : plusieurs choix (objectifs), avec un bouton « Continuer ».
-//   - 'text'   : saisie libre (input stylé + envoi), rendue en bulle utilisateur.
-// `when(answers, goals)` (optionnel) : prédicat de branchement — si présent et
-// faux, la question est SAUTÉE (ni posée, ni rendue dans l'historique).
-type QType = 'single' | 'multi' | 'text'
-interface Question {
-  key: string
-  type: QType
-  q: string
-  opts: [string, string][]            // vide pour 'text'
-  placeholder?: string                // 'text' uniquement
-  when?: (answers: Record<string, string>, goals: string[]) => boolean
-}
-const QUESTIONS: Question[] = [
-  {
-    key: 'company', type: 'text', opts: [],
-    q: "Bonjour 👋 Je vais construire votre assistant sur-mesure. Pour commencer, comment s'appelle votre entreprise ?",
-    placeholder: 'Ex. Maison Léna',
-  },
-  {
-    key: 'sector', type: 'single', opts:
-      [['ecom', 'E-commerce'], ['local', 'Commerce local'], ['saas', 'SaaS / Logiciel'], ['service', 'Service / Conseil'], ['other', 'Autre']],
-    q: "Parfait. Quel est votre domaine d'activité ?",
-  },
-  {
-    key: 'goals', type: 'multi', opts:
-      [['faq', 'Répondre aux questions fréquentes'], ['orders', 'Suivre les commandes'], ['leads', 'Capturer des contacts'], ['rdv', 'Prendre des rendez-vous'], ['horaires', 'Donner horaires & infos pratiques']],
-    q: 'Que doit-il faire en priorité ? Choisissez tout ce qui compte.',
-  },
-  {
-    // Branchement conditionnel : suivi de commande proposé UNIQUEMENT si
-    // l'objectif « Suivre les commandes » a été coché.
-    key: 'order_channel', type: 'single', opts:
-      [['site', 'Sur mon site (numéro de commande)'], ['transporteur', 'Via le transporteur'], ['email', "Par e-mail à l'équipe"]],
-    q: 'Comment vos clients suivent-ils leur commande aujourd\'hui ?',
-    when: (_a, goals) => goals.includes('orders'),
-  },
-  {
-    key: 'tone', type: 'single', opts:
-      [['tu', 'Tutoiement chaleureux'], ['vous', 'Vouvoiement professionnel'], ['neutre', 'Neutre']],
-    q: 'Quel ton de voix doit-il adopter ?',
-  },
-  {
-    key: 'fallback', type: 'single', opts:
-      [['ia', "Laisser l'IA répondre"], ['human', 'Passer à un conseiller'], ['both', 'Les deux : IA puis humain']],
-    q: "Quand l'arbre guidé ne suffit pas, que préférez-vous ?",
-  },
-]
-function optLabel(key: string, v: string): string {
-  const q = QUESTIONS.find(x => x.key === key)
-  const o = q && q.opts.find(p => p[0] === v)
-  return o ? o[1] : v
-}
-
-// Liste des questions RÉELLEMENT actives selon les réponses (branchement when()).
-function activeQuestions(answers: Record<string, string>, goals: string[]): Question[] {
-  return QUESTIONS.filter(q => !q.when || q.when(answers, goals))
-}
-
-// Message d'accueil personnalisé dérivé du nom d'entreprise + du ton de voix.
-function deriveWelcome(company: string, tone: string): string {
-  const c = (company || '').trim()
-  const chez = c ? ` chez ${c}` : ''
-  if (tone === 'vous') return `Bonjour 👋 Bienvenue${chez}, comment puis-je vous aider ?`
-  if (tone === 'tu') return `Salut 👋 Bienvenue${chez} ! Comment je peux t'aider ?`
-  return `Bonjour 👋 Bienvenue${chez}. Comment vous aider ?`
-}
-
-// ---------------------------------------------------------------------------
-// Brouillon d'arbre éditable (modèle interne du wizard, façon BotCreate.dc.html)
-interface SubBranch { answer: string; type: string; title: string }
-interface Branch { answer: string; type: string; title: string; subs: SubBranch[] }
-
-// Construit l'ébauche d'arbre à partir des réponses du chat.
-function rawBranches(answers: Record<string, string>, goals: string[]): Branch[] {
-  const ai = answers.fallback === 'ia' || answers.fallback === 'both'
-  const human = answers.fallback === 'human' || answers.fallback === 'both'
-  const out: Branch[] = []
-  if (goals.includes('orders')) out.push({
-    answer: 'Suivre ma commande', type: 'q', title: 'Avez-vous votre n° ?',
-    subs: [
-      { answer: 'Oui', type: 'act', title: 'Vérifier la commande' },
-      { answer: 'Non', type: ai ? 'ia' : 'hum', title: ai ? "L'IA recherche" : 'Un conseiller' },
-    ],
-  })
-  if (goals.includes('faq')) out.push({ answer: 'Une question', type: ai ? 'ia' : 'q', title: ai ? 'Réponse IA' : 'FAQ guidée', subs: [] })
-  if (goals.includes('rdv')) out.push({ answer: 'Prendre RDV', type: 'act', title: 'Ouvrir le calendrier', subs: [] })
-  if (goals.includes('leads')) out.push({ answer: 'Être recontacté', type: 'act', title: 'Capturer le contact', subs: [] })
-  if (goals.includes('horaires')) out.push({ answer: 'Horaires & infos', type: 'q', title: 'Nos horaires et coordonnées', subs: [] })
-  out.push({
-    answer: 'Autre / parler', type: human ? 'hum' : (ai ? 'ia' : 'q'),
-    title: human ? 'Relais conseiller' : (ai ? 'IA plafonnée' : 'Reformuler'), subs: [],
-  })
-  if (out.length < 2) out.unshift({ answer: 'Bonjour', type: 'q', title: 'Comment aider ?', subs: [] })
-  return out
-}
-
-// ---------------------------------------------------------------------------
-// Mapping brouillon -> tree_json réel ({ start, nodes: { id: { message,
-// options:[{label,next}], type?, url?, fields? } } }, "__ai__" = bascule IA).
-// allowAI=false (mode tree pur) -> les destinations IA deviennent un message.
-function slug(s: string, fallback: string): string {
-  const v = s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24)
-  return v || fallback
-}
-
-function buildTree(branches: Branch[], welcome: string, allowAI: boolean): Tree {
-  const nodes: Record<string, TreeNode> = {}
-  const used = new Set<string>(['root'])
-  const uniq = (base: string): string => {
-    let id = base, n = 2
-    while (used.has(id)) { id = `${base}_${n++}` }
-    used.add(id)
-    return id
-  }
-
-  // Crée le nœud cible d'une branche/sous-branche selon son type.
-  function makeNode(b: { answer: string; type: string; title: string }, parentBackTo: string): string {
-    const id = uniq(slug(b.answer, 'node'))
-    const back = { label: '↩ Retour au menu', next: parentBackTo }
-    if (b.type === 'ia') {
-      if (allowAI) {
-        // Branche IA : option qui bascule directement sur l'IA depuis l'accueil.
-        // (géré au niveau de l'option racine, pas en nœud — voir plus bas)
-        nodes[id] = { message: b.title || 'Posez votre question, je vous réponds.', options: [back] }
-      } else {
-        nodes[id] = { message: b.title || 'Reformulez votre demande et nous vous aidons.', options: [back] }
-      }
-    } else if (b.type === 'hum') {
-      nodes[id] = { message: b.title || 'Je vous mets en relation avec un conseiller.', type: 'handoff', options: [back] }
-    } else if (b.type === 'act') {
-      const t = (b.title || '').toLowerCase()
-      if (t.includes('calend') || t.includes('rendez') || t.includes('rdv')) {
-        // Prise de RDV -> nœud appointment (URL Calendly à compléter par le client)
-        nodes[id] = {
-          message: b.title || 'Choisissez un créneau dans notre agenda.',
-          type: 'appointment', url: 'https://calendly.com/votre-compte/rendez-vous',
-          options: [back],
-        }
-      } else {
-        // Autres actions (capture contact, vérif commande…) -> formulaire lead
-        nodes[id] = {
-          message: b.title || 'Laissez-nous vos coordonnées, nous revenons vers vous.',
-          type: 'lead', fields: ['email', 'name', 'message'],
-          options: [back],
-        }
-      }
-    } else {
-      // Question : nœud message simple.
-      nodes[id] = { message: b.title || b.answer, options: [back] }
-    }
-    return id
-  }
-
-  const rootOptions: { label: string; next: string }[] = []
-  for (const b of branches) {
-    const label = (b.answer || 'Choix').slice(0, 60)
-    if (b.type === 'ia' && allowAI) {
-      // Bascule IA directe depuis l'accueil.
-      rootOptions.push({ label, next: '__ai__' })
-      continue
-    }
-    const targetId = makeNode(b, 'root')
-    rootOptions.push({ label, next: targetId })
-    // Sous-branches -> options du nœud cible.
-    if (b.subs.length && nodes[targetId] && !nodes[targetId].type) {
-      const subOpts: { label: string; next: string }[] = []
-      for (const s of b.subs) {
-        if (s.type === 'ia' && allowAI) {
-          subOpts.push({ label: (s.answer || 'Choix').slice(0, 60), next: '__ai__' })
-          continue
-        }
-        const sid = makeNode(s, targetId)
-        subOpts.push({ label: (s.answer || 'Choix').slice(0, 60), next: sid })
-      }
-      nodes[targetId].options = [...subOpts, { label: '↩ Retour au menu', next: 'root' }]
-    }
-  }
-
-  if (!rootOptions.length) rootOptions.push({ label: 'Nos services', next: '__ai__' })
-  nodes.root = {
-    message: welcome || 'Bonjour ! Comment puis-je vous aider ?',
-    options: allowAI ? rootOptions : rootOptions.filter(o => o.next !== '__ai__'),
-  }
-  return { start: 'root', nodes }
-}
+// Logique du chat (questions, branchement, transitions) -> hooks/useWizardChat.
+// Construction d'arbre (rawBranches/buildTree, PURE) -> lib/treeBuilder.
 
 // ---------------------------------------------------------------------------
 // Apparence : état interne -> design_json valide (clés du backend).
@@ -281,25 +94,8 @@ function buildDesign(look: Look): DesignJson {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Machine d'étapes. 'processing' est un écran TRANSITOIRE (génération IA) : il
-// n'a PAS sa propre pastille (les dots restent calés sur SOURCES) pour ne pas
-// alourdir l'en-tête — voir headerDot()/STEP_DOTS.
-type Step = 'chat' | 'preset' | 'plan' | 'appearance' | 'sources' | 'processing' | 'tree' | 'done'
-// Pastilles d'en-tête : 6 étapes « visibles » (processing/done exclus). L'étape
-// 'plan' (configurateur + panier) s'intercale entre preset et apparence (spec §5.3).
-const STEP_DOTS: Step[] = ['chat', 'preset', 'plan', 'appearance', 'sources', 'tree']
-const STEP_CAPTION: Record<Step, string> = {
-  chat: 'Discussion', preset: 'Proposition', plan: 'Abonnement', appearance: 'Apparence',
-  sources: 'Vos contenus', processing: 'Génération', tree: 'Arbre', done: 'Terminé',
-}
-// Index « visible » d'une étape pour l'avancement des pastilles : processing se
-// situe entre sources et tree, done est tout au bout.
-function dotIndex(step: Step): number {
-  if (step === 'processing') return STEP_DOTS.indexOf('sources')
-  if (step === 'done') return STEP_DOTS.length
-  return STEP_DOTS.indexOf(step)
-}
+// Machine d'étapes (Step, STEP_DOTS, STEP_CAPTION, dotIndex) -> hooks/useWizardChat.
+// 'processing' est un écran TRANSITOIRE (génération IA) sans pastille propre.
 
 const RANDOM_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED', '#0EA5E9', '#D946A6']
 
@@ -319,8 +115,6 @@ interface SourceRow { url: string; type: SourceType; status: 'idle' | 'checking'
 const newRow = (): SourceRow => ({ url: '', type: 'site', status: 'idle', reason: null })
 const MAX_SOURCES = 5
 const MAX_PDFS = 2
-// Note douce affichée à l'étape arbre quand on retombe sur l'ébauche par défaut.
-const GEN_FALLBACK = "Nous n'avons pas pu générer depuis vos pages, voici un modèle de départ."
 
 // Brouillon localStorage : reprend la config du wizard après un rafraîchissement,
 // une coupure de courant ou de réseau. Les PDF (objets File) ne sont pas
@@ -376,19 +170,26 @@ export default function BotWizard() {
   // États initialisés depuis le brouillon si présent ('processing' -> 'sources'
   // car la tâche de génération ne survit pas à un rechargement).
   const [step, setStep] = useState<Step>(draft0 ? (draft0.step === 'processing' ? 'sources' : draft0.step) : 'chat')
-  const [qi, setQi] = useState(draft0?.qi ?? 0)
-  const [answers, setAnswers] = useState<Record<string, string>>(draft0?.answers ?? {})
-  const [goals, setGoals] = useState<string[]>(draft0?.goals ?? [])
-  const [textDraft, setTextDraft] = useState('')   // saisie en cours d'une question 'text'
   const [look, setLook] = useState<Look>(draft0?.look ?? { ...DEFAULT_LOOK })
   const [collapsed, setCollapsed] = useState(false)
   // Sources (étape SOURCES) : lignes d'URL + PDF importés.
   const [rows, setRows] = useState<SourceRow[]>(draft0?.rows ?? [newRow()])
   const [pdfs, setPdfs] = useState<File[]>([])
   const [genNote, setGenNote] = useState('')   // note douce si repli sur ébauche
-  // Progression réelle de la génération (flux SSE) affichée par ProcessingScreen.
-  const [genStage, setGenStage] = useState<{ label: string; pct: number }>({ label: 'Préparation…', pct: 3 })
-  const genAbort = useRef<AbortController | null>(null)
+  // Machine d'états du chat (questions, branchement, transitions) extraite dans
+  // useWizardChat. À la fin du chat, on personnalise le message d'accueil
+  // (entreprise + ton) puis on passe à l'étape 'preset'.
+  const {
+    qi, setQi, answers, goals, textDraft, setTextDraft,
+    qList, cur, poolGoals,
+    answerSingle, answerText, toggleGoal, nextMulti, goBack, reset: resetChat,
+  } = useWizardChat(
+    { qi: draft0?.qi, answers: draft0?.answers, goals: draft0?.goals },
+    welcome => { patchLook({ welcome }); setStep('preset') },
+  )
+  // Job de génération d'arbre + flux SSE (progression, AbortController, nettoyage
+  // au démontage) extraits dans useTreeJob.
+  const { genStage, generate } = useTreeJob()
   // Arbre RÉEL (tree_json) édité via le composant partagé TreeFlow. Construit à
   // l'entrée de l'étape ARBRE depuis les réponses du chat (buildTree). null tant
   // qu'on n'a pas atteint cette étape.
@@ -429,55 +230,6 @@ export default function BotWizard() {
     () => (catalog ? computeCart(catalog, botConfig) : { lines: [], total_cents: 0 }),
     [catalog, botConfig])
   const totalCents = cart.total_cents
-
-  // -------------------------------------------------------------------------
-  // Logique du chat. Le branchement conditionnel (when()) modifie la liste des
-  // questions actives EN FONCTION des réponses : on recalcule donc la liste à
-  // partir des réponses MISES À JOUR avant de décider de l'étape suivante.
-  function advance(a: Record<string, string>, g: string[]) {
-    const list = activeQuestions(a, g)
-    const next = qi + 1
-    if (next >= list.length) {
-      // Fin du chat : on personnalise le message d'accueil (entreprise + ton).
-      patchLook({ welcome: deriveWelcome(a.company, a.tone) })
-      setStep('preset')
-    } else {
-      setQi(next)
-    }
-  }
-  function answerSingle(key: string, v: string) {
-    const a = { ...answers, [key]: v }
-    setAnswers(a)
-    advance(a, goals)
-  }
-  // Question 'text' validée -> enregistre la réponse + (si entreprise) amorce le
-  // nom du bot et le message d'accueil, puis avance.
-  function answerText(key: string, raw: string) {
-    const v = raw.trim()
-    if (!v) return
-    const a = { ...answers, [key]: v }
-    setAnswers(a)
-    setTextDraft('')
-    advance(a, goals)
-  }
-  function toggleGoal(v: string) {
-    setGoals(g => g.includes(v) ? g.filter(x => x !== v) : [...g, v])
-  }
-  function nextMulti() {
-    advance(answers, goals)
-  }
-  // Revient à la question précédente (si on s'est trompé). On efface la réponse
-  // de cette question pour la re-poser ; pour une 'multi' (objectifs) on garde
-  // la sélection (l'UI multi permet déjà de la corriger).
-  function goBack() {
-    if (qi === 0) return
-    const prev = qList[qi - 1]
-    if (prev.type !== 'multi') {
-      setAnswers(a => { const c = { ...a }; delete c[prev.key]; return c })
-      setTextDraft(prev.type === 'text' ? (answers[prev.key] || '') : '')
-    }
-    setQi(qi - 1)
-  }
 
   // -------------------------------------------------------------------------
   // Capacités activées (récap PRESET — données frontend pures, charte du design).
@@ -565,47 +317,20 @@ export default function BotWizard() {
     setStep('tree')
   }
 
-  // Génération RÉELLE avec progression SSE. Déclenchée par le clic « Générer »
-  // (un gestionnaire d'événement, donc PAS rejoué par le double-montage
-  // StrictMode — contrairement à un effet). Étapes : POST /jobs (démarre la
-  // tâche de fond) -> streamSSE (progression temps réel) -> dès le tree prêt on
-  // passe AUTOMATIQUEMENT à l'étape arbre. Tout échec/skip -> ébauche par défaut.
-  async function startGeneration() {
-    setGenNote('')
-    setGenStage({ label: 'Préparation…', pct: 4 })
-    setStep('processing')
-    if (!canGenerate) {  // garde-fou : aucune source exploitable
-      setGenNote(GEN_FALLBACK); setTreeJson(presetTree()); setStep('tree'); return
-    }
-    const form = new FormData()
-    form.append('sources', JSON.stringify(okRows.map(r => ({ url: r.url.trim(), type: r.type }))))
-    form.append('context', buildContext())
-    pdfs.forEach(f => form.append('files', f))
-
-    const ctrl = new AbortController()
-    genAbort.current = ctrl
-    const safety = setTimeout(() => ctrl.abort(), 150_000)  // jamais bloqué > 2,5 min
-    let resolved = false
-    try {
-      const { job_id } = await postForm<{ job_id: string }>('/api/tree/jobs', form)
-      await streamSSE(`/api/tree/jobs/${job_id}/stream`, ev => {
-        if (ev.type === 'progress') setGenStage({ label: ev.stage || '…', pct: ev.pct ?? 0 })
-        else if (ev.type === 'done') { resolved = true; setGenStage({ label: 'Terminé', pct: 100 }); setTreeJson(ev.tree_json) }
-        else if (ev.type === 'error') { resolved = true; setGenNote(GEN_FALLBACK); setTreeJson(presetTree()) }
-      }, ctrl.signal)
-      // Flux fermé sans verdict (réseau coupé, abort) -> ébauche.
-      if (!resolved) { setGenNote(GEN_FALLBACK); setTreeJson(presetTree()) }
-    } catch {
-      setGenNote(GEN_FALLBACK); setTreeJson(presetTree())
-    } finally {
-      clearTimeout(safety)
-      genAbort.current = null
-      setStep('tree')  // on enchaîne TOUJOURS sur l'arbre
-    }
+  // Génération RÉELLE avec progression SSE (clic « Générer »). La mécanique du job
+  // (POST /jobs -> streamSSE -> arbre, AbortController + nettoyage) vit dans
+  // useTreeJob ; ici on n'assemble que les entrées (sources/contexte/fichiers) et
+  // on fournit les setters de résultat (note/arbre/étape).
+  function startGeneration() {
+    generate({
+      canGenerate,
+      sources: okRows.map(r => ({ url: r.url.trim(), type: r.type })),
+      context: buildContext(),
+      files: pdfs,
+      presetTree,
+      setGenNote, setTreeJson, setStep,
+    })
   }
-
-  // Coupe un flux SSE en cours si on quitte le wizard pendant la génération.
-  useEffect(() => () => { genAbort.current?.abort() }, [])
 
   // Catalogue de facturation : chargé une fois si le billing est actif. SOURCE
   // UNIQUE backend : en cas d'échec on marque catalogErr (l'étape 'plan' affiche
@@ -677,7 +402,7 @@ export default function BotWizard() {
   function discardDraft() {
     try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
     setDraftRestored(false)
-    setStep('chat'); setQi(0); setAnswers({}); setGoals([]); setTextDraft('')
+    setStep('chat'); resetChat()
     setLook({ ...DEFAULT_LOOK }); setRows([newRow()]); setPdfs([]); setTreeJson(null); setGenNote('')
     setBotConfig({ ...DEFAULT_BOT_CONFIG })
     planTouched.current = false   // ré-active la dérivation depuis le chat
@@ -773,12 +498,9 @@ export default function BotWizard() {
     }
   }
 
-  // Liste des questions actives (branchement when()) recalculée à chaque rendu :
-  // l'historique et la question courante s'indexent dedans (cf. render CHAT).
-  const qList = activeQuestions(answers, goals)
+  // qList / cur / poolGoals (questions actives, branchement when()) viennent de
+  // useWizardChat ; l'historique et la question courante s'indexent dedans.
   const si = dotIndex(step)
-  const cur = qi < qList.length ? qList[qi] : null
-  const poolGoals = cur && cur.type === 'multi' ? cur.opts.filter(o => !goals.includes(o[0])) : []
 
   return (
     <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', minHeight: '100%', color: INK }}>
