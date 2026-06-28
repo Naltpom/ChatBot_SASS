@@ -36,7 +36,6 @@ import logging
 import smtplib
 from dataclasses import dataclass
 from email.message import EmailMessage
-from functools import lru_cache
 from html import escape as _html_escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -444,15 +443,27 @@ LOGO_WHITE_URL = f"cid:{LOGO_WHITE_CID}"
 _LOGO_FILES = {LOGO_CID: "icon.png", LOGO_WHITE_CID: "icon-white.png"}
 
 
-@lru_cache(maxsize=2)
+_LOGO_CACHE: dict[str, bytes] = {}
+
+
 def _logo_bytes(filename: str) -> Optional[bytes]:
-    """Octets d'un PNG logo (mémoïsé). None si introuvable (l'email part alors
-    sans logo plutôt que d'échouer)."""
+    """Octets d'un PNG logo. None si absent/vide (l'email part alors sans logo
+    plutôt que d'échouer). On ne mémoïse QUE les lectures réussies non vides :
+    un échec transitoire (race de déploiement, fichier momentanément absent) se
+    rejoue au prochain envoi au lieu d'être figé pour toute la vie du process."""
+    cached = _LOGO_CACHE.get(filename)
+    if cached is not None:
+        return cached
     try:
-        return (_ASSETS_DIR / filename).read_bytes()
+        data = (_ASSETS_DIR / filename).read_bytes()
     except OSError as exc:
-        logger.warning("Logo email introuvable (%s) : %s", filename, exc)
+        logger.warning("Logo email illisible (%s) : %s", filename, exc)
         return None
+    if not data:
+        logger.warning("Logo email vide (%s)", filename)
+        return None
+    _LOGO_CACHE[filename] = data
+    return data
 
 
 def _inline_logos_for(html: str) -> dict[str, bytes]:

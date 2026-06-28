@@ -10,11 +10,21 @@ la résolution du destinataire et la garde anti-spam.
 """
 import types
 import uuid
+from html import escape
 
 import pytest
 
 from src.models.user import Organization, User
-from src.services.email_service import bot_owner_email, render_email_html
+from src.services.email_service import (
+    DEFAULT_THEME,
+    LOGO_CID,
+    LOGO_WHITE_CID,
+    THEMES,
+    _inline_logos_for,
+    _theme_for,
+    bot_owner_email,
+    render_email_html,
+)
 from src.services.rate_limit import overage_cap_email_limiter
 
 
@@ -66,18 +76,79 @@ async def test_overage_cap_email_limiter_dedups():
 # ------------------------------ render_email_html ---------------------------
 
 def test_render_email_html_escapes_and_builds_cta():
-    """Le rendu HTML brandé échappe le texte injecté (nom avec « < » et « & »)
-    et transforme un paragraphe = URL nue en bouton CTA (couleur mint + href)."""
+    """Sans thème (compat), le rendu brandé échappe le texte injecté (nom avec
+    « < » et « & ») et transforme un paragraphe = URL nue en bouton CTA neutre
+    (accent par défaut + href + libellé « Ouvrir le lien »)."""
     text = ("Bonjour <Acme & Co>,\n\nVoici votre lien :"
             "\n\nhttps://chapote.fr/app")
     html = render_email_html(text)
     # Échappement : aucun « < » brut du contenu, l'entité HTML est présente.
     assert "<Acme" not in html
     assert "&lt;Acme &amp; Co&gt;" in html
-    # URL nue -> bouton CTA (couleur MINT + URL en href + libellé).
-    assert "#2F9E79" in html
+    # URL nue -> bouton CTA (accent DEFAULT_THEME + URL en href + libellé).
+    assert DEFAULT_THEME.accent in html
     assert 'href="https://chapote.fr/app"' in html
     assert "Ouvrir le lien" in html
     # Document HTML complet + footer de marque.
     assert html.startswith("<!doctype html>")
     assert "support@chapote.fr" in html
+
+
+# --------------------- rendu « par catégorie » (themes/layouts) --------------
+
+@pytest.mark.parametrize("kind", list(THEMES))
+def test_render_each_theme_uses_accent_cta_and_one_inline_logo(kind):
+    """Chaque kind rend son accent + son libellé de bouton, et référence
+    EXACTEMENT un logo inline (blanc pour le bandeau, navy sinon) — l'attache
+    inline correspondante est non vide."""
+    theme = THEMES[kind]
+    # URL nue seule sur sa ligne -> devient le bouton CTA themé.
+    html = render_email_html("Bonjour,\n\nhttps://chapote.fr/app", theme=theme)
+    assert theme.accent in html
+    # Le libellé du bouton est HTML-échappé (ex. « l'équipe » -> « l&#x27;équipe »).
+    assert escape(theme.cta) in html
+
+    want = LOGO_WHITE_CID if theme.layout == "banner" else LOGO_CID
+    other = LOGO_CID if theme.layout == "banner" else LOGO_WHITE_CID
+    assert f'src="cid:{want}"' in html
+    assert f'src="cid:{other}"' not in html
+    # On n'attache que le logo référencé, et ses octets sont bien chargés.
+    logos = _inline_logos_for(html)
+    assert set(logos) == {want}
+    assert logos[want]  # PNG non vide
+
+
+def test_theme_for_known_default_and_unknown(caplog):
+    """`_theme_for` : kind connu -> son thème ; « default »/omis -> DEFAULT_THEME
+    sans warning ; kind inconnu -> DEFAULT_THEME + warning (dérive observable)."""
+    assert _theme_for("welcome") is THEMES["welcome"]
+    with caplog.at_level("WARNING"):
+        assert _theme_for("default") is DEFAULT_THEME
+    assert not caplog.records  # « default » ne loggue pas
+    with caplog.at_level("WARNING"):
+        assert _theme_for("welcom") is DEFAULT_THEME  # typo -> neutre
+    assert any("inconnu" in r.message for r in caplog.records)
+
+
+def test_logo_bytes_recovers_after_transient_miss(monkeypatch):
+    """`_logo_bytes` ne fige PAS un échec : un miss transitoire (dossier absent)
+    renvoie None mais n'est pas mémoïsé — la lecture suivante réussit."""
+    from pathlib import Path
+
+    import src.services.email_service as es
+
+    es._LOGO_CACHE.pop("icon.png", None)
+    monkeypatch.setattr(es, "_ASSETS_DIR", Path("/nonexistent-dir"))
+    assert es._logo_bytes("icon.png") is None  # miss transitoire -> non caché
+    monkeypatch.undo()                          # le dossier réapparaît
+    data = es._logo_bytes("icon.png")
+    assert data and data[:8] == b"\x89PNG\r\n\x1a\n"  # vrai PNG, lu cette fois
+
+
+def test_themes_cover_every_kind_used_at_call_sites():
+    """Parité anti-dérive : tout `kind` envoyé par les call-sites (auth, billing,
+    widget, invitations) doit avoir une entrée THEMES. Si on renomme/supprime une
+    clé sans mettre à jour un appel, ce test casse au lieu d'un rendu neutre muet."""
+    used = {"verify", "password_changed", "welcome", "reset", "suspended",
+            "overage", "added", "invite"}
+    assert used <= set(THEMES), f"kinds sans thème : {used - set(THEMES)}"
