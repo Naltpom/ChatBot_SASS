@@ -2,6 +2,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.constants import CODE_TO_MODULE
 from src.core.database import get_db
+from src.core.time import utcnow
 from src.models.billing import BillingProduct
-from src.services import demo_service
+from src.models.prospect import Prospect
+from src.services import demo_service, prospecting_service
 from src.services.captcha import verify_turnstile_token
 from src.services.rate_limit import (
     demo_chat_global_limiter, demo_chat_ip_limiter, demo_global_limiter,
@@ -225,3 +228,28 @@ async def public_demo_chat(
     except demo_service.TreeGenerationError as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from e
     return {"reply": reply}
+
+
+# --- Désinscription prospection à froid (opt-out RGPD, lien du cold email) ----
+# Réponse NEUTRE et idempotente quel que soit le résultat : un token invalide ou
+# un prospect inexistant renvoie le MÊME message qu'un opt-out réussi (ne révèle
+# jamais l'existence d'un prospect). GET pour un clic depuis l'email.
+_OPTOUT_MESSAGE = (
+    "Votre demande a bien été prise en compte. "
+    "Vous ne serez plus contacté par Chapote. "
+    "Pour toute question : rgpd@chapote.fr"
+)
+
+
+@router.get("/prospect/optout", response_class=PlainTextResponse)
+async def prospect_optout(token: str = "", db: AsyncSession = Depends(get_db)):
+    """Désinscription d'un prospect via le lien signé du cold email (art. 21 RGPD).
+    Idempotent, réponse neutre (ne révèle pas l'existence du prospect)."""
+    prospect_id = prospecting_service.parse_optout_token(token)
+    if prospect_id is not None:
+        p = await db.get(Prospect, prospect_id)
+        if p is not None and not p.opt_out:
+            p.opt_out = True
+            p.opt_out_at = utcnow()
+            await db.commit()
+    return PlainTextResponse(_OPTOUT_MESSAGE)

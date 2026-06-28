@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     BRAVE_SEARCH_URL: str = "https://api.search.brave.com/res/v1/web/search"
     # Plafond du nombre de prospects decouverts/scores par appel /discover.
     PROSPECT_DISCOVER_MAX: int = 10
+    # Retention RGPD des PII de prospects (cold email B2B) : au-dela, la purge
+    # anonymise les donnees personnelles (email/nom/site/enrichissement scrape).
+    # Les prospects opt_out=True sont purgeables des la prochaine purge.
+    RGPD_PROSPECT_RETENTION_DAYS: int = 365
 
     # Turnstile par defaut (nos cles)
     TURNSTILE_SITE_KEY: str | None = None
