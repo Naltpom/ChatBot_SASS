@@ -726,7 +726,7 @@ async def _handle_ai_message(
                     if owner:
                         subj, mail_body = build_overage_cap_email(bot, settings.APP_URL)
                         send_account_email(
-                            [owner], subj, mail_body,
+                            [owner], subj, mail_body, kind="overage",
                             error_label="Envoi e-mail plafond IA échoué")
                 return _maybe_refresh(
                     {"source": "ai", "message": OVERAGE_CAP_MESSAGE,

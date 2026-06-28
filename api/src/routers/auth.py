@@ -67,7 +67,7 @@ def _send_verify_email(user: User) -> None:
     token = create_verify_email_token(user.id, user.email)
     link = f"{settings.APP_URL}/verify-email?token={token}"
     subject, body = build_verify_email(user, link)
-    send_account_email([user.email], subject, body,
+    send_account_email([user.email], subject, body, kind="verify",
                        error_label="Envoi e-mail auth échoué")
 
 
@@ -75,7 +75,7 @@ def _send_password_changed(user: User) -> None:
     """Notif de sécurité (fire-and-forget) après un changement de mot de passe.
     Partagée par /password (changement) et /password/reset (réinitialisation)."""
     subject, mail_body = build_password_changed_email(user, settings.APP_URL)
-    send_account_email([user.email], subject, mail_body,
+    send_account_email([user.email], subject, mail_body, kind="password_changed",
                        error_label="Envoi e-mail sécurité échoué")
 
 
@@ -403,7 +403,8 @@ async def confirm_email_verification(body: TokenBody, db: AsyncSession = Depends
         # l'inscription ni sur un confirm idempotent déjà vérifié).
         subject, body = build_welcome_email(user, settings.APP_URL)
         # Email relationnel -> expéditeur hello@ (meilleur placement Gmail).
-        send_account_email([user.email], subject, body, from_addr=HELLO_FROM,
+        send_account_email([user.email], subject, body, kind="welcome",
+                           from_addr=HELLO_FROM,
                            reply_to=HELLO_EMAIL,
                            error_label="Envoi e-mail bienvenue échoué")
     return {"verified": True}
@@ -429,7 +430,7 @@ async def forgot_password(body: ForgotPasswordBody, request: Request,
         token = create_password_reset_token(user.id, user.hashed_password)
         link = f"{settings.APP_URL}/reset-password?token={token}"
         subject, mail_body = build_reset_email(user, link)
-        send_account_email([user.email], subject, mail_body,
+        send_account_email([user.email], subject, mail_body, kind="reset",
                            error_label="Envoi e-mail auth échoué")
     return {"message": "Si un compte existe pour cette adresse, un e-mail vient d'être envoyé."}
 

@@ -5,12 +5,40 @@ smtplib est bloquant : l'envoi reel passe par asyncio.to_thread. SMTP_HOST
 absent => fallback log. Contrat d'appel NON BLOQUANT : les destinataires sont
 recuperes AVEC la session db de la requete, PUIS asyncio.create_task(
 send_email(...)) — la tache de fond ne touche jamais la db.
+
+------------------------------------------------------------------------------
+REFONTE DESIGN (juin 2026) — emails « par catégorie » au lieu d'un template unique
+------------------------------------------------------------------------------
+Avant : un seul `render_email_html()` habillait TOUS les emails de la même coque
+(logo + bouton vert « Ouvrir le lien »). Résultat : monotonie.
+
+Maintenant : chaque email porte un `EmailTheme` (couleur de catégorie, libellé de
+bouton, mise en page). Trois mises en page, toutes 100 % email-safe (tables +
+styles inline, aucun <style>, aucune SVG inline — Gmail strippe les deux) :
+
+  - "hero"   : grand bloc d'accueil coloré + emoji (moments joyeux : bienvenue,
+               invitation).
+  - "banner" : bandeau d'en-tête couleur pleine (onboarding / info : confirmation,
+               ajout équipe, plafond IA).
+  - "epure"  : sobre, pastille de catégorie + bouton coloré (sécurité / critique :
+               reset, mot de passe modifié, suspension).
+
+Le logo « chapeau » est un PNG EMBARQUÉ dans le mail en image inline (cid:) —
+Gmail ne rend pas les SVG, et l'inline évite toute dépendance à un asset hébergé
+(le logo s'affiche toujours, sans blocage « images distantes »). Les PNG sont
+versionnés dans le package (`api/src/services/assets/icon.png` / `icon-white.png`).
+
+Les notifications internes (lead / ticket / conseiller) restent en texte brut
+(inchangé) — elles ne passent pas par ce rendu brandé.
 """
 import asyncio
 import logging
 import smtplib
+from dataclasses import dataclass
 from email.message import EmailMessage
+from functools import lru_cache
 from html import escape as _html_escape
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import select
@@ -56,7 +84,8 @@ def _role_fr(role: str) -> str:
 def _send_sync(to: list[str], subject: str, body: str,
                reply_to: Optional[str] = None,
                html: Optional[str] = None,
-               from_addr: Optional[str] = None) -> None:
+               from_addr: Optional[str] = None,
+               inline_images: Optional[dict[str, bytes]] = None) -> None:
     msg = EmailMessage()
     # from_addr permet de surcharger l'expéditeur (ex. hello@ pour les emails
     # relationnels) ; défaut = SMTP_FROM (no-reply). L'auth SMTP reste SMTP_USER.
@@ -73,6 +102,13 @@ def _send_sync(to: list[str], subject: str, body: str,
     msg.set_content(body)
     if html is not None:
         msg.add_alternative(html, subtype="html")
+        # inline_images {cid: octets PNG} => attachés en multipart/related sur la
+        # partie HTML, référencés par <img src="cid:..."> (logo embarqué). Le
+        # Content-ID porte les chevrons <...> ; le HTML référence l'identifiant nu.
+        if inline_images:
+            html_part = msg.get_payload()[1]
+            for cid, data in inline_images.items():
+                html_part.add_related(data, "image", "png", cid=f"<{cid}>")
     with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
         smtp.starttls()
         if settings.SMTP_USER:
@@ -83,19 +119,23 @@ def _send_sync(to: list[str], subject: str, body: str,
 async def send_email(to: list[str], subject: str, body: str,
                      reply_to: Optional[str] = None,
                      html: Optional[str] = None,
-                     from_addr: Optional[str] = None) -> bool:
+                     from_addr: Optional[str] = None,
+                     inline_images: Optional[dict[str, bytes]] = None) -> bool:
     """Envoi email. JAMAIS d'exception (appele en create_task) : SMTP non
     configure ou echec d'envoi => log + False. `reply_to` optionnel (defaut
     None). `html` optionnel : si fourni, l'email part en multipart/alternative
     (texte = fallback) ; défaut None = texte brut, comportement inchange.
-    `from_addr` optionnel : surcharge l'expéditeur (défaut SMTP_FROM)."""
+    `from_addr` optionnel : surcharge l'expéditeur (défaut SMTP_FROM).
+    `inline_images` optionnel : {cid: octets PNG} embarqués en multipart/related
+    (ex. logo référencé par <img src="cid:...">)."""
     if not settings.SMTP_HOST:
         logger.info("SMTP non configuré — email non envoyé : %s", subject)
         return False
     if not to:
         return False
     try:
-        await asyncio.to_thread(_send_sync, to, subject, body, reply_to, html, from_addr)
+        await asyncio.to_thread(_send_sync, to, subject, body, reply_to, html,
+                                from_addr, inline_images)
         return True
     except Exception as exc:
         logger.error("Envoi email échoué (%s) : %s", subject, exc)
@@ -328,7 +368,11 @@ def build_password_changed_email(user: "User", app_url: str) -> tuple[str, str]:
 
 def build_bot_suspended_email(bot: "Bot", reason: Optional[str],
                               app_url: str) -> tuple[str, str]:
-    """(sujet, corps texte brut FR) — notification de suspension d'un chatbot."""
+    """(sujet, corps texte brut FR) — notification de suspension d'un chatbot.
+
+    NB design : l'URL du tableau de bord est posée SEULE sur sa ligne (et non
+    « tableau de bord : <url> ») pour devenir le bouton CTA themé. Le contact
+    support reste en texte courant juste avant la signature."""
     lines = [
         f"Votre chatbot « {bot.name} » a été suspendu : son widget n'est plus "
         "actif sur vos pages.",
@@ -337,10 +381,11 @@ def build_bot_suspended_email(bot: "Bot", reason: Optional[str],
         lines += ["", f"Motif : {reason}"]
     lines += [
         "",
-        "Pour comprendre la situation et rétablir votre chatbot, contactez notre "
-        f"support : {SUPPORT_EMAIL}",
+        "Rétablissez la situation depuis votre tableau de bord :",
         "",
-        f"Votre tableau de bord : {app_url}/app",
+        f"{app_url}/app",
+        "",
+        f"Pour comprendre la situation, écrivez à notre support : {SUPPORT_EMAIL}",
         "",
         EMAIL_SIGNATURE,
     ]
@@ -368,15 +413,119 @@ def build_overage_cap_email(bot: "Bot", app_url: str) -> tuple[str, str]:
             "\n".join(lines))
 
 
-# --- Rendu HTML brandé (emails compte/facturation) --------------------------
-# Couleurs de marque (inline, deliverability-safe : pas de <style>, pas de CSS
-# externe — Gmail/Outlook strippent les feuilles de style).
+# ============================================================================
+# Rendu HTML brandé « par catégorie » (emails compte/facturation)
+# ============================================================================
+# Couleurs inline, deliverability-safe : pas de <style>, pas de CSS externe, pas
+# de SVG inline — Gmail/Outlook strippent feuilles de style ET SVG. Le logo est
+# un PNG embarqué inline (cid:, voir plus bas). border-radius dégrade proprement
+# (carré) sur les vieux Outlook. Aucune dépendance aux ombres/dégradés (non
+# fiables en mail).
+
 _BRAND_NAVY = "#1C3F5C"
-_BRAND_MINT = "#2F9E79"
 _PAGE_BG = "#F0F2F5"
 _TEXT_COLOR = "#1E2A32"
 _MUTED_COLOR = "#8A98A6"
-_CTA_LABEL = "Ouvrir le lien"
+_HAIRLINE = "#E6EAEE"
+_FONT = ("-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,"
+         "Arial,sans-serif")
+
+# Logo « chapeau » en PNG (Gmail ne rend pas les SVG) EMBARQUÉ EN INLINE (cid:)
+# plutôt que servi par une URL hébergée : l'image voyage DANS le mail, donc elle
+# s'affiche toujours — aucune dépendance à un asset déployé ni à APP_URL, et pas
+# de blocage « charger les images distantes » côté client. Les PNG sont versionnés
+# dans le package API (api/src/services/assets/) pour rester self-contained.
+_ASSETS_DIR = Path(__file__).parent / "assets"
+LOGO_CID = "chapote-logo"          # logo navy (fond clair : hero / epure)
+LOGO_WHITE_CID = "chapote-logo-w"  # logo blanc (bandeau couleur : banner)
+LOGO_URL = f"cid:{LOGO_CID}"
+LOGO_WHITE_URL = f"cid:{LOGO_WHITE_CID}"
+# cid -> fichier PNG du logo (source unique pour l'embed inline).
+_LOGO_FILES = {LOGO_CID: "icon.png", LOGO_WHITE_CID: "icon-white.png"}
+
+
+@lru_cache(maxsize=2)
+def _logo_bytes(filename: str) -> Optional[bytes]:
+    """Octets d'un PNG logo (mémoïsé). None si introuvable (l'email part alors
+    sans logo plutôt que d'échouer)."""
+    try:
+        return (_ASSETS_DIR / filename).read_bytes()
+    except OSError as exc:
+        logger.warning("Logo email introuvable (%s) : %s", filename, exc)
+        return None
+
+
+def _inline_logos_for(html: str) -> dict[str, bytes]:
+    """{cid: octets PNG} des logos réellement référencés par `html` (on n'attache
+    que ceux utilisés, pour ne pas faire apparaître d'image en pièce jointe).
+    Match exact sur `src="cid:..."` — pas de collision de préfixe entre cids."""
+    images: dict[str, bytes] = {}
+    for cid, filename in _LOGO_FILES.items():
+        if f'src="cid:{cid}"' in html and (data := _logo_bytes(filename)):
+            images[cid] = data
+    return images
+
+
+@dataclass(frozen=True)
+class EmailTheme:
+    """Identité visuelle d'un email transactionnel.
+
+    layout : 'hero' (accueil coloré + emoji), 'banner' (bandeau couleur) ou
+    'epure' (sobre, pastille + bouton). accent : couleur de catégorie (bouton,
+    bandeau, pastille). wash : fond clair du bloc hero / pastille. eyebrow :
+    libellé de catégorie en majuscules. emoji : pictogramme (hero/banner). cta :
+    libellé du bouton (remplace l'ancien « Ouvrir le lien »)."""
+    accent: str
+    wash: str = "#EEF2F6"
+    eyebrow: str = ""
+    eyebrow_color: str = _BRAND_NAVY
+    emoji: str = ""
+    cta: str = "Ouvrir le lien"
+    layout: str = "epure"          # hero | banner | epure
+
+
+# Thème par défaut (compat : rendu neutre proche de l'ancien si kind inconnu).
+# accent/cta/layout = défauts de la dataclass.
+DEFAULT_THEME = EmailTheme(accent="#2F9E79")
+
+# Une entrée par email transactionnel. La clé = `kind` passé à send_account_email.
+THEMES: dict[str, EmailTheme] = {
+    # — Moments joyeux : hero + emoji —
+    "welcome": EmailTheme(
+        accent="#2F9E79", wash="#E7F4EF", eyebrow="BIENVENUE",
+        eyebrow_color="#22825E", emoji="🎉", cta="Créer mon chatbot",
+        layout="hero"),
+    "invite": EmailTheme(
+        accent="#5667C9", wash="#ECEEFB", eyebrow="INVITATION",
+        eyebrow_color="#4453B0", emoji="👋", cta="Rejoindre l'équipe",
+        layout="hero"),
+    # — Onboarding / info : bandeau couleur —
+    "verify": EmailTheme(
+        accent="#2F9E79", wash="#E7F4EF", eyebrow="CONFIRMATION",
+        eyebrow_color="#22825E", emoji="✉️", cta="Confirmer mon email",
+        layout="banner"),
+    "added": EmailTheme(
+        accent="#5667C9", wash="#ECEEFB", eyebrow="ÉQUIPE",
+        eyebrow_color="#4453B0", emoji="👥", cta="Ouvrir le tableau de bord",
+        layout="banner"),
+    "overage": EmailTheme(
+        accent="#E0992F", wash="#FBF0DD", eyebrow="FACTURATION",
+        eyebrow_color="#B5781D", emoji="📊", cta="Ajuster mon plafond",
+        layout="banner"),
+    # — Sécurité / critique : épuré —
+    "reset": EmailTheme(
+        accent="#2C6CA8", wash="#E7F0F8", eyebrow="SÉCURITÉ",
+        eyebrow_color="#235A8E", cta="Choisir un nouveau mot de passe",
+        layout="epure"),
+    "password_changed": EmailTheme(
+        accent="#2C6CA8", wash="#E7F0F8", eyebrow="SÉCURITÉ",
+        eyebrow_color="#235A8E", cta="Sécuriser mon compte",
+        layout="epure"),
+    "suspended": EmailTheme(
+        accent="#E25549", wash="#FCEAE8", eyebrow="ACTION REQUISE",
+        eyebrow_color="#C0392B", cta="Ouvrir mon tableau de bord",
+        layout="epure"),
+}
 
 
 def _is_bare_url(line: str) -> bool:
@@ -389,84 +538,193 @@ def _is_bare_url(line: str) -> bool:
     )
 
 
-def render_email_html(text_body: str) -> str:
-    """Transforme un corps texte brut en email HTML brandé (tables + styles
-    inline, robuste Gmail/Outlook). Le texte est HTML-échappé (noms/bots peuvent
-    contenir < ou &). Paragraphes séparés par lignes vides ; sauts de ligne
-    simples => <br> ; un paragraphe réduit à une URL nue => bouton CTA mint."""
-    paragraphs = [p for p in text_body.split("\n\n")]
+def _button(url: str, label: str, color: str, *, pill: bool = False) -> str:
+    """Bouton CTA « bulletproof » (table + bgcolor), email-safe."""
+    radius = "999px" if pill else "10px"
+    safe_url = _html_escape(url, quote=True)
+    safe_label = _html_escape(label)
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        'style="margin:20px auto 4px auto;"><tr>'
+        f'<td bgcolor="{color}" style="border-radius:{radius};background:{color};">'
+        f'<a href="{safe_url}" target="_blank" style="display:inline-block;'
+        f'padding:13px 28px;color:#ffffff;font-weight:bold;font-size:15px;'
+        f'text-decoration:none;border-radius:{radius};font-family:{_FONT};">'
+        f'{safe_label}</a></td></tr></table>'
+    )
+
+
+def _render_blocks(text_body: str, theme: EmailTheme, *, center: bool,
+                   pill_button: bool) -> str:
+    """Paragraphes -> HTML. Une URL nue seule sur sa ligne => bouton CTA themé
+    (libellé = theme.cta). Sauts de ligne simples => <br>."""
+    align = "center" if center else "left"
     blocks: list[str] = []
-    for para in paragraphs:
+    for para in text_body.split("\n\n"):
         stripped = para.strip()
         if not stripped:
             continue
         if _is_bare_url(stripped):
-            url = _html_escape(stripped, quote=True)
-            blocks.append(
-                '<table role="presentation" cellpadding="0" cellspacing="0" '
-                'border="0" style="margin:18px auto;"><tr><td '
-                f'style="border-radius:10px;background:{_BRAND_MINT};">'
-                f'<a href="{url}" target="_blank" '
-                f'style="display:inline-block;padding:12px 22px;color:#ffffff;'
-                f'font-weight:bold;font-size:15px;text-decoration:none;'
-                f'border-radius:10px;">{_CTA_LABEL}</a></td></tr></table>'
-            )
+            blocks.append(_button(stripped, theme.cta, theme.accent,
+                                  pill=pill_button))
         else:
             html_para = _html_escape(para).replace("\n", "<br>")
             blocks.append(
                 f'<p style="margin:0 0 16px 0;line-height:1.6;color:{_TEXT_COLOR};'
-                f'font-size:15px;">{html_para}</p>'
+                f'font-size:15px;text-align:{align};font-family:{_FONT};">'
+                f'{html_para}</p>'
             )
-    body_html = "\n".join(blocks)
-    font = ("-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,"
-            "Arial,sans-serif")
+    return "\n".join(blocks)
+
+
+def _logo_header(theme: EmailTheme) -> str:
+    """En-tête logo. Bandeau couleur (layout='banner') => logo blanc + wordmark
+    blanc + emoji sur fond accent. Sinon => logo navy + wordmark navy sur blanc."""
+    if theme.layout == "banner":
+        emoji = (f'<td align="right" style="font-size:26px;line-height:1;">'
+                 f'{theme.emoji}</td>') if theme.emoji else ''
+        return (
+            f'<tr><td bgcolor="{theme.accent}" '
+            f'style="background:{theme.accent};padding:22px 32px;">'
+            '<table role="presentation" width="100%" cellpadding="0" '
+            'cellspacing="0" border="0"><tr>'
+            f'<td><img src="{LOGO_WHITE_URL}" width="30" height="30" alt="" '
+            'style="vertical-align:middle;border:0;display:inline-block;">'
+            f'<span style="color:#ffffff;font-size:19px;font-weight:bold;'
+            f'font-family:{_FONT};vertical-align:middle;padding-left:10px;">'
+            f'Chapote</span></td>{emoji}</tr></table></td></tr>'
+        )
+    return (
+        '<tr><td style="padding:24px 32px 4px 32px;">'
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0">'
+        f'<tr><td><img src="{LOGO_URL}" width="34" height="34" alt="" '
+        'style="border-radius:8px;border:0;display:block;"></td>'
+        f'<td style="padding-left:10px;color:{_BRAND_NAVY};font-size:20px;'
+        f'font-weight:bold;font-family:{_FONT};">Chapote</td>'
+        '</tr></table></td></tr>'
+    )
+
+
+def _eyebrow_line(theme: EmailTheme, *, spacing: str, upper: bool = False) -> str:
+    """Eyebrow texte (hero/banner) : libellé catégorie coloré au-dessus du corps.
+    `spacing` = letter-spacing ; `upper` ajoute text-transform:uppercase (banner)."""
+    if not theme.eyebrow:
+        return ''
+    transform = "text-transform:uppercase;" if upper else ""
+    return (
+        f'<div style="color:{theme.eyebrow_color};font-size:11.5px;'
+        f'font-weight:bold;letter-spacing:{spacing};margin:0 0 10px 0;'
+        f'{transform}font-family:{_FONT};">{_html_escape(theme.eyebrow)}</div>'
+    )
+
+
+def _eyebrow_badge(theme: EmailTheme) -> str:
+    """Pastille de catégorie (layout='epure')."""
+    if not theme.eyebrow:
+        return ''
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        'style="margin:0 0 14px 0;"><tr>'
+        f'<td bgcolor="{theme.wash}" style="background:{theme.wash};'
+        f'border-radius:999px;padding:6px 13px;color:{theme.eyebrow_color};'
+        f'font-size:11.5px;font-weight:bold;letter-spacing:.06em;'
+        f'white-space:nowrap;font-family:{_FONT};">{_html_escape(theme.eyebrow)}</td>'
+        '</tr></table>'
+    )
+
+
+def _footer() -> str:
+    return (
+        '<tr><td style="padding:6px 32px 28px 32px;">'
+        f'<div style="border-top:1px solid {_HAIRLINE};margin-bottom:14px;"></div>'
+        f'<div style="color:{_MUTED_COLOR};font-size:12.5px;line-height:1.6;'
+        f'font-family:{_FONT};">Chapote · https://chapote.fr<br>'
+        'Une question ? support@chapote.fr</div></td></tr>'
+    )
+
+
+def _shell(inner: str) -> str:
+    """Coque HTML commune (fond page + carte 560px centrée)."""
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '</head>'
         f'<body style="margin:0;padding:0;background:{_PAGE_BG};">'
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        f'border="0" style="background:{_PAGE_BG};padding:24px 0;">'
-        '<tr><td align="center">'
+        f'border="0" style="background:{_PAGE_BG};padding:24px 0;"><tr>'
+        '<td align="center">'
         '<table role="presentation" width="560" cellpadding="0" cellspacing="0" '
         'border="0" style="width:560px;max-width:560px;background:#ffffff;'
-        'border-radius:14px;overflow:hidden;'
-        f'font-family:{font};">'
-        # Header (wordmark)
-        '<tr><td style="padding:24px 32px 8px 32px;">'
-        '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
-        f'<td style="background:{_BRAND_NAVY};border-radius:8px;width:34px;'
-        'height:34px;text-align:center;vertical-align:middle;color:#ffffff;'
-        'font-size:18px;font-weight:bold;font-family:' + font + '">C</td>'
-        f'<td style="padding-left:10px;color:{_BRAND_NAVY};font-size:20px;'
-        f'font-weight:bold;font-family:{font};">Chapote</td>'
-        '</tr></table></td></tr>'
-        # Body
-        f'<tr><td style="padding:8px 32px 8px 32px;">{body_html}</td></tr>'
-        # Footer
-        '<tr><td style="padding:8px 32px 28px 32px;">'
-        f'<div style="border-top:1px solid #E6EAEE;margin-bottom:14px;"></div>'
-        f'<div style="color:{_MUTED_COLOR};font-size:12.5px;line-height:1.6;'
-        f'font-family:{font};">Chapote · https://chapote.fr<br>'
-        'Une question ? support@chapote.fr</div>'
-        '</td></tr>'
+        f'border-radius:14px;overflow:hidden;font-family:{_FONT};">'
+        f'{inner}'
         '</table></td></tr></table></body></html>'
     )
 
 
+def render_email_html(text_body: str, *, theme: Optional[EmailTheme] = None) -> str:
+    """Transforme un corps texte brut en email HTML brandé selon `theme`.
+
+    Compat : `render_email_html(text)` sans thème => rendu neutre (DEFAULT_THEME),
+    proche de l'ancien. Tables + styles inline, robuste Gmail/Outlook. Le texte
+    est HTML-échappé. Une URL nue seule sur sa ligne => bouton CTA (libellé =
+    theme.cta). Trois mises en page : hero / banner / epure (voir EmailTheme)."""
+    th = theme or DEFAULT_THEME
+    header = _logo_header(th)
+
+    if th.layout == "hero":
+        # Bloc d'accueil coloré : emoji + contenu centré sur fond wash.
+        body = _render_blocks(text_body, th, center=True, pill_button=True)
+        emoji = (f'<div style="font-size:46px;line-height:1;margin:0 0 10px 0;">'
+                 f'{th.emoji}</div>') if th.emoji else ''
+        eyebrow = _eyebrow_line(th, spacing=".08em")
+        hero = (
+            f'<tr><td bgcolor="{th.wash}" '
+            f'style="background:{th.wash};padding:30px 36px 34px 36px;'
+            'text-align:center;">'
+            f'{emoji}{eyebrow}{body}</td></tr>'
+        )
+        inner = header + hero + _footer()
+        return _shell(inner)
+
+    if th.layout == "banner":
+        body = _render_blocks(text_body, th, center=False, pill_button=False)
+        eyebrow = _eyebrow_line(th, spacing=".06em", upper=True)
+        block = (f'<tr><td style="padding:26px 32px 6px 32px;">'
+                 f'{eyebrow}{body}</td></tr>')
+        inner = header + block + _footer()
+        return _shell(inner)
+
+    # epure (défaut)
+    body = _render_blocks(text_body, th, center=False, pill_button=False)
+    block = (f'<tr><td style="padding:14px 32px 6px 32px;">'
+             f'{_eyebrow_badge(th)}{body}</td></tr>')
+    inner = header + block + _footer()
+    return _shell(inner)
+
+
+def _theme_for(kind: str) -> EmailTheme:
+    """Thème d'un `kind`. Inconnu (hors `"default"`) => DEFAULT_THEME + warning :
+    un kind mal orthographié à un call-site dégrade au rendu neutre sans planter,
+    mais le warning rend la dérive observable au lieu d'invisible."""
+    if kind not in THEMES and kind != "default":
+        logger.warning("kind email inconnu '%s' — rendu neutre (DEFAULT_THEME)", kind)
+    return THEMES.get(kind, DEFAULT_THEME)
+
+
 def send_account_email(recipients: list[str], subject: str, text: str, *,
-                       error_label: str, reply_to: str = SUPPORT_EMAIL,
+                       error_label: str, kind: str = "default",
+                       reply_to: str = SUPPORT_EMAIL,
                        from_addr: Optional[str] = None) -> None:
-    """Envoi BRANDÉ (multipart/alternative) d'un email compte/facturation :
-    construit la version HTML à partir du texte et planifie l'envoi en tâche de
-    fond (fire-and-forget, ne bloque jamais l'endpoint). `reply_to` défaut
-    support ; `from_addr` défaut None (= SMTP_FROM no-reply). Les emails
-    RELATIONNELS (bienvenue, invitation) passent from_addr=HELLO_FROM +
-    reply_to=HELLO_EMAIL pour mieux tomber en boîte Principale."""
-    html = render_email_html(text)
+    """Envoi BRANDÉ (multipart/alternative) d'un email compte/facturation.
+
+    `kind` (NOUVEAU) sélectionne le thème dans THEMES (welcome, reset, verify,
+    suspended, …). Inconnu/omis => DEFAULT_THEME (rendu neutre, compat). Le reste
+    inchangé : `reply_to` défaut support ; `from_addr` défaut None (no-reply) ;
+    fire-and-forget (ne bloque jamais l'endpoint)."""
+    html = render_email_html(text, theme=_theme_for(kind))
     spawn_background(
         send_email(recipients, subject, text, reply_to=reply_to, html=html,
-                   from_addr=from_addr),
+                   from_addr=from_addr, inline_images=_inline_logos_for(html)),
         error_label=error_label)
 
 
@@ -477,10 +735,12 @@ def send_org_member_email(email: str, org_name: str, role: str, *,
     l'inscription (auth.register) et l'invitation (orgs.invite_member)."""
     if existing:
         subject, body = build_added_to_org_email(org_name, role, app_url)
+        kind = "added"
     else:
         subject, body = build_invite_email(org_name, role, app_url)
+        kind = "invite"
     # Email relationnel -> expéditeur hello@ (au lieu de no-reply) : meilleur
     # placement Gmail (Principale) et une réponse arrive sur une boîte suivie.
-    send_account_email([email], subject, body, from_addr=HELLO_FROM,
+    send_account_email([email], subject, body, kind=kind, from_addr=HELLO_FROM,
                        reply_to=HELLO_EMAIL,
                        error_label="Envoi e-mail invitation échoué")
