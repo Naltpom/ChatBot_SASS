@@ -10,7 +10,7 @@ import type { E2EState } from './global-setup'
 // Source unique : flushRedis (purge des rate-limits) et STATE_PASSWORD
 // (mot de passe des comptes du state) vivent dans global-setup.
 export { STATE_PASSWORD, authHeaders, flushRedis } from './global-setup'
-import { authHeaders } from './global-setup'
+import { AUTH_COOKIE_NAME, authHeaders, tokenFromSetCookie } from './global-setup'
 
 const STATE_PATH = path.join(__dirname, '.state.json')
 
@@ -26,16 +26,29 @@ export async function blockAutoLogin(page: Page) {
   })
 }
 
-// Connecte un token arbitraire sans consommer d'appel login : posé en
-// localStorage avant le chargement de l'app. orgId optionnel = org active.
+// Connecte un token arbitraire sans consommer d'appel login. Auth dashboard =
+// cookie httpOnly `chapote_session` (PR-04) : on le pose sur le contexte du
+// navigateur AVANT le 1er chargement (comme une vraie session app). Le cookie
+// host-only `localhost` est porté par les fetch `credentials:'include'` de l'app
+// vers l'API (le port est ignoré pour le matching cookie : 3001 -> 8001 OK, et
+// SameSite=Lax laisse passer ces requêtes same-site). orgId optionnel = org active
+// (lu en localStorage par pickActiveOrg) ; kc_no_autologin neutralise l'auto-login
+// dev.
 export async function authenticateWithToken(page: Page, token: string, orgId?: number) {
+  await page.context().addCookies([{
+    name: AUTH_COOKIE_NAME,
+    value: token,
+    domain: 'localhost',
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Lax',
+  }])
   await page.addInitScript(
-    ({ token, orgId }) => {
+    ({ orgId }) => {
       window.localStorage.setItem('kc_no_autologin', '1')
-      window.localStorage.setItem('cbsaas_token', token)
       if (orgId !== null) window.localStorage.setItem('cbsaas_org', String(orgId))
     },
-    { token, orgId: orgId ?? null },
+    { orgId: orgId ?? null },
   )
 }
 
@@ -45,13 +58,14 @@ export async function authenticate(page: Page, state: E2EState) {
 }
 
 // Token superadmin via POST /api/auth/dev-login (dev only, NON rate-limité,
-// pas de cache : gratuit à chaque appel).
+// pas de cache : gratuit à chaque appel). Le JWT est désormais dans le Set-Cookie
+// (PR-04), plus dans le corps : on l'en extrait.
 export async function devLoginToken(request: APIRequestContext, apiUrl: string): Promise<string> {
   const res = await request.post(`${apiUrl}/api/auth/dev-login`)
   if (!res.ok()) {
     throw new Error(`POST /api/auth/dev-login : HTTP ${res.status()} ${await res.text().catch(() => '')}`)
   }
-  return (await res.json()).access_token
+  return tokenFromSetCookie(res)
 }
 
 // Équipe jetable (POST /api/orgs, non rate-limité, « tout ouvert ») au nom du

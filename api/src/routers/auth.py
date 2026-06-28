@@ -4,7 +4,7 @@ vérification souple de l'email + réinitialisation de mot de passe."""
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
@@ -14,6 +14,7 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import (
     account_fingerprint,
+    clear_auth_cookie,
     create_dashboard_token,
     create_password_reset_token,
     create_twofa_challenge_token,
@@ -21,6 +22,7 @@ from src.core.security import (
     decode_token,
     get_current_user,
     hash_password,
+    set_auth_cookie,
     user_has_2fa,
     verify_password,
 )
@@ -29,7 +31,6 @@ from src.models.user import (
     Membership,
     Organization,
     OrgOut,
-    TokenOut,
     User,
     UserLogin,
     UserOut,
@@ -142,8 +143,16 @@ async def _twofa_challenge_or_none(db: AsyncSession, user: User):
     })
 
 
-@router.post("/register", response_model=TokenOut)
-async def register(body: UserRegister, request: Request, db: AsyncSession = Depends(get_db)):
+async def _issue_session(db: AsyncSession, user: User, response: Response) -> UserOut:
+    """Connexion réussie : pose le JWT dashboard dans le cookie httpOnly (le token
+    ne quitte JAMAIS le cookie) et renvoie l'UserOut pour hydrater le front."""
+    set_auth_cookie(response, create_dashboard_token(user.id))
+    return await _user_out(db, user)
+
+
+@router.post("/register", response_model=UserOut)
+async def register(body: UserRegister, request: Request, response: Response,
+                   db: AsyncSession = Depends(get_db)):
     await _check_auth_rate(request)
     # Email normalise (lower) : evite doublons et invitations non consommees
     email = body.email.lower().strip()
@@ -202,29 +211,30 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
     for inv_email, org_name, role, existing in org_member_mails:
         send_org_member_email(inv_email, org_name, role,
                               existing=existing, app_url=settings.APP_URL)
-    return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
+    return await _issue_session(db, user, response)
 
 
-@router.post("/login", response_model=TokenOut)
-async def login(body: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
+@router.post("/login", response_model=UserOut)
+async def login(body: UserLogin, request: Request, response: Response,
+                db: AsyncSession = Depends(get_db)):
     await _check_auth_rate(request)
     try:
         user = await authenticate(db, body.email.lower().strip(), body.password)
     except AuthenticationError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e))
-    # 2FA active -> on n'émet PAS de token : un challenge à valider (2nd facteur).
+    # 2FA active -> on ne pose PAS de cookie : un challenge à valider (2nd facteur).
     challenge = await _twofa_challenge_or_none(db, user)
     if challenge is not None:
         return challenge
-    return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
+    return await _issue_session(db, user, response)
 
 
 class GoogleAuthPayload(BaseModel):
     credential: str  # ID token JWT renvoyé par Google Identity Services (front)
 
 
-@router.post("/google", response_model=TokenOut)
-async def google_login(body: GoogleAuthPayload, request: Request,
+@router.post("/google", response_model=UserOut)
+async def google_login(body: GoogleAuthPayload, request: Request, response: Response,
                        db: AsyncSession = Depends(get_db)):
     """SSO Google (flux ID token). Connecte un compte existant (rapprochement
     par email) ou en crée un PERSO (sans organisation), comme une inscription
@@ -263,15 +273,15 @@ async def google_login(body: GoogleAuthPayload, request: Request,
     user.last_login = utcnow()
     await db.commit()
     await db.refresh(user)
-    # 2FA active (même via SSO Google) -> challenge avant émission du token.
+    # 2FA active (même via SSO Google) -> challenge avant pose du cookie.
     challenge = await _twofa_challenge_or_none(db, user)
     if challenge is not None:
         return challenge
-    return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
+    return await _issue_session(db, user, response)
 
 
-@router.post("/dev-login", response_model=TokenOut)
-async def dev_login(db: AsyncSession = Depends(get_db)):
+@router.post("/dev-login", response_model=UserOut)
+async def dev_login(response: Response, db: AsyncSession = Depends(get_db)):
     """Auto-login superadmin SANS credentials — uniquement ENV=dev +
     AUTO_LOGIN_ADMIN_DEV=true. Le frontend l'appelle au chargement."""
     if settings.is_production or not settings.AUTO_LOGIN_ADMIN_DEV:
@@ -280,7 +290,17 @@ async def dev_login(db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Admin dev non initialisé")
-    return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
+    return await _issue_session(db, user, response)
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Déconnexion : efface le cookie de session. Idempotent (aucune session
+    requise) : un client sans cookie reçoit aussi 200, le cookie est juste
+    invalidé côté navigateur. Les JWT déjà émis restent valides jusqu'à
+    expiration (stateless), mais ne sont plus présentés par le navigateur."""
+    clear_auth_cookie(response)
+    return {"ok": True}
 
 
 @router.get("/me", response_model=UserOut)

@@ -84,17 +84,6 @@ export interface LoginChallenge {
 }
 
 // ============================================================================
-// AuthResponse — réponse de /api/auth/login | register | dev-login (TokenOut).
-// /api/auth/me renvoie directement un User (pas d'enveloppe token).
-// ============================================================================
-
-export interface AuthResponse {
-  access_token: string
-  token_type: string // "bearer"
-  user: User
-}
-
-// ============================================================================
 // RegisterPayload — corps de POST /api/auth/register (UserRegister).
 // ============================================================================
 
