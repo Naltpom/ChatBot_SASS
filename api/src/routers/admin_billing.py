@@ -35,12 +35,10 @@ from src.models.billing import (
 from src.models.bot import Bot
 from src.models.user import Organization, User
 from src.services import stripe_service
-from src.services.background import spawn_background
 from src.services.email_service import (
-    SUPPORT_EMAIL,
     bot_owner_email,
     build_bot_suspended_email,
-    send_email,
+    send_account_email,
 )
 from src.services.entitlement_service import (
     PlanState,
@@ -753,19 +751,29 @@ async def block_bot(bot_id: int, body: BlockPayload,
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
 
+    # Statut AVANT la transition : set_bot_status ne journalise que si old!=new,
+    # mais ne nous le dit pas. On lit donc l'état antérieur ici pour n'envoyer le
+    # mail de suspension que sur une VRAIE transition (re-suspendre un bot déjà
+    # suspended ne re-notifie pas).
+    prev_status = (await db.execute(
+        select(BotEntitlement.status).where(BotEntitlement.bot_id == bot_id)
+    )).scalar_one_or_none()
+    was_suspended = prev_status == "suspended"
+
     row = await set_bot_status(
         db, bot_id,
         new_status="suspended", actor_kind="staff", actor_user_id=actor.id,
         reason=body.reason or "admin_block",
     )
     # Destinataire (payeur du bot) résolu AVANT le spawn (la tâche ne touche pas
-    # la db). Notif uniquement si le bot est effectivement passé 'suspended'.
-    owner = await bot_owner_email(db, bot) if row.status == "suspended" else None
+    # la db). Notif uniquement sur une transition effective vers 'suspended'.
+    owner = (await bot_owner_email(db, bot)
+             if row.status == "suspended" and not was_suspended else None)
     await db.commit()
     if owner:
         subject, mail_body = build_bot_suspended_email(bot, body.reason, settings.APP_URL)
-        spawn_background(send_email([owner], subject, mail_body, reply_to=SUPPORT_EMAIL),
-                         error_label="Envoi e-mail suspension bot échoué")
+        send_account_email([owner], subject, mail_body,
+                           error_label="Envoi e-mail suspension bot échoué")
     return {
         "bot_id": bot_id,
         "modules": sorted(row.modules or []),

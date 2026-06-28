@@ -14,7 +14,7 @@ import uuid
 import pytest
 
 from src.models.user import Organization, User
-from src.services.email_service import bot_owner_email
+from src.services.email_service import bot_owner_email, render_email_html
 from src.services.rate_limit import overage_cap_email_limiter
 
 
@@ -61,3 +61,23 @@ async def test_overage_cap_email_limiter_dedups():
     key = f"bot-{uuid.uuid4().hex}"  # clé unique : pas d'état résiduel inter-tests
     assert await overage_cap_email_limiter.check(key) is True
     assert await overage_cap_email_limiter.check(key) is False
+
+
+# ------------------------------ render_email_html ---------------------------
+
+def test_render_email_html_escapes_and_builds_cta():
+    """Le rendu HTML brandé échappe le texte injecté (nom avec « < » et « & »)
+    et transforme un paragraphe = URL nue en bouton CTA (couleur mint + href)."""
+    text = ("Bonjour <Acme & Co>,\n\nVoici votre lien :"
+            "\n\nhttps://chapote.fr/app")
+    html = render_email_html(text)
+    # Échappement : aucun « < » brut du contenu, l'entité HTML est présente.
+    assert "<Acme" not in html
+    assert "&lt;Acme &amp; Co&gt;" in html
+    # URL nue -> bouton CTA (couleur MINT + URL en href + libellé).
+    assert "#2F9E79" in html
+    assert 'href="https://chapote.fr/app"' in html
+    assert "Ouvrir le lien" in html
+    # Document HTML complet + footer de marque.
+    assert html.startswith("<!doctype html>")
+    assert "support@chapote.fr" in html

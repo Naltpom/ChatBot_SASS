@@ -25,7 +25,7 @@ from src.models.prospect import (PROSPECT_DECISIONS, PROSPECT_STATUSES,
                                  ProfileOut, Prospect, ProspectingProfile,
                                  ProspectOut, ProspectPatch)
 from src.models.user import User
-from src.services.email_service import send_email
+from src.services.email_service import HELLO_EMAIL, send_email
 from src.services.prospecting_service import (ProspectingError,
                                               _company_name_from_title,
                                               _set_scoring, _website_host,
@@ -35,6 +35,16 @@ from src.services.prospecting_service import (ProspectingError,
                                               search_web)
 
 logger = logging.getLogger(__name__)
+
+# Pied de page légal des cold emails (prospection B2B) : identité de l'expéditeur
+# + opt-out. Ajouté à la copie SORTANTE uniquement (jamais persisté en base, donc
+# jamais de double ajout d'un appel à l'autre — l'endpoint /send envoie 1 fois).
+_PROSPECT_LEGAL_FOOTER = (
+    "—\n"
+    "Chapote · https://chapote.fr\n"
+    "Vous recevez ce message dans le cadre d'une prospection B2B. "
+    "Pour ne plus être contacté, répondez « STOP »."
+)
 
 router = APIRouter(
     prefix="/api/admin/prospecting",
@@ -624,9 +634,11 @@ async def send(prospect_id: int, db: AsyncSession = Depends(get_db)):
     if not p.email_subject or not p.email_body:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "Aucun brouillon d'email à envoyer")
+    # Pied de page légal (identité + opt-out) ajouté à la copie sortante.
+    outgoing_body = f"{p.email_body}\n\n{_PROSPECT_LEGAL_FOOTER}"
     # Reply-To = boîte commerciale : les réponses du prospect y atterrissent.
-    ok = await send_email([p.contact_email], p.email_subject, p.email_body,
-                          reply_to="hello@chapote.fr")
+    ok = await send_email([p.contact_email], p.email_subject, outgoing_body,
+                          reply_to=HELLO_EMAIL)
     if not ok:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,

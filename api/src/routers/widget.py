@@ -76,7 +76,6 @@ from src.services.quota_service import (
     ai_quota_consume,
     ai_quota_precheck,
 )
-from src.services.background import spawn_background
 from src.services.email_service import (
     SUPPORT_EMAIL,
     bot_owner_email,
@@ -84,6 +83,7 @@ from src.services.email_service import (
     build_lead_email,
     build_overage_cap_email,
     lead_notification_recipients,
+    send_account_email,
     send_email,
 )
 from src.services.rate_limit import (
@@ -436,7 +436,7 @@ async def submit_lead(
     subject, mail_body = build_lead_email(bot, lead)
     # Reply-To = email du visiteur : répondre au lead atterrit chez lui.
     asyncio.create_task(send_email(recipients, subject, mail_body,
-                                   reply_to=str(body.email) or None))
+                                   reply_to=body.email or None))
 
     return _maybe_refresh({"ok": True, "message": "Merci ! Votre demande a bien été transmise."}, bot, session)
 
@@ -725,8 +725,8 @@ async def _handle_ai_message(
                     owner = await bot_owner_email(db, bot)
                     if owner:
                         subj, mail_body = build_overage_cap_email(bot, settings.APP_URL)
-                        spawn_background(
-                            send_email([owner], subj, mail_body, reply_to=SUPPORT_EMAIL),
+                        send_account_email(
+                            [owner], subj, mail_body,
                             error_label="Envoi e-mail plafond IA échoué")
                 return _maybe_refresh(
                     {"source": "ai", "message": OVERAGE_CAP_MESSAGE,

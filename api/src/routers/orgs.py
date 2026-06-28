@@ -16,13 +16,7 @@ from src.core.database import get_db
 from src.core.security import get_current_user, require_org_access, require_org_admin
 from src.models.user import BOT_PERMS, Invitation, Membership, Organization, User
 from src.routers.billing import billing_on_org_owner_change
-from src.services.background import spawn_background
-from src.services.email_service import (
-    SUPPORT_EMAIL,
-    build_added_to_org_email,
-    build_invite_email,
-    send_email,
-)
+from src.services.email_service import send_org_member_email
 from src.services.org_service import ensure_not_last_admin
 
 router = APIRouter(prefix="/api/orgs", tags=["organizations"])
@@ -200,9 +194,8 @@ async def invite_member(org_id: int, body: MemberAdd, db: AsyncSession = Depends
         db.add(Membership(user_id=target.id, organization_id=org_id, role=body.role, permissions={}))
         await db.commit()
         # Compte existant ajouté direct : mail « ajouté à l'équipe » (fire-and-forget).
-        subject, mail_body = build_added_to_org_email(org.name, body.role, settings.APP_URL)
-        spawn_background(send_email([email], subject, mail_body, reply_to=SUPPORT_EMAIL),
-                         error_label="Envoi e-mail invitation échoué")
+        send_org_member_email(email, org.name, body.role,
+                              existing=True, app_url=settings.APP_URL)
         return {"joined": True, "user_id": target.id}
 
     existing_inv = await db.execute(select(Invitation).where(
@@ -212,9 +205,8 @@ async def invite_member(org_id: int, body: MemberAdd, db: AsyncSession = Depends
     db.add(Invitation(organization_id=org_id, email=email, role=body.role))
     await db.commit()
     # Compte inexistant : invitation en attente -> mail d'invitation (fire-and-forget).
-    subject, mail_body = build_invite_email(org.name, body.role, settings.APP_URL)
-    spawn_background(send_email([email], subject, mail_body, reply_to=SUPPORT_EMAIL),
-                     error_label="Envoi e-mail invitation échoué")
+    send_org_member_email(email, org.name, body.role,
+                          existing=False, app_url=settings.APP_URL)
     return {"joined": False, "pending": True}
 
 
