@@ -33,7 +33,7 @@ import BotConfigurator from '../components/billing/BotConfigurator'
 import PriceCart, { formatCents } from '../components/billing/PriceCart'
 import { errMsg } from '../utils/errors'
 import { InfoBox } from '../ui'
-import { FALLBACK_CATALOG, computeCart, deriveConfigFromChat } from '../utils/billing'
+import { computeCart, deriveConfigFromChat } from '../utils/billing'
 import type { DesignJson, Tree, TreeNode } from '../types/bot'
 import type { BillingCatalog, BotConfig } from '../types/billing'
 
@@ -394,10 +394,12 @@ export default function BotWizard() {
   // qu'on n'a pas atteint cette étape.
   const [treeJson, setTreeJson] = useState<Tree | null>(draft0?.treeJson ?? null)
 
-  // Étape 'plan' : catalogue (GET /api/billing/catalog, repli sur le miroir
-  // FALLBACK_CATALOG si indisponible) + composition choisie (botConfig). Le
-  // configurateur fait confiance au backend pour le montant final (Stripe).
-  const [catalog, setCatalog] = useState<BillingCatalog>(FALLBACK_CATALOG)
+  // Étape 'plan' : catalogue = SOURCE UNIQUE backend (GET /api/billing/catalog).
+  // null tant qu'il n'a pas répondu ; catalogErr si l'appel échoue (état d'erreur
+  // PROPRE, jamais un repli de prix codé en dur). Le configurateur fait confiance
+  // au backend pour le montant final (Stripe).
+  const [catalog, setCatalog] = useState<BillingCatalog | null>(null)
+  const [catalogErr, setCatalogErr] = useState(false)
   const [botConfig, setBotConfig] = useState<BotConfig>(draft0?.botConfig ?? { ...DEFAULT_BOT_CONFIG })
 
   const [busy, setBusy] = useState(false)
@@ -421,7 +423,11 @@ export default function BotWizard() {
   const ownedOrgIds = user?.owned_org_ids ?? []
   const isOwnerDest = dest === 'perso' || ownedOrgIds.includes(dest as number)
   // Panier live recomposé localement (computeCart est PUR). Total en centimes.
-  const cart = useMemo(() => computeCart(catalog, botConfig), [catalog, botConfig])
+  // Catalogue pas encore chargé -> panier vide (l'étape 'plan' affiche un état de
+  // chargement tant que le catalogue backend n'a pas répondu).
+  const cart = useMemo(
+    () => (catalog ? computeCart(catalog, botConfig) : { lines: [], total_cents: 0 }),
+    [catalog, botConfig])
   const totalCents = cart.total_cents
 
   // -------------------------------------------------------------------------
@@ -601,14 +607,15 @@ export default function BotWizard() {
   // Coupe un flux SSE en cours si on quitte le wizard pendant la génération.
   useEffect(() => () => { genAbort.current?.abort() }, [])
 
-  // Catalogue de facturation : chargé une fois si le billing est actif. Repli
-  // silencieux sur FALLBACK_CATALOG (déjà en état initial) en cas d'échec.
+  // Catalogue de facturation : chargé une fois si le billing est actif. SOURCE
+  // UNIQUE backend : en cas d'échec on marque catalogErr (l'étape 'plan' affiche
+  // un état d'erreur), jamais un repli de prix codé en dur.
   useEffect(() => {
     if (!billingActive) return
     let alive = true
     api<BillingCatalog>('/api/billing/catalog')
-      .then(c => { if (alive) setCatalog(c) })
-      .catch(() => { /* repli FALLBACK_CATALOG */ })
+      .then(c => { if (alive) { setCatalog(c); setCatalogErr(false) } })
+      .catch(() => { if (alive) setCatalogErr(true) })
     return () => { alive = false }
   }, [billingActive])
 
@@ -633,6 +640,7 @@ export default function BotWizard() {
     if (draft0?.botConfig) return        // config restaurée : ne pas écraser
     if (planTouched.current) return      // l'utilisateur a ajusté : ne pas écraser
     if (!beforePlan) return              // déjà au-delà du choix d'abonnement
+    if (!catalog) return                 // catalogue backend pas encore chargé
     setBotConfig(deriveConfigFromChat(catalog, { goals, wantsAi: wantsAI, wantsHuman }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goals, wantsAI, wantsHuman, catalog, beforePlan])
@@ -958,7 +966,7 @@ export default function BotWizard() {
             <h1 style={{ fontFamily: "'Clash Display',sans-serif", fontWeight: 600, fontSize: 28, margin: '14px 0 0', letterSpacing: '-.02em' }}>Composez votre abonnement</h1>
             <p style={{ fontSize: 15, color: MUT, margin: '10px auto 0', maxWidth: 540, lineHeight: 1.55 }}>
               {/* Description RÉELLE du socle (catalogue), pas une répétition du titre. */}
-              {catalog.base_description || 'Le socle inclut l\'arbre, l\'apparence, les déclencheurs et les analytics.'}{' '}
+              {catalog?.base_description || 'Le socle inclut l\'arbre, l\'apparence, les déclencheurs et les analytics.'}{' '}
               Choisissez votre plan IA et les modules à valeur — le panier se met à jour en direct.
             </p>
           </div>
@@ -983,24 +991,37 @@ export default function BotWizard() {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0,1fr) 320px', gap: 20, alignItems: 'start' }}>
-            <BotConfigurator catalog={catalog} config={botConfig} onChange={onConfigChange} readOnly={!isOwnerDest} />
-            <PriceCart catalog={catalog} config={botConfig} />
-          </div>
-
-          {/* Récap facturable : si la compo a un coût (owner + total > 0), on
-              rappelle que le paiement démarre l'abonnement (1er mois remisé). Le
-              seul chemin de démarrage est le Checkout (carte) à la création. */}
-          {isOwnerDest && totalCents > 0 && (
-            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 18 }}>
-              <Label>À la création</Label>
-              <div style={{ fontSize: 12.5, color: FAINT, lineHeight: 1.5 }}>
-                Vous serez redirigé vers le paiement sécurisé pour saisir votre carte. Votre abonnement
-                à {formatCents(totalCents, catalog.currency)} /mois démarre dès le paiement (1er mois
-                remisé, voir le panier), puis se renouvelle automatiquement sauf si vous annulez depuis
-                votre espace facturation.
-              </div>
+          {/* Catalogue = SOURCE UNIQUE backend : état de chargement/erreur PROPRE
+              tant qu'il n'a pas répondu (aucun prix codé en dur en repli). */}
+          {!catalog ? (
+            <div style={{ textAlign: 'center', padding: '28px 0', fontSize: 14,
+                          color: catalogErr ? '#c0392b' : MUT }}>
+              {catalogErr
+                ? 'Catalogue indisponible pour le moment — réessayez dans un instant.'
+                : 'Chargement du catalogue…'}
             </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0,1fr) 320px', gap: 20, alignItems: 'start' }}>
+                <BotConfigurator catalog={catalog} config={botConfig} onChange={onConfigChange} readOnly={!isOwnerDest} />
+                <PriceCart catalog={catalog} config={botConfig} />
+              </div>
+
+              {/* Récap facturable : si la compo a un coût (owner + total > 0), on
+                  rappelle que le paiement démarre l'abonnement (1er mois remisé). Le
+                  seul chemin de démarrage est le Checkout (carte) à la création. */}
+              {isOwnerDest && totalCents > 0 && (
+                <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 16, padding: '16px 20px', marginTop: 18 }}>
+                  <Label>À la création</Label>
+                  <div style={{ fontSize: 12.5, color: FAINT, lineHeight: 1.5 }}>
+                    Vous serez redirigé vers le paiement sécurisé pour saisir votre carte. Votre abonnement
+                    à {formatCents(totalCents, catalog.currency)} /mois démarre dès le paiement (1er mois
+                    remisé, voir le panier), puis se renouvelle automatiquement sauf si vous annulez depuis
+                    votre espace facturation.
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 12, marginTop: 24 }}>

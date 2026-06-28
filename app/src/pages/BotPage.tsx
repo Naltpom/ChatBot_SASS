@@ -33,7 +33,6 @@ import SecurityTab from '../components/bot-tabs/SecurityTab'
 import WidgetPreview from '../components/WidgetPreview'
 import BotConfigurator from '../components/billing/BotConfigurator'
 import PriceCart from '../components/billing/PriceCart'
-import { FALLBACK_CATALOG } from '../utils/billing'
 import type { Bot, Integration, Tree } from '../types/bot'
 import type {
   BillingCatalog, BotBilling, BotConfig, ModuleKey,
@@ -137,7 +136,11 @@ export default function BotPage() {
   // Gestion du plan EN APP (spec §1/§2) : catalogue (configurateur), bloc
   // « Modifier mon plan » ouvert + config en cours d'édition, application au
   // prorata (busy/err) et annulation fin de période (busy/err).
-  const [catalog, setCatalog] = useState<BillingCatalog>(FALLBACK_CATALOG)
+  // Catalogue = SOURCE UNIQUE backend (GET /api/billing/catalog). null tant qu'il
+  // n'est pas chargé ; catalogErr si l'appel échoue (état d'erreur PROPRE, jamais
+  // un repli de prix codé en dur).
+  const [catalog, setCatalog] = useState<BillingCatalog | null>(null)
+  const [catalogErr, setCatalogErr] = useState(false)
   // Amorcé depuis le wizard si présent (initialPlanConfig) ; sinon depuis
   // l'entitlement du bot (effet ci-dessous, sans écraser une édition en cours).
   const [planConfig, setPlanConfig] = useState<BotConfig | null>(initialPlanConfig)
@@ -205,15 +208,15 @@ export default function BotPage() {
   }, [botId])
 
   // Catalogue de facturation : chargé quand l'onglet Facturation est ouvert
-  // (sert le configurateur « Modifier mon plan »). Repli silencieux sur
-  // FALLBACK_CATALOG (déjà en état initial) si indisponible. Invariant billing
-  // OFF : l'onglet n'est pas visible (billingTabVisible) -> jamais d'appel.
+  // (sert le configurateur « Modifier mon plan »). SOURCE UNIQUE backend : en cas
+  // d'échec on affiche un état d'erreur (pas de prix codé en dur). Invariant
+  // billing OFF : l'onglet n'est pas visible (billingTabVisible) -> jamais d'appel.
   useEffect(() => {
     if (tab !== 'billing') return
     let alive = true
     api<BillingCatalog>('/api/billing/catalog')
-      .then(c => { if (alive) setCatalog(c) })
-      .catch(() => { /* repli FALLBACK_CATALOG */ })
+      .then(c => { if (alive) { setCatalog(c); setCatalogErr(false) } })
+      .catch(() => { if (alive) setCatalogErr(true) })
     return () => { alive = false }
   }, [tab])
 
@@ -709,7 +712,7 @@ export default function BotPage() {
         <BotBillingTab billing={botBilling} botName={bot.name}
                        onSubscribe={subscribeNow} subscribeBusy={subscribeBusy} subscribeErr={subscribeErr}
                        onPortal={openPortal} portalBusy={portalBusy} portalErr={portalErr}
-                       catalog={catalog} isMobile={isMobile}
+                       catalog={catalog} catalogErr={catalogErr} isMobile={isMobile}
                        planConfig={planConfig} onPlanChange={setPlanConfig}
                        onApplyPlan={applyPlan} planBusy={planBusy} planErr={planErr}
                        planConsent={planConsent} onConsentChange={setPlanConsent}
@@ -837,7 +840,7 @@ const SUB_STATUS_LABELS: Record<string, string> = {
 // actif (voir billingTabVisible / visibleTabs).
 function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribeErr,
                          onPortal, portalBusy, portalErr,
-                         catalog, isMobile,
+                         catalog, catalogErr, isMobile,
                          planConfig, onPlanChange,
                          onApplyPlan, planBusy, planErr, planConsent, onConsentChange,
                          onCancel, cancelBusy, cancelErr,
@@ -850,7 +853,8 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
   onPortal: () => void
   portalBusy: boolean
   portalErr: string
-  catalog: BillingCatalog
+  catalog: BillingCatalog | null
+  catalogErr: boolean
   isMobile: boolean
   planConfig: BotConfig | null
   onPlanChange: (next: BotConfig) => void
@@ -949,7 +953,13 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
               : 'La validation ouvre le paiement : 1er mois à tarif réduit, puis plein tarif (sans engagement, annulable à tout moment).'}
           </div>
         </div>
-        {planConfig && (
+        {!catalog ? (
+          <div style={{ fontSize: 12.5, color: catalogErr ? 'var(--danger)' : 'var(--mut)' }}>
+            {catalogErr
+              ? 'Catalogue indisponible pour le moment — réessayez dans un instant.'
+              : 'Chargement du catalogue…'}
+          </div>
+        ) : planConfig && (
           <div className="col" style={{ gap: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }}>
               <BotConfigurator catalog={catalog} config={planConfig} onChange={onPlanChange} />
@@ -1035,7 +1045,7 @@ function BotBillingTab({ billing, botName, onSubscribe, subscribeBusy, subscribe
           managé métré (metering_available, non BYOK, quota fini). Servir + facturer
           au-delà du quota, avec un plafond de sécurité. Défaut 'block' (rien ne
           change tant que l'owner n'active pas). */}
-      {billing.metering_available && !billing.ai_byok && quota != null && quota > 0 && (
+      {billing.metering_available && !billing.ai_byok && quota != null && quota > 0 && catalog && (
         <OverageCard billing={billing} catalog={catalog}
                      onToggleOverage={onToggleOverage} overageBusy={overageBusy} overageErr={overageErr} />
       )}

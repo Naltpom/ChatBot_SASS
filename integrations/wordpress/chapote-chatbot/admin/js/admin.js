@@ -548,7 +548,10 @@
   function renderPayment(pane) {
     clear(pane);
     pane.appendChild(h('p', { class: 'cbo-muted', text: 'Chargement de l’offre…' }));
-    // Bot + catalogue LIVE en parallèle (repli CFG.catalog si le proxy échoue).
+    // Bot + catalogue LIVE en parallèle. Le catalogue (prix/paliers/modules) est
+    // la SOURCE UNIQUE backend (proxy /catalog -> GET /api/account/catalog) : plus
+    // aucun repli de prix codé en dur côté plugin. Si le proxy échoue, on affiche
+    // un état d'erreur PROPRE.
     Promise.all([
       call('GET', '/bots/' + encodeURIComponent(state.botId)),
       call('GET', '/catalog')
@@ -556,11 +559,15 @@
       var botRes = r[0], catRes = r[1];
       if (!botRes.ok) { clear(pane); pane.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de charger ce bot.' })); return; }
       // billing OFF renvoie {billing:'disabled'} (sans `modules`) : le compter comme
-      // « live » pour que buildPaymentForm atteigne sa branche dédiée (sinon repli
-      // statique = configurateur payant affiché à tort sur un compte sans facturation).
+      // « live » pour que buildPaymentForm atteigne sa branche dédiée (compte sans
+      // facturation), sinon le tableau de modules est requis.
       var live = (catRes.ok && catRes.data && (Array.isArray(catRes.data.modules) || catRes.data.billing === 'disabled')) ? catRes.data : null;
-      var catalog = live || CFG.catalog || { modules: [], ai_tiers: [] };
-      buildPaymentForm(pane, botRes.data || {}, catalog);
+      if (!live) {
+        clear(pane);
+        pane.appendChild(h('p', { class: 'cbo-error', text: 'Catalogue indisponible pour le moment — réessayez dans un instant.' }));
+        return;
+      }
+      buildPaymentForm(pane, botRes.data || {}, live);
     });
   }
 
