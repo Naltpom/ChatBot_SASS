@@ -48,6 +48,9 @@ export interface User {
   name: string
   avatar_url?: string | null // photo de profil (SSO Google) ou null -> initiales
   auth_source: string // local | intranet | google
+  // Vérification souple de l'email : false -> bannière non bloquante (jamais un
+  // gate). Passe true via le lien de confirmation (/verify-email).
+  email_verified: boolean
   is_superadmin: boolean
   created_at?: string | null
   last_login?: string | null

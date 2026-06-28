@@ -230,7 +230,7 @@ export default function Login() {
                 />
                 Se souvenir de moi
               </label>
-              <button type="button" style={{ background: 'none', border: 'none', padding: 0, fontSize: 13.5, color: NAVY, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <button type="button" onClick={() => navigate('/forgot-password')} style={{ background: 'none', border: 'none', padding: 0, fontSize: 13.5, color: NAVY, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                 Mot de passe oublié ?
               </button>
             </div>

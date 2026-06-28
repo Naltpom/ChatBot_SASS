@@ -1,19 +1,26 @@
 """Auth dashboard : inscription perso/entreprise (+ invitations), login
-(intranet -> local), SSO Google, auto-login admin en dev, profil (nom, mdp)."""
+(intranet -> local), SSO Google, auto-login admin en dev, profil (nom, mdp),
+vérification souple de l'email + réinitialisation de mot de passe."""
+import asyncio
+import logging
 import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import (
+    account_fingerprint,
     create_dashboard_token,
+    create_password_reset_token,
     create_twofa_challenge_token,
+    create_verify_email_token,
+    decode_token,
     get_current_user,
     hash_password,
     user_has_2fa,
@@ -34,12 +41,51 @@ from src.models.user import (
 from src.core.time import utcnow
 from src.services.auth_service import AuthenticationError, authenticate
 from src.services.avatar import fetch_and_store_avatar
+from src.services.email_service import (
+    SUPPORT_EMAIL,
+    build_reset_email,
+    build_verify_email,
+    send_email,
+)
 from src.services.google_oauth import GoogleAuthError, verify_google_id_token
 from src.services.org_service import consume_invitations
 from src.services.rate_limit import auth_limiter
 from src.services.stripe_service import billing_enabled
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Longueur minimale du mot de passe — partagée par /register et /password/reset
+# (même règle de robustesse à l'inscription et à la réinitialisation).
+PASSWORD_MIN_LENGTH = 8
+
+# Tâches d'envoi d'email en fire-and-forget : référence forte conservée (sinon le
+# GC peut collecter la tâche avant la fin et avaler ses exceptions), même pattern
+# que services/action_executor._spawn_email.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_email(coro) -> None:
+    """Planifie un envoi d'email en tâche de fond (non bloquant). Ne lève jamais :
+    send_email avale déjà ses erreurs ; on logge l'éventuelle exception résiduelle."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+    def _log(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception() is not None:
+            logger.error("Envoi email auth échoué : %s", t.exception())
+
+    task.add_done_callback(_log)
+
+
+def _send_verify_email(user: User) -> None:
+    """Construit le lien de confirmation et envoie le mail (fire-and-forget)."""
+    token = create_verify_email_token(user.id, user.email)
+    link = f"{settings.APP_URL}/verify-email?token={token}"
+    subject, body = build_verify_email(user, link)
+    _spawn_email(send_email([user.email], subject, body, reply_to=SUPPORT_EMAIL))
 
 
 async def _check_auth_rate(request: Request) -> None:
@@ -152,6 +198,10 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
     await consume_invitations(db, user)
     await db.commit()
     await db.refresh(user)
+    # Vérification souple : le compte est déjà actif. On envoie le mail de
+    # confirmation en fire-and-forget — l'inscription ne bloque pas et n'échoue
+    # jamais si l'envoi (ou le SMTP) échoue.
+    _send_verify_email(user)
     return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
 
 
@@ -280,6 +330,88 @@ async def change_password(body: PasswordChange, request: Request,
         # Une faute de frappe ne doit pas deconnecter une session valide.
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Mot de passe actuel incorrect")
     if len(body.new_password) < 8:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Mot de passe trop court (8 caractères minimum)")
+    user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    return {"changed": True}
+
+
+# ---------- Vérification email (souple) + réinitialisation mot de passe ----------
+
+class TokenBody(BaseModel):
+    token: str
+
+
+class ForgotPasswordBody(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordBody(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/verify-email/request")
+async def request_email_verification(request: Request,
+                                     user: User = Depends(get_current_user)):
+    """(Re)envoie le mail de confirmation à l'utilisateur connecté. Idempotent :
+    si l'email est déjà vérifié, on ne renvoie rien (200). Anti-abus : passe par
+    le limiteur d'auth (par IP)."""
+    await _check_auth_rate(request)
+    if not user.email_verified:
+        _send_verify_email(user)
+    return {"sent": True}
+
+
+@router.post("/verify-email/confirm")
+async def confirm_email_verification(body: TokenBody, db: AsyncSession = Depends(get_db)):
+    """Valide le token de confirmation et passe email_verified=True. Idempotent
+    (déjà vérifié -> 200). Le token est lié à l'email courant : rejeté (401) s'il
+    a changé depuis l'émission."""
+    payload = decode_token(body.token, expected_scope="verify_email")
+    user = await db.get(User, int(payload["sub"]))
+    if user is None or payload.get("fp") != account_fingerprint(user.email):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Lien de confirmation invalide ou expiré")
+    if not user.email_verified:
+        user.email_verified = True
+        await db.commit()
+    return {"verified": True}
+
+
+@router.post("/password/forgot")
+async def forgot_password(body: ForgotPasswordBody, request: Request,
+                          db: AsyncSession = Depends(get_db)):
+    """Demande de réinitialisation. Réponse TOUJOURS neutre (200, même message)
+    que le compte existe ou non : aucune énumération d'utilisateurs. Si le compte
+    existe (et est un compte local actif), envoie le mail de réinitialisation."""
+    await _check_auth_rate(request)
+    email = body.email.lower().strip()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    # Comptes intranet/google : le mot de passe local n'est pas la source de
+    # vérité (réécrit/inutilisé) -> on n'envoie pas de lien, mais la réponse reste
+    # neutre (pas d'énumération du type de compte non plus).
+    if user is not None and user.is_active and user.auth_source == "local":
+        token = create_password_reset_token(user.id, user.hashed_password)
+        link = f"{settings.APP_URL}/reset-password?token={token}"
+        subject, mail_body = build_reset_email(user, link)
+        _spawn_email(send_email([user.email], subject, mail_body, reply_to=SUPPORT_EMAIL))
+    return {"message": "Si un compte existe pour cette adresse, un e-mail vient d'être envoyé."}
+
+
+@router.post("/password/reset")
+async def reset_password(body: ResetPasswordBody, request: Request,
+                         db: AsyncSession = Depends(get_db)):
+    """Applique un nouveau mot de passe via un token de réinitialisation valide.
+    Le token est lié au hash courant du mot de passe : changer le mot de passe
+    l'invalide (usage unique de fait). Mêmes règles de robustesse qu'à
+    l'inscription."""
+    await _check_auth_rate(request)
+    payload = decode_token(body.token, expected_scope="password_reset")
+    user = await db.get(User, int(payload["sub"]))
+    if user is None or payload.get("fp") != account_fingerprint(user.hashed_password):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Lien de réinitialisation invalide ou expiré")
+    if len(body.new_password) < PASSWORD_MIN_LENGTH:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             "Mot de passe trop court (8 caractères minimum)")
     user.hashed_password = hash_password(body.new_password)

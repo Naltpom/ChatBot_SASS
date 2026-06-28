@@ -10,6 +10,9 @@ import Showcase from './pages/Showcase'
 import Demo from './pages/Demo'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
+import VerifyEmail from './pages/VerifyEmail'
 import Authorize from './pages/Authorize'
 import BotList from './pages/BotList'
 import BotWizard from './pages/BotWizard'
@@ -117,6 +120,11 @@ export function AppRoutes() {
       <Route path="/demo" element={<Demo />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      {/* Vérification email (souple) + réinitialisation de mot de passe. Routes
+          publiques à la racine : les liens des e-mails (APP_URL/...) pointent ici. */}
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       {/* Consentement OAuth du plugin WordPress (Authorization Code + PKCE).
           Auth gérée DANS la page : si non connecté, elle mémorise le retour
           puis renvoie vers /login (cbsaas_after_login). */}

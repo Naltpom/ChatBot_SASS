@@ -5,6 +5,7 @@ Deux types de tokens, distingues par le claim `scope` :
 - scope="widget"    : session ephemere d'un visiteur sur un site client,
                       liee a un bot + un domaine + une conversation
 """
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Optional
 
@@ -86,6 +87,40 @@ async def user_has_2fa(db: AsyncSession, user: "User") -> bool:
         select(WebAuthnCredential.id).where(WebAuthnCredential.user_id == user.id).limit(1)
     )
     return n.first() is not None
+
+
+# --- Tokens de compte signés (vérification email / réinitialisation mot de
+# passe) : stateless, AUCUNE table dédiée (même SECRET/algo que l'auth). Le
+# claim `fp` lie la signature à un état courant du compte (email ou hash du mot
+# de passe) : dès que cet état change, le token est rejeté -> lien à usage unique
+# de fait (le lien de reset casse une fois le mot de passe changé). ---
+VERIFY_EMAIL_EXPIRE_HOURS = 48
+PASSWORD_RESET_EXPIRE_MINUTES = 60
+
+
+def account_fingerprint(value: str) -> str:
+    """Empreinte courte (sha256 tronqué) liant un token signé à un état du compte
+    (email courant / hash du mot de passe), sans exposer la valeur elle-même."""
+    return hashlib.sha256(value.encode()).hexdigest()[:16]
+
+
+def create_verify_email_token(user_id: int, email: str) -> str:
+    """Token de confirmation d'email (48h), lié à l'email courant (rejeté si
+    l'email change ensuite)."""
+    return _encode(
+        {"sub": str(user_id), "scope": "verify_email", "fp": account_fingerprint(email)},
+        timedelta(hours=VERIFY_EMAIL_EXPIRE_HOURS),
+    )
+
+
+def create_password_reset_token(user_id: int, hashed_password: str) -> str:
+    """Token de réinitialisation (1h), lié au hash courant du mot de passe :
+    changer le mot de passe invalide le lien (usage unique de fait)."""
+    return _encode(
+        {"sub": str(user_id), "scope": "password_reset",
+         "fp": account_fingerprint(hashed_password)},
+        timedelta(minutes=PASSWORD_RESET_EXPIRE_MINUTES),
+    )
 
 
 def create_widget_token(bot_id: int, conversation_id: str, domain: str) -> str:
