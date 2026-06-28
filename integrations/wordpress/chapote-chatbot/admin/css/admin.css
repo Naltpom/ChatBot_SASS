@@ -127,10 +127,14 @@
 .cbo-statusline { background: #edfaf4; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; }
 .cbo-danger { color: #b32d2e; border-color: #b32d2e; }
 
+/* Bouton stylé comme un lien (action qui ne navigue pas, a11y : <button>) */
+.cbo-linkbtn { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: #2271b1; text-decoration: underline; cursor: pointer; }
+.cbo-linkbtn:hover { color: #135e96; }
+
 /* Activation */
 .cbo-freenote { background: #f0f6fc; border-left: 4px solid #72aee6; border-radius: 6px; padding: 11px 14px; margin-bottom: 16px; }
 .cbo-freenote p { margin: 0; color: #3c5a72; }
-.cbo-freenote a { white-space: nowrap; }
+.cbo-freenote a, .cbo-freenote .cbo-linkbtn { white-space: nowrap; }
 .cbo-toggle { margin: 12px 0 18px; }
 .cbo-targetmodes { display: flex; gap: 18px; }
 .cbo-custom { background: #f6f7f7; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; margin: 10px 0; }
