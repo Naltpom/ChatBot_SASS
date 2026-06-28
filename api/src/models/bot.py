@@ -67,7 +67,7 @@ DEFAULT_DESIGN = {
     # --- Personnalisation étendue (lot apparence). Rétro-compat : un design
     # existant SANS ces clés rend pixel-identique (défauts = rendu actuel).
     # Toute nouvelle clé doit aussi être bornée dans routers/widget.py
-    # (_sanitize_design) : c'est LÀ que vit la sanitisation (au bootstrap).
+    # (widget_helpers.sanitize_design) : c'est LÀ que vit la sanitisation (bootstrap).
     "font": "system",              # system | serif | mono (aucune police externe chargée)
     "headerStyle": "solid",        # solid (en-tête brand) | soft (en-tête clair) | gradient (dégradé marque)
     "darkMode": False,             # palette sombre du panneau (couleur de marque conservée)
@@ -78,7 +78,7 @@ DEFAULT_DESIGN = {
     "offsetY": 18,                 # marge basse (0-120 px)
     "locale": "fr",                # auto | fr | en — langue de l'UI du widget
     # --- Apparence v2 (lot redesign). Rétro-compat : défauts = rendu actuel.
-    # Toute nouvelle clé est aussi bornée dans widget_helpers._sanitize_design.
+    # Toute nouvelle clé est aussi bornée dans widget_helpers.sanitize_design.
     # LANCEUR
     "launcherShape": "round",      # round (cercle, actuel) | pill (stade) | square (carré arrondi)
     "launcherAnimation": "none",   # none (actuel) | float (bob doux) | pulse (halo)

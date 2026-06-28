@@ -4,7 +4,6 @@ snippets d'integration (script HTML, iframe, GTM).
 
 Les helpers d'acces/permission et la validation metier des champs riches sont
 factorises dans routers/bots_helpers.py (partages avec inbox.py et kb.py)."""
-import calendar
 import logging
 from datetime import timedelta
 from typing import Any
@@ -19,12 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.billing_keys import _bot_limiter_key, billing_owner_user_id
 from src.core.config import settings
 from src.core.constants import (
-    MODULE_ACTIONS,
-    MODULE_AB,
     MODULE_AI,
     MODULE_KEYS,
-    MODULE_MCP,
-    MODULE_WHITELABEL,
     is_metered_code,
 )
 from src.core.database import get_db
@@ -36,7 +31,7 @@ from src.core.security import (
 )
 from src.core.time import utcnow
 from src.models.analytics import InsightsReport, InsightsReportOut
-from src.models.billing import BillingSubscription, BotEntitlement
+from src.models.billing import BillingSubscription
 from src.models.bot import Bot, BotCreate, BotOut, BotUpdate
 from src.models.conversation import Conversation, Message
 from src.models.lead import Lead, LeadOut
@@ -53,6 +48,11 @@ from src.routers.bots_helpers import (
     _merge_action_secrets,
     _merge_mcp_secrets,
     attach_week_stats,
+)
+from src.services.bot_service import (
+    billing_status_for_bots as _billing_status_for_bots,
+    enforce_config_modules as _enforce_config_modules,
+    strip_notnull_nulls as _strip_notnull_nulls,
 )
 from src.services.crypto import encrypt_secret
 from src.services.entitlement_service import (
@@ -140,39 +140,6 @@ async def list_my_bots(db: AsyncSession = Depends(get_db), user: User = Depends(
         bo = _mask_bot_out(BotOut.from_bot(b), user, membership, b)
         bo.billing_status, bo.trial_end = billing.get(b.id, (None, None))
         out.append(attach_week_stats(bo, b.id, week))
-    return out
-
-
-async def _billing_status_for_bots(
-    db: AsyncSession, bot_ids: list[int]
-) -> dict[int, tuple[str | None, int | None]]:
-    """billing_status + trial_end (epoch s) par bot, pour le badge front (regle 4).
-
-    INVARIANT billing OFF (D0) : billing_enabled()==False -> {} (tous les bots
-    ressortent (None, None), aucun badge). Sinon on lit les bot_entitlements en
-    UN seul select : status = le statut de la ligne (trialing|active|past_due|
-    inactive|suspended), un bot sans ligne (legacy/dev) reste None. trial_end
-    n'est porte que pour un status='trialing'."""
-    if not billing_enabled() or not bot_ids:
-        return {}
-    rows = (await db.execute(
-        select(BotEntitlement).where(BotEntitlement.bot_id.in_(bot_ids))
-    )).scalars().all()
-    out: dict[int, tuple[str | None, int | None]] = {}
-    for row in rows:
-        # 'canceled' (legacy) est replié sur 'inactive' (= paiement requis) ; les
-        # autres statuts hors liste -> None (aucun badge).
-        raw = row.status
-        if raw == "canceled":
-            status_ = "inactive"
-        elif raw in ("trialing", "active", "past_due", "inactive", "suspended"):
-            status_ = raw
-        else:
-            status_ = None
-        trial_end: int | None = None
-        if row.status == "trialing" and row.trial_end is not None:
-            trial_end = calendar.timegm(row.trial_end.utctimetuple())
-        out[row.bot_id] = (status_, trial_end)
     return out
 
 
@@ -358,16 +325,8 @@ async def get_bot(bot_id: int, db: AsyncSession = Depends(get_db), user: User = 
 # Colonnes JSON/int NOT NULL : un null explicite serait persiste (JSON null) ou
 # violerait l'integrite -> bot illisible (tous les GET en 500). tree_variant_json
 # n'y figure PAS : null explicite = desactivation voulue de la variante A/B.
-_NOTNULL_NO_NULL_FIELDS = ("actions_json", "tree_json", "design_json", "allowed_domains",
-                           "mcp_servers_json", "triggers_json", "ab_split_pct")
-
-
-def _strip_notnull_nulls(data: dict) -> None:
-    """Retire (in place) les null explicites visant des colonnes NOT NULL,
-    AVANT la boucle setattr (sinon JSON null persiste / integrite violee)."""
-    for field in _NOTNULL_NO_NULL_FIELDS:
-        if field in data and data[field] is None:
-            data.pop(field)
+# `_strip_notnull_nulls` (+ sa constante) et `_enforce_config_modules` sont
+# déplacés dans services/bot_service (PR-19) et ré-exposés en tête via alias.
 
 
 def _enforce_field_perms(user: User, membership: "Membership | None", bot: Bot, data: dict) -> None:
@@ -434,62 +393,6 @@ async def _apply_secrets(bot: Bot, data: dict, ent) -> None:
         bot.byok_key_encrypted = encrypt_secret(data.pop("byok_key"))
     if "captcha_secret" in data:
         bot.captcha_secret_encrypted = encrypt_secret(data.pop("captcha_secret"))
-
-
-def _enforce_config_modules(bot: Bot, data: dict, ent) -> None:
-    """Enforcement CONFIG des modules forfaitaires au PATCH (spec §3.3).
-
-    Check d'entitlement AVANT l'effet : modifier une capacite payante d'un bot
-    non souscrit -> 402 (mode enforce) ou log-only (mode observe). Billing OFF /
-    bot sans entitlement -> ALL_UNLOCKED -> `gate` no-op (invariant D0).
-
-    - Module IA : toucher `mode` (ai|hybrid) / `system_prompt` / `ai_provider`
-      / `ai_model` -> MODULE_AI.
-    - Module Actions : `actions_json` non vide -> MODULE_ACTIONS (webhooks /
-      capture de leads / tickets / créneaux : exécutables dans un arbre SANS IA).
-    - Module MCP : `mcp_servers_json` non vide -> MODULE_MCP (serveurs MCP appelés
-      par l'IA).
-    - Module A/B : `tree_variant_json` non null OU `ab_split_pct>0` -> MODULE_AB.
-    - Module White-label : `design_json.poweredBy` mis a FALSY (retrait du badge
-      « Powered by ») -> MODULE_WHITELABEL. Les autres champs d'apparence
-      (couleurs, polices...) restent GRATUITS (socle apparence libre).
-
-    Partage par le PATCH et l'import de config (meme gate, meme 402).
-    """
-    # --- IA ---
-    touches_ai = (
-        ("mode" in data and data["mode"] in ("ai", "hybrid"))
-        or "system_prompt" in data
-        or "ai_provider" in data
-        or "ai_model" in data
-    )
-    if touches_ai:
-        gate(ent, MODULE_AI)
-
-    # --- Actions --- (webhooks/leads/tickets/créneaux : exécutables SANS IA)
-    if data.get("actions_json"):
-        gate(ent, MODULE_ACTIONS)
-    # --- MCP --- (serveurs MCP appelés par l'IA)
-    if data.get("mcp_servers_json"):
-        gate(ent, MODULE_MCP)
-
-    # --- A/B --- tree_variant_json non-null = variante active ; ab_split_pct>0 =
-    # split actif. _strip_notnull_nulls a deja retire un ab_split_pct null ; un
-    # tree_variant_json explicitement null = desactivation (jamais gate).
-    variant_set = data.get("tree_variant_json") is not None and "tree_variant_json" in data
-    split_set = isinstance(data.get("ab_split_pct"), int) and data["ab_split_pct"] > 0
-    if variant_set or split_set:
-        gate(ent, MODULE_AB)
-
-    # --- White-label --- retirer le badge « Powered by » (poweredBy falsy dans le
-    # design entrant) exige le module. SEUL poweredBy=false est gate : toutes les
-    # autres cles d'apparence (couleurs, police, themes...) restent gratuites.
-    # SEUL un retrait explicite est gate (la cle doit etre presente ET falsy) ;
-    # garder poweredBy=true, ou ne pas toucher au design, ne gate jamais. Belt &
-    # suspenders : widget.py force poweredBy=true au bootstrap sans le module.
-    design = data.get("design_json")
-    if isinstance(design, dict) and "poweredBy" in design and not design["poweredBy"]:
-        gate(ent, MODULE_WHITELABEL)
 
 
 def _merge_rich_collections(bot: Bot, data: dict) -> None:
