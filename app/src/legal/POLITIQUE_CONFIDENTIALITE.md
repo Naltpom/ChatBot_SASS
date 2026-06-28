@@ -9,7 +9,7 @@ La présente politique décrit comment **Chapote** (« nous ») traite les donn�
 - Pour les données des **Clients/Utilisateurs** du Service (compte, facturation, usage), **Chapote agit en responsable de traitement**.
 - Pour les données des **Visiteurs** collectées via un Bot installé sur le site d'un Client (conversations, formulaires, leads), **le Client est responsable de traitement** et **Chapote agit en sous‑traitant**, sur instruction du Client.
 
-Coordonnées : [À COMPLÉTER — raison sociale, adresse, e‑mail]. Délégué à la protection des données (DPO), le cas échéant : [À COMPLÉTER].
+Coordonnées : [À COMPLÉTER — raison sociale, adresse], e‑mail : rgpd@chapote.fr. Délégué à la protection des données (DPO), le cas échéant : [À COMPLÉTER].
 
 ## 2. Données traitées
 
@@ -43,7 +43,7 @@ Nous faisons appel à des prestataires agissant comme sous‑traitants ultérieu
 - **Paiement :** Stripe Payments Europe, Ltd.
 - **Fournisseurs d'IA :** selon le modèle utilisé — Anthropic, OpenAI, Google (Gemini). En mode **BYOK**, le Client utilise sa propre clé et sa propre relation contractuelle avec le fournisseur.
 - **Protection anti‑robot (captcha) :** **Cloudflare, Inc.** — widget **Turnstile** (mode invisible) protégeant le handshake du Widget et la démo publique `/demo`. À cette fin, l'**adresse IP** du visiteur et des **signaux techniques du navigateur** sont transmis à Cloudflare à des fins de vérification ; **aucun cookie publicitaire** n'est utilisé. Ce traitement est encadré par le **Cloudflare Turnstile Privacy Addendum** [lien officiel à insérer — cloudflare.com].
-- **Envoi d'e‑mails / notifications :** [À COMPLÉTER le cas échéant].
+- **Envoi d'e‑mails / notifications :** **OVH SAS** (service Email Pro, serveurs situés dans l'Union européenne).
 
 Les données ne sont **ni vendues, ni louées**. Des transferts hors UE peuvent intervenir chez certains fournisseurs d'IA ; ils sont encadrés par des **clauses contractuelles types** ou un mécanisme de transfert valide [À COMPLÉTER / VÉRIFIER].
 
@@ -63,7 +63,7 @@ Nous mettons en œuvre des mesures techniques et organisationnelles : chiffremen
 Toute personne dispose des droits d'**accès, rectification, effacement, limitation, opposition et portabilité**, ainsi que du droit de définir des directives post‑mortem.
 
 - **Visiteurs :** ces droits s'exercent en principe auprès du **Client** (responsable de traitement) dont le Bot a collecté les données ; nous relayons les demandes au Client.
-- **Clients/Utilisateurs :** exercice auprès de [À COMPLÉTER — e‑mail].
+- **Clients/Utilisateurs :** exercice auprès de rgpd@chapote.fr.
 
 Vous pouvez introduire une réclamation auprès de la **CNIL** (www.cnil.fr).
 
@@ -77,4 +77,4 @@ La présente politique peut être mise à jour ; la version applicable est celle
 
 ## 10. Contact
 
-Pour toute question relative aux données personnelles : [À COMPLÉTER — e‑mail de contact / DPO].
+Pour toute question relative aux données personnelles : rgpd@chapote.fr.

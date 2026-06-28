@@ -26,7 +26,10 @@ export function Footer() {
                   // en <button> (focusables, pas de saut en haut). Ancres « #x » :
                   // sur la landing → <a> (saut natif même page) ; hors landing →
                   // <Link to="/#x"> (nav SPA vers l'accueil + ScrollToHash App.tsx).
-                  link.href.startsWith('/')
+                  // mailto:/externes → <a> brut (pas de routage SPA).
+                  link.href.startsWith('mailto:') || link.href.startsWith('http')
+                    ? <a key={link.label + i} className="ch-flink" href={link.href}>{link.label}</a>
+                    : link.href.startsWith('/')
                     ? <Link key={link.label + i} className="ch-flink" to={link.href}>{link.label}</Link>
                     : link.href === '#'
                       ? <button key={link.label + i} type="button" className="ch-flink" style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}>{link.label}</button>
