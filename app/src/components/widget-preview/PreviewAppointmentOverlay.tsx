@@ -3,6 +3,7 @@
 import { CalendarDays } from 'lucide-react'
 import { hostnameOf } from './shared'
 import type { PreviewStyle, T } from './shared'
+import { safeHref } from '../../utils/url'
 
 export default function PreviewAppointmentOverlay({ url, st, t, onClose }: {
   url: string
@@ -11,6 +12,9 @@ export default function PreviewAppointmentOverlay({ url, st, t, onClose }: {
   onClose: () => void
 }) {
   const { bg, brand, panelBg, mutedText } = st
+  // URL de calendrier (config/saisie) -> valide le schéma avant de la rendre
+  // cliquable (anti-XSS javascript:/data:) ; sinon pas de lien.
+  const safe = safeHref(url)
   return (
     <div style={{ position: 'absolute', inset: 0, background: panelBg, zIndex: 50, display: 'flex', flexDirection: 'column' }}>
       <div style={{ background: bg, color: '#fff', padding: '12px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -28,9 +32,11 @@ export default function PreviewAppointmentOverlay({ url, st, t, onClose }: {
         <div style={{ fontSize: 12.5, color: mutedText, lineHeight: 1.55, maxWidth: 250 }}>
           Aperçu : le calendrier ({hostnameOf(url)}) s'affiche ici dans le widget réel.
         </div>
-        <a href={url} target="_blank" rel="noopener noreferrer" style={{
-          fontSize: 12.5, fontWeight: 700, color: brand, textDecoration: 'underline',
-        }}>{t('open_new_tab')}</a>
+        {safe && (
+          <a href={safe} target="_blank" rel="noopener noreferrer" style={{
+            fontSize: 12.5, fontWeight: 700, color: brand, textDecoration: 'underline',
+          }}>{t('open_new_tab')}</a>
+        )}
       </div>
     </div>
   )
