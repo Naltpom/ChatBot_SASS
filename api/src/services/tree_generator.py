@@ -109,21 +109,20 @@ def _sanitize_tree(tree: dict) -> dict:
 
 
 async def fetch_page_text(url: str) -> str:
-    """Récupère une page d'aide et en extrait le texte brut (sans balises)."""
-    if not url.startswith(("http://", "https://")):
-        raise TreeGenerationError("URL invalide (http/https uniquement)")
-    try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Chapote TreeBuilder)"})
-            resp.raise_for_status()
-            html = resp.text
-    except httpx.HTTPError as e:
-        raise TreeGenerationError(f"Impossible de récupérer la page : {e}") from e
+    """Récupère une page d'aide (fetch SSRF-safe, redirections suivies) et en
+    extrait le texte brut.
 
-    # Extraction texte naïve : on retire scripts/styles puis toutes les balises
-    html = re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>", " ", html)
-    text = re.sub(r"(?s)<[^>]+>", " ", html)
-    text = re.sub(r"\s+", " ", text).strip()
+    Délègue à `kb_service.fetch_user_url` (porte unique anti-SSRF : https imposé,
+    rejet des IP non publiques, épinglage anti-rebinding, lecture bornée). Le
+    `http://` et le fetch laxiste d'origine sont supprimés — une URL non https ou
+    interne lève FetchError, traduite ici en TreeGenerationError (message FR)."""
+    # Import local (comme bots.py) : évite de charger kb_service/embeddings au
+    # simple import de tree_generator (importé largement, dont par la démo).
+    from src.services.kb_service import FetchError, fetch_user_url
+    try:
+        text = await fetch_user_url(url)
+    except FetchError as e:
+        raise TreeGenerationError(f"Impossible de récupérer la page : {e}") from e
     if len(text) < 100:
         raise TreeGenerationError("La page ne contient pas assez de texte exploitable")
     return text[:MAX_SOURCE_CHARS]

@@ -1,8 +1,8 @@
 """Tests de la démo publique « 1 URL -> chatbot » (routers/public.py + demo_service).
 
 Sans réseau ni vraie DB : on réutilise les fixtures conftest (overrides ->
-FakeSession + client httpx ASGI), on monkeypatche src.services.tree_jobs.safe_get
-(point d'injection réseau du pipeline) et on s'appuie sur MOCK_AI=true (défaut) ->
+FakeSession + client httpx ASGI), on monkeypatche src.services.tree_jobs.fetch_user_url
+(porte unique anti-SSRF du pipeline) et on s'appuie sur MOCK_AI=true (défaut) ->
 generate_tree renvoie MOCK_TREE sans appeler Gemini.
 
 Lancement : pytest tests/test_demo_public.py -q  (depuis api/).
@@ -15,7 +15,7 @@ from src.services import rate_limit
 from src.services.safe_fetch import FetchError
 from src.services.tree_generator import MOCK_TREE
 
-RICH_HTML = "<html><body>" + "Contenu d'aide riche et exploitable. " * 8 + "</body></html>"
+RICH_TEXT = "Contenu d'aide riche et exploitable. " * 8
 
 
 # --- Helpers de monkeypatch des limiteurs (déterministe, hors mémoire process) --
@@ -39,14 +39,14 @@ def pass_limits(monkeypatch):
 
 @pytest.fixture
 def fake_fetch(monkeypatch):
-    """safe_get -> HTML riche, avec compteur d'appels (0 sur un cache hit)."""
+    """fetch_user_url -> texte riche, avec compteur d'appels (0 sur un cache hit)."""
     calls = {"n": 0}
 
-    async def _safe_get(url, max_bytes):
+    async def _fetch(url):
         calls["n"] += 1
-        return RICH_HTML
+        return RICH_TEXT
 
-    monkeypatch.setattr("src.services.tree_jobs.safe_get", _safe_get)
+    monkeypatch.setattr("src.services.tree_jobs.fetch_user_url", _fetch)
     return calls
 
 
@@ -147,9 +147,9 @@ async def test_demo_http_rejected_422(client, db, overrides, pass_limits):
 
 @pytest.mark.asyncio
 async def test_demo_unreachable_url_422(client, db, overrides, pass_limits, monkeypatch):
-    async def _boom(url, max_bytes):
+    async def _boom(url):
         raise FetchError("hôte injoignable")
-    monkeypatch.setattr("src.services.tree_jobs.safe_get", _boom)
+    monkeypatch.setattr("src.services.tree_jobs.fetch_user_url", _boom)
     async with client as c:
         r = await c.post("/api/public/demo-tree", json={"url": "https://injoignable.invalid"})
     assert r.status_code == 422
