@@ -11,6 +11,11 @@
 
   var CFG = window.CHAPOTE_BO || {};
 
+  // Repli ultime du prix BYOK (en centimes) si le catalogue live n'expose ni
+  // module 'ai'.byok_price_cents ni catalog.ai_byok_price_cents. En pratique le
+  // catalogue live fournit toujours la valeur ; ce défaut n'est qu'un garde-fou.
+  var DEFAULT_BYOK_PRICE_CENTS = 2900;
+
   /* ------------------------------------------------------------------ utils */
 
   function h(tag, attrs) {
@@ -584,7 +589,7 @@
     var payableModules = allModules.filter(function (m) { return m.key !== 'ai'; });
     var byokCents = (aiModule && aiModule.byok_price_cents != null)
       ? aiModule.byok_price_cents
-      : (catalog.ai_byok_price_cents != null ? catalog.ai_byok_price_cents : 2900);
+      : (catalog.ai_byok_price_cents != null ? catalog.ai_byok_price_cents : DEFAULT_BYOK_PRICE_CENTS);
 
     // Facturation désactivée côté compte : on n'affiche pas le configurateur.
     if (catalog.billing === 'disabled') {

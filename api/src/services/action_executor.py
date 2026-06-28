@@ -40,6 +40,9 @@ logger = logging.getLogger(__name__)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MAX_ARGS_CHARS = 4000
 _MAX_RESULT_CHARS = 2000
+# Nombre max de créneaux Cal.com retenus lors du compactage (_compact_slots) :
+# borne le contexte renvoyé au modèle. Valeur INCHANGÉE, extraite du littéral.
+SLOT_COMPACT_THRESHOLD = 40
 
 # Notifications email envoyees en fire-and-forget (la reponse au modele ne doit
 # pas attendre l'email). Le pattern (reference forte + log d'exception) est
@@ -246,12 +249,12 @@ def _compact_slots(data: dict, tz: str) -> dict:
     days: dict[str, list[str]] = {}
     total = 0
     for _, entries in sorted(raw.items()):
-        if total >= 40:
+        if total >= SLOT_COMPACT_THRESHOLD:
             break
         if not isinstance(entries, list):
             continue
         for entry in entries:
-            if total >= 40:
+            if total >= SLOT_COMPACT_THRESHOLD:
                 break
             if isinstance(entry, dict):
                 value = entry.get("start") or entry.get("time")

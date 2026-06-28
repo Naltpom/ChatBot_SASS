@@ -50,6 +50,12 @@ _MOCK_MCP_RE = re.compile(r"^!mcp ([a-z0-9_]+)(?:\s+(\{.*\}))?$")
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+# Bornes communes à tous les providers (valeurs INCHANGÉES, extraites en
+# constantes nommées) : plafond de tokens générés par réponse chat, et timeout
+# HTTP (secondes) du client réutilisé sur tous les tours de la boucle tool-use.
+AI_MAX_TOKENS = 1024
+AI_TIMEOUT_S = 60
+
 # provider -> nom de l'attribut settings (lu PARESSEUSEMENT au call-time via
 # getattr dans resolve_api_key : indispensable au monkeypatch des tests).
 MANAGED_KEYS = {
@@ -325,12 +331,12 @@ async def _call_anthropic(api_key: str, bot: Bot, system: str,
     messages = list(history)
     tokens_in = tokens_out = 0
     last_text = ""
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
         for turn in range(MAX_TOOL_TURNS):
             result = await call_messages(
                 api_key=api_key,
                 model=bot.ai_model,
-                max_tokens=1024,
+                max_tokens=AI_MAX_TOKENS,
                 temperature=temperature,
                 system=system,
                 messages=messages,
@@ -381,12 +387,12 @@ async def _call_openai(api_key: str, bot: Bot, system: str,
     messages = [{"role": "system", "content": system}, *history]
     tokens_in = tokens_out = 0
     last_text = ""
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
         for turn in range(MAX_TOOL_TURNS):
             payload = {
                 "model": bot.ai_model,
                 "temperature": temperature,
-                "max_tokens": 1024,
+                "max_tokens": AI_MAX_TOKENS,
                 "messages": messages,
             }
             if tools:
@@ -452,7 +458,7 @@ async def _call_gemini(api_key: str, bot: Bot, system: str,
         {"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]}
         for m in history
     ]
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
         resp = await client.post(
             GEMINI_URL.format(model=bot.ai_model),
             params={"key": api_key},
@@ -462,7 +468,7 @@ async def _call_gemini(api_key: str, bot: Bot, system: str,
                 # thinkingConfig=0 : gemini-2.5-flash est un modele "thinking",
                 # sans ca le raisonnement interne mange les 1024 tokens et la
                 # reponse chat revient vide.
-                "generationConfig": {"temperature": temperature, "maxOutputTokens": 1024,
+                "generationConfig": {"temperature": temperature, "maxOutputTokens": AI_MAX_TOKENS,
                                      "thinkingConfig": {"thinkingBudget": 0}},
             },
         )
