@@ -44,10 +44,20 @@ class AuthorizeIn(BaseModel):
     code_challenge: str
     code_challenge_method: str = "S256"
     scope: str = "plugin"
+    # Confirmation explicite d'AJOUT d'un nouveau site quand l'utilisateur a déjà
+    # des domaines enregistrés (re-consentement). Sans elle, un hôte non enregistré
+    # est refusé (anti consent-phishing). Le 1er domaine d'un user s'auto-enregistre.
+    confirm_unregistered: bool = False
 
 
 class AuthorizeOut(BaseModel):
     redirect_url: str
+
+
+class AuthorizePreviewOut(BaseModel):
+    valid: bool
+    host: str | None = None
+    requires_confirmation: bool = False
 
 
 class TokenIn(BaseModel):
@@ -65,40 +75,28 @@ def _ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _redirect_uri_ok(uri: str) -> bool:
-    """redirect_uri du client public 'chapote_wp' : DOIT être la page admin du
-    plugin WordPress (allowlist de FORME, pas un redirect_uri arbitraire).
-
-    Anti-prise de contrôle de compte (OAuth) : sans contrainte, un attaquant peut
-    fabriquer une URL d'autorisation pointant vers un domaine qu'il contrôle, faire
-    cliquer « Autoriser » à un utilisateur Chapote connecté, et récupérer le code →
-    échange (il détient le code_verifier qu'il a généré) → token sur le compte de la
-    victime. PKCE NE protège PAS ce phishing de consentement (l'initiateur a le
-    verifier). On borne donc à : URL absolue, https (http toléré uniquement sur
-    localhost/127.0.0.1 en dev), pas d'userinfo, et chemin/param de la page admin du
-    plugin. Le consentement (domaine affiché) reste la défense de tête."""
-    parsed = urlparse(uri or "")
-    if not parsed.netloc or parsed.username or parsed.password:
-        return False
-    if parsed.scheme == "https":
-        pass
-    elif parsed.scheme == "http" and not settings.is_production:
-        host = (parsed.hostname or "").lower()
-        if not (host == "localhost" or host == "127.0.0.1" or host.startswith("127.") or host == "::1"):
-            return False
-    else:
-        return False
-    # Forme RESTREINTE à la page admin du plugin (endswith gère les installs WP en
-    # sous-répertoire, ex. /blog/wp-admin/admin.php).
-    if not parsed.path.endswith("/wp-admin/admin.php"):
-        return False
-    # Slug de la page admin du plugin : 'chapote-chatbot' (nouveau) ou
-    # 'chapote-backoffice' (anciennes installs encore déployées) — transition.
-    query = parsed.query or ""
-    return "page=chapote-chatbot" in query or "page=chapote-backoffice" in query
-
-
 # --- Surface DASHBOARD (page /authorize, get_current_user) -----------------
+
+@router.get("/authorize/preview", response_model=AuthorizePreviewOut)
+async def authorize_preview(
+    redirect_uri: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Le front AFFICHE le bon écran de consentement sans RE-DÉCIDER la validité :
+    cet endpoint dit si le redirect_uri est de forme valide et si son hôte est déjà
+    enregistré pour l'utilisateur. `requires_confirmation` = hôte valide mais non
+    enregistré ALORS QUE l'user a déjà des sites → ajout d'un 2e site à confirmer
+    explicitement (re-consentement). La décision d'émettre le code reste serveur."""
+    host = svc.validated_redirect_host(
+        redirect_uri, allow_insecure_localhost=not settings.is_production
+    )
+    if host is None:
+        return AuthorizePreviewOut(valid=False)
+    domains = await svc.registered_domains(db, user.id)
+    return AuthorizePreviewOut(
+        valid=True, host=host, requires_confirmation=host not in domains and bool(domains)
+    )
 
 @router.post("/authorize", response_model=AuthorizeOut)
 async def authorize(
@@ -118,8 +116,19 @@ async def authorize(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "scope non supporté")
     if body.code_challenge_method != "S256" or not body.code_challenge:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "PKCE requis (code_challenge_method=S256)")
-    if not _redirect_uri_ok(body.redirect_uri):
+    host = svc.validated_redirect_host(
+        body.redirect_uri, allow_insecure_localhost=not settings.is_production
+    )
+    if host is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "redirect_uri invalide")
+    # Allowlist par utilisateur (anti consent-phishing §3.2) : un hôte non
+    # enregistré n'est accepté que si l'user n'a encore AUCUN domaine (bootstrap au
+    # 1er consentement) ou s'il confirme explicitement l'ajout d'un nouveau site.
+    domains = await svc.registered_domains(db, user.id)
+    if host not in domains:
+        if domains and not body.confirm_unregistered:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "redirect_uri non enregistré")
+        await svc.register_domain(db, user.id, host)
     code = await svc.create_authorization_code(
         db,
         user_id=user.id,

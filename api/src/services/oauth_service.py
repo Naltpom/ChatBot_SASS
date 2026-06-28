@@ -17,10 +17,13 @@ pattern que les constantes 2FA de core/security)."""
 import base64
 import hashlib
 import hmac
+import re
 import secrets
 from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import (
@@ -30,7 +33,73 @@ from src.core.security import (
     create_oauth_token,
 )
 from src.core.time import utcnow
-from src.models.oauth import OAuthAuthorizationCode, OAuthToken
+from src.models.oauth import OAuthAuthorizationCode, OAuthRedirectDomain, OAuthToken
+
+# Slugs de la page admin du plugin WP : 'chapote-chatbot' (actuel) ou
+# 'chapote-backoffice' (anciennes installs en transition).
+_PLUGIN_ADMIN_PAGES = ("chapote-chatbot", "chapote-backoffice")
+
+# Hôte LDH (letters-digits-hyphen) : seuls les caractères d'un nom de domaine DNS
+# légitime. Bloque les différentiels de parseur (backslash, tab/CR, unicode brut)
+# qui pourraient faire diverger l'hôte stocké de l'hôte réellement contacté.
+# Punycode (xn--…) reste accepté (uniquement [a-z0-9.-]).
+_LDH_HOST = re.compile(r"^[a-z0-9.-]+$")
+
+
+def validated_redirect_host(uri: str, *, allow_insecure_localhost: bool) -> str | None:
+    """Valide la FORME du redirect_uri (page admin du plugin WP) et renvoie son
+    hôte EXACT en minuscule, ou None si la forme est invalide.
+
+    Durcissements (§3.2 / §Qualité audit) : comparaison EXACTE du paramètre `page`
+    (fini le match par sous-chaîne `:97`), https imposé (http toléré seulement sur
+    localhost/127.x/::1 en dev), pas d'userinfo. L'hôte renvoyé sert de clé
+    d'allowlist (comparaison exacte → un sous-domaine forgé est rejeté)."""
+    parsed = urlparse(uri or "")
+    host = (parsed.hostname or "").lower()
+    if not parsed.netloc or not host or parsed.username or parsed.password:
+        return None
+    if parsed.scheme == "https":
+        # Durcissement anti-différentiel de parseur : l'hôte d'un site public ne
+        # doit contenir QUE des caractères LDH (un backslash/tab/CR/unicode brut
+        # pourrait faire diverger l'hôte stocké de l'hôte réellement contacté).
+        if not _LDH_HOST.match(host):
+            return None
+    elif parsed.scheme == "http" and allow_insecure_localhost and (
+        host == "localhost" or host == "::1" or host.startswith("127.")
+    ):
+        # Hôtes dev validés par égalité exacte : le filtre LDH ne s'applique pas
+        # (`::1` contient des `:`).
+        pass
+    else:
+        return None
+    if not parsed.path.endswith("/wp-admin/admin.php"):
+        return None
+    pages = parse_qs(parsed.query).get("page", [])
+    if not any(p in _PLUGIN_ADMIN_PAGES for p in pages):
+        return None
+    return host
+
+
+async def registered_domains(db: AsyncSession, user_id: int) -> set[str]:
+    """Ensemble des hôtes WP enregistrés (allowlist redirect_uri) de l'utilisateur."""
+    res = await db.execute(
+        select(OAuthRedirectDomain).where(OAuthRedirectDomain.user_id == user_id)
+    )
+    return {row.domain for row in res.scalars().all()}
+
+
+async def register_domain(db: AsyncSession, user_id: int, domain: str) -> None:
+    """Enregistre un hôte WP dans l'allowlist de l'utilisateur (idempotent). Le
+    router commit.
+
+    On tente directement l'insert et on rattrape l'IntegrityError de la contrainte
+    unique(user_id, domain) : deux /authorize concurrents du même user/domaine se
+    sérialisent sans 500 (le domaine existe déjà = succès silencieux)."""
+    db.add(OAuthRedirectDomain(user_id=user_id, domain=domain))
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
 
 # Durée de vie d'un refresh opaque (promouvable en Settings si besoin prod).
 OAUTH_PLUGIN_REFRESH_EXPIRE_DAYS = 90
