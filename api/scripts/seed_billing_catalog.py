@@ -18,8 +18,10 @@ non vendu). Il sera activé/poussé en v2 (Stripe Meters).
 Usage (depuis api/) :
     python -m scripts.seed_billing_catalog
 
-Sans clés Stripe (billing désactivé) : seed UNIQUEMENT la base locale (les
-colonnes stripe_* restent NULL), pratique pour le catalogue front / la parité.
+Sans clés Stripe (billing désactivé) OU avec MOCK_BILLING=true : seed UNIQUEMENT
+la base locale (les colonnes stripe_* restent NULL), pratique pour le catalogue
+front / la parité et pour la CI/e2e (billing armé avec des clés FACTICES : aucun
+appel Stripe ne doit sortir, sinon 401).
 
 Conventions repo : Stripe via `_stripe_request` (httpx pur, pas de SDK) ;
 session async ; `utcnow()` géré par les défauts de colonne.
@@ -29,6 +31,7 @@ import logging
 
 from sqlalchemy import select
 
+from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.models.billing import BillingPreset, BillingProduct
 from src.services import stripe_service
@@ -251,6 +254,13 @@ async def _push_stripe(row: BillingProduct, item: dict) -> bool:
     métrage). Saute : produits inactifs, lignes déjà liées (stripe_product_id
     présent, sauf métré dont chaque objet est idempotent). Prices IMMUABLES : un
     montant différent => nouveau Price (géré hors seed, par bascule is_active)."""
+    # MOCK_BILLING : honore le contrat « aucun appel Stripe sortant » (spec §2.3).
+    # Indispensable en CI/e2e où le billing est ARMÉ avec des clés FACTICES
+    # (billing_enabled()==True) : sans ce garde, _stripe_request taperait
+    # api.stripe.com et renverrait 401. On seede alors la base UNIQUEMENT
+    # (colonnes stripe_* laissées NULL), ce qui suffit à /api/billing/catalog.
+    if settings.MOCK_BILLING:
+        return False
     if not stripe_service.billing_enabled():
         return False
     # Métré : chemin dédié AVANT le push licencié générique. Ne pousse que si
@@ -297,7 +307,11 @@ async def seed() -> None:
             await _upsert_preset(db, preset)
         await db.commit()
 
-    if stripe_service.billing_enabled():
+    if settings.MOCK_BILLING:
+        logger.info("Catalogue seedé en base uniquement (%d lignes) — MOCK_BILLING "
+                    "actif, aucun appel Stripe, colonnes stripe_* laissées NULL.",
+                    len(CATALOG))
+    elif stripe_service.billing_enabled():
         logger.info("Catalogue seedé (%d lignes, %d poussées chez Stripe).",
                     len(CATALOG), pushed)
     else:

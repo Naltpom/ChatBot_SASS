@@ -1,0 +1,227 @@
+# Intégration continue — supprime le « faux-vert » (PR-15).
+#
+# Avant cette CI, .github/workflows/ ne contenait que deploy.yml : AUCUN job ne
+# lançait pytest ni les e2e. Les ~320 tests pytest (dont les 161 real_db du
+# harness PR-10) et les e2e billing « protégeaient » donc le code sans jamais
+# tourner automatiquement — un faux-vert intégral. Ce workflow câble une vraie
+# CI, sur push et PR vers master.
+#
+# Deux jobs :
+#   - pytest       : suite backend sur une VRAIE base Postgres (image pgvector,
+#                    pour l'extension `vector`), REQUIRE_REAL_DB=1 (les tests
+#                    real_db S'EXÉCUTENT, échec dur si la DB manque — pas de skip).
+#   - e2e-billing  : stack docker compose complète avec le billing ARMÉ
+#                    (fausses clés Stripe + MOCK_BILLING + BILLING_ENFORCE), puis
+#                    les specs billing-*.spec.ts qui DOIVENT s'exécuter (un garde
+#                    échoue si elles skippent — c'est le faux-vert qu'on retire).
+#
+# Voir docs/CI.md pour la matrice complète (jobs / env / décisions).
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Annule les runs obsolètes d'une même branche/PR (économie de runners).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # JOB 1 — pytest backend sur vraie base Postgres (harness real_db PR-10).
+  # ---------------------------------------------------------------------------
+  pytest:
+    runs-on: ubuntu-latest
+
+    services:
+      # IMPÉRATIF : image pgvector (pas postgres:16 standard) — le harness
+      # real_db pose `CREATE EXTENSION vector` (colonne kb_chunks.embedding) et
+      # `unaccent` (colonne générée kb_chunks.tsv). postgres:16 nu échouerait sur
+      # l'extension vector (bug de schéma => rouge, pas un skip).
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          # real_db._create_database_if_absent() se connecte d'abord à cette base
+          # « de maintenance » (chatbot_saas) pour CREATE DATABASE chatbot_saas_test.
+          # L'utilisateur POSTGRES_USER de l'image est superuser => droit CREATE DB.
+          POSTGRES_USER: chatbot
+          POSTGRES_PASSWORD: chatbot_secret
+          POSTGRES_DB: chatbot_saas
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chatbot -d chatbot_saas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # DATABASE_URL pointe le service Postgres. real_db dérive l'URL de la base
+      # de test (chatbot_saas_test) en remplaçant seulement le nom de base.
+      DATABASE_URL: postgresql+asyncpg://chatbot:chatbot_secret@localhost:5432/chatbot_saas
+      # REQUIRE_REAL_DB=1 : une DB injoignable devient un ÉCHEC DUR (pytest.fail)
+      # au lieu d'un skip gracieux => la CI GARANTIT que les tests real_db tournent.
+      REQUIRE_REAL_DB: "1"
+      # Aucun appel IA / Stripe sortant.
+      MOCK_AI: "true"
+      MOCK_BILLING: "true"
+      # Secrets factices de test (ENV=dev => validate_production ne mord pas, mais
+      # on fournit des valeurs valides : ENCRYPTION_KEY = clé Fernet réelle).
+      ENV: dev
+      JWT_SECRET_KEY: ci-test-secret-key-minimum-32-caracteres-ok
+      ENCRYPTION_KEY: b3xn1mFk-ECyWePnnRULioHFgFBQkDNwhSN_-K-IIds=
+      # CRITIQUE (correctif du PermissionError /app). La suite est conçue pour
+      # tourner DANS l'image API (WORKDIR /app) ; ici elle tourne sur le runner NU.
+      # Au chargement du conftest, `import src.main` exécute (au niveau module)
+      # `Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)` avec le
+      # défaut `/app/uploads` => `/app` inexistant/non inscriptible => PermissionError
+      # [Errno 13] (cause exacte de l'exit 4). On redirige UPLOAD_DIR vers un
+      # dossier INSCRIPTIBLE (l'app le crée elle-même). C'est le SEUL chemin /app
+      # écrit à l'import (fastembed est paresseux : `_model=None`, jamais chargé
+      # au startup ni par aucun test). FASTEMBED_CACHE_PATH est redirigé par
+      # prudence (défaut /var/cache/fastembed, non inscriptible sur le runner).
+      UPLOAD_DIR: /tmp/ci-uploads
+      FASTEMBED_CACHE_PATH: /tmp/ci-fastembed
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: api/requirements.txt
+
+      - name: Installer les dépendances
+        run: pip install -r api/requirements.txt
+
+      - name: pytest (vraie base Postgres, real_db forcé)
+        working-directory: api
+        # `python -m pytest` (et non `pytest`) : ajoute api/ à sys.path
+        # (import src.main). Deux tests déselectionnés : ils forcent MOCK_BILLING
+        # =False + clé rk_test pour exercer le VRAI Stripe (update prorata /
+        # downgrade item) => 2 rouges pré-existants liés à Stripe-réel, hors
+        # périmètre CI (cf. docs/CI.md §« 2 rouges billing déselectionnés »). Tout
+        # AUTRE échec, lui, casse le build.
+        run: |
+          python -m pytest -q \
+            --deselect tests/test_billing_grouping.py::test_subscription_update_prorata_via_items \
+            --deselect tests/test_billing_grouping.py::test_subscription_update_downgrade_supprime_item
+
+  # ---------------------------------------------------------------------------
+  # JOB 2 — e2e billing : stack complète, billing ARMÉ, specs qui NE SKIPPENT PAS.
+  # ---------------------------------------------------------------------------
+  e2e-billing:
+    runs-on: ubuntu-latest
+    # TODO(stabilisation) : ce job est NON BLOQUANT au 1er passage. Il est
+    # structuré correctement (stack compose + billing armé + garde anti-skip),
+    # MAIS son vert n'a jamais été prouvé en CI : build bun du front, build image
+    # api, `compose --wait`, install Playwright/Chromium et 1er download fastembed
+    # (lazy) sont lourds/fragiles et impossibles à itérer hors GitHub Actions.
+    # `continue-on-error` => son éventuel rouge ne casse PAS le build tant qu'il
+    # n'est pas stabilisé sur un vrai run. À RETIRER une fois le job vert observé.
+    # Le job `pytest` reste, lui, le gate DUR (livrable critique de PR-15).
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Écrire le .env de la stack (billing ARMÉ)
+        # docker compose substitue ${VAR} depuis ce .env. Clés Stripe FACTICES :
+        # billing_enabled() = bool(SECRET && WEBHOOK) => True, donc les specs
+        # billing s'exécutent ; MOCK_BILLING=true => AUCUN appel Stripe sortant
+        # (checkout/portail/abonnement mockés, entitlement projeté directement).
+        # BILLING_ENFORCE=True => le gating mord vraiment (402) => billing-degradation
+        # exerce son invariant. ENCRYPTION_KEY = clé Fernet valide.
+        run: |
+          cat > .env <<'EOF'
+          ENV=dev
+          POSTGRES_USER=chatbot
+          POSTGRES_PASSWORD=chatbot_secret
+          POSTGRES_DB=chatbot_saas
+          DATABASE_URL=postgresql+asyncpg://chatbot:chatbot_secret@db:5432/chatbot_saas
+          JWT_SECRET_KEY=ci-test-secret-key-minimum-32-caracteres-ok
+          ENCRYPTION_KEY=b3xn1mFk-ECyWePnnRULioHFgFBQkDNwhSN_-K-IIds=
+          MOCK_AI=true
+          MOCK_BILLING=true
+          BILLING_ENFORCE=True
+          STRIPE_SECRET_KEY=sk_test_ci_fake_no_outbound_calls
+          STRIPE_WEBHOOK_SECRET=whsec_ci_fake
+          VITE_API_URL=http://localhost:8001
+          EOF
+
+      - name: Démarrer la stack (db + redis + api + app)
+        # --wait : bloque jusqu'à ce que les services AVEC healthcheck (db, redis,
+        # api) soient « healthy ». app n'a pas de healthcheck (attente manuelle
+        # plus bas).
+        run: docker compose up -d --build --wait
+
+      - name: Attendre l'app (Vite, port 3001 sans healthcheck)
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3001 >/dev/null; then echo "app prête"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::app (3001) injoignable" ; docker compose logs app ; exit 1
+
+      - name: Seeder le catalogue de facturation
+        # Pose les Products/Prices en base (GET /api/billing/catalog). MOCK_BILLING
+        # => seed local, aucun objet Stripe distant créé.
+        run: docker compose exec -T api python -m scripts.seed_billing_catalog
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Installer Playwright + Chromium
+        working-directory: e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: e2e billing (doit s'exécuter, PAS skipper)
+        working-directory: e2e
+        env:
+          E2E_API_URL: http://localhost:8001
+        # Rapport JSON pour le garde anti-skip de l'étape suivante. Le filtre
+        # positionnel `billing-` cible billing-*.spec.ts (dont catalog-parity).
+        run: |
+          PLAYWRIGHT_JSON_OUTPUT_NAME=billing-report.json \
+            npx playwright test billing- --reporter=json
+
+      - name: Garde anti-faux-vert (échec si une spec billing a été SKIPPÉE)
+        working-directory: e2e
+        # C'EST le cœur de PR-15 : avant, les specs skippaient silencieusement
+        # quand billing OFF et la CI restait verte sans rien prouver. Ici, billing
+        # est ARMÉ ; toute spec encore « skipped » signifie que l'armement a échoué
+        # (clés non vues, billing_enabled() False) => on CASSE le build.
+        run: |
+          node -e '
+            const r = require("./billing-report.json");
+            const s = r.stats || {};
+            console.log("stats:", JSON.stringify(s));
+            if ((s.skipped || 0) > 0) {
+              console.error("FAUX-VERT : " + s.skipped + " test(s) billing skippé(s) alors que le billing est armé.");
+              process.exit(1);
+            }
+            if ((s.expected || 0) < 1) {
+              console.error("Aucun test billing exécuté — filtre/découverte cassés.");
+              process.exit(1);
+            }
+            console.log("OK : " + s.expected + " test(s) billing exécuté(s), 0 skip.");
+          '
+
+      - name: Logs de la stack (si échec)
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: Arrêter la stack
+        if: always()
+        run: docker compose down -v
