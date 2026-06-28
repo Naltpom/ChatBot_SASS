@@ -115,8 +115,27 @@ export const SHARED_TREE = {
   },
 }
 
+// Auth dashboard = cookie httpOnly `chapote_session` (PR-04, audit §3.5). Le JWT
+// ne transite plus par un header Authorization ni le corps de réponse : on le
+// pose en cookie. Côté APIRequestContext Playwright, un header `Cookie` explicite
+// PRIME sur le jar du contexte (vérifié) : chaque appel cible donc la bonne
+// identité même quand le jar a été pollué par un register/login précédent.
+export const AUTH_COOKIE_NAME = 'chapote_session'
+
 export function authHeaders(token: string) {
-  return { Authorization: `Bearer ${token}` }
+  return { Cookie: `${AUTH_COOKIE_NAME}=${token}` }
+}
+
+// Extrait le JWT du Set-Cookie d'une réponse d'auth (register/login/dev-login) :
+// le token ne figure PLUS dans le corps (UserOut seul). headersArray() préserve
+// les en-têtes Set-Cookie multiples (contrairement à headers() qui les aplatit).
+export function tokenFromSetCookie(res: { headersArray(): { name: string; value: string }[] }): string {
+  for (const h of res.headersArray()) {
+    if (h.name.toLowerCase() !== 'set-cookie') continue
+    const m = h.value.match(new RegExp(`${AUTH_COOKIE_NAME}=([^;]+)`))
+    if (m) return m[1]
+  }
+  throw new Error(`Cookie ${AUTH_COOKIE_NAME} absent du Set-Cookie (la réponse d'auth ne pose pas de session ?)`)
 }
 
 async function fail(label: string, res: { status(): number; text(): Promise<string> }): Promise<never> {
@@ -174,8 +193,8 @@ async function ensureMember(ctx: APIRequestContext, state: E2EState): Promise<vo
     })
     if (!reg.ok()) await fail('POST /api/auth/register (member E2E)', reg)
     const body = await reg.json()
-    state.memberToken = body.access_token
-    state.memberUserId = body.user.id
+    state.memberToken = tokenFromSetCookie(reg)
+    state.memberUserId = body.id
     state.memberEmail = email
   }
   state.memberName = wantedName
@@ -246,8 +265,8 @@ async function ensureAdmin(ctx: APIRequestContext, state: E2EState): Promise<voi
     })
     if (!reg.ok()) await fail('POST /api/auth/register (admin E2E)', reg)
     const body = await reg.json()
-    state.adminToken = body.access_token
-    state.adminUserId = body.user.id
+    state.adminToken = tokenFromSetCookie(reg)
+    state.adminUserId = body.id
     state.adminEmail = email
   }
   state.adminName = wantedName
@@ -356,7 +375,9 @@ export default async function globalSetup(_config: FullConfig) {
       },
     })
     if (!reg.ok()) await fail('POST /api/auth/register', reg)
-    const { access_token: token, user } = await reg.json()
+    // register renvoie UserOut (PAS {access_token,user}) ; le JWT est dans le Set-Cookie.
+    const user = await reg.json()
+    const token = tokenFromSetCookie(reg)
     const org = user.organizations[0]
     const headers = authHeaders(token)
 

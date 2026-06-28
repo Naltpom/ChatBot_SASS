@@ -4,7 +4,7 @@
 // de la passer à startRegistration/startAuthentication.
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 import { api } from '../api'
-import type { AuthResponse } from '../types/auth'
+import type { User } from '../types/auth'
 
 export interface TwoFAStatus {
   totp_enabled: boolean
@@ -43,18 +43,19 @@ export const listPasskeys = () =>
 export const deletePasskey = (id: number) =>
   api(`/api/auth/2fa/webauthn/credentials/${id}`, { method: 'DELETE' })
 
-// --- Login : 2nd facteur (échange du challenge contre un token) ---
+// --- Login : 2nd facteur (échange du challenge : pose le cookie de session,
+// renvoie l'User) ---
 export const loginTotp = (challenge: string, code: string) =>
-  api<AuthResponse>('/api/auth/2fa/login/totp', { method: 'POST', body: { challenge, code } })
+  api<User>('/api/auth/2fa/login/totp', { method: 'POST', body: { challenge, code } })
 
 export const loginRecovery = (challenge: string, code: string) =>
-  api<AuthResponse>('/api/auth/2fa/login/recovery', { method: 'POST', body: { challenge, code } })
+  api<User>('/api/auth/2fa/login/recovery', { method: 'POST', body: { challenge, code } })
 
-export async function loginPasskey(challenge: string): Promise<AuthResponse> {
+export async function loginPasskey(challenge: string): Promise<User> {
   const { options } = await api<{ options: string }>('/api/auth/2fa/login/webauthn/begin',
     { method: 'POST', body: { challenge } })
   const credential = await startAuthentication(JSON.parse(options))
-  return api<AuthResponse>('/api/auth/2fa/login/webauthn/complete',
+  return api<User>('/api/auth/2fa/login/webauthn/complete',
     { method: 'POST', body: { challenge, credential } })
 }
 

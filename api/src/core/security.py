@@ -9,7 +9,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -55,6 +55,44 @@ def create_dashboard_token(user_id: int) -> str:
     return _encode(
         {"sub": str(user_id), "scope": "dashboard"},
         timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+# --- Cookie de session dashboard (audit §3.5 : JWT en cookie httpOnly) ---
+# Le JWT dashboard ne transite plus par le corps de réponse ni par localStorage
+# (où tout XSS l'exfiltrerait) : il vit UNIQUEMENT dans ce cookie httpOnly, donc
+# inaccessible au JavaScript de la page.
+#
+# Défense CSRF = `SameSite=Lax` SEUL : un POST déclenché depuis un site tiers ne
+# porte pas le cookie (Lax ne l'envoie que sur navigation top-level GET). On
+# n'ajoute donc PAS de double-submit token (le plan l'autorisait) — superflu ici
+# et coûteux à maintenir. `Secure` est conditionné à la prod : en dev http
+# localhost un cookie Secure n'est tout simplement pas posé par le navigateur.
+AUTH_COOKIE_NAME = "chapote_session"
+
+
+def set_auth_cookie(response: Response, token: str) -> None:
+    """Pose le JWT dashboard dans le cookie de session httpOnly (durée = TTL du
+    JWT). À appeler par tout endpoint qui authentifie (login/register/SSO/2FA)."""
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token,
+        max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        samesite="lax",
+        secure=settings.is_production,
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response) -> None:
+    """Efface le cookie de session (logout). Mêmes attributs que la pose pour que
+    le navigateur cible bien le cookie à supprimer."""
+    response.delete_cookie(
+        key=AUTH_COOKIE_NAME,
+        path="/",
+        samesite="lax",
+        secure=settings.is_production,
     )
 
 
@@ -156,14 +194,18 @@ def decode_token(token: str, expected_scope: str) -> dict:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    """Authentifie le client SaaS du dashboard via le cookie httpOnly
+    `chapote_session` (audit §3.5). Le JWT n'est plus lu d'un header Authorization :
+    la surface plugin a son propre `require_oauth_token` (Bearer), inchangé."""
     from src.models.user import User
 
-    if credentials is None:
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentification requise")
-    payload = decode_token(credentials.credentials, expected_scope="dashboard")
+    payload = decode_token(token, expected_scope="dashboard")
     result = await db.execute(select(User).where(User.id == int(payload["sub"])))
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:

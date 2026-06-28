@@ -17,7 +17,7 @@ Deux familles d'endpoints sous /api/auth/2fa :
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,11 +28,12 @@ from src.core.security import (
     create_twofa_challenge_token,
     decode_twofa_challenge,
     get_current_user,
+    set_auth_cookie,
     user_has_2fa,
     verify_password,
 )
 from src.core.time import utcnow
-from src.models.user import TokenOut, User, WebAuthnCredential
+from src.models.user import User, UserOut, WebAuthnCredential
 from src.services import twofa_service as tf
 from src.services.crypto import decrypt_secret, encrypt_secret
 
@@ -61,8 +62,9 @@ async def _user_by_challenge(db: AsyncSession, challenge: str) -> User:
     return user
 
 
-async def _issue_dashboard(db: AsyncSession, user: User) -> TokenOut:
-    """Login réussi (2nd facteur validé) : token dashboard + UserOut complet."""
+async def _issue_dashboard(db: AsyncSession, user: User, response: Response) -> UserOut:
+    """Login réussi (2nd facteur validé) : pose le cookie de session httpOnly
+    (le JWT ne transite plus par le corps) et renvoie l'UserOut complet."""
     from src.routers.auth import _user_out  # import paresseux (évite tout cycle)
 
     user.last_login = utcnow()
@@ -70,7 +72,8 @@ async def _issue_dashboard(db: AsyncSession, user: User) -> TokenOut:
     user.webauthn_challenge = None
     user.webauthn_challenge_at = None
     await db.commit()
-    return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
+    set_auth_cookie(response, create_dashboard_token(user.id))
+    return await _user_out(db, user)
 
 
 def _challenge_fresh(user: User) -> bool:
@@ -261,23 +264,23 @@ class TotpLogin(BaseModel):
     code: str
 
 
-@router.post("/login/totp", response_model=TokenOut)
-async def login_totp(body: TotpLogin, db: AsyncSession = Depends(get_db)):
+@router.post("/login/totp", response_model=UserOut)
+async def login_totp(body: TotpLogin, response: Response, db: AsyncSession = Depends(get_db)):
     user = await _user_by_challenge(db, body.challenge)
     secret = decrypt_secret(user.totp_secret)
     if not (user.totp_enabled and secret and tf.verify_totp(secret, body.code)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code invalide.")
-    return await _issue_dashboard(db, user)
+    return await _issue_dashboard(db, user, response)
 
 
-@router.post("/login/recovery", response_model=TokenOut)
-async def login_recovery(body: TotpLogin, db: AsyncSession = Depends(get_db)):
+@router.post("/login/recovery", response_model=UserOut)
+async def login_recovery(body: TotpLogin, response: Response, db: AsyncSession = Depends(get_db)):
     user = await _user_by_challenge(db, body.challenge)
     matched, remaining = tf.consume_recovery_code(user.twofa_recovery, body.code)
     if not matched:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code de secours invalide.")
     user.twofa_recovery = remaining
-    return await _issue_dashboard(db, user)
+    return await _issue_dashboard(db, user, response)
 
 
 class ChallengeBody(BaseModel):
@@ -302,8 +305,9 @@ class WebAuthnLoginComplete(BaseModel):
     credential: dict
 
 
-@router.post("/login/webauthn/complete", response_model=TokenOut)
-async def login_webauthn_complete(body: WebAuthnLoginComplete, db: AsyncSession = Depends(get_db)):
+@router.post("/login/webauthn/complete", response_model=UserOut)
+async def login_webauthn_complete(body: WebAuthnLoginComplete, response: Response,
+                                  db: AsyncSession = Depends(get_db)):
     user = await _user_by_challenge(db, body.challenge)
     if not _challenge_fresh(user):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cérémonie expirée — réessayez.")
@@ -322,4 +326,4 @@ async def login_webauthn_complete(body: WebAuthnLoginComplete, db: AsyncSession 
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Vérification de la passkey échouée.")
     cred.sign_count = new_count
     cred.last_used_at = utcnow()
-    return await _issue_dashboard(db, user)
+    return await _issue_dashboard(db, user, response)

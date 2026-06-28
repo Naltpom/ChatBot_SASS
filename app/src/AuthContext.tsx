@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { api, getToken, setToken } from './api'
-import type { AuthResponse, LoginChallenge, Org, RegisterPayload, User } from './types/auth'
+import { api } from './api'
+import type { LoginChallenge, Org, RegisterPayload, User } from './types/auth'
 
 // Source de vérité des formes auth = types/auth (fidèles à l'API). On les
 // re-exporte pour les consommateurs historiques (Layout/MyOrgs : `Org` ;
 // permissions/Header : `User`). Une organisation = une ÉQUIPE ; un compte solo
 // a organizations: [].
-export type { AuthResponse, LoginChallenge, Org, RegisterPayload, User }
+export type { LoginChallenge, Org, RegisterPayload, User }
 
 interface AuthState {
   user: User | null
@@ -14,12 +14,12 @@ interface AuthState {
   activeOrg: Org | null
   setActiveOrg: (org: Org) => void
   // login/loginWithGoogle : renvoient un LoginChallenge si la 2FA est requise
-  // (aucun token posé alors — l'appelant doit finir via finish2fa), sinon null.
+  // (aucun cookie posé alors — l'appelant doit finir via finish2fa), sinon null.
   login: (email: string, password: string) => Promise<LoginChallenge | null>
   loginWithGoogle: (credential: string) => Promise<LoginChallenge | null>
-  // Finalise une connexion 2FA : applique le token + le user renvoyés par
-  // /api/auth/2fa/login/*.
-  finish2fa: (resp: AuthResponse) => void
+  // Finalise une connexion 2FA : le cookie de session a été posé par
+  // /api/auth/2fa/login/* ; on hydrate juste l'user renvoyé.
+  finish2fa: (user: User) => void
   register: (payload: RegisterPayload) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
@@ -67,9 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function init() {
       try {
-        if (getToken()) {
+        // Session existante : le cookie httpOnly chapote_session (s'il est posé)
+        // est porté par /api/auth/me. 401 -> non connecté (ApiError attrapée).
+        try {
           applyUser(await api<User>('/api/auth/me'))
           return
+        } catch {
+          /* pas de session valide : on tente l'auto-login DEV ci-dessous */
         }
         // Auto-login admin : convenance DEV, tentée UNIQUEMENT sur un hôte LOCAL.
         // En prod (chapote.fr) la condition est fausse à l'EXÉCUTION -> aucune
@@ -80,12 +84,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const host = typeof window === 'undefined' ? '' : window.location.hostname
         if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
           if (localStorage.getItem('kc_no_autologin')) return
-          const data = await api<AuthResponse>('/api/auth/dev-login', { method: 'POST' })
-          setToken(data.access_token)
-          applyUser(data.user)
+          // dev-login pose le cookie de session et renvoie l'user.
+          applyUser(await api<User>('/api/auth/dev-login', { method: 'POST' }))
         }
       } catch {
-        setToken(null)
+        /* auto-login DEV indisponible : on reste déconnecté */
       } finally {
         setLoading(false)
       }
@@ -98,38 +101,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActive(org)
   }
 
-  // Réponse de login : soit un AuthResponse (token), soit un LoginChallenge
-  // (2FA requise). On distingue par la présence de `twofa_required`.
-  function handleAuthResult(data: AuthResponse | LoginChallenge): LoginChallenge | null {
+  // Réponse de login : soit l'User (le cookie de session a été posé par le
+  // backend), soit un LoginChallenge (2FA requise — aucun cookie posé). On
+  // distingue par la présence de `twofa_required`.
+  function handleAuthResult(data: User | LoginChallenge): LoginChallenge | null {
     if ((data as LoginChallenge).twofa_required) return data as LoginChallenge
-    const ok = data as AuthResponse
-    setToken(ok.access_token)
-    applyUser(ok.user)
+    applyUser(data as User)
     return null
   }
 
   async function login(email: string, password: string) {
-    const data = await api<AuthResponse | LoginChallenge>(
+    const data = await api<User | LoginChallenge>(
       '/api/auth/login', { method: 'POST', body: { email, password } })
     return handleAuthResult(data)
   }
 
   async function loginWithGoogle(credential: string) {
-    const data = await api<AuthResponse | LoginChallenge>(
+    const data = await api<User | LoginChallenge>(
       '/api/auth/google', { method: 'POST', body: { credential } })
     return handleAuthResult(data)
   }
 
-  // Finalise une connexion 2FA (token issu de /api/auth/2fa/login/*).
-  function finish2fa(resp: AuthResponse) {
-    setToken(resp.access_token)
-    applyUser(resp.user)
+  // Finalise une connexion 2FA : le cookie a été posé par /api/auth/2fa/login/*,
+  // on hydrate l'user renvoyé.
+  function finish2fa(user: User) {
+    applyUser(user)
   }
 
   async function register(payload: RegisterPayload) {
-    const data = await api<AuthResponse>('/api/auth/register', { method: 'POST', body: payload })
-    setToken(data.access_token)
-    applyUser(data.user)
+    // register pose le cookie de session et renvoie l'user.
+    applyUser(await api<User>('/api/auth/register', { method: 'POST', body: payload }))
   }
 
   async function refreshUser() {
@@ -137,7 +138,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
-    setToken(null)
+    // Efface le cookie httpOnly côté serveur (le JS ne peut pas le faire seul).
+    // Fire-and-forget : l'état local est purgé quoi qu'il arrive.
+    api('/api/auth/logout', { method: 'POST' }).catch(() => {})
     setUser(null)
     setActive(null)
   }
