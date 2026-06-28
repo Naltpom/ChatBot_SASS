@@ -75,6 +75,24 @@ def _ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _rate_limited_response() -> JSONResponse:
+    """Réponse de rate-limit du endpoint /token, UNIFORMISÉE avec /authorize
+    (PR-09) : HTTP 429 + contrat {detail, code, message}. On conserve le champ
+    OAuth `error` (RFC 6749 §5.2) car /token est appelé server-to-server par le
+    plugin PHP / des clients OAuth standards qui peuvent le lire. Les erreurs de
+    GRANT (invalid_grant, invalid_request…) restent, elles, en 400 + {"error":…}
+    OAuth pur (inchangé) : on n'uniformise QUE le rate-limit."""
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "error": "slow_down",
+            "detail": "Trop de requêtes",
+            "code": "rate_limited",
+            "message": "Trop de requêtes. Réessayez dans un instant.",
+        },
+    )
+
+
 # --- Surface DASHBOARD (page /authorize, get_current_user) -----------------
 
 @router.get("/authorize/preview", response_model=AuthorizePreviewOut)
@@ -153,9 +171,10 @@ async def authorize(
 @router.post("/token")
 async def token(body: TokenIn, request: Request, db: AsyncSession = Depends(get_db)):
     """grant_type = authorization_code (échange + PKCE) ou refresh_token
-    (rotation). Erreurs au format OAuth (HTTP 400 + {"error": code})."""
+    (rotation). Erreurs de grant au format OAuth (HTTP 400 + {"error": code}) ;
+    rate-limit uniformisé en HTTP 429 + {detail, code, message} (cf. PR-09)."""
     if not await oauth_token_limiter.check(_ip(request)):
-        return JSONResponse(status_code=400, content={"error": "slow_down"})
+        return _rate_limited_response()
     try:
         if body.grant_type == "authorization_code":
             if not (body.code and body.redirect_uri and body.code_verifier):
@@ -167,7 +186,7 @@ async def token(body: TokenIn, request: Request, db: AsyncSession = Depends(get_
             if not body.refresh_token:
                 return JSONResponse(status_code=400, content={"error": "invalid_request"})
             if not await oauth_refresh_limiter.check(_ip(request)):
-                return JSONResponse(status_code=400, content={"error": "slow_down"})
+                return _rate_limited_response()
             access, refresh, expires_in = await svc.rotate_refresh(db, body.refresh_token)
         else:
             return JSONResponse(status_code=400, content={"error": "unsupported_grant_type"})

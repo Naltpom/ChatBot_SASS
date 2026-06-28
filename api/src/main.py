@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
+from src.core.errors import install_error_handlers
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
 from src.routers import admin, admin_billing, admin_prospecting, auth, billing, bots, inbox, kb, orgs, public, stats, tree, twofa, uploads, widget
 from src.routers.external import account as ext_account
@@ -59,6 +60,10 @@ _docs_kwargs = {} if not settings.is_production else dict(
     docs_url=None, redoc_url=None, openapi_url=None
 )
 app = FastAPI(title="ChatBot SaaS API", lifespan=lifespan, **_docs_kwargs)
+
+# Contrat d'erreur unifié (PR-09) : normalise TOUTES les réponses d'erreur en
+# {detail, code, message}. `detail` reste inchangé (rétrocompat). Voir core/errors.py.
+install_error_handlers(app)
 
 # CORS dashboard (strict). Les /api/widget/* sont geres par le middleware dedie.
 dashboard_origins = [settings.APP_URL]
