@@ -376,6 +376,8 @@
       chat_unavailable: "Le chat est momentanément indisponible.",
       rate_up: "Réponse utile",
       rate_down: "Réponse peu utile",
+      dialog_label: "Assistant de discussion",
+      input_label: "Saisir un message",
     },
     en: {
       online_tree: "Online · Guided menu",
@@ -415,6 +417,8 @@
       chat_unavailable: "The chat is temporarily unavailable.",
       rate_up: "Helpful",
       rate_down: "Not helpful",
+      dialog_label: "Chat assistant",
+      input_label: "Type a message",
     },
   };
   let LOCALE = "fr"; // résolu au bootstrap (avant build) depuis design.locale
@@ -613,7 +617,8 @@
       ".kc-send{width:40px;height:40px;border-radius:99px;border:none;cursor:pointer;background:" + (d.sendStyle === "colored" ? accent : brand) + ";color:#fff;",
       "display:grid;place-items:center;flex-shrink:0;transition:background .15s}",
       ".kc-send:disabled{background:#e3e8e6;cursor:default}",
-      ".kc-powered{text-align:center;font-size:10px;color:" + (dark ? "#6b7a76" : "#9aa7a3") + ";padding:0 0 7px;background:" + panelBg + "}",
+      // Contraste AA (≥4.5:1 sur fond clair) : #6b7a76 au lieu de #9aa7a3.
+      ".kc-powered{text-align:center;font-size:10px;color:" + (dark ? "#8a9893" : "#6b7a76") + ";padding:0 0 7px;background:" + panelBg + "}",
       ".kc-powered a{color:inherit;text-decoration:none}",
       ".kc-powered a:hover{text-decoration:underline}",
       ".kc-powered b{font-weight:700;color:#0d9488}",
@@ -632,6 +637,17 @@
       ".kc-overlay-x svg{width:14px;height:14px}",
       ".kc-overlay iframe{flex:1;border:none;width:100%}",
       ".kc-overlay-link{display:block;text-align:center;font-size:12px;font-weight:600;color:" + brand + ";padding:9px;text-decoration:underline}",
+      // Accessibilité : si l'OS demande de réduire les animations, on coupe les
+      // animations CONTINUES (flottement/halo du lanceur, points de frappe) et
+      // l'animation d'ouverture du panneau. Le révélé « machine à écrire » est
+      // déjà neutralisé côté JS (prefersReducedMotion). !important prime sur les
+      // variantes de loadingAnimation (wave/pulse/bars/ring/typing).
+      "@media (prefers-reduced-motion:reduce){",
+      ".kc-bubble:not(.open){animation:none!important}",
+      ".kc-bubble:hover{transform:none}",
+      ".kc-panel.open{animation:none!important}",
+      ".kc-td{animation:none!important}",
+      "}",
     ].join("");
   }
 
@@ -653,6 +669,12 @@
 
     // Panneau
     ui.panel = el("div", "kc-panel");
+    // Accessibilité : le panneau est une boîte de dialogue modale nommée. La
+    // prise de focus, le piège de focus (Tab) et la fermeture par Échap sont
+    // gérés dans toggle() / onPanelKeydown (additif, non rendu en INLINE).
+    ui.panel.setAttribute("role", "dialog");
+    ui.panel.setAttribute("aria-modal", "true");
+    ui.panel.setAttribute("aria-label", d.title || t("dialog_label"));
     const head = el("div", "kc-head");
     // headerAvatar : avatar/icône dans l'en-tête (actuel) ; false = masqué.
     if (d.headerAvatar !== false) {
@@ -694,6 +716,12 @@
     ui.panel.appendChild(head);
 
     ui.msgs = el("div", "kc-msgs");
+    // Accessibilité : le fil de messages est une zone « live » polie : les
+    // bulles entrantes (bot / IA / conseiller) sont annoncées par les lecteurs
+    // d'écran. aria-atomic=false -> seul l'ajout est lu, pas tout le fil.
+    ui.msgs.setAttribute("role", "log");
+    ui.msgs.setAttribute("aria-live", "polite");
+    ui.msgs.setAttribute("aria-atomic", "false");
     ui.panel.appendChild(ui.msgs);
 
     const inputRow = el("div", "kc-inputrow");
@@ -701,6 +729,9 @@
     ui.input.className = "kc-input";
     ui.input.maxLength = 4000;
     ui.input.placeholder = d.placeholder || t("placeholder");
+    // Label accessible stable (le placeholder change selon le mode et n'est pas
+    // un nom accessible fiable pour les lecteurs d'écran).
+    ui.input.setAttribute("aria-label", t("input_label"));
     ui.input.addEventListener("keydown", function (e) {
       if (e.key === "Enter") sendText();
     });
@@ -1200,6 +1231,9 @@
   // affichés viennent de t("lead_"+f). On garde donc un simple jeu de clés.
   const LEAD_FIELDS = { email: true, name: true, phone: true, message: true };
   const LEAD_MAXLEN = { email: 254, name: 120, phone: 40, message: 2000 }; // alignés serveur
+  // Compteur d'ids uniques (un widget peut afficher plusieurs formulaires lead)
+  // pour associer programmatiquement <label for> / aria-describedby.
+  let LEAD_UID = 0;
 
   // CSAT : POST du pouce. SANS retry-401 (contrat « jamais de re-handshake »
   // hors envoi de message : un re-handshake créerait une NOUVELLE conversation
@@ -1225,10 +1259,15 @@
     clearOptions();
     fields = (fields || ["email", "message"]).filter(function (f) { return LEAD_FIELDS[f]; });
     if (fields.indexOf("email") === -1) fields.unshift("email");
+    const uid = ++LEAD_UID;
     const form = el("div", "kc-lead");
     const inputs = {};
     fields.forEach(function (f) {
-      form.appendChild(el("label", "kc-lead-label", t("lead_" + f)));
+      const fid = "kc-lead-" + f + "-" + uid;
+      // Label associé programmatiquement (for/id) au champ correspondant.
+      const lbl = el("label", "kc-lead-label", t("lead_" + f));
+      lbl.setAttribute("for", fid);
+      form.appendChild(lbl);
       let input;
       if (f === "message") {
         input = document.createElement("textarea");
@@ -1237,6 +1276,7 @@
         input = document.createElement("input");
         input.type = f === "email" ? "email" : "text";
       }
+      input.id = fid;
       input.className = "kc-lead-input";
       input.maxLength = LEAD_MAXLEN[f];
       if (f === "email") input.required = true;
@@ -1244,7 +1284,12 @@
       form.appendChild(input);
     });
     const err = el("div", "kc-lead-err");
+    err.id = "kc-lead-err-" + uid;
+    // role=alert : l'erreur de validation est annoncée dès son affichage.
+    err.setAttribute("role", "alert");
     err.style.display = "none";
+    // Le champ email est décrit par le message d'erreur (annonce contextuelle).
+    if (inputs.email) inputs.email.setAttribute("aria-describedby", err.id);
     form.appendChild(err);
     const submit = el("button", "kc-lead-send", t("send"));
     submit.addEventListener("click", function () {
@@ -1253,9 +1298,12 @@
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
         err.textContent = t("lead_invalid_email");
         err.style.display = "block";
+        inputs.email.setAttribute("aria-invalid", "true");
+        inputs.email.focus();
         return;
       }
       err.style.display = "none";
+      inputs.email.removeAttribute("aria-invalid");
       const body = { email: email };
       ["name", "phone", "message"].forEach(function (f) {
         if (inputs[f] && inputs[f].value.trim()) body[f] = inputs[f].value.trim();
@@ -1423,6 +1471,51 @@
     startSession();
   }
 
+  // Accessibilité — gestion du focus du panneau (boîte de dialogue modale).
+  // Liste ORDONNÉE des éléments focusables VISIBLES contenus dans le panneau.
+  function focusablesInPanel() {
+    const sel = "a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex='-1'])";
+    return Array.prototype.slice.call(ui.panel.querySelectorAll(sel))
+      .filter(function (e) { return e.offsetWidth > 0 || e.offsetHeight > 0 || e === document.activeElement; });
+  }
+
+  // Écouteur clavier posé sur le panneau À L'OUVERTURE, retiré à la fermeture :
+  // Échap ferme ; Tab / Shift+Tab bouclent dans le panneau (piège de focus).
+  // stopPropagation sur Échap évite de faire fuiter la touche vers le site hôte.
+  function onPanelKeydown(e) {
+    if (e.key === "Escape" || e.key === "Esc") {
+      e.stopPropagation();
+      e.preventDefault();
+      if (state.open) toggle();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const f = focusablesInPanel();
+    if (!f.length) { e.preventDefault(); return; }
+    const first = f[0], last = f[f.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === first || !ui.panel.contains(active)) { e.preventDefault(); last.focus(); }
+    } else {
+      if (active === last || !ui.panel.contains(active)) { e.preventDefault(); first.focus(); }
+    }
+  }
+
+  // Déplace le focus DANS le panneau ouvert : champ de saisie si actif/visible,
+  // sinon premier élément focusable (en-tête). Différé pour laisser le DOM
+  // (options, saisie) se mettre en place après startSession.
+  function focusPanel() {
+    setTimeout(function () {
+      if (!state.open || !ui.panel) return;
+      if (ui.input && !ui.input.disabled && (ui.input.offsetWidth > 0 || ui.input.offsetHeight > 0)) {
+        ui.input.focus();
+        return;
+      }
+      const f = focusablesInPanel();
+      if (f.length) f[0].focus();
+    }, 0);
+  }
+
   function toggle() {
     // Toute interaction avec le widget (ouverture OU fermeture) désarme
     // définitivement les triggers proactifs de la page
@@ -1454,8 +1547,16 @@
       cancelTriggers(); // panneau ouvert : plus aucun tir possible
       startSession();
       maybeStartPolling(); // reprise du live chat si une demande est en cours
+      // Accessibilité : arme le piège de focus + Échap, puis place le focus
+      // dans la boîte de dialogue.
+      ui.panel.addEventListener("keydown", onPanelKeydown);
+      focusPanel();
     } else {
       stopPolling(); // panneau fermé : arrêt propre du polling
+      // Retire l'écouteur (ne capte plus les Échap globaux du site hôte) et
+      // rend le focus au lanceur.
+      ui.panel.removeEventListener("keydown", onPanelKeydown);
+      if (ui.bubble) ui.bubble.focus();
     }
     persistSession(); // mémorise l'état ouvert/fermé (démarre le cooldown 2 h à la fermeture)
   }
