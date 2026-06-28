@@ -210,3 +210,7 @@ oauth_authorize_limiter = RateLimiter("rl:oauthauthz:", 20, 60)
 oauth_token_limiter = RateLimiter("rl:oauthtoken:", 30, 60)
 # Rotation refresh (par IP) : 30 / jour.
 oauth_refresh_limiter = RateLimiter("rl:oauthrefresh:", 30, 86400)
+# Notification « plafond IA atteint » au proprietaire : 1 mail / ~31 j / bot
+# (cle = bot.id). Evite de spammer le payeur a chaque requete une fois le
+# plafond touche — un seul rappel par cycle de facturation.
+overage_cap_email_limiter = RateLimiter("rl:overagecapmail:", 1, 2678400)

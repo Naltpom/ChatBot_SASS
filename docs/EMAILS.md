@@ -29,28 +29,37 @@
 
 ## 3. E‑mails transactionnels envoyés par le Service
 
-Envoi centralisé : `api/src/services/email_service.py` → `send_email(to, subject, body)`.
-`From` = `SMTP_FROM` (→ doit être `noreply@chapote.fr`).
+Envoi centralisé : `api/src/services/email_service.py` → `send_email(to, subject, body, reply_to=None)`.
+`From` = `SMTP_FROM` (→ doit être `noreply@chapote.fr`). La colonne **Reply‑To** indique
+où atterrissent les réponses humaines (cf. §4).
 
 ### Existants
 
-| E‑mail | Déclencheur | Code |
-|---|---|---|
-| **Nouveau lead** | Soumission formulaire / action IA `capture_lead` | `email_service.build_lead_email()` ; `routers/widget.py`, `action_executor.py` |
-| **Demande de conseiller (handoff)** | Visiteur demande un humain | `email_service.build_handoff_email()` ; `routers/widget.py` |
-| **Nouveau ticket** | Action IA `create_ticket` | `email_service.build_ticket_email()` ; `action_executor.py` |
-| **Prospection** | Envoi manuel superadmin | `routers/admin_prospecting.py` |
+| E‑mail | Déclencheur | Code | Reply‑To |
+|---|---|---|---|
+| **Nouveau lead** | Soumission formulaire / action IA `capture_lead` | `email_service.build_lead_email()` ; `routers/widget.py`, `action_executor.py` | e‑mail du visiteur |
+| **Demande de conseiller (handoff)** | Visiteur demande un humain | `email_service.build_handoff_email()` ; `routers/widget.py` | `support@` |
+| **Nouveau ticket** | Action IA `create_ticket` | `email_service.build_ticket_email()` ; `action_executor.py` | e‑mail du visiteur (sinon aucun) |
+| **Prospection** | Envoi manuel superadmin | `routers/admin_prospecting.py` | `hello@` (boîte commerciale) |
+| **Confirmation de compte** | Inscription | `email_service.build_verify_email()` ; `routers/auth.py` | `support@` |
+| **Mot de passe oublié / réinitialisation** | Demande de reset | `email_service.build_reset_email()` ; `routers/auth.py` | `support@` |
+| **Bienvenue** | Transition `email_verified` False→True (confirmation) | `email_service.build_welcome_email()` ; `routers/auth.py` (`confirm_email_verification`) | `support@` |
+| **Invitation équipe** | Register entreprise / invite‑member (compte inexistant) | `email_service.build_invite_email()` ; `routers/auth.py`, `routers/orgs.py` | `support@` |
+| **Ajout à une équipe** | Compte existant ajouté direct comme membre | `email_service.build_added_to_org_email()` ; `routers/auth.py`, `routers/orgs.py` | `support@` |
+| **Sécurité — mot de passe modifié** | `change_password` / `reset_password` | `email_service.build_password_changed_email()` ; `routers/auth.py` | `support@` |
+| **Bot suspendu** | Blocage admin (`status='suspended'`) | `email_service.build_bot_suspended_email()` ; `routers/admin_billing.py` | `support@` |
+| **Plafond IA atteint** | Bot atteint son `overage_cap` du mois (1 mail/mois/bot) | `email_service.build_overage_cap_email()` ; `routers/widget.py` | `support@` |
 
-### À implémenter (cf. §4)
+> **Délégué à Stripe — aucun code applicatif** : les e‑mails d'**échec de paiement**,
+> de **reçu / facture** et de **fin d'essai** sont envoyés automatiquement par Stripe.
+> À activer dans **Stripe Dashboard → Settings → Emails** (customer emails). On ne les
+> réimplémente pas côté Service pour éviter les doublons.
+
+### À implémenter
 
 | E‑mail | Déclencheur | Statut |
 |---|---|---|
-| **Confirmation de compte** | Inscription | ❌ à faire |
-| **Mot de passe oublié / réinitialisation** | Demande de reset | ❌ à faire (bouton UI déjà présent, sans action) |
-| **Bienvenue** | Après confirmation | ❌ optionnel |
-| **Invitation équipe** | Register entreprise / invitation membre | ❌ à vérifier (étape « invitations » du register n'envoie pas d'e‑mail) |
-| **Sécurité** (changement mot de passe / e‑mail) | Modification du compte | ❌ optionnel |
-| **Facturation** (échec paiement, fin d'essai, bot suspendu, plafond IA atteint) | Événements Stripe / statut bot | ⚠️ déléguer à Stripe (e‑mails automatiques) quand possible |
+| **Sécurité — changement d'e‑mail** | Modification de l'adresse du compte | ❌ optionnel (l'e‑mail n'est pas éditable aujourd'hui) |
 
 ## 4. Convention d'expéditeur
 

@@ -11,10 +11,12 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import get_current_user, require_org_access, require_org_admin
 from src.models.user import BOT_PERMS, Invitation, Membership, Organization, User
 from src.routers.billing import billing_on_org_owner_change
+from src.services.email_service import send_org_member_email
 from src.services.org_service import ensure_not_last_admin
 
 router = APIRouter(prefix="/api/orgs", tags=["organizations"])
@@ -180,7 +182,7 @@ async def invite_member(org_id: int, body: MemberAdd, db: AsyncSession = Depends
     """Compte existant -> membre direct ; sinon invitation en attente,
     consommee quand la personne cree son compte avec cet email."""
     await require_org_admin(org_id, user, db)
-    await _get_org(db, org_id)
+    org = await _get_org(db, org_id)
 
     email = body.email.lower()
     target = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
@@ -191,6 +193,9 @@ async def invite_member(org_id: int, body: MemberAdd, db: AsyncSession = Depends
             raise HTTPException(status.HTTP_409_CONFLICT, "Déjà membre de cette organisation")
         db.add(Membership(user_id=target.id, organization_id=org_id, role=body.role, permissions={}))
         await db.commit()
+        # Compte existant ajouté direct : mail « ajouté à l'équipe » (fire-and-forget).
+        send_org_member_email(email, org.name, body.role,
+                              existing=True, app_url=settings.APP_URL)
         return {"joined": True, "user_id": target.id}
 
     existing_inv = await db.execute(select(Invitation).where(
@@ -199,6 +204,9 @@ async def invite_member(org_id: int, body: MemberAdd, db: AsyncSession = Depends
         raise HTTPException(status.HTTP_409_CONFLICT, "Invitation déjà envoyée à cet email")
     db.add(Invitation(organization_id=org_id, email=email, role=body.role))
     await db.commit()
+    # Compte inexistant : invitation en attente -> mail d'invitation (fire-and-forget).
+    send_org_member_email(email, org.name, body.role,
+                          existing=False, app_url=settings.APP_URL)
     return {"joined": False, "pending": True}
 
 

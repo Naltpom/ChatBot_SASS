@@ -77,9 +77,13 @@ from src.services.quota_service import (
     ai_quota_precheck,
 )
 from src.services.email_service import (
+    SUPPORT_EMAIL,
+    bot_owner_email,
     build_handoff_email,
     build_lead_email,
+    build_overage_cap_email,
     lead_notification_recipients,
+    send_account_email,
     send_email,
 )
 from src.services.rate_limit import (
@@ -87,6 +91,7 @@ from src.services.rate_limit import (
     handoff_limiter,
     human_msg_limiter,
     lead_limiter,
+    overage_cap_email_limiter,
     poll_ip_limiter,
     poll_limiter,
     session_limiter,
@@ -378,7 +383,7 @@ async def trigger_handoff(bot: Bot, conversation: Conversation, db: AsyncSession
     # fallback log (contrat email_service).
     recipients = await lead_notification_recipients(db, bot)
     subject, mail_body = build_handoff_email(bot, conversation)
-    asyncio.create_task(send_email(recipients, subject, mail_body))
+    asyncio.create_task(send_email(recipients, subject, mail_body, reply_to=SUPPORT_EMAIL))
     if bot.handoff_webhook_url:
         payload = {"text": (
             f"Un visiteur demande un conseiller sur « {bot.name} » "
@@ -429,7 +434,9 @@ async def submit_lead(
     # session db de la requete, envoi en tache de fond (fallback log sans SMTP)
     recipients = await lead_notification_recipients(db, bot)
     subject, mail_body = build_lead_email(bot, lead)
-    asyncio.create_task(send_email(recipients, subject, mail_body))
+    # Reply-To = email du visiteur : répondre au lead atterrit chez lui.
+    asyncio.create_task(send_email(recipients, subject, mail_body,
+                                   reply_to=body.email or None))
 
     return _maybe_refresh({"ok": True, "message": "Merci ! Votre demande a bien été transmise."}, bot, session)
 
@@ -711,6 +718,16 @@ async def _handle_ai_message(
                 logger.info(
                     "billing.overage: bot %s plafond de dépassement atteint "
                     "(reason=overage_cap_reached)", bot.id)
+                # Prévient le propriétaire — au plus 1 mail / ~mois / bot (le
+                # limiteur dédoublonne ; chaque requête retombe ici sinon).
+                # Destinataire résolu AVANT le spawn (la tâche ne touche pas la db).
+                if await overage_cap_email_limiter.check(str(bot.id)):
+                    owner = await bot_owner_email(db, bot)
+                    if owner:
+                        subj, mail_body = build_overage_cap_email(bot, settings.APP_URL)
+                        send_account_email(
+                            [owner], subj, mail_body,
+                            error_label="Envoi e-mail plafond IA échoué")
                 return _maybe_refresh(
                     {"source": "ai", "message": OVERAGE_CAP_MESSAGE,
                      "options": [], "status": conversation.status}, bot, session)
