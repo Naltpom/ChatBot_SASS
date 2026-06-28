@@ -14,6 +14,11 @@ import { PASSWORD_MIN_LENGTH } from '../components/AuthShell'
 interface Invite { email: string; role: 'admin' | 'member' }
 interface RegisterForm { prenom: string; nom: string; email: string; pwd: string; org: string }
 
+// Validation e-mail raisonnable (un seul @, un domaine avec point, pas
+// d'espaces) : `includes('@')` laissait passer « a@b » sans TLD. Volontairement
+// permissive (pas de RFC complète) pour ne pas rejeter de vrais e-mails.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 const CLASH = "'Clash Display',sans-serif"
 const NAVY = '#1C3F5C'
 const MINT = '#2F9E79'
@@ -105,8 +110,22 @@ export default function Register() {
   // informations, [l'invitation équipe] puis l'écran « C'est prêt ! ».
   const totalDots = type === 'entreprise' ? 4 : 3
   const stepCaption = (i: number) => `Étape ${i + 1} sur ${totalDots} — ${i + 1 === totalDots ? "C'est prêt !" : i === 0 ? 'Type de compte' : i === 1 ? 'Votre compte' : 'Votre équipe'}`
-  const canSubmitInfo = !!(form.prenom.trim() && form.email.includes('@') && form.pwd.length >= PASSWORD_MIN_LENGTH
+  const emailValid = EMAIL_RE.test(form.email.trim())
+  const canSubmitInfo = !!(form.prenom.trim() && emailValid && form.pwd.length >= PASSWORD_MIN_LENGTH
     && (type === 'perso' || form.org.trim()))
+
+  // Liste explicite de ce qui manque pour activer « Créer mon compte » : le
+  // bouton désactivé seul n'indiquait pas POURQUOI (#UX-6). Affichée sous le
+  // formulaire (aria-live) tant que la saisie est incomplète.
+  const missingFields = (() => {
+    const m: string[] = []
+    if (type === 'entreprise' && !form.org.trim()) m.push("le nom de l'entreprise")
+    if (!form.prenom.trim()) m.push('le prénom')
+    if (!form.email.trim()) m.push("l'e-mail")
+    else if (!emailValid) m.push('un e-mail valide')
+    if (form.pwd.length < PASSWORD_MIN_LENGTH) m.push(`un mot de passe d'au moins ${PASSWORD_MIN_LENGTH} caractères`)
+    return m
+  })()
 
   function addInvite() {
     const e = inviteEmail.trim().toLowerCase()
@@ -210,13 +229,25 @@ export default function Register() {
           </label>
         </div>
         <label><span style={lbl}>E-mail professionnel *</span>
-          <input style={inputStyle} type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="theo@exemple.fr" />
+          <input style={inputStyle} type="email" autoComplete="email" inputMode="email"
+                 aria-invalid={form.email.trim() !== '' && !emailValid}
+                 value={form.email} onChange={e => set('email', e.target.value)} placeholder="theo@exemple.fr" />
+          {form.email.trim() !== '' && !emailValid && (
+            <span style={{ display: 'block', marginTop: 6, fontSize: 12.5, color: '#C4524A' }}>
+              Entrez une adresse e-mail valide (ex. nom@domaine.fr).
+            </span>
+          )}
         </label>
         <label><span style={lbl}>Mot de passe * <span style={{ fontWeight: 500, color: '#9AA7B4' }}>(8 caractères min.)</span></span>
           <input style={inputStyle} type="password" value={form.pwd} onChange={e => set('pwd', e.target.value)} placeholder="••••••••" />
         </label>
       </div>
       {errBox}
+      {!canSubmitInfo && missingFields.length > 0 && (
+        <p aria-live="polite" style={{ marginTop: 14, fontSize: 12.5, color: '#9AA7B4', lineHeight: 1.55 }}>
+          Pour continuer, renseignez {missingFields.join(', ')}.
+        </p>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
         <button style={btnGhost} onClick={() => setStep(0)}>← Retour</button>
         <button style={{ ...btnPrimary, opacity: (!canSubmitInfo || busy) ? .5 : 1 }} disabled={!canSubmitInfo || busy}
