@@ -48,6 +48,69 @@
   }
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
+  // Identifiant unique stable pour associer <label for> / id et lier ARIA
+  // (aria-labelledby/aria-controls) — a11y : tout champ a un nom accessible.
+  var _uid = 0;
+  function uid(p) { _uid += 1; return (p || 'cbo') + '-' + _uid; }
+
+  // Champ « label + contrôle unique » : associe explicitement le <label for> à
+  // l'id du contrôle (en générant l'id au besoin).
+  function fieldFor(labelText, control) {
+    var id = control.id || uid('cbo-f');
+    control.id = id;
+    return h('div', { class: 'cbo-field' }, h('label', { for: id, text: labelText }), control);
+  }
+  // Champ « label + groupe de cases/radios » : un seul <label> ne peut pas cibler
+  // plusieurs contrôles -> on expose un role group/radiogroup nommé via
+  // aria-labelledby (le <label> conserve son style mais sert d'étiquette de groupe).
+  function fieldGroup(labelText, groupNode, role) {
+    var id = uid('cbo-lg');
+    groupNode.setAttribute('role', role || 'group');
+    groupNode.setAttribute('aria-labelledby', id);
+    return h('div', { class: 'cbo-field' }, h('label', { id: id, text: labelText }), groupNode);
+  }
+  // Message d'état/chargement annoncé aux lecteurs d'écran (région live polie).
+  function loadingNote(text) {
+    return h('p', { class: 'cbo-muted', role: 'status', 'aria-live': 'polite', text: text || 'Chargement…' });
+  }
+  // Synchronise aria-checked d'un interrupteur (role=switch) sur l'état réel.
+  function syncSwitch(el) { el.setAttribute('aria-checked', el.checked ? 'true' : 'false'); }
+
+  // --- Restauration de focus après un re-render intégral (clear(root)) -------
+  // render() reconstruit tout le DOM : sans cela, le focus clavier retombe sur
+  // <body> à chaque action. On marque les contrôles « logiques » (onglets de nav
+  // et sous-onglets du bot) d'un data-focuskey stable ; render() relève la clé du
+  // contrôle focalisé AVANT le clear et la restaure APRÈS reconstruction.
+  function currentFocusKey() {
+    var a = document.activeElement;
+    return (a && a.getAttribute) ? a.getAttribute('data-focuskey') : null;
+  }
+  function restoreFocus(key) {
+    if (!key || !root) return;
+    var el = root.querySelector('[data-focuskey="' + key.replace(/"/g, '') + '"]');
+    if (el && typeof el.focus === 'function') el.focus();
+  }
+  // Navigation clavier d'une tablist (flèches + Home/End) : déplace le focus puis
+  // active l'onglet (activation automatique) ; le re-render restaure le focus sur
+  // le nouvel onglet via son data-focuskey.
+  function wireTablistKeys(tablist) {
+    tablist.addEventListener('keydown', function (e) {
+      var k = e.key;
+      if (k !== 'ArrowRight' && k !== 'ArrowLeft' && k !== 'Home' && k !== 'End') return;
+      var tabs = Array.prototype.slice.call(tablist.querySelectorAll('[role="tab"]'));
+      var idx = tabs.indexOf(document.activeElement);
+      if (idx === -1) return;
+      var next = idx;
+      if (k === 'ArrowRight') next = (idx + 1) % tabs.length;
+      else if (k === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
+      else if (k === 'Home') next = 0;
+      else if (k === 'End') next = tabs.length - 1;
+      e.preventDefault();
+      tabs[next].focus();  // active element = nouvel onglet AVANT le render
+      tabs[next].click();  // change d'onglet + re-render (focus restauré sur lui)
+    });
+  }
+
   function euros(cents) {
     try { return (cents / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }); }
     catch (e) { return (cents / 100).toFixed(2) + ' €'; }
@@ -122,9 +185,12 @@
     if (!noticeHost) return;
     clear(noticeHost);
     if (state.notice) {
-      noticeHost.appendChild(h('div', { class: 'cbo-notice cbo-notice-' + state.notice.type },
+      // Erreur/avertissement = role=alert (annonce assertive) ; autres = laissé à
+      // la région live polie du noticeHost.
+      var assertive = state.notice.type === 'warn';
+      noticeHost.appendChild(h('div', { class: 'cbo-notice cbo-notice-' + state.notice.type, role: assertive ? 'alert' : null },
         h('span', { text: state.notice.msg }),
-        h('button', { class: 'cbo-notice-x', 'aria-label': 'Fermer', onClick: function () { setNotice(null); } }, '×')
+        h('button', { type: 'button', class: 'cbo-notice-x', 'aria-label': 'Fermer', onClick: function () { setNotice(null); } }, '×')
       ));
     }
   }
@@ -136,8 +202,9 @@
 
   function render() {
     if (!root) return;
+    var fk = currentFocusKey();   // relève le focus logique AVANT le clear (point 5)
     clear(root);
-    noticeHost = h('div', { class: 'cbo-notice-host' });
+    noticeHost = h('div', { class: 'cbo-notice-host', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
     root.appendChild(noticeHost);
     paintNotice();
     root.appendChild(renderNav());
@@ -147,6 +214,7 @@
     else if (state.view === 'bot') body.appendChild(renderBot());
     else if (state.view === 'seo') body.appendChild(renderSeo());
     else body.appendChild(renderBots());
+    restoreFocus(fk);             // restaure le focus sur le contrôle équivalent reconstruit
   }
 
   function renderNav() {
@@ -172,7 +240,8 @@
     return nav;
   }
   function navBtn(label, active, on) {
-    return h('button', { class: 'cbo-tab' + (active ? ' is-active' : ''), onClick: on }, label);
+    return h('button', { type: 'button', class: 'cbo-tab' + (active ? ' is-active' : ''),
+      'data-focuskey': 'nav-' + label, 'aria-current': active ? 'page' : null, onClick: on }, label);
   }
 
   /* --------------------------------------------------------------- connexion */
@@ -202,7 +271,7 @@
   function startConnect(btn, info) {
     btn.disabled = true;
     clear(info);
-    info.appendChild(h('p', { class: 'cbo-muted', text: 'Redirection vers Chapote…' }));
+    info.appendChild(loadingNote('Redirection vers Chapote…'));
     call('GET', '/connect/url').then(function (res) {
       if (!res.ok || !res.data || !res.data.url) {
         btn.disabled = (CFG.cryptoOk === false);
@@ -301,7 +370,11 @@
   function activationToggle(bot, opts) {
     opts = opts || {};
     var blocked = bot.billing_status === 'suspended';
-    var cb = h('input', { type: 'checkbox', checked: !!bot.enabled });
+    // Interrupteur d'affichage du widget : role=switch + aria-checked + nom
+    // accessible (aria-label) car le mode compact n'a pas de texte visible.
+    var switchLabel = 'Afficher le widget' + (bot.name ? ' « ' + bot.name + ' »' : '') + ' sur le site';
+    var cb = h('input', { type: 'checkbox', checked: !!bot.enabled, role: 'switch',
+      'aria-checked': bot.enabled ? 'true' : 'false', 'aria-label': switchLabel });
     if (blocked) { cb.disabled = true; cb.title = 'Bot bloqué : le widget est coupé.'; }
     var txt = opts.compact ? null
       : h('span', { text: bot.enabled ? 'Affiché sur le site' : 'Afficher sur le site' });
@@ -313,11 +386,13 @@
         if (res.ok) {
           bot.enabled = !!(res.data && res.data.enabled);
           cb.checked = bot.enabled;
+          syncSwitch(cb);
           if (txt) txt.textContent = bot.enabled ? 'Affiché sur le site' : 'Afficher sur le site';
           setNotice(bot.enabled ? 'Widget activé sur le site.' : 'Widget désactivé du site.', 'ok');
           if (typeof opts.onChange === 'function') opts.onChange(bot.enabled);
         } else {
           cb.checked = !want; // revert visuel
+          syncSwitch(cb);
           setNotice('Action impossible.', 'warn');
         }
       });
@@ -332,8 +407,8 @@
     var box = document.getElementById('cbo-create');
     if (!box) return;
     if (box.childNodes.length) { clear(box); return; }
-    var name = h('input', { type: 'text', class: 'regular-text', placeholder: 'Nom du bot', maxlength: 80 });
-    var mode = h('select', null,
+    var name = h('input', { type: 'text', class: 'regular-text', placeholder: 'Nom du bot', maxlength: 80, 'aria-label': 'Nom du bot' });
+    var mode = h('select', { 'aria-label': 'Type de bot' },
       h('option', { value: 'hybrid' }, 'Hybride (arbre + IA)'),
       h('option', { value: 'tree' }, 'Arbre seul'),
       h('option', { value: 'ai' }, 'IA seule')
@@ -370,13 +445,16 @@
       // Toggle d'affichage du widget DIRECTEMENT dans l'en-tête (plus dans un onglet).
       h('span', { class: 'cbo-bothead-toggle' }, activationToggle(bot, {}))
     ));
-    var tabs = h('div', { class: 'cbo-subtabs' },
+    var tabs = h('div', { class: 'cbo-subtabs', role: 'tablist', 'aria-label': 'Réglages du bot' },
       subTab('Ciblage des pages', 'activation'),
       subTab('Mon offre', 'payment'),
       subTab('Apparence', 'appearance')
     );
+    wireTablistKeys(tabs);
     wrap.appendChild(tabs);
-    var pane = h('div', { class: 'cbo-pane', id: 'cbo-pane' });
+    // Le pane est le tabpanel piloté par l'onglet actif (aria-controls/labelledby).
+    var pane = h('div', { class: 'cbo-pane', id: 'cbo-pane', role: 'tabpanel', tabindex: '0',
+      'aria-labelledby': 'cbo-subtab-' + state.botTab });
     wrap.appendChild(pane);
 
     if (state.botTab === 'payment') renderPayment(pane);
@@ -385,7 +463,10 @@
     return wrap;
   }
   function subTab(label, key) {
-    return h('button', { class: 'cbo-subtab' + (state.botTab === key ? ' is-active' : ''),
+    var active = state.botTab === key;
+    return h('button', { type: 'button', class: 'cbo-subtab' + (active ? ' is-active' : ''),
+      id: 'cbo-subtab-' + key, role: 'tab', 'aria-selected': active ? 'true' : 'false',
+      'aria-controls': 'cbo-pane', tabindex: active ? '0' : '-1', 'data-focuskey': 'subtab-' + key,
       onClick: function () { state.botTab = key; render(); } }, label);
   }
 
@@ -393,7 +474,7 @@
 
   function renderAppearance(pane) {
     clear(pane);
-    pane.appendChild(h('p', { class: 'cbo-muted', text: 'Chargement de l’apparence…' }));
+    pane.appendChild(loadingNote('Chargement de l’apparence…'));
     call('GET', '/bots/' + encodeURIComponent(state.botId)).then(function (res) {
       if (!res.ok) { clear(pane); pane.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de charger ce bot.' })); return; }
       var design = (res.data && res.data.design_json) || {};
@@ -410,7 +491,7 @@
     var preview = h('div', { class: 'cbo-preview' });
     function refresh() { renderPreview(preview, d, botName); }
 
-    function field(label, control) { return h('div', { class: 'cbo-field' }, h('label', { text: label }), control); }
+    function field(label, control) { return fieldFor(label, control); }
     function colorInput(key, fallback) {
       var inp = h('input', { type: 'color', value: d[key] || fallback });
       inp.addEventListener('input', function () { d[key] = inp.value; refresh(); });
@@ -578,7 +659,7 @@
 
   function renderPayment(pane) {
     clear(pane);
-    pane.appendChild(h('p', { class: 'cbo-muted', text: 'Chargement de l’offre…' }));
+    pane.appendChild(loadingNote('Chargement de l’offre…'));
     // Bot + catalogue LIVE en parallèle. Le catalogue (prix/paliers/modules) est
     // la SOURCE UNIQUE backend (proxy /catalog -> GET /api/account/catalog) : plus
     // aucun repli de prix codé en dur côté plugin. Si le proxy échoue, on affiche
@@ -659,7 +740,7 @@
 
     function renderModules() {
       clear(modBox);
-      modBox.appendChild(h('h4', { text: 'Modules' }));
+      modBox.appendChild(h('h3', { text: 'Modules' }));
       payableModules.forEach(function (m) {
         var cb = h('input', { type: 'checkbox', checked: !!selected[m.key] });
         cb.addEventListener('change', function () {
@@ -680,7 +761,7 @@
 
     function renderAi() {
       clear(aiBox);
-      aiBox.appendChild(h('h4', { text: 'Intelligence artificielle' }));
+      aiBox.appendChild(h('h3', { text: 'Intelligence artificielle' }));
       var modes = [['off', 'Sans IA'], ['managed', 'IA incluse (quota)'], ['byok', 'IA avec ma clé (BYOK)']];
       var row = h('div', { class: 'cbo-airow' });
       modes.forEach(function (mo) {
@@ -800,7 +881,7 @@
 
   function renderActivation(pane) {
     clear(pane);
-    pane.appendChild(h('p', { class: 'cbo-muted', text: 'Chargement…' }));
+    pane.appendChild(loadingNote());
     Promise.all([
       call('GET', '/bots/' + encodeURIComponent(state.botId) + '/local'),
       call('GET', '/bots/' + encodeURIComponent(state.botId))
@@ -824,7 +905,7 @@
       pane.appendChild(h('div', { class: 'cbo-freenote' },
         h('p', null,
           'Ce bot fonctionne en mode gratuit (pas d’abonnement payant actif) : les réponses IA sont limitées au quota gratuit. Vous pouvez quand même l’activer sur le site. ',
-          h('a', { href: '#', onClick: function (e) { e.preventDefault(); state.botTab = 'payment'; render(); } }, 'Voir « Mon offre »')
+          h('button', { type: 'button', class: 'cbo-linkbtn', onClick: function () { state.botTab = 'payment'; render(); } }, 'Voir « Mon offre »')
         )
       ));
     }
@@ -872,23 +953,22 @@
     var excludeIds = h('input', { type: 'text', class: 'regular-text', value: (t.exclude_ids || []).join(', '), placeholder: 'ex. 7, 99' });
 
     // Inclusions.
-    customBox.appendChild(h('h4', { class: 'cbo-custom-h', text: 'Afficher sur' }));
+    customBox.appendChild(h('h3', { class: 'cbo-custom-h', text: 'Afficher sur' }));
     customBox.appendChild(h('label', { class: 'cbo-check' }, frontCb, h('span', { text: 'Page d’accueil' })));
-    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'Types de contenu à inclure' }), inc.wrap));
-    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'IDs de contenus à inclure' }), includeIds));
+    customBox.appendChild(fieldGroup('Types de contenu à inclure', inc.wrap));
+    customBox.appendChild(fieldFor('IDs de contenus à inclure', includeIds));
 
     // Exclusions (PRIORITAIRES sur toute inclusion).
-    customBox.appendChild(h('h4', { class: 'cbo-custom-h', text: 'Ne jamais afficher sur (prioritaire)' }));
-    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'Types de contenu à exclure' }), exc.wrap));
-    customBox.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'IDs de contenus à exclure' }), excludeIds));
+    customBox.appendChild(h('h3', { class: 'cbo-custom-h', text: 'Ne jamais afficher sur (prioritaire)' }));
+    customBox.appendChild(fieldGroup('Types de contenu à exclure', exc.wrap));
+    customBox.appendChild(fieldFor('IDs de contenus à exclure', excludeIds));
     customBox.appendChild(h('p', { class: 'cbo-hint', text: 'Une exclusion (type ou ID) l’emporte toujours sur une inclusion.' }));
 
-    pane.appendChild(h('div', { class: 'cbo-field' }, h('label', { text: 'Où afficher le widget ?' }),
+    pane.appendChild(fieldGroup('Où afficher le widget ?',
       h('div', { class: 'cbo-targetmodes' },
         h('label', { class: 'cbo-radio' }, modeEverywhere, h('span', { text: 'Tout le site' })),
         h('label', { class: 'cbo-radio' }, modeCustom, h('span', { text: 'Pages personnalisées' }))
-      )
-    ));
+      ), 'radiogroup'));
     pane.appendChild(customBox);
     renderCustom();
 
@@ -913,7 +993,7 @@
     // Rappel domaine (anciennement onglet « Domaine », fusionné ici) : pour que le
     // widget réponde aux visiteurs, ce domaine doit être autorisé côté Chapote.
     pane.appendChild(h('div', { class: 'cbo-domain' },
-      h('h4', { class: 'cbo-custom-h', text: 'Autoriser ce domaine dans Chapote' }),
+      h('h3', { class: 'cbo-custom-h', text: 'Autoriser ce domaine dans Chapote' }),
       h('p', { class: 'cbo-muted', text: 'Pour que le widget réponde aux visiteurs, ajoutez ce domaine à la liste des domaines autorisés de votre bot (onglet Sécurité dans Chapote) :' }),
       h('code', { class: 'cbo-host', text: CFG.siteHost || '' }),
       h('p', { class: 'cbo-muted', text: 'La sécurité (domaines autorisés, captcha, limites) se gère côté Chapote, pas dans WordPress.' }),
@@ -938,7 +1018,7 @@
   function renderSeo() {
     var wrap = h('div', { class: 'cbo-card' });
     wrap.appendChild(h('h2', { text: 'SEO (référencement)' }));
-    wrap.appendChild(h('p', { class: 'cbo-muted', text: 'Chargement…' }));
+    wrap.appendChild(loadingNote());
     call('GET', '/seo').then(function (res) {
       var s = (res.data && typeof res.data === 'object') ? res.data : {};
       buildSeoForm(wrap, {
@@ -958,13 +1038,13 @@
     // 1) Backlink opt-in.
     var poweredCb = h('input', { type: 'checkbox', checked: !!seo.powered_by });
     wrap.appendChild(h('div', { class: 'cbo-field' },
-      h('h4', { text: 'Lien « Chatbot par Chapote »' }),
+      h('h3', { text: 'Lien « Chatbot par Chapote »' }),
       h('label', { class: 'cbo-check' }, poweredCb,
         h('span', { text: 'Afficher un petit lien crawlable vers Chapote dans le pied de page (désactivé par défaut).' }))
     ));
 
     // 2) Éditeur de paires FAQ (Question / Réponse) -> JSON-LD.
-    wrap.appendChild(h('h4', { text: 'FAQ (données structurées schema.org)' }));
+    wrap.appendChild(h('h3', { text: 'FAQ (données structurées schema.org)' }));
     wrap.appendChild(h('p', { class: 'cbo-muted', text:
       'Chaque paire Question / Réponse est publiée en JSON-LD (FAQPage), éligible aux résultats enrichis Google.' }));
 
@@ -972,15 +1052,15 @@
     var rows = [];
 
     function addRow(q, a) {
-      var qInput = h('input', { type: 'text', class: 'regular-text', value: q || '', placeholder: 'Question', maxlength: 300 });
-      var aInput = h('textarea', { rows: 2, class: 'large-text', maxlength: 2000, placeholder: 'Réponse' });
+      var qInput = h('input', { type: 'text', class: 'regular-text', value: q || '', placeholder: 'Question', maxlength: 300, 'aria-label': 'Question' });
+      var aInput = h('textarea', { rows: 2, class: 'large-text', maxlength: 2000, placeholder: 'Réponse', 'aria-label': 'Réponse' });
       aInput.value = a || '';
       var row = { q: qInput, a: aInput };
       rows.push(row);
       var node = h('div', { class: 'cbo-faqrow' },
         h('div', { class: 'cbo-field' }, qInput),
         h('div', { class: 'cbo-field' }, aInput),
-        h('button', { class: 'button cbo-danger', onClick: function () {
+        h('button', { type: 'button', class: 'button cbo-danger', 'aria-label': 'Retirer cette question', onClick: function () {
           var i = rows.indexOf(row); if (i !== -1) rows.splice(i, 1);
           if (node.parentNode) node.parentNode.removeChild(node);
         } }, 'Retirer')
