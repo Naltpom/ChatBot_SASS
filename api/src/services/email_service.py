@@ -95,6 +95,27 @@ async def lead_notification_recipients(db: AsyncSession, bot: "Bot") -> list[str
     return [row[0] for row in result.all()]
 
 
+async def bot_owner_email(db: AsyncSession, bot: "Bot") -> Optional[str]:
+    """Email du proprietaire (payeur) du bot, pour les notifications compte/
+    facturation (suspension, plafond IA).
+
+    - Bot PERSO (owner_user_id) : l'email de ce user.
+    - Bot d'EQUIPE (organization_id) : l'email de l'owner de l'organisation.
+
+    A appeler AVANT le spawn_background : la tache de fond ne touche pas la db."""
+    from src.models.user import Organization, User
+
+    if bot.owner_user_id is not None:
+        owner = await db.get(User, bot.owner_user_id)
+        return owner.email if owner else None
+    if bot.organization_id is not None:
+        org = await db.get(Organization, bot.organization_id)
+        if org and org.owner_user_id is not None:
+            owner = await db.get(User, org.owner_user_id)
+            return owner.email if owner else None
+    return None
+
+
 def build_lead_email(bot: "Bot", lead: "Lead") -> tuple[str, str]:
     """(sujet, corps texte brut FR) de la notification d'un nouveau lead."""
     lines = [
@@ -192,3 +213,123 @@ def build_reset_email(user: "User", link: str) -> tuple[str, str]:
         "— L'équipe Chapote",
     ]
     return ("Réinitialisation de votre mot de passe", "\n".join(lines))
+
+
+def build_welcome_email(user: "User", app_url: str) -> tuple[str, str]:
+    """(sujet, corps texte brut FR) de bienvenue, envoyé après confirmation
+    de l'adresse email."""
+    lines = [
+        f"Bonjour {user.name},",
+        "",
+        "Votre adresse email est confirmée : bienvenue chez Chapote !",
+        "",
+        "Vous pouvez dès maintenant créer votre premier chatbot et le mettre en "
+        "ligne en quelques minutes :",
+        "",
+        f"{app_url}/app",
+        "",
+        "Une question ? Écrivez-nous, nous sommes là pour vous aider.",
+        "",
+        "— L'équipe Chapote",
+    ]
+    return ("Bienvenue chez Chapote", "\n".join(lines))
+
+
+def build_invite_email(org_name: str, role: str, app_url: str) -> tuple[str, str]:
+    """(sujet, corps texte brut FR) d'une invitation à rejoindre une équipe.
+    Pas de token : l'invitation se consomme par correspondance d'email à
+    l'inscription."""
+    role_fr = "administrateur·rice" if role == "admin" else "membre"
+    lines = [
+        f"Vous êtes invité·e à rejoindre l'équipe « {org_name} » sur Chapote "
+        f"en tant que {role_fr}.",
+        "",
+        "Pour accepter, créez votre compte avec cette même adresse email — vous "
+        "rejoindrez automatiquement l'équipe :",
+        "",
+        f"{app_url}/register",
+        "",
+        "Si vous n'attendiez pas cette invitation, vous pouvez ignorer ce message.",
+        "",
+        "— L'équipe Chapote",
+    ]
+    return (f"Vous êtes invité·e à rejoindre {org_name} sur Chapote", "\n".join(lines))
+
+
+def build_added_to_org_email(org_name: str, role: str, app_url: str) -> tuple[str, str]:
+    """(sujet, corps texte brut FR) pour un utilisateur EXISTANT ajouté
+    directement comme membre d'une équipe."""
+    role_fr = "administrateur·rice" if role == "admin" else "membre"
+    lines = [
+        f"Vous avez été ajouté·e à l'équipe « {org_name} » sur Chapote "
+        f"en tant que {role_fr}.",
+        "",
+        "Retrouvez l'équipe et ses chatbots depuis votre tableau de bord :",
+        "",
+        f"{app_url}/app",
+        "",
+        "— L'équipe Chapote",
+    ]
+    return (f"Vous avez été ajouté·e à {org_name}", "\n".join(lines))
+
+
+def build_password_changed_email(user: "User", app_url: str) -> tuple[str, str]:
+    """(sujet, corps texte brut FR) — notification de sécurité après un
+    changement de mot de passe."""
+    lines = [
+        f"Bonjour {user.name},",
+        "",
+        "Le mot de passe de votre compte Chapote vient d'être modifié.",
+        "",
+        "Si vous êtes à l'origine de ce changement, aucune action n'est requise.",
+        "",
+        "Dans le cas contraire, réinitialisez immédiatement votre mot de passe "
+        "et contactez le support :",
+        "",
+        f"{app_url}/forgot-password",
+        "",
+        "— L'équipe Chapote",
+    ]
+    return ("Votre mot de passe a été modifié", "\n".join(lines))
+
+
+def build_bot_suspended_email(bot: "Bot", reason: Optional[str],
+                              app_url: str) -> tuple[str, str]:
+    """(sujet, corps texte brut FR) — notification de suspension d'un chatbot."""
+    lines = [
+        f"Votre chatbot « {bot.name} » a été suspendu : son widget n'est plus "
+        "actif sur vos pages.",
+    ]
+    if reason:
+        lines += ["", f"Motif : {reason}"]
+    lines += [
+        "",
+        "Pour comprendre la situation et rétablir votre chatbot, contactez notre "
+        f"support : {SUPPORT_EMAIL}",
+        "",
+        f"Votre tableau de bord : {app_url}/app",
+        "",
+        "— L'équipe Chapote",
+    ]
+    return (f"Votre chatbot « {bot.name} » a été suspendu", "\n".join(lines))
+
+
+def build_overage_cap_email(bot: "Bot", app_url: str) -> tuple[str, str]:
+    """(sujet, corps texte brut FR) — le bot a atteint son plafond de réponses
+    IA facturables du mois (overage_cap)."""
+    lines = [
+        f"Votre chatbot « {bot.name} » a atteint son plafond de réponses IA "
+        "pour ce mois-ci.",
+        "",
+        "En attendant le renouvellement mensuel, il ne génère plus de nouvelles "
+        "réponses IA. Pour le réactiver immédiatement, ajustez votre plafond de "
+        "facturation depuis votre tableau de bord :",
+        "",
+        f"{app_url}/app",
+        "",
+        f"Une question sur votre facturation ? Écrivez à {SUPPORT_EMAIL}.",
+        "",
+        "— L'équipe Chapote",
+    ]
+    return (f"Votre chatbot « {bot.name} » a atteint son plafond de réponses IA ce mois-ci",
+            "\n".join(lines))

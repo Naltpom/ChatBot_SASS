@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.constants import MODULE_AI, MODULE_KEYS
 from src.core.database import get_db
 from src.core.security import require_superadmin
@@ -34,6 +35,13 @@ from src.models.billing import (
 from src.models.bot import Bot
 from src.models.user import Organization, User
 from src.services import stripe_service
+from src.services.background import spawn_background
+from src.services.email_service import (
+    SUPPORT_EMAIL,
+    bot_owner_email,
+    build_bot_suspended_email,
+    send_email,
+)
 from src.services.entitlement_service import (
     PlanState,
     baseline as es_baseline,
@@ -750,7 +758,14 @@ async def block_bot(bot_id: int, body: BlockPayload,
         new_status="suspended", actor_kind="staff", actor_user_id=actor.id,
         reason=body.reason or "admin_block",
     )
+    # Destinataire (payeur du bot) résolu AVANT le spawn (la tâche ne touche pas
+    # la db). Notif uniquement si le bot est effectivement passé 'suspended'.
+    owner = await bot_owner_email(db, bot) if row.status == "suspended" else None
     await db.commit()
+    if owner:
+        subject, mail_body = build_bot_suspended_email(bot, body.reason, settings.APP_URL)
+        spawn_background(send_email([owner], subject, mail_body, reply_to=SUPPORT_EMAIL),
+                         error_label="Envoi e-mail suspension bot échoué")
     return {
         "bot_id": bot_id,
         "modules": sorted(row.modules or []),

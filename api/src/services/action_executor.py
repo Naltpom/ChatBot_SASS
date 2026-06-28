@@ -127,7 +127,8 @@ async def _capture_lead(args: dict, bot: Bot, db: Optional[AsyncSession],
     # Destinataires recuperes AVANT le create_task (la tache ne touche pas la db)
     recipients = await lead_notification_recipients(db, bot)
     subject, body = build_lead_email(bot, lead)
-    _spawn_email(send_email(recipients, subject, body))
+    # Reply-To = email du visiteur : répondre au lead atterrit chez lui.
+    _spawn_email(send_email(recipients, subject, body, reply_to=lead.email or None))
     return {"ok": True, "lead_id": lead.id}
 
 
@@ -220,7 +221,8 @@ async def _create_ticket(action: dict, args: dict, bot: Bot,
         await lead_notification_recipients(db, bot)
     subject_mail, body = build_ticket_email(bot, ref, subject, summary,
                                             email or None, name, phone, conversation_id)
-    _spawn_email(send_email(to, subject_mail, body))
+    # Reply-To = email du visiteur s'il l'a laissé (sinon None).
+    _spawn_email(send_email(to, subject_mail, body, reply_to=email or None))
     return {"ok": True, "ticket_ref": ref}
 
 

@@ -42,8 +42,12 @@ from src.services.avatar import fetch_and_store_avatar
 from src.services.background import spawn_background
 from src.services.email_service import (
     SUPPORT_EMAIL,
+    build_added_to_org_email,
+    build_invite_email,
+    build_password_changed_email,
     build_reset_email,
     build_verify_email,
+    build_welcome_email,
     send_email,
 )
 from src.services.google_oauth import GoogleAuthError, verify_google_id_token
@@ -65,6 +69,17 @@ def _send_verify_email(user: User) -> None:
     subject, body = build_verify_email(user, link)
     spawn_background(send_email([user.email], subject, body, reply_to=SUPPORT_EMAIL),
                      error_label="Envoi e-mail auth échoué")
+
+
+def _send_org_member_email(email: str, org_name: str, role: str, existing: bool) -> None:
+    """Notifie une personne invitée à (compte inexistant) ou ajoutée directement
+    (compte existant) à une équipe. Fire-and-forget, ne bloque jamais l'endpoint."""
+    if existing:
+        subject, body = build_added_to_org_email(org_name, role, settings.APP_URL)
+    else:
+        subject, body = build_invite_email(org_name, role, settings.APP_URL)
+    spawn_background(send_email([email], subject, body, reply_to=SUPPORT_EMAIL),
+                     error_label="Envoi e-mail invitation échoué")
 
 
 async def _check_auth_rate(request: Request) -> None:
@@ -149,6 +164,9 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
     db.add(user)
     await db.flush()
 
+    # Mails d'invitation/ajout à envoyer APRÈS commit (email, role, existing).
+    org_member_mails: list[tuple[str, str, str, bool]] = []
+
     # Perso = utilisateur SEUL (aucune org, aucun membership) : ses bots
     # appartiendront directement a lui (Bot.owner_user_id). Entreprise = une
     # organisation (equipe) creee avec le createur en admin + invitations.
@@ -170,8 +188,10 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
             if target:
                 db.add(Membership(user_id=target.id, organization_id=org.id,
                                   role=inv.role, permissions={}))
+                org_member_mails.append((inv_email, org.name, inv.role, True))
             else:
                 db.add(Invitation(organization_id=org.id, email=inv_email, role=inv.role))
+                org_member_mails.append((inv_email, org.name, inv.role, False))
 
     # Un perso peut aussi avoir des invitations en attente vers des equipes :
     # consommees dans LES DEUX cas
@@ -182,6 +202,9 @@ async def register(body: UserRegister, request: Request, db: AsyncSession = Depe
     # confirmation en fire-and-forget — l'inscription ne bloque pas et n'échoue
     # jamais si l'envoi (ou le SMTP) échoue.
     _send_verify_email(user)
+    # Notifie les personnes invitées/ajoutées à la nouvelle équipe (fire-and-forget).
+    for inv_email, org_name, role, existing in org_member_mails:
+        _send_org_member_email(inv_email, org_name, role, existing)
     return TokenOut(access_token=create_dashboard_token(user.id), user=await _user_out(db, user))
 
 
@@ -316,6 +339,10 @@ async def change_password(body: PasswordChange, request: Request,
                             f"Mot de passe trop court ({PASSWORD_MIN_LENGTH} caractères minimum)")
     user.hashed_password = hash_password(body.new_password)
     await db.commit()
+    # Notif de sécurité (fire-and-forget) : le compte vient de changer de mot de passe.
+    subject, mail_body = build_password_changed_email(user, settings.APP_URL)
+    spawn_background(send_email([user.email], subject, mail_body, reply_to=SUPPORT_EMAIL),
+                     error_label="Envoi e-mail sécurité échoué")
     return {"changed": True}
 
 
@@ -358,6 +385,11 @@ async def confirm_email_verification(body: TokenBody, db: AsyncSession = Depends
     if not user.email_verified:
         user.email_verified = True
         await db.commit()
+        # Bienvenue : envoyé UNE SEULE fois, à la transition False->True (jamais à
+        # l'inscription ni sur un confirm idempotent déjà vérifié).
+        subject, body = build_welcome_email(user, settings.APP_URL)
+        spawn_background(send_email([user.email], subject, body, reply_to=SUPPORT_EMAIL),
+                         error_label="Envoi e-mail bienvenue échoué")
     return {"verified": True}
 
 
@@ -407,4 +439,8 @@ async def reset_password(body: ResetPasswordBody, request: Request,
                             f"Mot de passe trop court ({PASSWORD_MIN_LENGTH} caractères minimum)")
     user.hashed_password = hash_password(body.new_password)
     await db.commit()
+    # Notif de sécurité (fire-and-forget) : le compte vient de changer de mot de passe.
+    subject, mail_body = build_password_changed_email(user, settings.APP_URL)
+    spawn_background(send_email([user.email], subject, mail_body, reply_to=SUPPORT_EMAIL),
+                     error_label="Envoi e-mail sécurité échoué")
     return {"changed": True}

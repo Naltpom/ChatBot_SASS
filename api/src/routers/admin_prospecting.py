@@ -624,7 +624,9 @@ async def send(prospect_id: int, db: AsyncSession = Depends(get_db)):
     if not p.email_subject or not p.email_body:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "Aucun brouillon d'email à envoyer")
-    ok = await send_email([p.contact_email], p.email_subject, p.email_body)
+    # Reply-To = boîte commerciale : les réponses du prospect y atterrissent.
+    ok = await send_email([p.contact_email], p.email_subject, p.email_body,
+                          reply_to="hello@chapote.fr")
     if not ok:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
