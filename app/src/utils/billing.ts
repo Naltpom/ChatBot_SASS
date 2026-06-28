@@ -1,25 +1,17 @@
-// Utilitaires de facturation côté front : miroir LISIBLE du catalogue figé
-// (spec §2.2) + calcul de panier PUR. Le miroir sert deux choses :
-//   1. fallback/typage local (labels, clés) avant que GET /api/billing/catalog ne
-//      réponde ;
-//   2. PARITÉ : les clés exposées ici sont alignées sur MODULE_KEYS (D4) et les
-//      codes catalogue (mod_*) du backend — toute dérive est un bug (cf. F5).
+// Utilitaires de facturation côté front : SEULES les CLÉS de module (alignées
+// sur le backend) + le calcul de panier PUR vivent ici. AUCUN prix, % de remise
+// ni plafond n'est codé en dur : la SOURCE UNIQUE du catalogue (prix, paliers IA,
+// remises intro, plafonds, libellés) est GET /api/billing/catalog (cf. backend
+// _catalog_payload). Les pages chargent ce catalogue et affichent un état de
+// chargement/erreur tant qu'il n'est pas là — pas de copie de prix locale.
 //
-// AUCUN prix n'est codé en dur dans la LOGIQUE : computeCart prend le `catalog`
-// (source = backend) en argument et fait confiance au backend pour le montant
-// final (Stripe). Les centimes du miroir ci-dessous ne servent qu'au fallback /
-// affichage hors-ligne, jamais à valider un paiement.
-//
-// Catalogue figé 2026-06-20 (spec §2.2). Socle gratuit => base = 0. Pas de TVA
-// (franchise en base, art. 293 B du CGI).
-import type {
-  AiTier,
-  BillingCatalog,
-  BotConfig,
-  CatalogModule,
-  CatalogPreset,
-  ModuleKey,
-} from '../types/billing'
+// Ce qui RESTE ici :
+//   - MODULE_KEYS / MODULE_TO_CODE : les CLÉS d'entitlement (D4), alignées sur
+//     core/constants.MODULE_KEYS et couvertes par le test de parité
+//     (e2e/tests/billing-catalog-parity.spec.ts) — toute dérive casse le test ;
+//   - computeCart / deriveConfigFromChat : logique PURE qui prend le `catalog`
+//     (source = backend) en argument et fait confiance au backend pour le montant.
+import type { BillingCatalog, BotConfig, ModuleKey } from '../types/billing'
 
 // Ordre canonique des clés de module — DOIT correspondre à core/constants.MODULE_KEYS.
 // (parité front/back vérifiée par le test de parité ; ne pas réordonner sans le backend.)
@@ -43,124 +35,6 @@ export const MODULE_TO_CODE: Record<Exclude<ModuleKey, 'ai'>, string> = {
   mcp: 'mod_mcp',
   ab: 'mod_ab',
   white_label: 'mod_whitelabel',
-}
-
-// --- Miroir front du catalogue (fallback/affichage uniquement) -----------------
-
-// Modules add-on (kind='module'). Le module 'ai' est exposé à part (paliers + BYOK).
-const FALLBACK_MODULES: CatalogModule[] = [
-  {
-    key: 'ai',
-    label: 'Intelligence artificielle',
-    short: 'IA',
-    desc: 'Réponses générées par IA (quota mensuel). BYOK = clé du client, illimité.',
-    price_cents: 0, // le prix IA est porté par le palier (ai_tiers) ou la variante BYOK
-    byok_price_cents: 2900,
-  },
-  {
-    key: 'rag',
-    label: 'Connaissances (RAG)',
-    short: 'RAG',
-    desc: 'Base de connaissances : ingestion de sources et recherche documentaire.',
-    price_cents: 900,
-    requires: ['ai'], // RAG est piloté par l'IA (recherche documentaire dans la réponse).
-  },
-  {
-    key: 'inbox',
-    label: 'Live chat / Inbox',
-    short: 'Inbox',
-    desc: 'Transfert à un conseiller humain et boîte de réception des conversations.',
-    price_cents: 1500,
-  },
-  {
-    key: 'actions',
-    label: 'Actions',
-    short: 'Actions',
-    desc: 'Webhooks, capture de leads, tickets, créneaux — exécutables dans un arbre, sans IA.',
-    price_cents: 1200,
-    // PAS de requires : les actions tournent aussi dans un arbre pur (sans IA).
-  },
-  {
-    key: 'mcp',
-    label: 'MCP (outils IA)',
-    short: 'MCP',
-    desc: "Serveurs/outils MCP appelés par l'IA pendant la conversation.",
-    price_cents: 900,
-    requires: ['ai'], // MCP n'a de sens qu'avec l'IA (c'est elle qui appelle les outils).
-  },
-  {
-    key: 'ab',
-    label: 'A/B testing',
-    short: 'A/B',
-    desc: "Deux variantes d'arbre servies selon un pourcentage de répartition.",
-    price_cents: 700,
-  },
-  {
-    key: 'white_label',
-    label: 'White-label',
-    short: 'White-label',
-    desc: 'Retire la mention « Powered by » du widget.',
-    price_cents: 900,
-  },
-]
-
-// Paliers IA managés (kind='ai_tier'). Choisir un palier active le module 'ai'.
-// Plus de palier 'ai_free' : l'IA gratuite à vie est supprimée (point 7).
-const FALLBACK_AI_TIERS: AiTier[] = [
-  { id: 'ai_starter', included_replies: 1000, price_cents: 1900, desc: 'Pour démarrer : volume confortable pour un petit site.' },
-  { id: 'ai_growth', included_replies: 3000, price_cents: 3900, desc: 'Trafic régulier : marge pour un site actif.' },
-  { id: 'ai_scale', included_replies: 10000, price_cents: 8900, desc: 'Gros volume : forte audience et pics de demandes.' },
-]
-
-// Présélections guidées (somme transparente des produits).
-const FALLBACK_PRESETS: CatalogPreset[] = [
-  {
-    key: 'vitrine',
-    label: 'Vitrine / FAQ',
-    tagline: 'Un bot simple avec base de connaissances.',
-    modules: ['rag'],
-    ai_tier_id: 'ai_starter',
-    est_price_cents: 2800, // 1900 + 900
-  },
-  {
-    key: 'pro_ia_rag',
-    label: 'Service client',
-    tagline: 'IA, connaissances, conseiller humain et actions.',
-    modules: ['rag', 'inbox', 'actions'],
-    ai_tier_id: 'ai_growth',
-    recommended: true,
-    est_price_cents: 7500, // 3900 + 900 (rag) + 1500 (inbox) + 1200 (actions)
-  },
-  {
-    key: 'service_client',
-    label: 'Sur-mesure / Volume',
-    tagline: 'Tous les modules, gros volume de réponses.',
-    modules: ['rag', 'inbox', 'actions', 'ab', 'white_label'],
-    ai_tier_id: 'ai_scale',
-    est_price_cents: 14100, // 8900 + 900 (rag) + 1500 (inbox) + 1200 (actions) + 700 (ab) + 900 (wl)
-  },
-]
-
-// Catalogue de secours, structurellement identique à GET /api/billing/catalog.
-// À n'utiliser qu'à défaut de réponse backend (le backend reste la vérité prix).
-export const FALLBACK_CATALOG: BillingCatalog = {
-  currency: 'eur',
-  base_price_cents: 0,
-  base_description: 'Arbre de conversation, apparence, déclencheurs et analytics — inclus.',
-  modules: FALLBACK_MODULES,
-  ai_tiers: FALLBACK_AI_TIERS,
-  // Prix unitaire du dépassement IA métré (mtr_ai) : 1,5 centime = 0,015 € par
-  // réponse au-delà du quota. Le dépassement existe désormais EN OPTION (toggle
-  // owner par bot, défaut 'block') — il n'est jamais facturé sans activation
-  // explicite et n'est pas une ligne d'abonnement fixe (hors computeCart).
-  overage_cents_per_reply: 1.5,
-  tax_note: 'TVA non applicable, art. 293 B du CGI',
-  presets: FALLBACK_PRESETS,
-  // Miroir des % d'intro (parité backend INTRO_PERCENT_*). 'default' = IA off/BYOK.
-  intro_discounts: { default: 45, ai_starter: 50, ai_growth: 65, ai_scale: 80 },
-  // Plafond de dépassement IA par défaut (réponses/mois) — parité OVERAGE_CAP_DEFAULT.
-  overage_cap_default: 1000,
-  version: 'fallback-2026-06-20',
 }
 
 // --- Dérivation config recommandée depuis le chat (PUR) ------------------------
