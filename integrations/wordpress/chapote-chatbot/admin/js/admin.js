@@ -63,6 +63,29 @@
   // Note TVA statique (le catalogue LIVE ne porte pas de tax_note racine).
   var TAX_NOTE = 'TVA non applicable, art. 293 B du CGI';
 
+  // Extrait un message d'erreur AFFICHABLE d'une réponse {status, data} en
+  // propageant la cause réelle renvoyée par le backend (contrat d'erreur unifié
+  // {detail, code, message}) au lieu d'un générique opaque. Sécurité : on ne
+  // retient que des CHAÎNES (jamais un objet/stack), et un `error` machine est
+  // mappé en FR. Repli = le libellé fourni par l'appelant.
+  function apiMsg(res, fallback) {
+    var d = (res && res.data) || {};
+    if (typeof d.message === 'string' && d.message) return d.message;
+    if (typeof d.detail === 'string' && d.detail) return d.detail;
+    if (typeof d.error === 'string' && d.error) {
+      var FR = {
+        rate_limited: 'Trop de requêtes. Patientez quelques instants, puis réessayez.',
+        not_connected: 'Vous n’êtes pas connecté à Chapote.',
+        session_expired: 'Session expirée. Reconnectez-vous.',
+        network_error: 'Connexion à Chapote impossible. Réessayez dans un instant.',
+        invalid_grant: 'Lien de connexion expiré ou déjà utilisé. Relancez la connexion.',
+        crypto_unavailable: 'Stockage chiffré indisponible sur ce serveur (OpenSSL requis).'
+      };
+      return FR[d.error] || fallback;
+    }
+    return fallback;
+  }
+
   function call(method, path, body) {
     return fetch(CFG.restBase + path, {
       method: method,
@@ -184,8 +207,11 @@
       if (!res.ok || !res.data || !res.data.url) {
         btn.disabled = (CFG.cryptoOk === false);
         clear(info);
+        // Propage la cause réelle (le proxy renvoie p.ex. crypto_unavailable) ;
+        // pas de renvoi vers des « réglages » : le plugin n'expose pas d'écran de
+        // configuration d'adresses (elles sont définies à l'installation).
         info.appendChild(h('p', { class: 'cbo-error', text:
-          'Impossible de démarrer la connexion. Vérifiez les adresses (API et dashboard) dans les réglages.' }));
+          apiMsg(res, 'Impossible de démarrer la connexion à Chapote. Réessayez dans un instant.') }));
         return;
       }
       window.location.href = res.data.url;
@@ -318,7 +344,7 @@
         var nm = (name.value || '').trim();
         if (!nm) { setNotice('Donnez un nom au bot.', 'warn'); return; }
         call('POST', '/bots', { name: nm, mode: mode.value }).then(function (res) {
-          if (!res.ok) { setNotice('Création impossible.', 'warn'); return; }
+          if (!res.ok) { setNotice(apiMsg(res, 'Création impossible.'), 'warn'); return; }
           setNotice('Bot créé.', 'ok');
           loadBots();
         });
@@ -738,21 +764,20 @@
         window.location.href = res.data.checkout_url; // redirection Stripe hébergé
         return;
       }
-      var msg = (res.data && (res.data.detail || res.data.message || res.data.error)) || 'Impossible d’ouvrir le paiement.';
-      setNotice(typeof msg === 'string' ? msg : 'Impossible d’ouvrir le paiement.', 'warn');
+      setNotice(apiMsg(res, 'Impossible d’ouvrir le paiement.'), 'warn');
     });
   }
 
   function updateSubscription(config) {
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/subscription/update', { config: config }).then(function (res) {
       if (res.ok) { setNotice('Plan mis à jour.', 'ok'); loadBots(); }
-      else setNotice('Mise à jour impossible.', 'warn');
+      else setNotice(apiMsg(res, 'Mise à jour impossible.'), 'warn');
     });
   }
   function cancelSubscription() {
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/subscription/cancel').then(function (res) {
       if (res.ok) { setNotice('Abonnement résilié.', 'info'); loadBots(); }
-      else setNotice('Résiliation impossible.', 'warn');
+      else setNotice(apiMsg(res, 'Résiliation impossible.'), 'warn');
     });
   }
 
@@ -1077,7 +1102,7 @@
       }
       state.connected = false; state.view = 'connect';
       render();
-      setNotice('Échec de la connexion. Relancez « Se connecter avec Chapote ».', 'warn');
+      setNotice(apiMsg(res, 'Échec de la connexion. Relancez « Se connecter avec Chapote ».'), 'warn');
     });
   }
 

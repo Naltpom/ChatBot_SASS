@@ -2,10 +2,34 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001'
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  // `code` machine du contrat d'erreur unifié backend ({detail, code, message}).
+  // Consommé par le mapper de localisation (utils/errors.ts → errMsg).
+  code?: string
+  constructor(status: number, message: string, code?: string) {
     super(message)
     this.status = status
+    this.code = code
   }
+}
+
+// Parsing 401 FACTORISÉ (était dupliqué sur api/postForm/streamSSE) : un 401 hors
+// /api/auth = session expirée/absente → redirection login. Les 401 des routes
+// /api/auth sont des erreurs de credentials (login, register…) : l'écran de login
+// gère lui-même, on ne redirige pas. Retourne true si une redirection a été lancée.
+function redirectIfSessionExpired(status: number, path: string): boolean {
+  if (status === 401 && !path.startsWith('/api/auth')) {
+    window.location.href = '/login'
+    return true
+  }
+  return false
+}
+
+// Construit une ApiError à partir d'une réponse non-OK, en lisant le contrat
+// d'erreur unifié ({detail, code, message}). `detail` reste la source du message
+// (rétrocompat) ; `code` alimente le mapper de localisation.
+async function toApiError(res: Response, fallback: string): Promise<ApiError> {
+  const data = await res.json().catch(() => ({} as any))
+  return new ApiError(res.status, data.detail || data.message || fallback, data.code)
 }
 
 // Le JWT dashboard vit désormais dans un cookie httpOnly `chapote_session`
@@ -22,15 +46,9 @@ export async function api<T = any>(path: string, options: { method?: string; bod
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   })
 
-  // 401 hors /api/auth = session expirée/absente → redirection login. Les 401 des
-  // routes /api/auth sont des erreurs de credentials (login, register…) : on ne
-  // redirige pas (l'écran de login gère lui-même l'erreur).
-  if (res.status === 401 && !path.startsWith('/api/auth')) {
-    window.location.href = '/login'
-  }
+  redirectIfSessionExpired(res.status, path)
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, data.detail || `Erreur ${res.status}`)
+    throw await toApiError(res, `Erreur ${res.status}`)
   }
   return res.json()
 }
@@ -46,8 +64,7 @@ export async function postFile<T = any>(path: string, file: File, field = 'file'
     body: form,
   })
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, data.detail || `Envoi échoué (${res.status})`)
+    throw await toApiError(res, `Envoi échoué (${res.status})`)
   }
   return res.json()
 }
@@ -62,13 +79,9 @@ export async function postForm<T = any>(path: string, form: FormData): Promise<T
     credentials: 'include',
     body: form,
   })
-  // 401 hors /api/auth = session expirée/absente → redirection login (idem api()).
-  if (res.status === 401 && !path.startsWith('/api/auth')) {
-    window.location.href = '/login'
-  }
+  redirectIfSessionExpired(res.status, path)
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, data.detail || `Erreur ${res.status}`)
+    throw await toApiError(res, `Erreur ${res.status}`)
   }
   return res.json()
 }
@@ -84,9 +97,7 @@ export async function streamSSE(
   signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(`${API_URL}${path}`, { credentials: 'include', signal })
-  if (res.status === 401 && !path.startsWith('/api/auth')) {
-    window.location.href = '/login'
-  }
+  redirectIfSessionExpired(res.status, path)
   if (!res.ok || !res.body) {
     throw new ApiError(res.status, `Flux indisponible (${res.status})`)
   }

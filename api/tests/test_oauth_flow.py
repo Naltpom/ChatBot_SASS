@@ -312,13 +312,18 @@ async def test_token_redirect_uri_must_match_code(pg_session: AsyncSession):
 
 
 # ==========================================================================
-# Axe 6 — FORMAT des erreurs de rate-limit (contrat ACTUEL ; fige avant PR-09)
+# Axe 6 — FORMAT des erreurs de rate-limit (contrat UNIFIÉ PR-09)
 # ==========================================================================
+# PR-09 a uniformisé le rate-limit /authorize ET /token : HTTP 429 + contrat
+# {detail, code:"rate_limited", message}. /token conserve EN PLUS le champ OAuth
+# `error` (RFC 6749 §5.2) pour ses clients server-to-server (plugin PHP). Les
+# erreurs de GRANT de /token (invalid_grant…) restent en 400 + {"error":…} pur.
 
 @pytest.mark.asyncio
-async def test_authorize_rate_limited_returns_429_text(client, overrides, monkeypatch):
-    """/authorize au-delà du quota -> HTTP 429 + détail TEXTE (« Trop de requêtes »).
-    Documente le contrat ACTUEL (à uniformiser en PR-09). Limiter monkeypatché."""
+async def test_authorize_rate_limited_returns_429_unified(client, overrides, monkeypatch):
+    """/authorize au-delà du quota -> HTTP 429 + contrat unifié {detail, code,
+    message}. `detail` reste « Trop de requêtes » (rétrocompat) ; `code` ==
+    "rate_limited" (pivot du mapper front). Limiter monkeypatché."""
     async def _blocked(key):
         return False
     monkeypatch.setattr(oauth_authorize_limiter, "check", _blocked)
@@ -326,13 +331,18 @@ async def test_authorize_rate_limited_returns_429_text(client, overrides, monkey
     async with client as c:
         resp = await c.post("/api/oauth/authorize", json=_authorize_body())
     assert resp.status_code == 429
-    assert "Trop de requêtes" in resp.json()["detail"]
+    body = resp.json()
+    assert "Trop de requêtes" in body["detail"]
+    assert body["code"] == "rate_limited"
+    assert isinstance(body["message"], str) and body["message"]
 
 
 @pytest.mark.asyncio
-async def test_token_rate_limited_returns_slow_down(client, overrides, monkeypatch):
-    """/token au-delà du quota -> HTTP 400 + {"error": "slow_down"} (forme OAuth,
-    PAS 429+texte comme /authorize). Fige l'asymétrie ACTUELLE (cf. PR-09)."""
+async def test_token_rate_limited_returns_429_unified(client, overrides, monkeypatch):
+    """/token au-delà du quota -> MÊME contrat que /authorize : HTTP 429 + {detail,
+    code:"rate_limited", message}. Conserve `error`=="slow_down" pour la compat
+    OAuth (RFC 6749) du client PHP server-to-server. Uniformise l'asymétrie que
+    PR-11 avait figée (était 400 + {"error": "slow_down"})."""
     async def _blocked(key):
         return False
     monkeypatch.setattr(oauth_token_limiter, "check", _blocked)
@@ -342,5 +352,8 @@ async def test_token_rate_limited_returns_slow_down(client, overrides, monkeypat
             "grant_type": "authorization_code",
             "code": "x", "redirect_uri": _VALID, "code_verifier": "y",
         })
-    assert resp.status_code == 400
-    assert resp.json() == {"error": "slow_down"}
+    assert resp.status_code == 429
+    body = resp.json()
+    assert body["error"] == "slow_down"      # compat OAuth conservée
+    assert body["code"] == "rate_limited"    # contrat unifié
+    assert body["detail"] == "Trop de requêtes"
