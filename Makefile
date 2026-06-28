@@ -1,7 +1,13 @@
-.PHONY: up down build logs logs-api logs-app ps demo
+.PHONY: up down build logs logs-api logs-app ps demo migrate
 
 up:
 	docker compose up -d
+
+# Migration dédiée (hors boot de l'app). `docker compose up` la joue déjà via le
+# service one-shot `migrate` ; cette cible permet de la rejouer à la demande
+# (idempotent : base déjà à head -> aucun DDL).
+migrate:
+	docker compose run --rm migrate
 
 down:
 	docker compose down

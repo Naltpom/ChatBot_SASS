@@ -142,6 +142,7 @@ jobs:
         run: |
           cat > .env <<'EOF'
           ENV=dev
+          AUTO_LOGIN_ADMIN_DEV=true
           POSTGRES_USER=chatbot
           POSTGRES_PASSWORD=chatbot_secret
           POSTGRES_DB=chatbot_saas

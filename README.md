@@ -27,6 +27,23 @@ docker compose up -d --build
 
 En dev, `MOCK_AI=true` : les réponses IA sont simulées, aucune clé requise.
 
+### Migrations (hors boot de l'app)
+
+L'app **ne joue plus** `alembic upgrade head` à son démarrage : en multi-worker /
+multi-réplica, migrer au boot bloque le démarrage de tous les réplicas et crée des
+courses. Les migrations sont une **étape dédiée**, jouée **une seule fois, AVANT de
+(re)démarrer l'app**. L'app suppose une base déjà migrée.
+
+- **Dev** : `docker compose up` lance d'abord le service one-shot `migrate`
+  (`alembic upgrade head`) dont l'api dépend (`service_completed_successfully`) ;
+  rien à faire de plus. Rejouer à la demande : `make migrate`.
+- **Prod** : `deploy.sh` joue `docker compose run --rm api alembic upgrade head`
+  **entre** le build et le `up -d` (un seul process de migration).
+
+L'acquisition du verrou de migration (`pg_advisory_lock`) est **bornée** (~30 s,
+`statement_timeout`) : en cas de contention, la migration échoue avec une erreur
+claire au lieu de figer le déploiement indéfiniment.
+
 **Tester le widget** : créer un compte + un bot dans le dashboard, copier la clé
 `pk_...` (onglet Installation), la coller dans `demo/index.html`, puis :
 

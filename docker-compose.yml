@@ -33,6 +33,29 @@ services:
       timeout: 3s
       retries: 5
 
+  # Service one-shot : joue `alembic upgrade head` UNE fois, PUIS s'arrête.
+  # Les migrations ne tournent PLUS dans le boot de l'app (multi-worker) ; ce
+  # service les sort du runtime tout en gardant l'ergonomie de `docker compose up`
+  # (l'api ci-dessous en dépend via service_completed_successfully). Hors dev,
+  # voir deploy.sh (`docker compose run --rm api alembic upgrade head`) et
+  # `make migrate`. Réutilise l'image api ; seul DATABASE_URL est nécessaire.
+  migrate:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: chatbot-migrate
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    volumes:
+      - ./api/src:/app/src
+      - ./api/alembic.ini:/app/alembic.ini
+      - ./api/alembic:/app/alembic
+    depends_on:
+      db:
+        condition: service_healthy
+    command: alembic upgrade head
+    restart: "no"
+
   api:
     build:
       context: ./api
@@ -139,6 +162,10 @@ services:
       # non bloquant au prochain usage).
       - fastembed_cache:/var/cache/fastembed
     depends_on:
+      # La base doit être MIGRÉE avant que l'app démarre (elle ne migre plus
+      # elle-même). Le service one-shot `migrate` doit avoir fini en succès.
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:

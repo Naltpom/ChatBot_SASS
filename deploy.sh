@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Déploiement / mise à jour de ChatBot SaaS (chapote.fr).
 # Récupère le dernier code, rebuild les images et redémarre la stack prod.
-# Les migrations Alembic tournent automatiquement au démarrage de l'API (lifespan).
+#
+# ORDRE DE DÉPLOIEMENT (important) : l'app ne migre PLUS au démarrage (sinon, en
+# multi-worker, la migration bloque le boot de TOUS les réplicas). Les migrations
+# Alembic sont une étape DÉDIÉE, jouée UNE seule fois, AVANT de (re)démarrer l'app :
+#   1) build des images   2) `alembic upgrade head` (un seul process)   3) up -d.
+# L'app suppose donc une base déjà migrée. Voir docs/CI.md + README.
 # Usage : ./deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -151,6 +156,14 @@ build_wp_plugin
 
 echo "==> build images (api + app)"
 docker compose -f docker-compose.prod.yml build
+
+# Migrations Alembic AVANT de (re)démarrer l'app : un SEUL process, hors runtime.
+# `run --rm` réutilise l'image/env du service api (DATABASE_URL, etc.) et override
+# la commande. L'advisory lock (env.py) sérialise/borne toute acquisition.
+# Idempotent : base déjà à head -> aucun DDL. Échec ici => on N'AVANCE PAS au up
+# (set -e), l'ancienne app reste en place plutôt que tourner sur un schéma faux.
+echo "==> migrations Alembic (alembic upgrade head, hors boot app)"
+docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
 
 echo "==> up -d (recréation des conteneurs modifiés)"
 docker compose -f docker-compose.prod.yml up -d
