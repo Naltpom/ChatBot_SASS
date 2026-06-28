@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import AsyncSessionLocal
 from src.models.kb import KbChunk, KbSource
 from src.services.embeddings import embed_passages, embed_query, to_pgvector
-from src.services.safe_fetch import FetchError, safe_get
+from src.services.safe_fetch import FetchError, safe_get, safe_get_follow
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,20 @@ def html_to_text(page: str) -> str:
     page = re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>", " ", page)
     stripped = re.sub(r"(?s)<[^>]+>", "\n", page)
     return _normalize(html.unescape(stripped))
+
+
+async def fetch_user_url(url: str) -> str:
+    """Porte UNIQUE pour récupérer le contenu texte d'UNE URL fournie par
+    l'utilisateur (génération d'arbre par URL, démo « 1 URL -> chatbot »).
+
+    Tout passe par `safe_fetch.safe_get_follow` : https imposé, résolution DNS
+    unique + rejet des IP non publiques, épinglage anti DNS-rebinding, lecture
+    bornée à MAX_FETCH_BYTES, redirections suivies en re-validant chaque saut
+    (apex<->www / http->https). Centralise l'anti-SSRF : aucun chemin de fetch
+    d'URL utilisateur ne doit construire son propre client HTTP. Lève FetchError
+    (message FR) si l'URL est injoignable/privée/non https."""
+    html_page, _final = await safe_get_follow(url, MAX_FETCH_BYTES)
+    return html_to_text(html_page).strip()
 
 
 def _local_name(tag: str) -> str:

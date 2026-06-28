@@ -1,7 +1,7 @@
 """Tests du flux de génération d'arbre depuis sources (routers/tree.py).
 
 Sans réseau ni DB réelle : on surcharge get_current_user / get_db via
-app.dependency_overrides et on monkeypatch safe_get / safe_probe. MOCK_AI=true
+app.dependency_overrides et on monkeypatch fetch_user_url / safe_probe. MOCK_AI=true
 (défaut) -> generate_tree renvoie MOCK_TREE sans appeler Gemini.
 
 Lancement : pytest tests/test_tree_sources.py -q  (depuis api/).
@@ -58,10 +58,10 @@ def _pdf_bytes(text: str = "hello") -> bytes:
 
 @pytest.mark.asyncio
 async def test_generate_from_one_url_returns_mock_tree(client, monkeypatch):
-    async def fake_get(url, max_bytes):
-        return "<html><body>" + "Contenu d'aide riche et exploitable. " * 5 + "</body></html>"
+    async def fake_fetch(url):
+        return "Contenu d'aide riche et exploitable. " * 5
 
-    monkeypatch.setattr("src.services.tree_jobs.safe_get", fake_get)
+    monkeypatch.setattr("src.services.tree_jobs.fetch_user_url", fake_fetch)
 
     sources = json.dumps([{"url": "https://example.com/aide", "type": "aide"}])
     async with client as c:
@@ -72,10 +72,10 @@ async def test_generate_from_one_url_returns_mock_tree(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_no_usable_content_422(client, monkeypatch):
-    async def fake_get(url, max_bytes):
+    async def fake_fetch(url):
         raise safe_fetch.FetchError("hôte injoignable")
 
-    monkeypatch.setattr("src.services.tree_jobs.safe_get", fake_get)
+    monkeypatch.setattr("src.services.tree_jobs.fetch_user_url", fake_fetch)
     sources = json.dumps([{"url": "https://down.example.com", "type": "site"}])
     async with client as c:
         resp = await c.post("/api/tree/generate-from-sources", data={"sources": sources})
@@ -201,10 +201,10 @@ async def test_validate_url_malformed_body_422(client):
 
 @pytest.mark.asyncio
 async def test_job_flow_produces_mock_tree(client, monkeypatch):
-    async def fake_get(url, max_bytes):
-        return "<html><body>" + "Contenu d'aide riche et exploitable. " * 5 + "</body></html>"
+    async def fake_fetch(url):
+        return "Contenu d'aide riche et exploitable. " * 5
 
-    monkeypatch.setattr("src.services.tree_jobs.safe_get", fake_get)
+    monkeypatch.setattr("src.services.tree_jobs.fetch_user_url", fake_fetch)
     from src.services import tree_jobs
 
     sources = json.dumps([{"url": "https://example.com/aide", "type": "aide"}])

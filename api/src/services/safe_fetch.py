@@ -21,11 +21,34 @@ class FetchError(Exception):
     """Erreur de fetch sortant — message FR montrable a l'utilisateur."""
 
 
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _is_public_ip(ip: "ipaddress._BaseAddress") -> bool:
+    """is_global, mais re-valide aussi l'IPv4 EMBARQUEE des adresses IPv6 de
+    transition (6to4 2002::/16, IPv4-mapped ::ffff:0:0/96, NAT64 64:ff9b::/96).
+
+    `is_global` ne re-teste pas systematiquement l'IPv4 encapsulee : NAT64 vers
+    169.254.169.254 passe is_global=True sur CPython 3.11. On extrait l'IPv4 et
+    on exige qu'elle soit elle-meme publique (defense en profondeur, ne repose
+    pas seul sur is_global — cf. CVE-2024-4032)."""
+    if not ip.is_global:
+        return False
+    if ip.version == 6:
+        embedded = ip.sixtofour or ip.ipv4_mapped
+        if embedded is None and ip in _NAT64_PREFIX:
+            embedded = ipaddress.ip_address(int(ip) & 0xFFFFFFFF)
+        if embedded is not None and not embedded.is_global:
+            return False
+    return True
+
+
 async def resolve_public_ip(url: str) -> str:
     """https:// + resolution DNS UNIQUE : TOUTES les IP resolues doivent etre
     publiques (is_global exclut prive/loopback/link-local/reserve/multicast/
-    unspecified), et la connexion se fera ensuite sur l'IP retournee — jamais
-    de seconde resolution (anti DNS-rebinding TOCTOU)."""
+    unspecified, + re-validation de l'IPv4 embarquee des adresses de transition),
+    et la connexion se fera ensuite sur l'IP retournee — jamais de seconde
+    resolution (anti DNS-rebinding TOCTOU)."""
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise FetchError("URL invalide (https:// requis)")
@@ -39,7 +62,7 @@ async def resolve_public_ip(url: str) -> str:
             ip = ipaddress.ip_address(info[4][0])
         except ValueError:
             raise FetchError("Adresse non publique (refusée)")
-        if not ip.is_global:
+        if not _is_public_ip(ip):
             raise FetchError("Adresse non publique (refusée)")
         ips.append(ip)
     if not ips:

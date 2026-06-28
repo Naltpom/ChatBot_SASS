@@ -4,8 +4,8 @@ Responsabilites (les aspects HTTP — captcha, rate-limit, codes d'erreur — re
 dans le routeur public) :
   - normaliser/valider l'URL fournie par un visiteur anonyme (cle de cache stable) ;
   - lire/ecrire le cache DB demo_generations (une URL deja vue ne rappelle PAS l'IA) ;
-  - generer l'arbre en REUTILISANT le pipeline existant (build_source_text -> safe_get
-    anti-SSRF + html_to_text, puis generate_tree -> Gemini / MOCK_TREE).
+  - generer l'arbre en REUTILISANT le pipeline existant (build_source_text ->
+    fetch_user_url anti-SSRF, puis generate_tree -> Gemini / MOCK_TREE).
 """
 import base64
 import hashlib
@@ -118,7 +118,7 @@ async def get_row(db: AsyncSession, h: str) -> DemoGeneration | None:
 
 
 async def build_demo_source(url_norm: str) -> str:
-    """URL -> texte source borne (fetch SSRF-safe via safe_get + extraction texte).
+    """URL -> texte source borne (fetch SSRF-safe via fetch_user_url + extraction).
 
     Une seule source de type 'site'. Leve TreeGenerationError (message FR) si la
     page est injoignable/privee/vide. SEPARE de l'appel IA (generate_tree) a

@@ -18,9 +18,9 @@ import uuid
 from typing import Awaitable, Callable, Optional
 from urllib.parse import urlparse
 
-from src.services.kb_service import MAX_FETCH_BYTES, html_to_text, pdf_to_text
+from src.services.kb_service import fetch_user_url, pdf_to_text
 from src.services.rate_limit import _get_redis  # client redis.asyncio partagé (ou None)
-from src.services.safe_fetch import FetchError, safe_get
+from src.services.safe_fetch import FetchError
 from src.services.tree_generator import MAX_SOURCE_CHARS, TreeGenerationError, generate_tree
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ async def build_source_text(
     parsed: list[dict], pdf_blobs: list[bytes], context: Optional[str],
     on_progress: Optional[ProgressCb] = None,
 ) -> str:
-    """URLs (safe_get + html_to_text) + PDF (pdf_to_text) -> texte source borné.
+    """URLs (fetch_user_url anti-SSRF) + PDF (pdf_to_text) -> texte source borné.
 
     `on_progress(libellé, pct)` est appelé avant chaque source (flux SSE) ; None
     pour l'appel synchrone. Une source en échec (DNS/3xx/4xx/SSRF/PDF illisible)
@@ -118,8 +118,7 @@ async def build_source_text(
             host = urlparse(src["url"]).hostname or src["url"]
             await on_progress(f"Lecture de {host}…", _pct())
         try:
-            page = await safe_get(src["url"], MAX_FETCH_BYTES)
-            text = html_to_text(page).strip()
+            text = await fetch_user_url(src["url"])
             if text:
                 sections.append((_SECTION_HEADERS.get(src["type"], "Autre"), text))
         except FetchError:
