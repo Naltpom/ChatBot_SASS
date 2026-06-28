@@ -61,7 +61,14 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="ChatBot SaaS API", lifespan=lifespan)
+# Doc interactive (Swagger /docs, ReDoc /redoc, schema /openapi.json) : on la
+# COUPE en prod (reduit la surface d'attaque + evite une page Swagger blanche,
+# son JS venant d'un CDN jsdelivr + script inline que la CSP stricte bloque).
+# Conservee en dev pour le confort.
+_docs_kwargs = {} if not settings.is_production else dict(
+    docs_url=None, redoc_url=None, openapi_url=None
+)
+app = FastAPI(title="ChatBot SaaS API", lifespan=lifespan, **_docs_kwargs)
 
 # CORS dashboard (strict). Les /api/widget/* sont geres par le middleware dedie.
 dashboard_origins = [settings.APP_URL]
@@ -75,6 +82,69 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# En-tetes de securite globaux (audit §3.5/§4.8) ---------------------------
+#
+# CSP du dashboard : l'app React pose massivement des styles inline
+# (attributs style={{...}}) -> style-src doit autoriser 'unsafe-inline'.
+# Images en data:/https: (avatars, lanceurs). frame-ancestors 'none' =
+# anti-clickjacking (l'objectif premier). Origines TIERCES reellement
+# chargees par l'app servie (doit rester aligne avec app/nginx.conf) :
+#   - script-src : hash de l'IIFE anti-flash inline d'index.html (pas de
+#     'unsafe-inline' sur les scripts) + Turnstile (captcha /demo) ;
+#   - frame-src / connect-src : iframe + endpoint Turnstile ;
+#   - style-src / font-src : Google Fonts + Fontshare (polices distantes) ;
+#   - connect-src 'self' https: : l'app appelle l'API sur une origine
+#     DISTINCTE (VITE_API_URL, ex. api.chapote.fr), inconnue a la compile ;
+#     https: la couvre (et couvre aussi le POST Turnstile).
+# object-src 'none' = pas de plugins legacy.
+DASHBOARD_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'sha256-+rn9zAXD0btXkTbfuB8S0nuhugvmkoMuK9AQce4NwJ0=' https://challenges.cloudflare.com; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; "
+    "img-src 'self' data: https:; "
+    "font-src 'self' data: https://fonts.gstatic.com https://cdn.fontshare.com; "
+    "connect-src 'self' https:; "
+    "frame-src https://challenges.cloudflare.com; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "object-src 'none'"
+)
+
+
+def _is_embeddable(path: str) -> bool:
+    """Routes du widget embarque en iframe sur des sites clients : elles NE
+    doivent PAS recevoir les en-tetes anti-embarquement (X-Frame-Options /
+    frame-ancestors). Tout le reste = dashboard/API -> anti-clickjacking actif."""
+    return (
+        path.startswith("/api/widget")
+        or path.startswith("/uploads")
+        or path == "/widget.js"
+        or path == "/widget-frame"
+    )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """En-tetes de securite globaux : anti-sniffing, Referrer-Policy, HSTS (prod
+    seulement) sur TOUTES les routes ; anti-embarquement (X-Frame-Options DENY +
+    CSP frame-ancestors 'none') sur les routes NON-widget uniquement.
+
+    `setdefault` + branche embeddable preservent la CSP stricte propre que
+    widget_cors pose deja sur /uploads (default-src 'none')."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if settings.is_production:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    if not _is_embeddable(request.url.path):
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers.setdefault("Content-Security-Policy", DASHBOARD_CSP)
+    return response
 
 
 @app.middleware("http")
