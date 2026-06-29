@@ -772,7 +772,7 @@ async def block_bot(bot_id: int, body: BlockPayload,
     await db.commit()
     if owner:
         subject, mail_body = build_bot_suspended_email(bot, body.reason, settings.APP_URL)
-        send_account_email([owner], subject, mail_body,
+        send_account_email([owner], subject, mail_body, kind="suspended",
                            error_label="Envoi e-mail suspension bot échoué")
     return {
         "bot_id": bot_id,
