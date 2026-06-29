@@ -104,16 +104,18 @@ TWOFA_CHALLENGE_EXPIRE_MINUTES = 10
 
 
 def create_twofa_challenge_token(user_id: int) -> str:
+    # `jti` (nonce unique) : sert d'identifiant anti-rejeu côté serveur — le
+    # challenge est marqué consommé à la 1re vérification réussie du 2nd facteur
+    # (cf. routers/twofa : single-use via SingleUseTokens), donc non rejouable.
     return _encode(
-        {"sub": str(user_id), "scope": "twofa"},
+        {"sub": str(user_id), "scope": "twofa", "jti": uuid.uuid4().hex},
         timedelta(minutes=TWOFA_CHALLENGE_EXPIRE_MINUTES),
     )
 
 
-def decode_twofa_challenge(token: str) -> int:
-    """Renvoie l'user_id porté par un challenge 2FA valide, sinon 401."""
-    payload = decode_token(token, expected_scope="twofa")
-    return int(payload["sub"])
+def decode_twofa_challenge_payload(token: str) -> dict:
+    """Payload complet (`sub`, `jti`) d'un challenge 2FA valide, sinon 401."""
+    return decode_token(token, expected_scope="twofa")
 
 
 async def user_has_2fa(db: AsyncSession, user: "User") -> bool:

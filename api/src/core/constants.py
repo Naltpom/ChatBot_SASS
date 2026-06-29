@@ -82,6 +82,21 @@ OVERAGE_CAP_DEFAULT: int = 1000
 METERED_CODE: str = "mtr_ai"
 
 
+# --- Anti-brute-force du 2nd facteur 2FA (API-01) -------------------------
+#
+# MAX_2FA_CHALLENGE_FAILURES : plafond de TENTATIVES (crédits) sur UN challenge 2FA
+# donné (clé = `jti`), toutes IP confondues. Chaque vérification du 2nd facteur
+# décompte 1 crédit ATOMIQUEMENT et AVANT la crypto (cf. _enforce_2fa_verify) ;
+# au-delà du plafond le challenge est INVALIDÉ (marqué consommé via le store
+# single-use). C'est la borne anti-brute-force RÉELLE, indépendante de l'IP — elle
+# ferme la rotation d'IP (impossible de dépasser ~ce nombre d'essais par challenge en
+# changeant d'adresse) et TIENT SOUS CONCURRENCE (INCR atomique amont). Pour
+# réessayer, il faut re-login (nouveau challenge), borné par le limiteur de login mot
+# de passe. PAS de verrou persistant par compte (aucun DoS ciblé possible). Aligné
+# sur le seuil du throttle par-IP.
+MAX_2FA_CHALLENGE_FAILURES: int = 5
+
+
 def is_metered_code(code: str | None) -> bool:
     """True si `code` désigne la ligne MÉTRÉE (mtr_ai) — item de facturation à
     l'usage attaché/détaché par le seul toggle dépassement, invariant des
