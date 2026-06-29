@@ -103,9 +103,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Réponse de login : soit l'User (le cookie de session a été posé par le
   // backend), soit un LoginChallenge (2FA requise — aucun cookie posé). On
-  // distingue par la présence de `twofa_required`.
+  // distingue par la présence de `challenge` : `twofa_required` ne suffit PAS
+  // (UserOut le porte aussi, à true pour les superadmins) — un superadmin sans
+  // 2FA enrôlée renvoie un UserOut twofa_required=true sans `methods`, qui ferait
+  // planter l'étape 2FA. Le gate d'enrôlement (App.tsx) prend alors le relais.
   function handleAuthResult(data: User | LoginChallenge): LoginChallenge | null {
-    if ((data as LoginChallenge).twofa_required) return data as LoginChallenge
+    if ((data as LoginChallenge).challenge) return data as LoginChallenge
     applyUser(data as User)
     return null
   }
