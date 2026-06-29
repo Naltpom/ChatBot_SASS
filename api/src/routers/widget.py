@@ -32,6 +32,7 @@ from src.core.billing_keys import billing_customer_for_bot
 from src.core.constants import (
     METER_EVENT_NAME,
     MODULE_AB,
+    MODULE_AI,
     MODULE_ACTIONS,
     MODULE_INBOX,
     MODULE_MCP,
@@ -140,6 +141,24 @@ QUOTA_EXHAUSTED_MESSAGE = (
 # bot sans entitlement => resolver ALL_UNLOCKED (trial_expired False) => jamais ce
 # message (comportement identique à aujourd'hui).
 TRIAL_ENDED_MESSAGE = (
+    "Les réponses automatiques de cet assistant sont momentanément indisponibles. "
+    "Vous pouvez naviguer dans le menu ci-dessous."
+)
+
+# --- IA managée non éligible (statut de facturation / module IA absent) ---
+# Le bot n'a PAS d'IA managée servable : abonnement non utilisable (past_due,
+# canceled, inactive — is_usable False) OU module IA non souscrit (MODULE_AI
+# absent). On NE génère PAS (aucun appel provider, aucun coût) et on renvoie un
+# message, forme d'une réponse IA (200, source 'ai', options []) ; AUCUN message
+# assistant persisté (même contrat de repli que trial_expired / quota).
+# Constante SÉPARÉE par RAISON (même convention que QUOTA_EXHAUSTED_MESSAGE /
+# OVERAGE_CAP_MESSAGE, dont le texte coïncide aussi) : la distinction de cause
+# vit dans le LOG (reason=ai_not_entitled), pas dans le wording — celui-ci est
+# VOLONTAIREMENT identique au repli d'essai (texte neutre « momentanément
+# indisponibles ») et peut diverger plus tard sans toucher l'autre repli.
+# billing OFF / bot sans entitlement => ALL_UNLOCKED (has_module True) => jamais
+# ce message ; BYOK => clé du client, jamais gaté ici (pas d'IA managée).
+AI_UNAVAILABLE_MESSAGE = (
     "Les réponses automatiques de cet assistant sont momentanément indisponibles. "
     "Vous pouvez naviguer dans le menu ci-dessous."
 )
@@ -677,6 +696,23 @@ async def _handle_ai_message(
     if ent.trial_expired:
         logger.info("billing.trial: bot %s essai expire (reason=trial_ended)", bot.id)
         return _maybe_refresh({"source": "ai", "message": TRIAL_ENDED_MESSAGE,
+                               "options": [], "status": conversation.status},
+                              bot, session)
+
+    # Gate IA MANAGÉE (TR-01) : une réponse IA MANAGÉE n'est servie que si le bot
+    # a le module IA ET un abonnement utilisable. has_module(MODULE_AI) ANDe déjà
+    # is_usable => un statut non utilisable (past_due/canceled/inactive ; suspended
+    # est déjà coupé en 404 en amont par _assert_bot_servable) OU un bot sans
+    # module IA souscrit est dégradé EXACTEMENT comme trial_expired/quota : message
+    # DÉDIÉ, AUCUN appel provider, AUCUN coût, AUCUN message assistant persisté.
+    # BYOK = clé du client (pas d'IA managée, aucun coût plateforme) => JAMAIS
+    # bloqué ici (ai_quota_for renvoie aussi None pour le BYOK juste après).
+    # billing OFF / bot sans entitlement => ALL_UNLOCKED (has_module True) =>
+    # comportement strictement identique a aujourd'hui.
+    if not ent.byok and not has_module(ent, MODULE_AI):
+        logger.info("billing.entitlement: bot %s IA managée non éligible "
+                    "(reason=ai_not_entitled, status=%s)", bot.id, ent.status)
+        return _maybe_refresh({"source": "ai", "message": AI_UNAVAILABLE_MESSAGE,
                                "options": [], "status": conversation.status},
                               bot, session)
 
