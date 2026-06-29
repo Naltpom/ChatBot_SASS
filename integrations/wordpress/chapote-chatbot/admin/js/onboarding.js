@@ -38,6 +38,11 @@
   // Étapes exigeant un bot déjà créé (sinon on retombe au choix de la source).
   var NEEDS_BOT = { customize: 1, waiting: 1, tree: 1, preview: 1, offer: 1, activation: 1 };
 
+  // Intervalle du poll de l'éditeur d'arbre : simple FILET ; le postMessage `saved`
+  // est la voie primaire (traité instantanément). Volontairement lent pour éviter
+  // les GET /bots/{id} redondants (déchiffrement AES par appel).
+  var EDITOR_POLL_MS = 15000;
+
   /* ----------------------------------------------------------- accès état */
 
   function S() { return A.state; }
@@ -552,9 +557,9 @@
     });
   }
 
-  // Synchronisation éditeur : postMessage (saved/error) + POLLING updated_at tant
-  // que la fenêtre est ouverte (SSE via proxy non fiable). À la fermeture : ultime
-  // rechargement, puis arrêt.
+  // Synchronisation éditeur : le postMessage (saved/error) est la voie PRIMAIRE ;
+  // le POLLING updated_at n'est qu'un filet tant que la fenêtre est ouverte (cas
+  // d'un onglet sans opener). À la fermeture : ultime rechargement, puis arrêt.
   function startEditorSync(nonce, win, treeHost) {
     var o = O();
     stopEditorSync();
@@ -574,7 +579,7 @@
           if (O() === cur && cur.step === 'tree') renderTreeView(treeHost);
         }
       });
-    }, 4000);
+    }, EDITOR_POLL_MS);
   }
   function stopEditorSync() {
     var o = O(); if (!o) return;
@@ -718,7 +723,7 @@
     if (o.done) { renderDone(status, body); return; }
     if (o.error) {
       body.appendChild(h('p', { class: 'cbo-error', text: o.error }));
-      body.appendChild(h('button', { class: 'button button-primary', onClick: function () { o.error = ''; o.activating = false; kickoffActivation(status, body); } }, 'Réessayer'));
+      body.appendChild(h('button', { class: 'button button-primary', onClick: function () { o.error = ''; o.activating = false; kickoffActivation(status); } }, 'Réessayer'));
       return;
     }
     if (o.stripe === 'cancel' && !o.activating) {
@@ -726,41 +731,41 @@
       body.appendChild(h('p', { class: 'cbo-muted', text: 'Vous pouvez revoir l’offre ou activer la version gratuite.' }));
       body.appendChild(actions(
         h('button', { class: 'button', onClick: function () { o.stripe = ''; goTo('offer'); } }, 'Revoir l’offre'),
-        h('button', { class: 'button button-primary', onClick: function () { o.stripe = ''; kickoffActivation(status, body); } }, 'Activer en version gratuite')
+        h('button', { class: 'button button-primary', onClick: function () { o.stripe = ''; kickoffActivation(status); } }, 'Activer en version gratuite')
       ));
       return;
     }
     status.textContent = 'Mise en ligne de votre assistant…';
-    if (!o.activating) kickoffActivation(status, body);
+    if (!o.activating) kickoffActivation(status);
   }
 
-  function kickoffActivation(status, body) {
+  function kickoffActivation(status) {
     var o = O();
     o.activating = true;
     if (o.stripe === 'success') {
       status.textContent = 'Paiement reçu. Vérification de l’abonnement…';
-      waitBillingThenEnable(status, body);
+      waitBillingThenEnable(status);
     } else {
-      enableWidget(status, body);
+      enableWidget(status);
     }
   }
   // Borné comme pollBillingActive du back-office (12 essais / 3 s) ; à l'échéance
   // on active quand même (le widget sert tous les bots servables, même gratuits).
-  function waitBillingThenEnable(status, body) {
+  function waitBillingThenEnable(status) {
     var o = O(); var tries = 0, MAX = 12;
     (function loop() {
       if (O() !== o || o.step !== 'activation') return;
       tries++;
       call('GET', '/bots/' + encodeURIComponent(o.botId)).then(function (res) {
         var bs = (res.ok && res.data) ? res.data.billing_status : '';
-        if (bs === 'active' || bs === 'trialing') { enableWidget(status, body); return; }
+        if (bs === 'active' || bs === 'trialing') { enableWidget(status); return; }
         if (tries < MAX) { setTimeout(loop, 3000); return; }
         status.textContent = 'Abonnement en cours de validation — on active déjà votre widget.';
-        enableWidget(status, body);
+        enableWidget(status);
       });
     })();
   }
-  function enableWidget(status, body) {
+  function enableWidget(status) {
     var o = O();
     if (status) status.textContent = 'Activation du widget sur votre site…';
     call('POST', '/bots/' + encodeURIComponent(o.botId) + '/local', { enabled: true, targeting: defaultTargeting() }).then(function (res) {
@@ -819,7 +824,7 @@
   }
   function randNonce() {
     try {
-      var a = new Uint8Array(16); (window.crypto || window.msCrypto).getRandomValues(a);
+      var a = new Uint8Array(16); window.crypto.getRandomValues(a);
       return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
     } catch (e) { return String(Date.now()) + Math.random().toString(16).slice(2); }
   }

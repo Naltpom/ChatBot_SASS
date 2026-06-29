@@ -162,4 +162,9 @@ class Chapote_BO_Options {
             'exclude_ids'   => array(),      // IDs exclus (prioritaires)
         );
     }
+
+    /** Tronque une chaîne à $max caractères (multibyte-safe si dispo). */
+    public static function str_cap($s, $max) {
+        return function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
+    }
 }

@@ -582,8 +582,8 @@ class Chapote_BO_REST {
                     continue;
                 }
                 $faq[] = array(
-                    'q' => self::str_cap($q, 300),
-                    'a' => self::str_cap($a, 2000),
+                    'q' => Chapote_BO_Options::str_cap($q, 300),
+                    'a' => Chapote_BO_Options::str_cap($a, 2000),
                 );
             }
         }
@@ -626,7 +626,7 @@ class Chapote_BO_REST {
                 $name = self::default_bot_name();
             }
             $created = Chapote_BO_API::account('POST', '/api/account/bots', array(
-                'name' => self::str_cap($name, 80),
+                'name' => Chapote_BO_Options::str_cap($name, 80),
                 'mode' => 'hybrid',
             ));
             $cstatus = (int) $created['status'];
@@ -647,7 +647,7 @@ class Chapote_BO_REST {
         $body = array('urls' => $urls);
         $desc = $request->get_param('description');
         if ($desc !== null && trim((string) $desc) !== '') {
-            $body['description'] = self::str_cap(sanitize_textarea_field((string) $desc), 2000);
+            $body['description'] = Chapote_BO_Options::str_cap(sanitize_textarea_field((string) $desc), 2000);
         }
         $vpm = $request->get_param('visitors_per_month');
         if ($vpm !== null && $vpm !== '') {
@@ -698,7 +698,7 @@ class Chapote_BO_REST {
 
         $desc = $request->get_param('description');
         if ($desc !== null && trim((string) $desc) !== '') {
-            $body['description'] = self::str_cap(sanitize_textarea_field((string) $desc), 2000);
+            $body['description'] = Chapote_BO_Options::str_cap(sanitize_textarea_field((string) $desc), 2000);
         }
         $vpm = $request->get_param('visitors_per_month');
         if ($vpm !== null && $vpm !== '') {
@@ -816,10 +816,5 @@ class Chapote_BO_REST {
             $name = 'Mon assistant';
         }
         return $name;
-    }
-
-    /** Tronque une chaîne à $max caractères (multibyte-safe si dispo). */
-    private static function str_cap($s, $max) {
-        return function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
     }
 }

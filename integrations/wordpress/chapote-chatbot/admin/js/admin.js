@@ -15,9 +15,9 @@
   // Primitives partagées (cf. cbo-core.js). Aliasées localement pour garder le
   // corps du back-office IDENTIQUE : mêmes noms, mêmes signatures. Le wizard
   // d'onboarding (onboarding.js) consomme les mêmes via window.CBOCore.
-  var h = C.h, append = C.append, clear = C.clear, uid = C.uid;
+  var h = C.h, clear = C.clear;
   var fieldFor = C.fieldFor, fieldGroup = C.fieldGroup, loadingNote = C.loadingNote, syncSwitch = C.syncSwitch;
-  var euros = C.euros, hexColor = C.hexColor, apiMsg = C.apiMsg, call = C.call;
+  var euros = C.euros, apiMsg = C.apiMsg, call = C.call;
   var renderPreview = C.renderPreview;
 
   // Repli ultime du prix BYOK (en centimes) si le catalogue live n'expose ni
@@ -62,7 +62,7 @@
     });
   }
 
-  // euros / hexColor : déplacés dans cbo-core.js (aliasés en tête de fichier).
+  // euros : déplacé dans cbo-core.js (aliasé en tête de fichier).
 
   // Note TVA statique (le catalogue LIVE ne porte pas de tax_note racine).
   var TAX_NOTE = 'TVA non applicable, art. 293 B du CGI';

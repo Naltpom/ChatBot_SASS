@@ -82,7 +82,7 @@ class Chapote_BO_Pages {
             $items[] = array(
                 'id'              => $id,
                 'type'            => $post->post_type,
-                'title'           => self::str_cap(wp_strip_all_tags($title !== '' ? $title : $url), 200),
+                'title'           => Chapote_BO_Options::str_cap(wp_strip_all_tags($title !== '' ? $title : $url), 200),
                 'url'             => $url,
                 'slug'            => $post->post_name,
                 'date'            => $post->post_date_gmt ? $post->post_date_gmt : $post->post_date,
@@ -108,7 +108,7 @@ class Chapote_BO_Pages {
                 array_unshift($items, array(
                     'id'              => $front_id,
                     'type'            => $front_id ? (string) get_post_type($front_id) : 'page',
-                    'title'           => self::str_cap($blog_name !== '' ? $blog_name : __('Page d’accueil', 'chapote-chatbot'), 200),
+                    'title'           => Chapote_BO_Options::str_cap($blog_name !== '' ? $blog_name : __('Page d’accueil', 'chapote-chatbot'), 200),
                     'url'             => $front_url ? $front_url : $home_url,
                     'slug'            => '',
                     'date'            => '',
@@ -181,10 +181,5 @@ class Chapote_BO_Pages {
             }
         }
         return array('relevant' => false, 'relevance_score' => 0);
-    }
-
-    /** Tronque une chaîne à $max caractères (multibyte-safe si dispo). */
-    private static function str_cap($s, $max) {
-        return function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
     }
 }

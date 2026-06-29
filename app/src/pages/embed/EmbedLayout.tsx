@@ -7,6 +7,7 @@ const NAVY = '#1C3F5C'
 const MUT = '#6B7B8D'
 const FAINT = '#9AA7B4'
 const BORDER = '#E8ECF0'
+const MINT = '#2F9E79'
 
 interface Props {
   children?: ReactNode
@@ -67,5 +68,38 @@ export function StatusPill({ tone, children }: { tone: 'saved' | 'dirty' | 'busy
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 999, background: c.bg, color: c.fg }}>
       {children}
     </span>
+  )
+}
+
+// Barre d'enregistrement (slot `right` de l'en-tête) : pastille d'état +
+// bouton « Enregistrer ». Partagée par les éditeurs embarqués (arbre/apparence).
+export function EmbedSaveBar({ saving, dirty, onSave }: { saving: boolean; dirty: boolean; onSave: () => void }) {
+  return (
+    <>
+      {saving
+        ? <StatusPill tone="busy">Enregistrement…</StatusPill>
+        : dirty
+          ? <StatusPill tone="dirty">● Modifié</StatusPill>
+          : <StatusPill tone="saved">✓ Enregistré</StatusPill>}
+      <button type="button" onClick={onSave} disabled={saving || !dirty}
+              style={{
+                background: dirty && !saving ? MINT : '#C7D0D9', color: '#fff', border: 'none',
+                borderRadius: 10, padding: '8px 16px', fontSize: 13.5, fontWeight: 700,
+                fontFamily: 'inherit', cursor: dirty && !saving ? 'pointer' : 'default',
+              }}>
+        Enregistrer
+      </button>
+    </>
+  )
+}
+
+// Bannière d'erreur d'enregistrement (rendue en tête de contenu). No-op si pas
+// de message.
+export function SaveErrorBanner({ message }: { message: string | null }) {
+  if (!message) return null
+  return (
+    <div style={{ marginBottom: 14, fontSize: 13, color: '#9A2820', background: '#FEF2F1', border: '1px solid #F8D7D3', borderRadius: 10, padding: '10px 13px' }}>
+      {message}
+    </div>
   )
 }

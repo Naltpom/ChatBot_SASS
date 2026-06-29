@@ -47,7 +47,6 @@ from src.models.user import User
 # Logique métier PARTAGÉE via SERVICES (PR-19) — plus d'appel aux symboles privés
 # des routers frères.
 from src.routers.bots_helpers import FIELD_PERMS, _check_bot_perm
-from src.routers.widget_helpers import sanitize_design
 from src.services import stripe_service
 from src.services.billing_service import (
     DISABLED,
@@ -56,9 +55,8 @@ from src.services.billing_service import (
     validate_config_modules,
 )
 from src.services.bot_service import (
+    apply_appearance_update,
     billing_status_for_bots,
-    enforce_config_modules,
-    strip_notnull_nulls,
 )
 from src.services.entitlement_service import resolve, resolve_many
 # DETTE PR-20 (documentée) : délégation à des ENDPOINTS PUBLICS du router billing
@@ -281,14 +279,8 @@ async def update_account_appearance(
     _check_bot_perm(user, membership, bot, FIELD_PERMS["design_json"])
 
     # Même pipeline que le PATCH dashboard, restreint à design_json.
-    data = {"design_json": sanitize_design(body.design_json)}
-    strip_notnull_nulls(data)                   # parité (no-op si dict non-null)
     ent = await resolve(db, bot)
-    enforce_config_modules(bot, data, ent)      # gate poweredBy -> whitelabel
-    if "design_json" in data:
-        bot.design_json = data["design_json"]
-    await db.commit()
-    await db.refresh(bot)
+    await apply_appearance_update(bot, body.design_json, db, ent)
 
     out = BotOut.from_bot(bot)
     statuses = await billing_status_for_bots(db, [bot.id])

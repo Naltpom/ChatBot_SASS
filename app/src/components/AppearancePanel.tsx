@@ -30,8 +30,6 @@ interface Props {
   // Verrou White-label sur « Propulsé par » (renvoi facturation). Défaut : non verrouillé.
   whiteLabelLocked?: boolean
   onUpgrade?: () => void
-  // Restreint/ordonne les sous-onglets affichés (défaut : les 5).
-  sections?: AppearanceSection[]
   // Extension optionnelle rendue sous le formulaire, pilotée par le sous-onglet actif.
   renderExtra?: (section: AppearanceSection) => ReactNode
 }
@@ -40,14 +38,11 @@ const noop = () => {}
 
 export default function AppearancePanel({
   design, botName, onChange, onNameChange, whiteLabelLocked = false, onUpgrade,
-  sections, renderExtra,
+  renderExtra,
 }: Props) {
-  const tabs = sections && sections.length
-    ? AF_TABS.filter(t => sections.includes(t.value))
-    : AF_TABS
-  const [afTab, setAfTab] = useState<AppearanceSection>(tabs[0]?.value ?? 'colors')
-  // Garde-fou : si `sections` change et exclut l'onglet actif, on retombe sur le 1er.
-  const active = tabs.some(t => t.value === afTab) ? afTab : (tabs[0]?.value ?? 'colors')
+  const tabs = AF_TABS
+  const [afTab, setAfTab] = useState<AppearanceSection>(tabs[0].value)
+  const active = afTab
 
   return (
     <div className="col g18">

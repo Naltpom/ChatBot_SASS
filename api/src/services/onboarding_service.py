@@ -20,7 +20,7 @@ Aucun appel à prospecting_service.score_prospect (IA non déterministe) : la
 recommandation est une fonction pure du catalogue + de l'arbre.
 """
 import logging
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from src.core.constants import MODULE_AI, MODULE_KEYS
@@ -38,12 +38,12 @@ _MAX_SUGGESTED = 15
 # 1. Classement des URLs WP
 # --------------------------------------------------------------------------
 
-def _origin(url: str) -> tuple[Optional[str], Optional[str]]:
-    """(scheme, host) minuscule d'une URL, ou (None, None) si non http(s)."""
+def _origin(url: str) -> Optional[str]:
+    """host minuscule d'une URL http(s), ou None si non http(s)."""
     p = urlparse((url or "").strip())
     if p.scheme not in ("http", "https") or not p.hostname:
-        return None, None
-    return p.scheme, p.hostname.lower()
+        return None
+    return p.hostname.lower()
 
 
 def _label_from_path(path: str) -> str:
@@ -60,7 +60,7 @@ def _score_url(site_host: Optional[str], url: str) -> Optional[tuple[int, str]]:
     """(score, label) d'une URL, ou None si non http(s) (ou hors site quand
     site_host est connu). Heuristique déterministe : bonus home, bonus pages clés
     (contact/mentions/à-propos/équipe…), malus de profondeur."""
-    _scheme, host = _origin(url)
+    host = _origin(url)
     if host is None:
         return None
     if site_host and host != site_host and host.removeprefix("www.") != site_host.removeprefix("www."):
@@ -89,7 +89,7 @@ def rank_wp_urls(site_url: str, urls: list[str]) -> list[dict]:
     {url, label, score, selected} ; les _SELECT_TOP premières sont pré-cochées.
 
     Tri STABLE et déterministe : (score desc, url asc)."""
-    _scheme, site_host = _origin(site_url)
+    site_host = _origin(site_url)
     scored: list[tuple[int, str, str]] = []
     seen: set[str] = set()
     for u in urls or []:
@@ -128,7 +128,7 @@ async def sitemap_fallback(site_url: str) -> list[str]:
     renvoie la première liste non vide (cap MAX_SITEMAP_PAGES côté kb_service).
     Jamais d'exception : un sitemap inaccessible -> [] (l'appelant retombe sur
     `source='none'`)."""
-    _scheme, host = _origin(site_url)
+    host = _origin(site_url)
     if host is None:
         return []
     # _origin renvoie le hostname sans port ; on repart de l'URL d'origine pour
@@ -240,30 +240,19 @@ async def run_bot_generation(job_id: str, urls: list[str], context: Optional[str
     -> génère l'arbre (generate_tree) -> élague selon `exclude_modules` -> publie le
     résultat dans le job (lu par generate-status). NE sauve PAS sur le bot.
 
-    Variante mince de tree_jobs.run_generation (pas de PDF) ; même bande de
-    progression et même contrat d'erreur (TreeGenerationError -> message FR ;
-    inattendu -> message générique)."""
+    Wrapper mince de tree_jobs.run_generation (pas de PDF) : même bande de
+    progression et même contrat d'erreur. Seule l'intelligence propre à
+    l'onboarding reste ici — typage des sources (_infer_type) + élagage par
+    modules exclus (post_process)."""
     from src.services import tree_jobs
-    from src.services.tree_generator import TreeGenerationError, generate_tree
-
-    async def progress(stage: str, pct: int) -> None:
-        await tree_jobs._update(job_id, stage=stage, pct=pct)
 
     parsed = [{"url": (u or "").strip(), "type": _infer_type(u)} for u in (urls or []) if (u or "").strip()]
-    try:
-        combined = await tree_jobs.build_source_text(parsed, [], context, on_progress=progress)
-        await tree_jobs._update(job_id, stage="Construction de l'arbre par l'IA…", pct=78)
-        tree = await generate_tree(combined)
-        # Élagage par modules exclus (ex. parcours « sans IA ») : generate_tree
-        # ajoute quasi toujours une option vers __ai__ -> on la retire ici si l'IA
-        # est exclue, en rebranchant proprement (prune_tree_for_modules).
-        excluded = set(exclude_modules or [])
-        if excluded:
-            kept = set(MODULE_KEYS) - excluded
-            tree = prune_tree_for_modules(tree, kept)
-        await tree_jobs._update(job_id, status="done", stage="Terminé", pct=100, tree_json=tree)
-    except TreeGenerationError as exc:
-        await tree_jobs._update(job_id, status="error", error=str(exc))
-    except Exception:
-        logger.exception("onboarding: échec inattendu du job %s", job_id)
-        await tree_jobs._update(job_id, status="error", error="La génération a échoué, réessayez.")
+    # Élagage par modules exclus (ex. parcours « sans IA ») : generate_tree ajoute
+    # quasi toujours une option vers __ai__ -> on la retire si l'IA est exclue, en
+    # rebranchant proprement (prune_tree_for_modules), via le post_process du job.
+    post_process: Optional[Callable[[dict], dict]] = None
+    excluded = set(exclude_modules or [])
+    if excluded:
+        kept = set(MODULE_KEYS) - excluded
+        post_process = lambda t: prune_tree_for_modules(t, kept)
+    await tree_jobs.run_generation(job_id, parsed, context, [], post_process=post_process)

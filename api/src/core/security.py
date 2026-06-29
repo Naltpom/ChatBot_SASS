@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     # Annotations seules : import differe (les modeles importent indirectement
     # ce module au runtime — comme les imports paresseux des fonctions ci-dessous).
     from src.models.bot import Bot
-    from src.models.user import User
+    from src.models.user import Membership, User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -453,12 +453,14 @@ def verify_widget_preview_token(token: str) -> Optional[dict]:
 async def require_embed_token(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
-) -> "tuple[Bot, User]":
+) -> "tuple[Bot, User, Optional[Membership]]":
     """Authentifie la surface EMBED (/api/embed) via un access token scope='embed'.
-    Renvoie (bot, user) — le bot_id vient du TOKEN (aucun path param). Réutilise
-    require_bot_access pour l'anti-énumération 404 (même garde que le dashboard) :
-    un token 'embed' volé n'ouvre QUE le bot pour lequel il a été émis, et seul un
-    ayant droit du bot passe."""
+    Renvoie (bot, user, membership) — le bot_id vient du TOKEN (aucun path param).
+    Réutilise require_bot_access pour l'anti-énumération 404 (même garde que le
+    dashboard) : un token 'embed' volé n'ouvre QUE le bot pour lequel il a été émis,
+    et seul un ayant droit du bot passe. Le `membership` retourné (None = accès
+    complet : owner perso / superadmin) est réutilisé par les handlers pour
+    _check_bot_perm, sans re-résoudre l'accès."""
     from src.models.bot import Bot
     from src.models.user import User
 
@@ -475,5 +477,5 @@ async def require_embed_token(
     bot = await db.get(Bot, int(bot_id))
     if bot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
-    await require_bot_access(bot, user, db)  # 404 anti-énumération si non ayant droit
-    return bot, user
+    membership = await require_bot_access(bot, user, db)  # 404 anti-énumération si non ayant droit
+    return bot, user, membership

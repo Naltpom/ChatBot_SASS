@@ -31,14 +31,14 @@ from src.core.security import (
     require_bot_access,
     require_oauth_token,
 )
-from src.core.time import utcnow
 from src.models.bot import Bot
 from src.models.user import Membership, User
 from src.routers.bots_helpers import FIELD_PERMS, _check_bot_perm
 from src.services import onboarding_service, tree_jobs
 from src.services.billing_service import catalog_payload
+from src.services.bot_service import apply_tree_update
 from src.services.rate_limit import treegen_limiter
-from src.services.tree_engine import TreeError, prune_tree_with_removed, validate_tree
+from src.services.tree_engine import TreeError, prune_tree_with_removed
 
 logger = logging.getLogger(__name__)
 
@@ -145,13 +145,7 @@ async def generate_status(
     job = await tree_jobs.get(job_id)
     if job is None or job.get("user_id") != user.id or job.get("bot_id") != bot_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Génération introuvable")
-    return {
-        "status": job.get("status"),
-        "stage": job.get("stage"),
-        "pct": job.get("pct"),
-        "tree_json": job.get("tree_json"),
-        "error": job.get("error"),
-    }
+    return tree_jobs.public_status(job)
 
 
 # --- Recommandation (déterministe, pilotée catalogue) ----------------------
@@ -208,14 +202,10 @@ async def put_tree(
     bot, membership = await _load_bot(db, bot_id, user)
     _check_bot_perm(user, membership, bot, FIELD_PERMS["tree_json"])
     try:
-        validate_tree(body.tree_json)
+        tree_json, updated_at = await apply_tree_update(bot, body.tree_json, db)
     except TreeError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
-    bot.tree_json = body.tree_json
-    bot.updated_at = utcnow()
-    await db.commit()
-    await db.refresh(bot)
-    return {"tree_json": bot.tree_json, "updated_at": bot.updated_at.isoformat()}
+    return {"tree_json": tree_json, "updated_at": updated_at}
 
 
 @router.post("/bots/{bot_id}/tree/prune")

@@ -10,12 +10,14 @@
 // ⚠ « Nom du bot » : le champ du sous-onglet En-tête (AppearanceForm) est édité
 // en LOCAL uniquement (aperçu) — il N'est PAS persisté ici : le contrat
 // d'apparence ne porte que design_json ; le plugin gère le nom du bot ailleurs.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import AppearancePanel from '../../components/AppearancePanel'
 import WidgetPreview from '../../components/WidgetPreview'
-import EmbedLayout, { StatusPill } from './EmbedLayout'
+import EmbedLayout, { EmbedSaveBar, SaveErrorBanner } from './EmbedLayout'
 import { useEmbedSession } from '../../hooks/useEmbedSession'
-import { postToParent, parseAdminMessage } from '../../lib/embedBridge'
+import { useEmbedSave } from '../../hooks/useEmbedSave'
+import { postToParent } from '../../lib/embedBridge'
+import { stableStringify } from '../../utils/stableStringify'
 import { errMsg } from '../../utils/errors'
 import { useIsMobile } from '../../hooks/useMediaQuery'
 import type { BotMode, DesignJson, Tree } from '../../types/bot'
@@ -29,18 +31,6 @@ interface EmbedBot {
   public_key: string
 }
 
-// Sérialisation STABLE (clés triées) pour le dirty-tracking de design_json.
-function stableStr(v: unknown): string {
-  return JSON.stringify(v, (_k, val) =>
-    val && typeof val === 'object' && !Array.isArray(val)
-      ? Object.keys(val as Record<string, unknown>).sort().reduce((a, k) => {
-        a[k] = (val as Record<string, unknown>)[k]; return a
-      }, {} as Record<string, unknown>)
-      : val)
-}
-
-const MINT = '#2F9E79'
-
 export default function EmbedAppearance() {
   const { ready, error: sessionError, embApi, parentOrigin, nonce } = useEmbedSession()
   const mobile = useIsMobile(900)
@@ -51,11 +41,9 @@ export default function EmbedAppearance() {
   const [botName, setBotName] = useState('')
   const [savedSig, setSavedSig] = useState('')
   const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [saveErr, setSaveErr] = useState<string | null>(null)
 
-  const designSig = stableStr(design)
-  const dirty = !!bot && savedSig !== '' && designSig !== savedSig
+  // Signature mémoïsée de design_json (clés triées) -> dirty-tracking.
+  const designSig = useMemo(() => stableStringify(design), [design])
 
   // -- Chargement du bot (design + nom + arbre/mode pour l'aperçu). Émet 'ready'.
   useEffect(() => {
@@ -67,7 +55,7 @@ export default function EmbedAppearance() {
         setBot(b)
         setDesign(b.design_json || {})
         setBotName(b.name)
-        setSavedSig(stableStr(b.design_json || {}))
+        setSavedSig(stableStringify(b.design_json || {}))
         postToParent({ type: 'ready', botId: b.id }, parentOrigin, nonce)
       })
       .catch(err => { if (alive) setLoadErr(errMsg(err, 'Impossible de charger le chatbot.')) })
@@ -79,65 +67,29 @@ export default function EmbedAppearance() {
     setDesign(prev => ({ ...prev, ...partial }))
   }, [])
 
-  // -- Enregistrement : PATCH /api/embed/bot/appearance. Anti double-soumission.
-  const savingRef = useRef(false)
-  const save = useCallback(async () => {
-    if (savingRef.current || !bot) return
-    savingRef.current = true
-    setSaving(true); setSaveErr(null)
-    try {
-      const resp = await embApi<{ design_json: DesignJson }>(
-        '/api/embed/bot/appearance', { method: 'PATCH', body: { design_json: design } },
-      )
-      const d = resp.design_json ?? design
-      setSavedSig(stableStr(d))
-      postToParent({ type: 'saved', botId: bot.id, savedAt: new Date().toISOString() }, parentOrigin, nonce)
-    } catch (err) {
-      const message = errMsg(err, "L'enregistrement a échoué.")
-      setSaveErr(message)
-      postToParent({ type: 'error', message, botId: bot.id }, parentOrigin, nonce)
-    } finally {
-      setSaving(false); savingRef.current = false
-    }
+  // -- Persistance de l'apparence : PATCH /api/embed/bot/appearance (+ 'saved').
+  const doSave = useCallback(async () => {
+    if (!bot) return
+    const resp = await embApi<{ design_json: DesignJson }>(
+      '/api/embed/bot/appearance', { method: 'PATCH', body: { design_json: design } },
+    )
+    const d = resp.design_json ?? design
+    setSavedSig(stableStringify(d))
+    postToParent({ type: 'saved', botId: bot.id, savedAt: new Date().toISOString() }, parentOrigin, nonce)
   }, [bot, design, embApi, parentOrigin, nonce])
-  const saveFnRef = useRef(save); saveFnRef.current = save
+
+  // Échafaudage d'enregistrement commun (dirty, Ctrl-S, beforeunload, request-save).
+  const { dirty, saving, saveErr, save } = useEmbedSave({
+    ready, parentOrigin, nonce, botId: bot?.id,
+    signature: designSig, savedSignature: savedSig, canSave: !!bot, doSave,
+  })
 
   // -- Autosave débouncé : 700 ms après le dernier changement (designSig le réarme).
   useEffect(() => {
     if (!dirty) return
-    const h = setTimeout(() => saveFnRef.current(), 700)
+    const h = setTimeout(save, 700)
     return () => clearTimeout(h)
-  }, [dirty, designSig])
-
-  // -- Ctrl/Cmd+S -> enregistrement immédiat.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault(); saveFnRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
-  // -- request-save du parent -> enregistrement immédiat (highlight-module ignoré ici).
-  useEffect(() => {
-    if (!ready) return
-    const onMsg = (ev: MessageEvent) => {
-      const msg = parseAdminMessage(ev, parentOrigin, nonce)
-      if (msg?.type === 'request-save') saveFnRef.current()
-    }
-    window.addEventListener('message', onMsg)
-    return () => window.removeEventListener('message', onMsg)
-  }, [ready, parentOrigin, nonce])
-
-  // -- Avertissement de fermeture si modifications non enregistrées (autosave en vol).
-  useEffect(() => {
-    if (!dirty) return
-    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
-    window.addEventListener('beforeunload', h)
-    return () => window.removeEventListener('beforeunload', h)
-  }, [dirty])
+  }, [dirty, designSig, save])
 
   const error = sessionError || loadErr
   if (error) return <EmbedLayout error={error} />
@@ -146,29 +98,9 @@ export default function EmbedAppearance() {
   return (
     <EmbedLayout
       title={botName || bot.name}
-      right={
-        <>
-          {saving
-            ? <StatusPill tone="busy">Enregistrement…</StatusPill>
-            : dirty
-              ? <StatusPill tone="dirty">● Modifié</StatusPill>
-              : <StatusPill tone="saved">✓ Enregistré</StatusPill>}
-          <button type="button" onClick={save} disabled={saving || !dirty}
-                  style={{
-                    background: dirty && !saving ? MINT : '#C7D0D9', color: '#fff', border: 'none',
-                    borderRadius: 10, padding: '8px 16px', fontSize: 13.5, fontWeight: 700,
-                    fontFamily: 'inherit', cursor: dirty && !saving ? 'pointer' : 'default',
-                  }}>
-            Enregistrer
-          </button>
-        </>
-      }
+      right={<EmbedSaveBar saving={saving} dirty={dirty} onSave={save} />}
     >
-      {saveErr && (
-        <div style={{ marginBottom: 14, fontSize: 13, color: '#9A2820', background: '#FEF2F1', border: '1px solid #F8D7D3', borderRadius: 10, padding: '10px 13px' }}>
-          {saveErr}
-        </div>
-      )}
+      <SaveErrorBanner message={saveErr} />
       {/* Panneau de réglages (gauche) ; l'aperçu widget flotte (position fixe) à
           droite et reflète design_json en direct. Marge basse pour ne pas le
           masquer par le widget flottant. */}
