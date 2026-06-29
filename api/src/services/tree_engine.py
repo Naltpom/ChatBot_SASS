@@ -17,9 +17,19 @@ Format du tree_json (exportable/importable en fichier) :
 `next: "__ai__"` est un noeud special : la conversation bascule en mode IA
 (texte libre). Les reponses tree n'appellent aucun provider IA (zero cout).
 """
+import copy
 from typing import Any, Optional
 
+from src.core.constants import MODULE_AI, MODULE_INBOX
+
 AI_NODE = "__ai__"
+
+# Mapping noeud -> module d'entitlement DÉRIVÉ de l'arbre (onboarding guidé WP).
+# handoff (mise en relation conseiller) exige le module Inbox. lead/appointment
+# sont du SOCLE (aucun module). L'option `next=='__ai__'` implique le module IA
+# (traité à part, ce n'est pas un type de noeud). Source UNIQUE, partagée par la
+# recommandation et l'élagage par modules.
+NODE_TYPE_TO_MODULE = {"handoff": MODULE_INBOX}
 
 # Types de noeuds. Sans `type` = noeud message classique (retro-compat des
 # arbres existants). appointment = URL de calendrier (Calendly/Cal.com) rendue
@@ -115,3 +125,125 @@ def format_node_response(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
         # /widget/handoff enchaine par le widget qui fait la transition.
         out["type"] = "handoff"
     return out
+
+
+# --------------------------------------------------------------------------
+# Onboarding guidé WP : modules dérivés de l'arbre + élagage par modules
+# --------------------------------------------------------------------------
+
+def required_modules_for_tree(tree: dict[str, Any]) -> set[str]:
+    """Modules d'entitlement IMPOSÉS par la structure de l'arbre (pur, testable) :
+    un noeud `handoff` -> Inbox ; une option `next == '__ai__'` -> IA. Les noeuds
+    `lead`/`appointment` sont du socle (aucun module). Tolérant aux arbres
+    malformés (retourne un set, jamais d'exception)."""
+    required: set[str] = set()
+    nodes = (tree or {}).get("nodes")
+    if not isinstance(nodes, dict):
+        return required
+    for node in nodes.values():
+        if not isinstance(node, dict):
+            continue
+        mod = NODE_TYPE_TO_MODULE.get(node.get("type"))
+        if mod:
+            required.add(mod)
+        for opt in node.get("options") or []:
+            if isinstance(opt, dict) and opt.get("next") == AI_NODE:
+                required.add(MODULE_AI)
+    return required
+
+
+def _prune_tree(tree: dict[str, Any], kept_modules: set[str]) -> tuple[dict[str, Any], list[str]]:
+    """Cœur de l'élagage (retourne (arbre, removed_node_ids)). Voir
+    prune_tree_for_modules. Idempotent et NON mutant (copie profonde)."""
+    # Import paresseux (comme bots.py) : evite de charger models.bot au simple
+    # import de tree_engine (importe largement, dont par le widget).
+    from src.models.bot import DEFAULT_TREE
+
+    work = copy.deepcopy(tree) if isinstance(tree, dict) else {}
+    nodes = work.get("nodes")
+    start = work.get("start")
+    # Arbre dégénéré d'entrée : on rend l'arbre par défaut (jamais un widget mort).
+    if not isinstance(nodes, dict) or not nodes or start not in nodes:
+        return copy.deepcopy(DEFAULT_TREE), []
+
+    ai_kept = MODULE_AI in kept_modules
+
+    # 1. Noeuds à retirer = module dérivé hors `kept`. JAMAIS le start : on
+    #    neutralise seulement son type terminal (il reste un menu d'accueil).
+    removed: set[str] = set()
+    for nid, node in nodes.items():
+        if nid == start:
+            if isinstance(node, dict) and node.get("type") in ("handoff", "lead", "appointment"):
+                for k in ("type", "url", "fields"):
+                    node.pop(k, None)
+            continue
+        mod = NODE_TYPE_TO_MODULE.get(node.get("type")) if isinstance(node, dict) else None
+        if mod is not None and mod not in kept_modules:
+            removed.add(nid)
+    for nid in removed:
+        nodes.pop(nid, None)
+
+    # 2. Rebranche toute option vers un noeud supprimé/inexistant OU vers `__ai__`
+    #    (si IA non gardée) -> retour au start. Déduplique (label, next).
+    for node in nodes.values():
+        if not isinstance(node, dict) or not isinstance(node.get("options"), list):
+            continue
+        new_opts: list[dict] = []
+        seen: set[tuple] = set()
+        for opt in node["options"]:
+            if not isinstance(opt, dict) or not opt.get("label"):
+                continue
+            nxt = opt.get("next")
+            if nxt == AI_NODE:
+                if not ai_kept:
+                    nxt = start
+            elif nxt not in nodes:
+                nxt = start
+            key = (opt.get("label"), nxt)
+            if key in seen:
+                continue
+            seen.add(key)
+            new_opts.append({**opt, "next": nxt})
+        node["options"] = new_opts
+
+    # 3. BFS depuis le start : retire les noeuds devenus orphelins.
+    reachable: set[str] = set()
+    queue = [start]
+    while queue:
+        cur = queue.pop()
+        if cur in reachable or cur not in nodes:
+            continue
+        reachable.add(cur)
+        for opt in nodes[cur].get("options") or []:
+            nxt = opt.get("next")
+            if nxt != AI_NODE and nxt in nodes and nxt not in reachable:
+                queue.append(nxt)
+    orphans = set(nodes) - reachable
+    for nid in orphans:
+        nodes.pop(nid, None)
+    removed |= orphans
+
+    # 4. Garde-fou : un arbre élagué invalide/dégénéré -> arbre par défaut.
+    try:
+        validate_tree(work)
+    except TreeError:
+        return copy.deepcopy(DEFAULT_TREE), sorted(removed)
+    return work, sorted(removed)
+
+
+def prune_tree_for_modules(tree: dict[str, Any], kept_modules: set[str]) -> dict[str, Any]:
+    """Copie élaguée de l'arbre, ne conservant que les noeuds dont le module
+    dérivé appartient à `kept_modules` (le SOCLE — lead/appointment, menus — est
+    toujours conservé). Les options pointant vers un noeud supprimé ou vers
+    `__ai__` (IA exclue) sont rebranchées vers le start ; les orphelins sont
+    retirés. Idempotent, NON mutant. Un résultat invalide retombe sur
+    Bot.DEFAULT_TREE (jamais de widget mort)."""
+    pruned, _removed = _prune_tree(tree, set(kept_modules))
+    return pruned
+
+
+def prune_tree_with_removed(tree: dict[str, Any], kept_modules: set[str]) -> tuple[dict[str, Any], list[str]]:
+    """Variante de prune_tree_for_modules qui renvoie AUSSI la liste triée des ids
+    de noeuds retirés (pour l'endpoint /tree/prune, qui montre le diff sans
+    sauvegarder)."""
+    return _prune_tree(tree, set(kept_modules))

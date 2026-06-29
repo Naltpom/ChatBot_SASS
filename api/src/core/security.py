@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     # Annotations seules : import differe (les modeles importent indirectement
     # ce module au runtime — comme les imports paresseux des fonctions ci-dessous).
     from src.models.bot import Bot
-    from src.models.user import User
+    from src.models.user import Membership, User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -395,3 +395,87 @@ async def require_oauth_token(
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Utilisateur introuvable")
     return user
+
+
+# --- Onboarding guidé du plugin WordPress : tokens courts dédiés -----------
+# Deux scopes ÉPHÉMÈRES, distincts de 'plugin'/'dashboard'/'widget', jamais
+# acceptés par require_oauth_token (scope='plugin') ni get_current_user
+# (scope='dashboard') — decode_token rejette tout scope non concordant (401).
+#
+# - 'embed'          : éditeur de bot embarqué (front dashboard rendu en iframe
+#                      dans le back-office WP). Porte le bot_id (le routeur embed
+#                      n'a PAS de path param) + l'user (sub). ~20 min.
+# - 'widget_preview' : aperçu LIVE du widget avant paiement. Autorise le
+#                      bootstrap/session widget à bypasser origine + captcha pour
+#                      CE bot uniquement, en session sans side-effects. ~15 min.
+EMBED_TOKEN_EXPIRE_MINUTES = 20
+WIDGET_PREVIEW_EXPIRE_MINUTES = 15
+
+
+def create_embed_token(bot_id: int, user_id: int) -> str:
+    """Token d'éditeur embarqué (scope='embed', ~20 min) : lie un bot à son
+    propriétaire pour la surface /api/embed (bot_id issu du token, pas du chemin)."""
+    return _encode(
+        {"sub": str(user_id), "scope": "embed", "bot_id": bot_id},
+        timedelta(minutes=EMBED_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def verify_embed_token(token: str) -> dict:
+    """Décode un token d'éditeur embarqué valide (scope='embed') ou lève 401."""
+    return decode_token(token, expected_scope="embed")
+
+
+def create_widget_preview_token(bot_id: int, user_id: int) -> str:
+    """Token d'aperçu widget (scope='widget_preview', ~15 min) : autorise le
+    bootstrap/session du widget à bypasser origine+captcha pour CE bot."""
+    return _encode(
+        {"sub": str(user_id), "scope": "widget_preview", "bot_id": bot_id},
+        timedelta(minutes=WIDGET_PREVIEW_EXPIRE_MINUTES),
+    )
+
+
+def verify_widget_preview_token(token: str) -> Optional[dict]:
+    """Décode un token d'aperçu widget (scope='widget_preview'). Renvoie le
+    payload, ou None si invalide/expiré/mauvais scope — le widget retombe alors
+    SILENCIEUSEMENT sur le comportement public (jamais de 4xx). Volontairement
+    NON levant (contrairement à decode_token) : un token d'aperçu périmé ne doit
+    pas casser une page publique, juste perdre le bypass d'aperçu."""
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError:
+        return None
+    if payload.get("scope") != "widget_preview":
+        return None
+    return payload
+
+
+async def require_embed_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> "tuple[Bot, User, Optional[Membership]]":
+    """Authentifie la surface EMBED (/api/embed) via un access token scope='embed'.
+    Renvoie (bot, user, membership) — le bot_id vient du TOKEN (aucun path param).
+    Réutilise require_bot_access pour l'anti-énumération 404 (même garde que le
+    dashboard) : un token 'embed' volé n'ouvre QUE le bot pour lequel il a été émis,
+    et seul un ayant droit du bot passe. Le `membership` retourné (None = accès
+    complet : owner perso / superadmin) est réutilisé par les handlers pour
+    _check_bot_perm, sans re-résoudre l'accès."""
+    from src.models.bot import Bot
+    from src.models.user import User
+
+    if credentials is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentification requise")
+    payload = decode_token(credentials.credentials, expected_scope="embed")
+    bot_id, user_id = payload.get("bot_id"), payload.get("sub")
+    if not bot_id or not user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token invalide ou expiré")
+    result = await db.execute(select(User).where(User.id == int(user_id)))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Utilisateur introuvable")
+    bot = await db.get(Bot, int(bot_id))
+    if bot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
+    membership = await require_bot_access(bot, user, db)  # 404 anti-énumération si non ayant droit
+    return bot, user, membership

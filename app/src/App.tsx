@@ -39,6 +39,23 @@ import cgvMd from './legal/CGV.md?raw'
 import confidMd from './legal/POLITIQUE_CONFIDENTIALITE.md?raw'
 import Layout from './Layout'
 
+// Éditeurs EMBARQUÉS (/embed/*) ouverts par le plugin WordPress dans une iframe/
+// popup. lazy() OBLIGATOIRE : ils tirent l'éditeur d'arbre (chunk @xyflow) et ne
+// doivent PAS entrer dans le graphe statique de App.tsx -> entry-server -> le
+// prérendu bun de « / » casserait. Hors Protected/Layout (pas de chrome
+// dashboard, auth = Bearer embed_token, pas de cookie).
+const EmbedTreeEditor = React.lazy(() => import('./pages/embed/EmbedTreeEditor'))
+const EmbedAppearance = React.lazy(() => import('./pages/embed/EmbedAppearance'))
+
+// Fallback de chargement du chunk embarqué (avant que le module lazy n'arrive).
+function EmbedChunkFallback() {
+  return (
+    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9AA7B4', fontSize: 13.5, background: '#F9F9FB' }}>
+      Chargement de l'éditeur…
+    </div>
+  )
+}
+
 // La 2FA n'est imposée côté front qu'en dehors des hôtes locaux (mirroir du
 // gate dev-login : l'auto-login admin DEV et les e2e tournent sur localhost,
 // où le serveur n'applique pas non plus l'obligation). En prod (chapote.fr),
@@ -140,6 +157,11 @@ export function AppRoutes() {
       <Route path="/cgu" element={<Navigate to="/legal/cgu" replace />} />
       <Route path="/cgv" element={<Navigate to="/legal/cgv" replace />} />
       <Route path="/confidentialite" element={<Navigate to="/legal/confidentialite" replace />} />
+      {/* Éditeurs embarqués du plugin WordPress (HORS Protected/Layout, lazy()).
+          Auth par Bearer embed_token porté dans le fragment d'URL (jamais de
+          cookie/chrome dashboard). Non prérendus (chunk @xyflow isolé). */}
+      <Route path="/embed/tree-editor" element={<React.Suspense fallback={<EmbedChunkFallback />}><EmbedTreeEditor /></React.Suspense>} />
+      <Route path="/embed/appearance" element={<React.Suspense fallback={<EmbedChunkFallback />}><EmbedAppearance /></React.Suspense>} />
       {/* Application (clients) */}
       <Route path="/app" element={<Protected><BotList /></Protected>} />
       <Route path="/app/bots/new" element={<Protected><BotWizard /></Protected>} />

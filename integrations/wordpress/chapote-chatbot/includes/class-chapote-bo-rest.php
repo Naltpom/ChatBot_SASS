@@ -15,6 +15,9 @@ class Chapote_BO_REST {
 
     const ID_PATTERN = '[A-Za-z0-9_\-]+';
 
+    /** Modules de facturation connus (borne les relais config/prune). */
+    const ALLOWED_MODULES = array('ai', 'inbox', 'rag', 'actions', 'mcp', 'ab', 'white_label');
+
     /** Vérifie capacité + nonce sur chaque route. */
     public static function can($request) {
         if (!current_user_can('manage_options')) {
@@ -104,6 +107,63 @@ class Chapote_BO_REST {
         register_rest_route($ns, '/seo', array(
             array('methods' => 'GET',  'permission_callback' => $perm, 'callback' => array(__CLASS__, 'seo_get')),
             array('methods' => 'POST', 'permission_callback' => $perm, 'callback' => array(__CLASS__, 'seo_set')),
+        ));
+
+        /* ------------------------------------------------------------------ */
+        /* Onboarding guidé                                                   */
+        /* ------------------------------------------------------------------ */
+
+        // Énumération des contenus publics WP (100 % local, AUCUN appel Chapote).
+        register_rest_route($ns, '/site/pages', array(
+            'methods'             => 'GET',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'site_pages'),
+        ));
+        // Lance la génération IA depuis des URLs (crée le bot d'abord si besoin).
+        register_rest_route($ns, '/site/generate', array(
+            'methods'             => 'POST',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'site_generate'),
+        ));
+        // Suivi du job de génération (POLLING : pas de SSE via proxy, peu fiable).
+        register_rest_route($ns, '/bots/(?P<id>' . self::ID_PATTERN . ')/tree-job/(?P<job>[A-Za-z0-9_\-]+)', array(
+            'methods'             => 'GET',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'bot_tree_job'),
+        ));
+        // Jetons éphémères pour les fenêtres embed (éditeur/apparence) et l'aperçu.
+        register_rest_route($ns, '/bots/(?P<id>' . self::ID_PATTERN . ')/preview-token', array(
+            'methods'             => 'POST',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'bot_preview_token'),
+        ));
+        register_rest_route($ns, '/bots/(?P<id>' . self::ID_PATTERN . ')/embed-token', array(
+            'methods'             => 'POST',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'bot_embed_token'),
+        ));
+        // Recommandation d'offre (GET pour les cas simples, POST pour porter le
+        // tree_json/description sans dépendre d'un corps sur GET).
+        register_rest_route($ns, '/bots/(?P<id>' . self::ID_PATTERN . ')/recommendation', array(
+            array('methods' => 'GET',  'permission_callback' => $perm, 'callback' => array(__CLASS__, 'bot_recommendation')),
+            array('methods' => 'POST', 'permission_callback' => $perm, 'callback' => array(__CLASS__, 'bot_recommendation')),
+        ));
+        // Élague l'arbre aux modules conservés (sections retirées à la baisse d'offre).
+        register_rest_route($ns, '/bots/(?P<id>' . self::ID_PATTERN . ')/tree-prune', array(
+            'methods'             => 'POST',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'bot_tree_prune'),
+        ));
+        // Enregistre l'arbre (persiste l'élagage calculé par tree-prune).
+        register_rest_route($ns, '/bots/(?P<id>' . self::ID_PATTERN . ')/tree', array(
+            'methods'             => 'PUT',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'bot_tree_save'),
+        ));
+        // État d'onboarding (option locale WP : done / bot_id / step de reprise).
+        register_rest_route($ns, '/onboarding', array(
+            array('methods' => 'GET',  'permission_callback' => $perm, 'callback' => array(__CLASS__, 'onboarding_get')),
+            array('methods' => 'POST', 'permission_callback' => $perm, 'callback' => array(__CLASS__, 'onboarding_set')),
         ));
     }
 
@@ -362,16 +422,7 @@ class Chapote_BO_REST {
 
     /** Borne la config de facturation aux clés/modules connus avant relais. */
     private static function sanitize_billing_config(array $config) {
-        $allowed_modules = array('ai', 'inbox', 'rag', 'actions', 'mcp', 'ab', 'white_label');
-        $modules = array();
-        if (isset($config['modules']) && is_array($config['modules'])) {
-            foreach ($config['modules'] as $m) {
-                $m = sanitize_text_field((string) $m);
-                if (in_array($m, $allowed_modules, true)) {
-                    $modules[] = $m;
-                }
-            }
-        }
+        $modules = self::sanitize_module_list(isset($config['modules']) ? $config['modules'] : array());
         $out = array(
             'modules' => array_values(array_unique($modules)),
             'ai_byok' => !empty($config['ai_byok']),
@@ -537,8 +588,8 @@ class Chapote_BO_REST {
                     continue;
                 }
                 $faq[] = array(
-                    'q' => self::str_cap($q, 300),
-                    'a' => self::str_cap($a, 2000),
+                    'q' => Chapote_BO_Options::str_cap($q, 300),
+                    'a' => Chapote_BO_Options::str_cap($a, 2000),
                 );
             }
         }
@@ -552,8 +603,240 @@ class Chapote_BO_REST {
         return new WP_REST_Response(Chapote_BO_SEO::get_settings(), 200);
     }
 
-    /** Tronque une chaîne à $max caractères (multibyte-safe si dispo). */
-    private static function str_cap($s, $max) {
-        return function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
+    /* ---------------------------------------------------------------------- */
+    /* Onboarding guidé                                                       */
+    /* ---------------------------------------------------------------------- */
+
+    /** Liste des contenus publics WP (local) pour l'écran de sélection. */
+    public static function site_pages($request) {
+        $out = Chapote_BO_Pages::list_published(array(
+            's'        => (string) $request->get_param('s'),
+            'page'     => (int) $request->get_param('page'),
+            'per_page' => (int) $request->get_param('per_page'),
+        ));
+        return new WP_REST_Response($out, 200);
+    }
+
+    /**
+     * Lance la génération IA depuis une liste d'URLs. Crée le bot AVANT (POST
+     * /api/account/bots) s'il n'existe pas encore, puis relaie generate-from-urls.
+     * Réponse augmentée du `bot_id` pour que le JS suive le job sur le bon bot.
+     * Sécurité : URLs bornées au MÊME HOST que le site (anti-SSRF) et cap 15.
+     */
+    public static function site_generate($request) {
+        $bot_id = trim((string) $request->get_param('bot_id'));
+
+        if ($bot_id === '') {
+            $name = sanitize_text_field((string) $request->get_param('name'));
+            if ($name === '') {
+                $name = self::default_bot_name();
+            }
+            $created = Chapote_BO_API::account('POST', '/api/account/bots', array(
+                'name' => Chapote_BO_Options::str_cap($name, 80),
+                'mode' => 'hybrid',
+            ));
+            $cstatus = (int) $created['status'];
+            if ($cstatus !== 200 && $cstatus !== 201) {
+                return self::forward($created);
+            }
+            $bot_id = isset($created['data']['id']) ? (string) $created['data']['id'] : '';
+            if ($bot_id === '') {
+                return new WP_REST_Response(array('error' => 'bot_create_failed'), 502);
+            }
+        }
+
+        $urls = self::sanitize_url_list($request->get_param('urls'), 15);
+        if (empty($urls)) {
+            return new WP_REST_Response(array('error' => 'urls_required'), 400);
+        }
+
+        $body = array('urls' => $urls);
+        $desc = $request->get_param('description');
+        if ($desc !== null && trim((string) $desc) !== '') {
+            $body['description'] = Chapote_BO_Options::str_cap(sanitize_textarea_field((string) $desc), 2000);
+        }
+        $vpm = $request->get_param('visitors_per_month');
+        if ($vpm !== null && $vpm !== '') {
+            $body['visitors_per_month'] = max(0, (int) $vpm);
+        }
+        $excl = $request->get_param('exclude_modules');
+        if (is_array($excl)) {
+            $body['exclude_modules'] = self::sanitize_module_list($excl);
+        }
+
+        $res = Chapote_BO_API::account(
+            'POST',
+            '/api/account/bots/' . rawurlencode($bot_id) . '/generate-from-urls',
+            $body
+        );
+        if (is_array($res['data'])) {
+            $res['data']['bot_id'] = $bot_id; // le JS en a besoin pour suivre le job
+        }
+        return self::forward($res);
+    }
+
+    /** Suivi du job de génération (relais generate-status). */
+    public static function bot_tree_job($request) {
+        $id  = (string) $request->get_param('id');
+        $job = (string) $request->get_param('job');
+        return self::forward(Chapote_BO_API::account(
+            'GET',
+            '/api/account/bots/' . rawurlencode($id) . '/generate-status?job_id=' . rawurlencode($job)
+        ));
+    }
+
+    /** Mint d'un jeton d'aperçu (iframe widget-frame). */
+    public static function bot_preview_token($request) {
+        $id = (string) $request->get_param('id');
+        return self::forward(Chapote_BO_API::account('POST', '/api/account/bots/' . rawurlencode($id) . '/preview-token'));
+    }
+
+    /** Mint d'un jeton embed (fenêtres éditeur d'arbre / apparence du dashboard). */
+    public static function bot_embed_token($request) {
+        $id = (string) $request->get_param('id');
+        return self::forward(Chapote_BO_API::account('POST', '/api/account/bots/' . rawurlencode($id) . '/embed-token'));
+    }
+
+    /** Recommandation d'offre (modules requis/conseillés, palier IA, volume). */
+    public static function bot_recommendation($request) {
+        $id   = (string) $request->get_param('id');
+        $body = array();
+
+        $desc = $request->get_param('description');
+        if ($desc !== null && trim((string) $desc) !== '') {
+            $body['description'] = Chapote_BO_Options::str_cap(sanitize_textarea_field((string) $desc), 2000);
+        }
+        $vpm = $request->get_param('visitors_per_month');
+        if ($vpm !== null && $vpm !== '') {
+            $body['visitors_per_month'] = max(0, (int) $vpm);
+        }
+        // tree_json relayé tel quel : le backend est la source de vérité (validation).
+        $tree = $request->get_param('tree_json');
+        if (is_array($tree)) {
+            $body['tree_json'] = $tree;
+        }
+
+        return self::forward(Chapote_BO_API::account(
+            'POST',
+            '/api/account/bots/' . rawurlencode($id) . '/recommendation',
+            $body
+        ));
+    }
+
+    /** Élague l'arbre aux seuls modules conservés (relais tree/prune). */
+    public static function bot_tree_prune($request) {
+        $id   = (string) $request->get_param('id');
+        $kept = self::sanitize_module_list($request->get_param('kept_modules'));
+        return self::forward(Chapote_BO_API::account(
+            'POST',
+            '/api/account/bots/' . rawurlencode($id) . '/tree/prune',
+            array('kept_modules' => $kept)
+        ));
+    }
+
+    /** Enregistre l'arbre (relais PUT tree). tree_json relayé tel quel : le
+     *  backend valide (validate_tree) et fait foi. Sert à persister l'arbre
+     *  élagué calculé par tree-prune lors d'une baisse d'offre. */
+    public static function bot_tree_save($request) {
+        $id   = (string) $request->get_param('id');
+        $tree = $request->get_param('tree_json');
+        if (!is_array($tree)) {
+            return new WP_Error('cbo_bad_tree', 'Arbre invalide.', array('status' => 400));
+        }
+        return self::forward(Chapote_BO_API::account(
+            'PUT',
+            '/api/account/bots/' . rawurlencode($id) . '/tree',
+            array('tree_json' => $tree)
+        ));
+    }
+
+    /** État d'onboarding (option locale). */
+    public static function onboarding_get($request) {
+        return new WP_REST_Response(Chapote_BO_Options::onboarding(), 200);
+    }
+
+    /** Met à jour l'état d'onboarding (champs présents seulement). */
+    public static function onboarding_set($request) {
+        $data = array();
+        if ($request->get_param('done') !== null) {
+            $data['done'] = (bool) $request->get_param('done');
+        }
+        if ($request->get_param('bot_id') !== null) {
+            $data['bot_id'] = sanitize_text_field((string) $request->get_param('bot_id'));
+        }
+        if ($request->get_param('step') !== null) {
+            $data['step'] = sanitize_key((string) $request->get_param('step'));
+        }
+        return new WP_REST_Response(Chapote_BO_Options::save_onboarding($data), 200);
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* Helpers onboarding                                                     */
+    /* ---------------------------------------------------------------------- */
+
+    /** Borne une liste de clés de modules aux modules connus (dédupliquée). */
+    private static function sanitize_module_list($raw) {
+        $out = array();
+        if (is_array($raw)) {
+            foreach ($raw as $m) {
+                $m = sanitize_text_field((string) $m);
+                if (in_array($m, self::ALLOWED_MODULES, true) && !in_array($m, $out, true)) {
+                    $out[] = $m;
+                }
+            }
+        }
+        return array_values($out);
+    }
+
+    /**
+     * Assainit une liste d'URLs : http(s), MÊME HOST que le site (anti-SSRF),
+     * dédupliquée, plafonnée à $cap. Les URLs proviennent des pages WP et des
+     * ajouts manuels même-host ; on revérifie côté serveur (cap 15 du wizard).
+     */
+    private static function sanitize_url_list($raw, $cap) {
+        if (!is_array($raw)) {
+            return array();
+        }
+        $site_host = self::site_host_normalized();
+        $out = array();
+        foreach ($raw as $u) {
+            if (count($out) >= $cap) {
+                break;
+            }
+            $u = esc_url_raw(trim((string) $u), array('http', 'https'));
+            if ($u === '') {
+                continue;
+            }
+            $host = wp_parse_url($u, PHP_URL_HOST);
+            if (!$host || self::normalize_host($host) !== $site_host) {
+                continue; // host étranger rejeté
+            }
+            if (!in_array($u, $out, true)) {
+                $out[] = $u;
+            }
+        }
+        return $out;
+    }
+
+    /** Host du site, normalisé (minuscule, sans préfixe www). */
+    private static function site_host_normalized() {
+        return self::normalize_host((string) wp_parse_url(home_url(), PHP_URL_HOST));
+    }
+
+    /** Normalise un host pour comparaison (minuscule, www. retiré). */
+    private static function normalize_host($h) {
+        return preg_replace('/^www\./', '', strtolower((string) $h));
+    }
+
+    /** Nom de bot par défaut (titre du site, repli host). */
+    private static function default_bot_name() {
+        $name = sanitize_text_field((string) get_bloginfo('name'));
+        if ($name === '') {
+            $name = (string) wp_parse_url(home_url(), PHP_URL_HOST);
+        }
+        if ($name === '') {
+            $name = 'Mon assistant';
+        }
+        return $name;
     }
 }

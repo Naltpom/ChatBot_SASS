@@ -23,9 +23,10 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.core.errors import install_error_handlers
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
-from src.routers import admin, admin_billing, admin_prospecting, auth, billing, bots, inbox, kb, orgs, public, stats, tree, twofa, uploads, widget
+from src.routers import admin, admin_billing, admin_prospecting, auth, billing, bots, embed, inbox, kb, orgs, public, stats, tree, twofa, uploads, widget
 from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
+from src.routers.external import onboarding as ext_onboarding
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -177,20 +178,30 @@ async def serve_widget():
 
 
 @app.get("/widget-frame", include_in_schema=False)
-async def widget_frame(key: str):
+async def widget_frame(key: str, preview_token: str | None = None):
     """Page hote pour l'integration iframe : le chat s'affiche ouvert, en
     pleine zone. La securite reste identique (origin de l'iframe = l'API,
     toujours accepte ; le referer de la page parente est verifie au handshake
-    via le header Referer transmis par le navigateur)."""
+    via le header Referer transmis par le navigateur).
+
+    Aperçu (onboarding plugin WP) : `?preview_token=<jwt>` est reflété en
+    `data-preview-token` ; widget.js le joint à bootstrap/session pour bypasser
+    origine+captcha (session sans side-effects). Validé strictement (format JWT
+    compact base64url.base64url.base64url) avant réflexion (anti-XSS)."""
     # Anti-XSS : `key` est reflete dans le HTML -> format pk_... strict ou rien
     if not re.fullmatch(r"pk_[A-Za-z0-9_-]{10,64}", key):
         return HTMLResponse("Bad request", status_code=400)
+    # Anti-XSS : un JWT n'a que des caractères base64url + 2 points ; tout le reste
+    # est rejeté (l'attribut n'est posé que sur un token bien formé).
+    preview_attr = ""
+    if preview_token and re.fullmatch(r"[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+", preview_token):
+        preview_attr = f' data-preview-token="{preview_token}"'
     html = f"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chat</title><style>html,body{{margin:0;height:100%;background:#f8fafc}}</style></head>
 <body>
-<script src="{settings.API_URL}/widget.js" data-bot-key="{key}" data-inline="true" defer></script>
+<script src="{settings.API_URL}/widget.js" data-bot-key="{key}"{preview_attr} data-inline="true" defer></script>
 </body></html>"""
     return HTMLResponse(html)
 
@@ -218,8 +229,13 @@ app.include_router(tree.router)
 app.include_router(billing.router)
 app.include_router(public.router)
 app.include_router(widget.router)
+# Surface EMBED (éditeur de bot embarqué dans le back-office WP) : scope 'embed',
+# bot_id porté par le token (pas de path param). Appelé par le front dashboard.
+app.include_router(embed.router)
 # Surface EXTERNE (plugin WordPress) : OAuth « plugin » (Authorization Code + PKCE (S256), RFC 7636) + API de
 # compte (/api/account/*, scope 'plugin'). Distinct du dashboard ; appels
-# server-to-server (PHP) => hors CORS widget.
+# server-to-server (PHP) => hors CORS widget. `onboarding` = onboarding guidé
+# (découverte d'URLs, génération d'arbre, recommandation, jetons aperçu/embed).
 app.include_router(ext_oauth.router)
 app.include_router(ext_account.router)
+app.include_router(ext_onboarding.router)

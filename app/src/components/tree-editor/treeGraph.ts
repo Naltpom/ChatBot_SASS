@@ -20,6 +20,7 @@
 
 import dagre from '@dagrejs/dagre'
 import type { Tree, TreeNode } from '../../types/bot'
+import type { ModuleKey } from '../../types/billing'
 
 // ----- Type d'un NOEUD dérivé de node.type (l'IA n'est PAS un type de nœud :
 // c'est une CIBLE d'arête, materialisée par un nœud sentinelle '__ai__'). -----
@@ -52,6 +53,16 @@ export const LEGEND: { color: string; label: string }[] = [
   { color: KIND_COLOR.act, label: KIND_LABEL.act },
 ]
 
+// Métadonnées de badge MODULE (libellé + couleur) pour les seuls nœuds dont le
+// type consomme un module facturable. Réutilise KIND_COLOR/KIND_LABEL (parité
+// visuelle avec la carte de nœud). Les modules sans nœud dédié dans l'arbre
+// (rag/actions/mcp/ab/white_label) n'ont pas de badge : le mapping nœud→module
+// gelé est handoff→inbox et option next==='__ai__'→ai (lead/appointment = socle).
+export const MODULE_BADGE: Partial<Record<ModuleKey, { label: string; color: string }>> = {
+  inbox: { label: KIND_LABEL.hum, color: KIND_COLOR.hum },
+  ai: { label: KIND_LABEL['ai-sentinel'], color: KIND_COLOR['ai-sentinel'] },
+}
+
 // ----- id unique stable (PORTÉ de TreeFlow.tsx l.48-53) -----
 let _seq = 1
 export function newNodeId(nodes: Record<string, unknown>): string {
@@ -77,6 +88,56 @@ function kindOfNode(node: TreeNode | undefined): NodeKind {
   if (node.type === 'handoff') return 'hum'
   if (node.type === 'appointment' || node.type === 'lead') return 'act'
   return 'q'
+}
+
+// ============================================================================
+// Mapping nœud→module (GELÉ, partagé front/plugin). Helpers PURS consommés par
+// l'éditeur (badges/élagage) et le configurateur (aperçu d'élagage avant de
+// décocher un module). Source de vérité unique du mapping :
+//   - type 'handoff'              -> module 'inbox'   (relais conseiller)
+//   - option next === '__ai__'    -> module 'ai'      (bascule IA)
+//   - 'lead' / 'appointment' / 'q' -> SOCLE (aucun module)
+// Les modules rag/actions/mcp/ab/white_label n'ont pas de nœud dédié dans le
+// modèle d'arbre : ils ne « dépendent » d'aucune étape (renvoient []).
+// ============================================================================
+
+// Module facturable requis par un nœud (handoff→inbox), sinon null (socle). Ne
+// traite PAS la bascule IA : l'IA est une CIBLE d'arête (next==='__ai__'), pas
+// un type de nœud — cf. treeUsesAi / nodesDependingOnModule('ai').
+export function moduleOfNode(node: TreeNode | undefined): ModuleKey | null {
+  if (!node) return null
+  return node.type === 'handoff' ? 'inbox' : null
+}
+
+// true si au moins une option de l'arbre cible la sentinelle IA ('__ai__').
+export function treeUsesAi(tree: Tree): boolean {
+  const t = asTree(tree)
+  const nodes = t.nodes || {}
+  for (const id of Object.keys(nodes)) {
+    if ((nodes[id].options || []).some(o => o.next === AI_ID)) return true
+  }
+  return false
+}
+
+// Ids des nœuds (= « étapes ») qui DÉPENDENT du module `key` : ce sont eux qui
+// seraient élagués/altérés si le module était retiré. Sert à l'aperçu d'élagage
+// (configurateur) ET au surlignage « à élaguer » (éditeur). L'élagage RÉEL est
+// server-side ; ce helper ne calcule QUE la liste des nœuds impactés.
+//   - 'inbox' : les nœuds de type 'handoff' (relais conseiller).
+//   - 'ai'    : les nœuds porteurs d'une option vers '__ai__' (leur branche IA).
+//   - autres  : [] (aucun nœud dédié dans le modèle d'arbre).
+export function nodesDependingOnModule(tree: Tree, key: ModuleKey): string[] {
+  const t = asTree(tree)
+  const nodes = t.nodes || {}
+  const out: string[] = []
+  if (key === 'inbox') {
+    for (const id of Object.keys(nodes)) if (nodes[id].type === 'handoff') out.push(id)
+  } else if (key === 'ai') {
+    for (const id of Object.keys(nodes)) {
+      if ((nodes[id].options || []).some(o => o.next === AI_ID)) out.push(id)
+    }
+  }
+  return out
 }
 
 // ============================================================================

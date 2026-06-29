@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Chapote Chatbot
  * Description:       Le chatbot Chapote dans WordPress : connectez-vous, gérez vos bots, éditez l'apparence, payez (Stripe), activez le widget sur le site et ciblez les pages. UI mince au-dessus de l'API Chapote ; le token reste côté serveur (jamais exposé au JavaScript).
- * Version:           2.1.0
+ * Version:           2.2.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Chapote
@@ -26,7 +26,7 @@ if (!defined('ABSPATH')) {
     exit; // Pas d'accès direct.
 }
 
-define('CHAPOTE_BO_VERSION', '2.1.0');
+define('CHAPOTE_BO_VERSION', '2.2.0');
 define('CHAPOTE_BO_FILE', __FILE__);
 define('CHAPOTE_BO_DIR', plugin_dir_path(__FILE__));
 define('CHAPOTE_BO_URL', plugin_dir_url(__FILE__));
@@ -42,6 +42,7 @@ require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-crypto.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-options.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-tokens.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-api.php';
+require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-pages.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-rest.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-admin.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-frontend.php';

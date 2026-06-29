@@ -38,11 +38,35 @@ class Chapote_BO_Admin {
             array(),
             CHAPOTE_BO_VERSION
         );
+        // Styles du wizard d'onboarding (chargés après admin.css, mêmes tokens).
+        wp_enqueue_style(
+            'chapote-bo-onboarding',
+            CHAPOTE_BO_URL . 'admin/css/onboarding.css',
+            array('chapote-bo-admin'),
+            CHAPOTE_BO_VERSION
+        );
 
+        // Primitives partagées (helpers DOM, proxy, aperçu) AVANT admin.js et
+        // onboarding.js qui les consomment via window.CBOCore. Ordre garanti par
+        // les dépendances : core -> admin -> onboarding.
+        wp_enqueue_script(
+            'chapote-bo-core',
+            CHAPOTE_BO_URL . 'admin/js/cbo-core.js',
+            array(),
+            CHAPOTE_BO_VERSION,
+            true
+        );
         wp_enqueue_script(
             'chapote-bo-admin',
             CHAPOTE_BO_URL . 'admin/js/admin.js',
-            array(),
+            array('chapote-bo-core'),
+            CHAPOTE_BO_VERSION,
+            true
+        );
+        wp_enqueue_script(
+            'chapote-bo-onboarding',
+            CHAPOTE_BO_URL . 'admin/js/onboarding.js',
+            array('chapote-bo-core', 'chapote-bo-admin'),
             CHAPOTE_BO_VERSION,
             true
         );
@@ -58,24 +82,38 @@ class Chapote_BO_Admin {
         // phpcs:disable WordPress.Security.NonceVerification.Recommended
         $return_status = isset($_GET['cbo_status']) ? sanitize_key(wp_unslash($_GET['cbo_status'])) : '';
         $return_bot    = isset($_GET['cbo_bot']) ? sanitize_text_field(wp_unslash($_GET['cbo_bot'])) : '';
+        $return_step   = isset($_GET['cbo_step']) ? sanitize_key(wp_unslash($_GET['cbo_step'])) : '';
         // phpcs:enable WordPress.Security.NonceVerification.Recommended
 
-        wp_localize_script('chapote-bo-admin', 'CHAPOTE_BO', array(
+        $app_base = Chapote_BO_Options::app_base();
+
+        // CHAPOTE_BO est localisé sur le handle CORE (1er chargé) pour que
+        // window.CHAPOTE_BO existe avant l'exécution de cbo-core.js (call()).
+        wp_localize_script('chapote-bo-core', 'CHAPOTE_BO', array(
             'restBase'      => esc_url_raw(rest_url(CHAPOTE_BO_REST_NS)),
             'nonce'         => wp_create_nonce('wp_rest'),
             'apiBase'       => Chapote_BO_Options::api_base(),
-            'appBase'       => Chapote_BO_Options::app_base(),
+            'appBase'       => $app_base,
             'adminUrl'      => admin_url('admin.php?page=' . self::PAGE_SLUG),
             'siteHost'      => $host,
             'homeUrl'       => home_url(),
+            'siteName'      => get_bloginfo('name'),
             'returnStatus'  => $return_status,
             'returnBot'     => $return_bot,
+            'returnStep'    => $return_step,
             'cryptoOk'      => Chapote_BO_Crypto::available(),
             'postTypes'     => self::public_post_types(),
+            // Onboarding guidé : état de reprise (done / bot_id / step).
+            'onboarding'    => Chapote_BO_Options::onboarding(),
+            // Liens légaux (consentement à l'exécution immédiate, CGV/CGU).
+            'legal'         => array(
+                'cgu' => $app_base . '/legal/cgu',
+                'cgv' => $app_base . '/legal/cgv',
+            ),
             // Le catalogue de facturation (prix, paliers IA, modules) n'est PLUS
             // dupliqué ici : la SPA admin le récupère en LIVE via le proxy REST
             // /catalog (-> GET /api/account/catalog, source unique backend).
-            'dashboardBase' => Chapote_BO_Options::app_base(),
+            'dashboardBase' => $app_base,
         ));
     }
 

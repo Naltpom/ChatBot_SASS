@@ -71,11 +71,15 @@ async def get(job_id: str) -> Optional[dict]:
     return _mem.get(job_id)
 
 
-async def create(user_id: int) -> str:
+async def create(user_id: int, bot_id: Optional[int] = None) -> str:
     job_id = uuid.uuid4().hex
     await _save(job_id, {
         "status": "running", "stage": "Préparation…", "pct": 3,
         "tree_json": None, "error": None, "user_id": user_id,
+        # bot_id : porté par les jobs de l'onboarding plugin (lié à un bot précis)
+        # pour que generate-status n'autorise QUE le couple (user, bot). None pour
+        # le wizard dashboard (autorisation par user_id seul, inchangée).
+        "bot_id": bot_id,
     })
     return job_id
 
@@ -92,6 +96,20 @@ def spawn(coro: Awaitable) -> None:
     task = asyncio.create_task(coro)
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
+
+
+def public_status(job: dict) -> dict:
+    """Projection PUBLIQUE d'un job pour le poll JSON (endpoints generate-status) :
+    status/stage/pct/tree_json/error, SANS les champs d'ownership (user_id/bot_id)
+    que l'appelant a déjà vérifiés. Partagée par les surfaces /api/account et
+    /api/embed."""
+    return {
+        "status": job.get("status"),
+        "stage": job.get("stage"),
+        "pct": job.get("pct"),
+        "tree_json": job.get("tree_json"),
+        "error": job.get("error"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +171,10 @@ async def build_source_text(
 # Tâche de fond : collecte -> génération, en publiant la progression
 async def run_generation(
     job_id: str, parsed: list[dict], context: Optional[str], pdf_blobs: list[bytes],
+    post_process: Optional[Callable[[dict], dict]] = None,
 ) -> None:
+    """`post_process`, s'il est fourni, transforme l'arbre généré AVANT publication
+    (ex. élagage par modules de l'onboarding plugin) ; None = arbre publié tel quel."""
     async def progress(stage: str, pct: int) -> None:
         await _update(job_id, stage=stage, pct=pct)
 
@@ -161,6 +182,8 @@ async def run_generation(
         combined = await build_source_text(parsed, pdf_blobs, context, on_progress=progress)
         await _update(job_id, stage="Construction de l'arbre par l'IA…", pct=78)
         tree = await generate_tree(combined)
+        if post_process is not None:
+            tree = post_process(tree)
         await _update(job_id, status="done", stage="Terminé", pct=100, tree_json=tree)
     except TreeGenerationError as exc:
         await _update(job_id, status="error", error=str(exc))

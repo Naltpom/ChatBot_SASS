@@ -25,10 +25,12 @@ from src.core.constants import (
     MODULE_MCP,
     MODULE_WHITELABEL,
 )
+from src.core.time import utcnow
 from src.models.billing import BotEntitlement
 from src.models.bot import Bot
 from src.services.entitlement_service import gate
 from src.services.stripe_service import billing_enabled
+from src.services.tree_engine import validate_tree
 
 
 # --- Badge billing_status par bot -----------------------------------------
@@ -137,3 +139,37 @@ def enforce_config_modules(bot: Bot, data: dict, ent) -> None:
     design = data.get("design_json")
     if isinstance(design, dict) and "poweredBy" in design and not design["poweredBy"]:
         gate(ent, MODULE_WHITELABEL)
+
+
+# --- Orchestration arbre / apparence (partagée dashboard / plugin / embed) --
+
+async def apply_tree_update(bot: Bot, tree_json: dict, db: AsyncSession) -> tuple[dict, str]:
+    """Valide puis persiste l'arbre d'un bot. Lève TreeError si l'arbre est
+    structurellement invalide (l'appelant -> 422). Renvoie (tree_json persisté,
+    updated_at ISO-8601). Partagé par les surfaces /api/account et /api/embed."""
+    validate_tree(tree_json)
+    bot.tree_json = tree_json
+    bot.updated_at = utcnow()
+    await db.commit()
+    await db.refresh(bot)
+    return bot.tree_json, bot.updated_at.isoformat()
+
+
+async def apply_appearance_update(bot: Bot, design_json: dict, db: AsyncSession, ent) -> dict:
+    """Sanitise + gate (white-label) puis persiste design_json. Pipeline IDENTIQUE
+    aux PATCH dashboard/plugin/embed : sanitize_design -> strip_notnull_nulls ->
+    enforce_config_modules (402 si retrait du « Powered by » sans le module) -> set
+    design_json. `ent` = entitlement déjà résolu par l'appelant. Renvoie le
+    design_json persisté."""
+    # Import paresseux : widget_helpers vit dans le package routers (cf. invariant
+    # « ce service n'importe jamais un router au chargement »).
+    from src.routers.widget_helpers import sanitize_design
+
+    data = {"design_json": sanitize_design(design_json)}
+    strip_notnull_nulls(data)                   # parité (no-op si dict non-null)
+    enforce_config_modules(bot, data, ent)      # gate poweredBy -> whitelabel
+    if "design_json" in data:
+        bot.design_json = data["design_json"]
+    await db.commit()
+    await db.refresh(bot)
+    return bot.design_json

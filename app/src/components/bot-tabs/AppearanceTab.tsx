@@ -4,20 +4,15 @@
 // par BotPage (plus de colonne d'aperçu ici). « Déclencheurs proactifs » est
 // rangé dans le sous-onglet Messages ; « Comportement » (mode) vit désormais
 // dans l'onglet Arbre. Présentationnel : état/handlers viennent de BotPage.
-import { useState } from 'react'
+//
+// La barre de sous-onglets + le formulaire sont délégués à AppearancePanel
+// (composant PARTAGÉ avec l'éditeur d'apparence embarqué) ; la carte
+// « Déclencheurs proactifs » reste ici, injectée via renderExtra pour la section
+// Conversation (l'état du sous-onglet vit dans AppearancePanel).
 import { Plus } from 'lucide-react'
 import { Btn, Card, Chip, Field, SectionTitle, Seg, Toggle } from '../../ui'
-import AppearanceForm, { AppearanceSection } from '../AppearanceForm'
+import AppearancePanel from '../AppearancePanel'
 import type { Bot, BotUpdate, Trigger } from '../../types/bot'
-
-// Sous-onglets du formulaire d'apparence — découpage PAR ZONE du widget.
-const AF_TABS: { value: AppearanceSection; label: string }[] = [
-  { value: 'colors', label: 'Couleurs' },
-  { value: 'launcher', label: 'Lanceur' },
-  { value: 'header', label: 'En-tête' },
-  { value: 'window', label: 'Fenêtre' },
-  { value: 'conversation', label: 'Conversation' },
-]
 
 export default function AppearanceTab({
   bot, patch, patchDesign,
@@ -47,9 +42,7 @@ export default function AppearanceTab({
   whiteLabelLocked: boolean
   onUpgrade: () => void
 }) {
-  const d = bot.design_json || {}
   const triggers = bot.triggers_json || []
-  const [afTab, setAfTab] = useState<AppearanceSection>('colors')
   return (
     <div className="col g18">
       <SectionTitle
@@ -66,35 +59,19 @@ export default function AppearanceTab({
         Apparence du widget
       </SectionTitle>
 
-      {/* Barre de sous-onglets en pilules larges (maquette) — pleine largeur
-          jusqu'à 520px, pilule active en blanc surélevé. */}
-      <div style={{ display: 'flex', gap: 2, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 11, padding: 3, maxWidth: 600 }}>
-        {AF_TABS.map(t => {
-          const active = t.value === afTab
-          return (
-            <button key={t.value} onClick={() => setAfTab(t.value)}
-                    style={{
-                      flex: 1, fontSize: 12.5, fontWeight: 700, padding: '8px 4px', borderRadius: 8,
-                      border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                      background: active ? 'var(--surface)' : 'transparent',
-                      color: active ? 'var(--acc)' : 'var(--mut)',
-                      boxShadow: active ? '0 1px 2px rgba(28,63,92,.08)' : 'none',
-                    }}>
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* La section rend sa propre mosaïque de cartes (2 colonnes). */}
-      <AppearanceForm design={d} botName={bot.name} section={afTab}
-                      onChange={patchDesign} onNameChange={v => patch({ name: v })}
-                      whiteLabelLocked={whiteLabelLocked} onUpgrade={onUpgrade} />
-
-      {/* Déclencheurs proactifs : rangés dans le sous-onglet « Conversation »
-          (ce sont des messages locaux déclenchés côté visiteur). « Comportement »
-          (mode) a été déplacé dans l'onglet Arbre. */}
-      {afTab === 'conversation' && (
+      {/* Sous-onglets + formulaire d'apparence : délégués à AppearancePanel
+          (composant PARTAGÉ avec l'éditeur d'apparence embarqué). La carte
+          « Déclencheurs proactifs » reste ici, injectée pour la section
+          « Conversation » via renderExtra (l'état du sous-onglet vit dans le
+          panneau). « Comportement » (mode) a été déplacé dans l'onglet Arbre. */}
+      <AppearancePanel
+        design={bot.design_json || {}}
+        botName={bot.name}
+        onChange={patchDesign}
+        onNameChange={v => patch({ name: v })}
+        whiteLabelLocked={whiteLabelLocked}
+        onUpgrade={onUpgrade}
+        renderExtra={section => section === 'conversation' && (
       <Card>
         <div className="card-title">Déclencheurs proactifs</div>
         <div style={{ fontSize: 11.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 4 }}>
@@ -175,7 +152,8 @@ export default function AppearanceTab({
           {triggers.length >= 5 && <Chip tone="warn">5/5</Chip>}
         </div>
       </Card>
-      )}
+        )}
+      />
     </div>
   )
 }

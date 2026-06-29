@@ -40,7 +40,11 @@ from src.core.constants import (
     MODULE_WHITELABEL,
 )
 from src.core.database import get_db
-from src.core.security import create_widget_token, get_widget_session
+from src.core.security import (
+    create_widget_token,
+    get_widget_session,
+    verify_widget_preview_token,
+)
 from src.core.time import utcnow
 from src.models.bot import Bot
 from src.models.conversation import Conversation, Message
@@ -101,6 +105,35 @@ from src.services.safe_fetch import FetchError, safe_post_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/widget", tags=["widget"])
+
+# --- Aperçu propriétaire (onboarding plugin WP) ---
+# Une session d'APERÇU (token signé `?preview_token=`, émis par l'owner) est
+# marquée par ce domaine sentinelle dans le JWT de session. Elle bypasse
+# origine+captcha+servabilité au handshake ET neutralise TOUS les side-effects
+# (email lead, webhook/email handoff, comptage/metering IA, funnel) : l'owner
+# teste son bot AVANT paiement sans polluer ses données ni facturer la plateforme.
+PREVIEW_DOMAIN = "__preview__"
+
+
+def _is_preview_session(session: dict) -> bool:
+    """True si le JWT de session porte le domaine sentinelle d'aperçu."""
+    return session.get("domain") == PREVIEW_DOMAIN
+
+
+async def _resolve_preview_bot(db: AsyncSession, preview_token: Optional[str],
+                               public_key: str) -> Optional[Bot]:
+    """Si `preview_token` est un token d'aperçu VALIDE dont le bot concorde avec
+    `public_key`, renvoie ce bot (chargé par id, SANS garde de servabilité — un
+    bot non payé/inactif est prévisualisable par son owner). Sinon None (le widget
+    retombe sur le chemin public inchangé). Un token concordant pour un bot
+    introuvable -> 404 (cohérent avec « widget inconnu »)."""
+    payload = verify_widget_preview_token(preview_token) if preview_token else None
+    if payload is None:
+        return None
+    bot = await db.get(Bot, payload.get("bot_id"))
+    if bot is None or bot.public_key != public_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    return bot
 
 # --- Live chat (handoff conseiller) ---
 # Messages serveur (role=assistant, source=system) : exclus de l'historique IA
@@ -225,11 +258,17 @@ class FeedbackRequest(BaseModel):
 # --- Endpoints ---
 
 @router.get("/bootstrap")
-async def bootstrap(key: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """Config publique du widget : design + captcha. Aucun secret ici."""
+async def bootstrap(key: str, request: Request, preview_token: Optional[str] = None,
+                    db: AsyncSession = Depends(get_db)):
+    """Config publique du widget : design + captcha. Aucun secret ici.
+
+    Aperçu (`?preview_token=`) : si le token concorde, on bypasse servabilité +
+    origine (le bot peut être inactif/non payé) ; sinon comportement public INCHANGÉ."""
     await _check_ip_flood(request)
-    bot = await _get_active_bot(db, key)
-    _check_origin(request, bot, allow_api_origin=True)
+    bot = await _resolve_preview_bot(db, preview_token, key)
+    if bot is None:
+        bot = await _get_active_bot(db, key)
+        _check_origin(request, bot, allow_api_origin=True)
 
     captcha_site_key = None
     if bot.captcha_provider == "turnstile":
@@ -260,14 +299,25 @@ async def bootstrap(key: str, request: Request, db: AsyncSession = Depends(get_d
 
 
 @router.post("/session")
-async def create_session(body: SessionRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    """Handshake : captcha verifie ICI (une fois), puis le JWT couvre la session."""
-    await _check_ip_flood(request)
-    bot = await _get_active_bot(db, body.public_key)
-    domain = _check_origin(request, bot, parent_url=body.parent_url or body.page_url)
+async def create_session(body: SessionRequest, request: Request,
+                         preview_token: Optional[str] = None,
+                         db: AsyncSession = Depends(get_db)):
+    """Handshake : captcha verifie ICI (une fois), puis le JWT couvre la session.
 
-    if not await verify_captcha(bot, body.captcha_token, _client_ip(request)):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Vérification anti-bot échouée")
+    Aperçu (`?preview_token=`) : si le token concorde, bypass servabilité +
+    origine + captcha, session marquée PREVIEW_DOMAIN (side-effects neutralisés en
+    aval) ; sinon comportement public INCHANGÉ."""
+    await _check_ip_flood(request)
+    preview_bot = await _resolve_preview_bot(db, preview_token, body.public_key)
+    preview = preview_bot is not None
+    if preview:
+        bot = preview_bot
+        domain = PREVIEW_DOMAIN
+    else:
+        bot = await _get_active_bot(db, body.public_key)
+        domain = _check_origin(request, bot, parent_url=body.parent_url or body.page_url)
+        if not await verify_captcha(bot, body.captcha_token, _client_ip(request)):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Vérification anti-bot échouée")
 
     # Affectation A/B : tiree AVANT la construction de la conversation, sticky
     # pour toute sa duree (tree_engine sert la variante aux conversations 'b').
@@ -276,8 +326,9 @@ async def create_session(body: SessionRequest, request: Request, db: AsyncSessio
     # voient la variante A (variant=None) — degradation silencieuse, jamais
     # d'erreur au visiteur. billing OFF / bot sans entitlement => has_module True
     # (resolver ALL_UNLOCKED) => comportement identique a aujourd'hui.
+    # En aperçu : pas d'A/B (variante A servie), l'owner teste un parcours stable.
     variant = None
-    if bot.tree_variant_json and (bot.ab_split_pct or 0) > 0:
+    if not preview and bot.tree_variant_json and (bot.ab_split_pct or 0) > 0:
         ent = await resolve(db, bot)
         if has_module(ent, MODULE_AB):
             variant = "b" if random.random() * 100 < bot.ab_split_pct else "a"
@@ -300,22 +351,28 @@ async def create_session(body: SessionRequest, request: Request, db: AsyncSessio
         node_id, node = tree_engine.get_node(_active_tree(bot, conversation))
         first = tree_engine.format_node_response(node_id, node)
         # Funnel : le premier noeud servi compte comme un passage (l'accueil
-        # du mode ai n'est pas un noeud d'arbre -> pas d'evenement)
-        _record_tree_event(db, bot, conversation, node_id)
+        # du mode ai n'est pas un noeud d'arbre -> pas d'evenement). Aucun
+        # evenement en aperçu (zero compteur).
+        if not preview:
+            _record_tree_event(db, bot, conversation, node_id)
     else:
         welcome = (bot.design_json or {}).get("welcomeMessage") or "Bonjour ! Posez-moi votre question."
         first = {"source": "tree", "node_id": None, "message": welcome, "options": []}
 
-    msg = Message(
-        conversation_id=conversation.id, bot_id=bot.id,
-        role="assistant", source="tree", content=first["message"],
-    )
-    db.add(msg)
-    await db.commit()
-
-    # message_id : cle additive CSAT (le widget peut noter l'accueil) ;
+    # Aperçu : on NE persiste PAS le message d'accueil (aucune ligne Message ->
+    # zero impact stats / compteur IA durable). message_id null = pas de CSAT.
+    if preview:
+        first["message_id"] = None
+    else:
+        msg = Message(
+            conversation_id=conversation.id, bot_id=bot.id,
+            role="assistant", source="tree", content=first["message"],
+        )
+        db.add(msg)
+        await db.commit()
+        # message_id : cle additive CSAT (le widget peut noter l'accueil)
+        first["message_id"] = msg.id
     # status : cle additive live chat (nouvelle conversation = toujours ai)
-    first["message_id"] = msg.id
     return {"token": token, "conversation_id": conversation.id, "first": first, "status": "ai"}
 
 
@@ -432,6 +489,12 @@ async def submit_lead(
     if not _bot_collects_leads(bot):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Ce bot ne collecte pas de demandes de contact")
 
+    # Aperçu : on confirme au visiteur SANS persister de lead ni notifier (aucun
+    # email, aucune ligne Lead/Message — zero side-effect/pollution des données).
+    if _is_preview_session(session):
+        return _maybe_refresh(
+            {"ok": True, "message": "Merci ! Votre demande a bien été transmise."}, bot, session)
+
     conversation = await db.get(Conversation, session["sub"])
     lead = Lead(
         bot_id=bot.id,
@@ -512,10 +575,22 @@ async def request_handoff(
     # proprement (404, comme un bot qui ne propose pas de conseiller — pas de
     # bascule partielle de la conversation). billing OFF / bot sans entitlement
     # => has_module True (ALL_UNLOCKED) => comportement identique a aujourd'hui.
+    # En aperçu, le module Inbox peut ne pas être souscrit (bot non payé) : on
+    # garde la garde STRUCTURELLE (_bot_has_handoff) mais on bypasse le gating de
+    # module, pour que l'owner voie le parcours conseiller fonctionner.
+    preview = _is_preview_session(session)
     ent = await resolve(db, bot)
-    if not _bot_has_handoff(bot) or not has_module(ent, MODULE_INBOX):
+    if not _bot_has_handoff(bot) or (not preview and not has_module(ent, MODULE_INBOX)):
         raise HTTPException(status.HTTP_404_NOT_FOUND,
                             "Ce bot ne propose pas de mise en relation avec un conseiller")
+
+    # Aperçu : on simule la file d'attente (message d'attente) SANS transition de
+    # statut NI notifications (aucun email/webhook handoff — zero side-effect).
+    if preview:
+        return _maybe_refresh({
+            "ok": True, "status": "human_requested",
+            "message": HANDOFF_WAIT_MESSAGE, "last_message_id": None,
+        }, bot, session)
 
     conversation = await db.get(Conversation, session["sub"])
     if conversation is None:
@@ -625,6 +700,11 @@ async def _handle_tree_node(
     Comportement inchange (extrait de post_message)."""
     node_id, node = tree_engine.get_node(_active_tree(bot, conversation), body.node)
     response = tree_engine.format_node_response(node_id, node)
+    # Aperçu : la réponse est calculée depuis l'arbre, on NE persiste rien (ni
+    # messages ni funnel) -> zero compteur. message_id absent (pas de CSAT).
+    if _is_preview_session(session):
+        response["status"] = conversation.status
+        return _maybe_refresh(response, bot, session)
     db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
                    role="user", source="tree", content=f"[option] {body.node}"))
     msg = Message(conversation_id=conversation.id, bot_id=bot.id,
@@ -658,12 +738,53 @@ async def _build_ai_history(conversation: Conversation, text: str, db: AsyncSess
     return history
 
 
+async def _handle_ai_preview(
+    body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict, text: str,
+) -> dict:
+    """Message libre en APERÇU : l'owner teste son bot AVANT paiement. On génère
+    une VRAIE réponse (sans gating de facturation : un bot non payé répond quand
+    même) MAIS sans comptage/metering ni persistance durable (aucun Message 'ai'
+    -> zero impact sur le quota/les stats). Les ACTIONS (lead/handoff/webhook/MCP)
+    sont DÉSACTIVÉES en aperçu : elles auraient des side-effects (la KB en lecture
+    seule reste exposée pour démontrer le RAG)."""
+    if bot.mode == "tree":
+        node_id, node = tree_engine.get_node(_active_tree(bot, conversation))
+        return _maybe_refresh({
+            "source": "tree", "node_id": node_id,
+            "message": "Merci ! Choisissez une option ci-dessous.",
+            "options": tree_engine.format_node_response(node_id, node)["options"],
+            "status": conversation.status,
+        }, bot, session)
+
+    # Pas d'historique persisté en aperçu -> _build_ai_history retombe sur le seul
+    # message courant (réponses autonomes, suffisant pour valider le rendu).
+    history = await _build_ai_history(conversation, text, db)
+    page_url = body.page_url or conversation.page_url
+    has_kb = (await db.execute(
+        select(KbChunk.id).where(KbChunk.bot_id == bot.id).limit(1)
+    )).first() is not None
+    try:
+        ai = await generate_reply(bot, history, page_url, journey=conversation.journey,
+                                  db=db, conversation_id=conversation.id, has_kb=has_kb,
+                                  locale=(bot.design_json or {}).get("locale"),
+                                  allow_actions=False, allow_mcp=False)
+    except AIServiceError:
+        return _maybe_refresh({"source": "ai", "message": "Désolé, je rencontre un souci technique. Réessayez dans un instant.",
+                               "options": [], "status": conversation.status}, bot, session)
+    # AUCUNE persistance (pas de Message 'ai'), AUCUN comptage/metering.
+    return _maybe_refresh({"source": "ai", "message": ai.content, "options": [],
+                           "status": conversation.status}, bot, session)
+
+
 async def _handle_ai_message(
     body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict, text: str,
 ) -> dict:
     """Message libre : mode tree (réponse de redirection) ou IA. Comportement
     EXACT inchange (extrait de post_message — le chemin IA n'est pas couvert par
     e2e, logique preservee a l'octet pres)."""
+    # Aperçu propriétaire : chemin dédié (génère sans gating/metering/persistance).
+    if _is_preview_session(session):
+        return await _handle_ai_preview(body, bot, conversation, db, session, text)
     if bot.mode == "tree":
         node_id, node = tree_engine.get_node(_active_tree(bot, conversation))
         db.add(Message(conversation_id=conversation.id, bot_id=bot.id,

@@ -10,6 +10,15 @@
   'use strict';
 
   var CFG = window.CHAPOTE_BO || {};
+  var C = window.CBOCore || {};
+
+  // Primitives partagées (cf. cbo-core.js). Aliasées localement pour garder le
+  // corps du back-office IDENTIQUE : mêmes noms, mêmes signatures. Le wizard
+  // d'onboarding (onboarding.js) consomme les mêmes via window.CBOCore.
+  var h = C.h, clear = C.clear;
+  var fieldFor = C.fieldFor, fieldGroup = C.fieldGroup, loadingNote = C.loadingNote, syncSwitch = C.syncSwitch;
+  var euros = C.euros, apiMsg = C.apiMsg, call = C.call;
+  var renderPreview = C.renderPreview;
 
   // Repli ultime du prix BYOK (en centimes) si le catalogue live n'expose ni
   // module 'ai'.byok_price_cents ni catalog.ai_byok_price_cents. En pratique le
@@ -17,64 +26,6 @@
   var DEFAULT_BYOK_PRICE_CENTS = 2900;
 
   /* ------------------------------------------------------------------ utils */
-
-  function h(tag, attrs) {
-    var node = document.createElement(tag);
-    if (attrs) {
-      for (var k in attrs) {
-        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
-        var v = attrs[k];
-        if (v == null || v === false) continue;
-        if (k === 'class') node.className = v;
-        else if (k === 'text') node.textContent = v;
-        else if (k === 'for') node.htmlFor = v;
-        else if (k.indexOf('on') === 0 && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
-        else if (k === 'checked' || k === 'disabled' || k === 'selected') { node[k] = !!v; }
-        else if (k === 'value') { node.value = v; }
-        else node.setAttribute(k, v);
-      }
-    }
-    for (var i = 2; i < arguments.length; i++) {
-      var c = arguments[i];
-      if (c == null || c === false) continue;
-      if (Array.isArray(c)) { c.forEach(function (x) { append(node, x); }); }
-      else append(node, c);
-    }
-    return node;
-  }
-  function append(node, c) {
-    if (c == null || c === false) return;
-    node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);
-  }
-  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
-
-  // Identifiant unique stable pour associer <label for> / id et lier ARIA
-  // (aria-labelledby/aria-controls) — a11y : tout champ a un nom accessible.
-  var _uid = 0;
-  function uid(p) { _uid += 1; return (p || 'cbo') + '-' + _uid; }
-
-  // Champ « label + contrôle unique » : associe explicitement le <label for> à
-  // l'id du contrôle (en générant l'id au besoin).
-  function fieldFor(labelText, control) {
-    var id = control.id || uid('cbo-f');
-    control.id = id;
-    return h('div', { class: 'cbo-field' }, h('label', { for: id, text: labelText }), control);
-  }
-  // Champ « label + groupe de cases/radios » : un seul <label> ne peut pas cibler
-  // plusieurs contrôles -> on expose un role group/radiogroup nommé via
-  // aria-labelledby (le <label> conserve son style mais sert d'étiquette de groupe).
-  function fieldGroup(labelText, groupNode, role) {
-    var id = uid('cbo-lg');
-    groupNode.setAttribute('role', role || 'group');
-    groupNode.setAttribute('aria-labelledby', id);
-    return h('div', { class: 'cbo-field' }, h('label', { id: id, text: labelText }), groupNode);
-  }
-  // Message d'état/chargement annoncé aux lecteurs d'écran (région live polie).
-  function loadingNote(text) {
-    return h('p', { class: 'cbo-muted', role: 'status', 'aria-live': 'polite', text: text || 'Chargement…' });
-  }
-  // Synchronise aria-checked d'un interrupteur (role=switch) sur l'état réel.
-  function syncSwitch(el) { el.setAttribute('aria-checked', el.checked ? 'true' : 'false'); }
 
   // --- Restauration de focus après un re-render intégral (clear(root)) -------
   // render() reconstruit tout le DOM : sans cela, le focus clavier retombe sur
@@ -111,17 +62,7 @@
     });
   }
 
-  function euros(cents) {
-    try { return (cents / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }); }
-    catch (e) { return (cents / 100).toFixed(2) + ' €'; }
-  }
-
-  // Couleur HEX sûre (#abc ou #aabbcc) avant injection en style inline (#27) :
-  // toute valeur non conforme retombe sur la couleur par défaut.
-  var HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-  function hexColor(v, fallback) {
-    return (typeof v === 'string' && HEX_RE.test(v)) ? v : fallback;
-  }
+  // euros : déplacé dans cbo-core.js (aliasé en tête de fichier).
 
   // Note TVA statique (le catalogue LIVE ne porte pas de tax_note racine).
   var TAX_NOTE = 'TVA non applicable, art. 293 B du CGI';
@@ -134,52 +75,8 @@
     return (typeof CFG.appBase === 'string' && CFG.appBase) ? (CFG.appBase + '/app') : null;
   }
 
-  // Extrait un message d'erreur AFFICHABLE d'une réponse {status, data} en
-  // propageant la cause réelle renvoyée par le backend (contrat d'erreur unifié
-  // {detail, code, message}) au lieu d'un générique opaque. Sécurité : on ne
-  // retient que des CHAÎNES (jamais un objet/stack), et un `error` machine est
-  // mappé en FR. Repli = le libellé fourni par l'appelant.
-  function apiMsg(res, fallback) {
-    var d = (res && res.data) || {};
-    if (typeof d.message === 'string' && d.message) return d.message;
-    if (typeof d.detail === 'string' && d.detail) return d.detail;
-    if (typeof d.error === 'string' && d.error) {
-      var FR = {
-        rate_limited: 'Trop de requêtes. Patientez quelques instants, puis réessayez.',
-        not_connected: 'Vous n’êtes pas connecté à Chapote.',
-        session_expired: 'Session expirée. Reconnectez-vous.',
-        network_error: 'Connexion à Chapote impossible. Réessayez dans un instant.',
-        invalid_grant: 'Lien de connexion expiré ou déjà utilisé. Relancez la connexion.',
-        crypto_unavailable: 'Stockage chiffré indisponible sur ce serveur (OpenSSL requis).'
-      };
-      return FR[d.error] || fallback;
-    }
-    return fallback;
-  }
-
-  function call(method, path, body) {
-    return fetch(CFG.restBase + path, {
-      method: method,
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': CFG.nonce },
-      body: body != null ? JSON.stringify(body) : undefined
-    }).then(function (res) {
-      return res.json().catch(function () { return {}; }).then(function (data) {
-        // 401 sur un appel account = session morte → on repasse en « déconnecté ».
-        if (res.status === 401 && data && (data.error === 'session_expired' || data.error === 'not_connected')) {
-          if (state.connected) { state.connected = false; state.view = 'connect'; render(); setNotice('Session expirée. Reconnectez-vous.', 'warn'); }
-        }
-        return { status: res.status, ok: res.ok, data: data || {} };
-      });
-    }).catch(function () {
-      // Échec réseau (hors-ligne, DNS, CORS, timeout) ou JSON illisible : on ne
-      // laisse JAMAIS la promesse pendre — chaque appelant reçoit une réponse
-      // synthétique non-ok et retombe ainsi dans sa branche d'échec (réactive son
-      // bouton, retire son spinner, affiche apiMsg). Sans cela, un `.then` jamais
-      // exécuté laissait spinners/boutons bloqués (#UX-1).
-      return { status: 0, ok: false, data: { error: 'network_error' } };
-    });
-  }
+  // apiMsg / call : déplacés dans cbo-core.js. La réaction « session morte (401) »
+  // y est déléguée au hook CBOCore.onAuthLost, posé juste après l'état ci-dessous.
 
   /* ------------------------------------------------------------------ state */
 
@@ -187,9 +84,10 @@
     connected: false,
     account: null,     // { email, name } du compte Chapote connecté
     bots: [],
-    view: 'connect',   // connect | bots | bot
+    view: 'connect',   // connect | bots | bot | seo | onboarding
     botId: null,
     botTab: 'activation',
+    onb: null,         // sous-état du wizard d'onboarding (géré par onboarding.js)
     notice: null
   };
 
@@ -210,6 +108,17 @@
     }
   }
 
+  // Session morte (401) détectée par CBOCore.call : on bascule en « déconnecté ».
+  // Pendant l'onboarding on RESTE sur la vue wizard (son écran d'auth reprend la
+  // main) plutôt que sur l'écran de connexion du back-office.
+  C.onAuthLost = function () {
+    if (!state.connected) return;
+    state.connected = false;
+    if (state.view !== 'onboarding') state.view = 'connect';
+    render();
+    setNotice('Session expirée. Reconnectez-vous.', 'warn');
+  };
+
   /* ------------------------------------------------------------------- shell */
 
   var root = document.getElementById('chapote-bo-app');
@@ -225,7 +134,10 @@
     root.appendChild(renderNav());
     var body = h('div', { class: 'cbo-body' });
     root.appendChild(body);
-    if (!state.connected) body.appendChild(renderConnect());
+    // Wizard d'onboarding : il gère lui-même l'écran de connexion (étape auth),
+    // donc il passe AVANT le test `connected` (premier lancement = non connecté).
+    if (state.view === 'onboarding' && window.CBOOnboarding) body.appendChild(CBOOnboarding.view());
+    else if (!state.connected) body.appendChild(renderConnect());
     else if (state.view === 'bot') body.appendChild(renderBot());
     else if (state.view === 'seo') body.appendChild(renderSeo());
     else body.appendChild(renderBots());
@@ -235,7 +147,8 @@
   function renderNav() {
     var nav = h('div', { class: 'cbo-nav' });
     var left = h('div', { class: 'cbo-nav-left' });
-    if (state.connected) {
+    // Onglets back-office masqués pendant le wizard (parcours guidé sans sortie).
+    if (state.connected && state.view !== 'onboarding') {
       left.appendChild(navBtn('Mes bots', state.view !== 'bot' && state.view !== 'seo', function () { state.view = 'bots'; state.botId = null; render(); }));
       left.appendChild(navBtn('SEO', state.view === 'seo', function () { state.view = 'seo'; state.botId = null; render(); }));
     }
@@ -281,12 +194,15 @@
   }
 
   // Authorization Code + PKCE : on demande au proxy l'URL d'autorisation (qui a
-  // généré state + code_verifier CÔTÉ SERVEUR) puis on quitte WordPress vers
-  // l'écran de consentement Chapote. Aucun secret ne transite par le JS.
+  // généré state + code_verifier CÔTÉ SERVEUR) puis on ouvre l'écran de
+  // consentement Chapote dans une POPUP. La popup (même page admin = redirect_uri)
+  // échange le code et postMessage l'opener avant de se fermer. Repli : si la
+  // popup est bloquée, on retombe sur la redirection pleine page historique.
+  // Aucun secret ne transite par le JS.
   function startConnect(btn, info) {
     btn.disabled = true;
     clear(info);
-    info.appendChild(loadingNote('Redirection vers Chapote…'));
+    info.appendChild(loadingNote('Ouverture de la fenêtre Chapote…'));
     call('GET', '/connect/url').then(function (res) {
       if (!res.ok || !res.data || !res.data.url) {
         btn.disabled = (CFG.cryptoOk === false);
@@ -298,8 +214,68 @@
           apiMsg(res, 'Impossible de démarrer la connexion à Chapote. Réessayez dans un instant.') }));
         return;
       }
-      window.location.href = res.data.url;
+      openOAuthPopup(res.data.url, btn, info);
     });
+  }
+
+  // Ouvre la popup OAuth nommée 'chapote_oauth'. Écoute le postMessage du retour
+  // (origine = ce site WP, source 'chapote-oauth') ; filet : surveille pop.closed
+  // sans message et revérifie /status. Repli redirection si popup bloquée.
+  function openOAuthPopup(url, btn, info) {
+    var pop = null;
+    try { pop = window.open(url, 'chapote_oauth', 'width=480,height=720'); } catch (e) { pop = null; }
+    if (!pop) { window.location.href = url; return; } // popup bloquée -> pleine page
+
+    if (info) { clear(info); info.appendChild(loadingNote('Terminez la connexion dans la fenêtre Chapote…')); }
+    var settled = false;
+
+    function finish(ok) {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', onMsg);
+      if (watch) clearInterval(watch);
+      if (ok) { onConnected(); return; }
+      if (btn) btn.disabled = (CFG.cryptoOk === false);
+      if (info) clear(info);
+    }
+    function onMsg(ev) {
+      if (ev.origin !== window.location.origin) return;
+      // event.source doit être notre popup (certains navigateurs le mettent à
+      // null après navigation cross-origin : on tolère alors l'absence).
+      if (ev.source && ev.source !== pop) return;
+      if (!ev.data || ev.data.source !== 'chapote-oauth') return;
+      if (ev.data.status === 'connected') finish(true);
+      else { finish(false); setNotice('Connexion annulée ou refusée. Vous pouvez réessayer.', 'warn'); }
+    }
+    window.addEventListener('message', onMsg);
+
+    // Filet : la popup s'est fermée sans message (perdu / fermeture manuelle).
+    var watch = setInterval(function () {
+      if (!pop || !pop.closed) return;
+      clearInterval(watch); watch = null;
+      if (settled) return;
+      call('GET', '/status').then(function (res) {
+        finish(!!(res.data && res.data.connected));
+      });
+    }, 800);
+  }
+
+  // Connexion établie (via popup) : on bascule en connecté et on relance la suite
+  // adéquate selon la vue (wizard d'onboarding ou back-office « Mes bots »).
+  function onConnected() {
+    state.connected = true;
+    state.account = null;
+    if (state.view === 'onboarding' && window.CBOOnboarding) {
+      render();
+      loadAccount();
+      CBOOnboarding.afterConnect();
+    } else {
+      state.view = 'bots';
+      render();
+      setNotice('Connexion réussie.', 'ok');
+      loadAccount();
+      loadBots();
+    }
   }
 
   function disconnect() {
@@ -332,7 +308,10 @@
     var wrap = h('div', { class: 'cbo-card' });
     var head = h('div', { class: 'cbo-row-between' },
       h('h2', { text: 'Mes bots' }),
-      h('button', { class: 'button button-primary', onClick: openCreate }, 'Créer un bot')
+      h('div', { class: 'cbo-row-actions' },
+        window.CBOOnboarding ? h('button', { class: 'button button-primary', onClick: startNewOnboarding }, 'Démarrer un nouveau bot') : null,
+        h('button', { class: 'button', onClick: openCreate }, 'Créer un bot (manuel)')
+      )
     );
     wrap.appendChild(head);
     wrap.appendChild(h('div', { class: 'cbo-create', id: 'cbo-create' }));
@@ -574,100 +553,8 @@
     refresh();
   }
 
-  // Icônes SVG du vrai widget (tracés constants repris de widget.js) construites
-  // sans innerHTML (createElementNS) -> aucune surface d'injection.
-  var SVG_NS = 'http://www.w3.org/2000/svg';
-  var ICON_CHAT = 'M12 3C7 3 3 6.6 3 11c0 2.2 1 4.2 2.7 5.6-.1 1-.5 2.1-1.4 3 1.7-.1 3.1-.7 4.1-1.4 1.1.4 2.3.7 3.6.7 5 0 9-3.6 9-7.9S17 3 12 3z';
-  var ICON_SEND = 'M3.4 20.6 21.8 12 3.4 3.4l.01 6.6L15 12 3.41 14z';
-  function svgIcon(pathD) {
-    var svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'currentColor');
-    var p = document.createElementNS(SVG_NS, 'path');
-    p.setAttribute('d', pathD);
-    svg.appendChild(p);
-    return svg;
-  }
-  // Avatar : image du bot (icon === 'image' + avatarImage, posée en PROPRIÉTÉ
-  // img.src, jamais interpolée) sinon l'icône chat du widget.
-  function avatarNode(d, cls) {
-    var box = h('span', { class: cls });
-    if (d.icon === 'image' && typeof d.avatarImage === 'string' && d.avatarImage) {
-      box.classList.add('cbo-wp-hasimg');
-      var img = h('img', { alt: '' });
-      img.src = String(d.avatarImage);
-      box.appendChild(img);
-    } else {
-      box.appendChild(svgIcon(ICON_CHAT));
-    }
-    return box;
-  }
-
-  // Aperçu FIDÈLE du widget (mêmes proportions/arrondis/couleurs/typo que
-  // widget.js), reconstruit à chaque changement de champ. Toutes les couleurs
-  // passent par hexColor() avant injection inline (#27). Affiche la fenêtre
-  // OUVERTE + le lanceur fermé (comme sur le site).
-  function renderPreview(node, d, botName) {
-    clear(node);
-    var primary = hexColor(d.primaryColor, '#0d9488');
-    var secondary = hexColor(d.secondaryColor, primary);
-    // En-tête / lanceur : dégradé 135° si une secondaire distincte est posée,
-    // sinon couleur pleine (parité widget : color2 ? linear-gradient : brand).
-    var brandBg = (d.secondaryColor && secondary !== primary)
-      ? 'linear-gradient(135deg,' + primary + ',' + secondary + ')'
-      : primary;
-    var dark = d.darkMode === true;
-    var pos = (d.position === 'left') ? 'left' : 'right';
-    var size = (d.size === 'sm' || d.size === 'lg') ? d.size : 'md';
-
-    // Fenêtre de chat (état ouvert).
-    var panel = h('div', { class: 'cbo-wp cbo-pos-' + pos + ' cbo-size-' + size + (dark ? ' cbo-wp-dark' : '') });
-
-    // En-tête : fond marque, avatar, nom + statut « En ligne » (point vert), croix.
-    panel.appendChild(h('div', { class: 'cbo-wp-head', style: 'background:' + brandBg },
-      avatarNode(d, 'cbo-wp-avatar'),
-      h('div', { class: 'cbo-wp-headmid' },
-        h('span', { class: 'cbo-wp-title', text: d.title || botName || 'Assistant' }),
-        h('span', { class: 'cbo-wp-status' }, h('span', { class: 'cbo-wp-dot' }), h('span', { text: 'En ligne' }))
-      ),
-      h('span', { class: 'cbo-wp-close', text: '×' })
-    ));
-
-    // Corps : bulle bot (accueil, ergot haut-gauche) + bulle visiteur (marque,
-    // ergot bas-droite). Le visiteur reprend la couleur PRINCIPALE (parité widget).
-    panel.appendChild(h('div', { class: 'cbo-wp-body' },
-      h('div', { class: 'cbo-wp-msg cbo-wp-bot', text: d.welcomeMessage || 'Bonjour ! Comment puis-je vous aider ?' }),
-      h('div', { class: 'cbo-wp-msg cbo-wp-user', style: 'background:' + primary, text: 'Bonjour, j’ai une question.' })
-    ));
-
-    // Zone de saisie : champ pilule + bouton d'envoi rond (couleur principale).
-    var send = h('span', { class: 'cbo-wp-send', style: 'background:' + primary });
-    send.appendChild(svgIcon(ICON_SEND));
-    panel.appendChild(h('div', { class: 'cbo-wp-inputrow' },
-      h('span', { class: 'cbo-wp-input', text: d.placeholder || 'Écrivez votre message…' }),
-      send
-    ));
-
-    // Mention « Propulsé par Chapote » (affichée tant que white-label non décoché).
-    if (d.poweredBy !== false) {
-      panel.appendChild(h('div', { class: 'cbo-wp-powered' }, 'Propulsé par ', h('b', { text: 'Chapote' })));
-    }
-    node.appendChild(panel);
-
-    // Bulle d'accroche, au-dessus/à côté du lanceur, si activée.
-    if (d.greeting === true) {
-      node.appendChild(h('div', { class: 'cbo-wp-greeting cbo-pos-' + pos,
-        text: d.greetingText || d.launcherText || d.title || botName || 'Une question ?' }));
-    }
-
-    // Lanceur fermé (bulle flottante marque) dans le même coin que la fenêtre.
-    // Pilule [icône + libellé] si launcherText, sinon bouton rond icône seule.
-    var launcher = h('div', { class: 'cbo-wp-launcher cbo-pos-' + pos + (d.launcherText ? ' cbo-wp-launcher-pill' : ''),
-      style: 'background:' + brandBg });
-    launcher.appendChild(avatarNode(d, 'cbo-wp-launcher-ico'));
-    if (d.launcherText) launcher.appendChild(h('span', { class: 'cbo-wp-launcher-txt', text: d.launcherText }));
-    node.appendChild(launcher);
-  }
+  // renderPreview + icônes SVG du widget : déplacés dans cbo-core.js
+  // (window.CBOCore.renderPreview), aliasés en tête de fichier.
 
   function saveAppearance(btn, design) {
     btn.disabled = true;
@@ -706,8 +593,16 @@
     });
   }
 
-  function buildPaymentForm(pane, bot, catalog) {
+  // opts (optionnel, utilisé par le wizard d'onboarding) :
+  //   banner       : noeud DOM inséré en tête (« d'après l'arbre et vos demandes… »)
+  //   required     : [clés modules] requis par l'arbre ; décocher prévient d'un retrait
+  //   submitLabel  : libellé du bouton principal
+  //   onSubscribe  : fn(config, consent, btn) -> remplace le checkout par défaut
+  //   secondary    : { label, onClick(btn) } -> bouton secondaire (ex. activer en gratuit)
+  function buildPaymentForm(pane, bot, catalog, opts) {
     clear(pane);
+    opts = opts || {};
+    if (opts.banner) pane.appendChild(opts.banner);
     catalog = catalog || { modules: [], ai_tiers: [] };
     var allModules = Array.isArray(catalog.modules) ? catalog.modules : [];
     var aiTiers = Array.isArray(catalog.ai_tiers) ? catalog.ai_tiers : [];
@@ -748,6 +643,10 @@
     var modBox = h('div', { class: 'cbo-modules' });
     var aiBox = h('div', { class: 'cbo-aitiers' });
     var totalLine = h('div', { class: 'cbo-total' });
+    // Onboarding : modules requis par l'arbre généré (décocher = section retirée).
+    var requiredSet = {};
+    (opts.required || []).forEach(function (k) { requiredSet[k] = true; });
+    var reqWarn = h('div', { class: 'cbo-reqwarn', role: 'status', 'aria-live': 'polite' });
 
     function requiresAi() {
       return Object.keys(selected).some(function (k) {
@@ -756,9 +655,24 @@
       });
     }
 
+    // Avertit que les sections de l'arbre liées à un module REQUIS décoché seront
+    // retirées à la souscription (le backend élague via /tree-prune).
+    function renderReqWarn() {
+      clear(reqWarn);
+      var removed = Object.keys(requiredSet).filter(function (k) { return k !== 'ai' && !selected[k]; });
+      if (requiredSet.ai && aiMode === 'off') removed.push('ai');
+      if (!removed.length) return;
+      var names = removed.map(function (k) {
+        var m = payableModules.filter(function (x) { return x.key === k; })[0];
+        return (m && m.label) || (k === 'ai' ? 'IA' : k);
+      });
+      reqWarn.appendChild(h('p', { class: 'cbo-hint cbo-reqwarn-msg', text:
+        'Modules retirés : ' + names.join(', ') + '. Les sections de l’arbre qui en dépendent seront supprimées à la souscription.' }));
+    }
+
     function recompute() {
       if (requiresAi() && aiMode === 'off') aiMode = 'managed';
-      renderModules(); renderAi(); renderTotal();
+      renderModules(); renderAi(); renderTotal(); renderReqWarn();
     }
 
     function renderModules() {
@@ -840,10 +754,14 @@
       h('span', { text: 'J’accepte l’exécution immédiate de l’abonnement et renonce à mon droit de rétractation de 14 jours.' }));
 
     var subscribeBtn = h('button', { class: 'button button-primary button-hero',
-      onClick: function () { doCheckout(subscribeBtn, buildConfig(), consent.checked); } },
-      active ? 'Mettre à jour le plan' : 'Souscrire');
+      onClick: function () {
+        if (typeof opts.onSubscribe === 'function') opts.onSubscribe(buildConfig(), consent.checked, subscribeBtn);
+        else doCheckout(subscribeBtn, buildConfig(), consent.checked);
+      } },
+      opts.submitLabel || (active ? 'Mettre à jour le plan' : 'Souscrire'));
 
     pane.appendChild(modBox);
+    pane.appendChild(reqWarn);
     pane.appendChild(aiBox);
     pane.appendChild(totalLine);
     pane.appendChild(consentLine);
@@ -853,6 +771,11 @@
       actions.appendChild(h('button', { class: 'button',
         onClick: function (e) { updateSubscription(e.currentTarget, buildConfig()); } }, 'Changer de plan (prorata)'));
       actions.appendChild(confirmButton('Résilier', 'Confirmer la résiliation', cancelSubscription));
+    }
+    // Bouton secondaire (onboarding : « activer en version gratuite », sans paiement).
+    if (opts.secondary && opts.secondary.label) {
+      actions.appendChild(h('button', { class: 'button',
+        onClick: function (e) { opts.secondary.onClick(e.currentTarget); } }, opts.secondary.label));
     }
     pane.appendChild(actions);
 
@@ -1178,15 +1101,41 @@
     } catch (e) {}
   }
 
-  // Charge /status puis peint l'écran adéquat (connecté → bots, sinon → connexion).
-  // `after` est appelé une fois le rendu effectué (pour poser une notice).
-  function loadStatusAndRender(after) {
+  // État d'onboarding localisé (forme garantie).
+  function onbConfig() {
+    var o = (CFG.onboarding && typeof CFG.onboarding === 'object') ? CFG.onboarding : {};
+    return { done: o.done === true, bot_id: o.bot_id ? String(o.bot_id) : '', step: o.step ? String(o.step) : '' };
+  }
+  function botsOf(br) {
+    if (br.ok && Array.isArray(br.data)) return br.data;
+    if (br.ok && br.data && Array.isArray(br.data.bots)) return br.data.bots;
+    return [];
+  }
+
+  // Routage de démarrage : décide entre le WIZARD d'onboarding (premier lancement,
+  // reprise, retour Stripe pendant l'onboarding) et le BACK-OFFICE classique
+  // (inchangé). Un compte non connecté entre par le wizard (écran welcome/auth).
+  function routeFirstRun() {
     call('GET', '/status').then(function (res) {
       state.connected = !!(res.data && res.data.connected);
       state.account = (res.data && res.data.account) ? res.data.account : null;
-      if (state.connected) {
-        // Retour Stripe : ouvrir directement le bon bot sur l'onglet paiement.
-        if (CFG.returnBot && (CFG.returnStatus === 'success' || CFG.returnStatus === 'cancel')) {
+      var onb = onbConfig();
+      var stripeReturn = CFG.returnBot && (CFG.returnStatus === 'success' || CFG.returnStatus === 'cancel');
+      var ctx = { stripe: stripeReturn ? CFG.returnStatus : '', returnBot: CFG.returnBot, step: CFG.returnStep };
+
+      if (!state.connected) { startOnboarding(onb, ctx); return; }
+
+      // Connecté : la décision « first-run » dépend de la liste des bots.
+      call('GET', '/bots').then(function (br) {
+        state.bots = botsOf(br);
+        var hasBots = state.bots.length > 0;
+        var firstRun = (onb.done !== true) && (!hasBots || !!onb.bot_id);
+        var resumeStripe = stripeReturn && onb.done !== true && onb.bot_id && onb.bot_id === CFG.returnBot;
+
+        if (window.CBOOnboarding && (firstRun || resumeStripe)) { startOnboarding(onb, ctx); return; }
+
+        // Back-office classique (INCHANGÉ), reprise au retour Stripe incluse.
+        if (stripeReturn) {
           state.view = 'bot'; state.botId = CFG.returnBot; state.botTab = 'payment';
           if (CFG.returnStatus === 'success') {
             state.notice = { msg: 'Paiement reçu. Activation en cours…', type: 'ok' };
@@ -1198,50 +1147,116 @@
           state.view = 'bots';
         }
         render();
-        loadBots();
-      } else {
-        state.view = 'connect';
-        render();
-      }
-      if (typeof after === 'function') after();
+        loadAccount();
+      });
     });
   }
 
-  // Retour OAuth : on nettoie l'URL d'abord, puis on échange le code côté serveur
-  // (le proxy vérifie le state et détient le code_verifier). Le code est one-time.
+  // Lance le wizard (vue 'onboarding'). Filet : si onboarding.js n'a pas chargé,
+  // on retombe sur le back-office / l'écran de connexion sans casser la page.
+  function startOnboarding(onb, ctx) {
+    if (!window.CBOOnboarding) {
+      state.view = state.connected ? 'bots' : 'connect';
+      render();
+      if (state.connected) loadBots();
+      return;
+    }
+    state.view = 'onboarding';
+    CBOOnboarding.init(onb, ctx || {});
+    render();
+    if (state.connected) loadAccount();
+  }
+
+  // Le wizard rend la main au back-office (compte existant, parcours terminé…).
+  function exitOnboarding(notice, type) {
+    state.view = 'bots';
+    state.onb = null;
+    render();
+    if (notice) setNotice(notice, type || 'ok');
+    loadBots();
+  }
+
+  // Bouton « Démarrer un nouveau bot » du back-office : relance le wizard au choix
+  // de la source (compte déjà connecté, donc on saute welcome/auth).
+  function startNewOnboarding() {
+    call('POST', '/onboarding', { done: false, bot_id: '', step: 'choose' });
+    startOnboarding({ done: false, bot_id: '', step: 'choose' }, { fresh: true });
+  }
+
+  /* ------------------------------------------------------------------ boot */
+
+  // Cette page est-elle la POPUP OAuth ouverte par l'opener ?
+  function isOAuthPopup() {
+    try { return !!(window.opener && window.opener !== window && window.name === 'chapote_oauth'); }
+    catch (e) { return false; }
+  }
+  // Dans la popup : échange le code, prévient l'opener (postMessage même origine)
+  // puis se ferme. L'opener (openOAuthPopup) avance alors le wizard / le back-office.
+  function runOAuthPopupCallback() {
+    var cb = readOAuthCallback();
+    function tell(status) {
+      try { window.opener.postMessage({ source: 'chapote-oauth', status: status }, window.location.origin); } catch (e) {}
+      try { window.close(); } catch (e) {}
+    }
+    cleanUrl();
+    if (!cb || cb.error) { tell('error'); return; }
+    call('POST', '/connect/callback', { code: cb.code, state: cb.state }).then(function (res) {
+      tell((res.ok && res.data && res.data.status === 'connected') ? 'connected' : 'error');
+    });
+  }
+
+  // Retour OAuth PLEINE PAGE (repli quand la popup est bloquée) : on nettoie l'URL,
+  // on échange le code côté serveur, puis routeFirstRun route correctement
+  // (wizard ou back-office) selon l'état réel.
   function handleOAuthCallback(cb) {
     cleanUrl();
     if (cb.error) {
-      loadStatusAndRender(function () {
-        setNotice('Connexion annulée ou refusée (' + cb.error + '). Vous pouvez réessayer.', 'warn');
-      });
+      routeFirstRun();
+      setNotice('Connexion annulée ou refusée (' + cb.error + '). Vous pouvez réessayer.', 'warn');
       return;
     }
-    state.connected = false; state.view = 'connect';
+    state.connected = false;
     render();
     setNotice('Finalisation de la connexion…', 'info');
     call('POST', '/connect/callback', { code: cb.code, state: cb.state }).then(function (res) {
       if (res.ok && res.data && res.data.status === 'connected') {
-        state.connected = true; state.view = 'bots';
-        render();
+        routeFirstRun();
         setNotice('Connexion réussie.', 'ok');
-        loadAccount();
-        loadBots();
         return;
       }
-      state.connected = false; state.view = 'connect';
+      state.connected = false;
+      if (state.view !== 'onboarding') state.view = 'connect';
       render();
       setNotice(apiMsg(res, 'Échec de la connexion. Relancez « Se connecter avec Chapote ».'), 'warn');
     });
   }
 
   function boot() {
+    if (isOAuthPopup()) { runOAuthPopupCallback(); return; }
     if (!root) return;
     var cb = readOAuthCallback();
     if (cb) { handleOAuthCallback(cb); return; }
-    loadStatusAndRender();
+    routeFirstRun();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  // Bridge consommé par onboarding.js (le wizard RÉUTILISE le back-office :
+  // configurateur d'offre, checkout, polling d'activation, navigation).
+  window.CBOAdmin = {
+    state: state,
+    render: render,
+    setNotice: setNotice,
+    loadBots: loadBots,
+    loadAccount: loadAccount,
+    openBot: openBot,
+    startConnect: startConnect,
+    buildPaymentForm: buildPaymentForm,
+    doCheckout: doCheckout,
+    pollBillingActive: pollBillingActive,
+    exitOnboarding: exitOnboarding
+  };
+
+  // boot différé d'un tick : laisse onboarding.js (chargé APRÈS admin.js) enregistrer
+  // window.CBOOnboarding avant le routage first-run (les deux globals coexistent).
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 0); });
+  else setTimeout(boot, 0);
 })();

@@ -23,6 +23,7 @@ class Chapote_BO_Options {
 
     const SETTINGS   = 'chapote_bo_settings';
     const BOTS_LOCAL = 'chapote_bo_bots_local';
+    const ONBOARDING = 'chapote_bo_onboarding';
 
     /** Adresse de l'API Chapote (héritée du plugin v1 si présent). */
     public static function api_base() {
@@ -110,6 +111,46 @@ class Chapote_BO_Options {
         return $all[$key];
     }
 
+    /* ---------------------------------------------------------------------- */
+    /* Onboarding guidé (option locale chapote_bo_onboarding)                 */
+    /* ---------------------------------------------------------------------- */
+
+    /**
+     * État de l'onboarding guidé. `done` une fois le parcours terminé (widget en
+     * ligne) ; `bot_id` = bot en cours de création ; `step` = étape de reprise
+     * (au rechargement ou au retour Stripe). Forme garantie (lecture défensive).
+     *
+     * @return array{done:bool, bot_id:string, step:string}
+     */
+    public static function onboarding() {
+        $v = get_option(self::ONBOARDING, array());
+        if (!is_array($v)) {
+            $v = array();
+        }
+        return array(
+            'done'   => !empty($v['done']),
+            'bot_id' => isset($v['bot_id']) ? (string) $v['bot_id'] : '',
+            'step'   => isset($v['step']) ? (string) $v['step'] : '',
+        );
+    }
+
+    /** Fusionne puis enregistre l'état d'onboarding (forme normalisée). */
+    public static function save_onboarding(array $data) {
+        $merged = array_merge(self::onboarding(), $data);
+        $out = array(
+            'done'   => !empty($merged['done']),
+            'bot_id' => isset($merged['bot_id']) ? (string) $merged['bot_id'] : '',
+            'step'   => isset($merged['step']) ? (string) $merged['step'] : '',
+        );
+        update_option(self::ONBOARDING, $out);
+        return $out;
+    }
+
+    /** Marque l'onboarding comme terminé (widget en ligne). */
+    public static function mark_onboarding_done() {
+        return self::save_onboarding(array('done' => true));
+    }
+
     /** Valeurs de ciblage par défaut (« tout le site »). */
     public static function default_targeting() {
         return array(
@@ -120,5 +161,10 @@ class Chapote_BO_Options {
             'exclude_types' => array(),      // types de contenu exclus (prioritaires)
             'exclude_ids'   => array(),      // IDs exclus (prioritaires)
         );
+    }
+
+    /** Tronque une chaîne à $max caractères (multibyte-safe si dispo). */
+    public static function str_cap($s, $max) {
+        return function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
     }
 }
