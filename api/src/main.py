@@ -96,12 +96,12 @@ app.add_middleware(
 # object-src 'none' = pas de plugins legacy.
 DASHBOARD_CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'sha256-+rn9zAXD0btXkTbfuB8S0nuhugvmkoMuK9AQce4NwJ0=' https://challenges.cloudflare.com; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; "
+    "script-src 'self' 'sha256-+rn9zAXD0btXkTbfuB8S0nuhugvmkoMuK9AQce4NwJ0=' https://challenges.cloudflare.com https://accounts.google.com/gsi/client; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com https://accounts.google.com/gsi/style; "
     "img-src 'self' data: https:; "
     "font-src 'self' data: https://fonts.gstatic.com https://cdn.fontshare.com; "
     "connect-src 'self' https:; "
-    "frame-src https://challenges.cloudflare.com; "
+    "frame-src https://challenges.cloudflare.com https://accounts.google.com/gsi/; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
     "form-action 'self'; "
