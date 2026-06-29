@@ -17,13 +17,16 @@ et le report Stripe (report_meter_event) sont monkeypatchés + COMPTÉS : on pro
 NB session partagée (revue PR-10/PR-11) : `pg_session` sert au seed ET à l'endpoint
 (get_db override) ; le commit de l'endpoint est visible côté test.
 """
+from datetime import timedelta
+
 import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.core.constants import METER_EVENT_NAME, MODULE_AI
+from src.core.constants import METER_EVENT_NAME, MODULE_AI, MODULE_RAG
+from src.core.time import utcnow
 from src.core.database import get_db
 from src.core.security import create_widget_token
 from src.main import app
@@ -367,3 +370,162 @@ async def test_session_ip_rate_limited(pg_session: AsyncSession, monkeypatch):
                          json={"public_key": "pk_whatever", "visitor_id": "visitor-12345"},
                          headers={"Origin": _ORIGIN})
     assert r.status_code == 429
+
+
+# ==========================================================================
+# A6 — gate IA MANAGÉE par statut de facturation / module (TR-01)
+# Un bot NON utilisable (past_due) ou SANS module IA ne doit PAS servir d'IA
+# managée (fuite de coût provider). Le BYOK n'est jamais bloqué par ce gate ;
+# un bot actif et un bot en essai servent toujours l'IA (non-régression).
+# ==========================================================================
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_past_due_managed_no_generation(pg_session: AsyncSession, monkeypatch):
+    """(a) Bot past_due (paiement échoué) en IA MANAGÉE : has_module(MODULE_AI) est
+    False (is_usable False) => l'endpoint renvoie le message DÉDIÉ et generate_reply
+    n'est JAMAIS appelé (aucun appel provider, aucun coût)."""
+    _enable_billing(monkeypatch)
+    _allow_limiters(monkeypatch)
+    calls = _patch_generate(monkeypatch)
+
+    owner = await _mk_user(pg_session, "a6pd@test.dev")
+    bot = await _mk_bot(pg_session, owner)
+    conv = await _mk_conv(pg_session, bot)
+    # modules conserve MODULE_AI (historique de synchro) ; c'est le STATUT qui gate.
+    pg_session.add(BotEntitlement(
+        bot_id=bot.id, modules=[MODULE_AI], ai_monthly_quota=100,
+        status="past_due", overage_mode="block", source="stripe"))
+    await pg_session.commit()
+
+    token = create_widget_token(bot.id, conv.id, _DOMAIN)
+    async with _RealApp(pg_session) as c:
+        r = await c.post("/api/widget/message", json={"text": "bonjour"},
+                         headers=_hdr(token))
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "ai"
+    assert body["message"] == widget.AI_UNAVAILABLE_MESSAGE
+    assert calls == []  # génération NON déclenchée
+    # Aucun message assistant 'ai' persisté (même contrat que quota/trial).
+    persisted = (await pg_session.execute(
+        select(Message).where(Message.bot_id == bot.id,
+                              Message.role == "assistant", Message.source == "ai")
+    )).scalars().all()
+    assert persisted == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_active_without_ai_module_no_generation(pg_session: AsyncSession, monkeypatch):
+    """(b) Bot ACTIF mais SANS module IA souscrit (MODULE_AI absent des modules) :
+    has_module(MODULE_AI) False => message dédié, generate_reply jamais appelé."""
+    _enable_billing(monkeypatch)
+    _allow_limiters(monkeypatch)
+    calls = _patch_generate(monkeypatch)
+
+    owner = await _mk_user(pg_session, "a6nm@test.dev")
+    bot = await _mk_bot(pg_session, owner)
+    conv = await _mk_conv(pg_session, bot)
+    # Abonnement actif à un AUTRE module (RAG), mais pas d'IA managée.
+    pg_session.add(BotEntitlement(
+        bot_id=bot.id, modules=[MODULE_RAG], ai_monthly_quota=0,
+        status="active", overage_mode="block", source="stripe"))
+    await pg_session.commit()
+
+    token = create_widget_token(bot.id, conv.id, _DOMAIN)
+    async with _RealApp(pg_session) as c:
+        r = await c.post("/api/widget/message", json={"text": "bonjour"},
+                         headers=_hdr(token))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["message"] == widget.AI_UNAVAILABLE_MESSAGE
+    assert calls == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_byok_served_even_when_not_usable(pg_session: AsyncSession, monkeypatch):
+    """(c) Bot BYOK NON utilisable (past_due) ET sans module IA managé : le gate IA
+    managée NE s'applique PAS (clé du client, aucun coût plateforme) => generate_reply
+    EST appelé, AUCUN meter event (jamais métré)."""
+    _enable_billing(monkeypatch)
+    _allow_limiters(monkeypatch)
+    calls = _patch_generate(monkeypatch)
+    reports = _patch_report(monkeypatch)
+    monkeypatch.setattr(widget, "billing_customer_for_bot", _aret("cus_test"))
+
+    owner = await _mk_user(pg_session, "a6byok@test.dev")
+    bot = await _mk_bot(pg_session, owner, api_key_mode="byok")
+    conv = await _mk_conv(pg_session, bot)
+    # past_due + aucun module managé : le BYOK doit quand même servir l'IA.
+    pg_session.add(BotEntitlement(
+        bot_id=bot.id, modules=[], ai_monthly_quota=0,
+        status="past_due", overage_mode="block", source="stripe"))
+    await pg_session.commit()
+
+    token = create_widget_token(bot.id, conv.id, _DOMAIN)
+    async with _RealApp(pg_session) as c:
+        r = await c.post("/api/widget/message", json={"text": "byok"},
+                         headers=_hdr(token))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["message"] == "AI reply"
+    assert len(calls) == 1   # BYOK servi malgré past_due / pas de module managé
+    assert reports == []     # BYOK jamais métré
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_active_managed_serves_ai(pg_session: AsyncSession, monkeypatch):
+    """(d) Non-régression : bot ACTIF avec module IA souscrit et quota disponible
+    sert l'IA normalement (1 appel provider, source 'ai')."""
+    _enable_billing(monkeypatch)
+    _allow_limiters(monkeypatch)
+    calls = _patch_generate(monkeypatch)
+
+    owner = await _mk_user(pg_session, "a6act@test.dev")
+    bot = await _mk_bot(pg_session, owner)
+    conv = await _mk_conv(pg_session, bot)
+    pg_session.add(BotEntitlement(
+        bot_id=bot.id, modules=[MODULE_AI], ai_monthly_quota=100,
+        status="active", overage_mode="block", source="stripe"))
+    await pg_session.commit()
+
+    token = create_widget_token(bot.id, conv.id, _DOMAIN)
+    async with _RealApp(pg_session) as c:
+        r = await c.post("/api/widget/message", json={"text": "salut"},
+                         headers=_hdr(token))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["source"] == "ai" and r.json()["message"] == "AI reply"
+    assert len(calls) == 1
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_trialing_serves_ai(pg_session: AsyncSession, monkeypatch):
+    """(d) Non-régression : bot en ESSAI EN COURS (trialing non expiré) reste
+    utilisable (is_usable True) et sert l'IA (plafond d'essai non atteint)."""
+    _enable_billing(monkeypatch)
+    _allow_limiters(monkeypatch)
+    calls = _patch_generate(monkeypatch)
+
+    owner = await _mk_user(pg_session, "a6trial@test.dev")
+    bot = await _mk_bot(pg_session, owner)
+    conv = await _mk_conv(pg_session, bot)
+    pg_session.add(BotEntitlement(
+        bot_id=bot.id, modules=[MODULE_AI], ai_monthly_quota=100,
+        status="trialing", overage_mode="block", source="stripe",
+        trial_end=utcnow() + timedelta(days=3)))
+    await pg_session.commit()
+
+    token = create_widget_token(bot.id, conv.id, _DOMAIN)
+    async with _RealApp(pg_session) as c:
+        r = await c.post("/api/widget/message", json={"text": "essai"},
+                         headers=_hdr(token))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["source"] == "ai" and r.json()["message"] == "AI reply"
+    assert len(calls) == 1
