@@ -90,10 +90,11 @@ test('parité cross-surface : front (MODULE_KEYS + type ModuleKey) et PHP (allow
   expect(frontUnion).toEqual(backendModules)
 
   // 3) PHP — allowlist de sanitisation (clés, ordre indifférent -> comparaison
-  //    d'ensembles triés). class-chapote-bo-rest.php::sanitize_billing_config.
+  //    d'ensembles triés). class-chapote-bo-rest.php::ALLOWED_MODULES (constante de
+  //    classe, source unique consommée par sanitize_module_list).
   const restPhp = read('integrations/wordpress/chapote-chatbot/includes/class-chapote-bo-rest.php')
-  const allowBlock = restPhp.match(/\$allowed_modules\s*=\s*array\(([\s\S]*?)\)/)
-  expect(allowBlock, '$allowed_modules introuvable dans class-chapote-bo-rest.php').not.toBeNull()
+  const allowBlock = restPhp.match(/ALLOWED_MODULES\s*=\s*array\(([\s\S]*?)\)/)
+  expect(allowBlock, 'ALLOWED_MODULES introuvable dans class-chapote-bo-rest.php').not.toBeNull()
   const phpKeys = singleQuoted(allowBlock![1])
   expect([...phpKeys].sort()).toEqual([...backendModules].sort())
 })
