@@ -4,7 +4,7 @@ Tags: chatbot, chat, support, assistant, ai
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.1.0
+Stable tag: 2.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -74,6 +74,12 @@ No, the widget serves any usable bot; a free bot works with the free reply quota
 
 == Changelog ==
 
+= 2.2.0 =
+* Guided onboarding wizard: from the "Chapote" menu, a step-by-step flow connects your account (OAuth popup), reads your published pages, generates a chatbot from your site with AI, lets you customise its appearance, edit the conversation tree, preview the widget, pick a recommended plan, and go live — in one place.
+* Page discovery is 100% WordPress (published pages/posts/CPT, relevance-ranked), with a 15-URL cap; URLs are restricted to your own domain before being sent to Chapote.
+* Shared front-end primitives extracted to `cbo-core.js` (reused by the back-office and the wizard); no behavioural change to the existing back-office.
+* "Sign in with Chapote" now opens in a popup (with full-page redirect fallback when popups are blocked).
+
 = 2.1.0 =
 * SEO: new "SEO" tab. Optional "Powered by Chapote" link (off by default) and schema.org FAQ structured data (FAQPage, JSON-LD) rendered server-side, eligible for rich results.
 * Automatic updates for installations hosted outside WordPress.org (version check and install from the WordPress admin).
@@ -87,6 +93,9 @@ No, the widget serves any usable bot; a free bot works with the free reply quota
 * REST proxy (namespace `chapote-bo/v1`) protected by `manage_options` + nonce; external services disclosure and GDPR privacy content; full cleanup on uninstall.
 
 == Upgrade Notice ==
+
+= 2.2.0 =
+Adds a guided onboarding wizard that builds a chatbot from your WordPress pages, with appearance, tree editing, preview, plan recommendation and one-click activation.
 
 = 2.1.0 =
 Adds the SEO tab (optional link + schema.org FAQ) and automatic updates outside WordPress.org.

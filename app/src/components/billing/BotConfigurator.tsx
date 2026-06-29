@@ -12,8 +12,10 @@
 // affichent le panier. Réutilise les primitives ui.tsx (Seg/Toggle/Card/Chip/
 // InfoBox) — aucune nouvelle primitive ni prix codé en dur dans la LOGIQUE.
 import { useMemo, useState } from 'react'
-import { Card, Chip, InfoBox, Seg, Toggle } from '../../ui'
+import { Btn, Card, Chip, InfoBox, Seg, Toggle } from '../../ui'
 import { formatCents } from './PriceCart'
+import { nodesDependingOnModule } from '../tree-editor/treeGraph'
+import type { Tree } from '../../types/bot'
 import type {
   AiTier,
   BillingCatalog,
@@ -81,14 +83,39 @@ export default function BotConfigurator({
   config,
   onChange,
   readOnly = false,
+  tree,
+  onModuleHighlight,
 }: {
   catalog: BillingCatalog
   config: BotConfig
   onChange: (next: BotConfig) => void
   // Org non-owner : modules payants en lecture seule (le parent affiche l'InfoBox).
   readOnly?: boolean
+  // OPTIONNEL : arbre du bot. Sert UNIQUEMENT à l'aperçu d'élagage — au décochage
+  // d'un module utilisé par l'arbre, on confirme « élaguera N étape(s) » AVANT de
+  // propager. L'élagage RÉEL est server-side (le parent consomme l'endpoint de
+  // prune puis recharge le tree_json) ; ici on ne calcule QUE l'aperçu impacté.
+  tree?: Tree
+  // OPTIONNEL : remonte le module survolé (ou null) pour surligner « à élaguer »
+  // les nœuds correspondants dans l'éditeur d'arbre côté parent.
+  onModuleHighlight?: (key: ModuleKey | null) => void
 }) {
   const active = useMemo(() => new Set(config.modules), [config.modules])
+  // Confirmation d'élagage en attente (décochage d'un module utilisé par l'arbre).
+  // `apply` est l'action de retrait différée, exécutée seulement après confirmation.
+  const [pendingPrune, setPendingPrune] =
+    useState<{ moduleKey: ModuleKey; impacted: string[]; apply: () => void } | null>(null)
+
+  // Étapes (ids de nœuds) impactées par le retrait de `key`, via le helper PUR
+  // partagé. [] si aucun arbre fourni -> aucune confirmation (rétro-compat).
+  const impactedBy = (key: ModuleKey): string[] => (tree ? nodesDependingOnModule(tree, key) : [])
+  // Libellé lisible d'un nœud impacté (extrait du message, sinon l'id).
+  const nodeLabel = (id: string): string => {
+    const msg = (tree?.nodes?.[id]?.message || '').trim()
+    return msg ? (msg.length > 40 ? msg.slice(0, 40) + '…' : msg) : id
+  }
+  const moduleLabel = (key: ModuleKey): string => catalog.modules.find(m => m.key === key)?.label ?? key
+  const hover = (key: ModuleKey | null) => onModuleHighlight?.(key)
   const aiModule = catalog.modules.find(m => m.key === 'ai')
   const addons = catalog.modules.filter(m => m.key !== 'ai')
   const aiOn = active.has('ai')
@@ -116,12 +143,18 @@ export default function BotConfigurator({
   function setAiVariant(variant: string) {
     if (variant === 'off') {
       // Retirer 'ai' ET tous les add-ons qui en dépendent (cascade).
-      const next = new Set(active)
-      next.delete('ai')
-      for (const dep of catalog.modules) {
-        if ((dep.requires ?? []).includes('ai')) next.delete(dep.key)
+      const doOff = () => {
+        const next = new Set(active)
+        next.delete('ai')
+        for (const dep of catalog.modules) {
+          if ((dep.requires ?? []).includes('ai')) next.delete(dep.key)
+        }
+        emit({ modules: [...next], ai_tier_id: null, ai_byok: false })
       }
-      emit({ modules: [...next], ai_tier_id: null, ai_byok: false })
+      // L'arbre route-t-il vers l'IA ? Si oui, confirmer l'élagage AVANT de propager.
+      const impacted = impactedBy('ai')
+      if (impacted.length) { setPendingPrune({ moduleKey: 'ai', impacted, apply: doOff }); return }
+      doOff()
       return
     }
     const next = withRequires(catalog, new Set(active).add('ai'))
@@ -151,14 +184,42 @@ export default function BotConfigurator({
       })
     } else {
       if (dependentsOf(catalog, m.key, active).length) return // dépendance encore requise
-      const next = new Set(active)
-      next.delete(m.key)
-      emit({ modules: [...next], ai_tier_id: config.ai_tier_id, ai_byok: config.ai_byok })
+      const doRemove = () => {
+        const next = new Set(active)
+        next.delete(m.key)
+        emit({ modules: [...next], ai_tier_id: config.ai_tier_id, ai_byok: config.ai_byok })
+      }
+      // Module utilisé par des étapes de l'arbre (ex. inbox/handoff) : confirmer
+      // l'élagage AVANT de propager (l'élagage réel est server-side).
+      const impacted = impactedBy(m.key)
+      if (impacted.length) { setPendingPrune({ moduleKey: m.key, impacted, apply: doRemove }); return }
+      doRemove()
     }
   }
 
   return (
     <div className="bot-configurator">
+      {/* Confirmation d'élagage : décocher un module utilisé par l'arbre retire
+          des étapes. On liste l'aperçu impacté (calcul front) AVANT de propager ;
+          l'élagage RÉEL est server-side (le parent prune puis recharge le tree). */}
+      {pendingPrune && (
+        <Card style={{ borderColor: '#E86A5F', background: '#FEF2F1', marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>
+            Décocher «&nbsp;{moduleLabel(pendingPrune.moduleKey)}&nbsp;» élaguera {pendingPrune.impacted.length} étape{pendingPrune.impacted.length > 1 ? 's' : ''}
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)', marginBottom: 10, lineHeight: 1.5 }}>
+            Ces étapes de l'arbre dépendent de ce module et seront retirées&nbsp;:{' '}
+            {pendingPrune.impacted.map(nodeLabel).join(', ')}.
+          </div>
+          <div className="row g8">
+            <Btn kind="danger" small onClick={() => { pendingPrune.apply(); setPendingPrune(null) }}>
+              Confirmer le retrait
+            </Btn>
+            <Btn kind="soft" small onClick={() => setPendingPrune(null)}>Annuler</Btn>
+          </div>
+        </Card>
+      )}
+
       <div style={{ margin: '0 0 12px' }}>
         <Seg
           options={[{ value: 'presets', label: 'Présélections' }, { value: 'advanced', label: 'Avancé' }]}
@@ -221,7 +282,9 @@ export default function BotConfigurator({
         </div>
       ) : (
         <div className="cfg-advanced" style={{ display: 'grid', gap: 14 }}>
-          {/* Module IA : variante + palier */}
+          {/* Module IA : variante + palier. Survol -> surlignage « à élaguer » des
+              étapes IA dans l'éditeur d'arbre côté parent (onModuleHighlight). */}
+          <div onMouseEnter={() => hover('ai')} onMouseLeave={() => hover(null)}>
           <Card>
             <div style={{ fontWeight: 700 }}>{aiModule?.label ?? 'Intelligence artificielle'}</div>
             <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 2 }}>{aiModule?.desc}</div>
@@ -265,6 +328,7 @@ export default function BotConfigurator({
               </div>
             )}
           </Card>
+          </div>
 
           {/* Add-ons (toggle on/off), capacités gratuites exclues */}
           <Card>
@@ -279,6 +343,7 @@ export default function BotConfigurator({
                 const blockedRemoval = on && dependentsOf(catalog, m.key, active).length > 0
                 return (
                   <div key={m.key} className="cfg-addon-row"
+                       onMouseEnter={() => hover(m.key)} onMouseLeave={() => hover(null)}
                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                 gap: 12, padding: '10px 0', borderBottom: '1px solid var(--bd)' }}>
                     <div style={{ minWidth: 0 }}>

@@ -1,0 +1,93 @@
+/* Chapote Chatbot — styles du wizard d'onboarding (chargés sur la page du plugin).
+   Reprend les tokens d'admin.css (bordures #dcdcde, accent teal #0d9488, bleu WP). */
+
+.cbo-onb { max-width: 860px; }
+
+/* Stepper */
+.cbo-onb-stepper { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 0 0 18px; padding: 0; counter-reset: none; }
+.cbo-onb-step { display: flex; align-items: center; gap: 7px; padding: 6px 12px 6px 8px; border-radius: 99px; background: #f0f0f1; color: #646970; font-size: 12px; }
+.cbo-onb-step-n { width: 20px; height: 20px; border-radius: 50%; background: #c3c4c7; color: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: 0 0 auto; }
+.cbo-onb-step-l { white-space: nowrap; }
+.cbo-onb-step.is-current { background: #e7f6f2; color: #0b5; }
+.cbo-onb-step.is-current { color: #0a7a5c; }
+.cbo-onb-step.is-current .cbo-onb-step-n { background: #0d9488; }
+.cbo-onb-step.is-done { background: #edfaf4; color: #1a7a5a; }
+.cbo-onb-step.is-done .cbo-onb-step-n { background: #2f9e79; }
+
+/* Carte wizard */
+.cbo-onb-card { padding: 28px; }
+.cbo-onb-card h2 { margin-top: 0; }
+.cbo-onb-actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; align-items: center; }
+.cbo-onb-actions-back { margin-top: 14px; }
+.cbo-onb-back { color: #50575e; }
+
+/* Hero (welcome) */
+.cbo-onb-hero { text-align: center; padding: 16px 8px 8px; }
+.cbo-onb-badge { display: inline-block; background: #e7f6f2; color: #0a7a5c; border-radius: 99px; padding: 4px 12px; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.cbo-onb-hero h2 { font-size: 26px; margin: 14px 0 6px; }
+.cbo-onb-lead { color: #50575e; font-size: 15px; max-width: 560px; margin: 0 auto 18px; }
+.cbo-onb-bullets { display: inline-block; text-align: left; margin: 0 auto 8px; padding: 0; list-style: none; }
+.cbo-onb-bullets li { position: relative; padding: 5px 0 5px 26px; color: #3c434a; }
+.cbo-onb-bullets li::before { content: '✓'; position: absolute; left: 0; top: 4px; width: 18px; height: 18px; border-radius: 50%; background: #edfaf4; color: #1a7a5a; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.cbo-onb-hero .cbo-onb-actions { justify-content: center; }
+
+/* Sélection de pages */
+.cbo-onb-pickbar { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.cbo-onb-pickbar input[type="search"] { flex: 1; }
+.cbo-onb-counter { font-size: 13px; color: #50575e; white-space: nowrap; }
+.cbo-onb-counter.is-over strong { color: #b32d2e; }
+.cbo-onb-pages { max-height: 320px; overflow: auto; border: 1px solid #dcdcde; border-radius: 8px; background: #fff; }
+.cbo-onb-page { display: flex; align-items: center; gap: 11px; padding: 9px 12px; border-bottom: 1px solid #f0f0f1; cursor: pointer; }
+.cbo-onb-page:last-child { border-bottom: 0; }
+.cbo-onb-page:hover { background: #f6f7f7; }
+.cbo-onb-page.is-front { background: #f6fbf9; }
+.cbo-onb-page-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cbo-onb-page-title { font-weight: 600; color: #1d2327; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cbo-onb-page-url { font-size: 12px; color: #8a949a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cbo-onb-tag { font-size: 11px; padding: 1px 8px; border-radius: 8px; background: #f0f0f1; color: #646970; white-space: nowrap; flex: 0 0 auto; }
+.cbo-onb-tag-rel { background: #f0f6fc; color: #135e96; }
+.cbo-onb-manual { margin: 14px 0 6px; }
+.cbo-onb-manual-l { display: block; font-weight: 600; margin-bottom: 4px; }
+.cbo-onb-manual-row { display: flex; gap: 8px; }
+.cbo-onb-manual-row input { flex: 1; }
+
+/* Iframe embed (apparence / éditeur) */
+.cbo-onb-embed { border: 1px solid #dcdcde; border-radius: 10px; overflow: hidden; background: #f6f7f7; min-height: 460px; }
+.cbo-onb-iframe { width: 100%; height: 520px; border: 0; display: block; }
+
+/* Attente (génération) */
+.cbo-onb-bar { height: 10px; border-radius: 99px; background: #eef1f0; overflow: hidden; margin: 18px 0 10px; }
+.cbo-onb-bar-fill { height: 100%; background: linear-gradient(90deg, #0d9488, #2f9e79); border-radius: 99px; transition: width .5s ease; }
+
+/* Arbre */
+.cbo-onb-tree { border: 1px solid #dcdcde; border-radius: 10px; padding: 16px; background: #fff; }
+.cbo-onb-treecount { font-weight: 600; margin: 0 0 12px; }
+.cbo-onb-block { margin: 4px 0 14px; }
+.cbo-onb-block-l { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #646970; margin-bottom: 6px; }
+.cbo-onb-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.cbo-onb-chip { background: #e7f6f2; color: #0a7a5c; border-radius: 99px; padding: 4px 12px; font-size: 13px; }
+.cbo-onb-nodes { margin: 0; padding: 0; list-style: none; columns: 2; column-gap: 22px; }
+@media (max-width: 700px) { .cbo-onb-nodes { columns: 1; } }
+.cbo-onb-nodes li { padding: 5px 0 5px 18px; position: relative; color: #3c434a; break-inside: avoid; }
+.cbo-onb-nodes li::before { content: ''; position: absolute; left: 2px; top: 12px; width: 6px; height: 6px; border-radius: 50%; background: #0d9488; }
+
+/* Aperçu widget */
+.cbo-onb-preview { border: 1px solid #dcdcde; border-radius: 10px; overflow: hidden; background: linear-gradient(135deg, #eef1f5, #e2e6ec); min-height: 480px; display: flex; }
+.cbo-onb-widgetframe { width: 100%; height: 540px; border: 0; display: block; }
+
+/* Offre */
+.cbo-onb-reco { background: #f6fbf9; border: 1px solid #cfeae2; border-left: 4px solid #0d9488; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; }
+.cbo-onb-reco strong { display: block; margin-bottom: 4px; }
+.cbo-onb-reco p { margin: 4px 0 0; font-size: 13px; }
+.cbo-reqwarn { margin: 6px 0 0; }
+.cbo-reqwarn-msg { color: #8a6d1a; background: #fcf9e8; border-radius: 6px; padding: 8px 12px; font-style: normal; }
+
+/* Activation / succès */
+.cbo-onb-activate { margin-top: 8px; }
+.cbo-onb-success { text-align: center; padding: 18px 8px; }
+.cbo-onb-success-ic { width: 56px; height: 56px; border-radius: 50%; background: #edfaf4; color: #2f9e79; display: grid; place-items: center; font-size: 30px; font-weight: 700; margin: 0 auto 12px; }
+.cbo-onb-success h3 { margin: 0 0 6px; font-size: 20px; }
+.cbo-onb-success .cbo-onb-actions { justify-content: center; }
+
+/* Back-office : groupe de boutons d'en-tête « Mes bots ». */
+.cbo-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }

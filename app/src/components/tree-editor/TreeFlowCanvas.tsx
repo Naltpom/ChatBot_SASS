@@ -22,10 +22,11 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { Tree, TreeNode } from '../../types/bot'
+import type { ModuleKey } from '../../types/billing'
 import { renderMarkdown } from '../widget-preview/markdown'
 import {
-  AI_ID, KIND_COLOR, KIND_LABEL, LEGEND, START_LABEL,
-  toGraph, resolvePositions, pasteNodeAsChild,
+  AI_ID, KIND_COLOR, KIND_LABEL, LEGEND, START_LABEL, MODULE_BADGE,
+  toGraph, resolvePositions, pasteNodeAsChild, nodesDependingOnModule,
   addChildNode, connectExisting, removeAiSentinel, setNodeType, setNodeMessage,
   setNodeUrl, setNodeFields, setOptionLabel, setOptionTarget, setOptionBend, setNodePos,
   deleteNode, deleteOption, layout, clearAllBends,
@@ -36,6 +37,44 @@ interface Props {
   tree: Tree
   onChange: (tree: Tree) => void
   allowAI?: boolean
+  // OPTIONNEL (contexte facturation/onboarding) : modules débloqués pour ce bot.
+  // Un nœud dont le type requiert un module ABSENT de cet ensemble est badgé
+  // « module requis » (cadenas). Non fourni = aucun gating affiché (éditeur nu).
+  activeModules?: Set<ModuleKey>
+  // OPTIONNEL : module survolé dans le configurateur. Les nœuds qui en dépendent
+  // (nodesDependingOnModule) reçoivent le style « à élaguer » (contour pointillé).
+  highlightModule?: ModuleKey | null
+}
+
+// Module facturable requis par un kind de nœud (handoff→inbox, sentinelle→ai),
+// sinon null (socle). Miroir de moduleOfNode/treeGraph, côté kind dérivé.
+function moduleOfKind(kind: NodeKind): ModuleKey | null {
+  return kind === 'hum' ? 'inbox' : kind === 'ai-sentinel' ? 'ai' : null
+}
+
+// Ensemble des nœuds « à élaguer » si `key` était retiré (aperçu de surlignage).
+// Inclut la sentinelle IA pour 'ai' (visuellement elle représente la bascule IA).
+function pruneSetOf(tree: Tree, key: ModuleKey | null | undefined): Set<string> {
+  const s = new Set<string>()
+  if (!key) return s
+  for (const id of nodesDependingOnModule(tree, key)) s.add(id)
+  if (key === 'ai') s.add(AI_ID)
+  return s
+}
+
+// Décoration MODULE d'un nœud, calculée hors des signatures de re-layout (posée
+// dans `data`). `moduleLocked` = le nœud requiert un module absent d'activeModules
+// (activeModules non fourni = jamais verrouillé). `prune` = nœud à élaguer.
+function nodeModuleData(
+  kind: NodeKind, id: string,
+  active: Set<ModuleKey> | undefined, pruneSet: Set<string>,
+): { badgeModule: ModuleKey | null; moduleLocked: boolean; prune: boolean } {
+  const mk = moduleOfKind(kind)
+  return {
+    badgeModule: mk,
+    moduleLocked: !!mk && !!active && !active.has(mk),
+    prune: pruneSet.has(id),
+  }
 }
 
 // Données portées par un nœud React Flow.
@@ -44,6 +83,10 @@ interface RFNodeData extends Record<string, unknown> {
   message: string
   isStart: boolean
   dir: 'TB' | 'LR'   // oriente les poignées : TB -> haut/bas, LR -> gauche/droite
+  // Décoration MODULE (hors signatures de re-layout — posée/patchée à part).
+  badgeModule?: ModuleKey | null   // module requis par le type de nœud (badge)
+  moduleLocked?: boolean           // module requis ABSENT des modules actifs
+  prune?: boolean                  // nœud « à élaguer » (survol d'un module)
 }
 type RFNode = Node<RFNodeData, 'tree'>
 type RFEdge = TreeRFEdge
@@ -105,6 +148,11 @@ const TreeNodeCard = memo(function TreeNodeCard({ data, selected }: NodeProps<RF
   const isSentinel = data.kind === 'ai-sentinel'
   const isStart = data.isStart
   const badge = isStart ? 'Accueil' : KIND_LABEL[data.kind]
+  // Décoration MODULE (onboarding) : cadenas si le type requiert un module non
+  // débloqué ; contour rouge pointillé si le nœud serait élagué (module survolé).
+  const locked = data.moduleLocked === true
+  const prune = data.prune === true
+  const lockBadge = locked && data.badgeModule ? MODULE_BADGE[data.badgeModule] : null
   // Poignées orientées selon la direction du layout : vertical (TB) = haut/bas,
   // horizontal (LR) = gauche/droite (sinon les flèches partent de travers).
   const horiz = data.dir === 'LR'
@@ -115,21 +163,40 @@ const TreeNodeCard = memo(function TreeNodeCard({ data, selected }: NodeProps<RF
       data-testid="tree-node"
       data-node-kind={data.kind}
       data-node-start={isStart ? '1' : '0'}
+      data-node-prune={prune ? '1' : '0'}
       style={{
+        // Pas de position:relative ici : le badge absolu s'ancre au wrapper
+        // `.react-flow__node` (déjà positionné par React Flow), comme les Handle
+        // — on ne change donc PAS la référence de positionnement des poignées.
         width: 200, minHeight: 70, boxSizing: 'border-box',
         background: isStart ? '#1C3F5C' : '#fff',
         color: isStart ? '#fff' : '#1C3F5C',
-        border: '1px solid #E8ECF0',
-        borderLeft: `4px solid ${color}`,
+        border: prune ? '1.5px dashed #E86A5F' : '1px solid #E8ECF0',
+        borderLeft: `4px solid ${prune ? '#E86A5F' : color}`,
         borderRadius: 12, padding: '10px 13px',
-        boxShadow: selected
-          ? `0 0 0 2px ${color}, 0 8px 20px -10px rgba(28,63,92,.45)`
-          : '0 6px 16px -12px rgba(28,63,92,.3)',
+        boxShadow: prune
+          ? '0 0 0 3px rgba(232,106,95,.14)'
+          : selected
+            ? `0 0 0 2px ${color}, 0 8px 20px -10px rgba(28,63,92,.45)`
+            : '0 6px 16px -12px rgba(28,63,92,.3)',
       }}
     >
       {/* Poignée d'entrée (cible) — pas sur le start (il n'a pas de parent). */}
       {!isStart && (
         <Handle type="target" position={targetPos} style={{ background: color, width: 13, height: 13, border: '2px solid #fff' }} />
+      )}
+      {/* Badge « module requis » (cadenas) : le type de ce nœud a besoin d'un
+          module pas encore débloqué pour fonctionner en production. */}
+      {lockBadge && (
+        <span title={`Nécessite le module « ${lockBadge.label} »`}
+              style={{
+                position: 'absolute', top: 5, right: 6, display: 'inline-flex', alignItems: 'center', gap: 3,
+                fontSize: 8.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase',
+                padding: '2px 6px', borderRadius: 999, background: '#FBFCFD',
+                color: lockBadge.color, border: `1px dashed ${lockBadge.color}`,
+              }}>
+          🔒 {lockBadge.label}
+        </span>
       )}
       <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: isStart ? 'rgba(255,255,255,.85)' : color }}>
         {badge}
@@ -267,16 +334,23 @@ const TreeEdge = memo(function TreeEdge({
 const edgeTypes: EdgeTypes = { tree: TreeEdge }
 
 // ---------- Construit nodes/edges RF à partir du tree ----------
-function buildNodes(tree: Tree, dir: 'TB' | 'LR', allowAI: boolean): RFNode[] {
+// `decor` (optionnel) porte la décoration MODULE (activeModules + pruneSet) ; on
+// la calcule au seed pour qu'un re-seed (re-layout) ne perde pas le gating, et
+// on la PATCHE à part au survol (sans dagre). Hors de toute signature de layout.
+function buildNodes(
+  tree: Tree, dir: 'TB' | 'LR', allowAI: boolean,
+  decor?: { active?: Set<ModuleKey>; pruneSet?: Set<string> },
+): RFNode[] {
   const { nodes } = toGraph(tree)
   const pos = resolvePositions(tree, dir)
+  const pruneSet = decor?.pruneSet ?? new Set<string>()
   return nodes
     .filter(n => allowAI || n.kind !== 'ai-sentinel')
     .map((n: GNode): RFNode => ({
       id: n.id,
       type: 'tree',
       position: pos[n.id] || { x: 0, y: 0 },
-      data: { kind: n.kind, message: n.message, isStart: n.isStart, dir },
+      data: { kind: n.kind, message: n.message, isStart: n.isStart, dir, ...nodeModuleData(n.kind, n.id, decor?.active, pruneSet) },
       // Supprimable sauf le start. La sentinelle IA l'est aussi -> géré dans
       // onNodesDelete (retire les branches vers '__ai__').
       deletable: !n.isStart,
@@ -300,13 +374,19 @@ function buildEdges(tree: Tree, allowAI: boolean, onSelect?: (id: string) => voi
 }
 
 // ====================== Inner (a accès au contexte RF) ======================
-function CanvasInner({ tree, onChange, allowAI = true }: Props) {
+function CanvasInner({ tree, onChange, allowAI = true, activeModules, highlightModule }: Props) {
   const [dir, setDir] = useState<'TB' | 'LR'>('TB')
+  // Décoration MODULE lue via refs (valeurs courantes) : un re-seed (re-layout)
+  // doit conserver le gating SANS que activeModules/highlightModule figurent dans
+  // les signatures de re-layout (sinon dagre se relancerait à chaque survol).
+  const activeRef = useRef(activeModules); activeRef.current = activeModules
+  const hlRef = useRef(highlightModule); hlRef.current = highlightModule
+  const seedDecor = (t: Tree) => ({ active: activeRef.current, pruneSet: pruneSetOf(t, hlRef.current) })
   // Init calculé UNE SEULE FOIS (ref), pas à chaque rendu : buildNodes/buildEdges
   // appellent dagre.layout, or useNodesState=useState n'utilise l'argument qu'au
   // montage. Passer l'appel direct relancerait dagre à chaque rendu (jank).
   const init = useRef<{ n: RFNode[]; e: RFEdge[] }>()
-  if (!init.current) init.current = { n: buildNodes(tree, dir, allowAI), e: buildEdges(tree, allowAI) }
+  if (!init.current) init.current = { n: buildNodes(tree, dir, allowAI, seedDecor(tree)), e: buildEdges(tree, allowAI) }
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>(init.current.n)
   const [edges, setEdges, onEdgesChange] = useEdgesState<RFEdge>(init.current.e)
   const [sel, setSel] = useState<{ kind: 'node'; id: string } | { kind: 'edge'; id: string } | null>(null)
@@ -380,7 +460,7 @@ function CanvasInner({ tree, onChange, allowAI = true }: Props) {
   // Pas de boucle : setNodes/setEdges ne touchent jamais au tree.
   const topo = topoSig(tree)
   useEffect(() => {
-    setNodes(buildNodes(tree, dir, allowAI))
+    setNodes(buildNodes(tree, dir, allowAI, seedDecor(tree)))
     setEdges(buildEdges(tree, allowAI))
     setWarn(null)
     // dir exclu (géré par applyDirection qui re-positionne directement).
@@ -408,6 +488,24 @@ function CanvasInner({ tree, onChange, allowAI = true }: Props) {
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content])
+
+  // (3) DÉCORATION MODULE (badge cadenas + style « à élaguer ») -> patch LÉGER des
+  // data, JAMAIS de re-layout : changer activeModules/highlightModule (survol d'un
+  // module dans le configurateur) ne doit pas relancer dagre. Ces flags sont
+  // VOLONTAIREMENT hors de topoSig/structuralSig/contentSig (cf. seedDecor + refs
+  // pour le re-seed). Sig stables : liste triée des modules + module survolé.
+  const moduleActiveSig = activeModules ? [...activeModules].sort().join(',') : '*'
+  const moduleHlSig = highlightModule ?? ''
+  useEffect(() => {
+    const pruneSet = pruneSetOf(tree, highlightModule)
+    setNodes(ns => ns.map(n => {
+      const d = nodeModuleData(n.data.kind, n.id, activeModules, pruneSet)
+      if (n.data.moduleLocked === d.moduleLocked && n.data.prune === d.prune && n.data.badgeModule === d.badgeModule) return n
+      return { ...n, data: { ...n.data, ...d } }
+    }))
+    // tree lu via closure (re-seed topo gère déjà les changements de structure).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moduleActiveSig, moduleHlSig])
 
   // Un nœud Conseiller (handoff) / Action (lead, appointment) est TERMINAL : lui
   // ajouter une réponse sortante appellerait ensureQ qui efface sa config
@@ -482,7 +580,7 @@ function CanvasInner({ tree, onChange, allowAI = true }: Props) {
     } else {
       // Refus TOTAL (rien supprimé) -> on prévient (pas d'emit -> warn persiste).
       if (refused) setWarn("Le message d'accueil ne peut pas être supprimé, et la racine doit garder au moins une branche.")
-      setNodes(buildNodes(tree, dir, allowAI)); setEdges(buildEdges(tree, allowAI))
+      setNodes(buildNodes(tree, dir, allowAI, seedDecor(tree))); setEdges(buildEdges(tree, allowAI))
     }
   }, [tree, dir, allowAI, emit, setNodes, setEdges])
 
@@ -501,7 +599,7 @@ function CanvasInner({ tree, onChange, allowAI = true }: Props) {
     const start = next.start || 'root'
     if (!(next.nodes?.[start]?.options?.length)) {
       setWarn("La racine doit garder au moins une branche.")
-      setNodes(buildNodes(tree, dir, allowAI)); setEdges(buildEdges(tree, allowAI))
+      setNodes(buildNodes(tree, dir, allowAI, seedDecor(tree))); setEdges(buildEdges(tree, allowAI))
       return
     }
     // Reset la sélection : les index d'options ont glissé (splice) -> sel devenu
@@ -599,7 +697,7 @@ function CanvasInner({ tree, onChange, allowAI = true }: Props) {
       if (auto[id]) next = setNodePos(next, id, auto[id])
     }
     if (auto[AI_ID]) next = setNodePos(next, AI_ID, auto[AI_ID])
-    setNodes(buildNodes(next, d, allowAI))
+    setNodes(buildNodes(next, d, allowAI, seedDecor(next)))
     emit(next)
   }, [tree, allowAI, emit, setNodes])
 

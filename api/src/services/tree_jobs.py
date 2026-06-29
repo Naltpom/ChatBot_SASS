@@ -71,11 +71,15 @@ async def get(job_id: str) -> Optional[dict]:
     return _mem.get(job_id)
 
 
-async def create(user_id: int) -> str:
+async def create(user_id: int, bot_id: Optional[int] = None) -> str:
     job_id = uuid.uuid4().hex
     await _save(job_id, {
         "status": "running", "stage": "Préparation…", "pct": 3,
         "tree_json": None, "error": None, "user_id": user_id,
+        # bot_id : porté par les jobs de l'onboarding plugin (lié à un bot précis)
+        # pour que generate-status n'autorise QUE le couple (user, bot). None pour
+        # le wizard dashboard (autorisation par user_id seul, inchangée).
+        "bot_id": bot_id,
     })
     return job_id
 

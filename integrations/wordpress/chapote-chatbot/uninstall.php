@@ -12,6 +12,7 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 delete_option('chapote_bo_settings');
 delete_option('chapote_bo_bots_local');
 delete_option('chapote_bo_seo');
+delete_option('chapote_bo_onboarding');
 
 // Secrets : tokens chiffrés + secret de chiffrement d'install.
 delete_option('chapote_bo_tokens');
