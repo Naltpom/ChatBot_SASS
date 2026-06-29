@@ -3,12 +3,14 @@
 // d'outils config-as-code (export/import) + génération IA, puis le TreeFlow
 // (UN SEUL monté à la fois, vue A OU B). Présentationnel : tout l'état et les
 // handlers viennent de BotPage / useBotEditor.
-import { RefObject } from 'react'
+import { RefObject, useMemo, useState } from 'react'
 import { Download, Sparkles, Upload } from 'lucide-react'
 import { Btn, Card, Chip, Field, Seg } from '../../ui'
 import TreeFlow from '../TreeFlow'
 import ModuleLockBanner from '../billing/ModuleLockBanner'
+import { MODULE_BADGE, nodesDependingOnModule, treeUsesAi } from '../tree-editor/treeGraph'
 import type { Bot, BotUpdate, Tree } from '../../types/bot'
+import type { ModuleKey } from '../../types/billing'
 
 export default function TreeTab({
   bot, patch, hasPerm, aiTabRelevant,
@@ -16,7 +18,7 @@ export default function TreeTab({
   genOpen, setGenOpen, genMode, setGenMode, genText, setGenText, genUrl, setGenUrl,
   genBusy, genError, generateTree,
   exportConfig, importConfig, treeFileRef,
-  abLocked, onUpgrade,
+  abLocked, onUpgrade, activeModules,
 }: {
   bot: Bot
   patch: (fields: BotUpdate) => void
@@ -42,7 +44,23 @@ export default function TreeTab({
   // verrouillée ; l'éditeur d'arbre (TreeFlow) reste gratuit (socle).
   abLocked: boolean
   onUpgrade: () => void
+  // Modules entitlés du bot (depuis l'entitlement) : un nœud dont le module n'y
+  // figure pas affiche un cadenas dans l'éditeur (étape qui ne marchera pas en
+  // prod sans ce module). Non fourni = aucun cadenas (rétro-compat).
+  activeModules?: Set<ModuleKey>
 }) {
+  // Légende de modules survolable : repère, dans l'arbre affiché, les étapes qui
+  // dépendent d'un module (handoff→Inbox, branche IA). Le survol surligne ces
+  // nœuds dans l'éditeur (highlightModule). Dérivé de l'arbre, pas de l'entitlement.
+  const activeTree = treeView === 'b' && bot.tree_variant_json ? bot.tree_variant_json : bot.tree_json
+  const usedModules = useMemo<ModuleKey[]>(() => {
+    const out: ModuleKey[] = []
+    if (nodesDependingOnModule(activeTree, 'inbox').length) out.push('inbox')
+    if (treeUsesAi(activeTree)) out.push('ai')
+    return out
+  }, [activeTree])
+  const [highlightModule, setHighlightModule] = useState<ModuleKey | null>(null)
+
   return (
     <div className="col g14">
       {/* Test A/B (module 'ab') : SEULE cette carte est gardée ; l'éditeur d'arbre
@@ -142,17 +160,41 @@ export default function TreeTab({
         </div>
       )}
 
+      {/* Légende des modules utilisés par l'arbre : survol -> surbrillance des
+          étapes qui en dépendent (handoff→Inbox, branche IA) dans l'éditeur. */}
+      {usedModules.length > 0 && (
+        <div className="row g8" style={{ flexWrap: 'wrap', alignItems: 'center', fontSize: 11.5, color: 'var(--mut)' }}>
+          <span>Survolez un module pour repérer les étapes qui en dépendent :</span>
+          {usedModules.map(m => {
+            const b = MODULE_BADGE[m]
+            if (!b) return null
+            return (
+              <span key={m}
+                    onMouseEnter={() => setHighlightModule(m)}
+                    onMouseLeave={() => setHighlightModule(null)}
+                    style={{ cursor: 'default', display: 'inline-flex', alignItems: 'center', gap: 4,
+                             padding: '2px 9px', borderRadius: 999, fontWeight: 700,
+                             border: `1px solid ${b.color}`, color: b.color }}>
+                {b.label}
+              </span>
+            )
+          })}
+        </div>
+      )}
+
       {/* UN SEUL TreeFlow monté à la fois (la variante absente ne reste
           jamais affichée — garde useEffect treeView). key force le remount
           au switch A/B. */}
       {treeView === 'b' && bot.tree_variant_json ? (
         <TreeFlow key="b" tree={bot.tree_variant_json}
                   onChange={t => patch({ tree_variant_json: t })}
-                  allowAI={aiTabRelevant} />
+                  allowAI={aiTabRelevant}
+                  activeModules={activeModules} highlightModule={highlightModule} />
       ) : (
         <TreeFlow key="a" tree={bot.tree_json}
                   onChange={t => patch({ tree_json: t })}
-                  allowAI={aiTabRelevant} />
+                  allowAI={aiTabRelevant}
+                  activeModules={activeModules} highlightModule={highlightModule} />
       )}
       {/* Le test en direct n'est plus une carte ici : le widget flottant vit
           directement sur la page du bot (BotPage), comme s'il était déployé. */}

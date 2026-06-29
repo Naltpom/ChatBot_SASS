@@ -15,7 +15,7 @@
 // l'état aux sous-composants d'onglet (components/bot-tabs/*). Aucune logique
 // métier n'est inline ici : seuls restent l'édition directe du bot
 // (activate/move/domaine), l'import/export de config et l'assemblage du rendu.
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
@@ -173,6 +173,13 @@ export default function BotPage() {
   // modules, donc rien ne se verrouille. Tant que l'entitlement n'est pas chargé
   // (botBilling null), rien n'est verrouillé non plus (pas de faux cadenas).
   const moduleLocked = (m: ModuleKey) => !!botBilling && !(botBilling.active_modules || []).includes(m)
+  // Modules entitlés (Set) pour l'éditeur d'arbre : un nœud dont le module n'est
+  // pas actif affiche un cadenas. Non chargé (botBilling null) => undefined =>
+  // aucun cadenas (même règle que moduleLocked : pas de faux verrou en chargement).
+  const activeModules = useMemo<Set<ModuleKey> | undefined>(
+    () => botBilling ? new Set(botBilling.active_modules || []) : undefined,
+    [botBilling],
+  )
   // Verrou « Propulsé par » : la retirer en production demande le module
   // White-label. Recalculé via moduleLocked pour la cohérence (même règle que les
   // autres modules ; le garde is_billing_enabled est retiré, cf. moduleLocked).
@@ -394,7 +401,8 @@ export default function BotPage() {
                  genText={genText} setGenText={setGenText} genUrl={genUrl} setGenUrl={setGenUrl}
                  genBusy={genBusy} genError={genError} generateTree={generateTree}
                  exportConfig={exportConfig} importConfig={importConfig} treeFileRef={treeFileRef}
-                 abLocked={moduleLocked('ab')} onUpgrade={() => switchTab('billing')} />
+                 abLocked={moduleLocked('ab')} onUpgrade={() => switchTab('billing')}
+                 activeModules={activeModules} />
       )}
 
       {/* ================= IA ================= */}
@@ -457,7 +465,8 @@ export default function BotPage() {
                        onApplyPlan={applyPlan} planBusy={planBusy} planErr={planErr}
                        planConsent={planConsent} onConsentChange={setPlanConsent}
                        onCancel={cancelSubscription} cancelBusy={cancelBusy} cancelErr={cancelErr}
-                       onToggleOverage={toggleOverage} overageBusy={overageBusy} overageErr={overageErr} />
+                       onToggleOverage={toggleOverage} overageBusy={overageBusy} overageErr={overageErr}
+                       tree={bot.tree_json} />
       )}
 
       {/* Widget de TEST flottant : le vrai aperçu du chatbot, posé directement sur
