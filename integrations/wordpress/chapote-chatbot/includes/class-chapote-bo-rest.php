@@ -154,6 +154,12 @@ class Chapote_BO_REST {
             'permission_callback' => $perm,
             'callback'            => array(__CLASS__, 'bot_tree_prune'),
         ));
+        // Enregistre l'arbre (persiste l'élagage calculé par tree-prune).
+        register_rest_route($ns, '/bots/(?P<id>' . self::ID_PATTERN . ')/tree', array(
+            'methods'             => 'PUT',
+            'permission_callback' => $perm,
+            'callback'            => array(__CLASS__, 'bot_tree_save'),
+        ));
         // État d'onboarding (option locale WP : done / bot_id / step de reprise).
         register_rest_route($ns, '/onboarding', array(
             array('methods' => 'GET',  'permission_callback' => $perm, 'callback' => array(__CLASS__, 'onboarding_get')),
@@ -725,6 +731,22 @@ class Chapote_BO_REST {
             'POST',
             '/api/account/bots/' . rawurlencode($id) . '/tree/prune',
             array('kept_modules' => $kept)
+        ));
+    }
+
+    /** Enregistre l'arbre (relais PUT tree). tree_json relayé tel quel : le
+     *  backend valide (validate_tree) et fait foi. Sert à persister l'arbre
+     *  élagué calculé par tree-prune lors d'une baisse d'offre. */
+    public static function bot_tree_save($request) {
+        $id   = (string) $request->get_param('id');
+        $tree = $request->get_param('tree_json');
+        if (!is_array($tree)) {
+            return new WP_Error('cbo_bad_tree', 'Arbre invalide.', array('status' => 400));
+        }
+        return self::forward(Chapote_BO_API::account(
+            'PUT',
+            '/api/account/bots/' . rawurlencode($id) . '/tree',
+            array('tree_json' => $tree)
         ));
     }
 

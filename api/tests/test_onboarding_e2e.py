@@ -172,6 +172,17 @@ async def test_onboarding_full_funnel_e2e(pg_session: AsyncSession, monkeypatch)
         assert "adv" in rpr.json()["removed_node_ids"]
         assert "adv" not in rpr.json()["tree_json"]["nodes"]
 
+        # 7b. Persister l'arbre élagué (ce que le plugin enchaîne via PUT /tree, pour
+        #     que la section promise « retirée » le soit RÉELLEMENT, pas seulement
+        #     gatée au runtime). Le bot ne contient alors plus la branche conseiller.
+        rput2 = await c.put(f"/api/account/bots/{bot_id}/tree",
+                            json={"tree_json": rpr.json()["tree_json"]}, headers=H)
+        assert rput2.status_code == 200, rput2.text
+        persisted = (await c.get(f"/api/account/bots/{bot_id}/tree", headers=H)).json()["tree_json"]
+        assert "adv" not in persisted["nodes"]                  # section conseiller réellement retirée
+        root_targets = [o.get("next") for o in persisted["nodes"]["root"].get("options", [])]
+        assert "__ai__" in root_targets                         # branche IA conservée (ai gardé)
+
         # 8. Jeton embed -> la surface /api/embed ouvre CE bot, avec l'arbre persisté.
         re_ = await c.post(f"/api/account/bots/{bot_id}/embed-token", headers=H)
         assert re_.status_code == 200, re_.text
@@ -179,11 +190,11 @@ async def test_onboarding_full_funnel_e2e(pg_session: AsyncSession, monkeypatch)
         rbot = await c.get("/api/embed/bot", headers=_bearer(embed_tok))
         assert rbot.status_code == 200, rbot.text
         assert rbot.json()["id"] == bot_id
-        assert rbot.json()["tree_json"] == tree
+        assert rbot.json()["tree_json"] == persisted   # l'éditeur voit l'arbre élagué persisté
         public_key = rbot.json()["public_key"]
 
         # 9. L'éditeur embarqué sauvegarde via la surface embed (Bearer embed).
-        rpe = await c.put("/api/embed/bot/tree", json={"tree_json": tree},
+        rpe = await c.put("/api/embed/bot/tree", json={"tree_json": persisted},
                           headers=_bearer(embed_tok))
         assert rpe.status_code == 200, rpe.text
 

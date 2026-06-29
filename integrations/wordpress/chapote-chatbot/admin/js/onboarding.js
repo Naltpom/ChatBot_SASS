@@ -691,7 +691,12 @@
       A.doCheckout(btn || document.createElement('button'), config, true); // redirige vers Stripe
     });
   }
-  // Élague l'arbre aux modules conservés si un module REQUIS a été retiré.
+  // Élague l'arbre aux modules conservés si un module REQUIS a été retiré, PUIS
+  // persiste l'arbre élagué : `tree-prune` ne calcule que le diff (sans sauver),
+  // donc on enchaîne un PUT /tree pour que les sections promises « retirées » le
+  // soient réellement (sinon le runtime se contente de les gater silencieusement).
+  // Best-effort : un échec de persistance ne bloque pas la souscription (le
+  // gating runtime reste le filet).
   function pruneIfNeeded(keptModules) {
     var o = O();
     var rec = o.recommendation;
@@ -699,7 +704,14 @@
     var kept = {}; (keptModules || []).forEach(function (k) { kept[k] = 1; });
     var dropped = rec.required_modules.filter(function (k) { return !kept[k]; });
     if (!dropped.length) return Promise.resolve();
-    return call('POST', '/bots/' + encodeURIComponent(o.botId) + '/tree-prune', { kept_modules: keptModules || [] });
+    var id = encodeURIComponent(o.botId);
+    return call('POST', '/bots/' + id + '/tree-prune', { kept_modules: keptModules || [] })
+      .then(function (res) {
+        if (res.ok && res.data && res.data.tree_json &&
+            Array.isArray(res.data.removed_node_ids) && res.data.removed_node_ids.length) {
+          return call('PUT', '/bots/' + id + '/tree', { tree_json: res.data.tree_json });
+        }
+      });
   }
   function freeActivate(btn) {
     if (btn) btn.disabled = true;
