@@ -4,7 +4,7 @@
 // data.tsx (SNIPPET) et GET /api/bots/{id}/embed côté backend.
 import { useState } from 'react'
 import { MONO, SNIPPET, WIDGET_SRC, EXAMPLE_BOT_KEY, eyebrow, sectionH2 } from './data'
-import { WP_PLUGIN_URL } from '../../integrations'
+import { usePluginDownload } from '../../hooks/usePluginDownload'
 
 // Snippet colorisé (repris du design). Doit rester cohérent avec SNIPPET :
 // même src, même attribut data-bot-key, même defer.
@@ -18,6 +18,7 @@ function Snippet({ big }: { big?: boolean }) {
 
 export function Install() {
   const [copied, setCopied] = useState(false)
+  const dl = usePluginDownload()
   const copyCode = () => {
     try { navigator.clipboard?.writeText(SNIPPET) } catch { /* clipboard indispo */ }
     setCopied(true)
@@ -47,8 +48,8 @@ export function Install() {
             l'administration (téléchargement du zip — cf. integrations.ts). */}
         <p style={{ fontSize: 13.5, color: '#6B7B8D', marginTop: 6 }}>
           Sur WordPress&nbsp;?{' '}
-          <a href={WP_PLUGIN_URL} download style={{ color: '#2F9E79', fontWeight: 600, textDecoration: 'none' }}>
-            Ajouter le plugin à mon WordPress →
+          <a href={dl.url} download={dl.filename} style={{ color: '#2F9E79', fontWeight: 600, textDecoration: 'none' }}>
+            Ajouter le plugin à mon WordPress{dl.version ? ` (v${dl.version})` : ''} →
           </a>
         </p>
       </div>

@@ -10,6 +10,13 @@
 // updater, ne sert qu'à la soumission au répertoire WordPress.org, pas au public).
 export const WP_PLUGIN_URL = '/downloads/chapote-chatbot.zip'
 
+// Manifeste d'auto-update (généré par deploy.sh, build_wp_plugin) : porte la
+// VERSION courante du plugin. Lu côté client (usePluginDownload) pour proposer un
+// téléchargement au nom VERSIONNÉ « chapote-chatbot-X.Y.Z.zip » — plus clair que
+// le « dernier stable » non daté. L'archive versionnée existe aussi sous
+// /downloads/ (deploy.sh en garde les 5 dernières).
+export const WP_PLUGIN_MANIFEST_URL = '/downloads/chapote-chatbot.json'
+
 // Fiche WordPress.org du plugin — PLACEHOLDER tant que le plugin n'est pas
 // publié sur le répertoire officiel. À remplacer par l'URL réelle.
 export const WP_PLUGIN_WPORG_URL = 'https://wordpress.org/plugins/'
