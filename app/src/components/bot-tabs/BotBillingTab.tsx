@@ -12,6 +12,7 @@ import { Btn, Card, Chip, InfoBox, Meter, Toggle } from '../../ui'
 import BotConfigurator from '../billing/BotConfigurator'
 import PriceCart from '../billing/PriceCart'
 import type { BillingCatalog, BotConfig, BotEntitlementView } from '../../types/billing'
+import type { Tree } from '../../types/bot'
 
 // Libellés FR des clés de module (entitlement) pour l'onglet Facturation.
 const MODULE_LABELS: Record<string, string> = {
@@ -40,7 +41,7 @@ export default function BotBillingTab({ billing, botName, onSubscribe, subscribe
                                        planConfig, onPlanChange,
                                        onApplyPlan, planBusy, planErr, planConsent, onConsentChange,
                                        onCancel, cancelBusy, cancelErr,
-                                       onToggleOverage, overageBusy, overageErr }: {
+                                       onToggleOverage, overageBusy, overageErr, tree }: {
   billing: BotEntitlementView | null
   botName: string
   onSubscribe: () => void
@@ -65,6 +66,9 @@ export default function BotBillingTab({ billing, botName, onSubscribe, subscribe
   onToggleOverage: (enabled: boolean, cap: number | null) => void
   overageBusy: boolean
   overageErr: string
+  // Arbre du bot — passé au configurateur pour l'aperçu d'élagage : décocher un
+  // module utilisé par l'arbre (ex. Inbox/handoff) confirme « élaguera N étape(s) ».
+  tree?: Tree
 }) {
   if (!billing) {
     return (
@@ -158,7 +162,7 @@ export default function BotBillingTab({ billing, botName, onSubscribe, subscribe
         ) : planConfig && (
           <div className="col" style={{ gap: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }}>
-              <BotConfigurator catalog={catalog} config={planConfig} onChange={onPlanChange} />
+              <BotConfigurator catalog={catalog} config={planConfig} onChange={onPlanChange} tree={tree} />
               <PriceCart catalog={catalog} config={planConfig}
                          baseline={planManageable && billing
                            ? { modules: billing.active_modules, ai_tier_id: billing.ai_tier_id, ai_byok: billing.ai_byok }
