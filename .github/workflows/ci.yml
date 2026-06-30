@@ -228,3 +228,128 @@ jobs:
       - name: Arrêter la stack
         if: always()
         run: docker compose down -v
+
+  # ---------------------------------------------------------------------------
+  # JOB 3 — e2e COMPLÈTE (billing OFF) : exécute TOUTE la suite Playwright, pas
+  # seulement les billing-* (findings APP-01/APP-02). Avant, le seul job e2e
+  # filtrait `billing-` => 22 des 28 specs (widget, actions, kb, triggers,
+  # profil, permissions, wizard, savebar…) ne tournaient JAMAIS en CI.
+  #
+  # POURQUOI billing OFF (et NON le job armé) : sans clés Stripe,
+  # billing_enabled()==False => resolver ALL_UNLOCKED (invariant D0, « tout
+  # gratuit »). C'est la condition sous laquelle ces 22 specs ont été écrites et
+  # restent VERTES (« 32 e2e historiques verts »). Lancées dans le job ARMÉ
+  # (BILLING_ENFORCE), les specs qui touchent un module payant échoueraient pour
+  # une raison d'ENV, PAS un bug :
+  #   - actions / kb => 402 module_required (Actions / RAG) au save ;
+  #   - ab           => bloc A/B verrouillé (module AB) ;
+  #   - inbox-live   => handoff gaté (module INBOX) : le widget reste en TREE ;
+  #   - wizard-tree  => étape « plan » insérée (libellé du bouton différent).
+  # Sous billing OFF ces gates disparaissent => specs vertes. Les specs billing-*
+  # d'enforcement se `skip` alors d'elles-mêmes (billing OFF) : elles sont
+  # exercées POUR DE VRAI par le job `e2e-billing` (armé) ci-dessus. Union des
+  # deux jobs = couverture e2e totale.
+  # ---------------------------------------------------------------------------
+  e2e-full:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Écrire le .env de la stack (billing OFF — invariant D0)
+        # AUCUNE clé Stripe => billing_enabled()==False => ALL_UNLOCKED : zéro 402
+        # module_required, les 22 specs « non-billing » passent, et les billing-*
+        # d'enforcement se skip légitimement (couvertes par e2e-billing). MOCK_AI
+        # =true : la suite n'emprunte aucun chemin IA (bots tree/hybrid, widget IA
+        # jamais ouvert), mais on coupe par sécurité tout appel provider sortant.
+        run: |
+          cat > .env <<'EOF'
+          ENV=dev
+          AUTO_LOGIN_ADMIN_DEV=true
+          POSTGRES_USER=chatbot
+          POSTGRES_PASSWORD=chatbot_secret
+          POSTGRES_DB=chatbot_saas
+          DATABASE_URL=postgresql+asyncpg://chatbot:chatbot_secret@db:5432/chatbot_saas
+          JWT_SECRET_KEY=ci-test-secret-key-minimum-32-caracteres-ok
+          ENCRYPTION_KEY=b3xn1mFk-ECyWePnnRULioHFgFBQkDNwhSN_-K-IIds=
+          MOCK_AI=true
+          MOCK_BILLING=true
+          VITE_API_URL=http://localhost:8001
+          EOF
+
+      - name: Démarrer la stack (db + redis + api + app)
+        # --wait : bloque jusqu'à ce que db, redis et api soient « healthy ».
+        run: docker compose up -d --build --wait
+
+      - name: Attendre l'app (Vite, port 3001 sans healthcheck)
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3001 >/dev/null; then echo "app prête"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::app (3001) injoignable" ; docker compose logs app ; exit 1
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Installer Playwright + Chromium
+        working-directory: e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: e2e COMPLÈTE (toute la suite, AUCUN filtre)
+        working-directory: e2e
+        env:
+          E2E_API_URL: http://localhost:8001
+        # Cœur de PR-04 : `npx playwright test` SANS argument positionnel => les
+        # 28 specs tournent (vs `billing-` qui n'en lançait que 7). Reporter list
+        # (logs lisibles) + json (rapport pour le garde de l'étape suivante).
+        run: |
+          PLAYWRIGHT_JSON_OUTPUT_NAME=full-report.json \
+            npx playwright test --reporter=list,json
+
+      - name: Garde anti-faux-vert (suite complète exécutée, zéro échec)
+        working-directory: e2e
+        # Trois invariants cassent le build :
+        #  1. un test a échoué (unexpected > 0) ;
+        #  2. la suite n'a pas été COLLECTÉE en entier (total < 40) — détecte un
+        #     filtre `billing-` réintroduit par erreur (qui retomberait à ~9) ou
+        #     une suite tronquée ;
+        #  3. trop peu de tests ont réellement PASSÉ (expected < 25) — détecte un
+        #     faux-vert où tout se serait skippé (stack non démarrée / D0 raté).
+        # Référence observée sous billing OFF : ~38 passés / ~8 skip (billing-*
+        # OFF) / 0 échec sur 46 tests collectés. Bumper les seuils si la suite
+        # grossit.
+        run: |
+          node -e '
+            const r = require("./full-report.json");
+            const s = r.stats || {};
+            const total = (s.expected||0)+(s.skipped||0)+(s.unexpected||0)+(s.flaky||0);
+            console.log("stats:", JSON.stringify(s), "total:", total);
+            if ((s.unexpected||0) > 0) {
+              console.error((s.unexpected) + " test(s) e2e en échec.");
+              process.exit(1);
+            }
+            if (total < 40) {
+              console.error("Suite tronquée : " + total + " test(s) collecté(s) (<40) — filtre billing- réintroduit ?");
+              process.exit(1);
+            }
+            if ((s.expected||0) < 25) {
+              console.error("FAUX-VERT : seulement " + (s.expected||0) + " test(s) passé(s) (<25) — D0 mal armé ?");
+              process.exit(1);
+            }
+            if ((s.flaky||0) > 0) console.warn("Note : " + s.flaky + " test(s) flaky (passés au retry).");
+            console.log("OK : " + s.expected + " passés, " + (s.skipped||0) + " skip (billing-* OFF, couverts par e2e-billing), " + total + " collectés.");
+          '
+
+      - name: Logs de la stack (si échec)
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: Arrêter la stack
+        if: always()
+        run: docker compose down -v
