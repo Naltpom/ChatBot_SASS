@@ -9,7 +9,8 @@
 import { ReactNode } from 'react'
 import { Download, ExternalLink, Plug } from 'lucide-react'
 import { Card, InfoBox, SectionTitle } from '../ui'
-import { WP_PLUGIN_URL, WP_PLUGIN_WPORG_URL } from '../integrations'
+import { WP_PLUGIN_WPORG_URL } from '../integrations'
+import { usePluginDownload } from '../hooks/usePluginDownload'
 
 // Étape numérotée du mode d'emploi (pastille + titre + détail).
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
@@ -30,6 +31,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 }
 
 export default function Integrations() {
+  const dl = usePluginDownload()
   return (
     <div className="col g18">
       <SectionTitle sub="Pilotez vos chatbots Chapote depuis l'administration de votre site">
@@ -69,8 +71,8 @@ export default function Integrations() {
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 22 }}>
           {/* Téléchargement du plugin (zip statique du front pour l'instant). */}
-          <a href={WP_PLUGIN_URL} download className="btn btn-primary" style={{ textDecoration: 'none' }}>
-            <Download size={15} /> Télécharger le plugin
+          <a href={dl.url} download={dl.filename} className="btn btn-primary" style={{ textDecoration: 'none' }}>
+            <Download size={15} /> Télécharger le plugin{dl.version ? ` (v${dl.version})` : ''}
           </a>
           {/* Fiche WordPress.org (placeholder tant que non publié). */}
           <a href={WP_PLUGIN_WPORG_URL} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ textDecoration: 'none' }}>
