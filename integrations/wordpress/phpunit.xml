@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Harness de la frontiere de securite du plugin WordPress Chapote.
+  Couvre (Eleve WP-01) : crypto AES-256-GCM, garde permission+nonce du proxy
+  REST, et le pivot anti-CSRF (state) + S256 du flux OAuth PKCE.
+  Le bootstrap charge les classes du plugin avec des STUBS maison des fonctions
+  WordPress (aucune dependance runtime WP) ; la crypto est de l'openssl pur.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnNotice="true">
+    <testsuites>
+        <testsuite name="plugin-security">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory suffix=".php">chapote-chatbot/includes</directory>
+        </include>
+    </source>
+</phpunit>
