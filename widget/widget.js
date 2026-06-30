@@ -28,6 +28,19 @@
   if (window.__chapoteChat[BOT_KEY]) return;
   window.__chapoteChat[BOT_KEY] = true;
   const INLINE = script.getAttribute("data-inline") === "true";
+  // Aperçu (onboarding plugin) : jeton signé reflété par /widget-frame en
+  // data-preview-token. Joint à bootstrap ET session (query) pour bypasser
+  // origine+captcha ; le JWT de session renvoyé est marqué preview (side-effects
+  // neutralisés en aval), donc les appels suivants n'ont rien à porter.
+  const PREVIEW_TOKEN = script.getAttribute("data-preview-token") || "";
+  // Re-skin à chaud (éditeur d'apparence embarqué) : origine + nonce autorisés à
+  // pousser un nouveau design via postMessage. Vides -> fonctionnalité inactive
+  // (widget public / aperçu normal inchangés).
+  const RESKIN_ORIGIN = script.getAttribute("data-reskin-origin") || "";
+  const RESKIN_NONCE = script.getAttribute("data-reskin-nonce") || "";
+  // Aperçu d'apparence flottant : ouvrir le panneau automatiquement après build
+  // (montre le rendu complet — en-tête, fil, lanceur — sans clic du visiteur).
+  const PREVIEW_OPEN = script.getAttribute("data-preview-open") === "1";
   const API = script.src.replace(/\/widget\.js.*$/, "");
 
   // Garde-fous anti-injection : le design_json vient du serveur mais le widget
@@ -128,6 +141,7 @@
   const SESS_KEY = "kc_sess_" + BOT_KEY;
   const SESS_TTL = 2 * 60 * 60 * 1000; // 2 h
   function persistSession() {
+    if (PREVIEW_TOKEN) return; // aperçu : éphémère, jamais persisté (reset propre à chaque (re)chargement)
     if (!state.token) return; // rien à mémoriser sans session serveur
     try {
       localStorage.setItem(SESS_KEY, JSON.stringify({
@@ -253,7 +267,7 @@
   // --- Session ---
   function openSession() {
     return getCaptchaToken().then(function (token) {
-      return api("/api/widget/session", {
+      return api("/api/widget/session" + (PREVIEW_TOKEN ? "?preview_token=" + encodeURIComponent(PREVIEW_TOKEN) : ""), {
         method: "POST",
         body: {
           public_key: BOT_KEY,
@@ -662,6 +676,7 @@
     const style = document.createElement("style");
     style.textContent = css(d);
     document.head.appendChild(style);
+    ui.style = style; // référence pour le re-skin à chaud (remplacement live)
 
     const root = el("div", "kc-root");
     document.body.appendChild(root);
@@ -821,6 +836,19 @@
     // Bot tree : la rangée de saisie reste cachée au bootstrap et ne
     // s'affiche qu'APRÈS un handoff effectif (réévalué à chaque appel)
     ui.inputRow.style.display = (state.config.mode === "tree" && !human) ? "none" : "";
+  }
+
+  // Re-skin à chaud : applique un design poussé par l'éditeur d'apparence SANS
+  // reconstruire le DOM (zéro reset conversation). Cosmétique uniquement —
+  // remplace la feuille de style (couleurs, police, rayon, thème, ombres,
+  // densité…) + relit les textes dynamiques (placeholder). Les changements
+  // STRUCTURELS (position, taille, icône, message d'accueil) ne sont PAS gérés
+  // ici : l'éditeur recharge l'iframe pour ceux-là.
+  function applyDesignLive(design) {
+    if (!design || typeof design !== "object" || !ui.style) return;
+    state.config.design = Object.assign({}, state.config.design, design);
+    ui.style.textContent = css(state.config.design);
+    updateModeUI();
   }
 
   // tag : "ai" | "human" | null, libellé constant « Conseiller » (le serveur
@@ -1332,6 +1360,15 @@
 
   // --- Envoi ---
   function postMessage(body, retried) {
+    // Aperçu : la session ne persiste aucun message côté serveur -> on joint le
+    // fil local pour que l'IA garde le contexte multi-tours. Inclut le message
+    // courant (déjà ajouté à state.history). Ignoré par le serveur hors aperçu
+    // et pour un clic d'arbre (body.node).
+    if (PREVIEW_TOKEN && body && body.text && body.history == null) {
+      body.history = (state.history || []).slice(-24).map(function (m) {
+        return { role: m.r === "user" ? "user" : "assistant", content: String(m.t == null ? "" : m.t) };
+      }).filter(function (m) { return m.content; });
+    }
     return api("/api/widget/message", { method: "POST", auth: true, body: body })
       // Sliding session : le serveur renouvelle le JWT quand l'expiration approche
       .then(applyTokenRotation)
@@ -1649,7 +1686,7 @@
 
   // --- Init ---
   recordJourney();
-  api("/api/widget/bootstrap?key=" + encodeURIComponent(BOT_KEY))
+  api("/api/widget/bootstrap?key=" + encodeURIComponent(BOT_KEY) + (PREVIEW_TOKEN ? "&preview_token=" + encodeURIComponent(PREVIEW_TOKEN) : ""))
     .then(function (config) {
       state.config = config;
       config.design = config.design || {};
@@ -1662,15 +1699,34 @@
       LOCALE = loc === "en" ? "en" : "fr";
       // Session persistée (< 2 h) : restaure token + statut + fil AVANT build
       // (l'INLINE ouvre la session immédiatement -> doit voir state.restored).
-      loadSession();
+      if (!PREVIEW_TOKEN) loadSession(); // aperçu : toujours repartir d'une conversation vierge
       build(config.design);
       // Bubble : si la session restaurée était OUVERTE, on rouvre le panneau
       // (toggle -> startSession -> renderRestored). Sinon le fil se restaure au
       // prochain clic. (INLINE : déjà ouvert + startSession appelé dans build.)
       if (!INLINE && state.restored && state.restoredOpen) toggle();
+      // Aperçu d'apparence : ouvre le panneau d'office (rendu complet visible).
+      if (PREVIEW_OPEN && !state.open) toggle();
       // Triggers proactifs : jamais en INLINE (panneau déjà ouvert, les
       // scroll/mouseleave de la page parente sont invisibles depuis l'iframe)
       if (!INLINE) initTriggers(config.triggers || []);
+      // Re-skin à chaud (éditeur d'apparence) : on n'accepte un design poussé que
+      // de l'origine ET du nonce reflétés par /widget-frame (validés serveur).
+      // Cosmétique seulement, aucune reconstruction du DOM.
+      if (RESKIN_ORIGIN && RESKIN_NONCE) {
+        window.addEventListener("message", function (e) {
+          if (e.origin !== RESKIN_ORIGIN) return;
+          var msg = e.data;
+          if (!msg || msg.type !== "chapote-apply-design" || msg.nonce !== RESKIN_NONCE) return;
+          applyDesignLive(msg.design);
+        });
+        // Signale au parent (éditeur d'apparence) que l'écouteur est prêt : il
+        // peut pousser le design courant (sinon ses 1ers messages seraient perdus).
+        try {
+          window.parent.postMessage(
+            { source: "chapote-widget", type: "reskin-ready", nonce: RESKIN_NONCE }, RESKIN_ORIGIN);
+        } catch (e) { /* parent inaccessible : no-op */ }
+      }
       // Live chat : onglet caché -> arrêt du polling, visible -> reprise.
       // Enregistré UNE fois après build ; en inline (panneau toujours ouvert)
       // c'est le seul interrupteur du polling.

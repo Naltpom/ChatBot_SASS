@@ -759,6 +759,17 @@
         else doCheckout(subscribeBtn, buildConfig(), consent.checked);
       } },
       opts.submitLabel || (active ? 'Mettre à jour le plan' : 'Souscrire'));
+    // 1re souscription : le consentement 14j (exécution immédiate, B2C) est
+    // OBLIGATOIRE -> bouton DÉSACTIVÉ tant qu'il n'est pas coché. Évite le clic
+    // « sans effet » (la notice d'avertissement s'affichait hors du cadre wizard).
+    if (!active) {
+      var syncConsent = function () {
+        subscribeBtn.disabled = !consent.checked;
+        subscribeBtn.title = consent.checked ? '' : 'Cochez le consentement ci-dessus pour souscrire.';
+      };
+      syncConsent();
+      consent.addEventListener('change', syncConsent);
+    }
 
     pane.appendChild(modBox);
     pane.appendChild(reqWarn);

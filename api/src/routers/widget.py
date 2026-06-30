@@ -239,6 +239,11 @@ class MessageRequest(BaseModel):
     node: Optional[str] = Field(None, max_length=100)
     text: Optional[str] = None
     page_url: Optional[str] = Field(None, max_length=2000)
+    # APERÇU uniquement (preview_token) : historique local du widget, car la session
+    # preview ne persiste AUCUN message (Inbox propre) -> sans ça l'IA perd le fil.
+    # Type permissif (jamais de 422) ; normalisé/borné côté serveur (_preview_history).
+    # IGNORÉ hors aperçu (le chemin public lit l'historique persisté en DB).
+    history: Optional[Any] = None
 
 
 class LeadRequest(BaseModel):
@@ -738,6 +743,28 @@ async def _build_ai_history(conversation: Conversation, text: str, db: AsyncSess
     return history
 
 
+def _preview_history(raw: Any, text: str) -> list[dict]:
+    """Historique pour l'IA en APERÇU : reconstruit depuis l'historique LOCAL
+    envoyé par le widget (la session preview ne persiste rien -> _build_ai_history
+    serait vide). Même normalisation que _build_ai_history : roles user/assistant,
+    démarre par 'user', borné, se termine par le message courant. Robuste à un
+    payload mal formé (jamais d'exception)."""
+    msgs: list[dict] = []
+    if isinstance(raw, list):
+        for m in raw[-settings.MAX_HISTORY_MESSAGES:]:
+            if not isinstance(m, dict):
+                continue
+            role = m.get("role")
+            content = m.get("content")
+            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                msgs.append({"role": role, "content": content.strip()[:4000]})
+    while msgs and msgs[0]["role"] != "user":
+        msgs.pop(0)
+    if not msgs or msgs[-1]["role"] != "user":
+        msgs.append({"role": "user", "content": text})
+    return msgs
+
+
 async def _handle_ai_preview(
     body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict, text: str,
 ) -> dict:
@@ -756,9 +783,9 @@ async def _handle_ai_preview(
             "status": conversation.status,
         }, bot, session)
 
-    # Pas d'historique persisté en aperçu -> _build_ai_history retombe sur le seul
-    # message courant (réponses autonomes, suffisant pour valider le rendu).
-    history = await _build_ai_history(conversation, text, db)
+    # Aperçu : rien n'est persisté -> on reconstruit le fil depuis l'historique
+    # LOCAL envoyé par le widget (sinon l'IA perd le contexte multi-tours).
+    history = _preview_history(body.history, text)
     page_url = body.page_url or conversation.page_url
     has_kb = (await db.execute(
         select(KbChunk.id).where(KbChunk.bot_id == bot.id).limit(1)
@@ -978,10 +1005,21 @@ async def post_message(
 ):
     await _check_ip_flood(request)
 
-    # Revalidation bot+org (CHANTIER A) : alignee sur lead/feedback/handoff/poll
-    # via _session_active_bot. Corrige la faille ou /message acceptait encore les
-    # bots d'une org suspendue (et consommait l'IA). Message d'erreur aligne.
-    bot = await _session_active_bot(db, request, session)
+    # Session d'APERÇU (preview_token de l'owner) : bot chargé SANS servabilité
+    # ni contrôle d'origine (le bot peut être inactif/non payé, et l'Origin est
+    # l'iframe de l'API, pas un domaine whitelisté) — cohérent avec bootstrap/
+    # session, et comme lead/feedback/handoff/poll qui court-circuitent l'aperçu
+    # avant cette garde. Les side-effects (metering IA, lead, handoff) restent
+    # neutralisés en aval via _is_preview_session.
+    if _is_preview_session(session):
+        bot = await db.get(Bot, session["bot_id"])
+        if bot is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+    else:
+        # Revalidation bot+org (CHANTIER A) : alignee sur lead/feedback/handoff/poll
+        # via _session_active_bot. Corrige la faille ou /message acceptait encore les
+        # bots d'une org suspendue (et consommait l'IA). Message d'erreur aligne.
+        bot = await _session_active_bot(db, request, session)
 
     conversation = await db.get(Conversation, session["sub"])
     if conversation is None:

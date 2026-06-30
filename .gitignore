@@ -13,3 +13,4 @@ bot-assistant-kertios.json
 # Artefacts de build du plugin WordPress (générés au deploy) — garder seulement .gitkeep.
 app/public/downloads/*.zip
 app/public/downloads/*.json
+dont touch and ignore/

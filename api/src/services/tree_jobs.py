@@ -181,7 +181,12 @@ async def run_generation(
     try:
         combined = await build_source_text(parsed, pdf_blobs, context, on_progress=progress)
         await _update(job_id, stage="Construction de l'arbre par l'IA…", pct=78)
-        tree = await generate_tree(combined)
+        # `context` (description/brief du propriétaire) est AUSSI passé comme
+        # owner_brief : il façonne le ton de tous les messages et peut ajouter un
+        # nœud de mise en relation, en plus de son injection dans le texte source
+        # (build_source_text). None/vide -> generate_tree garde son comportement
+        # par défaut (rétro-compat).
+        tree = await generate_tree(combined, owner_brief=context)
         if post_process is not None:
             tree = post_process(tree)
         await _update(job_id, status="done", stage="Terminé", pct=100, tree_json=tree)

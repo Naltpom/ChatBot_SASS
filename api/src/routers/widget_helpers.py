@@ -156,6 +156,11 @@ def _check_session_origin(request: Request, session: dict) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Origine incohérente avec la session")
 
 
+# = widget.PREVIEW_DOMAIN (dupliqué ici pour éviter un import circulaire
+# widget <-> widget_helpers). Une session d'aperçu porte ce domaine sentinelle.
+_PREVIEW_DOMAIN = "__preview__"
+
+
 async def _session_active_bot(db: AsyncSession, request: Request, session: dict) -> Bot:
     """Revalidation post-handshake commune aux endpoints de session (lead,
     feedback, handoff, poll, message) : recharge le bot via l'id signe dans le
@@ -168,11 +173,23 @@ async def _session_active_bot(db: AsyncSession, request: Request, session: dict)
       (suspension impayé/abus -> widgets coupés) ;
     - bot perso (organization_id null) : aucune suspension d'org applicable.
 
+    APERÇU (session preview_token de l'owner) : on charge le bot SANS servabilité
+    ni contrôle d'origine — un bot inactif/non payé est prévisualisable par son
+    owner, et l'Origin est l'iframe de l'API (pas un domaine whitelisté). Cohérent
+    avec bootstrap/session ; chaque endpoint gère ENSUITE le cas aperçu (réponse
+    neutralisée, sans side-effect). Sans ça, lead/handoff/feedback/poll renvoyaient
+    un 403 « Origine incohérente » en aperçu.
+
     Source UNIQUE de cette garde : elle etait copiee-collee a l'identique dans
     chaque endpoint, SAUF /message qui omettait le check org (faille : un bot
     d'equipe dont l'org est suspendue continuait d'accepter /message et de
     consommer l'IA). Le message d'erreur est aligne sur les autres endpoints."""
-    bot = await _assert_bot_servable(db, await db.get(Bot, session["bot_id"]))
+    bot = await db.get(Bot, session["bot_id"])
+    if session.get("domain") == _PREVIEW_DOMAIN:
+        if bot is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
+        return bot
+    bot = await _assert_bot_servable(db, bot)
     _check_session_origin(request, session)
     return bot
 

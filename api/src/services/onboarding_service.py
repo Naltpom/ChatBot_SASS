@@ -23,7 +23,7 @@ import logging
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
-from src.core.constants import MODULE_AI, MODULE_KEYS
+from src.core.constants import MODULE_AI, MODULE_KEYS, MODULE_RAG
 from src.services.prospecting_service import _KEY_PAGE_HINTS
 from src.services.tree_engine import prune_tree_for_modules, required_modules_for_tree
 
@@ -178,21 +178,28 @@ def _pick_tier(catalog: dict, visitors: Optional[int]) -> tuple[str, int]:
 
 
 def recommend(catalog: dict, tree: Optional[dict], description: Optional[str],
-              visitors: Optional[int], mode: Optional[str]) -> dict:
+              visitors: Optional[int], mode: Optional[str],
+              has_kb: bool = False) -> dict:
     """Recommandation DÉTERMINISTE de formule pour un bot.
 
-    - required_modules : modules IMPOSÉS par l'arbre (handoff->inbox, __ai__->ai).
+    - required_modules : modules IMPOSÉS par l'arbre (handoff->inbox, lead->actions,
+      __ai__->ai ; appointment = socle, aucun module).
     - recommended_ai_tier : palier piloté par les `included_replies` du catalogue
       et le trafic estimé (`visitors`).
-    - recommended_modules : required ∪ {ai} (l'IA est toujours recommandée — le
-      socle arbre seul reste possible mais l'IA est la valeur du produit).
+    - recommended_modules : required ∪ {ai} (+ {rag} si le bot a une base de
+      connaissances `has_kb` — sinon la base ingérée à l'onboarding ne serait pas
+      exploitée, le RAG étant gaté au runtime par le module). L'IA est toujours
+      recommandée (la valeur du produit).
     - recommended_byok : False (le managé est le défaut ; le BYOK est un opt-in
       avancé, jamais recommandé automatiquement).
     - expected_replies : réponses incluses du palier recommandé.
     - reason : phrase lisible (FR)."""
     required = required_modules_for_tree(tree or {})
     tier_id, included = _pick_tier(catalog, visitors)
-    recommended_modules = sorted(required | {MODULE_AI})
+    recommended = set(required) | {MODULE_AI}
+    if has_kb:
+        recommended.add(MODULE_RAG)  # base de connaissances présente -> RAG pour l'exploiter
+    recommended_modules = sorted(recommended)
 
     bits = []
     if visitors:
@@ -202,6 +209,8 @@ def recommend(catalog: dict, tree: Optional[dict], description: Optional[str],
     bits.append(f"le palier IA « {tier_id} » ({included} réponses incluses/mois) est conseillé")
     if "inbox" in required:
         bits.append("avec la mise en relation conseiller (module Inbox détecté dans l'arbre)")
+    if has_kb:
+        bits.append("et le module RAG pour répondre depuis le contenu de votre site")
     reason = ", ".join(bits) + "."
 
     return {
@@ -234,11 +243,82 @@ def _infer_type(url: str) -> str:
     return "autre"
 
 
+async def _persist_generated_tree(job_id: str) -> None:
+    """Sauve l'arbre généré (publié dans le job) SUR LE BOT lié, pour que la vue
+    d'arbre du wizard, l'aperçu et la recommandation reflètent le contenu RÉEL
+    (sinon le bot garde l'arbre PAR DÉFAUT tant que l'éditeur n'a pas sauvé ->
+    incohérence vue ≠ éditeur). Best-effort : un échec n'invalide pas la génération
+    (le job reste la source de seed pour l'éditeur). Imports paresseux."""
+    from src.core.database import AsyncSessionLocal
+    from src.models.bot import Bot
+    from src.services import tree_jobs
+    from src.services.bot_service import apply_tree_update
+
+    job = await tree_jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        return
+    tree = job.get("tree_json")
+    bot_id = job.get("bot_id")
+    if not isinstance(tree, dict) or not bot_id:
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            bot = await db.get(Bot, bot_id)
+            if bot is not None:
+                await apply_tree_update(bot, tree, db)  # valide + persiste + updated_at
+    except Exception as exc:
+        logger.warning("onboarding: persistance de l'arbre généré échouée (bot %s): %s", bot_id, exc)
+
+
+def _system_prompt_from_brief(brief: str) -> str:
+    """Construit le `system_prompt` d'un bot à partir du brief libre du propriétaire
+    (la description « rôle » saisie dans l'onboarding) : situe l'assistant
+    (« assistant de ce site »), intègre le ton/persona/rôle demandé, reste concis.
+
+    ⚠ NE duplique PAS le garde-fou de PÉRIMÈTRE serveur : `ai_service.
+    build_system_prompt` ajoute déjà un PÉRIMÈTRE STRICT prioritaire au runtime —
+    ce prompt n'est que la couche TON/RÔLE, qui coexiste avec lui."""
+    brief = " ".join((brief or "").split())[:600]
+    return (
+        "Tu es l'assistant conversationnel de ce site web. Le propriétaire décrit "
+        f"l'assistant souhaité ainsi : « {brief} ». Adopte fidèlement le ton, la "
+        "personnalité et le rôle qui en découlent dans toutes tes réponses, tout en "
+        "restant utile et concis."
+    )
+
+
+async def _persist_system_prompt_from_brief(bot_id: int, brief: Optional[str]) -> None:
+    """Dérive et persiste le `system_prompt` du bot depuis le brief libre du
+    propriétaire (ton/persona voulu), pour que le mode IA réponde DANS ce ton (le
+    défaut du modèle Bot — « assistant utile et concis » — ignore le brief).
+
+    Opt-in & best-effort : un brief vide laisse le défaut INTACT (pas de
+    régression) et un échec n'invalide pas la génération déjà publiée (à côté de
+    `_persist_generated_tree`, jamais à sa place). Imports paresseux + session
+    dédiée (cf. `_persist_generated_tree`)."""
+    cleaned = " ".join((brief or "").split())
+    if not cleaned or not bot_id:
+        return
+    from src.core.database import AsyncSessionLocal
+    from src.core.time import utcnow
+    from src.models.bot import Bot
+
+    try:
+        async with AsyncSessionLocal() as db:
+            bot = await db.get(Bot, bot_id)
+            if bot is not None:
+                bot.system_prompt = _system_prompt_from_brief(cleaned)
+                bot.updated_at = utcnow()
+                await db.commit()
+    except Exception as exc:
+        logger.warning("onboarding: persistance du system_prompt échouée (bot %s): %s", bot_id, exc)
+
+
 async def run_bot_generation(job_id: str, urls: list[str], context: Optional[str],
                              exclude_modules: Optional[list[str]] = None) -> None:
     """Tâche de fond de l'onboarding : collecte le texte des URLs (build_source_text)
     -> génère l'arbre (generate_tree) -> élague selon `exclude_modules` -> publie le
-    résultat dans le job (lu par generate-status). NE sauve PAS sur le bot.
+    résultat dans le job (lu par generate-status) PUIS persiste l'arbre sur le bot.
 
     Wrapper mince de tree_jobs.run_generation (pas de PDF) : même bande de
     progression et même contrat d'erreur. Seule l'intelligence propre à
@@ -256,3 +336,95 @@ async def run_bot_generation(job_id: str, urls: list[str], context: Optional[str
         kept = set(MODULE_KEYS) - excluded
         post_process = lambda t: prune_tree_for_modules(t, kept)
     await tree_jobs.run_generation(job_id, parsed, context, [], post_process=post_process)
+    # Persiste l'arbre généré sur le bot : aligne vue d'arbre / aperçu / reco sur
+    # le contenu réel (sinon le bot reste sur l'arbre par défaut jusqu'à un save
+    # éditeur). Best-effort -> n'invalide jamais la génération déjà publiée.
+    await _persist_generated_tree(job_id)
+    # Dérive AUSSI le system_prompt du bot depuis le brief libre (ton/persona),
+    # pour que le mode IA réponde dans le ton demandé. bot_id lu sur le job (comme
+    # _persist_generated_tree). Opt-in (brief vide -> défaut conservé) & best-effort.
+    job = await tree_jobs.get(job_id)
+    bot_id = (job or {}).get("bot_id")
+    if bot_id:
+        await _persist_system_prompt_from_brief(bot_id, context)
+
+
+# --------------------------------------------------------------------------
+# 5. Ingestion RAG des pages sources (base de connaissances du bot)
+# --------------------------------------------------------------------------
+
+async def run_kb_ingestion(bot_id: int, urls: list[str]) -> None:
+    """Tâche de fond de l'onboarding : ingère le texte des pages choisies dans
+    la BASE DE CONNAISSANCES du bot (KB/RAG), pour que le mode IA libre réponde
+    DEPUIS le site au lieu d'inventer. Lancée EN PARALLÈLE de la génération
+    d'arbre (run_bot_generation) — embeddings LOCAUX, zéro coût externe, donc
+    toujours active (pas de gating module à l'ingestion ; la recherche RAG, elle,
+    reste gatée au runtime côté widget).
+
+    Best-effort & IDEMPOTENT : ne recrée pas de KbSource pour une URL déjà
+    présente (dédup par `ref`, re-génération sûre), respecte le plafond
+    MAX_SOURCES_PER_BOT, et isole chaque URL — une page injoignable (FetchError)
+    bascule SA source en 'error' et n'interrompt pas les autres.
+
+    ⚠ ANTI-SSRF : le texte est récupéré via `fetch_user_url` (porte unique
+    anti-SSRF, avec le bypass DEV loopback pour le WP local), PUIS passé à
+    `ingest_source(text_content=…)` — la source 'url' n'est donc JAMAIS re-fetchée
+    par l'anti-SSRF (qui refuserait localhost en dev). En prod, `fetch_user_url`
+    applique l'anti-SSRF normal (https imposé, IP publiques uniquement)."""
+    # Imports paresseux : kb_service charge le modèle d'embeddings au chargement
+    # de module (cf. sitemap_fallback) — on n'y touche qu'au moment d'ingérer.
+    from src.core.database import AsyncSessionLocal
+    from src.models.kb import KbSource
+    from src.services import kb_service
+    from src.services.safe_fetch import FetchError
+    from sqlalchemy import select
+
+    cleaned = [u for u in ((u or "").strip() for u in (urls or [])) if u]
+    if not cleaned:
+        return
+
+    async with AsyncSessionLocal() as db:
+        # Dédup sur l'ensemble des sources DÉJÀ présentes (idempotence) + plafond.
+        existing = {
+            ref for (ref,) in (await db.execute(
+                select(KbSource.ref).where(KbSource.bot_id == bot_id)
+            )).all()
+        }
+        used = len(existing)
+
+        for url in cleaned:
+            if used >= kb_service.MAX_SOURCES_PER_BOT:
+                logger.info("KB onboarding bot %s : plafond %s sources atteint, "
+                            "URLs restantes ignorées", bot_id, kb_service.MAX_SOURCES_PER_BOT)
+                break
+            if url in existing:
+                continue
+            existing.add(url)
+            used += 1
+
+            source = KbSource(bot_id=bot_id, type="url", ref=url, status="pending")
+            db.add(source)
+            await db.commit()
+            await db.refresh(source)
+
+            # Fetch via la porte anti-SSRF (bypass DEV loopback) PUIS ingestion
+            # SANS re-fetch (text_content). Une page en échec -> source en error,
+            # on continue les autres (best-effort).
+            try:
+                page_text = await kb_service.fetch_user_url(url)
+            except FetchError as exc:
+                source.status = "error"
+                source.error = str(exc)
+                await db.commit()
+                logger.warning("KB onboarding bot %s : %s injoignable (%s)", bot_id, url, exc)
+                continue
+            except Exception as exc:  # robustesse : un parse foireux n'arrête pas le lot
+                source.status = "error"
+                source.error = "Lecture de la page échouée"
+                await db.commit()
+                logger.warning("KB onboarding bot %s : %s erreur inattendue %r", bot_id, url, exc)
+                continue
+
+            # ingest_source ouvre SA propre session, met la source en ready/error
+            # et gère le cap MAX_CHUNKS_PER_BOT. La source est déjà committée -> ok.
+            await kb_service.ingest_source(source.id, text_content=page_text)

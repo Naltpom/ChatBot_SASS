@@ -20,7 +20,11 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.security import require_embed_token
+from src.core.security import (
+    WIDGET_PREVIEW_EXPIRE_MINUTES,
+    create_widget_preview_token,
+    require_embed_token,
+)
 from src.models.bot import Bot
 from src.models.user import Membership, User
 from src.routers.bots_helpers import FIELD_PERMS, _check_bot_perm
@@ -57,6 +61,22 @@ async def get_bot(ctx: tuple[Bot, User, Optional[Membership]] = Depends(require_
         "tree_json": bot.tree_json,
         "design_json": bot.design_json,
         "public_key": bot.public_key,
+    }
+
+
+@router.post("/preview-token")
+async def mint_preview_token(
+    ctx: tuple[Bot, User, Optional[Membership]] = Depends(require_embed_token),
+):
+    """Jeton d'aperçu court (scope widget_preview) pour afficher le VRAI widget.js
+    en iframe dans l'éditeur d'apparence embarqué (parité avec l'étape « Aperçu »
+    du plugin). Le widget bypasse servabilité+origine avec ce token (bot non payé
+    prévisualisable par l'owner), side-effects neutralisés en aval."""
+    bot, user, _m = ctx
+    return {
+        "preview_token": create_widget_preview_token(bot.id, user.id),
+        "public_key": bot.public_key,
+        "expires_in": WIDGET_PREVIEW_EXPIRE_MINUTES * 60,
     }
 
 

@@ -20,16 +20,16 @@ Format du tree_json (exportable/importable en fichier) :
 import copy
 from typing import Any, Optional
 
-from src.core.constants import MODULE_AI, MODULE_INBOX
+from src.core.constants import MODULE_ACTIONS, MODULE_AI, MODULE_INBOX
 
 AI_NODE = "__ai__"
 
 # Mapping noeud -> module d'entitlement DÉRIVÉ de l'arbre (onboarding guidé WP).
-# handoff (mise en relation conseiller) exige le module Inbox. lead/appointment
-# sont du SOCLE (aucun module). L'option `next=='__ai__'` implique le module IA
-# (traité à part, ce n'est pas un type de noeud). Source UNIQUE, partagée par la
-# recommandation et l'élagage par modules.
-NODE_TYPE_TO_MODULE = {"handoff": MODULE_INBOX}
+# handoff (mise en relation conseiller) exige le module Inbox ; lead (formulaire
+# de capture de contact) exige le module Actions. appointment reste du SOCLE.
+# L'option `next=='__ai__'` implique le module IA (traité à part, ce n'est pas un
+# type de noeud). Source UNIQUE, partagée par la recommandation et l'élagage.
+NODE_TYPE_TO_MODULE = {"handoff": MODULE_INBOX, "lead": MODULE_ACTIONS}
 
 # Types de noeuds. Sans `type` = noeud message classique (retro-compat des
 # arbres existants). appointment = URL de calendrier (Calendly/Cal.com) rendue
@@ -133,9 +133,9 @@ def format_node_response(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
 
 def required_modules_for_tree(tree: dict[str, Any]) -> set[str]:
     """Modules d'entitlement IMPOSÉS par la structure de l'arbre (pur, testable) :
-    un noeud `handoff` -> Inbox ; une option `next == '__ai__'` -> IA. Les noeuds
-    `lead`/`appointment` sont du socle (aucun module). Tolérant aux arbres
-    malformés (retourne un set, jamais d'exception)."""
+    un noeud `handoff` -> Inbox ; un noeud `lead` -> Actions ; une option
+    `next == '__ai__'` -> IA. Le noeud `appointment` reste du socle (aucun module).
+    Tolérant aux arbres malformés (retourne un set, jamais d'exception)."""
     required: set[str] = set()
     nodes = (tree or {}).get("nodes")
     if not isinstance(nodes, dict):
