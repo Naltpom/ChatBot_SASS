@@ -4,13 +4,8 @@
 name: Deploy to VPS (chapote.fr)
 
 on:
-  workflow_dispatch:   # bouton "Run workflow" dans l'UI GitHub
-    inputs:
-      branch:
-        description: "Branche à déployer (défaut : master)"
-        required: false
-        default: master
-        type: string
+  workflow_dispatch:   # bouton "Run workflow" : on déploie la branche choisie dans
+                       # le sélecteur natif "Use workflow from" (= github.ref_name).
 
 concurrency:
   group: deploy-chapote   # un seul déploiement à la fois
@@ -30,10 +25,10 @@ jobs:
 
       - name: Déployer (checkout branche + build + up -d)
         env:
-          DEPLOY_BRANCH: ${{ inputs.branch }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
         run: |
-          # La branche passe par une variable d'env (jamais interpolée dans la
-          # commande SSH) -> pas d'injection shell via l'input.
+          # La branche (= sélecteur "Use workflow from") passe par une variable
+          # d'env, jamais interpolée dans la commande SSH -> pas d'injection shell.
           ssh -i ~/.ssh/id_ed25519 \
             "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
             "cd /home/ubuntu/apps/ChatBot_SASS && ./deploy.sh '$DEPLOY_BRANCH'"
