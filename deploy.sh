@@ -11,8 +11,18 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "==> git pull"
-git pull --ff-only
+# Branche à déployer : 1er argument (passé par le workflow Deploy), `master` par
+# défaut. On checkout PUIS reset --hard sur origin/<branche> pour que le serveur
+# reflète EXACTEMENT la branche choisie. Indispensable : un simple `git pull`
+# pullait l'upstream de la branche COURANTE — si le serveur restait parké sur une
+# vieille branche (ex. un hotfix), tous les déploiements re-livraient ce vieux
+# code en silence (le workflow affichait quand même « success »). Les fichiers
+# non suivis (sauvegardes .env.bak, etc.) sont préservés par reset --hard.
+DEPLOY_BRANCH="${1:-master}"
+echo "==> checkout + sync sur la branche : ${DEPLOY_BRANCH}"
+git fetch origin --quiet
+git checkout "${DEPLOY_BRANCH}"
+git reset --hard "origin/${DEPLOY_BRANCH}"
 
 # -----------------------------------------------------------------------------
 # Build du plugin WordPress « Chapote Back-Office » (AVANT le build de l'app)
