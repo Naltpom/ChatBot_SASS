@@ -1,0 +1,19 @@
+{
+    "name": "chapote/wordpress-plugin-tests",
+    "description": "Harness PHPUnit pour la frontiere de securite du plugin WordPress Chapote (crypto AES-256-GCM, permissions REST, OAuth PKCE/S256). Tests UNIQUEMENT : ne fait pas partie du plugin distribue.",
+    "type": "project",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "phpunit"
+    }
+}

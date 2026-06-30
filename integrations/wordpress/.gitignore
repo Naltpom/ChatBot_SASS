@@ -8,3 +8,7 @@ wp-data/
 wp-content/uploads/
 *.sql
 *.sqlite
+
+# Dépendances de dev du harness PHPUnit (installées via `composer install` en CI) + cache PHPUnit.
+/vendor/
+/.phpunit.cache/

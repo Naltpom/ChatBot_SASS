@@ -230,6 +230,38 @@ jobs:
         run: docker compose down -v
 
   # ---------------------------------------------------------------------------
+  # JOB — PHPUnit du plugin WordPress (finding WP-01, Élevé). Avant, AUCUN job ne
+  # touchait le PHP : toute la frontière de sécurité du plugin (crypto
+  # AES-256-GCM des tokens OAuth, garde permission+nonce du proxy REST, anti-CSRF
+  # state + S256 du flux PKCE) était livrée sans un seul test automatisé. Ce job
+  # installe PHP + Composer et exécute le harness `integrations/wordpress/` (stubs
+  # WP maison, openssl natif pour la crypto) en gate. Couverture MINIMALE mais
+  # significative ; l'extension de couverture du plugin = PR-16/PR-17.
+  # ---------------------------------------------------------------------------
+  wp-plugin:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: PHP 8.3 (+ openssl/mbstring requis par la crypto AES-256-GCM)
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: openssl, mbstring
+          coverage: none
+          tools: composer:v2
+
+      - name: Installer les dépendances (PHPUnit)
+        working-directory: integrations/wordpress
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: PHPUnit (frontière de sécurité du plugin)
+        working-directory: integrations/wordpress
+        run: ./vendor/bin/phpunit
+
+  # ---------------------------------------------------------------------------
   # JOB 3 — e2e COMPLÈTE (billing OFF) : exécute TOUTE la suite Playwright, pas
   # seulement les billing-* (findings APP-01/APP-02). Avant, le seul job e2e
   # filtrait `billing-` => 22 des 28 specs (widget, actions, kb, triggers,
