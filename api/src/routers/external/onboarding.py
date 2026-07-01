@@ -224,8 +224,15 @@ async def recommendation(
     catalog = await catalog_payload(db)
     tree = _coerce_tree(body.tree_json) or bot.tree_json
     has_kb = await _bot_has_kb(db, bot.id)
-    return onboarding_service.recommend(catalog, tree, body.description,
-                                        body.visitors_per_month, bot.mode, has_kb=has_kb)
+    result = onboarding_service.recommend(catalog, tree, body.description,
+                                          body.visitors_per_month, bot.mode, has_kb=has_kb)
+    # Explication PERSONNALISÉE générée par l'IA (2-3 phrases sur mesure). Best-effort :
+    # None si l'IA échoue -> l'offre retombe sur `explanations` (statique) déjà dans
+    # result. Petit texte, NON compté dans treegen_limiter.
+    result["explanation_ai"] = await onboarding_service.generate_plan_pitch(
+        bot.name, body.description, result["recommended_modules"],
+        body.visitors_per_month, result["expected_replies"])
+    return result
 
 
 @router.get("/bots/{bot_id}/recommendation")

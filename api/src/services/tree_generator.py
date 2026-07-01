@@ -205,6 +205,42 @@ async def fetch_page_text(url: str) -> str:
     return text[:MAX_SOURCE_CHARS]
 
 
+async def generate_text_gemini(system_prompt: str, user_prompt: str,
+                               max_tokens: int = 400) -> Optional[str]:
+    """Appel Gemini REST -> TEXTE LIBRE (pas de JSON). Best-effort : renvoie None
+    sur clé absente / MOCK_AI / toute erreur (l'appelant a toujours un repli).
+    Sert aux petits textes générés (ex. explication personnalisée du plan)."""
+    api_key = settings.GEMINI_API_KEY
+    if not api_key or settings.MOCK_AI:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                GEMINI_URL.format(model=GEMINI_TREE_MODEL),
+                params={"key": api_key},
+                json={
+                    "system_instruction": {"parts": [{"text": system_prompt}]},
+                    "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.4,
+                        "maxOutputTokens": max_tokens,
+                        "thinkingConfig": {"thinkingBudget": 0},
+                    },
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        logger.warning("generate_text_gemini: erreur API Gemini %s", e)
+        return None
+    cands = data.get("candidates") or []
+    if not cands:
+        return None
+    parts = (cands[0].get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    return text or None
+
+
 async def _generate_tree_gemini(source_text: str, system_prompt: str) -> str:
     """Appel Gemini REST direct (generateContent) -> texte brut (JSON attendu).
 

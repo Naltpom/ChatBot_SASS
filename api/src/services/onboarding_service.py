@@ -252,6 +252,42 @@ def recommend(catalog: dict, tree: Optional[dict], description: Optional[str],
     }
 
 
+_MODULE_PITCH_LABELS = {
+    "ai": "l'IA (réponses automatiques aux questions ouvertes)",
+    "inbox": "la mise en relation avec un conseiller humain en direct",
+    "actions": "la capture de contacts / leads",
+    "rag": "la base de connaissances (réponses tirées du contenu du site)",
+    "mcp": "les intégrations avancées (MCP)",
+    "ab": "l'A/B testing des messages",
+    "white_label": "la marque blanche (sans mention Chapote)",
+}
+
+
+async def generate_plan_pitch(bot_name: Optional[str], description: Optional[str],
+                              recommended_modules: list[str], visitors: Optional[int],
+                              expected_replies: int) -> Optional[str]:
+    """Paragraphe PERSONNALISÉ (généré par l'IA) expliquant pourquoi la formule
+    recommandée convient à CE commerce — à afficher au-dessus du configurateur.
+    Best-effort : renvoie None sur toute erreur / MOCK_AI / clé absente (l'offre
+    retombe alors sur les explications statiques de `recommend`)."""
+    from src.services.tree_generator import generate_text_gemini
+    mods = ", ".join(_MODULE_PITCH_LABELS.get(m, m) for m in recommended_modules)
+    system = (
+        "Tu es un conseiller de Chapote (assistants conversationnels pour sites web). "
+        "En 2 ou 3 phrases chaleureuses, concrètes et VOUVOYÉES (texte brut : pas de "
+        "markdown, pas d'emoji, pas de liste, pas de prix), tu expliques au commerçant "
+        "pourquoi la formule recommandée pour SON assistant lui convient et à quoi elle "
+        "sert pour SON activité. Reste factuel, sans superlatifs creux."
+    )
+    bits = [f"Commerce : {bot_name or 'ce site'}."]
+    if description:
+        bits.append(f"Ce que le propriétaire veut de l'assistant : {description[:600]}.")
+    bits.append(f"Trafic estimé : {visitors} visiteurs/mois." if visitors else "Trafic non précisé.")
+    bits.append(f"Formule recommandée : {mods}. Palier IA : {expected_replies} réponses incluses/mois.")
+    user = " ".join(bits) + " Explique pourquoi cette formule est adaptée à cette activité."
+    return await generate_text_gemini(system, user)
+
+
 # --------------------------------------------------------------------------
 # 4. Génération d'arbre liée à un bot (job éphémère, sans sauvegarde)
 # --------------------------------------------------------------------------
