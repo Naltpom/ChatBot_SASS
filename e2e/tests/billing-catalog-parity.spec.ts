@@ -92,7 +92,7 @@ test('parité cross-surface : front (MODULE_KEYS + type ModuleKey) et PHP (allow
   // 3) PHP — allowlist de sanitisation (clés, ordre indifférent -> comparaison
   //    d'ensembles triés). class-chapote-bo-rest.php::ALLOWED_MODULES (constante de
   //    classe, source unique consommée par sanitize_module_list).
-  const restPhp = read('integrations/wordpress/chapote-chatbot/includes/class-chapote-bo-rest.php')
+  const restPhp = read('integrations/wordpress/chapote-bot-manager/includes/class-chapote-bo-rest.php')
   const allowBlock = restPhp.match(/ALLOWED_MODULES\s*=\s*array\(([\s\S]*?)\)/)
   expect(allowBlock, 'ALLOWED_MODULES introuvable dans class-chapote-bo-rest.php').not.toBeNull()
   const phpKeys = singleQuoted(allowBlock![1])

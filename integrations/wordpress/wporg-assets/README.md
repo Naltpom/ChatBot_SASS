@@ -3,7 +3,7 @@
 Ces fichiers vont dans le dossier **`/assets`** du dépôt SVN WordPress.org (PAS dans
 le zip du plugin — voir `docs/PLUGIN_DISTRIBUTION.md`). Ils ne sont jamais chargés
 par WordPress sur le site du client : ils servent uniquement à la **fiche** du
-répertoire wordpress.org/plugins/chapote-chatbot/.
+répertoire wordpress.org/plugins/chapote-bot-manager/.
 
 ## Prêts (générés depuis le logo de marque Chapote)
 | Fichier | Dimensions | Usage |

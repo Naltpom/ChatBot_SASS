@@ -20,7 +20,7 @@
     </testsuites>
     <source>
         <include>
-            <directory suffix=".php">chapote-chatbot/includes</directory>
+            <directory suffix=".php">chapote-bot-manager/includes</directory>
         </include>
     </source>
 </phpunit>

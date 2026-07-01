@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name:       Chapote Chatbot
+ * Plugin Name:       Chapote Bot Manager
  * Description:       Le chatbot Chapote dans WordPress : connectez-vous, gérez vos bots, éditez l'apparence, payez (Stripe), activez le widget sur le site et ciblez les pages. UI mince au-dessus de l'API Chapote ; le token reste côté serveur (jamais exposé au JavaScript).
  * Version:           2.2.0
  * Requires at least: 5.8
@@ -9,7 +9,7 @@
  * Author URI:        https://chapote.fr
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain:       chapote-chatbot
+ * Text Domain:       chapote-bot-manager
  *
  * Architecture (cf. PLUGIN_V2_BACKOFFICE_SPEC.md) :
  *   Admin SPA (vanilla JS)  --proxy /wp-json/chapote-bo/v1/*-->  API Chapote (/api/oauth/*, /api/account/*)
@@ -81,7 +81,7 @@ function chapote_bo_action_links($links) {
     $url = admin_url('admin.php?page=chapote-chatbot');
     array_unshift(
         $links,
-        '<a href="' . esc_url($url) . '">' . esc_html__('Ouvrir Chapote Chatbot', 'chapote-chatbot') . '</a>'
+        '<a href="' . esc_url($url) . '">' . esc_html__('Ouvrir Chapote Bot Manager', 'chapote-bot-manager') . '</a>'
     );
     return $links;
 }
@@ -96,7 +96,7 @@ function chapote_bo_register_privacy_content() {
         return;
     }
     $content = wp_kses_post(
-        '<p>' . __('Le plugin Chapote Chatbot se connecte à l\'API Chapote (OAuth Authorization Code + PKCE) pour gérer vos bots et déclenche une redirection vers Stripe Checkout pour le paiement. Le widget public charge un script depuis le domaine Chapote configuré.', 'chapote-chatbot') . '</p>'
+        '<p>' . __('Le plugin Chapote Bot Manager se connecte à l\'API Chapote (OAuth Authorization Code + PKCE) pour gérer vos bots et déclenche une redirection vers Stripe Checkout pour le paiement. Le widget public charge un script depuis le domaine Chapote configuré.', 'chapote-bot-manager') . '</p>'
     );
-    wp_add_privacy_policy_content('Chapote Chatbot', $content);
+    wp_add_privacy_policy_content('Chapote Bot Manager', $content);
 }

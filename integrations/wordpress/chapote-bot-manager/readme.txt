@@ -1,5 +1,5 @@
-=== Chapote Chatbot ===
-Contributors: chapote
+=== Chapote Bot Manager ===
+Contributors: naltpom
 Tags: chatbot, chat, support, assistant, ai
 Requires at least: 5.8
 Tested up to: 7.0
@@ -12,7 +12,7 @@ Manage your Chapote chatbots from WordPress: connect, manage bots, edit appearan
 
 == Description ==
 
-Chapote Chatbot turns your WordPress admin into a lightweight dashboard for your Chapote account. From the "Chapote" menu in wp-admin you can:
+Chapote Bot Manager turns your WordPress admin into a lightweight dashboard for your Chapote account. From the "Chapote" menu in wp-admin you can:
 
 * Sign in with Chapote ("Sign in with Chapote", OAuth Authorization Code + PKCE — you are redirected to the Chapote consent screen; no Chapote password is entered or stored in WordPress).
 * Manage your bots: list, create, and edit the appearance with a live preview.
@@ -82,7 +82,6 @@ No, the widget serves any usable bot; a free bot works with the free reply quota
 
 = 2.1.0 =
 * SEO: new "SEO" tab. Optional "Powered by Chapote" link (off by default) and schema.org FAQ structured data (FAQPage, JSON-LD) rendered server-side, eligible for rich results.
-* Automatic updates for installations hosted outside WordPress.org (version check and install from the WordPress admin).
 
 = 2.0.0 =
 * Full management interface in WordPress, a thin interface over the Chapote account API.
@@ -98,7 +97,7 @@ No, the widget serves any usable bot; a free bot works with the free reply quota
 Adds a guided onboarding wizard that builds a chatbot from your WordPress pages, with appearance, tree editing, preview, plan recommendation and one-click activation.
 
 = 2.1.0 =
-Adds the SEO tab (optional link + schema.org FAQ) and automatic updates outside WordPress.org.
+Adds the SEO tab (optional link + schema.org FAQ).
 
 = 2.0.0 =
 Rebuilt as a full management interface: "Sign in with Chapote", bot management, appearance, hosted Stripe payment, and widget activation/targeting. Requires a Chapote account and PHP 7.4+ with OpenSSL.

@@ -26,7 +26,7 @@ if (!defined('SECURE_AUTH_KEY')) {
     define('SECURE_AUTH_KEY', 'test-secure-auth-key-9876543210-ZYXWVUTSRQPONMLKJIHGFEDCBA');
 }
 
-// Constantes definies par chapote-chatbot.php (on ne charge PAS le fichier
+// Constantes definies par chapote-bot-manager.php (on ne charge PAS le fichier
 // principal : il enregistre des hooks au premier niveau). On reprend a l'identique.
 if (!defined('CHAPOTE_BO_REST_NS')) {
     define('CHAPOTE_BO_REST_NS', 'chapote-bo/v1');
@@ -44,7 +44,7 @@ require_once __DIR__ . '/wp-stubs.php';
 // 2) Classes du plugin sous test (frontiere de securite). On ne charge PAS
 //    pages/admin/frontend/seo/updater : non requis par les methodes testees
 //    (referencees seulement dans des corps de methode non invoques).
-$inc = __DIR__ . '/../chapote-chatbot/includes/';
+$inc = __DIR__ . '/../chapote-bot-manager/includes/';
 require_once $inc . 'class-chapote-bo-crypto.php';
 require_once $inc . 'class-chapote-bo-options.php';
 require_once $inc . 'class-chapote-bo-tokens.php';

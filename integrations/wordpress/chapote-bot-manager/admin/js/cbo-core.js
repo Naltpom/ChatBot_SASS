@@ -1,5 +1,5 @@
 /**
- * Chapote Chatbot — primitives partagées (window.CBOCore).
+ * Chapote Bot Manager — primitives partagées (window.CBOCore).
  *
  * EXTRAIT d'admin.js : ces helpers sont réellement génériques et consommés à la
  * fois par le back-office (admin.js) ET le wizard d'onboarding (onboarding.js).

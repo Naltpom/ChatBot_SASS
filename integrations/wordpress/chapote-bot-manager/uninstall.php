@@ -13,6 +13,7 @@ delete_option('chapote_bo_settings');
 delete_option('chapote_bo_bots_local');
 delete_option('chapote_bo_seo');
 delete_option('chapote_bo_onboarding');
+delete_option('chapote_chatbot_settings'); // Option héritée v1 (migration).
 
 // Secrets : tokens chiffrés + secret de chiffrement d'install.
 delete_option('chapote_bo_tokens');

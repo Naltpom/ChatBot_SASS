@@ -1,7 +1,7 @@
-# Distribution du plugin WordPress « Chapote Back-Office »
+# Distribution du plugin WordPress « Chapote Bot Manager »
 
 Ce document décrit les deux canaux de distribution du plugin
-`integrations/wordpress/chapote-chatbot/` :
+`integrations/wordpress/chapote-bot-manager/` :
 
 1. **Auto-hébergé** (canal actuel) : un zip servi par le nginx de l'app, avec
    mise à jour automatique via un manifeste JSON.
@@ -9,8 +9,8 @@ Ce document décrit les deux canaux de distribution du plugin
    officiel via SVN, avec assets et passage de la revue `.org`.
 
 La source de vérité du plugin est le dossier
-`integrations/wordpress/chapote-chatbot/`. La version est définie à **un seul
-endroit logique** : l'en-tête `Version:` de `chapote-chatbot.php`, la constante
+`integrations/wordpress/chapote-bot-manager/`. La version est définie à **un seul
+endroit logique** : l'en-tête `Version:` de `chapote-bot-manager.php`, la constante
 `CHAPOTE_BO_VERSION`, et le `Stable tag:` de `readme.txt` doivent rester
 **identiques** (actuellement `2.0.0`).
 
@@ -25,9 +25,9 @@ volume) exposé sous `https://chapote.fr/downloads/` :
 
 | URL | Rôle |
 |---|---|
-| `https://chapote.fr/downloads/chapote-chatbot.zip` | dernier zip (alias du courant) |
-| `https://chapote.fr/downloads/chapote-chatbot-2.0.0.zip` | zip versionné (immuable) |
-| `https://chapote.fr/downloads/chapote-chatbot.json` | manifeste d'auto-update |
+| `https://chapote.fr/downloads/chapote-bot-manager.zip` | dernier zip (alias du courant) |
+| `https://chapote.fr/downloads/chapote-bot-manager-2.0.0.zip` | zip versionné (immuable) |
+| `https://chapote.fr/downloads/chapote-bot-manager.json` | manifeste d'auto-update |
 
 > Le zip versionné ne doit **jamais** être réécrit une fois publié (immuable, cache
 > long). Le `…-backoffice.zip` non versionné est un alias mis à jour à chaque
@@ -40,32 +40,32 @@ de dev) et on zippe. Exemple d'étape à intégrer au `deploy.sh` de la racine, 
 exécuter à part :
 
 ```bash
-PLUGIN_DIR=integrations/wordpress/chapote-chatbot
+PLUGIN_DIR=integrations/wordpress/chapote-bot-manager
 VERSION=$(grep -m1 -oE "Stable tag: [0-9.]+" "$PLUGIN_DIR/readme.txt" | awk '{print $3}')
 OUT=/srv/chapote/downloads          # volume monté et servi par nginx en /downloads
 STAGE=$(mktemp -d)
 
-# 1) Copie propre (le slug du dossier DOIT être chapote-chatbot).
+# 1) Copie propre (le slug du dossier DOIT être chapote-bot-manager).
 rsync -a --delete \
   --exclude '.git*' --exclude 'node_modules' --exclude '*.map' \
-  "$PLUGIN_DIR/" "$STAGE/chapote-chatbot/"
+  "$PLUGIN_DIR/" "$STAGE/chapote-bot-manager/"
 
 # 2) Zips (versionné + alias courant).
-( cd "$STAGE" && zip -rq "chapote-chatbot-$VERSION.zip" chapote-chatbot )
-cp "$STAGE/chapote-chatbot-$VERSION.zip" "$STAGE/chapote-chatbot.zip"
+( cd "$STAGE" && zip -rq "chapote-bot-manager-$VERSION.zip" chapote-bot-manager )
+cp "$STAGE/chapote-bot-manager-$VERSION.zip" "$STAGE/chapote-bot-manager.zip"
 
 # 3) Manifeste d'auto-update.
 LAST=$(date -u '+%Y-%m-%d %H:%M:%S')
-cat > "$STAGE/chapote-chatbot.json" <<JSON
+cat > "$STAGE/chapote-bot-manager.json" <<JSON
 {
-  "name": "Chapote Back-Office",
-  "slug": "chapote-chatbot",
+  "name": "Chapote Bot Manager",
+  "slug": "chapote-bot-manager",
   "version": "$VERSION",
   "requires": "5.8",
   "tested": "6.6",
   "requires_php": "7.4",
   "last_updated": "$LAST",
-  "download_url": "https://chapote.fr/downloads/chapote-chatbot-$VERSION.zip",
+  "download_url": "https://chapote.fr/downloads/chapote-bot-manager-$VERSION.zip",
   "homepage": "https://chapote.fr",
   "sections": {
     "changelog": "Voir readme.txt"
@@ -75,11 +75,11 @@ JSON
 
 # 4) Publication atomique.
 install -d "$OUT"
-mv "$STAGE"/chapote-chatbot-*.zip "$STAGE"/chapote-chatbot.zip "$STAGE"/chapote-chatbot.json "$OUT/"
+mv "$STAGE"/chapote-bot-manager-*.zip "$STAGE"/chapote-bot-manager.zip "$STAGE"/chapote-bot-manager.json "$OUT/"
 rm -rf "$STAGE"
 ```
 
-> ⚠️ Le **slug du dossier dans le zip** doit être `chapote-chatbot` (il doit
+> ⚠️ Le **slug du dossier dans le zip** doit être `chapote-bot-manager` (il doit
 > correspondre au dossier installé sous `wp-content/plugins/` et au `slug` du
 > manifeste), sinon l'auto-update ne s'appliquera pas au bon plugin.
 
@@ -88,7 +88,7 @@ rm -rf "$STAGE"
 L'auto-update auto-hébergé repose sur le manifeste ci-dessus et un brancheur PHP
 (à câbler dans le plugin si non présent) qui :
 
-* lit `https://chapote.fr/downloads/chapote-chatbot.json` (via `wp_remote_get`,
+* lit `https://chapote.fr/downloads/chapote-bot-manager.json` (via `wp_remote_get`,
   jamais `curl`/`file_get_contents`) avec un cache transient (~12 h) ;
 * compare `version` à `CHAPOTE_BO_VERSION` ;
 * si une version plus récente existe, injecte l'objet de mise à jour dans le filtre
@@ -112,7 +112,7 @@ versionné immuable.
 2. Lancer le build (section 1.2) pour produire les zips + le manifeste dans
    `/downloads`.
 3. Vérifier :
-   `curl -fsSL https://chapote.fr/downloads/chapote-chatbot.json` (version
+   `curl -fsSL https://chapote.fr/downloads/chapote-bot-manager.json` (version
    correcte) et que le zip versionné se télécharge.
 4. Sur un WordPress de test, vérifier que la mise à jour est proposée et s'installe.
 
@@ -127,14 +127,14 @@ versionné immuable.
 * Le plugin doit passer la revue (section 3) avant le premier import.
 * Soumettre le plugin pour revue initiale sur
   https://wordpress.org/plugins/developers/add/ (upload du zip). Après validation
-  humaine, un dépôt **SVN** est créé : `https://plugins.svn.wordpress.org/chapote-chatbot/`.
+  humaine, un dépôt **SVN** est créé : `https://plugins.svn.wordpress.org/chapote-bot-manager/`.
 
 ### 2.2 Structure SVN
 
 ```
-chapote-chatbot/
+chapote-bot-manager/
 ├── trunk/            ← code en cours (miroir du dossier plugin)
-│   ├── chapote-chatbot.php
+│   ├── chapote-bot-manager.php
 │   ├── readme.txt
 │   ├── uninstall.php
 │   ├── includes/ admin/ languages/ …
@@ -164,10 +164,10 @@ Règles clés :
 ### 2.3 Procédure de publication SVN
 
 ```bash
-svn co https://plugins.svn.wordpress.org/chapote-chatbot/ svn-chapote
-# 1) Synchroniser le code dans trunk/ (depuis integrations/wordpress/chapote-chatbot/)
+svn co https://plugins.svn.wordpress.org/chapote-bot-manager/ svn-chapote
+# 1) Synchroniser le code dans trunk/ (depuis integrations/wordpress/chapote-bot-manager/)
 rsync -a --delete --exclude '.git*' \
-  integrations/wordpress/chapote-chatbot/ svn-chapote/trunk/
+  integrations/wordpress/chapote-bot-manager/ svn-chapote/trunk/
 # 2) Déposer les visuels
 cp assets/icon-128x128.png assets/icon-256x256.png assets/banner-772x250.png \
    assets/screenshot-*.png svn-chapote/assets/
@@ -200,7 +200,7 @@ actuel ; cette liste sert de garde-fou à chaque release).
   `current_user_can('manage_options')` **et** un nonce `wp_rest` ; les paramètres
   sont `sanitize_*` / bornés (modules, ciblage) avant usage.
 * **Internationalisation (i18n).** Toutes les chaînes via `__()/esc_html__()` avec
-  le text domain `chapote-chatbot` ; `load_plugin_textdomain` chargé ;
+  le text domain `chapote-bot-manager` ; `load_plugin_textdomain` chargé ;
   `Domain Path: /languages`.
 * **Divulgation du service externe.** Le `readme.txt` déclare clairement la
   dépendance à Chapote (service tiers payant), les communications avec chapote.fr
@@ -219,7 +219,7 @@ actuel ; cette liste sert de garde-fou à chaque release).
   `Chapote_BO_` ; pas d'accès direct aux fichiers (`if (!defined('ABSPATH')) exit;`) ;
   désinstallation propre (`uninstall.php`).
 * **En-têtes à jour.** `Requires at least`, `Tested up to: 6.6`, `Requires PHP: 7.4`,
-  `Stable tag` alignés entre `readme.txt` et `chapote-chatbot.php`.
+  `Stable tag` alignés entre `readme.txt` et `chapote-bot-manager.php`.
 * **Plugin Check.** Faire passer le plugin officiel **Plugin Check**
   (https://wordpress.org/plugins/plugin-check/) et corriger les erreurs bloquantes
   avant soumission.
@@ -230,8 +230,8 @@ actuel ; cette liste sert de garde-fou à chaque release).
 
 | Élément | Emplacement |
 |---|---|
-| Source du plugin | `integrations/wordpress/chapote-chatbot/` |
+| Source du plugin | `integrations/wordpress/chapote-bot-manager/` |
 | Version (3 endroits à garder alignés) | en-tête `Version:` + `CHAPOTE_BO_VERSION` + `Stable tag:` |
-| Readme distribué/`.org` | `integrations/wordpress/chapote-chatbot/readme.txt` |
+| Readme distribué/`.org` | `integrations/wordpress/chapote-bot-manager/readme.txt` |
 | Zips + manifeste auto-update | `https://chapote.fr/downloads/` (volume nginx app) |
 | Assets `.org` (hors zip) | `assets/` du SVN WordPress.org |
