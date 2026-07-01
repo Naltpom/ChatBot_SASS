@@ -213,6 +213,34 @@ def recommend(catalog: dict, tree: Optional[dict], description: Optional[str],
         bits.append("et le module RAG pour répondre depuis le contenu de votre site")
     reason = ", ".join(bits) + "."
 
+    # Explications PÉDAGOGIQUES par module (affichées au-dessus du configurateur) :
+    # chaque « why » est rattaché à CE bot (arbre / site) pour que l'utilisateur
+    # comprenne à quoi sert ce qu'il paie. L'ordre suit l'importance produit.
+    explanations = [{
+        "module": MODULE_AI,
+        "title": "Assistant IA",
+        "why": "Répond tout seul aux questions ouvertes que votre arbre ne couvre pas "
+               "(l'option « Autre question ») — c'est le cœur de l'assistant.",
+    }]
+    if "inbox" in required:
+        explanations.append({
+            "module": "inbox", "title": "Mise en relation conseiller",
+            "why": "Votre arbre propose de parler à un conseiller : ce module permet à "
+                   "un humain de reprendre la conversation en direct quand l'IA ne suffit pas.",
+        })
+    if "actions" in required:
+        explanations.append({
+            "module": "actions", "title": "Capture de contacts",
+            "why": "Votre arbre contient un formulaire de contact : ce module l'active et "
+                   "enregistre les coordonnées (leads) que laissent vos visiteurs.",
+        })
+    if has_kb:
+        explanations.append({
+            "module": "rag", "title": "Base de connaissances",
+            "why": "Les pages de votre site ont été analysées : l'IA puise ses réponses dans "
+                   "VOTRE contenu (tarifs, horaires, services…) au lieu de répondre au hasard.",
+        })
+
     return {
         "required_modules": sorted(required),
         "recommended_ai_tier": tier_id,
@@ -220,6 +248,7 @@ def recommend(catalog: dict, tree: Optional[dict], description: Optional[str],
         "recommended_byok": False,
         "expected_replies": included,
         "reason": reason,
+        "explanations": explanations,
     }
 
 

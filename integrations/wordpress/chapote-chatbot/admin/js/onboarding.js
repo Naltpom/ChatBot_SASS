@@ -732,6 +732,17 @@
     if (rec && rec.reason) banner.appendChild(h('p', { class: 'cbo-muted', text: rec.reason }));
     if (rec && rec.expected_replies) banner.appendChild(h('p', { class: 'cbo-muted',
       text: 'Volume estimé : environ ' + Number(rec.expected_replies).toLocaleString('fr-FR') + ' réponses / mois.' }));
+    // Explications par module (pourquoi payer) : rattachées à CET arbre / ce site.
+    if (rec && Array.isArray(rec.explanations) && rec.explanations.length) {
+      banner.appendChild(h('p', { class: 'cbo-onb-reco-intro',
+        text: 'Concrètement, voici ce que votre assistant utilise — et pourquoi :' }));
+      var exList = h('ul', { class: 'cbo-onb-reco-list' });
+      rec.explanations.forEach(function (ex) {
+        exList.appendChild(h('li', null,
+          h('strong', { text: ex.title }), h('span', { text: ' — ' + ex.why })));
+      });
+      banner.appendChild(exList);
+    }
 
     A.buildPaymentForm(pane, sBot, catalog, {
       banner: banner,

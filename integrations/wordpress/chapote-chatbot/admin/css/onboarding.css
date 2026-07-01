@@ -90,8 +90,12 @@
 
 /* Offre */
 .cbo-onb-reco { background: #f6fbf9; border: 1px solid #cfeae2; border-left: 4px solid #0d9488; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; }
-.cbo-onb-reco strong { display: block; margin-bottom: 4px; }
+.cbo-onb-reco > strong { display: block; margin-bottom: 4px; }
 .cbo-onb-reco p { margin: 4px 0 0; font-size: 13px; }
+.cbo-onb-reco-intro { margin: 10px 0 4px !important; font-weight: 600; color: #1d2327; }
+.cbo-onb-reco-list { margin: 0; padding-left: 18px; list-style: disc; }
+.cbo-onb-reco-list li { margin: 4px 0; font-size: 12.5px; line-height: 1.45; color: #3c434a; }
+.cbo-onb-reco-list strong { display: inline; color: #0a7a5c; }
 .cbo-reqwarn { margin: 6px 0 0; }
 .cbo-reqwarn-msg { color: #8a6d1a; background: #fcf9e8; border-radius: 6px; padding: 8px 12px; font-style: normal; }
 
