@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 from src.services.kb_service import fetch_user_url, pdf_to_text
 from src.services.rate_limit import _get_redis  # client redis.asyncio partagé (ou None)
 from src.services.safe_fetch import FetchError
+from src.services.tree_engine import normalize_tree
 from src.services.tree_generator import MAX_SOURCE_CHARS, TreeGenerationError, generate_tree
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,10 @@ async def run_generation(
         tree = await generate_tree(combined, owner_brief=context)
         if post_process is not None:
             tree = post_process(tree)
+        # Normalisation DÉTERMINISTE (lead/appointment) : garantit que l'arbre
+        # publié (seed éditeur) ET l'arbre persisté sur le bot par
+        # _persist_generated_tree (qui lit job.tree_json) passent validate_tree.
+        tree = normalize_tree(tree)
         await _update(job_id, status="done", stage="Terminé", pct=100, tree_json=tree)
     except TreeGenerationError as exc:
         await _update(job_id, status="error", error=str(exc))

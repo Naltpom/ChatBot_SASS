@@ -78,6 +78,48 @@ def validate_tree(tree: dict[str, Any]) -> None:
         raise TreeError("Le nœud de départ doit proposer au moins un choix")
 
 
+def normalize_tree(tree: dict[str, Any]) -> dict[str, Any]:
+    """Rend DÉTERMINISTE la validité d'un arbre généré par IA avant persistance.
+
+    L'IA (brief propriétaire) produit parfois des noeuds typés `lead`/`appointment`
+    que validate_tree REJETTE (email absent des fields, libellés hors LEAD_FIELDS,
+    url Calendly inconnue/placeholder). Un rejet fait échouer la persistance
+    best-effort et le bot garde l'arbre PAR DÉFAUT -> offre/reco calculées sur le
+    mauvais arbre. On normalise donc chaque noeud pour que validate_tree passe
+    toujours, en réutilisant la même logique que format_node_response (l.121).
+
+    Retourne une COPIE (deepcopy, ne mute pas l'entrée). Tolérant aux arbres
+    malformés : sans dict `nodes`, l'arbre est renvoyé tel quel. Un arbre sans
+    noeud typé ressort inchangé (rétro-compat stricte).
+    """
+    work = copy.deepcopy(tree)
+    nodes = work.get("nodes") if isinstance(work, dict) else None
+    if not isinstance(nodes, dict):
+        return work
+    for node in nodes.values():
+        if not isinstance(node, dict):
+            continue
+        ntype = node.get("type")
+        if ntype == "lead":
+            # Ne garde que les champs connus ; email obligatoire en tête ; jamais vide.
+            fields = [f for f in node.get("fields", ["email", "message"]) if f in LEAD_FIELDS]
+            if "email" not in fields:
+                fields = ["email"] + fields
+            node["fields"] = fields or ["email"]
+        elif ntype == "appointment":
+            url = node.get("url")
+            if isinstance(url, str) and url.startswith("https://") and len(url) <= 500:
+                node["url"] = url[:500]
+            else:
+                # URL de calendrier inconnue/placeholder : l'IA ne peut pas la
+                # connaître -> on RÉTROGRADE le noeud en simple message (on garde
+                # message/options, on retire type + url) plutôt que de le rejeter.
+                node.pop("type", None)
+                node.pop("url", None)
+        # autres types (handoff, message, sans type) : inchangés.
+    return work
+
+
 def get_node(tree: dict[str, Any], node_id: Optional[str] = None) -> tuple[str, dict[str, Any]]:
     """Retourne (node_id, node). Sans node_id -> noeud de depart.
 

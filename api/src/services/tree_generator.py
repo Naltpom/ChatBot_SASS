@@ -100,8 +100,13 @@ _OWNER_BRIEF_BLOCK = (
     '(ex. « Parler à un conseiller »). Le "message" du nœud annonce la mise en '
     "relation, dans le ton demandé.\n"
     "- FORMULAIRE DE CONTACT : si le propriétaire veut recueillir les coordonnées "
-    'du visiteur, AJOUTE un nœud {{"type":"lead","fields":["email","message"],'
-    '"message":"…"}} accessible depuis le menu.\n'
+    "du visiteur (ou une prise de rendez-vous), AJOUTE un nœud "
+    '{{"type":"lead","fields":["email","message"],"message":"…"}} accessible depuis '
+    'le menu. La clé "fields" vaut EXACTEMENT ["email","message"] (ne mets pas de '
+    "libellés en français ni d'autres champs).\n"
+    '- N\'utilise JAMAIS de nœud {{"type":"appointment"}} : tu ne connais pas l\'URL '
+    "du calendrier (elle se configure ailleurs). Pour une prise de rendez-vous, "
+    'utilise un nœud {{"type":"lead"}} comme ci-dessus.\n'
     '- Le nœud "root" RESTE un menu d\'accueil sans clé "type" : la mise en relation '
     "et le formulaire sont des nœuds ENFANTS atteints par une option."
 )
