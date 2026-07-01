@@ -1,0 +1,25 @@
+# Chapote
+
+> Chapote est un chatbot hybride français : il combine un arbre de décision guidé illimité, une IA plafonnée (coûts maîtrisés) et un relais humain, installable en une seule balise à copier-coller ou via le plugin WordPress « Chapote Bot Manager ». RGPD par défaut, hébergement français, tarification modulaire (socle dès 9 €/mois).
+
+## Ce qu'est Chapote
+
+- Chatbot **hybride** : arbre de décision guidé illimité + IA plafonnée + relais humain (un conseiller reprend la main).
+- Installation en **une seule balise** à copier-coller, ou via le **plugin WordPress « Chapote Bot Manager »**. Fonctionne aussi sur Shopify, Webflow et tout site acceptant une balise.
+- **Hébergement français, RGPD par défaut.** Coûts maîtrisés grâce à l'IA plafonnée.
+- Tarification modulaire : socle « bot en arbre » dès 9 €/mois, paliers IA (19–89 €/mois) et modules à la carte (connaissances/RAG, live chat, actions, MCP, A/B testing, white-label).
+- Éditeur : Chapote — https://chapote.fr — contact : contact@chapote.fr.
+
+## Pages principales
+
+- [Accueil](https://chapote.fr/): présentation du chatbot hybride (arbre guidé + IA plafonnée + relais humain), installation et positionnement RGPD / hébergement français.
+- [À propos de Chapote](https://chapote.fr/a-propos): qu'est-ce que Chapote, le modèle hybride en trois temps, et une FAQ (installation, RGPD, prix, WordPress, éditeur).
+- [Démo « 1 URL → chatbot »](https://chapote.fr/demo): générer un aperçu de chatbot à partir de l'URL d'un site.
+- [Ils utilisent Chapote](https://chapote.fr/showcase): cas d'usage e-commerce, sites de services, commerces locaux et SaaS.
+
+## Légal
+
+- [Mentions légales](https://chapote.fr/legal/mentions-legales)
+- [Conditions générales d'utilisation](https://chapote.fr/legal/cgu)
+- [Conditions générales de vente](https://chapote.fr/legal/cgv)
+- [Politique de confidentialité](https://chapote.fr/legal/confidentialite)

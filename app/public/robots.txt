@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /$
 Allow: /showcase
+Allow: /a-propos
 Allow: /brand/
 Disallow: /app
 Disallow: /admin
