@@ -16,8 +16,8 @@ class Chapote_BO_Admin {
 
     public static function register_menu() {
         add_menu_page(
-            __('Chapote Chatbot', 'chapote-chatbot'),
-            __('Chapote', 'chapote-chatbot'),
+            __('Chapote Bot Manager', 'chapote-bot-manager'),
+            __('Chapote', 'chapote-bot-manager'),
             'manage_options',
             self::PAGE_SLUG,
             array(__CLASS__, 'render_page'),
@@ -122,15 +122,15 @@ class Chapote_BO_Admin {
             return;
         }
         echo '<div class="wrap chapote-bo-wrap">';
-        echo '<h1>' . esc_html__('Chapote Chatbot', 'chapote-chatbot') . '</h1>';
+        echo '<h1>' . esc_html__('Chapote Bot Manager', 'chapote-bot-manager') . '</h1>';
         if (!Chapote_BO_Crypto::available()) {
             echo '<div class="notice notice-error"><p>'
-                . esc_html__('Le module PHP OpenSSL (AES-256-GCM) est requis pour stocker vos identifiants de façon chiffrée. Contactez votre hébergeur.', 'chapote-chatbot')
+                . esc_html__('Le module PHP OpenSSL (AES-256-GCM) est requis pour stocker vos identifiants de façon chiffrée. Contactez votre hébergeur.', 'chapote-bot-manager')
                 . '</p></div>';
         }
         // Conteneur monté par la SPA vanilla. Fallback no-JS pour l'accessibilité.
         echo '<div id="chapote-bo-app"><noscript>'
-            . esc_html__('Ce back-office nécessite JavaScript.', 'chapote-chatbot')
+            . esc_html__('Ce back-office nécessite JavaScript.', 'chapote-bot-manager')
             . '</noscript></div>';
         echo '</div>';
     }

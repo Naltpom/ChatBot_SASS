@@ -1,4 +1,4 @@
-# Plugin WordPress « Chapote Chatbot » + banc de test local
+# Plugin WordPress « Chapote Bot Manager » + banc de test local
 
 Plugin qui pose le widget Chapote sur un site WordPress : le client colle la clé
 publique `pk_…` de son bot, active, et le chat est en ligne. Aucune ligne de code
@@ -8,7 +8,7 @@ côté client, aucun secret stocké.
 
 | Élément | Commité ? | Rôle |
 |---|---|---|
-| `chapote-chatbot/` | ✅ | Le plugin (c'est ce qu'on distribue / zippe) |
+| `chapote-bot-manager/` | ✅ | Le plugin (c'est ce qu'on distribue / zippe) |
 | `docker-compose.yml` | ✅ | Stack WordPress jetable pour tester en local |
 | `setup.sh` | ✅ | Installe WP + active/configure le plugin sans écran d'install |
 | `.gitignore` | ✅ | Empêche tout fichier WP local d'arriver dans git |
@@ -27,7 +27,7 @@ bash integrations/wordpress/setup.sh           # install + activation + config
 
 - Site : http://localhost:8080
 - Admin : http://localhost:8080/wp-admin (`admin` / `admin`)
-- Réglages du plugin : Réglages → Chapote Chatbot
+- Réglages du plugin : Réglages → Chapote Bot Manager
 
 Pour brancher votre vrai bot :
 

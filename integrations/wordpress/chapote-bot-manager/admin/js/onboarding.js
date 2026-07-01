@@ -1,5 +1,5 @@
 /**
- * Chapote Chatbot — wizard d'onboarding guidé (window.CBOOnboarding).
+ * Chapote Bot Manager — wizard d'onboarding guidé (window.CBOOnboarding).
  *
  * Machine à états en 10 étapes :
  *   welcome → auth → choose → pick → customize → waiting → tree → preview → offer → activation

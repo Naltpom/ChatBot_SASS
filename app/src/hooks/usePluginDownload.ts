@@ -1,10 +1,10 @@
 // Téléchargement du plugin WordPress avec un nom de fichier VERSIONNÉ.
 //
 // Le bouton « Télécharger le plugin » pointait sur le « dernier stable » non daté
-// (chapote-chatbot.zip) — impossible de savoir quelle version on a (cf. l'incident
+// (chapote-bot-manager.zip) — impossible de savoir quelle version on a (cf. l'incident
 // où la prod servait une 2.1.0 sous le même nom). Ce hook lit la version dans le
-// manifeste (chapote-chatbot.json, régénéré à chaque déploiement par deploy.sh) et
-// renvoie un lien vers l'archive VERSIONNÉE chapote-chatbot-<version>.zip (qui
+// manifeste (chapote-bot-manager.json, régénéré à chaque déploiement par deploy.sh) et
+// renvoie un lien vers l'archive VERSIONNÉE chapote-bot-manager-<version>.zip (qui
 // existe aussi dans /downloads/). Repli silencieux sur le dernier stable tant que
 // le manifeste n'est pas chargé (ou en prérendu, où l'effet ne tourne pas).
 import { useEffect, useState } from 'react'
@@ -31,6 +31,6 @@ export function usePluginDownload(): PluginDownload {
   }, [])
 
   return version
-    ? { url: `/downloads/chapote-chatbot-${version}.zip`, filename: `chapote-chatbot-${version}.zip`, version }
-    : { url: WP_PLUGIN_URL, filename: 'chapote-chatbot.zip', version: null }
+    ? { url: `/downloads/chapote-bot-manager-${version}.zip`, filename: `chapote-bot-manager-${version}.zip`, version }
+    : { url: WP_PLUGIN_URL, filename: 'chapote-bot-manager.zip', version: null }
 }

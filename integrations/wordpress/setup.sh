@@ -48,7 +48,7 @@ else
 fi
 
 echo "→ Activation du plugin Chapote (back-office)…"
-wp plugin activate chapote-chatbot
+wp plugin activate chapote-bot-manager
 
 echo "→ Configuration du plugin (api=${API_BASE}, app=${APP_BASE})…"
 wp option update chapote_bo_settings \

@@ -1,5 +1,5 @@
 /**
- * Chapote Chatbot — SPA admin en vanilla JS (aucune étape de build).
+ * Chapote Bot Manager — SPA admin en vanilla JS (aucune étape de build).
  *
  * Le navigateur ne parle JAMAIS à Chapote directement : il appelle le proxy
  * REST WordPress (CHAPOTE_BO.restBase) avec le nonce wp_rest. Le token reste
@@ -539,9 +539,8 @@
       h('div', { class: 'cbo-checks' },
         checkInput('darkMode', 'Mode sombre', false),
         checkInput('greeting', 'Bulle d’accroche', false),
-        checkInput('poweredBy', 'Afficher « Powered by Chapote »', true)
+        checkInput('poweredBy', 'Afficher « Powered by Chapote »', false)
       ),
-      h('p', { class: 'cbo-hint', text: 'Retirer « Powered by » nécessite le module White-label : sans lui, la mention reste affichée même si décochée.' }),
       h('div', { class: 'cbo-actions' },
         h('button', { class: 'button button-primary', onClick: function (e) { saveAppearance(e.target, d); } }, 'Enregistrer l’apparence')
       )
@@ -558,7 +557,12 @@
 
   function saveAppearance(btn, design) {
     btn.disabled = true;
-    call('POST', '/bots/' + encodeURIComponent(state.botId) + '/appearance', { design_json: design }).then(function (res) {
+    // Copie superficielle : on omet `poweredBy` quand il est falsy pour éviter le
+    // 402 (gate White-label côté API). L'objet `design` d'origine n'est pas muté
+    // (il pilote l'aperçu live).
+    var payload = Object.assign({}, design);
+    if (!payload.poweredBy) { delete payload.poweredBy; }
+    call('POST', '/bots/' + encodeURIComponent(state.botId) + '/appearance', { design_json: payload }).then(function (res) {
       btn.disabled = false;
       if (res.ok) setNotice('Apparence enregistrée.', 'ok');
       else setNotice('Échec de l’enregistrement de l’apparence.', 'warn');

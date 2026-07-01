@@ -108,7 +108,7 @@ class Chapote_BO_Pages {
                 array_unshift($items, array(
                     'id'              => $front_id,
                     'type'            => $front_id ? (string) get_post_type($front_id) : 'page',
-                    'title'           => Chapote_BO_Options::str_cap($blog_name !== '' ? $blog_name : __('Page d’accueil', 'chapote-chatbot'), 200),
+                    'title'           => Chapote_BO_Options::str_cap($blog_name !== '' ? $blog_name : __('Page d’accueil', 'chapote-bot-manager'), 200),
                     'url'             => $front_url ? $front_url : $home_url,
                     'slug'            => '',
                     'date'            => '',
