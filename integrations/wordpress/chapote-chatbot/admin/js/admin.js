@@ -738,7 +738,14 @@
       if (aiMode === 'managed') {
         var t = aiTiers.filter(function (x) { return x.id === aiTier; })[0];
         if (t) total += (t.price_cents || 0);
-      } else if (aiMode === 'byok') total += byokCents;
+      } else if (aiMode === 'byok') {
+        total += byokCents;
+      } else {
+        // Aucun plan IA (arbre seul) : le SOCLE (9€) est facturé. Dès qu'un plan IA
+        // est pris (managé/BYOK) le socle est INCLUS dans le prix du palier, donc
+        // pas ajouté ici. Aligne l'estimation sur les line_items Stripe (point 6).
+        total += (catalog.base_price_cents || 0);
+      }
       return total;
     }
 
