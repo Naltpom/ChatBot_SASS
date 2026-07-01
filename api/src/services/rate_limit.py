@@ -371,8 +371,10 @@ twofa_challenge_store = SingleUseTokens("rl:2fachallenge:", TWOFA_CHALLENGE_EXPI
 # Reset de mot de passe PAR DESTINATAIRE (cle = email, pas IP) : empeche le
 # bombardement d'une victime via plusieurs IP. 3 liens / heure / adresse.
 password_reset_email_limiter = RateLimiter("rl:pwdresetmail:", 3, 3600)
-# Generation d'arbre par IA (cout provider cote SaaS) : 10 / 24 h / organisation
-treegen_limiter = RateLimiter("rl:treegen:", 10, 86400)
+# Generation d'arbre par IA (cout provider cote SaaS) : 10 / 24 h en PROD ; plafond
+# LARGE en dev/CI pour ne pas bloquer l'iteration de test (le limiteur reste ACTIF ->
+# le test qui monkeypatche `check` passe toujours ; seule la valeur du plafond change).
+treegen_limiter = RateLimiter("rl:treegen:", 10 if settings.is_production else 1000, 86400)
 # Demandes de contact (leads) du widget : 5 / heure / session
 lead_limiter = RateLimiter("rl:lead:", 5, 3600)
 # Demandes de conseiller (handoff live chat) : 3 / heure / session
