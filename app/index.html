@@ -28,8 +28,15 @@
     <meta name="twitter:description" content="Arbre guidé illimité + IA plafonnée + relais humain, en une seule balise. RGPD par défaut, hébergement français." />
     <meta name="twitter:image" content="https://chapote.fr/brand/logo-horizontal.svg" />
 
-    <!-- JSON-LD : organisation + site (SEO / rich results). Véridique :
-         Chapote = chatbot SaaS hybride français, https://chapote.fr -->
+    <!-- JSON-LD : Organization + WebSite + SoftwareApplication (SEO / rich results /
+         extraction par les moteurs génératifs). VÉRIDIQUE UNIQUEMENT :
+         Chapote = chatbot SaaS hybride français, https://chapote.fr, socle dès 9 €/mois.
+         ⚠ À COMPLÉTER quand les profils officiels existeront : ajouter dans Organization
+           "sameAs": ["<Wikidata>", "<LinkedIn company>", "<Crunchbase>", "<X>", ...]
+           (signal d'entité le plus direct pour amorcer un Knowledge Panel Google + désambiguïser
+           de la marque de chapeaux « Le Chapoté »).
+         ⚠ NE PAS ajouter "aggregateRating"/"review" tant qu'il n'y a pas d'avis réels
+           (données structurées fausses = risque de pénalité). -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -40,6 +47,8 @@
           "name": "Chapote",
           "url": "https://chapote.fr/",
           "logo": "https://chapote.fr/brand/logo-horizontal.svg",
+          "email": "contact@chapote.fr",
+          "areaServed": "FR",
           "description": "Chapote est un chatbot hybride français : arbre guidé illimité, IA plafonnée et relais humain, en une seule balise. RGPD par défaut, hébergement français."
         },
         {
@@ -49,6 +58,32 @@
           "name": "Chapote",
           "inLanguage": "fr-FR",
           "publisher": { "@id": "https://chapote.fr/#organization" }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://chapote.fr/#software",
+          "name": "Chapote",
+          "url": "https://chapote.fr/",
+          "applicationCategory": "BusinessApplication",
+          "applicationSubCategory": "Chatbot / Live chat",
+          "operatingSystem": "Web",
+          "inLanguage": "fr-FR",
+          "publisher": { "@id": "https://chapote.fr/#organization" },
+          "description": "Chapote est un chatbot hybride français : arbre de décision guidé illimité, IA plafonnée et relais humain, installable en une seule balise ou via le plugin WordPress « Chapote Bot Manager ». RGPD par défaut, hébergement français.",
+          "featureList": [
+            "Arbre de décision guidé illimité",
+            "IA plafonnée (coûts maîtrisés)",
+            "Relais humain (reprise par un conseiller)",
+            "Installation en une seule balise à copier-coller",
+            "Plugin WordPress « Chapote Bot Manager »",
+            "RGPD par défaut, hébergement français"
+          ],
+          "offers": {
+            "@type": "AggregateOffer",
+            "priceCurrency": "EUR",
+            "lowPrice": "9",
+            "availability": "https://schema.org/InStock"
+          }
         }
       ]
     }
@@ -70,7 +105,7 @@
       // il ne peut pas importer de module : il garde une copie de la liste —
       // source unique = src/prerenderRoutes.ts (PRERENDERED_PATHS).
       (function () {
-        var PRE = ['/', '/showcase'];
+        var PRE = ['/', '/showcase', '/a-propos'];
         var p = location.pathname.replace(/\/+$/, '') || '/';
         if (PRE.indexOf(p) === -1) { var r = document.getElementById('root'); if (r) r.innerHTML = ''; }
       })();

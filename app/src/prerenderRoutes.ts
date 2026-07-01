@@ -21,6 +21,12 @@ export const PRERENDER_ROUTES: PrerenderRoute[] = [
     description: 'Chapote, le chatbot hybride français (arbre guidé, IA plafonnée, relais humain), s’installe en une balise sur les sites e-commerce, services, commerces locaux et SaaS. RGPD par défaut, hébergement français.',
     canonical: 'https://chapote.fr/showcase',
   },
+  {
+    path: '/a-propos', out: 'a-propos/index.html',
+    title: 'À propos de Chapote — le chatbot hybride français',
+    description: 'Chapote est un chatbot hybride français : arbre de décision guidé illimité, IA plafonnée et relais humain, en une seule balise ou via le plugin WordPress « Chapote Bot Manager ». RGPD par défaut, hébergement français, dès 9 €/mois.',
+    canonical: 'https://chapote.fr/a-propos',
+  },
 ]
 
 // Chemins prérendus (ceux qu'on HYDRATE côté client ; ailleurs = createRoot).

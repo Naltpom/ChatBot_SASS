@@ -33,6 +33,7 @@ import AdminProspect from './pages/AdminProspect'
 import AdminBillingInvoices from './pages/AdminBillingInvoices'
 import AdminBillingCatalog from './pages/AdminBillingCatalog'
 import LegalPage from './pages/LegalPage'
+import APropos from './pages/APropos'
 import mentionsMd from './legal/MENTIONS_LEGALES.md?raw'
 import cguMd from './legal/CGU.md?raw'
 import cgvMd from './legal/CGV.md?raw'
@@ -135,6 +136,7 @@ export function AppRoutes() {
       <Route path="/" element={<Landing />} />
       <Route path="/showcase" element={<Showcase />} />
       <Route path="/demo" element={<Demo />} />
+      <Route path="/a-propos" element={<APropos />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       {/* Vérification email (souple) + réinitialisation de mot de passe. Routes
