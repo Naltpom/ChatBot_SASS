@@ -36,7 +36,7 @@ from src.core.security import (
 from src.models.bot import Bot
 from src.models.user import Membership, User
 from src.routers.bots_helpers import FIELD_PERMS, _check_bot_perm
-from src.services import onboarding_service, tree_jobs
+from src.services import kb_service, onboarding_service, tree_jobs
 from src.services.billing_service import catalog_payload
 from src.services.bot_service import apply_tree_update
 from src.services.rate_limit import treegen_limiter
@@ -125,18 +125,6 @@ def _coerce_tree(raw: Any) -> Optional[dict]:
     return None
 
 
-async def _bot_has_kb(db: AsyncSession, bot_id: int) -> bool:
-    """True si le bot possède au moins un extrait de base de connaissances (RAG).
-    -> on recommande alors le module `rag` (sinon la base ingérée à l'onboarding
-    serait inexploitée : le RAG est gaté au runtime par le module)."""
-    from sqlalchemy import select
-    from src.models.kb import KbChunk
-    row = (await db.execute(
-        select(KbChunk.id).where(KbChunk.bot_id == bot_id).limit(1)
-    )).first()
-    return row is not None
-
-
 # --- Découverte d'URLs -----------------------------------------------------
 
 @router.post("/bots/{bot_id}/discover-urls")
@@ -223,7 +211,9 @@ async def recommendation(
     bot, _ = await _load_bot(db, bot_id, user)
     catalog = await catalog_payload(db)
     tree = _coerce_tree(body.tree_json) or bot.tree_json
-    has_kb = await _bot_has_kb(db, bot.id)
+    # bot_has_kb_sources (et non les chunks) : une KB EN COURS d'ingestion compte,
+    # pour ne pas rater la reco RAG à cause d'une course avec l'ingestion async.
+    has_kb = await kb_service.bot_has_kb_sources(db, bot.id)
     result = onboarding_service.recommend(catalog, tree, body.description,
                                           body.visitors_per_month, bot.mode, has_kb=has_kb)
     # Explication PERSONNALISÉE générée par l'IA (2-3 phrases sur mesure). Best-effort :
@@ -244,7 +234,8 @@ async def recommendation_get(
     """Commodité : recommandation sur l'arbre COURANT du bot (sans corps)."""
     bot, _ = await _load_bot(db, bot_id, user)
     catalog = await catalog_payload(db)
-    has_kb = await _bot_has_kb(db, bot.id)
+    # KB en cours d'ingestion incluse (cf. recommendation POST) : tolère la course.
+    has_kb = await kb_service.bot_has_kb_sources(db, bot.id)
     return onboarding_service.recommend(catalog, bot.tree_json, None, None, bot.mode, has_kb=has_kb)
 
 

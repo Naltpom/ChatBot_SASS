@@ -331,8 +331,12 @@ async def _persist_generated_tree(job_id: str) -> None:
             bot = await db.get(Bot, bot_id)
             if bot is not None:
                 await apply_tree_update(bot, tree, db)  # valide + persiste + updated_at
-    except Exception as exc:
-        logger.warning("onboarding: persistance de l'arbre généré échouée (bot %s): %s", bot_id, exc)
+    except Exception:
+        # Échec OBSERVABLE (logger.error + trace) : si la persistance échoue, le bot
+        # reste sur l'arbre PAR DÉFAUT et la recommandation d'offre serait alors
+        # calculée dessus (le front n'envoie plus tree_json) -> offre potentiellement
+        # fausse. On veut donc le détail complet dans les logs, pas un warning discret.
+        logger.error("onboarding: persistance de l'arbre généré échouée (bot %s)", bot_id, exc_info=True)
 
 
 def _system_prompt_from_brief(brief: str) -> str:
@@ -371,10 +375,19 @@ async def _persist_system_prompt_from_brief(bot_id: int, brief: Optional[str]) -
     try:
         async with AsyncSessionLocal() as db:
             bot = await db.get(Bot, bot_id)
-            if bot is not None:
-                bot.system_prompt = _system_prompt_from_brief(cleaned)
-                bot.updated_at = utcnow()
-                await db.commit()
+            if bot is None:
+                return
+            # Garde-fou anti-écrasement : on ne pose le prompt dérivé du brief que
+            # si l'utilisateur n'a PAS déjà personnalisé le sien — c.-à-d. s'il est
+            # vide/None OU encore égal au défaut du modèle Bot (« assistant utile et
+            # concis »). Un prompt saisi via le dashboard/l'éditeur est préservé.
+            default_prompt = str(getattr(Bot.__table__.c.system_prompt.default, "arg", "") or "").strip()
+            current = (bot.system_prompt or "").strip()
+            if current and current != default_prompt:
+                return
+            bot.system_prompt = _system_prompt_from_brief(cleaned)
+            bot.updated_at = utcnow()
+            await db.commit()
     except Exception as exc:
         logger.warning("onboarding: persistance du system_prompt échouée (bot %s): %s", bot_id, exc)
 
@@ -406,12 +419,15 @@ async def run_bot_generation(job_id: str, urls: list[str], context: Optional[str
     # éditeur). Best-effort -> n'invalide jamais la génération déjà publiée.
     await _persist_generated_tree(job_id)
     # Dérive AUSSI le system_prompt du bot depuis le brief libre (ton/persona),
-    # pour que le mode IA réponde dans le ton demandé. bot_id lu sur le job (comme
-    # _persist_generated_tree). Opt-in (brief vide -> défaut conservé) & best-effort.
+    # pour que le mode IA réponde dans le ton demandé. On NE le dérive QUE si le
+    # job a RÉUSSI (status 'done'), comme _persist_generated_tree — sinon un échec
+    # de génération écraserait quand même le prompt. bot_id lu sur le job déjà relu
+    # (pas de 2e lecture). Opt-in (brief vide -> défaut conservé) & best-effort.
     job = await tree_jobs.get(job_id)
-    bot_id = (job or {}).get("bot_id")
-    if bot_id:
-        await _persist_system_prompt_from_brief(bot_id, context)
+    if job and job.get("status") == "done":
+        bot_id = job.get("bot_id")
+        if bot_id:
+            await _persist_system_prompt_from_brief(bot_id, context)
 
 
 # --------------------------------------------------------------------------
@@ -426,9 +442,11 @@ async def run_kb_ingestion(bot_id: int, urls: list[str]) -> None:
     toujours active (pas de gating module à l'ingestion ; la recherche RAG, elle,
     reste gatée au runtime côté widget).
 
-    Best-effort & IDEMPOTENT : ne recrée pas de KbSource pour une URL déjà
-    présente (dédup par `ref`, re-génération sûre), respecte le plafond
-    MAX_SOURCES_PER_BOT, et isole chaque URL — une page injoignable (FetchError)
+    Best-effort & IDEMPOTENT : la dédup (par `ref`) ne saute QUE les URLs dont une
+    source est déjà RÉUSSIE ou EN COURS (ready/pending) — une URL dont la seule
+    source est en 'error' est RÉESSAYÉE en réutilisant la ligne existante (repassée
+    à 'pending') plutôt qu'en créant un doublon (respect du plafond
+    MAX_SOURCES_PER_BOT). Chaque URL est isolée — une page injoignable (FetchError)
     bascule SA source en 'error' et n'interrompt pas les autres.
 
     ⚠ ANTI-SSRF : le texte est récupéré via `fetch_user_url` (porte unique
@@ -449,28 +467,51 @@ async def run_kb_ingestion(bot_id: int, urls: list[str]) -> None:
         return
 
     async with AsyncSessionLocal() as db:
-        # Dédup sur l'ensemble des sources DÉJÀ présentes (idempotence) + plafond.
-        existing = {
-            ref for (ref,) in (await db.execute(
-                select(KbSource.ref).where(KbSource.bot_id == bot_id)
-            )).all()
-        }
-        used = len(existing)
+        # État des sources DÉJÀ présentes, indexé par `ref` (idempotence + plafond).
+        # On garde, par URL, la « meilleure » source : une source réussie/en cours
+        # (ready/pending) PRIME sur une source en 'error' (doublons historiques) —
+        # ainsi on ne réessaie que si TOUTE source de l'URL est en erreur.
+        rows = (await db.execute(
+            select(KbSource).where(KbSource.bot_id == bot_id)
+        )).scalars().all()
+        by_ref: dict[str, KbSource] = {}
+        for s in rows:
+            prev = by_ref.get(s.ref)
+            if prev is None or (prev.status == "error" and s.status != "error"):
+                by_ref[s.ref] = s
+        total_sources = len(rows)
+        capped_warned = False
 
         for url in cleaned:
-            if used >= kb_service.MAX_SOURCES_PER_BOT:
-                logger.info("KB onboarding bot %s : plafond %s sources atteint, "
-                            "URLs restantes ignorées", bot_id, kb_service.MAX_SOURCES_PER_BOT)
-                break
-            if url in existing:
+            existing_source = by_ref.get(url)
+            if existing_source is not None and existing_source.status != "error":
+                # Déjà réussie ou en cours d'ingestion -> best-effort, on ne refait rien.
                 continue
-            existing.add(url)
-            used += 1
-
-            source = KbSource(bot_id=bot_id, type="url", ref=url, status="pending")
-            db.add(source)
-            await db.commit()
-            await db.refresh(source)
+            if existing_source is not None:
+                # Seule source de l'URL en 'error' : on la RÉUTILISE (repassée à
+                # 'pending') au lieu de créer un 2e enregistrement -> respecte le
+                # plafond et évite les doublons. Ne consomme pas de quota supplémentaire.
+                source = existing_source
+                source.status = "pending"
+                source.error = None
+                await db.commit()
+                await db.refresh(source)
+            else:
+                # Nouvelle URL : soumise au plafond (les réessais ci-dessus, eux, ne
+                # créent rien donc ne s'y heurtent pas). On saute les nouvelles URLs
+                # au-delà du plafond sans interrompre d'éventuels réessais suivants.
+                if total_sources >= kb_service.MAX_SOURCES_PER_BOT:
+                    if not capped_warned:
+                        logger.info("KB onboarding bot %s : plafond %s sources atteint, "
+                                    "nouvelles URLs ignorées", bot_id, kb_service.MAX_SOURCES_PER_BOT)
+                        capped_warned = True
+                    continue
+                total_sources += 1
+                source = KbSource(bot_id=bot_id, type="url", ref=url, status="pending")
+                db.add(source)
+                await db.commit()
+                await db.refresh(source)
+                by_ref[url] = source
 
             # Fetch via la porte anti-SSRF (bypass DEV loopback) PUIS ingestion
             # SANS re-fetch (text_content). Une page en échec -> source en error,

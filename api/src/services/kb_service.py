@@ -405,6 +405,27 @@ async def ingest_source(source_id: int, *, text_content: Optional[str] = None,
                 await _fail("Erreur interne d'ingestion")
 
 
+# --- Etat KB (helpers partages widget/onboarding) ---
+
+async def bot_has_kb_chunks(db: AsyncSession, bot_id: int) -> bool:
+    """KB EXPLOITABLE au runtime (chunks embeddes presents) — gate la recherche
+    RAG cote widget."""
+    row = (await db.execute(
+        select(KbChunk.id).where(KbChunk.bot_id == bot_id).limit(1)
+    )).first()
+    return row is not None
+
+
+async def bot_has_kb_sources(db: AsyncSession, bot_id: int) -> bool:
+    """KB EN COURS ou prete (au moins une source, meme en ingestion) — utilise
+    par la recommandation onboarding pour tolerer une ingestion asynchrone non
+    encore terminee (evite de ne pas recommander RAG a cause d'une course)."""
+    row = (await db.execute(
+        select(KbSource.id).where(KbSource.bot_id == bot_id).limit(1)
+    )).first()
+    return row is not None
+
+
 # --- Recherche hybride ---
 
 _FTS_SQL = text("""

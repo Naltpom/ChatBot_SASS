@@ -158,6 +158,9 @@ class Settings(BaseSettings):
     RATE_SESSION_WINDOW_SECONDS: int = 600  # ...par fenetre de 10 min
     RATE_IP_REQUESTS: int = 100             # anti-flood IP...
     RATE_IP_WINDOW_SECONDS: int = 60        # ...par minute
+    # Aperçu owner (preview_token) : plafond de tours IA par conversation d'aperçu
+    # (les appels modèle ne sont ni comptés ni facturés -> borne anti-abus).
+    PREVIEW_MAX_AI_TURNS: int = 20
 
     # --- 2FA (TOTP authenticator + WebAuthn / passkeys) ---
     # Émetteur affiché dans l'app authenticator + RP name WebAuthn.

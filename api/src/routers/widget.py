@@ -48,7 +48,6 @@ from src.core.security import (
 from src.core.time import utcnow
 from src.models.bot import Bot
 from src.models.conversation import Conversation, Message
-from src.models.kb import KbChunk
 from src.models.lead import Lead
 from src.routers.widget_helpers import (
     _active_tree,
@@ -91,6 +90,7 @@ from src.services.email_service import (
     send_account_email,
     send_email,
 )
+from src.services.kb_service import bot_has_kb_chunks
 from src.services.rate_limit import (
     feedback_limiter,
     handoff_limiter,
@@ -786,10 +786,17 @@ async def _handle_ai_preview(
     # Aperçu : rien n'est persisté -> on reconstruit le fil depuis l'historique
     # LOCAL envoyé par le widget (sinon l'IA perd le contexte multi-tours).
     history = _preview_history(body.history, text)
+    # Plafond de tours IA en aperçu : ces appels modèle ne sont ni comptés ni
+    # facturés (un owner avec un preview_token pourrait enchaîner sans borne) ->
+    # on borne le nombre de réponses IA par conversation d'aperçu, en comptant les
+    # messages 'assistant' déjà produits (historique local). Au-delà : réponse
+    # canned SANS appel modèle. N'affecte PAS le chemin public/payant.
+    if sum(1 for m in history if m["role"] == "assistant") >= settings.PREVIEW_MAX_AI_TURNS:
+        return _maybe_refresh({"source": "ai",
+                               "message": "Limite d'aperçu atteinte — relancez l'aperçu pour continuer à tester.",
+                               "options": [], "status": conversation.status}, bot, session)
     page_url = body.page_url or conversation.page_url
-    has_kb = (await db.execute(
-        select(KbChunk.id).where(KbChunk.bot_id == bot.id).limit(1)
-    )).first() is not None
+    has_kb = await bot_has_kb_chunks(db, bot.id)
     try:
         ai = await generate_reply(bot, history, page_url, journey=conversation.journey,
                                   db=db, conversation_id=conversation.id, has_kb=has_kb,
@@ -934,9 +941,7 @@ async def _handle_ai_message(
     # Base de connaissances : le tool search_docs n'est expose au modele que
     # si le bot a au moins un extrait indexe ET que le module RAG est actif
     # (sans le module, has_kb force a False => search_docs non expose).
-    has_kb = (await db.execute(
-        select(KbChunk.id).where(KbChunk.bot_id == bot.id).limit(1)
-    )).first() is not None
+    has_kb = await bot_has_kb_chunks(db, bot.id)
     if has_kb and not has_module(ent, MODULE_RAG):
         has_kb = False
     # Actions exposees au modele uniquement si le module Actions est actif ;
@@ -1005,21 +1010,13 @@ async def post_message(
 ):
     await _check_ip_flood(request)
 
-    # Session d'APERÇU (preview_token de l'owner) : bot chargé SANS servabilité
-    # ni contrôle d'origine (le bot peut être inactif/non payé, et l'Origin est
-    # l'iframe de l'API, pas un domaine whitelisté) — cohérent avec bootstrap/
-    # session, et comme lead/feedback/handoff/poll qui court-circuitent l'aperçu
-    # avant cette garde. Les side-effects (metering IA, lead, handoff) restent
-    # neutralisés en aval via _is_preview_session.
-    if _is_preview_session(session):
-        bot = await db.get(Bot, session["bot_id"])
-        if bot is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Widget inconnu ou désactivé")
-    else:
-        # Revalidation bot+org (CHANTIER A) : alignee sur lead/feedback/handoff/poll
-        # via _session_active_bot. Corrige la faille ou /message acceptait encore les
-        # bots d'une org suspendue (et consommait l'IA). Message d'erreur aligne.
-        bot = await _session_active_bot(db, request, session)
+    # Revalidation bot+org, alignée sur lead/feedback/handoff/poll via
+    # _session_active_bot. La branche APERÇU (preview_token de l'owner) est gérée
+    # DANS _session_active_bot (domaine sentinelle -> bot chargé sans servabilité
+    # ni contrôle d'origine, 404 si absent), les side-effects restant neutralisés
+    # en aval via _is_preview_session. Corrige aussi la faille où /message
+    # acceptait encore les bots d'une org suspendue (et consommait l'IA).
+    bot = await _session_active_bot(db, request, session)
 
     conversation = await db.get(Conversation, session["sub"])
     if conversation is None:
