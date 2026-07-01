@@ -738,7 +738,14 @@
       if (aiMode === 'managed') {
         var t = aiTiers.filter(function (x) { return x.id === aiTier; })[0];
         if (t) total += (t.price_cents || 0);
-      } else if (aiMode === 'byok') total += byokCents;
+      } else if (aiMode === 'byok') {
+        total += byokCents;
+      } else {
+        // Aucun plan IA (arbre seul) : le SOCLE (9€) est facturé. Dès qu'un plan IA
+        // est pris (managé/BYOK) le socle est INCLUS dans le prix du palier, donc
+        // pas ajouté ici. Aligne l'estimation sur les line_items Stripe (point 6).
+        total += (catalog.base_price_cents || 0);
+      }
       return total;
     }
 
@@ -759,6 +766,17 @@
         else doCheckout(subscribeBtn, buildConfig(), consent.checked);
       } },
       opts.submitLabel || (active ? 'Mettre à jour le plan' : 'Souscrire'));
+    // 1re souscription : le consentement 14j (exécution immédiate, B2C) est
+    // OBLIGATOIRE -> bouton DÉSACTIVÉ tant qu'il n'est pas coché. Évite le clic
+    // « sans effet » (la notice d'avertissement s'affichait hors du cadre wizard).
+    if (!active) {
+      var syncConsent = function () {
+        subscribeBtn.disabled = !consent.checked;
+        subscribeBtn.title = consent.checked ? '' : 'Cochez le consentement ci-dessus pour souscrire.';
+      };
+      syncConsent();
+      consent.addEventListener('change', syncConsent);
+    }
 
     pane.appendChild(modBox);
     pane.appendChild(reqWarn);

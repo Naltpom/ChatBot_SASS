@@ -178,7 +178,8 @@ async def serve_widget():
 
 
 @app.get("/widget-frame", include_in_schema=False)
-async def widget_frame(key: str, preview_token: str | None = None):
+async def widget_frame(key: str, preview_token: str | None = None,
+                       parent_origin: str | None = None, design_nonce: str | None = None):
     """Page hote pour l'integration iframe : le chat s'affiche ouvert, en
     pleine zone. La securite reste identique (origin de l'iframe = l'API,
     toujours accepte ; le referer de la page parente est verifie au handshake
@@ -194,14 +195,39 @@ async def widget_frame(key: str, preview_token: str | None = None):
     # Anti-XSS : un JWT n'a que des caractères base64url + 2 points ; tout le reste
     # est rejeté (l'attribut n'est posé que sur un token bien formé).
     preview_attr = ""
+    src_cache_bust = ""
+    reskin_attr = ""
     if preview_token and re.fullmatch(r"[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+", preview_token):
         preview_attr = f' data-preview-token="{preview_token}"'
+        # Aperçu : widget.js est servi avec max-age=300 (cache public 5 min). Sans
+        # cache-buster, « Recommencer » rechargerait l'ancien widget.js en cache
+        # (qui restaure la session) -> pas de reset. On suffixe la signature du
+        # token (base64url, unique à chaque mint, donc à chaque Recommencer) pour
+        # forcer une URL neuve -> dernière version + état vierge. Public inchangé.
+        src_cache_bust = "?v=" + preview_token.rsplit(".", 1)[-1][-16:]
+        # Re-skin à chaud : l'éditeur d'apparence (origine app + nonce) pousse le
+        # design en live via postMessage. widget.js ne l'accepte QUE de cette
+        # origine + ce nonce. Validés STRICTEMENT (anti-XSS : origine bien formée,
+        # nonce alphanum) avant réflexion ; absents -> pas de re-skin (no-op).
+        if (parent_origin and design_nonce
+                and re.fullmatch(r"https?://[A-Za-z0-9.\-]+(:\d{1,5})?", parent_origin)
+                and re.fullmatch(r"[A-Za-z0-9]{8,64}", design_nonce)):
+            reskin_attr = f' data-reskin-origin="{parent_origin}" data-reskin-nonce="{design_nonce}"'
+    # Présentation : l'éditeur d'apparence (re-skin actif) veut le widget FLOTTANT
+    # (lanceur + panneau positionnés selon le design) pour prévisualiser position/
+    # taille/lanceur -> data-inline=false + auto-ouverture du panneau. L'étape
+    # « Aperçu » du plugin (sans re-skin) garde l'INLINE plein écran (test conv).
+    inline_val = "false" if reskin_attr else "true"
+    open_attr = ' data-preview-open="1"' if reskin_attr else ""
+    # Mode flottant (éditeur d'apparence) : fond TRANSPARENT pour que l'iframe ne
+    # montre que le widget (lanceur + panneau) par-dessus la page de l'éditeur.
+    body_bg = "transparent" if reskin_attr else "#f8fafc"
     html = f"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chat</title><style>html,body{{margin:0;height:100%;background:#f8fafc}}</style></head>
+<title>Chat</title><style>html,body{{margin:0;height:100%;background:{body_bg}}}</style></head>
 <body>
-<script src="{settings.API_URL}/widget.js" data-bot-key="{key}"{preview_attr} data-inline="true" defer></script>
+<script src="{settings.API_URL}/widget.js{src_cache_bust}" data-bot-key="{key}"{preview_attr}{reskin_attr}{open_attr} data-inline="{inline_val}" defer></script>
 </body></html>"""
     return HTMLResponse(html)
 

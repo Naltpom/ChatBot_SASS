@@ -335,23 +335,18 @@
       }, 300);
     });
 
-    card.appendChild(h('div', { class: 'cbo-onb-pickbar' }, search, counter));
-    card.appendChild(listHost);
+    // Ordre : 1) rôle de l'assistant, 2) visiteurs/mois, 3) ajout manuel d'URL,
+    // 4) liste des pages détectées. (Le rôle + le trafic d'abord — ils orientent
+    // la génération ; la liste de pages, plus longue, vient ensuite.)
 
-    var manual = h('input', { type: 'url', class: 'regular-text', placeholder: 'https://' + (CFG.siteHost || 'mon-site') + '/page', 'aria-label': 'Ajouter une URL de votre site' });
-    manual.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addManual(manual.value); manual.value = ''; } });
-    card.appendChild(h('div', { class: 'cbo-onb-manual' },
-      h('label', { class: 'cbo-onb-manual-l', text: 'Ajouter une page manuellement (même domaine)' }),
-      h('div', { class: 'cbo-onb-manual-row' }, manual,
-        h('button', { type: 'button', class: 'button', onClick: function () { addManual(manual.value); manual.value = ''; } }, 'Ajouter'))
-    ));
-
+    // 1) Rôle de l'assistant (sert à la génération de l'arbre).
     var role = h('textarea', { rows: 2, class: 'large-text', maxlength: 600,
       placeholder: 'ex. Répondre aux questions des clients sur nos prestations et orienter vers la prise de rendez-vous.' });
     role.value = o.role || '';
     role.addEventListener('input', function () { o.role = role.value; });
     card.appendChild(fieldFor('Quel sera le rôle de votre assistant ? (optionnel)', role));
 
+    // 2) Visiteurs / mois (sert au palier IA recommandé).
     var vis = h('select', { 'aria-label': 'Visiteurs par mois' },
       h('option', { value: '', selected: !o.visitors }, 'Je ne sais pas'),
       h('option', { value: '1000', selected: o.visitors === '1000' }, 'Moins de 1 000 / mois'),
@@ -361,6 +356,19 @@
     );
     vis.addEventListener('change', function () { o.visitors = vis.value; });
     card.appendChild(fieldFor('Combien de visiteurs par mois ? (optionnel)', vis));
+
+    // 3) Ajout manuel d'une URL (même domaine).
+    var manual = h('input', { type: 'url', class: 'regular-text', placeholder: 'https://' + (CFG.siteHost || 'mon-site') + '/page', 'aria-label': 'Ajouter une URL de votre site' });
+    manual.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addManual(manual.value); manual.value = ''; } });
+    card.appendChild(h('div', { class: 'cbo-onb-manual' },
+      h('label', { class: 'cbo-onb-manual-l', text: 'Ajouter une page manuellement (même domaine)' }),
+      h('div', { class: 'cbo-onb-manual-row' }, manual,
+        h('button', { type: 'button', class: 'button', onClick: function () { addManual(manual.value); manual.value = ''; } }, 'Ajouter'))
+    ));
+
+    // 4) Liste des pages détectées (recherche + compteur + cases).
+    card.appendChild(h('div', { class: 'cbo-onb-pickbar' }, search, counter));
+    card.appendChild(listHost);
 
     var genBtn = h('button', { class: 'button button-primary button-hero', onClick: function () { submitGenerate(genBtn); } }, 'Générer mon chatbot');
     card.appendChild(actions(backBtn('choose'), genBtn));
@@ -453,6 +461,8 @@
     card.appendChild(act);
 
     if (!o.jobId) { defer(function () { goTo('tree'); }); return; } // chemin vierge / repris
+    // Pendant la génération, on peut revenir à la Personnalisation.
+    card.appendChild(actions(backBtn('customize')));
     pollJob(o, stage, fill, act);
   }
 
@@ -504,7 +514,9 @@
     var treeHost = h('div', { class: 'cbo-onb-tree' });
     card.appendChild(treeHost);
     card.appendChild(actions(
-      backBtn('waiting'),
+      // Retour vers Personnalisation : 'waiting' est transitoire (il redirige vers
+      // 'tree' dès que le job est fini) → y revenir bouclerait.
+      backBtn('customize'),
       h('button', { class: 'button button-primary', onClick: function (e) { openEditor(e.currentTarget, treeHost); } }, 'Ouvrir l’éditeur'),
       h('button', { class: 'button button-primary button-hero', onClick: function () { if (o.editorWin && !o.editorWin.closed) postToEditor('request-save'); goTo('preview'); } }, 'Continuer')
     ));
@@ -523,22 +535,40 @@
       renderTreeView(treeHost);
     });
   }
+  // Rendu hiérarchique badgé, ordonné par parcours depuis `start` (Accueil en
+  // tête). Une carte par étape : badge de type (Question/Conseiller/Lead/RDV),
+  // message tronqué, options en sous-items avec marquage « → IA ».
   function renderTreeView(treeHost) {
     var o = O();
     clear(treeHost);
-    var nodes = treeNodes(o.tree);
-    if (!nodes.length) { treeHost.appendChild(h('p', { class: 'cbo-muted', text: 'Arbre encore vide — ouvrez l’éditeur pour le compléter.' })); return; }
-    treeHost.appendChild(h('p', { class: 'cbo-onb-treecount', text: nodes.length + ' étape' + (nodes.length > 1 ? 's' : '') + ' de conversation' }));
-    var qr = o.quickReplies || [];
-    if (qr.length) {
-      var chips = h('div', { class: 'cbo-onb-chips' });
-      qr.forEach(function (t) { chips.appendChild(h('span', { class: 'cbo-onb-chip', text: t })); });
-      treeHost.appendChild(h('div', { class: 'cbo-onb-block' },
-        h('span', { class: 'cbo-onb-block-l', text: 'Premières propositions au visiteur' }), chips));
-    }
-    var list = h('ul', { class: 'cbo-onb-nodes' });
-    nodes.slice(0, 40).forEach(function (n) { list.appendChild(h('li', null, h('span', { text: nodeLabel(n) }))); });
+    var ordered = orderedNodes(o.tree);
+    if (!ordered.length) { treeHost.appendChild(h('p', { class: 'cbo-muted', text: 'Arbre encore vide — ouvrez l’éditeur pour le compléter.' })); return; }
+    treeHost.appendChild(h('p', { class: 'cbo-onb-treecount', text: ordered.length + ' étape' + (ordered.length > 1 ? 's' : '') + ' de conversation' }));
+    var startNode = startNodeOf(o.tree), usesAi = false, list = h('ol', { class: 'cbo-onb-tree-list' });
+    ordered.forEach(function (n) {
+      var isStart = startNode && n.id === startNode.id, k = nodeKind(n), meta = KIND_META[k] || KIND_META.q;
+      var li = h('li', { class: 'cbo-onb-node ' + meta.cls },
+        h('div', { class: 'cbo-onb-node-head' },
+          h('span', { class: 'cbo-onb-badge2 ' + meta.cls, text: isStart ? 'Accueil' : meta.label }),
+          h('span', { class: 'cbo-onb-node-msg', text: trunc(nodeMessage(n), 140) })));
+      var opts = nodeOptions(n);
+      if (opts.length) {
+        var ul = h('ul', { class: 'cbo-onb-opts' });
+        opts.slice(0, 8).forEach(function (op) {
+          var toAi = optNext(op) === AI_ID; if (toAi) usesAi = true;
+          ul.appendChild(h('li', { class: 'cbo-onb-opt' + (toAi ? ' is-ai' : '') },
+            h('span', { class: 'cbo-onb-opt-l', text: trunc(optLabel(op), 60) }),
+            toAi ? h('span', { class: 'cbo-onb-opt-to', text: '→ IA' }) : null));
+        });
+        if (opts.length > 8) ul.appendChild(h('li', { class: 'cbo-onb-opt cbo-muted', text: '+ ' + (opts.length - 8) + ' autres' }));
+        li.appendChild(ul);
+      } else if (k === 'hum') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: 'Transfert vers un conseiller' })); }
+      else if (k === 'lead') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: 'Collecte des coordonnées du visiteur' })); }
+      else if (k === 'rdv') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: 'Propose une prise de rendez-vous' })); }
+      list.appendChild(li);
+    });
     treeHost.appendChild(list);
+    if (usesAi) treeHost.appendChild(h('p', { class: 'cbo-onb-ai-note', text: 'Les questions ouvertes sont confiées à l’IA.' }));
   }
 
   function openEditor(btn, treeHost) {
@@ -564,7 +594,13 @@
     var o = O();
     stopEditorSync();
     o.unlisten = listenEmbed(nonce, function (msg) {
-      if (msg.type === 'saved') { A.setNotice('Modifications enregistrées.', 'ok'); loadBotTree(treeHost); }
+      if (msg.type === 'saved') {
+        A.setNotice('Modifications enregistrées.', 'ok');
+        // L'arbre est désormais en DB : on oublie le job de génération (sinon une
+        // ré-ouverture rechargerait l'arbre généré périmé et masquerait l'édition).
+        var s = O(); if (s) s.jobId = '';
+        loadBotTree(treeHost);
+      }
       else if (msg.type === 'error') { A.setNotice('Une erreur est survenue dans l’éditeur.', 'warn'); }
     });
     o.syncTimer = setInterval(function () {
@@ -574,6 +610,7 @@
       call('GET', '/bots/' + encodeURIComponent(cur.botId)).then(function (res) {
         if (res.ok && res.data && res.data.updated_at && res.data.updated_at !== cur.updatedAt) {
           cur.updatedAt = res.data.updated_at;
+          cur.jobId = ''; // une sauvegarde a eu lieu : la DB fait foi, on lâche le job généré
           cur.bot = res.data; cur.tree = res.data.tree_json || cur.tree;
           cur.quickReplies = deriveQuickReplies(cur.tree);
           if (O() === cur && cur.step === 'tree') renderTreeView(treeHost);
@@ -603,15 +640,39 @@
     card.appendChild(h('p', { class: 'cbo-muted', text: 'Testez votre assistant comme le verront vos visiteurs. Cet aperçu est privé.' }));
     var host = h('div', { class: 'cbo-onb-preview' });
     card.appendChild(host);
-    card.appendChild(actions(backBtn('tree'),
-      h('button', { class: 'button button-primary button-hero', onClick: function () { goTo('offer'); } }, 'Voir mon offre')));
+    card.appendChild(actions(
+      backBtn('tree'),
+      // Reset : token frais + iframe neuve = conversation vierge (le widget ne
+      // restaure pas la session en mode aperçu).
+      h('button', { class: 'button cbo-onb-reset', type: 'button', onClick: function () { loadPreview(host); } }, '↻ Recommencer'),
+      h('button', { class: 'button button-primary button-hero', onClick: function () { goTo('offer'); } }, 'Voir mon offre')
+    ));
+    loadPreview(host);
+  }
+
+  function loadPreview(host) {
+    var o = O();
     clear(host); host.appendChild(loadingNote('Préparation de l’aperçu…'));
     call('POST', '/bots/' + encodeURIComponent(o.botId) + '/preview-token').then(function (res) {
       if (!res.ok || !res.data || !res.data.preview_token) { clear(host); host.appendChild(h('p', { class: 'cbo-error', text: apiMsg(res, 'Aperçu indisponible.') })); return; }
-      var url = (CFG.apiBase || '') + '/widget-frame?preview_token=' + encodeURIComponent(res.data.preview_token);
-      clear(host);
-      host.appendChild(h('iframe', { class: 'cbo-onb-widgetframe', src: url, title: 'Aperçu du chatbot',
-        sandbox: 'allow-scripts allow-forms allow-same-origin allow-popups' }));
+      var token = res.data.preview_token;
+      // /widget-frame exige le couple key(public_key)+preview_token (le token
+      // seul ne suffit pas : bootstrap valide bot.public_key == key).
+      function show(pk) {
+        var url = (CFG.apiBase || '') + '/widget-frame?key=' + encodeURIComponent(pk) +
+          '&preview_token=' + encodeURIComponent(token);
+        clear(host);
+        host.appendChild(h('iframe', { class: 'cbo-onb-widgetframe', src: url, title: 'Aperçu du chatbot',
+          sandbox: 'allow-scripts allow-forms allow-same-origin allow-popups' }));
+      }
+      var pk = (o.bot && o.bot.public_key) || '';
+      if (pk) { show(pk); return; }
+      // Repli (ex. arrivée sur l'aperçu sans passer par l'arbre) : on récupère
+      // le public_key via GET /bots/{id} avant de monter l'iframe.
+      call('GET', '/bots/' + encodeURIComponent(o.botId)).then(function (r2) {
+        if (r2.ok && r2.data) { o.bot = r2.data; }
+        show((o.bot && o.bot.public_key) || '');
+      });
     });
   }
 
@@ -644,10 +705,12 @@
     });
   }
   function recoBody(o) {
+    // On n'envoie PLUS l'arbre : la couche WP REST altérait l'objet imbriqué
+    // (relayé en chaîne/liste -> 422 qui vidait la reco). Le backend utilise
+    // l'arbre SAUVÉ du bot (autoritatif : l'éditeur le persiste, l'aperçu le lit).
     var b = {};
     if (o.role) b.description = o.role;
     if (o.visitors) b.visitors_per_month = parseInt(o.visitors, 10) || 0;
-    if (o.tree) b.tree_json = o.tree;
     return b;
   }
   function buildOffer(pane, bot, catalog, rec) {
@@ -669,13 +732,28 @@
     if (rec && rec.reason) banner.appendChild(h('p', { class: 'cbo-muted', text: rec.reason }));
     if (rec && rec.expected_replies) banner.appendChild(h('p', { class: 'cbo-muted',
       text: 'Volume estimé : environ ' + Number(rec.expected_replies).toLocaleString('fr-FR') + ' réponses / mois.' }));
+    // Pourquoi cette formule : explication PERSONNALISÉE générée par l'IA si dispo
+    // (sur mesure pour ce commerce), sinon repli sur la liste statique par module.
+    if (rec && rec.explanation_ai) {
+      banner.appendChild(h('p', { class: 'cbo-onb-reco-pitch', text: rec.explanation_ai }));
+    } else if (rec && Array.isArray(rec.explanations) && rec.explanations.length) {
+      banner.appendChild(h('p', { class: 'cbo-onb-reco-intro',
+        text: 'Concrètement, voici ce que votre assistant utilise — et pourquoi :' }));
+      var exList = h('ul', { class: 'cbo-onb-reco-list' });
+      rec.explanations.forEach(function (ex) {
+        exList.appendChild(h('li', null,
+          h('strong', { text: ex.title }), h('span', { text: ' — ' + ex.why })));
+      });
+      banner.appendChild(exList);
+    }
 
     A.buildPaymentForm(pane, sBot, catalog, {
       banner: banner,
       required: (rec && Array.isArray(rec.required_modules)) ? rec.required_modules : [],
       submitLabel: 'Souscrire et activer',
-      onSubscribe: function (config, consent, btn) { offerSubscribe(config, consent, btn); },
-      secondary: { label: 'Activer en version gratuite', onClick: function (btn) { freeActivate(btn); } }
+      onSubscribe: function (config, consent, btn) { offerSubscribe(config, consent, btn); }
+      // Pas de bouton « version gratuite » : le modèle n'a pas de palier gratuit
+      // (souscription requise pour activer le widget).
     });
     pane.appendChild(h('div', { class: 'cbo-onb-actions cbo-onb-actions-back' }, backBtn('preview')));
   }
@@ -713,14 +791,6 @@
         }
       });
   }
-  function freeActivate(btn) {
-    if (btn) btn.disabled = true;
-    var o = O();
-    o.stripe = '';
-    persist({ step: 'activation', bot_id: o.botId });
-    goTo('activation');
-  }
-
   /* ------------------------------------------------------ 10. activation */
 
   function renderActivation(card) {
@@ -852,6 +922,7 @@
     return [];
   }
   function startNodeOf(tree) {
+    if (!tree) return null;
     var nodes = treeNodes(tree);
     var id = tree.start || tree.start_node_id || tree.root || tree.entry;
     if (id != null) { var f = nodes.filter(function (n) { return n && n.id === id; })[0]; if (f) return f; }
@@ -866,9 +937,40 @@
     return opts.map(function (o) { return (o && (o.label || o.text || o.title || o.value)) || ''; })
       .filter(Boolean).slice(0, 8);
   }
-  function nodeLabel(n) {
-    if (!n) return 'Étape';
-    return String(n.title || n.label || n.name || n.prompt || n.message || n.text || n.id || 'Étape');
+  // --- Rendu d'arbre (renderTreeView) : type, options, parcours, troncature.
+  var AI_ID = '__ai__';
+  var KIND_META = {
+    q: { label: 'Question', cls: 'is-q' }, hum: { label: 'Conseiller', cls: 'is-hum' },
+    lead: { label: 'Lead', cls: 'is-lead' }, rdv: { label: 'Rendez-vous', cls: 'is-rdv' }
+  };
+  function nodeKind(n) {
+    if (!n) return 'q';
+    if (n.type === 'handoff') return 'hum';
+    if (n.type === 'lead') return 'lead';
+    if (n.type === 'appointment') return 'rdv';
+    return 'q';
+  }
+  function nodeOptions(n) { var o = n && (n.options || n.choices || n.replies); return Array.isArray(o) ? o : []; }
+  function optLabel(o) { return (o && (o.label || o.text || o.title || o.value)) || 'Option'; }
+  function optNext(o) { return o && (o.next != null ? o.next : (o.target != null ? o.target : o.goto)); }
+  function nodeMessage(n) { var m = n && (n.message || n.text || n.prompt || n.title || n.label || n.name); return m ? String(m) : '(sans message)'; }
+  function trunc(s, n) {
+    s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    return s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : s;
+  }
+  // Parcours en largeur depuis `start` (ordre de conversation), puis orphelins.
+  function orderedNodes(tree) {
+    var nodes = treeNodes(tree), byId = {};
+    nodes.forEach(function (n) { if (n && n.id != null) byId[n.id] = n; });
+    var start = startNodeOf(tree), out = [], seen = {}, q = start ? [start] : [];
+    while (q.length) {
+      var n = q.shift();
+      if (!n || n.id == null || seen[n.id]) continue;
+      seen[n.id] = 1; out.push(n);
+      nodeOptions(n).forEach(function (o) { var nx = optNext(o); if (nx != null && nx !== AI_ID && byId[nx] && !seen[nx]) q.push(byId[nx]); });
+    }
+    nodes.forEach(function (n) { if (n && n.id != null && !seen[n.id]) { seen[n.id] = 1; out.push(n); } });
+    return out;
   }
 
   /* --------------------------------------------------------- expose */

@@ -17,12 +17,13 @@ import re
 import xml.etree.ElementTree as ET
 from io import BytesIO
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.models.kb import KbChunk, KbSource
 from src.services.embeddings import embed_passages, embed_query, to_pgvector
@@ -98,8 +99,60 @@ async def fetch_user_url(url: str) -> str:
     (apex<->www / http->https). Centralise l'anti-SSRF : aucun chemin de fetch
     d'URL utilisateur ne doit construire son propre client HTTP. Lève FetchError
     (message FR) si l'URL est injoignable/privée/non https."""
+    # Voie de secours DEV pour lire un WordPress LOCAL — TRIPLE garde : flag
+    # ALLOW_PRIVATE_FETCH, environnement NON production, ET hôte d'origine en
+    # loopback (localhost/127/::1). Tout autre hôte (y compris une IP privée
+    # interne ou un hôte public) passe par l'anti-SSRF, même en dev. Limite le
+    # bypass au seul WP local du développeur : pas de SSRF vers les services
+    # internes (169.254.169.254, etc.).
+    if (settings.ALLOW_PRIVATE_FETCH and not settings.is_production
+            and _is_loopback_host(url)):
+        return await _dev_fetch_local_url(url)
     html_page, _final = await safe_get_follow(url, MAX_FETCH_BYTES)
     return html_to_text(html_page).strip()
+
+
+_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def _is_loopback_host(url: str) -> bool:
+    try:
+        return (urlparse(url).hostname or "").lower() in _LOOPBACK_HOSTS
+    except ValueError:
+        return False
+
+
+async def _dev_fetch_local_url(url: str) -> str:
+    """⚠ DEV UNIQUEMENT — appelée seulement après la triple garde de
+    fetch_user_url (flag + hors-prod + hôte loopback). Lit un WP local en se
+    connectant à host.docker.internal (le conteneur API ne joint pas son propre
+    localhost) tout en gardant Host=origine (évite la redirection canonique WP).
+    follow_redirects DÉSACTIVÉ : chaque saut est re-validé loopback (un redirect
+    hors-loopback est refusé) et le schéma borné à http/https."""
+    import httpx
+    cur = url
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+        for _ in range(5):
+            parsed = urlparse(cur)
+            if parsed.scheme not in ("http", "https") or (parsed.hostname or "").lower() not in _LOOPBACK_HOSTS:
+                raise FetchError("Cible dev non autorisée (loopback http/https uniquement)")
+            headers = {"User-Agent": "ChapoteBot/dev", "Host": parsed.netloc}
+            netloc = "host.docker.internal" + (f":{parsed.port}" if parsed.port else "")
+            target = urlunparse(parsed._replace(netloc=netloc))
+            try:
+                resp = await client.get(target, headers=headers)
+            except (httpx.HTTPError, OSError) as exc:
+                raise FetchError(f"Fetch dev échoué ({exc.__class__.__name__})") from exc
+            loc = resp.headers.get("location")
+            if resp.is_redirect and loc:
+                cur = urljoin(cur, loc)   # re-validé loopback au tour suivant
+                continue
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise FetchError(f"Fetch dev échoué ({exc.__class__.__name__})") from exc
+            return html_to_text(resp.text).strip()
+    raise FetchError("Trop de redirections (dev)")
 
 
 def _local_name(tag: str) -> str:
@@ -237,6 +290,14 @@ async def _extract(source: KbSource, text_content: Optional[str],
         content, page_count = await asyncio.to_thread(pdf_to_text, pdf_bytes or b"")
         return [(content, None)], page_count
     if source.type == "url":
+        # Texte deja extrait par l'appelant (onboarding plugin : fetch via
+        # fetch_user_url, qui a le bypass DEV loopback du WP local) -> on NE
+        # re-fetch PAS via l'anti-SSRF (qui refuserait localhost/IP privees).
+        # text_content est du TEXTE BRUT (fetch_user_url applique deja
+        # html_to_text) : pas de re-extraction. Aucun appelant url existant ne
+        # passe text_content -> changement retro-compatible.
+        if text_content is not None:
+            return [(text_content, None)], 1
         try:
             page = await safe_get(source.ref, MAX_FETCH_BYTES)
         except FetchError as exc:
@@ -342,6 +403,27 @@ async def ingest_source(source_id: int, *, text_content: Optional[str] = None,
             source = await db.get(KbSource, source_id)
             if source is not None:
                 await _fail("Erreur interne d'ingestion")
+
+
+# --- Etat KB (helpers partages widget/onboarding) ---
+
+async def bot_has_kb_chunks(db: AsyncSession, bot_id: int) -> bool:
+    """KB EXPLOITABLE au runtime (chunks embeddes presents) — gate la recherche
+    RAG cote widget."""
+    row = (await db.execute(
+        select(KbChunk.id).where(KbChunk.bot_id == bot_id).limit(1)
+    )).first()
+    return row is not None
+
+
+async def bot_has_kb_sources(db: AsyncSession, bot_id: int) -> bool:
+    """KB EN COURS ou prete (au moins une source, meme en ingestion) — utilise
+    par la recommandation onboarding pour tolerer une ingestion asynchrone non
+    encore terminee (evite de ne pas recommander RAG a cause d'une course)."""
+    row = (await db.execute(
+        select(KbSource.id).where(KbSource.bot_id == bot_id).limit(1)
+    )).first()
+    return row is not None
 
 
 # --- Recherche hybride ---

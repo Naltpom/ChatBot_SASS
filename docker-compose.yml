@@ -77,6 +77,11 @@ services:
       - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}
       - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
       - MOCK_AI=${MOCK_AI:-true}
+      # ⚠ DEV UNIQUEMENT : autorise fetch_user_url à lire un WP LOCAL (loopback
+      # seulement, http/https). Défaut FALSE : opt-in explicite via le .env local
+      # (ALLOW_PRIVATE_FETCH=true). JAMAIS de défaut actif. Ignoré en prod
+      # (la garde côté code exige aussi is_production=False).
+      - ALLOW_PRIVATE_FETCH=${ALLOW_PRIVATE_FETCH:-false}
       # Démo publique « 1 URL -> chatbot » (défauts sains, surcharge optionnelle).
       - DEMO_ENABLED=${DEMO_ENABLED:-true}
       - DEMO_IP_PER_DAY=${DEMO_IP_PER_DAY:-5}

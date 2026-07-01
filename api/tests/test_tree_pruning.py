@@ -1,7 +1,7 @@
 """Unitaires PURS de l'élagage d'arbre par modules (services/tree_engine.py).
 
 Onboarding guidé WP : `required_modules_for_tree` dérive les modules imposés par
-l'arbre (handoff->inbox, option __ai__->ai ; lead/appointment = socle) et
+l'arbre (handoff->inbox, lead->actions, option __ai__->ai ; appointment = socle) et
 `prune_tree_for_modules` / `prune_tree_with_removed` retirent les noeuds dont le
 module n'est pas conservé, en rebranchant proprement vers le start (jamais de
 widget mort). Aucune base de données : fonctions pures.
@@ -10,7 +10,7 @@ Lancement : pytest tests/test_tree_pruning.py -q  (depuis api/).
 """
 import copy
 
-from src.core.constants import MODULE_AI, MODULE_INBOX
+from src.core.constants import MODULE_ACTIONS, MODULE_AI, MODULE_INBOX
 from src.models.bot import DEFAULT_TREE
 from src.services.tree_engine import (
     prune_tree_for_modules,
@@ -37,7 +37,7 @@ def test_ai_option_requires_ai():
     assert required_modules_for_tree(tree) == {MODULE_AI}
 
 
-def test_lead_and_appointment_require_no_module():
+def test_lead_requires_actions_appointment_is_socle():
     tree = {"start": "root", "nodes": {
         "root": {"message": "Menu", "options": [
             {"label": "Contact", "next": "l"}, {"label": "RDV", "next": "a"}]},
@@ -45,7 +45,8 @@ def test_lead_and_appointment_require_no_module():
         "a": {"message": "Prenez RDV", "type": "appointment",
               "url": "https://cal.com/x", "options": []},
     }}
-    assert required_modules_for_tree(tree) == set()
+    # lead (capture de contact) -> module Actions (payant) ; appointment = socle.
+    assert required_modules_for_tree(tree) == {MODULE_ACTIONS}
 
 
 def test_required_modules_tolerates_garbage():
@@ -114,15 +115,31 @@ def test_prune_removes_orphans():
     assert set(pruned["nodes"].keys()) == {"root"}
 
 
-def test_prune_preserves_socle_lead_node():
+def test_prune_preserves_socle_appointment_node():
+    tree = {"start": "root", "nodes": {
+        "root": {"message": "Menu", "options": [{"label": "RDV", "next": "a"}]},
+        "a": {"message": "Prenez RDV", "type": "appointment", "url": "https://cal.com/x",
+              "options": [{"label": "Retour", "next": "root"}]},
+    }}
+    pruned = prune_tree_for_modules(tree, set())  # rien conservé
+    validate_tree(pruned)
+    assert "a" in pruned["nodes"]  # appointment = socle, jamais supprimé
+
+
+def test_prune_removes_lead_without_actions():
     tree = {"start": "root", "nodes": {
         "root": {"message": "Menu", "options": [{"label": "Contact", "next": "l"}]},
         "l": {"message": "Vos coordonnées", "type": "lead", "fields": ["email"],
               "options": [{"label": "Retour", "next": "root"}]},
     }}
-    pruned = prune_tree_for_modules(tree, set())  # rien conservé
+    # lead -> module Actions : exclu si Actions non conservé (rebranché vers root).
+    pruned = prune_tree_for_modules(tree, set())
     validate_tree(pruned)
-    assert "l" in pruned["nodes"]  # lead = socle, jamais supprimé
+    assert "l" not in pruned["nodes"]
+    # ... mais conservé quand Actions est actif.
+    kept = prune_tree_for_modules(tree, {MODULE_ACTIONS})
+    validate_tree(kept)
+    assert "l" in kept["nodes"]
 
 
 def test_prune_neutralizes_terminal_type_on_start():

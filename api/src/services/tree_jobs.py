@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 from src.services.kb_service import fetch_user_url, pdf_to_text
 from src.services.rate_limit import _get_redis  # client redis.asyncio partagé (ou None)
 from src.services.safe_fetch import FetchError
+from src.services.tree_engine import normalize_tree
 from src.services.tree_generator import MAX_SOURCE_CHARS, TreeGenerationError, generate_tree
 
 logger = logging.getLogger(__name__)
@@ -181,9 +182,18 @@ async def run_generation(
     try:
         combined = await build_source_text(parsed, pdf_blobs, context, on_progress=progress)
         await _update(job_id, stage="Construction de l'arbre par l'IA…", pct=78)
-        tree = await generate_tree(combined)
+        # `context` (description/brief du propriétaire) est AUSSI passé comme
+        # owner_brief : il façonne le ton de tous les messages et peut ajouter un
+        # nœud de mise en relation, en plus de son injection dans le texte source
+        # (build_source_text). None/vide -> generate_tree garde son comportement
+        # par défaut (rétro-compat).
+        tree = await generate_tree(combined, owner_brief=context)
         if post_process is not None:
             tree = post_process(tree)
+        # Normalisation DÉTERMINISTE (lead/appointment) : garantit que l'arbre
+        # publié (seed éditeur) ET l'arbre persisté sur le bot par
+        # _persist_generated_tree (qui lit job.tree_json) passent validate_tree.
+        tree = normalize_tree(tree)
         await _update(job_id, status="done", stage="Terminé", pct=100, tree_json=tree)
     except TreeGenerationError as exc:
         await _update(job_id, status="error", error=str(exc))

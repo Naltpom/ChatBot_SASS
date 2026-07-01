@@ -241,6 +241,12 @@ async def get_account_bot(bot_id: int, db: AsyncSession = Depends(get_db),
         "billing_status": billing_status,
         "modules": sorted(ent.modules),
         "design_json": bot.design_json,
+        # tree_json : l'onboarding (loadBotTree) lit l'arbre ici à la reprise,
+        # quand le job de génération éphémère n'est plus en mémoire. updated_at :
+        # le plugin l'utilise pour détecter une sauvegarde (sync éditeur). Contenu
+        # du propre bot du user (déjà exposé par /api/embed/bot), require_bot_access.
+        "tree_json": bot.tree_json,
+        "updated_at": bot.updated_at,
     }
 
 

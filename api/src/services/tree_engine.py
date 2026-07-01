@@ -20,16 +20,16 @@ Format du tree_json (exportable/importable en fichier) :
 import copy
 from typing import Any, Optional
 
-from src.core.constants import MODULE_AI, MODULE_INBOX
+from src.core.constants import MODULE_ACTIONS, MODULE_AI, MODULE_INBOX
 
 AI_NODE = "__ai__"
 
 # Mapping noeud -> module d'entitlement DÉRIVÉ de l'arbre (onboarding guidé WP).
-# handoff (mise en relation conseiller) exige le module Inbox. lead/appointment
-# sont du SOCLE (aucun module). L'option `next=='__ai__'` implique le module IA
-# (traité à part, ce n'est pas un type de noeud). Source UNIQUE, partagée par la
-# recommandation et l'élagage par modules.
-NODE_TYPE_TO_MODULE = {"handoff": MODULE_INBOX}
+# handoff (mise en relation conseiller) exige le module Inbox ; lead (formulaire
+# de capture de contact) exige le module Actions. appointment reste du SOCLE.
+# L'option `next=='__ai__'` implique le module IA (traité à part, ce n'est pas un
+# type de noeud). Source UNIQUE, partagée par la recommandation et l'élagage.
+NODE_TYPE_TO_MODULE = {"handoff": MODULE_INBOX, "lead": MODULE_ACTIONS}
 
 # Types de noeuds. Sans `type` = noeud message classique (retro-compat des
 # arbres existants). appointment = URL de calendrier (Calendly/Cal.com) rendue
@@ -76,6 +76,48 @@ def validate_tree(tree: dict[str, Any]) -> None:
     # Un depart sans option = widget mort en mode tree
     if not nodes[start].get("options"):
         raise TreeError("Le nœud de départ doit proposer au moins un choix")
+
+
+def normalize_tree(tree: dict[str, Any]) -> dict[str, Any]:
+    """Rend DÉTERMINISTE la validité d'un arbre généré par IA avant persistance.
+
+    L'IA (brief propriétaire) produit parfois des noeuds typés `lead`/`appointment`
+    que validate_tree REJETTE (email absent des fields, libellés hors LEAD_FIELDS,
+    url Calendly inconnue/placeholder). Un rejet fait échouer la persistance
+    best-effort et le bot garde l'arbre PAR DÉFAUT -> offre/reco calculées sur le
+    mauvais arbre. On normalise donc chaque noeud pour que validate_tree passe
+    toujours, en réutilisant la même logique que format_node_response (l.121).
+
+    Retourne une COPIE (deepcopy, ne mute pas l'entrée). Tolérant aux arbres
+    malformés : sans dict `nodes`, l'arbre est renvoyé tel quel. Un arbre sans
+    noeud typé ressort inchangé (rétro-compat stricte).
+    """
+    work = copy.deepcopy(tree)
+    nodes = work.get("nodes") if isinstance(work, dict) else None
+    if not isinstance(nodes, dict):
+        return work
+    for node in nodes.values():
+        if not isinstance(node, dict):
+            continue
+        ntype = node.get("type")
+        if ntype == "lead":
+            # Ne garde que les champs connus ; email obligatoire en tête ; jamais vide.
+            fields = [f for f in node.get("fields", ["email", "message"]) if f in LEAD_FIELDS]
+            if "email" not in fields:
+                fields = ["email"] + fields
+            node["fields"] = fields or ["email"]
+        elif ntype == "appointment":
+            url = node.get("url")
+            if isinstance(url, str) and url.startswith("https://") and len(url) <= 500:
+                node["url"] = url[:500]
+            else:
+                # URL de calendrier inconnue/placeholder : l'IA ne peut pas la
+                # connaître -> on RÉTROGRADE le noeud en simple message (on garde
+                # message/options, on retire type + url) plutôt que de le rejeter.
+                node.pop("type", None)
+                node.pop("url", None)
+        # autres types (handoff, message, sans type) : inchangés.
+    return work
 
 
 def get_node(tree: dict[str, Any], node_id: Optional[str] = None) -> tuple[str, dict[str, Any]]:
@@ -133,9 +175,9 @@ def format_node_response(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
 
 def required_modules_for_tree(tree: dict[str, Any]) -> set[str]:
     """Modules d'entitlement IMPOSÉS par la structure de l'arbre (pur, testable) :
-    un noeud `handoff` -> Inbox ; une option `next == '__ai__'` -> IA. Les noeuds
-    `lead`/`appointment` sont du socle (aucun module). Tolérant aux arbres
-    malformés (retourne un set, jamais d'exception)."""
+    un noeud `handoff` -> Inbox ; un noeud `lead` -> Actions ; une option
+    `next == '__ai__'` -> IA. Le noeud `appointment` reste du socle (aucun module).
+    Tolérant aux arbres malformés (retourne un set, jamais d'exception)."""
     required: set[str] = set()
     nodes = (tree or {}).get("nodes")
     if not isinstance(nodes, dict):

@@ -15,8 +15,10 @@ Particularités :
   arbre invalide, AUCUN gating de module (l'arbre est du contenu, pas un module).
 - preview-token / embed-token : émettent les JWT courts dédiés (core/security.py).
 """
+import json
 import logging
-from typing import Optional
+from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -34,7 +36,7 @@ from src.core.security import (
 from src.models.bot import Bot
 from src.models.user import Membership, User
 from src.routers.bots_helpers import FIELD_PERMS, _check_bot_perm
-from src.services import onboarding_service, tree_jobs
+from src.services import kb_service, onboarding_service, tree_jobs
 from src.services.billing_service import catalog_payload
 from src.services.bot_service import apply_tree_update
 from src.services.rate_limit import treegen_limiter
@@ -63,7 +65,11 @@ class GenerateFromUrlsPayload(BaseModel):
 class RecommendationPayload(BaseModel):
     description: Optional[str] = None
     visitors_per_month: Optional[int] = Field(None, ge=0)
-    tree_json: Optional[dict] = None
+    # Tolérant : le proxy plugin peut relayer l'arbre sous une forme imparfaite
+    # (objet, chaîne JSON, voire liste). On accepte tout ici et on le normalise
+    # côté handler (_coerce_tree) — un type strict `dict` provoquait un 422 qui
+    # vidait la recommandation (offre « rien de sélectionné »).
+    tree_json: Optional[Any] = None
 
 
 class TreePayload(BaseModel):
@@ -84,6 +90,39 @@ async def _load_bot(db: AsyncSession, bot_id: int, user: User) -> tuple[Bot, Opt
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bot introuvable")
     membership = await require_bot_access(bot, user, db)
     return bot, membership
+
+
+def _register_source_domains(bot: Bot, urls: list[str]) -> bool:
+    """Ajoute l'hôte des URLs sources à bot.allowed_domains (additif, dédupliqué,
+    normalisé minuscule). Renvoie True si la liste a changé. Sûr : c'est le propre
+    site du user (auth + ownership en amont) et le domaine pour lequel il construit
+    son bot. `_domain_allowed` matche l'hôte exact -> on stocke l'hôte tel quel."""
+    existing = list(bot.allowed_domains or [])
+    seen = {d.lower().strip() for d in existing if isinstance(d, str)}
+    changed = False
+    for raw in urls:
+        host = (urlparse(raw).hostname or "").lower()
+        if host and host not in seen:
+            existing.append(host)
+            seen.add(host)
+            changed = True
+    if changed:
+        bot.allowed_domains = existing  # réassignation -> détection de changement JSON
+    return changed
+
+
+def _coerce_tree(raw: Any) -> Optional[dict]:
+    """Normalise un tree_json relayé par le proxy plugin : dict tel quel, chaîne
+    JSON -> dict, sinon None (le handler retombe alors sur l'arbre sauvé du bot)."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 # --- Découverte d'URLs -----------------------------------------------------
@@ -127,9 +166,20 @@ async def generate_from_urls(
     if not await treegen_limiter.check(f"treegen:user:{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Limite de générations d'arbre atteinte pour aujourd'hui — réessayez demain")
+    # Le bot est construit POUR ce site : on enregistre son domaine dans
+    # allowed_domains (additif) pour que le widget s'y affiche EN PRODUCTION sans
+    # étape manuelle. (L'aperçu in-admin reste piloté par preview_token : il teste
+    # un bot encore NON payé, que le contrôle de servabilité bloquerait sinon.)
+    if _register_source_domains(bot, body.urls):
+        await db.commit()
     job_id = await tree_jobs.create(user.id, bot_id=bot.id)
     tree_jobs.spawn(onboarding_service.run_bot_generation(
         job_id, body.urls, body.description, exclude_modules=body.exclude_modules))
+    # EN PARALLÈLE (n'attend pas, ne bloque pas la réponse) : on ingère les mêmes
+    # pages dans la base de connaissances (RAG) du bot, pour que le mode IA libre
+    # réponde DEPUIS le site. Embeddings locaux = zéro coût externe, toujours actif
+    # (pas de gating module à l'ingestion). Best-effort & idempotent côté service.
+    tree_jobs.spawn(onboarding_service.run_kb_ingestion(bot.id, body.urls))
     return {"job_id": job_id}
 
 
@@ -160,9 +210,19 @@ async def recommendation(
     est `body.tree_json` s'il est fourni, sinon l'arbre courant du bot."""
     bot, _ = await _load_bot(db, bot_id, user)
     catalog = await catalog_payload(db)
-    tree = body.tree_json if body.tree_json is not None else bot.tree_json
-    return onboarding_service.recommend(catalog, tree, body.description,
-                                        body.visitors_per_month, bot.mode)
+    tree = _coerce_tree(body.tree_json) or bot.tree_json
+    # bot_has_kb_sources (et non les chunks) : une KB EN COURS d'ingestion compte,
+    # pour ne pas rater la reco RAG à cause d'une course avec l'ingestion async.
+    has_kb = await kb_service.bot_has_kb_sources(db, bot.id)
+    result = onboarding_service.recommend(catalog, tree, body.description,
+                                          body.visitors_per_month, bot.mode, has_kb=has_kb)
+    # Explication PERSONNALISÉE générée par l'IA (2-3 phrases sur mesure). Best-effort :
+    # None si l'IA échoue -> l'offre retombe sur `explanations` (statique) déjà dans
+    # result. Petit texte, NON compté dans treegen_limiter.
+    result["explanation_ai"] = await onboarding_service.generate_plan_pitch(
+        bot.name, body.description, result["recommended_modules"],
+        body.visitors_per_month, result["expected_replies"])
+    return result
 
 
 @router.get("/bots/{bot_id}/recommendation")
@@ -174,7 +234,9 @@ async def recommendation_get(
     """Commodité : recommandation sur l'arbre COURANT du bot (sans corps)."""
     bot, _ = await _load_bot(db, bot_id, user)
     catalog = await catalog_payload(db)
-    return onboarding_service.recommend(catalog, bot.tree_json, None, None, bot.mode)
+    # KB en cours d'ingestion incluse (cf. recommendation POST) : tolère la course.
+    has_kb = await kb_service.bot_has_kb_sources(db, bot.id)
+    return onboarding_service.recommend(catalog, bot.tree_json, None, None, bot.mode, has_kb=has_kb)
 
 
 # --- Arbre (lecture / écriture / élagage proposé) --------------------------

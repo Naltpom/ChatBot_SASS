@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@kertios.com"
     ADMIN_PASSWORD: str = "Admin123!"
 
+    # --- Fetch d'URLs privées/localhost en DEV uniquement ---
+    # ⚠ JAMAIS en production (laissé à False). Si actif, fetch_user_url emprunte
+    # une voie de secours qui CONTOURNE l'anti-SSRF (autorise http + IP privées)
+    # et réécrit localhost/127.0.0.1 -> host.docker.internal (le conteneur API ne
+    # joint pas son propre localhost). Sert UNIQUEMENT à tester l'onboarding/démo
+    # contre un WordPress local. Le chemin prod (safe_get_follow) reste intact.
+    ALLOW_PRIVATE_FETCH: bool = False
+
     APP_URL: str = "http://localhost:3001"
     API_URL: str = "http://localhost:8001"
 
@@ -150,6 +158,9 @@ class Settings(BaseSettings):
     RATE_SESSION_WINDOW_SECONDS: int = 600  # ...par fenetre de 10 min
     RATE_IP_REQUESTS: int = 100             # anti-flood IP...
     RATE_IP_WINDOW_SECONDS: int = 60        # ...par minute
+    # Aperçu owner (preview_token) : plafond de tours IA par conversation d'aperçu
+    # (les appels modèle ne sont ni comptés ni facturés -> borne anti-abus).
+    PREVIEW_MAX_AI_TURNS: int = 20
 
     # --- 2FA (TOTP authenticator + WebAuthn / passkeys) ---
     # Émetteur affiché dans l'app authenticator + RP name WebAuthn.

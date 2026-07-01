@@ -8,6 +8,7 @@ borne le COÛT provider (anti-abus), ce n'est pas un gating de plan.
 import json
 import logging
 import re
+from typing import Optional
 
 import httpx
 
@@ -27,24 +28,105 @@ MAX_SOURCE_CHARS = 20_000
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GEMINI_TREE_MODEL = "gemini-2.5-flash"
 
-SYSTEM_PROMPT = """Tu construis des arbres de décision pour des chatbots de sites web.
+# Règle de TON PAR DÉFAUT (aucun brief propriétaire) : ton chaleureux figé,
+# comportement historique. Le brief, s'il en fournit un, prime (voir _build_system_prompt).
+_TONE_RULE_DEFAULT = (
+    "- Ids de nœuds courts en snake_case. Messages concis (2-3 phrases max), "
+    "ton chaleureux, en français."
+)
+# Règle de TON quand un brief est fourni : le ton suit les INSTRUCTIONS
+# PRIORITAIRES DU PROPRIÉTAIRE (bloc injecté plus bas), chaleureux à défaut.
+_TONE_RULE_BRIEF = (
+    "- Ids de nœuds courts en snake_case. Messages concis (2-3 phrases max), "
+    "en français, dans le TON imposé par les INSTRUCTIONS PRIORITAIRES DU "
+    "PROPRIÉTAIRE ci-dessous (ton chaleureux à défaut)."
+)
+
+# Règle « type » STRICTE (aucun brief) : aucun nœud typé, root = menu d'accueil.
+_TYPE_RULE_STRICT = (
+    '- N\'ajoute JAMAIS de clé "type" aux nœuds : ce sont tous des messages avec '
+    'options. Le nœud "root" est TOUJOURS un menu d\'accueil (jamais une mise en '
+    "relation/un formulaire)."
+)
+# Règle « type » ASSOUPLIE (brief présent) : la racine reste un menu sans "type",
+# mais des nœuds ENFANTS handoff/lead sont autorisés SI le brief les justifie.
+_TYPE_RULE_BRIEF = (
+    '- Le nœud "root" est TOUJOURS un menu d\'accueil, SANS clé "type" (jamais '
+    "lui-même une mise en relation ni un formulaire). Les autres nœuds sont par "
+    "défaut de simples messages avec options. EXCEPTION, UNIQUEMENT si les "
+    "INSTRUCTIONS PRIORITAIRES DU PROPRIÉTAIRE ci-dessous le demandent : tu peux "
+    'créer un nœud ENFANT de mise en relation {"type":"handoff","message":"…"} '
+    "(pour parler à un conseiller humain en direct) et/ou un nœud de formulaire "
+    'de contact {"type":"lead","fields":["email","message"],"message":"…"}, '
+    "atteint depuis une option du menu. N'invente NI mise en relation NI "
+    "formulaire si le propriétaire ne le demande pas."
+)
+
+SYSTEM_PROMPT = f"""Tu construis des arbres de décision pour des chatbots de sites web.
 À partir du contenu fourni (FAQ, page d'aide, documentation), produis un arbre au format JSON STRICT :
 
-{
+{{
   "start": "root",
-  "nodes": {
-    "root": {"message": "<message d'accueil>", "options": [{"label": "<bouton>", "next": "<id_noeud>"}]},
-    "<id_noeud>": {"message": "<réponse>", "options": [{"label": "<bouton>", "next": "..."}]}
-  }
-}
+  "nodes": {{
+    "root": {{"message": "<message d'accueil>", "options": [{{"label": "<bouton>", "next": "<id_noeud>"}}]}},
+    "<id_noeud>": {{"message": "<réponse>", "options": [{{"label": "<bouton>", "next": "..."}}]}}
+  }}
+}}
 
 Règles :
 - Chaque option "next" est TOUJOURS un id de nœud existant, "root" (retour au menu) ou "__ai__" (bascule vers l'IA). JAMAIS une URL : un lien externe se met dans le "message" en markdown [libellé](https://…), jamais dans "next".
-- Ids de nœuds courts en snake_case. Messages concis (2-3 phrases max), ton chaleureux, en français. Markdown LÉGER autorisé (**gras**, *italique*, [libellé](https://…), sauts de ligne) ; pas de titres, pas de HTML, pas d'emoji.
+{_TONE_RULE_DEFAULT} Markdown LÉGER autorisé (**gras**, *italique*, [libellé](https://…), sauts de ligne) ; pas de titres, pas de HTML, pas d'emoji.
 - Regroupe les sujets en 3 à 6 choix racine maximum. Ajoute une option "Autre question" -> "__ai__" sur le nœud racine.
-- N'ajoute JAMAIS de clé "type" aux nœuds : ce sont tous des messages avec options. Le nœud "root" est TOUJOURS un menu d'accueil (jamais une mise en relation/un formulaire).
+{_TYPE_RULE_STRICT}
 - Les nœuds terminaux proposent une option de retour vers "root".
 - Réponds UNIQUEMENT avec le JSON, sans markdown, sans commentaire."""
+
+# Bloc « instructions propriétaire » injecté APRÈS les règles quand un brief est
+# fourni. `.format(brief=…)` : les accolades JSON littérales sont doublées ({{ }}),
+# seul {brief} est substitué.
+_OWNER_BRIEF_BLOCK = (
+    "INSTRUCTIONS PRIORITAIRES DU PROPRIÉTAIRE (elles PRIMENT sur le ton par "
+    "défaut et sur le contenu du site ; ce sont des consignes de CONSTRUCTION, "
+    "PAS du texte à recopier tel quel dans l'arbre) :\n"
+    "<<<\n{brief}\n>>>\n"
+    "À appliquer :\n"
+    "- TON / PERSONA : si ces instructions précisent un ton, une personnalité ou "
+    "un univers (ex. médiéval/chevaleresque, formel, décontracté, humoristique…), "
+    "TOUS les messages de l'arbre — accueil compris — l'adoptent fidèlement et de "
+    "façon cohérente. Sinon, garde un ton chaleureux.\n"
+    "- MISE EN RELATION : si le propriétaire veut qu'on puisse contacter / parler "
+    "à un humain / un conseiller en direct, AJOUTE un nœud enfant "
+    '{{"type":"handoff","message":"…"}} et une option du menu racine qui y mène '
+    '(ex. « Parler à un conseiller »). Le "message" du nœud annonce la mise en '
+    "relation, dans le ton demandé.\n"
+    "- FORMULAIRE DE CONTACT : si le propriétaire veut recueillir les coordonnées "
+    "du visiteur (ou une prise de rendez-vous), AJOUTE un nœud "
+    '{{"type":"lead","fields":["email","message"],"message":"…"}} accessible depuis '
+    'le menu. La clé "fields" vaut EXACTEMENT ["email","message"] (ne mets pas de '
+    "libellés en français ni d'autres champs).\n"
+    '- N\'utilise JAMAIS de nœud {{"type":"appointment"}} : tu ne connais pas l\'URL '
+    "du calendrier (elle se configure ailleurs). Pour une prise de rendez-vous, "
+    'utilise un nœud {{"type":"lead"}} comme ci-dessus.\n'
+    '- Le nœud "root" RESTE un menu d\'accueil sans clé "type" : la mise en relation '
+    "et le formulaire sont des nœuds ENFANTS atteints par une option."
+)
+
+
+def _build_system_prompt(owner_brief: Optional[str]) -> str:
+    """Prompt système Gemini selon la présence d'un brief propriétaire.
+
+    Sans brief -> `SYSTEM_PROMPT` inchangé (ton chaleureux par défaut, aucun nœud
+    typé : rétro-compat STRICTE). Avec brief -> ton/persona et mise en relation
+    pilotés par le propriétaire : on assouplit la règle « type » (handoff/lead
+    enfants autorisés, root toujours un menu) et on injecte les instructions
+    prioritaires."""
+    brief = (owner_brief or "").strip()
+    if not brief:
+        return SYSTEM_PROMPT
+    relaxed = SYSTEM_PROMPT.replace(_TONE_RULE_DEFAULT, _TONE_RULE_BRIEF).replace(
+        _TYPE_RULE_STRICT, _TYPE_RULE_BRIEF
+    )
+    return f"{relaxed}\n\n{_OWNER_BRIEF_BLOCK.format(brief=brief[:1200])}"
 
 MOCK_TREE = {
     "start": "root",
@@ -128,12 +210,50 @@ async def fetch_page_text(url: str) -> str:
     return text[:MAX_SOURCE_CHARS]
 
 
-async def _generate_tree_gemini(source_text: str) -> str:
+async def generate_text_gemini(system_prompt: str, user_prompt: str,
+                               max_tokens: int = 400) -> Optional[str]:
+    """Appel Gemini REST -> TEXTE LIBRE (pas de JSON). Best-effort : renvoie None
+    sur clé absente / MOCK_AI / toute erreur (l'appelant a toujours un repli).
+    Sert aux petits textes générés (ex. explication personnalisée du plan)."""
+    api_key = settings.GEMINI_API_KEY
+    if not api_key or settings.MOCK_AI:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                GEMINI_URL.format(model=GEMINI_TREE_MODEL),
+                params={"key": api_key},
+                json={
+                    "system_instruction": {"parts": [{"text": system_prompt}]},
+                    "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.4,
+                        "maxOutputTokens": max_tokens,
+                        "thinkingConfig": {"thinkingBudget": 0},
+                    },
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        logger.warning("generate_text_gemini: erreur API Gemini %s", e)
+        return None
+    cands = data.get("candidates") or []
+    if not cands:
+        return None
+    parts = (cands[0].get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    return text or None
+
+
+async def _generate_tree_gemini(source_text: str, system_prompt: str) -> str:
     """Appel Gemini REST direct (generateContent) -> texte brut (JSON attendu).
 
     Helper dedie : maxOutputTokens 4096 (un arbre depasse les 1024 de
-    _call_gemini), responseMimeType JSON, temperature 0. Toute httpx.HTTPError
-    (statut, reseau, timeout) est traduite en TreeGenerationError FR."""
+    _call_gemini), responseMimeType JSON, temperature 0. `system_prompt` est
+    l'instruction systeme assemblee (defaut ou augmentee du brief proprietaire).
+    Toute httpx.HTTPError (statut, reseau, timeout) est traduite en
+    TreeGenerationError FR."""
     api_key = settings.GEMINI_API_KEY
     if not api_key:
         raise TreeGenerationError("Génération indisponible : aucune clé IA configurée côté serveur")
@@ -143,7 +263,7 @@ async def _generate_tree_gemini(source_text: str) -> str:
                 GEMINI_URL.format(model=GEMINI_TREE_MODEL),
                 params={"key": api_key},
                 json={
-                    "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                    "system_instruction": {"parts": [{"text": system_prompt}]},
                     "contents": [{
                         "role": "user",
                         "parts": [{"text": f"Contenu source :\n\n{source_text}\n\nGénère l'arbre de décision JSON."}],
@@ -172,8 +292,15 @@ async def _generate_tree_gemini(source_text: str) -> str:
     return "".join(p.get("text", "") for p in parts)
 
 
-async def generate_tree(source_text: str) -> dict:
-    """Texte source -> tree_json validé (Gemini uniquement)."""
+async def generate_tree(source_text: str, owner_brief: Optional[str] = None) -> dict:
+    """Texte source -> tree_json validé (Gemini uniquement).
+
+    `owner_brief` (optionnel) = consignes PRIORITAIRES du propriétaire du bot
+    (ton/persona voulu, demande de mise en relation conseiller en direct…),
+    DISTINCTES du contenu du site. Fourni -> il façonne le ton de TOUS les
+    messages et peut ajouter un nœud enfant handoff/lead (la racine reste un
+    menu). Absent -> comportement historique inchangé (ton chaleureux, aucun
+    nœud typé : rétro-compat stricte)."""
     source_text = source_text.strip()[:MAX_SOURCE_CHARS]
     if len(source_text) < 50:
         raise TreeGenerationError("Fournissez plus de contenu (FAQ, texte d'aide…) pour générer un arbre")
@@ -181,7 +308,7 @@ async def generate_tree(source_text: str) -> dict:
     if settings.MOCK_AI:
         return MOCK_TREE
 
-    raw = await _generate_tree_gemini(source_text)
+    raw = await _generate_tree_gemini(source_text, _build_system_prompt(owner_brief))
     # Tolère un éventuel bloc markdown malgré la consigne
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
     try:
