@@ -30,7 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout du repo
-        uses: actions/checkout@v4
+        # Épinglé au SHA ; commentaire = version lisible. v7 = runtime Node 24.
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Lire la version du plugin (Stable tag du readme)
         id: ver
@@ -59,7 +60,8 @@ jobs:
           ASSETS_DIR: integrations/wordpress/wporg-assets
 
       - name: Récupérer le zip généré
-        uses: actions/upload-artifact@v4
+        # Épinglé au SHA ; commentaire = version lisible. v7 = runtime Node 24.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: chapote-bot-manager-zip
           path: ${{ github.workspace }}/chapote-bot-manager.zip
