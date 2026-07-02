@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chapote Bot Manager — harnais captures</title>
+
+<!-- Chrome wp-admin approché + styles RÉELS du plugin (source de vérité) -->
+<link rel="stylesheet" href="./wp-admin-lite.css">
+<link rel="stylesheet" href="../chapote-bot-manager/admin/css/admin.css">
+<link rel="stylesheet" href="../chapote-bot-manager/admin/css/onboarding.css">
+
+<script>
+/*
+ * Harnais de capture multi-scènes : on exécute la VRAIE SPA du plugin
+ * (cbo-core.js + admin.js + onboarding.js) en interceptant l'unique point réseau
+ * (window.fetch -> CFG.restBase + path). Aucun markup n'est reproduit à la main :
+ * on capture exactement ce que le plugin rend. Données FAKE, neutres (aucune marque
+ * tierce, aucun « test »). La scène est choisie par ?scene= dans l'URL :
+ *   welcome | pick | tree | offer | bots
+ * Les étapes du wizard qui embarquent un iframe du dashboard (customize/preview/
+ * éditeur d'arbre) ne sont PAS capturées ici (elles nécessitent l'app en ligne).
+ */
+var SCENE = (new URLSearchParams(location.search).get('scene') || 'bots');
+var MOCK_BASE = 'mock://chapote-bo/v1';
+
+// La scène d'accueil (welcome) est le SEUL cas non connecté (le wizard démarre par
+// l'écran d'invitation) ; les autres scènes sont connectées.
+var CONNECTED = SCENE !== 'welcome';
+
+// État d'onboarding présenté au routage first-run du plugin (admin.js).
+var ONB = { welcome: { done: false, bot_id: '', step: 'welcome' },
+            pick:    { done: false, bot_id: '', step: 'pick' },
+            tree:    { done: false, bot_id: 'b1', step: 'tree' },
+            offer:   { done: false, bot_id: 'b1', step: 'offer' },
+            bots:    { done: true,  bot_id: '', step: 'activation' } }[SCENE] || { done: true };
+
+window.CHAPOTE_BO = {
+  restBase: MOCK_BASE,
+  nonce: 'mock-nonce',
+  apiBase: 'https://chapote.fr',
+  appBase: 'https://chapote.fr',
+  adminUrl: '#',
+  siteHost: 'ma-boutique.fr',
+  homeUrl: 'https://ma-boutique.fr',
+  siteName: 'Ma Boutique',
+  returnStatus: '', returnBot: '', returnStep: '',
+  cryptoOk: true,
+  postTypes: [
+    { slug: 'post', label: 'Articles' },
+    { slug: 'page', label: 'Pages' },
+    { slug: 'product', label: 'Produits' }
+  ],
+  onboarding: ONB,
+  legal: { cgu: 'https://chapote.fr/legal/cgu', cgv: 'https://chapote.fr/legal/cgv' },
+  dashboardBase: 'https://chapote.fr'
+};
+
+/* --- Données FAKE (réalistes, sans référence à une app ou un client existant) --- */
+var ACCOUNT = { email: 'contact@ma-boutique.fr', name: 'Ma Boutique' };
+
+var BOTS = [
+  { id: 'b1', name: 'Assistant boutique', modules: ['ia', 'rag'],          billing_status: 'active', enabled: true },
+  { id: 'b2', name: 'Support commandes',  modules: ['ia', 'rag', 'inbox'], billing_status: 'active', enabled: true },
+  { id: 'b3', name: 'FAQ livraison',      modules: [],                      billing_status: null,     enabled: false }
+];
+
+// Arbre de conversation « généré par l'IA » présenté à l'étape 7 du wizard.
+var TREE = {
+  start: 'welcome',
+  nodes: {
+    welcome:  { id: 'welcome', type: 'question', message: 'Bonjour ! Que puis-je faire pour vous aujourd’hui ?',
+      options: [
+        { label: 'Suivre ma commande', next: 'suivi' },
+        { label: 'Une question sur un produit', next: '__ai__' },
+        { label: 'Livraison & retours', next: 'livraison' },
+        { label: 'Parler à un conseiller', next: 'conseiller' }
+      ] },
+    suivi:    { id: 'suivi', type: 'question', message: 'Avez-vous votre numéro de commande sous la main ?',
+      options: [
+        { label: 'Oui, le voici', next: '__ai__' },
+        { label: 'Je ne le trouve pas', next: 'lead' }
+      ] },
+    livraison:{ id: 'livraison', type: 'question', message: 'Que souhaitez-vous savoir ?',
+      options: [
+        { label: 'Vos délais de livraison', next: '__ai__' },
+        { label: 'Retourner un article', next: '__ai__' }
+      ] },
+    conseiller: { id: 'conseiller', type: 'handoff', message: 'Je vous mets en relation avec un conseiller de l’équipe.' },
+    lead:       { id: 'lead', type: 'lead', message: 'Laissez-moi votre email, nous revenons vers vous rapidement.' }
+  }
+};
+
+var BOT_DETAIL = {
+  b1: {
+    // Bot fraîchement généré par le wizard : pas encore d'abonnement -> l'étape
+    // « Offre » montre la 1re souscription (« Souscrire et activer »), pas un plan actif.
+    id: 'b1', name: 'Assistant boutique', billing_status: null,
+    modules: ['ia', 'rag'], ai_tier_id: 'ai_starter', ai_byok: false,
+    public_key: 'pk_demo_boutique', updated_at: '2026-07-02T09:00:00Z',
+    tree_json: TREE,
+    design_json: {
+      primaryColor: '#1C3F5C', secondaryColor: '#2F9E79',
+      title: 'Assistant boutique', position: 'right', size: 'md',
+      welcomeMessage: 'Bonjour ! Une question sur un produit ou votre commande ?',
+      placeholder: 'Écrivez votre message…', launcherText: 'Une question ?',
+      poweredBy: false, greeting: false, darkMode: false
+    }
+  }
+};
+
+var LOCAL = {
+  b1: {
+    enabled: true,
+    targeting: {
+      mode: 'custom', include_front: true,
+      include_types: ['page', 'product'], include_ids: [],
+      exclude_types: [], exclude_ids: [42]
+    }
+  }
+};
+
+var SEO = {
+  powered_by: true,
+  faq: [
+    { q: 'Quels sont vos délais de livraison ?', a: 'Les commandes sont préparées sous 24 à 48 h ouvrées, puis livrées en 2 à 4 jours selon votre région.' },
+    { q: 'Puis-je retourner un article ?', a: 'Oui. Vous disposez de 30 jours après réception pour retourner un article non utilisé et être remboursé.' },
+    { q: 'Livrez-vous à l’international ?', a: 'Nous livrons dans toute l’Union européenne ; les frais et délais sont calculés à l’étape de paiement.' }
+  ]
+};
+
+// Pages du site WordPress détectées à l'étape « Analyser mon site » (100% WP).
+var SITE_PAGES = [
+  { url: 'https://ma-boutique.fr/',                title: 'Accueil',                        is_front: true,  relevant: false },
+  { url: 'https://ma-boutique.fr/nos-produits',    title: 'Nos produits',                   is_front: false, relevant: true },
+  { url: 'https://ma-boutique.fr/livraison-retours', title: 'Livraison & retours',          is_front: false, relevant: true },
+  { url: 'https://ma-boutique.fr/a-propos',        title: 'À propos de nous',               is_front: false, relevant: true },
+  { url: 'https://ma-boutique.fr/contact',         title: 'Contact',                        is_front: false, relevant: true },
+  { url: 'https://ma-boutique.fr/blog',            title: 'Blog',                           is_front: false, relevant: false },
+  { url: 'https://ma-boutique.fr/cgv',             title: 'Conditions générales de vente',  is_front: false, relevant: false }
+];
+
+// Offre conseillée (étape 9). buildPaymentForm pré-coche modules/palier IA.
+var RECO = {
+  recommended_modules: ['rag'],
+  recommended_ai_tier: 'ai_starter',
+  recommended_byok: false,
+  required_modules: ['rag'],
+  reason: 'Votre assistant répond à des questions ouvertes à partir du contenu de votre site.',
+  expected_replies: 800,
+  explanations: [
+    { title: 'Base de connaissances', why: 'il puise ses réponses dans vos pages produits et votre page livraison.' },
+    { title: 'IA incluse (500 réponses / mois)', why: 'suffisant pour votre trafic estimé, sans clé à fournir.' }
+  ]
+};
+
+var CATALOG = {
+  base_price_cents: 900,
+  modules: [
+    { key: 'ai',      label: 'Intelligence artificielle', byok_price_cents: 2900 },
+    { key: 'rag',     label: 'Base de connaissances',  desc: 'Répond à partir de vos contenus', price_cents: 900, requires: ['ai'] },
+    { key: 'inbox',   label: 'Boîte de réception',     desc: 'Historique et reprise humaine',   price_cents: 700 },
+    { key: 'actions', label: 'Actions',                desc: 'Collecte de coordonnées, rendez-vous', price_cents: 1200 }
+  ],
+  ai_tiers: [
+    { id: 'ai_starter', included_replies: 500,  price_cents: 1900 },
+    { id: 'ai_pro',     included_replies: 2000, price_cents: 3900 }
+  ]
+};
+
+/* --- Routeur de mock : mappe (méthode, path) -> JSON --- */
+function routeMock(method, path) {
+  if (path === '/status') return { connected: CONNECTED, account: CONNECTED ? ACCOUNT : null };
+  // Pendant l'onboarding, la liste est vide (déclenche le first-run) ; scène « bots ».
+  if (path === '/bots') return (SCENE === 'bots') ? BOTS : [];
+  if (path === '/catalog') return CATALOG;
+  if (path === '/seo') return SEO;
+  if (path === '/site/pages') return { pages: SITE_PAGES };
+  var m;
+  if ((m = path.match(/^\/bots\/([^\/]+)\/local$/))) return LOCAL[m[1]] || { enabled: false, targeting: {} };
+  if ((m = path.match(/^\/bots\/([^\/]+)\/recommendation$/))) return RECO;
+  if ((m = path.match(/^\/bots\/([^\/]+)$/))) return BOT_DETAIL[m[1]] || (BOTS.filter(function (b) { return b.id === m[1]; })[0] || {});
+  // POST divers (onboarding persist, save, checkout…) : succès neutre.
+  return { ok: true };
+}
+
+var _realFetch = window.fetch;
+window.fetch = function (url, opts) {
+  var u = String(url);
+  if (u.indexOf(MOCK_BASE) === 0) {
+    var path = u.slice(MOCK_BASE.length).split('?')[0];
+    var method = (opts && opts.method) || 'GET';
+    var data = routeMock(method, path);
+    return Promise.resolve({
+      ok: true, status: 200,
+      json: function () { return Promise.resolve(data); }
+    });
+  }
+  return _realFetch ? _realFetch.apply(this, arguments) : Promise.reject(new Error('no fetch'));
+};
+</script>
+</head>
+<body class="wp-admin">
+  <div class="wrap chapote-bo-wrap">
+    <h1>Chapote Bot Manager</h1>
+    <div id="chapote-bo-app"><noscript>Ce back-office nécessite JavaScript.</noscript></div>
+  </div>
+
+  <!-- Ordre imposé par le plugin : core -> admin -> onboarding -->
+  <script src="../chapote-bot-manager/admin/js/cbo-core.js"></script>
+  <script src="../chapote-bot-manager/admin/js/admin.js"></script>
+  <script src="../chapote-bot-manager/admin/js/onboarding.js"></script>
+</body>
+</html>

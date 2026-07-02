@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  /* Bannière de fiche WordPress.org — 772×250 (capturée en 1× et 2× pour le retina).
+     Couleurs de marque Chapote : navy #1C3F5C, menthe #2F9E79 (app/public/brand/icon.svg). */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 772px; height: 250px; overflow: hidden; }
+  .banner {
+    width: 772px; height: 250px; display: flex; align-items: center; gap: 30px;
+    padding: 0 52px;
+    background:
+      radial-gradient(900px 500px at 88% -30%, rgba(47,158,121,.28), transparent 60%),
+      linear-gradient(135deg, #1C3F5C 0%, #16334a 60%, #12293b 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    color: #fff;
+  }
+  .tile {
+    flex: 0 0 auto; width: 120px; height: 120px; border-radius: 30px;
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    display: grid; place-items: center;
+    box-shadow: 0 12px 30px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.10);
+  }
+  .tile svg { width: 74px; height: 74px; }
+  .txt { min-width: 0; }
+  .title { font-size: 46px; font-weight: 800; letter-spacing: -.5px; line-height: 1.05; }
+  .sub { margin-top: 10px; font-size: 21px; font-weight: 600; color: #7BE0BC; }
+  .feat { margin-top: 12px; font-size: 15px; color: #A9BDCB; letter-spacing: .2px; }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <div class="tile">
+      <!-- Chapô Chapote (tracés repris de app/public/brand/icon.svg) -->
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <g stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1"/>
+          <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2"/>
+        </g>
+      </svg>
+    </div>
+    <div class="txt">
+      <div class="title">Chapote Bot Manager</div>
+      <div class="sub">Gérez vos chatbots sans quitter WordPress</div>
+      <div class="feat">Connexion sécurisée · assistant guidé · apparence · widget · SEO</div>
+    </div>
+  </div>
+</body>
+</html>

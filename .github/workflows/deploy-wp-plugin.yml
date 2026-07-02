@@ -32,6 +32,18 @@ jobs:
       - name: Checkout du repo
         uses: actions/checkout@v4
 
+      - name: Lire la version du plugin (Stable tag du readme)
+        id: ver
+        # En workflow_dispatch, GITHUB_REF vaut refs/heads/<branche> : l'action 10up
+        # en déduirait une "version" invalide (tags/refs/heads/...). On lui passe donc
+        # explicitement la version, lue dans le readme (source de vérité du Stable tag).
+        run: |
+          VERSION=$(grep -m1 -i '^Stable tag:' integrations/wordpress/chapote-bot-manager/readme.txt \
+            | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r[:space:]')
+          if [ -z "$VERSION" ]; then echo "::error::Stable tag introuvable dans le readme"; exit 1; fi
+          echo "Version détectée : $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Publier sur WordPress.org (SVN)
         # Épinglé au SHA (chaîne d'appro) ; commentaire = version lisible. Bump via Dependabot.
         uses: 10up/action-wordpress-plugin-deploy@54bd289b8525fd23a5c365ec369185f2966529c2  # v2.3.0
@@ -42,6 +54,7 @@ jobs:
           SVN_USERNAME: ${{ secrets.WP_SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.WP_SVN_PASSWORD }}
           SLUG: chapote-bot-manager
+          VERSION: ${{ steps.ver.outputs.version }}
           BUILD_DIR: integrations/wordpress/chapote-bot-manager
           ASSETS_DIR: integrations/wordpress/wporg-assets
 
