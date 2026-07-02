@@ -1,0 +1,53 @@
+# Publication manuelle du plugin sur le dépôt SVN WordPress.org.
+# Onglet "Actions" -> "Deploy WordPress plugin (WordPress.org SVN)" -> "Run workflow".
+#
+# Comme le deploy VPS, c'est un déclenchement MANUEL (workflow_dispatch).
+# L'action officielle 10up :
+#   - checkout du SVN https://plugins.svn.wordpress.org/chapote-bot-manager
+#   - copie integrations/wordpress/chapote-bot-manager/ dans trunk/
+#   - crée tags/<version> (version lue dans le header PHP, doit == "Stable tag" du readme)
+#   - copie les assets (banner/icon/screenshots) dans /assets
+#   - commit sur le SVN avec WP_SVN_USERNAME / WP_SVN_PASSWORD
+#
+# ⚠ SVN = système de RELEASE : on ne pousse qu'une version prête. Un tag déjà
+#   publié ne peut pas être écrasé -> il faut bumper la version pour re-livrer.
+name: Deploy WordPress plugin (WordPress.org SVN)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run (prépare tout mais ne commit RIEN sur le SVN)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-wp-plugin   # une seule publication à la fois
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout du repo
+        uses: actions/checkout@v4
+
+      - name: Publier sur WordPress.org (SVN)
+        # Épinglé au SHA (chaîne d'appro) ; commentaire = version lisible. Bump via Dependabot.
+        uses: 10up/action-wordpress-plugin-deploy@54bd289b8525fd23a5c365ec369185f2966529c2  # v2.3.0
+        with:
+          dry-run: ${{ inputs.dry_run }}
+          generate-zip: true   # produit aussi un .zip en artefact du run
+        env:
+          SVN_USERNAME: ${{ secrets.WP_SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.WP_SVN_PASSWORD }}
+          SLUG: chapote-bot-manager
+          BUILD_DIR: integrations/wordpress/chapote-bot-manager
+          ASSETS_DIR: integrations/wordpress/wporg-assets
+
+      - name: Récupérer le zip généré
+        uses: actions/upload-artifact@v4
+        with:
+          name: chapote-bot-manager-zip
+          path: ${{ github.workspace }}/chapote-bot-manager.zip
+          if-no-files-found: ignore
