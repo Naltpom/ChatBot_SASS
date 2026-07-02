@@ -147,6 +147,21 @@ export default function Register() {
         organization_name: type === 'entreprise' ? form.org.trim() : undefined,
         invites: type === 'entreprise' ? invites : [],
       })
+      // Retour OAuth en attente (plugin WordPress) : Authorize mémorise
+      // /authorize?… dans cbsaas_after_login avant de rediriger un visiteur NON
+      // connecté vers l'inscription. Un nouvel inscrit doit reprendre CETTE boucle
+      // (écran de consentement « Autoriser ce site ») au lieu de l'écran de succès
+      // générique — sinon les paramètres OAuth sont perdus (« Lien incomplet »).
+      // Même clé + consommation one-shot que Login (postLoginDest). Sans retour
+      // mémorisé : comportement inchangé (écran de succès -> /app). Fonctionne aussi
+      // en popup OAuth (la popup rejoue /authorize puis se referme après « Autoriser »).
+      let afterAuth: string | null = null
+      try { afterAuth = sessionStorage.getItem('cbsaas_after_login') } catch { /* storage off */ }
+      if (afterAuth) {
+        sessionStorage.removeItem('cbsaas_after_login')
+        navigate(afterAuth)
+        return
+      }
       setStep(3)
     } catch (err: unknown) {
       setError(errMsg(err, 'Inscription impossible.'))
