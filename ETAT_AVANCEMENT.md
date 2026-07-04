@@ -157,7 +157,7 @@ Ordre de grandeur : **~18 200 LOC Python** (backend) · **~19 600 LOC TS/React**
 ### 4.8 Auth, sécurité, multi-tenant
 | Feature | Statut | Preuve |
 |---|---|---|
-| Auth email/mdp + JWT (bcrypt, scopes distincts, intranet-first) | ✅ | `auth.py:158`, `security.py:35-136` |
+| Auth email/mdp + JWT (bcrypt, scopes distincts) | ✅ | `auth.py:158`, `security.py:35-136` |
 | Google SSO (JWKS RS256 réel, audience/iss/email_verified) | ✅ | `google_oauth.py:32-79` |
 | 2FA TOTP (pyotp, secret Fernet) + WebAuthn/passkeys (anti-rejeu sign_count) | ✅ | `twofa_service.py`, `twofa.py` |
 | Session widget JWT 30 min glissante (re-handshake transparent) | ✅ | `security.py:91-110`, `widget_helpers.py:447` |

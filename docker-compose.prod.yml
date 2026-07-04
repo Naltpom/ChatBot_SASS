@@ -71,8 +71,6 @@ services:
       # URLs publiques (CORS dashboard + snippets d'intégration).
       - APP_URL=${APP_URL}
       - API_URL=${API_URL}
-      - INTRANET_AUTH_URL=${INTRANET_AUTH_URL:-https://intranet.kertios.com/main/auth_ret}
-      - INTRANET_AUTH_ENABLED=${INTRANET_AUTH_ENABLED:-true}
       # SSO Google : Client ID public (= audience des tokens). Vide = désactivé.
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # SMTP (envoi des emails : leads, demandes de conseiller, prospection).

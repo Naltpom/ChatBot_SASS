@@ -8,7 +8,7 @@ décision + IA**.
   intégration HTML / iframe / GTM / WordPress, config exportable en JSON.
 - **Multi-appartenance** : une personne peut être membre de plusieurs
   organisations (switcher en haut du dashboard).
-- **Admin (staff Kertios, auth intranet)** : vue sur tous les clients
+- **Admin (staff, comptes superadmin)** : vue sur tous les clients
   (membres, bots, conso), changement de plan, suspension, et configuration
   des bots clients via les mêmes pages.
 
@@ -52,8 +52,7 @@ python -m http.server 8080 -d demo
 ```
 
 En dev avec `AUTO_LOGIN_ADMIN_DEV=true`, le dashboard se connecte tout seul en
-superadmin (`ADMIN_EMAIL`). La connexion intranet Kertios fonctionne aussi sur
-le formulaire de login classique (les comptes intranet sont superadmins).
+superadmin (`ADMIN_EMAIL`).
 
 ## Modèle économique
 

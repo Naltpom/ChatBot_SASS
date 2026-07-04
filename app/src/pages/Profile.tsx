@@ -1,6 +1,6 @@
 // Page Profil — sobre et utile : nom éditable, infos compte en lecture seule,
-// changement de mot de passe (comptes LOCAUX uniquement, les comptes intranet
-// sont gérés par l'intranet).
+// changement de mot de passe (comptes LOCAUX uniquement, les comptes Google
+// n'ont pas de mot de passe local).
 import { useState } from 'react'
 import { Check, ShieldCheck } from 'lucide-react'
 import { api } from '../api'
@@ -40,7 +40,7 @@ export default function Profile() {
   const [pwError, setPwError] = useState('')
 
   if (!user) return null
-  const intranet = user.auth_source === 'intranet'
+  const local = user.auth_source === 'local'
   const nameClean = name.trim()
   const nameDirty = nameClean !== '' && nameClean !== user.name
 
@@ -98,7 +98,7 @@ export default function Profile() {
           <div style={{ marginTop: 14 }}>
             <InfoRow label="Email"><span className="mono" style={{ fontSize: 11.5 }}>{user.email}</span></InfoRow>
             <InfoRow label="Authentification">
-              {intranet ? <Chip tone="acc">Intranet</Chip> : <Chip tone="mut">Compte local</Chip>}
+              {local ? <Chip tone="mut">Compte local</Chip> : <Chip tone="acc">Google</Chip>}
             </InfoRow>
             <InfoRow label="Rôle">
               {user.is_superadmin
@@ -112,10 +112,10 @@ export default function Profile() {
 
         <Card>
           <div className="card-title">Mot de passe</div>
-          {intranet ? (
-            <InfoBox tone="info" title="Compte intranet">
-              Votre mot de passe est géré par l'intranet. Modifiez-le là-bas — il sera
-              pris en compte ici à votre prochaine connexion.
+          {!local ? (
+            <InfoBox tone="info" title="Compte Google">
+              Votre connexion passe par Google — il n'y a pas de mot de passe
+              local à modifier ici.
             </InfoBox>
           ) : (
             <div className="col" style={{ gap: 11 }}>

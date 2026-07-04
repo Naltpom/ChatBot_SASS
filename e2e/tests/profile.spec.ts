@@ -1,7 +1,6 @@
 // Page Profil (parcours A) — joué avec le compte MEMBER du state : jetable et
-// auth_source=local (l'admin dev est intranet → la carte mot de passe serait
-// remplacée par l'InfoBox « Compte intranet »), et le compte principal doit
-// rester stable pour le reste de la suite.
+// auth_source=local (la carte mot de passe n'existe que pour les comptes
+// locaux), et le compte principal doit rester stable pour le reste de la suite.
 //
 // Budget limiteur auth (10/15min/IP, partagé login+register+password) :
 // flushRedis() en beforeAll remet le compteur à zéro ; ce spec consomme

@@ -1,6 +1,6 @@
-"""Auth dashboard : inscription perso/entreprise (+ invitations), login
-(intranet -> local), SSO Google, auto-login admin en dev, profil (nom, mdp),
-vérification souple de l'email + réinitialisation de mot de passe."""
+"""Auth dashboard : inscription perso/entreprise (+ invitations), login local,
+SSO Google, auto-login admin en dev, profil (nom, mdp), vérification souple de
+l'email + réinitialisation de mot de passe."""
 import secrets
 from typing import Optional
 
@@ -348,15 +348,15 @@ async def change_password(body: PasswordChange, request: Request,
                           user: User = Depends(get_current_user),
                           db: AsyncSession = Depends(get_db)):
     """Changement de mot de passe des comptes LOCAUX uniquement : les comptes
-    intranet sont reecrits (hashed_password compris) a chaque login intranet,
-    un changement local serait ecrase.
+    SSO (Google) n'ont pas de mot de passe utilisable (secret aléatoire), il
+    n'y a rien à changer ici.
 
     NB : les JWT deja emis restent valides jusqu'a expiration (tokens
     stateless, pas de revocation) — comportement documente, pas un bug."""
     await _check_auth_rate(request)  # anti-bruteforce du mot de passe actuel
     if user.auth_source != "local":
         raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "Compte géré par l'intranet : le mot de passe se modifie dans l'intranet")
+                            "Compte géré par Google : la connexion passe par Google, sans mot de passe local")
     if not verify_password(body.current_password, user.hashed_password):
         # 403 et non 401 : cote front, 401 = token invalide (purge + /login).
         # Une faute de frappe ne doit pas deconnecter une session valide.
@@ -429,9 +429,9 @@ async def forgot_password(body: ForgotPasswordBody, request: Request,
     await _check_auth_rate(request)
     email = body.email.lower().strip()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    # Comptes intranet/google : le mot de passe local n'est pas la source de
-    # vérité (réécrit/inutilisé) -> on n'envoie pas de lien, mais la réponse reste
-    # neutre (pas d'énumération du type de compte non plus).
+    # Comptes SSO (Google) : le mot de passe local n'est pas la source de
+    # vérité (secret aléatoire inutilisé) -> on n'envoie pas de lien, mais la
+    # réponse reste neutre (pas d'énumération du type de compte non plus).
     # Plafond PAR DESTINATAIRE (anti email-bombing : le limiteur par IP ne protège
     # pas la victime d'un attaquant multi-IP). Vérifié uniquement quand un envoi
     # est dû -> ne révèle rien (réponse neutre identique quoi qu'il arrive).

@@ -42,7 +42,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     name = Column(String, nullable=False)
     avatar_url = Column(String, nullable=True)  # photo de profil (SSO Google, hébergée localement)
-    auth_source = Column(String, default="local", nullable=False)  # local | intranet | google
+    auth_source = Column(String, default="local", nullable=False)  # local | google
     # Vérification SOUPLE de l'email : le compte est actif dès l'inscription, on
     # affiche juste une bannière non bloquante tant que c'est False (jamais un
     # gate sur le login). Passe True via le lien de confirmation (token signé).
@@ -164,7 +164,7 @@ class UserOut(BaseModel):
     email: str
     name: str
     avatar_url: str | None = None       # photo de profil (SSO Google) ou null
-    auth_source: str = "local"          # local | intranet | google
+    auth_source: str = "local"          # local | google
     email_verified: bool = False        # vérification souple (bannière non bloquante)
     is_superadmin: bool
     created_at: datetime | None = None

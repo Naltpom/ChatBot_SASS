@@ -68,16 +68,6 @@ class Settings(BaseSettings):
     DEMO_CHAT_IP_PER_DAY: int = 30        # messages IA / IP / 24h
     DEMO_CHAT_GLOBAL_PER_DAY: int = 2000  # plafond global messages IA / 24h (coupe-circuit cout)
 
-    # --- Auth intranet (meme flux qu'ao_scrapping) ---
-    # Les comptes @kertios.com authentifies via l'intranet deviennent
-    # superadmins du SaaS (vue sur tous les clients).
-    INTRANET_AUTH_URL: str = "https://intranet.kertios.com/main/auth_ret"
-    INTRANET_AUTH_ENABLED: bool = True
-    # Seuls les emails de ce domaine sont relayes a l'intranet : les mots de
-    # passe des clients ne quittent JAMAIS le SaaS, et seul le staff peut
-    # devenir superadmin via cette voie.
-    INTRANET_STAFF_DOMAIN: str = "kertios.com"
-
     # --- SSO Google (Sign in with Google, flux ID token) ---
     # Client ID OAuth (valeur PUBLIQUE, = audience attendue des tokens Google).
     # Vide => endpoint /api/auth/google désactivé (401) et bouton masqué côté

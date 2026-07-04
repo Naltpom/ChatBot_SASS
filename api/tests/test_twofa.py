@@ -306,13 +306,11 @@ async def test_recovery_code_single_use_on_real_db(pg_session: AsyncSession):
 @pytest.mark.real_db
 @pytest.mark.asyncio
 async def test_login_2fa_challenge_then_totp_completion_sets_session(
-        pg_session: AsyncSession, monkeypatch):
+        pg_session: AsyncSession):
     """Round-trip complet (angle NOUVEAU vs test_auth_cookie) :
     1) POST /login (mdp) d'un compte TOTP -> challenge (scope twofa), AUCUN cookie ;
     2) POST /2fa/login/totp (code valide) -> session ouverte (cookie posé) ;
     3) un code TOTP faux -> 401."""
-    # Auth locale (sinon authenticate() tape l'intranet en premier).
-    monkeypatch.setattr(settings, "INTRANET_AUTH_ENABLED", False, raising=False)
     secret = tf.new_totp_secret()
     await _seed_user(pg_session, email="login2fa@test.dev",
                      totp_secret=secret, totp_enabled=True)
