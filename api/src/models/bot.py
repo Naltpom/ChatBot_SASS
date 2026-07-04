@@ -197,6 +197,12 @@ class Bot(Base):
 
 # --- Schemas Pydantic ---
 
+# Borne d'ecriture du system prompt (reprise en lecture par ai_service, qui
+# tronque) : sans plafond, chaque reponse IA en mode managed couterait des
+# tokens d'entree arbitraires. La colonne DB reste Text (pas de migration).
+MAX_SYSTEM_PROMPT_CHARS = 8000
+
+
 class BotCreate(BaseModel):
     name: str
     mode: str | None = Field("hybrid", pattern="^(tree|ai|hybrid)$")
@@ -208,7 +214,7 @@ class BotUpdate(BaseModel):
     mode: str | None = Field(None, pattern="^(tree|ai|hybrid)$")
     ai_provider: str | None = Field(None, pattern="^(anthropic|openai|gemini)$")
     ai_model: str | None = None
-    system_prompt: str | None = None
+    system_prompt: str | None = Field(None, max_length=MAX_SYSTEM_PROMPT_CHARS)
     temperature: int | None = Field(None, ge=0, le=100)
     api_key_mode: str | None = Field(None, pattern="^(managed|byok)$")
     byok_key: str | None = None  # en clair a l'entree, chiffree au stockage

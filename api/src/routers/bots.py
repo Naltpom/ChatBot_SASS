@@ -20,7 +20,6 @@ from src.core.config import settings
 from src.core.constants import (
     MODULE_AI,
     MODULE_KEYS,
-    is_metered_code,
 )
 from src.core.database import get_db
 from src.core.security import (
@@ -31,7 +30,6 @@ from src.core.security import (
 )
 from src.core.time import utcnow
 from src.models.analytics import InsightsReport, InsightsReportOut
-from src.models.billing import BillingSubscription
 from src.models.bot import Bot, BotCreate, BotOut, BotUpdate
 from src.models.conversation import Conversation, Message
 from src.models.lead import Lead, LeadOut
@@ -62,7 +60,7 @@ from src.services.entitlement_service import (
     resolve,
 )
 from src.services.rate_limit import insights_limiter, treegen_limiter
-from src.services.stripe_service import StripeError, billing_enabled, update_subscription_items
+from src.services.stripe_service import billing_enabled, remove_bot_items_from_payer_subs
 from src.services.tree_engine import TreeError, validate_tree
 from src.services.usage_service import bots_week_stats, bots_week_stats_for_ids
 
@@ -204,41 +202,12 @@ async def _billing_on_move_payer_change(db: AsyncSession, bot_id: int,
     if old_owner is not None and old_owner == new_owner:
         return  # meme payeur : rien a re-facturer
 
-    # (a) Retirer le bot des subscriptions de l'ancien payeur.
+    # (a) Retirer le bot des subscriptions de l'ancien payeur (helper PARTAGE
+    # avec billing.billing_on_org_owner_change : items retires supprimes
+    # EXPLICITEMENT cote Stripe, miroir mis a jour SEULEMENT si Stripe a suivi).
     if old_owner is not None:
-        subs = (await db.execute(
-            select(BillingSubscription).where(BillingSubscription.user_id == old_owner)
-        )).scalars().all()
-        for sub in subs:
-            items = list(sub.raw_items or [])
-            kept = [it for it in items if it.get("bot_id") != bot_id]
-            if len(kept) == len(items):
-                continue  # ce bot n'etait pas porte par cette sub
-            # Items cibles = ceux qu'on garde (on porte si_id pour aligner sans
-            # recreer cote Stripe) ; liste vide -> update_subscription_items
-            # resilie la sub (Stripe refuse une sub sans item, garde §2.4/D4).
-            # Une ligne MÉTRÉE conservée (mtr_ai d'un AUTRE bot) est marquée
-            # `metered` -> AUCUNE quantity (Stripe 400 sinon sur l'item metered).
-            target = [
-                {"id": it.get("si_id"), "price": it.get("price_id"),
-                 "metered": True}
-                if is_metered_code(it.get("code"))
-                else {"id": it.get("si_id"), "price": it.get("price_id"),
-                      "quantity": it.get("qty", 1)}
-                for it in kept if it.get("price_id")]
-            try:
-                # 0 item cible -> update_subscription_items resilie la sub (Stripe
-                # refuse une sub sans item) ; sinon proration credit.
-                await update_subscription_items(
-                    sub.stripe_subscription_id, target,
-                    proration_behavior="create_prorations",
-                )
-            except StripeError:
-                logger.warning("billing.move: maj sub %s echouee (ignoree)",
-                               sub.stripe_subscription_id)
-            sub.raw_items = kept
-            if not kept:
-                sub.status = "canceled"
+        await remove_bot_items_from_payer_subs(
+            db, old_owner, lambda bid: bid == bot_id, "billing.move")
 
     # (b) Cote nouveau payeur : bot en grace jusqu'a regularisation (facade unique
     # `grace`, actor=system ; respecte la garde sticky si le bot etait suspended).

@@ -179,39 +179,12 @@ async def billing_on_org_owner_change(
         return
     bot_id_set = set(org_bot_ids)
 
-    # (a) Retirer ces bots des subscriptions de l'ancien payeur.
+    # (a) Retirer ces bots des subscriptions de l'ancien payeur (helper PARTAGÉ
+    # avec bots._billing_on_move_payer_change : items retirés supprimés
+    # EXPLICITEMENT côté Stripe, miroir mis à jour SEULEMENT si Stripe a suivi).
     if old_owner_id is not None:
-        subs = (await db.execute(
-            select(BillingSubscription).where(
-                BillingSubscription.user_id == old_owner_id)
-        )).scalars().all()
-        for sub in subs:
-            items = list(sub.raw_items or [])
-            kept = [it for it in items if it.get("bot_id") not in bot_id_set]
-            if len(kept) == len(items):
-                continue  # cette sub ne portait aucun bot de l'org
-            # Ligne MÉTRÉE conservée (mtr_ai) : marquée `metered`, AUCUNE quantity
-            # (Stripe 400 sinon sur l'item metered).
-            target = [
-                {"id": it.get("si_id"), "price": it.get("price_id"),
-                 "metered": True}
-                if is_metered_code(it.get("code"))
-                else {"id": it.get("si_id"), "price": it.get("price_id"),
-                      "quantity": it.get("qty", 1)}
-                for it in kept if it.get("price_id")]
-            try:
-                # 0 item cible ⇒ update_subscription_items résilie la sub (Stripe
-                # refuse une sub sans item) ; sinon proration crédit.
-                await stripe_service.update_subscription_items(
-                    sub.stripe_subscription_id, target,
-                    proration_behavior="create_prorations",
-                )
-            except stripe_service.StripeError:
-                logger.warning("billing.transfer: maj sub %s échouée (ignorée)",
-                               sub.stripe_subscription_id)
-            sub.raw_items = kept
-            if not kept:
-                sub.status = "canceled"
+        await stripe_service.remove_bot_items_from_payer_subs(
+            db, old_owner_id, lambda bid: bid in bot_id_set, "billing.transfer")
 
     # (b) Côté nouveau payeur : chaque bot de l'org en grâce jusqu'à régularisation
     # (même façade `grace` que le move perso->équipe ; actor=system, garde sticky).
@@ -442,6 +415,17 @@ async def open_checkout(
     `success_url`/`cancel_url` (P4) : surchargent les redirections par défaut
     (APP_URL) — la surface EXTERNE (plugin WordPress) y passe les URLs de retour
     sur le site client. None (chemins dashboard) ⇒ redirections APP_URL inchangées."""
+    # Anti double-abonnement : un bot DÉJÀ couvert par une subscription ACTIVE du
+    # payeur ne rouvre PAS de Checkout (deux subs factureraient le même bot) — la
+    # modification passe par /billing/subscription/update. Le re-checkout reste
+    # permis pour un bot réellement inactif (Checkout annulé/abandonné, sub
+    # résiliée) : _active_sub_for_bot ne voit que active|trialing|past_due.
+    if await _active_sub_for_bot(db, user, bot.id) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Ce bot a déjà un abonnement actif : modifiez votre abonnement au "
+            "lieu d'ouvrir un nouveau paiement")
+
     codes, modules = _config_to_codes(config)
     line_items = await _line_items_for_codes(db, codes)
 

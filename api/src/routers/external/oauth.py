@@ -204,9 +204,11 @@ async def token(body: TokenIn, request: Request, db: AsyncSession = Depends(get_
 
 
 @router.post("/revoke")
-async def revoke_token(body: TokenIn, db: AsyncSession = Depends(get_db)):
+async def revoke_token(body: TokenIn, request: Request, db: AsyncSession = Depends(get_db)):
     """Déconnexion : révoque le refresh (idempotent). Toujours 200 (ne révèle pas
-    l'existence du token)."""
+    l'existence du token). Rate-limité comme /authorize et /token."""
+    if not await oauth_token_limiter.check(_ip(request)):
+        return _rate_limited_response()
     if body.refresh_token:
         await svc.revoke(db, body.refresh_token)
         await db.commit()

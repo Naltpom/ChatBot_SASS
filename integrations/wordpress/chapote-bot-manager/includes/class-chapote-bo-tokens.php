@@ -15,6 +15,12 @@ class Chapote_BO_Tokens {
 
     const OPTION = 'chapote_bo_tokens';
 
+    /** Verrou (mutex par installation) sérialisant le refresh OAuth. */
+    const LOCK_OPTION = 'chapote_bo_refresh_lock';
+
+    /** Durée max de détention du verrou (verrou orphelin cassé au-delà). */
+    const LOCK_TTL = 30;
+
     /** Persiste un couple de tokens (chiffré). @return bool succès. */
     public static function save($access, $refresh, $expires_in = 0, $scope = '', $token_type = 'Bearer') {
         $payload = wp_json_encode(array(
@@ -60,5 +66,52 @@ class Chapote_BO_Tokens {
     public static function is_connected() {
         $t = self::get();
         return is_array($t) && !empty($t['access_token']);
+    }
+
+    /**
+     * Relit les tokens en cassant le cache objet de la requête courante,
+     * pour voir un couple sauvé ENTRE-TEMPS par une requête concurrente.
+     *
+     * @return array|null
+     */
+    public static function get_fresh() {
+        wp_cache_delete(self::OPTION, 'options');
+        return self::get();
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* Verrou de refresh (rotation) : un seul refresh à la fois par install    */
+    /* ---------------------------------------------------------------------- */
+
+    /**
+     * Tente de prendre le verrou de refresh. add_option est atomique (clé
+     * unique en base) : un seul process gagne. Un verrou orphelin (crash
+     * pendant le refresh) est cassé après LOCK_TTL secondes.
+     *
+     * @return bool true si le verrou est acquis par CE process.
+     */
+    public static function acquire_refresh_lock() {
+        wp_cache_delete(self::LOCK_OPTION, 'options');
+        wp_cache_delete('notoptions', 'options');
+        if (add_option(self::LOCK_OPTION, time(), '', 'no')) {
+            return true;
+        }
+        $held = (int) get_option(self::LOCK_OPTION);
+        if ($held && (time() - $held) > self::LOCK_TTL) {
+            delete_option(self::LOCK_OPTION);
+            return (bool) add_option(self::LOCK_OPTION, time(), '', 'no');
+        }
+        return false;
+    }
+
+    /** Le verrou de refresh est-il détenu (par un autre process) ? */
+    public static function refresh_lock_held() {
+        wp_cache_delete(self::LOCK_OPTION, 'options');
+        return (bool) get_option(self::LOCK_OPTION);
+    }
+
+    /** Relâche le verrou de refresh. */
+    public static function release_refresh_lock() {
+        delete_option(self::LOCK_OPTION);
     }
 }

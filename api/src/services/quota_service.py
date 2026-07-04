@@ -71,6 +71,21 @@ _RETRY_COOLDOWN_SECONDS = 30.0
 # le mois le plus long (31 j) + marge, puis la clé expire d'elle-même.
 _QUOTA_TTL_SECONDS = 35 * 86400
 
+# --- Plafond dur journalier widget (audit M2) ---
+# Plafond GÉNÉREUX par bot et par jour UTC, appliqué à TOUS les bots, BYOK
+# COMPRIS : un bot BYOK a `ai_quota_for(ent) is None` (aucun quota mensuel) —
+# sans ce plafond externe, un flux widget soutenu brûlerait la clé du client
+# sans aucune borne. Plafond ADDITIONNEL : ne remplace ni le quota mensuel ni
+# le metering des bots managés (qui restent inchangés en deçà).
+WIDGET_DAILY_HARD_CAP = 5000
+# La clé du jour survit un peu après la bascule de jour UTC puis expire seule.
+_DAILY_CAP_TTL_SECONDS = 26 * 3600
+
+# --- Plafond de tours IA en aperçu (audit M8) ---
+# TTL confortable vs la durée d'une session d'aperçu (JWT widget 30 min) ;
+# la clé expire d'elle-même bien après la mort de la session.
+_PREVIEW_TTL_SECONDS = 6 * 3600
+
 
 def quota_period(now=None) -> str:
     """Période calendaire "YYYY-MM" en UTC (D8). Même calcul des deux côtés."""
@@ -247,6 +262,97 @@ async def ai_quota_usage(db: AsyncSession, bot_id: int) -> int:
         except Exception as exc:
             _redis_failed(exc)
     return await _count_sql(db, bot_id, period)
+
+
+# --- Plafond dur journalier widget (audit M2) --------------------------------
+
+
+def _daily_period(now=None) -> str:
+    """Jour calendaire "YYYY-MM-DD" en UTC (même convention que quota_period)."""
+    return (now or utcnow()).strftime("%Y-%m-%d")
+
+
+def _daily_cap_key(day: str, bot_id: int) -> str:
+    return f"quota:widget:day:{day}:bot:{bot_id}"
+
+
+async def widget_daily_precheck(bot_id: int) -> bool:
+    """LECTURE SEULE : le plafond dur journalier (WIDGET_DAILY_HARD_CAP) est-il
+    encore ouvert pour `bot_id` aujourd'hui (UTC) ?
+
+    Garde-fou anti-abus EXTERNE, vérifié AVANT `generate_reply` pour TOUS les
+    bots (BYOK compris). N'incrémente rien : la conso n'est comptée
+    (`widget_daily_consume`) qu'après une génération réussie.
+
+    FAIL-OPEN (≠ quota mensuel) : sans Redis, pas de source durable raisonnable
+    pour un compteur journalier — on laisse passer (comme les rate-limits) ; le
+    quota mensuel fail-closed et les rate-limits amont restent en place.
+    """
+    client = _get_redis()
+    if client is None:
+        return True
+    try:
+        current = await client.get(_daily_cap_key(_daily_period(), bot_id))
+        return int(current or 0) < WIDGET_DAILY_HARD_CAP
+    except Exception as exc:
+        _redis_failed(exc)
+        return True
+
+
+async def widget_daily_consume(bot_id: int) -> None:
+    """Comptabilise UNE réponse IA servie aujourd'hui (UTC) pour `bot_id`.
+
+    À appeler APRÈS un `generate_reply` réussi (jamais sur panne provider).
+    Best-effort : une panne Redis ne casse pas la réponse au visiteur."""
+    client = _get_redis()
+    if client is None:
+        return
+    key = _daily_cap_key(_daily_period(), bot_id)
+    try:
+        await client.incr(key)
+        await client.expire(key, _DAILY_CAP_TTL_SECONDS)
+    except Exception as exc:
+        _redis_failed(exc)
+
+
+# --- Plafond de tours IA en aperçu (audit M8) ---------------------------------
+
+
+async def preview_turn_acquire(conversation_id: int, max_turns: int) -> bool | None:
+    """Réserve UN tour IA d'aperçu pour la conversation `conversation_id`.
+
+    Compteur CÔTÉ SERVEUR (INCR Redis par conversation d'aperçu) : le plafond
+    `max_turns` (settings.PREVIEW_MAX_AI_TURNS) ne dépend JAMAIS de l'historique
+    fourni par le client — un widget qui strippe ses messages 'assistant' ne
+    bypasse plus la borne. INCR-puis-vérif : atomique, sûr en concurrence.
+    Un tour réservé n'est pas rendu sur panne provider (borne anti-abus,
+    pas un crédit facturé : la simplicité prime).
+
+    Renvoie :
+    - True  : ce tour tient dans `max_turns` ;
+    - False : plafond atteint, OU Redis configuré mais EN PANNE — FAIL-CLOSED
+      (l'aperçu est un confort owner, jamais un chemin payant : pas de bypass
+      silencieux sur une panne d'infrastructure) ;
+    - None  : REDIS_URL NON configurée (dev/tests, choix de déploiement
+      délibéré) — l'appelant retombe sur sa borne dégradée (historique local).
+    """
+    if max_turns <= 0:
+        return False
+    if not settings.REDIS_URL:
+        return None
+    client = _get_redis()
+    if client is None:
+        # Configuré mais indisponible (paquet absent, cooldown de panne) :
+        # fail-closed, comme une erreur Redis ci-dessous.
+        return False
+    key = f"quota:preview:conv:{conversation_id}"
+    try:
+        new_count = await client.incr(key)
+        await client.expire(key, _PREVIEW_TTL_SECONDS)
+        return new_count <= max_turns
+    except Exception as exc:
+        _redis_failed(exc)
+        return False
 
 
 # --- Dépassement IA métré (overage) : compteur durable BotUsageCounter -----

@@ -845,18 +845,27 @@ async def reset_bot_entitlement(bot_id: int, actor: User = Depends(require_super
                            payer.stripe_customer_id, exc)
             data = {"data": []}
         for sub in data.get("data", []):
-            if sub.get("status") not in _ACTIVE_SUB_STATUSES:
-                continue
+            # On ne SAUTE PLUS les subs non actives : un `customer.subscription
+            # .deleted` manqué laisserait sinon un miroir/entitlement actifs à
+            # tort, jamais réparés. Statut TERMINAL côté Stripe -> projeté comme
+            # un `.deleted` (miroir 'canceled' + re-gate) ; les autres statuts
+            # (unpaid, paused, incomplete…) -> `.updated` (le miroir porte le
+            # statut réel, la projection NET re-gate sans verrouiller le miroir
+            # en 'canceled' — un checkout encore 'incomplete' peut aboutir).
+            sub_status = sub.get("status")
+            is_terminal = sub_status in ("canceled", "incomplete_expired")
             now = int(time.time())
             event = {
                 "id": f"reset_{sub['id']}_{now}",
-                "type": "customer.subscription.updated",
+                "type": ("customer.subscription.deleted" if is_terminal
+                         else "customer.subscription.updated"),
                 "created": now,
                 "data": {"object": sub},
             }
             await _sync_subscription_mirror(db, event)
             await apply_subscription_event(db, event)
-            reprojected_from_stripe = True
+            if sub_status in _ACTIVE_SUB_STATUSES:
+                reprojected_from_stripe = True
         await db.commit()
 
     final = (await db.execute(
@@ -913,13 +922,22 @@ async def reconcile_from_stripe(db: AsyncSession = Depends(get_db)):
             continue
         payers += 1
         for sub in data.get("data", []):
-            if sub.get("status") not in _ACTIVE_SUB_STATUSES:
-                continue
+            # On ne SAUTE PLUS les subs non actives : un `customer.subscription
+            # .deleted` manqué laisserait sinon un miroir/entitlement actifs à
+            # tort — précisément ce que ce filet doit réparer. Statut TERMINAL
+            # côté Stripe -> projeté comme un `.deleted` (miroir 'canceled' +
+            # re-gate) ; les autres statuts (unpaid, paused, incomplete…) ->
+            # `.updated` (le miroir porte le statut réel, la projection NET
+            # re-gate sans verrouiller le miroir en 'canceled' — un checkout
+            # encore 'incomplete' peut aboutir).
+            sub_status = sub.get("status")
+            is_terminal = sub_status in ("canceled", "incomplete_expired")
             subs_seen += 1
             now = int(time.time())
             event = {
                 "id": f"reconcile_{sub['id']}_{now}",
-                "type": "customer.subscription.updated",
+                "type": ("customer.subscription.deleted" if is_terminal
+                         else "customer.subscription.updated"),
                 "created": now,
                 "data": {"object": sub},
             }

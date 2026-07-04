@@ -33,12 +33,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.models.billing import BillingProduct
+from src.core.constants import is_metered_code
+from src.models.billing import BillingProduct, BillingSubscription
 from src.models.user import User
 
 logger = logging.getLogger(__name__)
 
 STRIPE_API_BASE = "https://api.stripe.com/v1"
+
+# Mention légale de franchise en base (art. 293 B du CGI) : posée en pied de page
+# de TOUTES les factures du Customer (invoice_settings.footer) — mention OBLIGATOIRE
+# sur les factures d'un assujetti en franchise (pas de TVA facturée).
+INVOICE_FOOTER_293B = "TVA non applicable, art. 293 B du CGI"
 
 
 class StripeError(Exception):
@@ -112,6 +118,8 @@ async def create_customer(user: User, email: Optional[str]) -> str:
 
     Le Customer est attaché au User (spec §1.1, plus à l'Organization).
     `metadata[user_id]` permet au webhook de remonter au payeur.
+    `invoice_settings[footer]` pose la mention légale de franchise en base
+    (art. 293 B du CGI) sur TOUTES les factures générées pour ce Customer.
     MOCK_BILLING ⇒ identifiant local `cus_mock_<uuid>` (aucun appel sortant)."""
     if settings.MOCK_BILLING:
         return f"cus_mock_{uuid.uuid4().hex[:16]}"
@@ -119,6 +127,8 @@ async def create_customer(user: User, email: Optional[str]) -> str:
         "name": user.name,
         "email": email or user.email or "",
         "metadata[user_id]": str(user.id),
+        # Mention obligatoire : pas de TVA facturée (franchise en base).
+        "invoice_settings[footer]": INVOICE_FOOTER_293B,
     })
     return data["id"]
 
@@ -299,6 +309,75 @@ async def update_subscription_items(
         for mk, mv in (item.get("metadata") or {}).items():
             data[f"items[{i}][metadata][{mk}]"] = str(mv)
     return await _stripe_request("POST", f"/subscriptions/{subscription_id}", data=data)
+
+
+async def remove_bot_items_from_payer_subs(
+    db: AsyncSession,
+    payer_user_id: int,
+    should_remove,
+    log_prefix: str,
+) -> None:
+    """Retire des subscriptions d'un payeur les items dont `should_remove(bot_id)`
+    est vrai (changement de payeur : move perso->équipe, transfert d'org).
+
+    Factorise le bloc dupliqué entre `routers/billing.billing_on_org_owner_change`
+    et `routers/bots._billing_on_move_payer_change` — seuls le prédicat et le
+    préfixe de log différaient. Sémantique :
+
+    - les items CONSERVÉS sont reconduits tels quels (si_id + price + quantity) ;
+      une ligne MÉTRÉE conservée (mtr_ai) est marquée `metered` -> AUCUNE quantity
+      (Stripe 400 sinon sur l'item metered) ;
+    - les items RETIRÉS sont envoyés EXPLICITEMENT `{id, deleted:true}` : sans
+      cela Stripe les CONSERVAIT sur la sub (seul le miroir local était amputé)
+      et continuait de facturer l'ancien payeur pour le bot parti ;
+    - 0 item conservé ⇒ cible vide ⇒ `update_subscription_items` RÉSILIE la sub
+      (Stripe refuse une sub sans item) ;
+    - le miroir local (`raw_items` / `status`) n'est mis à jour QUE si l'appel
+      Stripe a RÉUSSI : sur StripeError on loggue et on laisse le miroir INTACT
+      (sinon miroir amputé/canceled alors que Stripe facture toujours, et la
+      garde de résurrection bloquerait la resynchronisation).
+
+    Best-effort : la StripeError est avalée (un move/transfert ne doit jamais
+    échouer à cause du billing). Ne commit pas (l'appelant commit)."""
+    subs = (await db.execute(
+        select(BillingSubscription).where(
+            BillingSubscription.user_id == payer_user_id)
+    )).scalars().all()
+    for sub in subs:
+        items = list(sub.raw_items or [])
+        kept = [it for it in items if not should_remove(it.get("bot_id"))]
+        if len(kept) == len(items):
+            continue  # cette sub ne portait aucun bot concerné
+        removed = [it for it in items if should_remove(it.get("bot_id"))]
+        target = [
+            {"id": it.get("si_id"), "price": it.get("price_id"),
+             "metered": True}
+            if is_metered_code(it.get("code"))
+            else {"id": it.get("si_id"), "price": it.get("price_id"),
+                  "quantity": it.get("qty", 1)}
+            for it in kept if it.get("price_id")]
+        if target:
+            # Suppression EXPLICITE côté Stripe des items retirés (sinon ils
+            # restent facturés chez l'ancien payeur). Cible entièrement vide :
+            # on n'émet PAS de deleted (la résiliation ci-dessous s'en charge).
+            target += [{"id": it["si_id"], "deleted": True}
+                       for it in removed if it.get("si_id")]
+        try:
+            # 0 item cible ⇒ update_subscription_items résilie la sub (Stripe
+            # refuse une sub sans item) ; sinon proration crédit.
+            await update_subscription_items(
+                sub.stripe_subscription_id, target,
+                proration_behavior="create_prorations",
+            )
+        except StripeError:
+            # Stripe N'A PAS été mis à jour : le miroir reste INTACT (resync
+            # possible via webhook/reconcile), on loggue seulement.
+            logger.warning("%s: maj sub %s échouée (miroir conservé)",
+                           log_prefix, sub.stripe_subscription_id)
+            continue
+        sub.raw_items = kept
+        if not kept:
+            sub.status = "canceled"
 
 
 async def schedule_subscription_downgrade(

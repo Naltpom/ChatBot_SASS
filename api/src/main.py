@@ -158,11 +158,20 @@ async def widget_cors(request: Request, call_next):
             "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "Authorization, Content-Type",
             "Access-Control-Max-Age": "600",
+            # L'origine est refletee : les caches (CDN/proxy) doivent varier dessus
+            "Vary": "Origin",
         })
 
     response = await call_next(request)
     if is_widget:
         response.headers["Access-Control-Allow-Origin"] = origin
+        # L'origine est refletee : les caches doivent varier dessus
+        existing_vary = response.headers.get("Vary")
+        if existing_vary:
+            if "origin" not in existing_vary.lower():
+                response.headers["Vary"] = f"{existing_vary}, Origin"
+        else:
+            response.headers["Vary"] = "Origin"
         if path.startswith("/uploads"):
             # Defense en profondeur : un fichier uploade ne doit jamais
             # s'executer s'il est ouvert directement depuis l'origine API
@@ -229,7 +238,19 @@ async def widget_frame(key: str, preview_token: str | None = None,
 <body>
 <script src="{settings.API_URL}/widget.js{src_cache_bust}" data-bot-key="{key}"{preview_attr}{reskin_attr}{open_attr} data-inline="{inline_val}" defer></script>
 </body></html>"""
-    return HTMLResponse(html)
+    # CSP minimale (defense en profondeur sur le HTML reflete) : widget.js vient
+    # de l'API, ses appels fetch() vont vers l'API, les styles sont injectes
+    # inline, l'avatar peut etre un upload API ou un logo externe (https/data:).
+    # Pas de frame-ancestors : la page DOIT rester embarquable partout (iframe).
+    api = settings.API_URL
+    csp = (
+        "default-src 'none'; "
+        f"script-src 'self' {api}; "
+        "style-src 'unsafe-inline'; "
+        f"img-src 'self' {api} data: https:; "
+        f"connect-src 'self' {api}"
+    )
+    return HTMLResponse(html, headers={"Content-Security-Policy": csp})
 
 
 @app.get("/health")

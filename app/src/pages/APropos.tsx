@@ -79,7 +79,7 @@ export default function APropos() {
   return (
     <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', color: INK, WebkitFontSmoothing: 'antialiased' }}>
       {/* JSON-LD FAQPage : présent dès le HTML prérendu (extraction Google + LLM). */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd).replace(/</g, '\\u003c') }} />
       <Header user={user} ctaTo={ctaTo} />
       <main>
         {/* Réponse directe (pyramide inversée) dès le H1 + chapô. */}

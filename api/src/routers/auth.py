@@ -263,12 +263,22 @@ async def google_login(body: GoogleAuthPayload, request: Request, response: Resp
         await consume_invitations(db, user)
     elif not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Compte désactivé")
-    elif not user.avatar_url:
-        # Backfill ponctuel : on récupère la photo une seule fois (compte créé
-        # avant cette feature, ou avatar vide). Pas à chaque login -> évite
-        # d'accumuler des fichiers orphelins. Une photo Google modifiée plus
-        # tard ne se propage donc pas (compromis v1 assumé).
-        user.avatar_url = await fetch_and_store_avatar(claims.get("picture"))
+    else:
+        if user.auth_source != "google":
+            # Anti pre-hijacking : un attaquant a pu créer ce compte avec l'email
+            # de la victime + SON mot de passe avant qu'elle ne se connecte.
+            # Google vient de prouver que l'appelant contrôle la boîte mail ->
+            # on adopte le compte en SSO Google et on invalide la connexion par
+            # mot de passe (remplacé par un secret aléatoire : l'éventuel mot de
+            # passe posé par l'attaquant cesse de fonctionner).
+            user.auth_source = "google"
+            user.hashed_password = hash_password(secrets.token_urlsafe(32))
+        if not user.avatar_url:
+            # Backfill ponctuel : on récupère la photo une seule fois (compte créé
+            # avant cette feature, ou avatar vide). Pas à chaque login -> évite
+            # d'accumuler des fichiers orphelins. Une photo Google modifiée plus
+            # tard ne se propage donc pas (compromis v1 assumé).
+            user.avatar_url = await fetch_and_store_avatar(claims.get("picture"))
 
     user.last_login = utcnow()
     await db.commit()

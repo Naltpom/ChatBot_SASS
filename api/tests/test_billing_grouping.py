@@ -337,8 +337,9 @@ async def test_subscription_update_billing_off_disabled(client, overrides, billi
 async def test_subscription_update_prorata_via_items(client, overrides, db,
                                                      current_user, monkeypatch):
     """Vrai Stripe : modifier le plan d'un bot souscrit aligne les items AU PRORATA
-    (update_subscription_items proration_behavior='create_prorations'), PAS de
-    portail. Renvoie {status:'updated'} (point 1, règle 1)."""
+    (update_subscription_items proration_behavior='always_invoice' hors essai :
+    prorata facturé tout de suite), PAS de portail. Renvoie {status:'updated'}
+    (point 1, règle 1)."""
     from src.models.billing import BillingProduct, BillingSubscription
     monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
     monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
@@ -383,7 +384,7 @@ async def test_subscription_update_prorata_via_items(client, overrides, db,
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"status": "updated"}
     assert captured["sub"] == "sub_1"
-    assert captured["proration"] == "create_prorations"  # PRORATA
+    assert captured["proration"] == "always_invoice"  # PRORATA facturé maintenant (hors essai)
     # L'item RAG existant est réutilisé (si_id porté), INBOX est ajouté.
     by_price = {it.get("price"): it for it in captured["items"] if it.get("price")}
     assert by_price["price_rag"].get("id") == "si_rag"
@@ -395,8 +396,9 @@ async def test_subscription_update_prorata_via_items(client, overrides, db,
 @pytest.mark.asyncio
 async def test_subscription_update_downgrade_supprime_item(client, overrides, db,
                                                           current_user, monkeypatch):
-    """Downgrade : un module retiré de la config est SUPPRIMÉ de la sub (deleted),
-    au prorata (crédit du temps non consommé)."""
+    """Downgrade : un module retiré de la config est PROGRAMMÉ en fin de période
+    (schedule_subscription_downgrade, phase 2 SANS le module retiré, sans crédit),
+    PAS supprimé immédiatement — et aucune modification immédiate de la sub."""
     from src.models.billing import BillingProduct, BillingSubscription
     monkeypatch.setattr(bil.settings, "STRIPE_SECRET_KEY", "rk_test", raising=False)
     monkeypatch.setattr(bil.settings, "STRIPE_WEBHOOK_SECRET", "whsec", raising=False)
@@ -423,12 +425,20 @@ async def test_subscription_update_downgrade_supprime_item(client, overrides, db
              "bot_id": 1, "qty": 1}]))
 
     captured = {}
+    updated_now = []
 
     async def _update_items(subscription_id, target_items, proration_behavior="x"):
-        captured["items"] = target_items
+        updated_now.append(target_items)
         return {"id": subscription_id}
 
+    async def _schedule_downgrade(subscription_id, phase_items):
+        captured["sub"] = subscription_id
+        captured["phase_items"] = phase_items
+        return {"id": "sub_sched_1"}
+
     monkeypatch.setattr(bil.stripe_service, "update_subscription_items", _update_items)
+    monkeypatch.setattr(bil.stripe_service, "schedule_subscription_downgrade",
+                        _schedule_downgrade)
 
     # On retire INBOX (downgrade) : garde rag.
     async with client as c:
@@ -436,8 +446,13 @@ async def test_subscription_update_downgrade_supprime_item(client, overrides, db
                             json={"bot_id": 1, "config": {"modules": ["rag"]}})
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"status": "updated"}
-    deleted = [it for it in captured["items"] if it.get("deleted")]
-    assert any(it.get("id") == "si_inbox" for it in deleted)
+    # Aucun ajout/swap -> pas de modification IMMÉDIATE de la sub (pas de facture).
+    assert updated_now == []
+    # Retrait DIFFÉRÉ : phase 2 programmée SANS inbox (base + rag conservés).
+    assert captured["sub"] == "sub_1"
+    phase_prices = {it["price"]: it.get("quantity") for it in captured["phase_items"]}
+    assert phase_prices == {"price_base": 1, "price_rag": 1}
+    assert "price_inbox" not in phase_prices
 
 
 @pytest.mark.asyncio

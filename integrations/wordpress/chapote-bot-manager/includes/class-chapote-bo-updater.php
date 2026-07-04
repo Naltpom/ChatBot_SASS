@@ -114,7 +114,7 @@ class Chapote_BO_Updater {
         $o->plugin      = $basename;
         $o->new_version = (string) $manifest['version'];
         $o->url         = !empty($manifest['homepage']) ? esc_url_raw((string) $manifest['homepage']) : 'https://chapote.fr';
-        $o->package     = !empty($manifest['download_url']) ? esc_url_raw((string) $manifest['download_url']) : '';
+        $o->package     = !empty($manifest['download_url']) ? self::safe_package_url((string) $manifest['download_url']) : '';
         if (!empty($manifest['requires'])) {
             $o->requires = (string) $manifest['requires'];
         }
@@ -156,7 +156,7 @@ class Chapote_BO_Updater {
         $info->version       = (string) $manifest['version'];
         $info->author        = !empty($manifest['author']) ? (string) $manifest['author'] : '<a href="https://chapote.fr">Chapote</a>';
         $info->homepage      = !empty($manifest['homepage']) ? esc_url_raw((string) $manifest['homepage']) : 'https://chapote.fr';
-        $info->download_link = !empty($manifest['download_url']) ? esc_url_raw((string) $manifest['download_url']) : '';
+        $info->download_link = !empty($manifest['download_url']) ? self::safe_package_url((string) $manifest['download_url']) : '';
 
         if (!empty($manifest['requires'])) {
             $info->requires = (string) $manifest['requires'];
@@ -238,6 +238,31 @@ class Chapote_BO_Updater {
     /** URL du manifeste (filtrable pour les environnements de test). */
     private static function manifest_url() {
         return apply_filters('chapote_bo_manifest_url', self::MANIFEST_URL);
+    }
+
+    /**
+     * N'accepte une URL de paquet que si elle est en https ET sur le MÊME hôte
+     * que le manifeste (chapote.fr). Un manifeste compromis/altéré ne peut pas
+     * faire télécharger un zip arbitraire (http ou hôte tiers) → paquet vide,
+     * donc aucune mise à jour proposée.
+     *
+     * @param string $url URL brute issue du manifeste.
+     * @return string URL nettoyée, ou '' si refusée.
+     */
+    private static function safe_package_url($url) {
+        $parts = wp_parse_url((string) $url);
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return '';
+        }
+        if (strtolower($parts['scheme']) !== 'https') {
+            return '';
+        }
+        $allowed = wp_parse_url(self::manifest_url());
+        $allowed_host = (is_array($allowed) && !empty($allowed['host'])) ? strtolower((string) $allowed['host']) : '';
+        if ($allowed_host === '' || strtolower($parts['host']) !== $allowed_host) {
+            return '';
+        }
+        return esc_url_raw((string) $url);
     }
 
     /** Vide le cache du manifeste (post-mise à jour). */
