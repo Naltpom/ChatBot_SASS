@@ -4,7 +4,7 @@ Tags: chatbot, chat, support, assistant, ai
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.2.0
+Stable tag: 2.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -76,6 +76,10 @@ No, the widget serves any usable bot; a free bot works with the free reply quota
 
 == Changelog ==
 
+= 2.3.0 =
+* Full internationalization: every admin and front-end string is now translatable (text domain `chapote-bot-manager`), including the JavaScript admin app via `wp.i18n`.
+* French translation bundled (`fr_FR`): PO/MO catalogs plus JSON translation files for the JavaScript screens.
+
 = 2.2.0 =
 * Guided onboarding wizard: from the "Chapote" menu, a step-by-step flow connects your account (OAuth popup), reads your published pages, generates a chatbot from your site with AI, lets you customise its appearance, edit the conversation tree, preview the widget, pick a recommended plan, and go live — in one place.
 * Page discovery is 100% WordPress (published pages/posts/CPT, relevance-ranked), with a 15-URL cap; URLs are restricted to your own domain before being sent to Chapote.
@@ -94,6 +98,9 @@ No, the widget serves any usable bot; a free bot works with the free reply quota
 * REST proxy (namespace `chapote-bo/v1`) protected by `manage_options` + nonce; external services disclosure and GDPR privacy content; full cleanup on uninstall.
 
 == Upgrade Notice ==
+
+= 2.3.0 =
+Full internationalization; French translation bundled.
 
 = 2.2.0 =
 Adds a guided onboarding wizard that builds a chatbot from your WordPress pages, with appearance, tree editing, preview, plan recommendation and one-click activation.

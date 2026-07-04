@@ -12,6 +12,10 @@
 (function () {
   'use strict';
 
+  var wpI18n = (window.wp && window.wp.i18n) || null;
+  var __ = wpI18n ? wpI18n.__ : function (s) { return s; };
+  var _sprintf = wpI18n ? wpI18n.sprintf : function (s) { var a = Array.prototype.slice.call(arguments, 1), i = 0; return s.replace(/%s/g, function () { return a[i++]; }); };
+
   var CFG = window.CHAPOTE_BO || {};
 
   /* ------------------------------------------------------------------ DOM */
@@ -65,7 +69,7 @@
   }
   // Message d'état/chargement annoncé aux lecteurs d'écran (région live polie).
   function loadingNote(text) {
-    return h('p', { class: 'cbo-muted', role: 'status', 'aria-live': 'polite', text: text || 'Chargement…' });
+    return h('p', { class: 'cbo-muted', role: 'status', 'aria-live': 'polite', text: text || __('Loading…', 'chapote-bot-manager') });
   }
   // Synchronise aria-checked d'un interrupteur (role=switch) sur l'état réel.
   function syncSwitch(el) { el.setAttribute('aria-checked', el.checked ? 'true' : 'false'); }
@@ -86,21 +90,22 @@
 
   // Extrait un message d'erreur AFFICHABLE d'une réponse {status, data} en
   // propageant la cause réelle (contrat {detail, code, message}). On ne retient
-  // que des CHAÎNES (jamais un objet/stack) ; un `error` machine est mappé en FR.
+  // que des CHAÎNES (jamais un objet/stack) ; un `error` machine est mappé en
+  // message lisible (traduisible).
   function apiMsg(res, fallback) {
     var d = (res && res.data) || {};
     if (typeof d.message === 'string' && d.message) return d.message;
     if (typeof d.detail === 'string' && d.detail) return d.detail;
     if (typeof d.error === 'string' && d.error) {
-      var FR = {
-        rate_limited: 'Trop de requêtes. Patientez quelques instants, puis réessayez.',
-        not_connected: 'Vous n’êtes pas connecté à Chapote.',
-        session_expired: 'Session expirée. Reconnectez-vous.',
-        network_error: 'Connexion à Chapote impossible. Réessayez dans un instant.',
-        invalid_grant: 'Lien de connexion expiré ou déjà utilisé. Relancez la connexion.',
-        crypto_unavailable: 'Stockage chiffré indisponible sur ce serveur (OpenSSL requis).'
+      var MSG = {
+        rate_limited: __('Too many requests. Please wait a moment, then try again.', 'chapote-bot-manager'),
+        not_connected: __('You are not connected to Chapote.', 'chapote-bot-manager'),
+        session_expired: __('Session expired. Please sign in again.', 'chapote-bot-manager'),
+        network_error: __('Could not reach Chapote. Please try again in a moment.', 'chapote-bot-manager'),
+        invalid_grant: __('This sign-in link has expired or was already used. Please start the connection again.', 'chapote-bot-manager'),
+        crypto_unavailable: __('Encrypted storage is unavailable on this server (OpenSSL required).', 'chapote-bot-manager')
       };
-      return FR[d.error] || fallback;
+      return MSG[d.error] || fallback;
     }
     return fallback;
   }
@@ -181,32 +186,32 @@
     panel.appendChild(h('div', { class: 'cbo-wp-head', style: 'background:' + brandBg },
       avatarNode(d, 'cbo-wp-avatar'),
       h('div', { class: 'cbo-wp-headmid' },
-        h('span', { class: 'cbo-wp-title', text: d.title || botName || 'Assistant' }),
-        h('span', { class: 'cbo-wp-status' }, h('span', { class: 'cbo-wp-dot' }), h('span', { text: 'En ligne' }))
+        h('span', { class: 'cbo-wp-title', text: d.title || botName || __('Assistant', 'chapote-bot-manager') }),
+        h('span', { class: 'cbo-wp-status' }, h('span', { class: 'cbo-wp-dot' }), h('span', { text: __('Online', 'chapote-bot-manager') }))
       ),
       h('span', { class: 'cbo-wp-close', text: '×' })
     ));
 
     panel.appendChild(h('div', { class: 'cbo-wp-body' },
-      h('div', { class: 'cbo-wp-msg cbo-wp-bot', text: d.welcomeMessage || 'Bonjour ! Comment puis-je vous aider ?' }),
-      h('div', { class: 'cbo-wp-msg cbo-wp-user', style: 'background:' + primary, text: 'Bonjour, j’ai une question.' })
+      h('div', { class: 'cbo-wp-msg cbo-wp-bot', text: d.welcomeMessage || __('Hello! How can I help you?', 'chapote-bot-manager') }),
+      h('div', { class: 'cbo-wp-msg cbo-wp-user', style: 'background:' + primary, text: __('Hi, I have a question.', 'chapote-bot-manager') })
     ));
 
     var send = h('span', { class: 'cbo-wp-send', style: 'background:' + primary });
     send.appendChild(svgIcon(ICON_SEND));
     panel.appendChild(h('div', { class: 'cbo-wp-inputrow' },
-      h('span', { class: 'cbo-wp-input', text: d.placeholder || 'Écrivez votre message…' }),
+      h('span', { class: 'cbo-wp-input', text: d.placeholder || __('Type your message…', 'chapote-bot-manager') }),
       send
     ));
 
     if (d.poweredBy !== false) {
-      panel.appendChild(h('div', { class: 'cbo-wp-powered' }, 'Propulsé par ', h('b', { text: 'Chapote' })));
+      panel.appendChild(h('div', { class: 'cbo-wp-powered' }, __('Powered by', 'chapote-bot-manager') + ' ', h('b', { text: 'Chapote' })));
     }
     node.appendChild(panel);
 
     if (d.greeting === true) {
       node.appendChild(h('div', { class: 'cbo-wp-greeting cbo-pos-' + pos,
-        text: d.greetingText || d.launcherText || d.title || botName || 'Une question ?' }));
+        text: d.greetingText || d.launcherText || d.title || botName || __('Any questions?', 'chapote-bot-manager') }));
     }
 
     var launcher = h('div', { class: 'cbo-wp-launcher cbo-pos-' + pos + (d.launcherText ? ' cbo-wp-launcher-pill' : ''),

@@ -9,6 +9,10 @@
 (function () {
   'use strict';
 
+  var wpI18n = (window.wp && window.wp.i18n) || null;
+  var __ = wpI18n ? wpI18n.__ : function (s) { return s; };
+  var _sprintf = wpI18n ? wpI18n.sprintf : function (s) { var a = Array.prototype.slice.call(arguments, 1), i = 0; return s.replace(/%s/g, function () { return a[i++]; }); };
+
   var CFG = window.CHAPOTE_BO || {};
   var C = window.CBOCore || {};
 
@@ -63,7 +67,7 @@
   }
 
   // Note TVA statique (le catalogue LIVE ne porte pas de tax_note racine).
-  var TAX_NOTE = 'TVA non applicable, art. 293 B du CGI';
+  var TAX_NOTE = __('VAT not applicable, art. 293 B of the French Tax Code (CGI)', 'chapote-bot-manager');
 
   // URL du dashboard Chapote (app) : on s'appuie UNIQUEMENT sur app_base, jamais
   // sur api_base (l'hôte API ne sert pas le dashboard et renverrait une page
@@ -98,7 +102,7 @@
       var assertive = state.notice.type === 'warn';
       noticeHost.appendChild(h('div', { class: 'cbo-notice cbo-notice-' + state.notice.type, role: assertive ? 'alert' : null },
         h('span', { text: state.notice.msg }),
-        h('button', { type: 'button', class: 'cbo-notice-x', 'aria-label': 'Fermer', onClick: function () { setNotice(null); } }, '×')
+        h('button', { type: 'button', class: 'cbo-notice-x', 'aria-label': __('Close', 'chapote-bot-manager'), onClick: function () { setNotice(null); } }, '×')
       ));
     }
   }
@@ -111,7 +115,7 @@
     state.connected = false;
     if (state.view !== 'onboarding') state.view = 'connect';
     render();
-    setNotice('Session expirée. Reconnectez-vous.', 'warn');
+    setNotice(__('Session expired. Please sign in again.', 'chapote-bot-manager'), 'warn');
   };
 
   /* ------------------------------------------------------------------- shell */
@@ -144,20 +148,22 @@
     var left = h('div', { class: 'cbo-nav-left' });
     // Onglets back-office masqués pendant le wizard (parcours guidé sans sortie).
     if (state.connected && state.view !== 'onboarding') {
-      left.appendChild(navBtn('Mes bots', state.view !== 'bot' && state.view !== 'seo', function () { state.view = 'bots'; state.botId = null; render(); }));
-      left.appendChild(navBtn('SEO', state.view === 'seo', function () { state.view = 'seo'; state.botId = null; render(); }));
+      left.appendChild(navBtn(__('My bots', 'chapote-bot-manager'), state.view !== 'bot' && state.view !== 'seo', function () { state.view = 'bots'; state.botId = null; render(); }));
+      left.appendChild(navBtn(__('SEO', 'chapote-bot-manager'), state.view === 'seo', function () { state.view = 'seo'; state.botId = null; render(); }));
     }
     nav.appendChild(left);
     var right = h('div', { class: 'cbo-nav-right' });
     if (state.connected) {
       right.appendChild(h('span', { class: 'cbo-dot cbo-dot-ok' }));
-      var conn = 'Connecté à Chapote';
-      if (state.account && state.account.email) conn += ' — ' + state.account.email;
+      /* translators: %s: email address of the connected Chapote account */
+      var conn = (state.account && state.account.email)
+        ? _sprintf(__('Connected to Chapote — %s', 'chapote-bot-manager'), state.account.email)
+        : __('Connected to Chapote', 'chapote-bot-manager');
       right.appendChild(h('span', { class: 'cbo-conn', text: conn }));
-      right.appendChild(h('button', { class: 'button', onClick: disconnect }, 'Déconnexion'));
+      right.appendChild(h('button', { class: 'button', onClick: disconnect }, __('Log out', 'chapote-bot-manager')));
     } else {
       right.appendChild(h('span', { class: 'cbo-dot cbo-dot-off' }));
-      right.appendChild(h('span', { class: 'cbo-conn', text: 'Non connecté' }));
+      right.appendChild(h('span', { class: 'cbo-conn', text: __('Not connected', 'chapote-bot-manager') }));
     }
     nav.appendChild(right);
     return nav;
@@ -171,19 +177,19 @@
 
   function renderConnect() {
     var wrap = h('div', { class: 'cbo-card cbo-connect' });
-    wrap.appendChild(h('h2', { text: 'Se connecter avec Chapote' }));
+    wrap.appendChild(h('h2', { text: __('Sign in with Chapote', 'chapote-bot-manager') }));
     wrap.appendChild(h('p', { class: 'cbo-muted', text:
-      'Connectez ce site à votre compte Chapote pour gérer vos bots, leur apparence, le paiement et l’activation du widget.' }));
+      __('Connect this site to your Chapote account to manage your bots, their appearance, billing and widget activation.', 'chapote-bot-manager') }));
     if (CFG.cryptoOk === false) {
       wrap.appendChild(h('p', { class: 'cbo-error', text:
-        'OpenSSL (AES-256-GCM) indisponible : impossible de stocker vos identifiants de façon chiffrée.' }));
+        __('OpenSSL (AES-256-GCM) is unavailable: your credentials cannot be stored encrypted.', 'chapote-bot-manager') }));
     }
     wrap.appendChild(h('p', { class: 'cbo-muted', text:
-      'Vous serez redirigé vers Chapote pour autoriser ce site, puis ramené ici automatiquement.' }));
+      __('You will be redirected to Chapote to authorize this site, then brought back here automatically.', 'chapote-bot-manager') }));
     var info = h('div', { class: 'cbo-device' });
     wrap.appendChild(info);
     var btn = h('button', { class: 'button button-primary button-hero', disabled: CFG.cryptoOk === false,
-      onClick: function () { startConnect(btn, info); } }, 'Se connecter avec Chapote');
+      onClick: function () { startConnect(btn, info); } }, __('Sign in with Chapote', 'chapote-bot-manager'));
     wrap.appendChild(btn);
     return wrap;
   }
@@ -197,7 +203,7 @@
   function startConnect(btn, info) {
     btn.disabled = true;
     clear(info);
-    info.appendChild(loadingNote('Ouverture de la fenêtre Chapote…'));
+    info.appendChild(loadingNote(__('Opening the Chapote window…', 'chapote-bot-manager')));
     call('GET', '/connect/url').then(function (res) {
       if (!res.ok || !res.data || !res.data.url) {
         btn.disabled = (CFG.cryptoOk === false);
@@ -206,7 +212,7 @@
         // pas de renvoi vers des « réglages » : le plugin n'expose pas d'écran de
         // configuration d'adresses (elles sont définies à l'installation).
         info.appendChild(h('p', { class: 'cbo-error', text:
-          apiMsg(res, 'Impossible de démarrer la connexion à Chapote. Réessayez dans un instant.') }));
+          apiMsg(res, __('Could not start the connection to Chapote. Please try again in a moment.', 'chapote-bot-manager')) }));
         return;
       }
       openOAuthPopup(res.data.url, btn, info);
@@ -221,7 +227,7 @@
     try { pop = window.open(url, 'chapote_oauth', 'width=480,height=720'); } catch (e) { pop = null; }
     if (!pop) { window.location.href = url; return; } // popup bloquée -> pleine page
 
-    if (info) { clear(info); info.appendChild(loadingNote('Terminez la connexion dans la fenêtre Chapote…')); }
+    if (info) { clear(info); info.appendChild(loadingNote(__('Finish signing in in the Chapote window…', 'chapote-bot-manager'))); }
     var settled = false;
 
     function finish(ok) {
@@ -240,7 +246,7 @@
       if (ev.source && ev.source !== pop) return;
       if (!ev.data || ev.data.source !== 'chapote-oauth') return;
       if (ev.data.status === 'connected') finish(true);
-      else { finish(false); setNotice('Connexion annulée ou refusée. Vous pouvez réessayer.', 'warn'); }
+      else { finish(false); setNotice(__('Sign-in canceled or denied. You can try again.', 'chapote-bot-manager'), 'warn'); }
     }
     window.addEventListener('message', onMsg);
 
@@ -267,7 +273,7 @@
     } else {
       state.view = 'bots';
       render();
-      setNotice('Connexion réussie.', 'ok');
+      setNotice(__('Signed in successfully.', 'chapote-bot-manager'), 'ok');
       loadAccount();
       loadBots();
     }
@@ -277,7 +283,7 @@
     call('POST', '/disconnect').then(function () {
       state.connected = false; state.account = null; state.bots = []; state.view = 'connect';
       render();
-      setNotice('Déconnecté.', 'info');
+      setNotice(__('Signed out.', 'chapote-bot-manager'), 'info');
     });
   }
 
@@ -302,34 +308,34 @@
   function renderBots() {
     var wrap = h('div', { class: 'cbo-card' });
     var head = h('div', { class: 'cbo-row-between' },
-      h('h2', { text: 'Mes bots' }),
+      h('h2', { text: __('My bots', 'chapote-bot-manager') }),
       h('div', { class: 'cbo-row-actions' },
-        window.CBOOnboarding ? h('button', { class: 'button button-primary', onClick: startNewOnboarding }, 'Démarrer un nouveau bot') : null,
-        h('button', { class: 'button', onClick: openCreate }, 'Créer un bot (manuel)')
+        window.CBOOnboarding ? h('button', { class: 'button button-primary', onClick: startNewOnboarding }, __('Start a new bot', 'chapote-bot-manager')) : null,
+        h('button', { class: 'button', onClick: openCreate }, __('Create a bot (manual)', 'chapote-bot-manager'))
       )
     );
     wrap.appendChild(head);
     wrap.appendChild(h('div', { class: 'cbo-create', id: 'cbo-create' }));
 
     if (!state.bots.length) {
-      wrap.appendChild(h('p', { class: 'cbo-muted', text: 'Aucun bot pour le moment. Créez-en un pour commencer.' }));
+      wrap.appendChild(h('p', { class: 'cbo-muted', text: __('No bots yet. Create one to get started.', 'chapote-bot-manager') }));
       return wrap;
     }
 
     var table = h('table', { class: 'widefat striped cbo-table' });
     table.appendChild(h('thead', null, h('tr', null,
-      h('th', { text: 'Nom' }), h('th', { text: 'Sur le site' }), h('th', { text: 'Facturation' }),
-      h('th', { text: 'Plan / modules' }), h('th', { text: '' })
+      h('th', { text: __('Name', 'chapote-bot-manager') }), h('th', { text: __('On the site', 'chapote-bot-manager') }), h('th', { text: __('Billing', 'chapote-bot-manager') }),
+      h('th', { text: __('Plan / modules', 'chapote-bot-manager') }), h('th', { text: '' })
     )));
     var tb = h('tbody');
     state.bots.forEach(function (b) {
       var modules = Array.isArray(b.modules) ? b.modules.join(', ') : (b.modules ? String(b.modules) : '—');
       tb.appendChild(h('tr', null,
-        h('td', null, h('strong', { text: b.name || '(sans nom)' })),
+        h('td', null, h('strong', { text: b.name || __('(unnamed)', 'chapote-bot-manager') })),
         h('td', null, activationToggle(b, { compact: true })),
         h('td', null, billingBadge(b.billing_status)),
         h('td', { text: modules }),
-        h('td', null, h('button', { class: 'button', onClick: function () { openBot(b.id); } }, 'Gérer'))
+        h('td', null, h('button', { class: 'button', onClick: function () { openBot(b.id); } }, __('Manage', 'chapote-bot-manager')))
       ));
     });
     table.appendChild(tb);
@@ -337,9 +343,9 @@
 
     var dash = appDashboardUrl();
     wrap.appendChild(h('p', { class: 'cbo-muted cbo-deeplink' },
-      'L’arbre de conversation, la base de connaissances et la sécurité se configurent dans le dashboard Chapote',
-      dash ? ' : ' : ' (ouvrez le tableau de bord Chapote depuis votre navigateur).',
-      dash ? h('a', { href: dash, target: '_blank', rel: 'noopener', text: 'ouvrir le dashboard' }) : null,
+      __('The conversation tree, the knowledge base and security are configured in the Chapote dashboard', 'chapote-bot-manager'),
+      dash ? ': ' : __(' (open the Chapote dashboard from your browser).', 'chapote-bot-manager'),
+      dash ? h('a', { href: dash, target: '_blank', rel: 'noopener', text: __('open the dashboard', 'chapote-bot-manager') }) : null,
       dash ? '.' : null
     ));
     return wrap;
@@ -347,8 +353,8 @@
 
   function billingBadge(status) {
     // billing_status null/undefined = bot servable sans abonnement payant = « Gratuit ».
-    if (status == null || status === '') return h('span', { class: 'cbo-badge cbo-badge-off', text: 'Gratuit' });
-    var map = { active: ['Actif', 'ok'], trialing: ['Essai', 'ok'], inactive: ['Inactif', 'off'], past_due: ['Impayé', 'warn'], canceled: ['Résilié', 'off'], suspended: ['Bloqué', 'warn'] };
+    if (status == null || status === '') return h('span', { class: 'cbo-badge cbo-badge-off', text: __('Free', 'chapote-bot-manager') });
+    var map = { active: [__('Active', 'chapote-bot-manager'), 'ok'], trialing: [__('Trial', 'chapote-bot-manager'), 'ok'], inactive: [__('Inactive', 'chapote-bot-manager'), 'off'], past_due: [__('Past due', 'chapote-bot-manager'), 'warn'], canceled: [__('Canceled', 'chapote-bot-manager'), 'off'], suspended: [__('Blocked', 'chapote-bot-manager'), 'warn'] };
     var m = map[status] || [status, 'off'];
     return h('span', { class: 'cbo-badge cbo-badge-' + m[1], text: m[0] });
   }
@@ -363,12 +369,15 @@
     var blocked = bot.billing_status === 'suspended';
     // Interrupteur d'affichage du widget : role=switch + aria-checked + nom
     // accessible (aria-label) car le mode compact n'a pas de texte visible.
-    var switchLabel = 'Afficher le widget' + (bot.name ? ' « ' + bot.name + ' »' : '') + ' sur le site';
+    /* translators: %s: bot name */
+    var switchLabel = bot.name
+      ? _sprintf(__('Show the “%s” widget on the site', 'chapote-bot-manager'), bot.name)
+      : __('Show the widget on the site', 'chapote-bot-manager');
     var cb = h('input', { type: 'checkbox', checked: !!bot.enabled, role: 'switch',
       'aria-checked': bot.enabled ? 'true' : 'false', 'aria-label': switchLabel });
-    if (blocked) { cb.disabled = true; cb.title = 'Bot bloqué : le widget est coupé.'; }
+    if (blocked) { cb.disabled = true; cb.title = __('Bot blocked: the widget is turned off.', 'chapote-bot-manager'); }
     var txt = opts.compact ? null
-      : h('span', { text: bot.enabled ? 'Affiché sur le site' : 'Afficher sur le site' });
+      : h('span', { text: bot.enabled ? __('Shown on the site', 'chapote-bot-manager') : __('Show on the site', 'chapote-bot-manager') });
     cb.addEventListener('change', function () {
       var want = cb.checked;
       cb.disabled = true;
@@ -378,19 +387,19 @@
           bot.enabled = !!(res.data && res.data.enabled);
           cb.checked = bot.enabled;
           syncSwitch(cb);
-          if (txt) txt.textContent = bot.enabled ? 'Affiché sur le site' : 'Afficher sur le site';
-          setNotice(bot.enabled ? 'Widget activé sur le site.' : 'Widget désactivé du site.', 'ok');
+          if (txt) txt.textContent = bot.enabled ? __('Shown on the site', 'chapote-bot-manager') : __('Show on the site', 'chapote-bot-manager');
+          setNotice(bot.enabled ? __('Widget enabled on the site.', 'chapote-bot-manager') : __('Widget disabled on the site.', 'chapote-bot-manager'), 'ok');
           if (typeof opts.onChange === 'function') opts.onChange(bot.enabled);
         } else {
           cb.checked = !want; // revert visuel
           syncSwitch(cb);
-          setNotice('Action impossible.', 'warn');
+          setNotice(__('Action failed.', 'chapote-bot-manager'), 'warn');
         }
       });
     });
     var label = h('label', { class: 'cbo-check cbo-actoggle' }, cb);
     if (txt) label.appendChild(txt);
-    if (blocked && !opts.compact) label.appendChild(h('span', { class: 'cbo-muted', text: ' — bloqué' }));
+    if (blocked && !opts.compact) label.appendChild(h('span', { class: 'cbo-muted', text: __(' — blocked', 'chapote-bot-manager') }));
     return label;
   }
 
@@ -398,30 +407,30 @@
     var box = document.getElementById('cbo-create');
     if (!box) return;
     if (box.childNodes.length) { clear(box); return; }
-    var name = h('input', { type: 'text', class: 'regular-text', placeholder: 'Nom du bot', maxlength: 80, 'aria-label': 'Nom du bot' });
-    var mode = h('select', { 'aria-label': 'Type de bot' },
-      h('option', { value: 'hybrid' }, 'Hybride (arbre + IA)'),
-      h('option', { value: 'tree' }, 'Arbre seul'),
-      h('option', { value: 'ai' }, 'IA seule')
+    var name = h('input', { type: 'text', class: 'regular-text', placeholder: __('Bot name', 'chapote-bot-manager'), maxlength: 80, 'aria-label': __('Bot name', 'chapote-bot-manager') });
+    var mode = h('select', { 'aria-label': __('Bot type', 'chapote-bot-manager') },
+      h('option', { value: 'hybrid' }, __('Hybrid (tree + AI)', 'chapote-bot-manager')),
+      h('option', { value: 'tree' }, __('Tree only', 'chapote-bot-manager')),
+      h('option', { value: 'ai' }, __('AI only', 'chapote-bot-manager'))
     );
     // Bouton capturé en variable pour le désactiver pendant la requête : un
     // double-clic ne crée pas deux bots. Réactivé dans tous les chemins
     // de sortie (succès = re-render via loadBots, échec/réseau = ré-activation).
     var createBtn = h('button', { class: 'button button-primary', onClick: function () {
       var nm = (name.value || '').trim();
-      if (!nm) { setNotice('Donnez un nom au bot.', 'warn'); return; }
+      if (!nm) { setNotice(__('Give the bot a name.', 'chapote-bot-manager'), 'warn'); return; }
       createBtn.disabled = true;
       call('POST', '/bots', { name: nm, mode: mode.value }).then(function (res) {
         createBtn.disabled = false;
-        if (!res.ok) { setNotice(apiMsg(res, 'Création impossible.'), 'warn'); return; }
-        setNotice('Bot créé.', 'ok');
+        if (!res.ok) { setNotice(apiMsg(res, __('Could not create the bot.', 'chapote-bot-manager')), 'warn'); return; }
+        setNotice(__('Bot created.', 'chapote-bot-manager'), 'ok');
         loadBots();
       });
-    } }, 'Créer');
+    } }, __('Create', 'chapote-bot-manager'));
     box.appendChild(h('div', { class: 'cbo-create-row' },
       name, mode,
       createBtn,
-      h('button', { class: 'button', onClick: function () { clear(box); } }, 'Annuler')
+      h('button', { class: 'button', onClick: function () { clear(box); } }, __('Cancel', 'chapote-bot-manager'))
     ));
   }
 
@@ -436,15 +445,15 @@
     var bot = state.bots.filter(function (b) { return String(b.id) === String(state.botId); })[0] || {};
     var wrap = h('div');
     wrap.appendChild(h('div', { class: 'cbo-bothead' },
-      h('button', { class: 'button-link', onClick: function () { state.view = 'bots'; render(); } }, '← Mes bots'),
-      h('h2', { text: bot.name || 'Bot' }),
+      h('button', { class: 'button-link', onClick: function () { state.view = 'bots'; render(); } }, __('← My bots', 'chapote-bot-manager')),
+      h('h2', { text: bot.name || __('Bot', 'chapote-bot-manager') }),
       billingBadge(bot.billing_status),
       h('span', { class: 'cbo-bothead-toggle' }, activationToggle(bot, {}))
     ));
-    var tabs = h('div', { class: 'cbo-subtabs', role: 'tablist', 'aria-label': 'Réglages du bot' },
-      subTab('Ciblage des pages', 'activation'),
-      subTab('Mon offre', 'payment'),
-      subTab('Apparence', 'appearance')
+    var tabs = h('div', { class: 'cbo-subtabs', role: 'tablist', 'aria-label': __('Bot settings', 'chapote-bot-manager') },
+      subTab(__('Page targeting', 'chapote-bot-manager'), 'activation'),
+      subTab(__('My plan', 'chapote-bot-manager'), 'payment'),
+      subTab(__('Appearance', 'chapote-bot-manager'), 'appearance')
     );
     wireTablistKeys(tabs);
     wrap.appendChild(tabs);
@@ -470,11 +479,11 @@
 
   function renderAppearance(pane) {
     clear(pane);
-    pane.appendChild(loadingNote('Chargement de l’apparence…'));
+    pane.appendChild(loadingNote(__('Loading appearance…', 'chapote-bot-manager')));
     call('GET', '/bots/' + encodeURIComponent(state.botId)).then(function (res) {
-      if (!res.ok) { clear(pane); pane.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de charger ce bot.' })); return; }
+      if (!res.ok) { clear(pane); pane.appendChild(h('p', { class: 'cbo-error', text: __('Could not load this bot.', 'chapote-bot-manager') })); return; }
       var design = (res.data && res.data.design_json) || {};
-      var botName = res.data.name || 'Assistant';
+      var botName = res.data.name || __('Assistant', 'chapote-bot-manager');
       buildAppearanceForm(pane, design, botName);
     });
   }
@@ -514,34 +523,34 @@
 
     var form = h('div', { class: 'cbo-form' },
       h('div', { class: 'cbo-row2' },
-        field('Couleur principale', colorInput('primaryColor', '#0d9488')),
-        field('Couleur secondaire', colorInput('secondaryColor', '#0d9488'))
+        field(__('Primary color', 'chapote-bot-manager'), colorInput('primaryColor', '#0d9488')),
+        field(__('Secondary color', 'chapote-bot-manager'), colorInput('secondaryColor', '#0d9488'))
       ),
       h('div', { class: 'cbo-row2' },
-        field('Position', selectInput('position', [['right', 'À droite'], ['left', 'À gauche']], 'right')),
-        field('Taille', selectInput('size', [['sm', 'Petite'], ['md', 'Moyenne'], ['lg', 'Grande']], 'md'))
+        field(__('Position', 'chapote-bot-manager'), selectInput('position', [['right', __('Right', 'chapote-bot-manager')], ['left', __('Left', 'chapote-bot-manager')]], 'right')),
+        field(__('Size', 'chapote-bot-manager'), selectInput('size', [['sm', __('Small', 'chapote-bot-manager')], ['md', __('Medium', 'chapote-bot-manager')], ['lg', __('Large', 'chapote-bot-manager')]], 'md'))
       ),
-      field('Titre du chat', textInput('title', botName, 100)),
-      field('Message d’accueil', (function () {
+      field(__('Chat title', 'chapote-bot-manager'), textInput('title', botName, 100)),
+      field(__('Welcome message', 'chapote-bot-manager'), (function () {
         var ta = h('textarea', { rows: 2, maxlength: 500, class: 'large-text' }); ta.value = d.welcomeMessage || '';
         ta.addEventListener('input', function () { d.welcomeMessage = ta.value; refresh(); });
         return ta;
       })()),
-      field('Placeholder du champ', textInput('placeholder', 'Écrivez votre message…', 100)),
-      field('Texte du lanceur', textInput('launcherText', 'ex. Une question ?', 40)),
-      field('Langue de l’interface', selectInput('locale', [['fr', 'Français'], ['en', 'Anglais'], ['auto', 'Auto (navigateur)']], 'fr')),
+      field(__('Input placeholder', 'chapote-bot-manager'), textInput('placeholder', __('Type your message…', 'chapote-bot-manager'), 100)),
+      field(__('Launcher text', 'chapote-bot-manager'), textInput('launcherText', __('e.g. Any questions?', 'chapote-bot-manager'), 40)),
+      field(__('Interface language', 'chapote-bot-manager'), selectInput('locale', [['fr', __('French', 'chapote-bot-manager')], ['en', __('English', 'chapote-bot-manager')], ['auto', __('Auto (browser)', 'chapote-bot-manager')]], 'fr')),
       h('div', { class: 'cbo-checks' },
-        checkInput('darkMode', 'Mode sombre', false),
-        checkInput('greeting', 'Bulle d’accroche', false),
-        checkInput('poweredBy', 'Afficher « Powered by Chapote »', false)
+        checkInput('darkMode', __('Dark mode', 'chapote-bot-manager'), false),
+        checkInput('greeting', __('Greeting bubble', 'chapote-bot-manager'), false),
+        checkInput('poweredBy', __('Show “Powered by Chapote”', 'chapote-bot-manager'), false)
       ),
       h('div', { class: 'cbo-actions' },
-        h('button', { class: 'button button-primary', onClick: function (e) { saveAppearance(e.target, d); } }, 'Enregistrer l’apparence')
+        h('button', { class: 'button button-primary', onClick: function (e) { saveAppearance(e.target, d); } }, __('Save appearance', 'chapote-bot-manager'))
       )
     );
 
     grid.appendChild(form);
-    grid.appendChild(h('div', { class: 'cbo-previewcol' }, h('div', { class: 'cbo-muted', text: 'Aperçu' }), preview));
+    grid.appendChild(h('div', { class: 'cbo-previewcol' }, h('div', { class: 'cbo-muted', text: __('Preview', 'chapote-bot-manager') }), preview));
     pane.appendChild(grid);
     refresh();
   }
@@ -555,8 +564,8 @@
     if (!payload.poweredBy) { delete payload.poweredBy; }
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/appearance', { design_json: payload }).then(function (res) {
       btn.disabled = false;
-      if (res.ok) setNotice('Apparence enregistrée.', 'ok');
-      else setNotice('Échec de l’enregistrement de l’apparence.', 'warn');
+      if (res.ok) setNotice(__('Appearance saved.', 'chapote-bot-manager'), 'ok');
+      else setNotice(__('Could not save the appearance.', 'chapote-bot-manager'), 'warn');
     });
   }
 
@@ -564,7 +573,7 @@
 
   function renderPayment(pane) {
     clear(pane);
-    pane.appendChild(loadingNote('Chargement de l’offre…'));
+    pane.appendChild(loadingNote(__('Loading your plan…', 'chapote-bot-manager')));
     // Bot + catalogue LIVE en parallèle. Le catalogue (prix/paliers/modules) est
     // la SOURCE UNIQUE backend (proxy /catalog -> GET /api/account/catalog) : plus
     // aucun repli de prix codé en dur côté plugin. Si le proxy échoue, on affiche
@@ -574,14 +583,14 @@
       call('GET', '/catalog')
     ]).then(function (r) {
       var botRes = r[0], catRes = r[1];
-      if (!botRes.ok) { clear(pane); pane.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de charger ce bot.' })); return; }
+      if (!botRes.ok) { clear(pane); pane.appendChild(h('p', { class: 'cbo-error', text: __('Could not load this bot.', 'chapote-bot-manager') })); return; }
       // billing OFF renvoie {billing:'disabled'} (sans `modules`) : le compter comme
       // « live » pour que buildPaymentForm atteigne sa branche dédiée (compte sans
       // facturation), sinon le tableau de modules est requis.
       var live = (catRes.ok && catRes.data && (Array.isArray(catRes.data.modules) || catRes.data.billing === 'disabled')) ? catRes.data : null;
       if (!live) {
         clear(pane);
-        pane.appendChild(h('p', { class: 'cbo-error', text: 'Catalogue indisponible pour le moment — réessayez dans un instant.' }));
+        pane.appendChild(h('p', { class: 'cbo-error', text: __('Catalog unavailable right now — please try again in a moment.', 'chapote-bot-manager') }));
         return;
       }
       buildPaymentForm(pane, botRes.data || {}, live);
@@ -614,8 +623,8 @@
     // Facturation désactivée côté compte : on n'affiche pas le configurateur.
     if (catalog.billing === 'disabled') {
       pane.appendChild(h('div', { class: 'cbo-statusline' },
-        h('strong', { text: 'Facturation désactivée.' }),
-        ' La facturation est désactivée sur ce compte Chapote : aucune souscription n’est requise pour ce bot.'
+        h('strong', { text: __('Billing disabled.', 'chapote-bot-manager') }),
+        ' ' + __('Billing is disabled on this Chapote account: no subscription is required for this bot.', 'chapote-bot-manager')
       ));
       return;
     }
@@ -623,8 +632,8 @@
     var active = bot.billing_status === 'active';
     if (active) {
       pane.appendChild(h('div', { class: 'cbo-statusline' },
-        h('strong', { text: 'Abonnement actif.' }),
-        ' Vous pouvez changer de plan ou résilier ci-dessous.'
+        h('strong', { text: __('Subscription active.', 'chapote-bot-manager') }),
+        ' ' + __('You can change your plan or cancel below.', 'chapote-bot-manager')
       ));
     }
 
@@ -659,10 +668,11 @@
       if (!removed.length) return;
       var names = removed.map(function (k) {
         var m = payableModules.filter(function (x) { return x.key === k; })[0];
-        return (m && m.label) || (k === 'ai' ? 'IA' : k);
+        return (m && m.label) || (k === 'ai' ? __('AI', 'chapote-bot-manager') : k);
       });
+      /* translators: %s: comma-separated list of module names */
       reqWarn.appendChild(h('p', { class: 'cbo-hint cbo-reqwarn-msg', text:
-        'Modules retirés : ' + names.join(', ') + '. Les sections de l’arbre qui en dépendent seront supprimées à la souscription.' }));
+        _sprintf(__('Modules removed: %s. Tree sections that depend on them will be deleted when you subscribe.', 'chapote-bot-manager'), names.join(', ')) }));
     }
 
     function recompute() {
@@ -672,7 +682,7 @@
 
     function renderModules() {
       clear(modBox);
-      modBox.appendChild(h('h3', { text: 'Modules' }));
+      modBox.appendChild(h('h3', { text: __('Modules', 'chapote-bot-manager') }));
       payableModules.forEach(function (m) {
         var cb = h('input', { type: 'checkbox', checked: !!selected[m.key] });
         cb.addEventListener('change', function () {
@@ -685,16 +695,16 @@
             h('span', { text: m.label }),
             m.desc ? h('span', { class: 'cbo-moddesc', text: m.desc }) : null
           ),
-          h('span', { class: 'cbo-modprice', text: euros(m.price_cents) + ' /mois' }),
-          (m.requires && m.requires.indexOf('ai') !== -1) ? h('span', { class: 'cbo-modtag', text: 'IA requise' }) : null
+          h('span', { class: 'cbo-modprice', text: _sprintf(__('%s /month', 'chapote-bot-manager'), euros(m.price_cents)) }),
+          (m.requires && m.requires.indexOf('ai') !== -1) ? h('span', { class: 'cbo-modtag', text: __('AI required', 'chapote-bot-manager') }) : null
         ));
       });
     }
 
     function renderAi() {
       clear(aiBox);
-      aiBox.appendChild(h('h3', { text: 'Intelligence artificielle' }));
-      var modes = [['off', 'Sans IA'], ['managed', 'IA incluse (quota)'], ['byok', 'IA avec ma clé (BYOK)']];
+      aiBox.appendChild(h('h3', { text: __('Artificial intelligence', 'chapote-bot-manager') }));
+      var modes = [['off', __('No AI', 'chapote-bot-manager')], ['managed', __('AI included (quota)', 'chapote-bot-manager')], ['byok', __('AI with my own key (BYOK)', 'chapote-bot-manager')]];
       var row = h('div', { class: 'cbo-airow' });
       modes.forEach(function (mo) {
         var r = h('input', { type: 'radio', name: 'cbo-aimode', checked: aiMode === mo[0], disabled: mo[0] === 'off' && requiresAi() });
@@ -708,13 +718,15 @@
           var r = h('input', { type: 'radio', name: 'cbo-aitier', checked: aiTier === t.id });
           r.addEventListener('change', function () { if (r.checked) { aiTier = t.id; renderTotal(); } });
           tiers.appendChild(h('label', { class: 'cbo-tier' }, r,
-            h('span', { text: (t.included_replies || 0).toLocaleString('fr-FR') + ' réponses/mois' }),
-            h('span', { class: 'cbo-modprice', text: euros(t.price_cents) + ' /mois' })
+            /* translators: %s: number of AI replies included per month */
+            h('span', { text: _sprintf(__('%s replies/month', 'chapote-bot-manager'), (t.included_replies || 0).toLocaleString('fr-FR')) }),
+            h('span', { class: 'cbo-modprice', text: _sprintf(__('%s /month', 'chapote-bot-manager'), euros(t.price_cents)) })
           ));
         });
         aiBox.appendChild(tiers);
       } else if (aiMode === 'byok') {
-        aiBox.appendChild(h('p', { class: 'cbo-hint', text: 'Avec votre propre clé : ' + euros(byokCents) + ' /mois, réponses illimitées (clé configurée dans le dashboard).' }));
+        /* translators: %s: monthly price */
+        aiBox.appendChild(h('p', { class: 'cbo-hint', text: _sprintf(__('With your own key: %s /month, unlimited replies (key configured in the dashboard).', 'chapote-bot-manager'), euros(byokCents)) }));
       }
     }
 
@@ -746,27 +758,28 @@
 
     function renderTotal() {
       clear(totalLine);
-      totalLine.appendChild(h('span', { text: 'Estimation : ' }));
-      totalLine.appendChild(h('strong', { text: euros(estimate()) + ' /mois' }));
-      totalLine.appendChild(h('span', { class: 'cbo-muted', text: ' (' + TAX_NOTE + '). Tarif réel appliqué par Stripe.' }));
+      totalLine.appendChild(h('span', { text: __('Estimate: ', 'chapote-bot-manager') }));
+      totalLine.appendChild(h('strong', { text: _sprintf(__('%s /month', 'chapote-bot-manager'), euros(estimate())) }));
+      /* translators: %s: VAT note */
+      totalLine.appendChild(h('span', { class: 'cbo-muted', text: _sprintf(__(' (%s). Actual price applied by Stripe.', 'chapote-bot-manager'), TAX_NOTE) }));
     }
 
     var consent = h('input', { type: 'checkbox' });
     var consentLine = h('label', { class: 'cbo-check cbo-consent' }, consent,
-      h('span', { text: 'J’accepte l’exécution immédiate de l’abonnement et renonce à mon droit de rétractation de 14 jours.' }));
+      h('span', { text: __('I agree to the subscription starting immediately and waive my 14-day right of withdrawal.', 'chapote-bot-manager') }));
 
     var subscribeBtn = h('button', { class: 'button button-primary button-hero',
       onClick: function () {
         if (typeof opts.onSubscribe === 'function') opts.onSubscribe(buildConfig(), consent.checked, subscribeBtn);
         else doCheckout(subscribeBtn, buildConfig(), consent.checked);
       } },
-      opts.submitLabel || (active ? 'Mettre à jour le plan' : 'Souscrire'));
+      opts.submitLabel || (active ? __('Update plan', 'chapote-bot-manager') : __('Subscribe', 'chapote-bot-manager')));
     // 1re souscription : le consentement 14j (exécution immédiate, B2C) est
     // OBLIGATOIRE -> bouton DÉSACTIVÉ tant qu'il n'est pas coché.
     if (!active) {
       var syncConsent = function () {
         subscribeBtn.disabled = !consent.checked;
-        subscribeBtn.title = consent.checked ? '' : 'Cochez le consentement ci-dessus pour souscrire.';
+        subscribeBtn.title = consent.checked ? '' : __('Check the consent box above to subscribe.', 'chapote-bot-manager');
       };
       syncConsent();
       consent.addEventListener('change', syncConsent);
@@ -781,8 +794,8 @@
     var actions = h('div', { class: 'cbo-actions' }, subscribeBtn);
     if (active) {
       actions.appendChild(h('button', { class: 'button',
-        onClick: function (e) { updateSubscription(e.currentTarget, buildConfig()); } }, 'Changer de plan (prorata)'));
-      actions.appendChild(confirmButton('Résilier', 'Confirmer la résiliation', cancelSubscription));
+        onClick: function (e) { updateSubscription(e.currentTarget, buildConfig()); } }, __('Change plan (prorated)', 'chapote-bot-manager')));
+      actions.appendChild(confirmButton(__('Cancel subscription', 'chapote-bot-manager'), __('Confirm cancellation', 'chapote-bot-manager'), cancelSubscription));
     }
     // Bouton secondaire (onboarding : « activer en version gratuite », sans paiement).
     if (opts.secondary && opts.secondary.label) {
@@ -795,7 +808,7 @@
   }
 
   function doCheckout(btn, config, consent) {
-    if (!consent) { setNotice('Cochez le consentement à l’exécution immédiate pour souscrire.', 'warn'); return; }
+    if (!consent) { setNotice(__('Check the immediate-start consent box to subscribe.', 'chapote-bot-manager'), 'warn'); return; }
     btn.disabled = true;
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/checkout', { config: config, consent: true }).then(function (res) {
       btn.disabled = false;
@@ -803,7 +816,7 @@
         window.location.href = res.data.checkout_url; // redirection Stripe hébergé
         return;
       }
-      setNotice(apiMsg(res, 'Impossible d’ouvrir le paiement.'), 'warn');
+      setNotice(apiMsg(res, __('Could not open the payment page.', 'chapote-bot-manager')), 'warn');
     });
   }
 
@@ -813,16 +826,16 @@
     if (btn) btn.disabled = true;
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/subscription/update', { config: config }).then(function (res) {
       if (btn) btn.disabled = false;
-      if (res.ok) { setNotice('Plan mis à jour.', 'ok'); loadBots(); }
-      else setNotice(apiMsg(res, 'Mise à jour impossible.'), 'warn');
+      if (res.ok) { setNotice(__('Plan updated.', 'chapote-bot-manager'), 'ok'); loadBots(); }
+      else setNotice(apiMsg(res, __('Could not update the plan.', 'chapote-bot-manager')), 'warn');
     });
   }
   function cancelSubscription(btn) {
     if (btn) btn.disabled = true;
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/subscription/cancel').then(function (res) {
       if (btn) btn.disabled = false;
-      if (res.ok) { setNotice('Abonnement résilié.', 'info'); loadBots(); }
-      else setNotice(apiMsg(res, 'Résiliation impossible.'), 'warn');
+      if (res.ok) { setNotice(__('Subscription canceled.', 'chapote-bot-manager'), 'info'); loadBots(); }
+      else setNotice(apiMsg(res, __('Could not cancel the subscription.', 'chapote-bot-manager')), 'warn');
     });
   }
 
@@ -836,14 +849,14 @@
       tries++;
       call('GET', '/bots/' + encodeURIComponent(botId)).then(function (res) {
         if (res.ok && res.data && res.data.billing_status === 'active') {
-          setNotice('Abonnement actif. Vous pouvez activer le widget sur le site (onglet Activation & ciblage).', 'ok');
+          setNotice(__('Subscription active. You can enable the widget on the site (Page targeting tab).', 'chapote-bot-manager'), 'ok');
           loadBots(); // rafraîchit le badge + le pane courant
           return;
         }
         if (tries < POLL_MAX) { setTimeout(loop, 3000); return; }
         // Borne atteinte : le paiement est encaissé mais l'activation (webhook
         // Stripe) tarde. On remplace la notice « en cours » par un message net.
-        setNotice('Paiement bien reçu, mais l’activation prend plus de temps que prévu. Rechargez la page dans un instant ; si le bot reste inactif, contactez le support.', 'warn');
+        setNotice(__('Payment received, but activation is taking longer than expected. Reload the page in a moment; if the bot remains inactive, contact support.', 'chapote-bot-manager'), 'warn');
         loadBots();
       });
     })();
@@ -862,7 +875,7 @@
       // formulaire vide trompeur (homogène avec apparence/paiement).
       if (!r[0].ok || !r[1].ok) {
         clear(pane);
-        pane.appendChild(h('p', { class: 'cbo-error', text: 'Impossible de charger le ciblage de ce bot — réessayez dans un instant.' }));
+        pane.appendChild(h('p', { class: 'cbo-error', text: __('Could not load targeting for this bot — please try again in a moment.', 'chapote-bot-manager') }));
         return;
       }
       var local = (r[0].data) || {};
@@ -883,15 +896,15 @@
     if (billed !== 'active' && billed !== 'trialing') {
       pane.appendChild(h('div', { class: 'cbo-freenote' },
         h('p', null,
-          'Ce bot fonctionne en mode gratuit (pas d’abonnement payant actif) : les réponses IA sont limitées au quota gratuit. Vous pouvez quand même l’activer sur le site. ',
-          h('button', { type: 'button', class: 'cbo-linkbtn', onClick: function () { state.botTab = 'payment'; render(); } }, 'Voir « Mon offre »')
+          __('This bot runs in free mode (no active paid subscription): AI replies are limited to the free quota. You can still enable it on the site.', 'chapote-bot-manager') + ' ',
+          h('button', { type: 'button', class: 'cbo-linkbtn', onClick: function () { state.botTab = 'payment'; render(); } }, __('See “My plan”', 'chapote-bot-manager'))
         )
       ));
     }
 
     // Cet onglet ne gère QUE le ciblage des pages.
     pane.appendChild(h('p', { class: 'cbo-muted', text:
-      'L’affichage du widget sur le site (on/off) se règle avec l’interrupteur en haut de cette page, ou dans « Mes bots ». Ci-dessous : sur quelles pages l’afficher.' }));
+      __('Whether the widget is shown on the site (on/off) is controlled with the switch at the top of this page, or in “My bots”. Below: choose which pages it appears on.', 'chapote-bot-manager') }));
 
     var modeEverywhere = h('input', { type: 'radio', name: 'cbo-target', checked: t.mode !== 'custom' });
     var modeCustom = h('input', { type: 'radio', name: 'cbo-target', checked: t.mode === 'custom' });
@@ -910,7 +923,7 @@
       var wrap = h('div', { class: 'cbo-types' });
       var pts = CFG.postTypes || [];
       if (!pts.length) {
-        wrap.appendChild(h('span', { class: 'cbo-muted', text: 'Aucun type de contenu public détecté.' }));
+        wrap.appendChild(h('span', { class: 'cbo-muted', text: __('No public content types detected.', 'chapote-bot-manager') }));
       }
       pts.forEach(function (pt) {
         var cb = h('input', { type: 'checkbox', checked: (selectedSlugs || []).indexOf(pt.slug) !== -1 });
@@ -926,24 +939,24 @@
     var frontCb = h('input', { type: 'checkbox', checked: !!t.include_front });
     var inc = typeChecks(t.include_types);
     var exc = typeChecks(t.exclude_types);
-    var includeIds = h('input', { type: 'text', class: 'regular-text', value: (t.include_ids || []).join(', '), placeholder: 'ex. 12, 34' });
-    var excludeIds = h('input', { type: 'text', class: 'regular-text', value: (t.exclude_ids || []).join(', '), placeholder: 'ex. 7, 99' });
+    var includeIds = h('input', { type: 'text', class: 'regular-text', value: (t.include_ids || []).join(', '), placeholder: __('e.g. 12, 34', 'chapote-bot-manager') });
+    var excludeIds = h('input', { type: 'text', class: 'regular-text', value: (t.exclude_ids || []).join(', '), placeholder: __('e.g. 7, 99', 'chapote-bot-manager') });
 
-    customBox.appendChild(h('h3', { class: 'cbo-custom-h', text: 'Afficher sur' }));
-    customBox.appendChild(h('label', { class: 'cbo-check' }, frontCb, h('span', { text: 'Page d’accueil' })));
-    customBox.appendChild(fieldGroup('Types de contenu à inclure', inc.wrap));
-    customBox.appendChild(fieldFor('IDs de contenus à inclure', includeIds));
+    customBox.appendChild(h('h3', { class: 'cbo-custom-h', text: __('Show on', 'chapote-bot-manager') }));
+    customBox.appendChild(h('label', { class: 'cbo-check' }, frontCb, h('span', { text: __('Homepage', 'chapote-bot-manager') })));
+    customBox.appendChild(fieldGroup(__('Content types to include', 'chapote-bot-manager'), inc.wrap));
+    customBox.appendChild(fieldFor(__('Content IDs to include', 'chapote-bot-manager'), includeIds));
 
     // Exclusions (PRIORITAIRES sur toute inclusion).
-    customBox.appendChild(h('h3', { class: 'cbo-custom-h', text: 'Ne jamais afficher sur (prioritaire)' }));
-    customBox.appendChild(fieldGroup('Types de contenu à exclure', exc.wrap));
-    customBox.appendChild(fieldFor('IDs de contenus à exclure', excludeIds));
-    customBox.appendChild(h('p', { class: 'cbo-hint', text: 'Une exclusion (type ou ID) l’emporte toujours sur une inclusion.' }));
+    customBox.appendChild(h('h3', { class: 'cbo-custom-h', text: __('Never show on (takes priority)', 'chapote-bot-manager') }));
+    customBox.appendChild(fieldGroup(__('Content types to exclude', 'chapote-bot-manager'), exc.wrap));
+    customBox.appendChild(fieldFor(__('Content IDs to exclude', 'chapote-bot-manager'), excludeIds));
+    customBox.appendChild(h('p', { class: 'cbo-hint', text: __('An exclusion (type or ID) always overrides an inclusion.', 'chapote-bot-manager') }));
 
-    pane.appendChild(fieldGroup('Où afficher le widget ?',
+    pane.appendChild(fieldGroup(__('Where should the widget appear?', 'chapote-bot-manager'),
       h('div', { class: 'cbo-targetmodes' },
-        h('label', { class: 'cbo-radio' }, modeEverywhere, h('span', { text: 'Tout le site' })),
-        h('label', { class: 'cbo-radio' }, modeCustom, h('span', { text: 'Pages personnalisées' }))
+        h('label', { class: 'cbo-radio' }, modeEverywhere, h('span', { text: __('Entire site', 'chapote-bot-manager') })),
+        h('label', { class: 'cbo-radio' }, modeCustom, h('span', { text: __('Custom pages', 'chapote-bot-manager') }))
       ), 'radiogroup'));
     pane.appendChild(customBox);
     renderCustom();
@@ -963,21 +976,21 @@
           exclude_ids: idList(excludeIds.value)
         };
         saveActivation(e.target, targeting);
-      } }, 'Enregistrer le ciblage')
+      } }, __('Save targeting', 'chapote-bot-manager'))
     ));
 
     // Rappel domaine : pour que le widget réponde aux visiteurs, ce domaine doit
     // être autorisé côté Chapote.
     pane.appendChild(h('div', { class: 'cbo-domain' },
-      h('h3', { class: 'cbo-custom-h', text: 'Autoriser ce domaine dans Chapote' }),
-      h('p', { class: 'cbo-muted', text: 'Pour que le widget réponde aux visiteurs, ajoutez ce domaine à la liste des domaines autorisés de votre bot (onglet Sécurité dans Chapote) :' }),
+      h('h3', { class: 'cbo-custom-h', text: __('Allow this domain in Chapote', 'chapote-bot-manager') }),
+      h('p', { class: 'cbo-muted', text: __('For the widget to answer visitors, add this domain to your bot’s allowed domains (Security tab in Chapote):', 'chapote-bot-manager') }),
       h('code', { class: 'cbo-host', text: CFG.siteHost || '' }),
-      h('p', { class: 'cbo-muted', text: 'La sécurité (domaines autorisés, captcha, limites) se gère côté Chapote, pas dans WordPress.' }),
+      h('p', { class: 'cbo-muted', text: __('Security (allowed domains, captcha, limits) is managed on the Chapote side, not in WordPress.', 'chapote-bot-manager') }),
       h('p', null, (function () {
         var dash = appDashboardUrl();
         return dash
-          ? h('a', { href: dash, target: '_blank', rel: 'noopener', text: 'Ouvrir le dashboard Chapote' })
-          : h('span', { class: 'cbo-muted', text: 'Ouvrez le tableau de bord Chapote depuis votre navigateur (adresse de l’app non configurée).' });
+          ? h('a', { href: dash, target: '_blank', rel: 'noopener', text: __('Open the Chapote dashboard', 'chapote-bot-manager') })
+          : h('span', { class: 'cbo-muted', text: __('Open the Chapote dashboard from your browser (app address not configured).', 'chapote-bot-manager') });
       })())
     ));
   }
@@ -988,8 +1001,8 @@
     btn.disabled = true;
     call('POST', '/bots/' + encodeURIComponent(state.botId) + '/local', { targeting: targeting }).then(function (res) {
       btn.disabled = false;
-      if (res.ok) setNotice('Ciblage enregistré.', 'ok');
-      else setNotice('Enregistrement impossible.', 'warn');
+      if (res.ok) setNotice(__('Targeting saved.', 'chapote-bot-manager'), 'ok');
+      else setNotice(__('Could not save.', 'chapote-bot-manager'), 'warn');
     });
   }
 
@@ -998,7 +1011,7 @@
   // chapote_bo_seo : lien « Powered by » opt-in + FAQ JSON-LD (schema.org).
   function renderSeo() {
     var wrap = h('div', { class: 'cbo-card' });
-    wrap.appendChild(h('h2', { text: 'SEO (référencement)' }));
+    wrap.appendChild(h('h2', { text: __('SEO (search visibility)', 'chapote-bot-manager') }));
     wrap.appendChild(loadingNote());
     call('GET', '/seo').then(function (res) {
       var s = (res.data && typeof res.data === 'object') ? res.data : {};
@@ -1012,39 +1025,39 @@
 
   function buildSeoForm(wrap, seo) {
     clear(wrap);
-    wrap.appendChild(h('h2', { text: 'SEO (référencement)' }));
+    wrap.appendChild(h('h2', { text: __('SEO (search visibility)', 'chapote-bot-manager') }));
     wrap.appendChild(h('p', { class: 'cbo-muted', text:
-      'Ces leviers sont rendus côté serveur (visibles des moteurs de recherche), contrairement au widget chargé en JavaScript.' }));
+      __('These features are rendered server-side (visible to search engines), unlike the JavaScript-loaded widget.', 'chapote-bot-manager') }));
 
     // 1) Backlink opt-in.
     var poweredCb = h('input', { type: 'checkbox', checked: !!seo.powered_by });
     wrap.appendChild(h('div', { class: 'cbo-field' },
-      h('h3', { text: 'Lien « Chatbot par Chapote »' }),
+      h('h3', { text: __('“Chatbot by Chapote” link', 'chapote-bot-manager') }),
       h('label', { class: 'cbo-check' }, poweredCb,
-        h('span', { text: 'Afficher un petit lien crawlable vers Chapote dans le pied de page (désactivé par défaut).' }))
+        h('span', { text: __('Show a small crawlable link to Chapote in the footer (disabled by default).', 'chapote-bot-manager') }))
     ));
 
     // 2) Éditeur de paires FAQ (Question / Réponse) -> JSON-LD.
-    wrap.appendChild(h('h3', { text: 'FAQ (données structurées schema.org)' }));
+    wrap.appendChild(h('h3', { text: __('FAQ (schema.org structured data)', 'chapote-bot-manager') }));
     wrap.appendChild(h('p', { class: 'cbo-muted', text:
-      'Chaque paire Question / Réponse est publiée en JSON-LD (FAQPage), éligible aux résultats enrichis Google.' }));
+      __('Each Question / Answer pair is published as JSON-LD (FAQPage), eligible for Google rich results.', 'chapote-bot-manager') }));
 
     var list = h('div', { class: 'cbo-faqlist' });
     var rows = [];
 
     function addRow(q, a) {
-      var qInput = h('input', { type: 'text', class: 'regular-text', value: q || '', placeholder: 'Question', maxlength: 300, 'aria-label': 'Question' });
-      var aInput = h('textarea', { rows: 2, class: 'large-text', maxlength: 2000, placeholder: 'Réponse', 'aria-label': 'Réponse' });
+      var qInput = h('input', { type: 'text', class: 'regular-text', value: q || '', placeholder: __('Question', 'chapote-bot-manager'), maxlength: 300, 'aria-label': __('Question', 'chapote-bot-manager') });
+      var aInput = h('textarea', { rows: 2, class: 'large-text', maxlength: 2000, placeholder: __('Answer', 'chapote-bot-manager'), 'aria-label': __('Answer', 'chapote-bot-manager') });
       aInput.value = a || '';
       var row = { q: qInput, a: aInput };
       rows.push(row);
       var node = h('div', { class: 'cbo-faqrow' },
         h('div', { class: 'cbo-field' }, qInput),
         h('div', { class: 'cbo-field' }, aInput),
-        h('button', { type: 'button', class: 'button cbo-danger', 'aria-label': 'Retirer cette question', onClick: function () {
+        h('button', { type: 'button', class: 'button cbo-danger', 'aria-label': __('Remove this question', 'chapote-bot-manager'), onClick: function () {
           var i = rows.indexOf(row); if (i !== -1) rows.splice(i, 1);
           if (node.parentNode) node.parentNode.removeChild(node);
-        } }, 'Retirer')
+        } }, __('Remove', 'chapote-bot-manager'))
       );
       list.appendChild(node);
     }
@@ -1052,7 +1065,7 @@
     (seo.faq || []).forEach(function (p) { addRow(p.q, p.a); });
     wrap.appendChild(list);
     wrap.appendChild(h('p', null,
-      h('button', { class: 'button', onClick: function () { addRow('', ''); } }, 'Ajouter une question')
+      h('button', { class: 'button', onClick: function () { addRow('', ''); } }, __('Add a question', 'chapote-bot-manager'))
     ));
 
     wrap.appendChild(h('div', { class: 'cbo-actions' },
@@ -1061,7 +1074,7 @@
           return { q: (r.q.value || '').trim(), a: (r.a.value || '').trim() };
         }).filter(function (p) { return p.q && p.a; });
         saveSeo(e.target, { powered_by: poweredCb.checked, faq: faq });
-      } }, 'Enregistrer le SEO')
+      } }, __('Save SEO settings', 'chapote-bot-manager'))
     ));
   }
 
@@ -1069,8 +1082,8 @@
     btn.disabled = true;
     call('POST', '/seo', payload).then(function (res) {
       btn.disabled = false;
-      if (res.ok) setNotice('Réglages SEO enregistrés.', 'ok');
-      else setNotice('Enregistrement SEO impossible.', 'warn');
+      if (res.ok) setNotice(__('SEO settings saved.', 'chapote-bot-manager'), 'ok');
+      else setNotice(__('Could not save SEO settings.', 'chapote-bot-manager'), 'warn');
     });
   }
 
@@ -1146,10 +1159,10 @@
         if (stripeReturn) {
           state.view = 'bot'; state.botId = CFG.returnBot; state.botTab = 'payment';
           if (CFG.returnStatus === 'success') {
-            state.notice = { msg: 'Paiement reçu. Activation en cours…', type: 'ok' };
+            state.notice = { msg: __('Payment received. Activation in progress…', 'chapote-bot-manager'), type: 'ok' };
             pollBillingActive(CFG.returnBot);
           } else {
-            state.notice = { msg: 'Paiement annulé. Vous pouvez relancer la souscription.', type: 'warn' };
+            state.notice = { msg: __('Payment canceled. You can restart the subscription.', 'chapote-bot-manager'), type: 'warn' };
           }
         } else {
           state.view = 'bots';
@@ -1220,22 +1233,23 @@
     cleanUrl();
     if (cb.error) {
       routeFirstRun();
-      setNotice('Connexion annulée ou refusée (' + cb.error + '). Vous pouvez réessayer.', 'warn');
+      /* translators: %s: OAuth error code */
+      setNotice(_sprintf(__('Sign-in canceled or denied (%s). You can try again.', 'chapote-bot-manager'), cb.error), 'warn');
       return;
     }
     state.connected = false;
     render();
-    setNotice('Finalisation de la connexion…', 'info');
+    setNotice(__('Finishing sign-in…', 'chapote-bot-manager'), 'info');
     call('POST', '/connect/callback', { code: cb.code, state: cb.state }).then(function (res) {
       if (res.ok && res.data && res.data.status === 'connected') {
         routeFirstRun();
-        setNotice('Connexion réussie.', 'ok');
+        setNotice(__('Signed in successfully.', 'chapote-bot-manager'), 'ok');
         return;
       }
       state.connected = false;
       if (state.view !== 'onboarding') state.view = 'connect';
       render();
-      setNotice(apiMsg(res, 'Échec de la connexion. Relancez « Se connecter avec Chapote ».'), 'warn');
+      setNotice(apiMsg(res, __('Sign-in failed. Click “Sign in with Chapote” to try again.', 'chapote-bot-manager')), 'warn');
     });
   }
 

@@ -741,7 +741,7 @@ class Chapote_BO_REST {
         $id   = (string) $request->get_param('id');
         $tree = $request->get_param('tree_json');
         if (!is_array($tree)) {
-            return new WP_Error('cbo_bad_tree', 'Arbre invalide.', array('status' => 400));
+            return new WP_Error('cbo_bad_tree', __('Invalid tree.', 'chapote-bot-manager'), array('status' => 400));
         }
         return self::forward(Chapote_BO_API::account(
             'PUT',
@@ -835,7 +835,7 @@ class Chapote_BO_REST {
             $name = (string) wp_parse_url(home_url(), PHP_URL_HOST);
         }
         if ($name === '') {
-            $name = 'Mon assistant';
+            $name = __('My assistant', 'chapote-bot-manager');
         }
         return $name;
     }

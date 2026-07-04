@@ -1,0 +1,1355 @@
+# Copyright (C) 2026 Chapote
+# This file is distributed under the GPL-2.0-or-later.
+msgid ""
+msgstr ""
+"Project-Id-Version: Chapote Bot Manager 2.3.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/chapote-bot-manager\n"
+"Last-Translator: Chapote <contact@chapote.fr>\n"
+"Language-Team: Chapote <contact@chapote.fr>\n"
+"Language: fr_FR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+"POT-Creation-Date: 2026-07-04T15:31:01+00:00\n"
+"PO-Revision-Date: 2026-07-04 16:00+0000\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: chapote-bot-manager\n"
+
+#. Plugin Name of the plugin
+#: chapote-bot-manager.php
+#: includes/class-chapote-bo-admin.php:19
+#: includes/class-chapote-bo-admin.php:127
+msgid "Chapote Bot Manager"
+msgstr "Chapote Bot Manager"
+
+#. Description of the plugin
+#: chapote-bot-manager.php
+msgid "The Chapote chatbot inside WordPress: sign in, manage your bots, edit the appearance, pay (Stripe), enable the widget on your site and target pages. A thin UI on top of the Chapote API; the token stays server-side (never exposed to JavaScript)."
+msgstr "Le chatbot Chapote dans WordPress : connectez-vous, gérez vos bots, éditez l'apparence, payez (Stripe), activez le widget sur le site et ciblez les pages. UI mince au-dessus de l'API Chapote ; le token reste côté serveur (jamais exposé au JavaScript)."
+
+#. Author of the plugin
+#: chapote-bot-manager.php
+#: includes/class-chapote-bo-admin.php:20
+msgid "Chapote"
+msgstr "Chapote"
+
+#. Author URI of the plugin
+#: chapote-bot-manager.php
+msgid "https://chapote.fr"
+msgstr "https://chapote.fr"
+
+#: chapote-bot-manager.php:81
+msgid "Open Chapote Bot Manager"
+msgstr "Ouvrir Chapote Bot Manager"
+
+#: chapote-bot-manager.php:96
+msgid "The Chapote Bot Manager plugin connects to the Chapote API (OAuth Authorization Code + PKCE) to manage your bots and redirects to Stripe Checkout for payment. The public widget loads a script from the configured Chapote domain."
+msgstr "Le plugin Chapote Bot Manager se connecte à l'API Chapote (OAuth Authorization Code + PKCE) pour gérer vos bots et déclenche une redirection vers Stripe Checkout pour le paiement. Le widget public charge un script depuis le domaine Chapote configuré."
+
+#: includes/class-chapote-bo-admin.php:130
+msgid "The PHP OpenSSL module (AES-256-GCM) is required to store your credentials encrypted. Please contact your hosting provider."
+msgstr "Le module PHP OpenSSL (AES-256-GCM) est requis pour stocker vos identifiants de façon chiffrée. Contactez votre hébergeur."
+
+#: includes/class-chapote-bo-admin.php:135
+msgid "This back office requires JavaScript."
+msgstr "Ce back-office nécessite JavaScript."
+
+#: includes/class-chapote-bo-pages.php:111
+#: admin/js/admin.js:946
+msgid "Homepage"
+msgstr "Page d’accueil"
+
+#: includes/class-chapote-bo-rest.php:744
+msgid "Invalid tree."
+msgstr "Arbre invalide."
+
+#: includes/class-chapote-bo-rest.php:838
+#: admin/js/onboarding.js:238
+msgid "My assistant"
+msgstr "Mon assistant"
+
+#: includes/class-chapote-bo-seo.php:95
+msgid "Chatbot by Chapote"
+msgstr "Chatbot par Chapote"
+
+#: includes/class-chapote-bo-updater.php:182
+msgid "The Chapote chatbot inside WordPress."
+msgstr "Le chatbot Chapote dans WordPress."
+
+#: admin/js/admin.js:70
+msgid "VAT not applicable, art. 293 B of the French Tax Code (CGI)"
+msgstr "TVA non applicable, art. 293 B du CGI"
+
+#: admin/js/admin.js:105
+msgid "Close"
+msgstr "Fermer"
+
+#: admin/js/admin.js:118
+#: admin/js/cbo-core.js:103
+msgid "Session expired. Please sign in again."
+msgstr "Session expirée. Reconnectez-vous."
+
+#: admin/js/admin.js:151
+#: admin/js/admin.js:311
+msgid "My bots"
+msgstr "Mes bots"
+
+#: admin/js/admin.js:152
+msgid "SEO"
+msgstr "SEO"
+
+#: admin/js/admin.js:160
+#, js-format
+msgid "Connected to Chapote — %s"
+msgstr "Connecté à Chapote — %s"
+
+#: admin/js/admin.js:161
+msgid "Connected to Chapote"
+msgstr "Connecté à Chapote"
+
+#: admin/js/admin.js:163
+msgid "Log out"
+msgstr "Déconnexion"
+
+#: admin/js/admin.js:166
+msgid "Not connected"
+msgstr "Non connecté"
+
+#: admin/js/admin.js:180
+#: admin/js/admin.js:192
+#: admin/js/onboarding.js:217
+msgid "Sign in with Chapote"
+msgstr "Se connecter avec Chapote"
+
+#: admin/js/admin.js:182
+msgid "Connect this site to your Chapote account to manage your bots, their appearance, billing and widget activation."
+msgstr "Connectez ce site à votre compte Chapote pour gérer vos bots, leur apparence, le paiement et l’activation du widget."
+
+#: admin/js/admin.js:185
+#: admin/js/onboarding.js:213
+msgid "OpenSSL (AES-256-GCM) is unavailable: your credentials cannot be stored encrypted."
+msgstr "OpenSSL (AES-256-GCM) indisponible : impossible de stocker vos identifiants de façon chiffrée."
+
+#: admin/js/admin.js:188
+msgid "You will be redirected to Chapote to authorize this site, then brought back here automatically."
+msgstr "Vous serez redirigé vers Chapote pour autoriser ce site, puis ramené ici automatiquement."
+
+#: admin/js/admin.js:206
+msgid "Opening the Chapote window…"
+msgstr "Ouverture de la fenêtre Chapote…"
+
+#: admin/js/admin.js:215
+msgid "Could not start the connection to Chapote. Please try again in a moment."
+msgstr "Impossible de démarrer la connexion à Chapote. Réessayez dans un instant."
+
+#: admin/js/admin.js:230
+msgid "Finish signing in in the Chapote window…"
+msgstr "Terminez la connexion dans la fenêtre Chapote…"
+
+#: admin/js/admin.js:249
+msgid "Sign-in canceled or denied. You can try again."
+msgstr "Connexion annulée ou refusée. Vous pouvez réessayer."
+
+#: admin/js/admin.js:276
+#: admin/js/admin.js:1246
+msgid "Signed in successfully."
+msgstr "Connexion réussie."
+
+#: admin/js/admin.js:286
+msgid "Signed out."
+msgstr "Déconnecté."
+
+#: admin/js/admin.js:313
+msgid "Start a new bot"
+msgstr "Démarrer un nouveau bot"
+
+#: admin/js/admin.js:314
+msgid "Create a bot (manual)"
+msgstr "Créer un bot (manuel)"
+
+#: admin/js/admin.js:321
+msgid "No bots yet. Create one to get started."
+msgstr "Aucun bot pour le moment. Créez-en un pour commencer."
+
+#: admin/js/admin.js:327
+msgid "Name"
+msgstr "Nom"
+
+#: admin/js/admin.js:327
+msgid "On the site"
+msgstr "Sur le site"
+
+#: admin/js/admin.js:327
+msgid "Billing"
+msgstr "Facturation"
+
+#: admin/js/admin.js:328
+msgid "Plan / modules"
+msgstr "Offre / modules"
+
+#: admin/js/admin.js:334
+msgid "(unnamed)"
+msgstr "(sans nom)"
+
+#: admin/js/admin.js:338
+msgid "Manage"
+msgstr "Gérer"
+
+#: admin/js/admin.js:346
+msgid "The conversation tree, the knowledge base and security are configured in the Chapote dashboard"
+msgstr "L’arbre de conversation, la base de connaissances et la sécurité se configurent dans le dashboard Chapote"
+
+#: admin/js/admin.js:347
+msgid " (open the Chapote dashboard from your browser)."
+msgstr " (ouvrez le dashboard Chapote depuis votre navigateur)."
+
+#: admin/js/admin.js:348
+msgid "open the dashboard"
+msgstr "ouvrir le dashboard"
+
+#: admin/js/admin.js:356
+msgid "Free"
+msgstr "Gratuit"
+
+#: admin/js/admin.js:357
+msgid "Active"
+msgstr "Actif"
+
+#: admin/js/admin.js:357
+msgid "Trial"
+msgstr "Essai"
+
+#: admin/js/admin.js:357
+msgid "Inactive"
+msgstr "Inactif"
+
+#: admin/js/admin.js:357
+msgid "Past due"
+msgstr "Impayé"
+
+#: admin/js/admin.js:357
+msgid "Canceled"
+msgstr "Résilié"
+
+#: admin/js/admin.js:357
+msgid "Blocked"
+msgstr "Bloqué"
+
+#: admin/js/admin.js:374
+#, js-format
+msgid "Show the “%s” widget on the site"
+msgstr "Afficher le widget « %s » sur le site"
+
+#: admin/js/admin.js:375
+msgid "Show the widget on the site"
+msgstr "Afficher le widget sur le site"
+
+#: admin/js/admin.js:378
+msgid "Bot blocked: the widget is turned off."
+msgstr "Bot bloqué : le widget est coupé."
+
+#: admin/js/admin.js:380
+#: admin/js/admin.js:390
+msgid "Shown on the site"
+msgstr "Affiché sur le site"
+
+#: admin/js/admin.js:380
+#: admin/js/admin.js:390
+msgid "Show on the site"
+msgstr "Afficher sur le site"
+
+#: admin/js/admin.js:391
+msgid "Widget enabled on the site."
+msgstr "Widget activé sur le site."
+
+#: admin/js/admin.js:391
+msgid "Widget disabled on the site."
+msgstr "Widget désactivé du site."
+
+#: admin/js/admin.js:396
+msgid "Action failed."
+msgstr "Action impossible."
+
+#: admin/js/admin.js:402
+msgid " — blocked"
+msgstr " — bloqué"
+
+#: admin/js/admin.js:410
+msgid "Bot name"
+msgstr "Nom du bot"
+
+#: admin/js/admin.js:411
+msgid "Bot type"
+msgstr "Type de bot"
+
+#: admin/js/admin.js:412
+msgid "Hybrid (tree + AI)"
+msgstr "Hybride (arbre + IA)"
+
+#: admin/js/admin.js:413
+msgid "Tree only"
+msgstr "Arbre seul"
+
+#: admin/js/admin.js:414
+msgid "AI only"
+msgstr "IA seule"
+
+#: admin/js/admin.js:421
+msgid "Give the bot a name."
+msgstr "Donnez un nom au bot."
+
+#: admin/js/admin.js:425
+msgid "Could not create the bot."
+msgstr "Création impossible."
+
+#: admin/js/admin.js:426
+msgid "Bot created."
+msgstr "Bot créé."
+
+#: admin/js/admin.js:429
+msgid "Create"
+msgstr "Créer"
+
+#: admin/js/admin.js:433
+msgid "Cancel"
+msgstr "Annuler"
+
+#: admin/js/admin.js:448
+msgid "← My bots"
+msgstr "← Mes bots"
+
+#: admin/js/admin.js:449
+msgid "Bot"
+msgstr "Bot"
+
+#: admin/js/admin.js:453
+msgid "Bot settings"
+msgstr "Réglages du bot"
+
+#: admin/js/admin.js:454
+msgid "Page targeting"
+msgstr "Ciblage des pages"
+
+#: admin/js/admin.js:455
+msgid "My plan"
+msgstr "Mon offre"
+
+#: admin/js/admin.js:456
+msgid "Appearance"
+msgstr "Apparence"
+
+#: admin/js/admin.js:482
+msgid "Loading appearance…"
+msgstr "Chargement de l’apparence…"
+
+#: admin/js/admin.js:484
+#: admin/js/admin.js:586
+msgid "Could not load this bot."
+msgstr "Impossible de charger ce bot."
+
+#: admin/js/admin.js:486
+#: admin/js/cbo-core.js:189
+msgid "Assistant"
+msgstr "Assistant"
+
+#: admin/js/admin.js:526
+msgid "Primary color"
+msgstr "Couleur principale"
+
+#: admin/js/admin.js:527
+msgid "Secondary color"
+msgstr "Couleur secondaire"
+
+#: admin/js/admin.js:530
+msgid "Position"
+msgstr "Position"
+
+#: admin/js/admin.js:530
+msgid "Right"
+msgstr "À droite"
+
+#: admin/js/admin.js:530
+msgid "Left"
+msgstr "À gauche"
+
+#: admin/js/admin.js:531
+msgid "Size"
+msgstr "Taille"
+
+#: admin/js/admin.js:531
+msgid "Small"
+msgstr "Petite"
+
+#: admin/js/admin.js:531
+msgid "Medium"
+msgstr "Moyenne"
+
+#: admin/js/admin.js:531
+msgid "Large"
+msgstr "Grande"
+
+#: admin/js/admin.js:533
+msgid "Chat title"
+msgstr "Titre du chat"
+
+#: admin/js/admin.js:534
+msgid "Welcome message"
+msgstr "Message d’accueil"
+
+#: admin/js/admin.js:539
+msgid "Input placeholder"
+msgstr "Placeholder du champ"
+
+#: admin/js/admin.js:539
+#: admin/js/cbo-core.js:203
+msgid "Type your message…"
+msgstr "Écrivez votre message…"
+
+#: admin/js/admin.js:540
+msgid "Launcher text"
+msgstr "Texte du lanceur"
+
+#: admin/js/admin.js:540
+msgid "e.g. Any questions?"
+msgstr "ex. Une question ?"
+
+#: admin/js/admin.js:541
+msgid "Interface language"
+msgstr "Langue de l’interface"
+
+#: admin/js/admin.js:541
+msgid "French"
+msgstr "Français"
+
+#: admin/js/admin.js:541
+msgid "English"
+msgstr "Anglais"
+
+#: admin/js/admin.js:541
+msgid "Auto (browser)"
+msgstr "Auto (navigateur)"
+
+#: admin/js/admin.js:543
+msgid "Dark mode"
+msgstr "Mode sombre"
+
+#: admin/js/admin.js:544
+msgid "Greeting bubble"
+msgstr "Bulle d’accroche"
+
+#: admin/js/admin.js:545
+msgid "Show “Powered by Chapote”"
+msgstr "Afficher « Propulsé par Chapote »"
+
+#: admin/js/admin.js:548
+msgid "Save appearance"
+msgstr "Enregistrer l’apparence"
+
+#: admin/js/admin.js:553
+#: admin/js/onboarding.js:37
+msgid "Preview"
+msgstr "Aperçu"
+
+#: admin/js/admin.js:567
+msgid "Appearance saved."
+msgstr "Apparence enregistrée."
+
+#: admin/js/admin.js:568
+msgid "Could not save the appearance."
+msgstr "Impossible d’enregistrer l’apparence."
+
+#: admin/js/admin.js:576
+msgid "Loading your plan…"
+msgstr "Chargement de votre offre…"
+
+#: admin/js/admin.js:593
+msgid "Catalog unavailable right now — please try again in a moment."
+msgstr "Catalogue indisponible pour le moment — réessayez dans un instant."
+
+#: admin/js/admin.js:626
+msgid "Billing disabled."
+msgstr "Facturation désactivée."
+
+#: admin/js/admin.js:627
+msgid "Billing is disabled on this Chapote account: no subscription is required for this bot."
+msgstr "La facturation est désactivée sur ce compte Chapote : aucune souscription n’est requise pour ce bot."
+
+#: admin/js/admin.js:635
+msgid "Subscription active."
+msgstr "Abonnement actif."
+
+#: admin/js/admin.js:636
+msgid "You can change your plan or cancel below."
+msgstr "Vous pouvez changer de plan ou résilier ci-dessous."
+
+#: admin/js/admin.js:671
+msgid "AI"
+msgstr "IA"
+
+#: admin/js/admin.js:675
+#, js-format
+msgid "Modules removed: %s. Tree sections that depend on them will be deleted when you subscribe."
+msgstr "Modules retirés : %s. Les sections de l’arbre qui en dépendent seront supprimées à la souscription."
+
+#: admin/js/admin.js:685
+msgid "Modules"
+msgstr "Modules"
+
+#: admin/js/admin.js:698
+#: admin/js/admin.js:723
+#: admin/js/admin.js:762
+#, js-format
+msgid "%s /month"
+msgstr "%s /mois"
+
+#: admin/js/admin.js:699
+msgid "AI required"
+msgstr "IA requise"
+
+#: admin/js/admin.js:706
+msgid "Artificial intelligence"
+msgstr "Intelligence artificielle"
+
+#: admin/js/admin.js:707
+msgid "No AI"
+msgstr "Sans IA"
+
+#: admin/js/admin.js:707
+msgid "AI included (quota)"
+msgstr "IA incluse (quota)"
+
+#: admin/js/admin.js:707
+msgid "AI with my own key (BYOK)"
+msgstr "IA avec ma clé (BYOK)"
+
+#. translators: %s: number of AI replies included per month
+#: admin/js/admin.js:722
+#, js-format
+msgid "%s replies/month"
+msgstr "%s réponses/mois"
+
+#. translators: %s: monthly price
+#: admin/js/admin.js:729
+#, js-format
+msgid "With your own key: %s /month, unlimited replies (key configured in the dashboard)."
+msgstr "Avec votre propre clé : %s /mois, réponses illimitées (clé configurée dans le dashboard)."
+
+#: admin/js/admin.js:761
+msgid "Estimate: "
+msgstr "Estimation : "
+
+#. translators: %s: VAT note
+#: admin/js/admin.js:764
+#, js-format
+msgid " (%s). Actual price applied by Stripe."
+msgstr " (%s). Tarif réel appliqué par Stripe."
+
+#: admin/js/admin.js:769
+msgid "I agree to the subscription starting immediately and waive my 14-day right of withdrawal."
+msgstr "J’accepte l’exécution immédiate de l’abonnement et renonce à mon droit de rétractation de 14 jours."
+
+#: admin/js/admin.js:776
+msgid "Update plan"
+msgstr "Mettre à jour le plan"
+
+#: admin/js/admin.js:776
+msgid "Subscribe"
+msgstr "Souscrire"
+
+#: admin/js/admin.js:782
+msgid "Check the consent box above to subscribe."
+msgstr "Cochez la case de consentement ci-dessus pour souscrire."
+
+#: admin/js/admin.js:797
+msgid "Change plan (prorated)"
+msgstr "Changer de plan (au prorata)"
+
+#: admin/js/admin.js:798
+msgid "Cancel subscription"
+msgstr "Résilier"
+
+#: admin/js/admin.js:798
+msgid "Confirm cancellation"
+msgstr "Confirmer la résiliation"
+
+#: admin/js/admin.js:811
+msgid "Check the immediate-start consent box to subscribe."
+msgstr "Cochez le consentement à l’exécution immédiate pour souscrire."
+
+#: admin/js/admin.js:819
+msgid "Could not open the payment page."
+msgstr "Impossible d’ouvrir la page de paiement."
+
+#: admin/js/admin.js:829
+msgid "Plan updated."
+msgstr "Plan mis à jour."
+
+#: admin/js/admin.js:830
+msgid "Could not update the plan."
+msgstr "Mise à jour impossible."
+
+#: admin/js/admin.js:837
+msgid "Subscription canceled."
+msgstr "Abonnement résilié."
+
+#: admin/js/admin.js:838
+msgid "Could not cancel the subscription."
+msgstr "Résiliation impossible."
+
+#: admin/js/admin.js:852
+msgid "Subscription active. You can enable the widget on the site (Page targeting tab)."
+msgstr "Abonnement actif. Vous pouvez activer le widget sur le site (onglet Ciblage des pages)."
+
+#: admin/js/admin.js:859
+msgid "Payment received, but activation is taking longer than expected. Reload the page in a moment; if the bot remains inactive, contact support."
+msgstr "Paiement bien reçu, mais l’activation prend plus de temps que prévu. Rechargez la page dans un instant ; si le bot reste inactif, contactez le support."
+
+#: admin/js/admin.js:878
+msgid "Could not load targeting for this bot — please try again in a moment."
+msgstr "Impossible de charger le ciblage de ce bot — réessayez dans un instant."
+
+#: admin/js/admin.js:899
+msgid "This bot runs in free mode (no active paid subscription): AI replies are limited to the free quota. You can still enable it on the site."
+msgstr "Ce bot fonctionne en mode gratuit (pas d’abonnement payant actif) : les réponses IA sont limitées au quota gratuit. Vous pouvez quand même l’activer sur le site."
+
+#: admin/js/admin.js:900
+msgid "See “My plan”"
+msgstr "Voir « Mon offre »"
+
+#: admin/js/admin.js:907
+msgid "Whether the widget is shown on the site (on/off) is controlled with the switch at the top of this page, or in “My bots”. Below: choose which pages it appears on."
+msgstr "L’affichage du widget sur le site (on/off) se règle avec l’interrupteur en haut de cette page, ou dans « Mes bots ». Ci-dessous : sur quelles pages l’afficher."
+
+#: admin/js/admin.js:926
+msgid "No public content types detected."
+msgstr "Aucun type de contenu public détecté."
+
+#: admin/js/admin.js:942
+msgid "e.g. 12, 34"
+msgstr "ex. 12, 34"
+
+#: admin/js/admin.js:943
+msgid "e.g. 7, 99"
+msgstr "ex. 7, 99"
+
+#: admin/js/admin.js:945
+msgid "Show on"
+msgstr "Afficher sur"
+
+#: admin/js/admin.js:947
+msgid "Content types to include"
+msgstr "Types de contenu à inclure"
+
+#: admin/js/admin.js:948
+msgid "Content IDs to include"
+msgstr "IDs de contenus à inclure"
+
+#: admin/js/admin.js:951
+msgid "Never show on (takes priority)"
+msgstr "Ne jamais afficher sur (prioritaire)"
+
+#: admin/js/admin.js:952
+msgid "Content types to exclude"
+msgstr "Types de contenu à exclure"
+
+#: admin/js/admin.js:953
+msgid "Content IDs to exclude"
+msgstr "IDs de contenus à exclure"
+
+#: admin/js/admin.js:954
+msgid "An exclusion (type or ID) always overrides an inclusion."
+msgstr "Une exclusion (type ou ID) l’emporte toujours sur une inclusion."
+
+#: admin/js/admin.js:956
+msgid "Where should the widget appear?"
+msgstr "Où afficher le widget ?"
+
+#: admin/js/admin.js:958
+msgid "Entire site"
+msgstr "Tout le site"
+
+#: admin/js/admin.js:959
+msgid "Custom pages"
+msgstr "Pages personnalisées"
+
+#: admin/js/admin.js:979
+msgid "Save targeting"
+msgstr "Enregistrer le ciblage"
+
+#: admin/js/admin.js:985
+msgid "Allow this domain in Chapote"
+msgstr "Autoriser ce domaine dans Chapote"
+
+#: admin/js/admin.js:986
+msgid "For the widget to answer visitors, add this domain to your bot’s allowed domains (Security tab in Chapote):"
+msgstr "Pour que le widget réponde aux visiteurs, ajoutez ce domaine à la liste des domaines autorisés de votre bot (onglet Sécurité dans Chapote) :"
+
+#: admin/js/admin.js:988
+msgid "Security (allowed domains, captcha, limits) is managed on the Chapote side, not in WordPress."
+msgstr "La sécurité (domaines autorisés, captcha, limites) se gère côté Chapote, pas dans WordPress."
+
+#: admin/js/admin.js:992
+msgid "Open the Chapote dashboard"
+msgstr "Ouvrir le tableau de bord Chapote"
+
+#: admin/js/admin.js:993
+msgid "Open the Chapote dashboard from your browser (app address not configured)."
+msgstr "Ouvrez le tableau de bord Chapote depuis votre navigateur (adresse de l’app non configurée)."
+
+#: admin/js/admin.js:1004
+msgid "Targeting saved."
+msgstr "Ciblage enregistré."
+
+#: admin/js/admin.js:1005
+msgid "Could not save."
+msgstr "Enregistrement impossible."
+
+#: admin/js/admin.js:1014
+#: admin/js/admin.js:1028
+msgid "SEO (search visibility)"
+msgstr "SEO (référencement)"
+
+#: admin/js/admin.js:1030
+msgid "These features are rendered server-side (visible to search engines), unlike the JavaScript-loaded widget."
+msgstr "Ces leviers sont rendus côté serveur (visibles des moteurs de recherche), contrairement au widget chargé en JavaScript."
+
+#: admin/js/admin.js:1035
+msgid "“Chatbot by Chapote” link"
+msgstr "Lien « Chatbot par Chapote »"
+
+#: admin/js/admin.js:1037
+msgid "Show a small crawlable link to Chapote in the footer (disabled by default)."
+msgstr "Afficher un petit lien crawlable vers Chapote dans le pied de page (désactivé par défaut)."
+
+#: admin/js/admin.js:1041
+msgid "FAQ (schema.org structured data)"
+msgstr "FAQ (données structurées schema.org)"
+
+#: admin/js/admin.js:1043
+msgid "Each Question / Answer pair is published as JSON-LD (FAQPage), eligible for Google rich results."
+msgstr "Chaque paire Question / Réponse est publiée en JSON-LD (FAQPage), éligible aux résultats enrichis Google."
+
+#: admin/js/admin.js:1049
+#: admin/js/onboarding.js:951
+msgid "Question"
+msgstr "Question"
+
+#: admin/js/admin.js:1050
+msgid "Answer"
+msgstr "Réponse"
+
+#: admin/js/admin.js:1057
+msgid "Remove this question"
+msgstr "Supprimer cette question"
+
+#: admin/js/admin.js:1060
+msgid "Remove"
+msgstr "Supprimer"
+
+#: admin/js/admin.js:1068
+msgid "Add a question"
+msgstr "Ajouter une question"
+
+#: admin/js/admin.js:1077
+msgid "Save SEO settings"
+msgstr "Enregistrer les réglages SEO"
+
+#: admin/js/admin.js:1085
+msgid "SEO settings saved."
+msgstr "Réglages SEO enregistrés."
+
+#: admin/js/admin.js:1086
+msgid "Could not save SEO settings."
+msgstr "Impossible d’enregistrer les réglages SEO."
+
+#: admin/js/admin.js:1162
+msgid "Payment received. Activation in progress…"
+msgstr "Paiement reçu. Activation en cours…"
+
+#: admin/js/admin.js:1165
+msgid "Payment canceled. You can restart the subscription."
+msgstr "Paiement annulé. Vous pouvez relancer la souscription."
+
+#. translators: %s: OAuth error code
+#: admin/js/admin.js:1237
+#, js-format
+msgid "Sign-in canceled or denied (%s). You can try again."
+msgstr "Connexion annulée ou refusée (%s). Vous pouvez réessayer."
+
+#: admin/js/admin.js:1242
+msgid "Finishing sign-in…"
+msgstr "Finalisation de la connexion…"
+
+#: admin/js/admin.js:1252
+msgid "Sign-in failed. Click “Sign in with Chapote” to try again."
+msgstr "Connexion impossible. Cliquez sur « Se connecter avec Chapote » pour réessayer."
+
+#: admin/js/cbo-core.js:72
+msgid "Loading…"
+msgstr "Chargement…"
+
+#: admin/js/cbo-core.js:101
+msgid "Too many requests. Please wait a moment, then try again."
+msgstr "Trop de requêtes. Patientez quelques instants, puis réessayez."
+
+#: admin/js/cbo-core.js:102
+msgid "You are not connected to Chapote."
+msgstr "Vous n’êtes pas connecté à Chapote."
+
+#: admin/js/cbo-core.js:104
+msgid "Could not reach Chapote. Please try again in a moment."
+msgstr "Connexion à Chapote impossible. Réessayez dans un instant."
+
+#: admin/js/cbo-core.js:105
+msgid "This sign-in link has expired or was already used. Please start the connection again."
+msgstr "Lien de connexion expiré ou déjà utilisé. Relancez la connexion."
+
+#: admin/js/cbo-core.js:106
+msgid "Encrypted storage is unavailable on this server (OpenSSL required)."
+msgstr "Stockage chiffré indisponible sur ce serveur (OpenSSL requis)."
+
+#: admin/js/cbo-core.js:190
+msgid "Online"
+msgstr "En ligne"
+
+#: admin/js/cbo-core.js:196
+msgid "Hello! How can I help you?"
+msgstr "Bonjour ! Comment puis-je vous aider ?"
+
+#: admin/js/cbo-core.js:197
+msgid "Hi, I have a question."
+msgstr "Bonjour, j’ai une question."
+
+#: admin/js/cbo-core.js:208
+msgid "Powered by"
+msgstr "Propulsé par"
+
+#: admin/js/cbo-core.js:214
+msgid "Any questions?"
+msgstr "Une question ?"
+
+#: admin/js/onboarding.js:33
+msgid "Sign in"
+msgstr "Connexion"
+
+#: admin/js/onboarding.js:34
+msgid "Your site"
+msgstr "Votre site"
+
+#: admin/js/onboarding.js:35
+msgid "Customization"
+msgstr "Personnalisation"
+
+#: admin/js/onboarding.js:36
+msgid "Generation"
+msgstr "Génération"
+
+#: admin/js/onboarding.js:38
+msgid "Plan"
+msgstr "Offre"
+
+#: admin/js/onboarding.js:39
+msgid "Live"
+msgstr "En ligne"
+
+#: admin/js/onboarding.js:111
+msgid "Connected to Chapote."
+msgstr "Connecté à Chapote."
+
+#: admin/js/onboarding.js:172
+msgid "← Back"
+msgstr "← Retour"
+
+#: admin/js/onboarding.js:184
+msgid "Guided setup"
+msgstr "Assistant guidé"
+
+#: admin/js/onboarding.js:185
+msgid "Let’s build your chatbot, together"
+msgstr "Créons votre chatbot, ensemble"
+
+#: admin/js/onboarding.js:187
+msgid "In just a few minutes: we analyze your site, an AI generates an assistant ready to answer, you customize it, and it goes live."
+msgstr "En quelques minutes : on analyse votre site, une IA génère un assistant prêt à répondre, vous le personnalisez, et il passe en ligne."
+
+#: admin/js/onboarding.js:189
+msgid "We read your pages to understand your business"
+msgstr "On lit vos pages pour comprendre votre activité"
+
+#: admin/js/onboarding.js:190
+msgid "An AI builds the conversation tree"
+msgstr "Une IA construit l’arbre de conversation"
+
+#: admin/js/onboarding.js:191
+msgid "You fine-tune the appearance and the content"
+msgstr "Vous peaufinez l’apparence et le contenu"
+
+#: admin/js/onboarding.js:192
+msgid "Activate it on your site in one click"
+msgstr "Activez-le sur votre site en un clic"
+
+#: admin/js/onboarding.js:195
+msgid "Get started"
+msgstr "Commencer"
+
+#: admin/js/onboarding.js:203
+msgid "You are connected to Chapote"
+msgstr "Vous êtes connecté à Chapote"
+
+#: admin/js/onboarding.js:205
+#: admin/js/onboarding.js:430
+#: admin/js/onboarding.js:526
+msgid "Continue"
+msgstr "Continuer"
+
+#: admin/js/onboarding.js:208
+msgid "Connect your site to Chapote"
+msgstr "Connectez votre site à Chapote"
+
+#: admin/js/onboarding.js:210
+msgid "A Chapote window will open to authorize this site, then you will come back here. Your credentials never pass through WordPress."
+msgstr "Une fenêtre Chapote va s’ouvrir pour autoriser ce site, puis vous reviendrez ici. Vos identifiants ne transitent jamais par WordPress."
+
+#: admin/js/onboarding.js:226
+msgid "Let’s start from your WordPress site"
+msgstr "Partons de votre site WordPress"
+
+#: admin/js/onboarding.js:228
+msgid "We will list your published pages to understand your business and generate a relevant assistant."
+msgstr "Nous allons lister vos pages publiées pour comprendre votre activité et générer un assistant pertinent."
+
+#: admin/js/onboarding.js:228
+msgid "Site analyzed:"
+msgstr "Site analysé :"
+
+#: admin/js/onboarding.js:229
+msgid "this site"
+msgstr "ce site"
+
+#: admin/js/onboarding.js:231
+msgid "Analyze my site"
+msgstr "Analyser mon site"
+
+#: admin/js/onboarding.js:232
+msgid "Start from a blank assistant"
+msgstr "Partir d’un assistant vierge"
+
+#: admin/js/onboarding.js:240
+msgid "Could not create the assistant."
+msgstr "Création impossible."
+
+#: admin/js/onboarding.js:264
+msgid "Which pages describe your business?"
+msgstr "Quelles pages décrivent votre activité ?"
+
+#: admin/js/onboarding.js:266
+msgid "Check up to 15 pages. The most useful ones are pre-selected. You can adjust everything later."
+msgstr "Cochez jusqu’à 15 pages. Les plus utiles sont pré-sélectionnées. Vous pourrez tout ajuster ensuite."
+
+#: admin/js/onboarding.js:269
+msgid "Search for a page…"
+msgstr "Rechercher une page…"
+
+#: admin/js/onboarding.js:270
+msgid "Search for a page"
+msgstr "Rechercher une page"
+
+#: admin/js/onboarding.js:271
+msgid "Pages on your site"
+msgstr "Pages de votre site"
+
+#: admin/js/onboarding.js:277
+msgid "selected"
+msgstr "sélectionnée(s)"
+
+#: admin/js/onboarding.js:284
+msgid "Maximum of 15 pages. Uncheck one first."
+msgstr "Maximum 15 pages. Décochez-en une d’abord."
+
+#: admin/js/onboarding.js:295
+#: admin/js/onboarding.js:558
+msgid "Home"
+msgstr "Accueil"
+
+#: admin/js/onboarding.js:296
+msgid "Recommended"
+msgstr "Recommandé"
+
+#: admin/js/onboarding.js:309
+#: admin/js/onboarding.js:476
+msgid "Reading your pages…"
+msgstr "Lecture de vos pages…"
+
+#: admin/js/onboarding.js:312
+msgid "No pages found."
+msgstr "Aucune page trouvée."
+
+#. translators: %s: site host name
+#: admin/js/onboarding.js:320
+#, js-format
+msgid "The URL must belong to your site (%s)."
+msgstr "L’URL doit appartenir à votre site (%s)."
+
+#: admin/js/onboarding.js:321
+#: admin/js/onboarding.js:402
+msgid "Maximum of 15 pages."
+msgstr "Maximum 15 pages."
+
+#: admin/js/onboarding.js:337
+msgid "Search failed."
+msgstr "Recherche impossible."
+
+#: admin/js/onboarding.js:349
+msgid "e.g. Answer customer questions about our services and guide them to book an appointment."
+msgstr "ex. Répondre aux questions des clients sur nos prestations et orienter vers la prise de rendez-vous."
+
+#: admin/js/onboarding.js:352
+msgid "What will your assistant’s role be? (optional)"
+msgstr "Quel sera le rôle de votre assistant ? (optionnel)"
+
+#: admin/js/onboarding.js:355
+msgid "Visitors per month"
+msgstr "Visiteurs par mois"
+
+#: admin/js/onboarding.js:356
+msgid "I don’t know"
+msgstr "Je ne sais pas"
+
+#: admin/js/onboarding.js:357
+msgid "Fewer than 1,000 / month"
+msgstr "Moins de 1 000 / mois"
+
+#: admin/js/onboarding.js:358
+msgid "1,000 to 10,000 / month"
+msgstr "1 000 à 10 000 / mois"
+
+#: admin/js/onboarding.js:359
+msgid "10,000 to 50,000 / month"
+msgstr "10 000 à 50 000 / mois"
+
+#: admin/js/onboarding.js:360
+msgid "More than 50,000 / month"
+msgstr "Plus de 50 000 / mois"
+
+#: admin/js/onboarding.js:363
+msgid "How many visitors per month? (optional)"
+msgstr "Combien de visiteurs par mois ? (optionnel)"
+
+#: admin/js/onboarding.js:366
+msgid "Add a URL from your site"
+msgstr "Ajouter une URL de votre site"
+
+#: admin/js/onboarding.js:369
+msgid "Add a page manually (same domain)"
+msgstr "Ajouter une page manuellement (même domaine)"
+
+#: admin/js/onboarding.js:371
+msgid "Add"
+msgstr "Ajouter"
+
+#: admin/js/onboarding.js:378
+msgid "Generate my chatbot"
+msgstr "Générer mon chatbot"
+
+#: admin/js/onboarding.js:392
+msgid "Could not list your pages."
+msgstr "Impossible de lister vos pages."
+
+#: admin/js/onboarding.js:401
+msgid "Select at least one page."
+msgstr "Sélectionnez au moins une page."
+
+#: admin/js/onboarding.js:411
+#: admin/js/onboarding.js:499
+msgid "Generation failed."
+msgstr "La génération a échoué."
+
+#: admin/js/onboarding.js:424
+msgid "Customize the appearance"
+msgstr "Personnalisez l’apparence"
+
+#: admin/js/onboarding.js:426
+msgid "Colors, welcome message, position… Changes are saved automatically. Meanwhile, your assistant is being built in the background."
+msgstr "Couleurs, message d’accueil, position… Les changements sont enregistrés automatiquement. Pendant ce temps, votre assistant se construit en arrière-plan."
+
+#: admin/js/onboarding.js:437
+msgid "Opening the appearance editor…"
+msgstr "Ouverture de l’éditeur d’apparence…"
+
+#: admin/js/onboarding.js:440
+msgid "The appearance editor is unavailable."
+msgstr "L’éditeur d’apparence est indisponible."
+
+#: admin/js/onboarding.js:447
+msgid "Chatbot appearance"
+msgstr "Apparence du chatbot"
+
+#: admin/js/onboarding.js:457
+msgid "Your assistant is being built…"
+msgstr "Votre assistant se construit…"
+
+#: admin/js/onboarding.js:461
+msgid "Initializing…"
+msgstr "Initialisation…"
+
+#: admin/js/onboarding.js:464
+msgid "This usually takes less than a minute."
+msgstr "Cela prend généralement moins d’une minute."
+
+#: admin/js/onboarding.js:476
+msgid "Waiting in queue…"
+msgstr "En file d’attente…"
+
+#: admin/js/onboarding.js:477
+msgid "Analyzing the content…"
+msgstr "Analyse du contenu…"
+
+#: admin/js/onboarding.js:477
+msgid "Designing the conversation tree…"
+msgstr "Conception de l’arbre de conversation…"
+
+#: admin/js/onboarding.js:477
+msgid "Writing the answers…"
+msgstr "Rédaction des réponses…"
+
+#: admin/js/onboarding.js:478
+msgid "Assembling…"
+msgstr "Assemblage…"
+
+#: admin/js/onboarding.js:478
+msgid "Finalizing…"
+msgstr "Finalisation…"
+
+#: admin/js/onboarding.js:480
+msgid "Build in progress…"
+msgstr "Construction en cours…"
+
+#: admin/js/onboarding.js:501
+msgid "Generation is taking longer than expected. Try again in a moment."
+msgstr "La génération prend plus de temps que prévu. Réessayez dans un instant."
+
+#: admin/js/onboarding.js:508
+msgid "Back to page selection"
+msgstr "Retour à la sélection des pages"
+
+#: admin/js/onboarding.js:516
+msgid "Your conversation tree"
+msgstr "Votre arbre de conversation"
+
+#: admin/js/onboarding.js:518
+msgid "Here is the generated structure. Open the editor to adjust questions and answers; your changes sync back here automatically."
+msgstr "Voici la structure générée. Ouvrez l’éditeur pour ajuster questions et réponses ; vos modifications se synchronisent ici automatiquement."
+
+#: admin/js/onboarding.js:525
+msgid "Open the editor"
+msgstr "Ouvrir l’éditeur"
+
+#: admin/js/onboarding.js:533
+msgid "Loading the tree…"
+msgstr "Chargement de l’arbre…"
+
+#: admin/js/onboarding.js:535
+msgid "Could not load the tree."
+msgstr "Impossible de charger l’arbre."
+
+#: admin/js/onboarding.js:550
+msgid "The tree is still empty — open the editor to build it."
+msgstr "Arbre encore vide — ouvrez l’éditeur pour le compléter."
+
+#. translators: %s: number of conversation steps
+#: admin/js/onboarding.js:552
+msgid "1 conversation step"
+msgstr "1 étape de conversation"
+
+#: admin/js/onboarding.js:552
+#, js-format
+msgid "%s conversation steps"
+msgstr "%s étapes de conversation"
+
+#: admin/js/onboarding.js:567
+msgid "→ AI"
+msgstr "→ IA"
+
+#. translators: %s: number of additional options not shown
+#: admin/js/onboarding.js:570
+#, js-format
+msgid "+ %s more"
+msgstr "+ %s autres"
+
+#: admin/js/onboarding.js:572
+msgid "Hands the visitor over to a human agent"
+msgstr "Passe le relais à un conseiller humain"
+
+#: admin/js/onboarding.js:573
+msgid "Collects the visitor’s contact details"
+msgstr "Collecte les coordonnées du visiteur"
+
+#: admin/js/onboarding.js:574
+msgid "Offers to book an appointment"
+msgstr "Propose la prise de rendez-vous"
+
+#: admin/js/onboarding.js:578
+msgid "Open-ended questions are handled by the AI."
+msgstr "Les questions ouvertes sont confiées à l’IA."
+
+#: admin/js/onboarding.js:586
+msgid "The editor is unavailable."
+msgstr "L’éditeur est indisponible."
+
+#: admin/js/onboarding.js:591
+msgid "Allow pop-up windows to open the editor."
+msgstr "Autorisez les fenêtres pop-up pour ouvrir l’éditeur."
+
+#: admin/js/onboarding.js:605
+msgid "Changes saved."
+msgstr "Modifications enregistrées."
+
+#: admin/js/onboarding.js:611
+msgid "An error occurred in the editor."
+msgstr "Une erreur est survenue dans l’éditeur."
+
+#: admin/js/onboarding.js:646
+msgid "Preview your chatbot"
+msgstr "Aperçu de votre chatbot"
+
+#: admin/js/onboarding.js:647
+msgid "Try your assistant exactly as your visitors will see it. This preview is private."
+msgstr "Testez votre assistant comme le verront vos visiteurs. Cet aperçu est privé."
+
+#: admin/js/onboarding.js:654
+msgid "↻ Start over"
+msgstr "↻ Recommencer"
+
+#: admin/js/onboarding.js:655
+msgid "See my plan"
+msgstr "Voir mon offre"
+
+#: admin/js/onboarding.js:662
+msgid "Preparing the preview…"
+msgstr "Préparation de l’aperçu…"
+
+#: admin/js/onboarding.js:664
+msgid "The preview is unavailable."
+msgstr "Aperçu indisponible."
+
+#: admin/js/onboarding.js:672
+msgid "Chatbot preview"
+msgstr "Aperçu du chatbot"
+
+#: admin/js/onboarding.js:691
+msgid "Your recommended plan"
+msgstr "Votre offre recommandée"
+
+#: admin/js/onboarding.js:694
+msgid "Working out the best plan…"
+msgstr "Calcul de la meilleure offre…"
+
+#: admin/js/onboarding.js:707
+msgid "The catalog is unavailable — try again in a moment."
+msgstr "Catalogue indisponible — réessayez dans un instant."
+
+#: admin/js/onboarding.js:738
+msgid "Based on your tree and your answers, here is the recommended plan."
+msgstr "D’après votre arbre et vos réponses, voici l’offre conseillée."
+
+#: admin/js/onboarding.js:742
+#, js-format
+msgid "Estimated volume: about %s replies / month."
+msgstr "Volume estimé : environ %s réponses / mois."
+
+#: admin/js/onboarding.js:749
+msgid "In practice, here is what your assistant uses — and why:"
+msgstr "Concrètement, voici ce que votre assistant utilise — et pourquoi :"
+
+#: admin/js/onboarding.js:761
+msgid "Subscribe and activate"
+msgstr "Souscrire et activer"
+
+#: admin/js/onboarding.js:771
+msgid "Check the immediate-execution consent box to subscribe."
+msgstr "Cochez le consentement à l’exécution immédiate pour souscrire."
+
+#: admin/js/onboarding.js:807
+msgid "Activation on your site"
+msgstr "Activation sur votre site"
+
+#: admin/js/onboarding.js:816
+msgid "Try again"
+msgstr "Réessayer"
+
+#: admin/js/onboarding.js:820
+msgid "Payment canceled."
+msgstr "Paiement annulé."
+
+#: admin/js/onboarding.js:821
+msgid "You can review the plan or activate the free version."
+msgstr "Vous pouvez revoir l’offre ou activer la version gratuite."
+
+#: admin/js/onboarding.js:823
+msgid "Review the plan"
+msgstr "Revoir l’offre"
+
+#: admin/js/onboarding.js:824
+msgid "Activate the free version"
+msgstr "Activer la version gratuite"
+
+#: admin/js/onboarding.js:828
+msgid "Putting your assistant live…"
+msgstr "Mise en ligne de votre assistant…"
+
+#: admin/js/onboarding.js:836
+msgid "Payment received. Verifying your subscription…"
+msgstr "Paiement reçu. Vérification de l’abonnement…"
+
+#: admin/js/onboarding.js:853
+msgid "Your subscription is still being validated — activating your widget in the meantime."
+msgstr "Abonnement en cours de validation — on active déjà votre widget."
+
+#: admin/js/onboarding.js:860
+msgid "Activating the widget on your site…"
+msgstr "Activation du widget sur votre site…"
+
+#: admin/js/onboarding.js:864
+msgid "Activation failed. Try again."
+msgstr "Activation impossible. Réessayez."
+
+#: admin/js/onboarding.js:882
+msgid "Your chatbot is live!"
+msgstr "Votre chatbot est en ligne !"
+
+#: admin/js/onboarding.js:883
+msgid "It is now answering your visitors. You can adjust everything from “My bots”."
+msgstr "Il répond désormais à vos visiteurs. Vous pouvez tout ajuster depuis « Mes bots »."
+
+#: admin/js/onboarding.js:885
+msgid "Welcome to your Chapote dashboard."
+msgstr "Bienvenue sur votre tableau de bord Chapote."
+
+#: admin/js/onboarding.js:885
+msgid "Go to the dashboard"
+msgstr "Accéder au tableau de bord"
+
+#: admin/js/onboarding.js:886
+msgid "View my site"
+msgstr "Voir mon site"
+
+#: admin/js/onboarding.js:951
+msgid "Agent"
+msgstr "Conseiller"
+
+#: admin/js/onboarding.js:952
+msgid "Lead"
+msgstr "Lead"
+
+#: admin/js/onboarding.js:952
+msgid "Appointment"
+msgstr "Rendez-vous"
+
+#: admin/js/onboarding.js:962
+msgid "Option"
+msgstr "Option"
+
+#: admin/js/onboarding.js:964
+msgid "(no message)"
+msgstr "(sans message)"
