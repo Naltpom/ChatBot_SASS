@@ -128,7 +128,6 @@ function PlanCard({ plan }: { plan: Plan }) {
         <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 36, color: '#1C3F5C', letterSpacing: '-.02em' }}>{fmtEur(plan.priceCents)}</span>
         <span style={{ fontSize: 13, color: '#6B7B8D' }}>/mois</span>
       </div>
-      {/* Offre de bienvenue : affichée UNIQUEMENT si une remise existe pour ce plan. */}
       {plan.welcomeOff > 0 && (
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, margin: '2px 0 0', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12.5, fontWeight: 700, color: '#E86A5F' }}>1er mois {welcomePrice(plan.priceCents, plan.welcomeOff)}</span>
@@ -176,7 +175,6 @@ export function Pricing({ ctaTo }: { ctaTo: string }) {
           </p>
         </div>
 
-        {/* Bandeau « offre de bienvenue » : masqué si aucune remise d'intro active. */}
         {hasOffer && (
           <div className="ch-reveal" style={{
             maxWidth: 720, margin: '0 auto 46px', borderRadius: 18,
@@ -194,7 +192,6 @@ export function Pricing({ ctaTo }: { ctaTo: string }) {
           </div>
         )}
 
-        {/* Socle. */}
         <div className="ch-reveal" style={{ ...cardBase, maxWidth: 720, margin: '0 auto 28px', textAlign: 'center', alignItems: 'center' }}>
           <div style={{ fontFamily: JAKARTA, fontWeight: 700, fontSize: 18, color: '#1E2A32' }}>Socle — Bot en arbre</div>
           <div style={{ margin: '8px 0 2px', display: 'flex', alignItems: 'baseline', gap: 4, justifyContent: 'center' }}>
@@ -207,7 +204,6 @@ export function Pricing({ ctaTo }: { ctaTo: string }) {
           </p>
         </div>
 
-        {/* Plans IA. */}
         <div className="ch-reveal" style={{ textAlign: 'center', margin: '0 0 18px' }}>
           <span style={{ fontFamily: JAKARTA, fontWeight: 700, fontSize: 15, color: '#1E2A32' }}>Ajoutez l’IA</span>
         </div>
@@ -215,7 +211,6 @@ export function Pricing({ ctaTo }: { ctaTo: string }) {
           {plans.map(p => <PlanCard key={p.id} plan={p} />)}
         </div>
 
-        {/* Modules à la carte. */}
         <div className="ch-reveal" style={{ textAlign: 'center', margin: '46px 0 18px' }}>
           <span style={{ fontFamily: JAKARTA, fontWeight: 700, fontSize: 15, color: '#1E2A32' }}>Modules à la carte</span>
           <p style={{ fontSize: 13.5, color: '#6B7B8D', margin: '6px auto 0', maxWidth: 520 }}>
@@ -235,7 +230,6 @@ export function Pricing({ ctaTo }: { ctaTo: string }) {
           })}
         </div>
 
-        {/* CTA + mentions (la ligne « remise » n'apparaît que si une offre est active). */}
         <div className="ch-reveal" style={{ textAlign: 'center', marginTop: 40 }}>
           <Link to={ctaTo} className="ch-cta-primary" style={btnPrimary}>
             {hasOffer ? 'Profiter de l’offre de bienvenue →' : 'Composer mon abonnement →'}

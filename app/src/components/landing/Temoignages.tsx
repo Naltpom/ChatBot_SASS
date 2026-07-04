@@ -1,4 +1,4 @@
-// Section « L'impact » (révision design) : pas de témoignages inventés — on
+// Section « L'impact » : pas de témoignages inventés — on
 // décrit ce que la mécanique produit par design (3 cartes à icône).
 import { JAKARTA, IMPACTS, eyebrow, sectionH2 } from './data'
 

@@ -23,7 +23,7 @@
  */
 
 if (!defined('ABSPATH')) {
-    exit; // Pas d'accès direct.
+    exit;
 }
 
 define('CHAPOTE_BO_VERSION', '2.2.0');
@@ -33,10 +33,6 @@ define('CHAPOTE_BO_URL', plugin_dir_url(__FILE__));
 define('CHAPOTE_BO_REST_NS', 'chapote-bo/v1');
 define('CHAPOTE_BO_DEFAULT_API', 'https://chapote.fr');
 define('CHAPOTE_BO_OAUTH_CLIENT_ID', 'chapote_wp');
-
-/* -------------------------------------------------------------------------- */
-/* Chargement des classes                                                     */
-/* -------------------------------------------------------------------------- */
 
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-crypto.php';
 require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-options.php';
@@ -57,9 +53,6 @@ if (file_exists(CHAPOTE_BO_DIR . 'includes/class-chapote-bo-updater.php')) {
     require_once CHAPOTE_BO_DIR . 'includes/class-chapote-bo-updater.php';
 }
 
-/* -------------------------------------------------------------------------- */
-/* Bootstrap des modules                                                      */
-/* -------------------------------------------------------------------------- */
 /* i18n : WordPress charge automatiquement les traductions par slug (depuis 4.6),
    pas d'appel load_plugin_textdomain requis (Plugin Check le déconseille). */
 

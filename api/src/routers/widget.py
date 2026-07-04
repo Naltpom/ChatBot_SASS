@@ -2,8 +2,6 @@
 
 Archi : widget JS -> cette API (origin + captcha + JWT + rate limit)
 -> provider IA avec cle serveur. Le widget ne touche jamais une cle IA.
-Application 100% gratuite : pas de plafond d'usage ; les gardes sont
-purement anti-abus (origine, captcha, rate limits).
 
 Flux :
 1. GET  /api/widget/bootstrap?key=pk_xxx  -> design + provider captcha (public)
@@ -209,7 +207,7 @@ OVERAGE_CAP_MESSAGE = (
     "Vous pouvez naviguer dans le menu ou revenir un peu plus tard."
 )
 
-# --- Plafond dur journalier (audit M2) ---
+# --- Plafond dur journalier ---
 # Garde-fou anti-abus EXTERNE (quota_service.WIDGET_DAILY_HARD_CAP, généreux),
 # vérifié AVANT generate_reply pour TOUS les bots — BYOK COMPRIS (un bot BYOK a
 # ai_quota_for(ent) is None : sans ce plafond, un flux widget soutenu brûlerait
@@ -222,13 +220,8 @@ DAILY_CAP_MESSAGE = (
 )
 
 
-# Helpers extraits dans routers/widget_helpers.py (importes ci-dessus) :
-# _client_ip, _check_ip_flood, _check_origin, _check_session_origin,
-# _get_active_bot, _session_active_bot (revalidation bot+org des endpoints de
-# session), _assert_message_len, _sanitize_design/_journey/_triggers,
-# _active_tree, _record_tree_event, _bot_collects_leads, _bot_has_handoff,
-# _maybe_refresh.
-# Restent ICI : trigger_handoff, _lazy_timeout, _post_handoff_webhook et les
+# Restent ICI (et pas dans widget_helpers) : trigger_handoff, _lazy_timeout,
+# _post_handoff_webhook et les
 # messages de live chat (HANDOFF_*) — couples a la transition handoff et
 # importes par inbox.py (HANDOFF_CLOSED_MESSAGE) / action_executor.py
 # (trigger_handoff, import paresseux). Ne PAS les deplacer (eviterait un cycle).
@@ -690,8 +683,7 @@ async def poll_messages(
 async def _handle_human_message(
     body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict,
 ) -> dict:
-    """Mode conseiller (live chat) : persiste le message visiteur, JAMAIS d'IA.
-    Comportement inchange (extrait de post_message)."""
+    """Mode conseiller (live chat) : persiste le message visiteur, JAMAIS d'IA."""
     if body.node:
         # UI desynchronisee (defensif) : pas de navigation d'arbre pendant
         # un echange avec un conseiller
@@ -716,8 +708,7 @@ async def _handle_human_message(
 async def _handle_tree_node(
     body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict,
 ) -> dict:
-    """Navigation dans l'arbre (clic option) : gratuit, illimite.
-    Comportement inchange (extrait de post_message)."""
+    """Navigation dans l'arbre (clic option) : gratuit, illimite."""
     node_id, node = tree_engine.get_node(_active_tree(bot, conversation), body.node)
     response = tree_engine.format_node_response(node_id, node)
     # Aperçu : la réponse est calculée depuis l'arbre, on NE persiste rien (ni
@@ -740,8 +731,7 @@ async def _handle_tree_node(
 
 async def _build_ai_history(conversation: Conversation, text: str, db: AsyncSession) -> list[dict]:
     """Historique tronque (limite de payload vers le modele), normalise pour les
-    APIs (alternance commencant par 'user'). Comportement inchange (extrait de
-    post_message)."""
+    APIs (alternance commencant par 'user')."""
     result = await db.execute(
         select(Message)
         .where(Message.conversation_id == conversation.id, Message.source.in_(["ai", "tree"]))
@@ -804,9 +794,9 @@ async def _handle_ai_preview(
     # Plafond de tours IA en aperçu : ces appels modèle ne sont ni comptés ni
     # facturés (un owner avec un preview_token pourrait enchaîner sans borne) ->
     # on borne le nombre de réponses IA par conversation d'aperçu, via un compteur
-    # Redis CÔTÉ SERVEUR (audit M8 : compter les messages 'assistant' de
-    # l'historique LOCAL était contournable, un client qui les strippe obtenait
-    # de l'IA managée illimitée). Redis configuré mais en panne => fail-closed
+    # Redis CÔTÉ SERVEUR (compter les messages 'assistant' de l'historique LOCAL
+    # serait contournable, un client qui les strippe obtiendrait de l'IA managée
+    # illimitée). Redis configuré mais en panne => fail-closed
     # (False). REDIS_URL non configurée (dev/tests) => None : repli DÉGRADÉ sur
     # l'ancienne borne par historique local. Au-delà : réponse canned SANS appel
     # modèle. N'affecte PAS le chemin public/payant.
@@ -836,9 +826,7 @@ async def _handle_ai_preview(
 async def _handle_ai_message(
     body: MessageRequest, bot: Bot, conversation: Conversation, db: AsyncSession, session: dict, text: str,
 ) -> dict:
-    """Message libre : mode tree (réponse de redirection) ou IA. Comportement
-    EXACT inchange (extrait de post_message — le chemin IA n'est pas couvert par
-    e2e, logique preservee a l'octet pres)."""
+    """Message libre : mode tree (réponse de redirection) ou IA."""
     # Aperçu propriétaire : chemin dédié (génère sans gating/metering/persistance).
     if _is_preview_session(session):
         return await _handle_ai_preview(body, bot, conversation, db, session, text)
@@ -865,7 +853,7 @@ async def _handle_ai_message(
     # quota illimite) => comportement strictement identique a aujourd'hui.
     ent = await resolve(db, bot)
 
-    # Fin du gratuit a vie (point 4/5) : essai de 7 jours EXPIRE => l'IA ne repond
+    # Fin du gratuit a vie : essai de 7 jours EXPIRE => l'IA ne repond
     # plus (gate), message visiteur DEDIE distinct du quota. On NE persiste AUCUN
     # message assistant (comme la branche quota/AIServiceError : ne pas gonfler la
     # source durable du compteur, source='ai' role='assistant'). Le message
@@ -877,7 +865,7 @@ async def _handle_ai_message(
                                "options": [], "status": conversation.status},
                               bot, session)
 
-    # Gate IA MANAGÉE (TR-01) : une réponse IA MANAGÉE n'est servie que si le bot
+    # Gate IA MANAGÉE : une réponse IA MANAGÉE n'est servie que si le bot
     # a le module IA ET un abonnement utilisable. has_module(MODULE_AI) ANDe déjà
     # is_usable => un statut non utilisable (past_due/canceled/inactive ; suspended
     # est déjà coupé en 404 en amont par _assert_bot_servable) OU un bot sans
@@ -958,7 +946,7 @@ async def _handle_ai_message(
                                    "options": [], "status": conversation.status},
                                   bot, session)
 
-    # Plafond dur JOURNALIER (audit M2), TOUS bots — BYOK compris (quota is None
+    # Plafond dur JOURNALIER, TOUS bots — BYOK compris (quota is None
     # => aucune autre borne). LECTURE SEULE avant l'effet coûteux ; la conso est
     # comptée (widget_daily_consume) après un generate_reply réussi seulement.
     # Plafond EXTERNE généreux : quota mensuel/metering managés inchangés en deçà.
@@ -1019,7 +1007,7 @@ async def _handle_ai_message(
             db, bot.id, customer_id, METER_EVENT_NAME, ent.overage_cap)
     elif quota is not None:
         await ai_quota_consume(db, bot.id, quota)
-    # Plafond dur journalier (audit M2) : compté pour TOUS les bots (BYOK compris),
+    # Plafond dur journalier : compté pour TOUS les bots (BYOK compris),
     # UNIQUEMENT sur génération réussie (jamais sur panne provider). Best-effort.
     await widget_daily_consume(bot.id)
 
@@ -1052,8 +1040,7 @@ async def post_message(
     # _session_active_bot. La branche APERÇU (preview_token de l'owner) est gérée
     # DANS _session_active_bot (domaine sentinelle -> bot chargé sans servabilité
     # ni contrôle d'origine, 404 si absent), les side-effects restant neutralisés
-    # en aval via _is_preview_session. Corrige aussi la faille où /message
-    # acceptait encore les bots d'une org suspendue (et consommait l'IA).
+    # en aval via _is_preview_session.
     bot = await _session_active_bot(db, request, session)
 
     conversation = await db.get(Conversation, session["sub"])

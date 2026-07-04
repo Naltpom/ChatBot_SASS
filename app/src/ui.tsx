@@ -1,5 +1,3 @@
-// Primitives UI portées du prototype Chapote (primitives.jsx + widget.jsx).
-// Icônes : lucide-react, même librairie qu'ao_scrapping.
 import { Children, Fragment, isValidElement, ReactNode, useEffect, useId, useRef } from 'react'
 import { Pause } from 'lucide-react'
 import type { BotBillingStatus, DesignJson } from './types/bot'
@@ -123,7 +121,7 @@ export function useDialogA11y<T extends HTMLElement = HTMLDivElement>(onClose?: 
 // role="dialog" + aria-modal + titre relié (aria-labelledby). Le piège à focus,
 // le focus à l'ouverture, Échap et le retour de focus sont gérés par useDialogA11y.
 // `onClose` (Échap) : passer `undefined` pour neutraliser la fermeture (ex. action
-// en cours). Le clic sur l'overlay ne ferme PAS (parité avec l'existant).
+// en cours). Le clic sur l'overlay ne ferme PAS.
 export function Modal({ title, onClose, children, maxWidth = 460 }: {
   title: ReactNode; onClose?: () => void; children: ReactNode; maxWidth?: number
 }) {
@@ -240,8 +238,8 @@ export function InfoBox({ children, tone = 'info', title }: { children: ReactNod
   )
 }
 
-// Mini bar chart empilé (IA vs Arbre par défaut), sans lib — porté de Bars
-// (primitives.jsx). aLabel/bLabel ne changent que le tooltip.
+// Mini bar chart empilé (IA vs Arbre par défaut), sans lib. aLabel/bLabel ne
+// changent que le tooltip.
 export function Bars({ data, height = 120, aLabel = 'IA', bLabel = 'Arbre' }: {
   data: { label: string; a: number; b?: number }[]; height?: number; aLabel?: string; bLabel?: string
 }) {
@@ -265,7 +263,7 @@ export function Bars({ data, height = 120, aLabel = 'IA', bLabel = 'Arbre' }: {
   )
 }
 
-// ---------- Icônes de bulle configurables (widget.jsx) ----------
+// ---------- Icônes de bulle configurables ----------
 export function BubbleIcon({ kind, size = 26, avatarImg }: { kind?: string; size?: number; avatarImg?: string | null }) {
   const s: React.CSSProperties = { width: size, height: size, display: 'block' }
   if (kind === 'image' && avatarImg) {
@@ -288,8 +286,8 @@ export function BubbleIcon({ kind, size = 26, avatarImg }: { kind?: string; size
       </svg>
     )
   }
-  // Icônes étendues (refonte Apparence) — mêmes tracés que la maquette ; doivent
-  // rester identiques au dict SVG de widget/widget.js (parité de rendu).
+  // Icônes étendues — doivent rester identiques au dict SVG de widget/widget.js
+  // (parité de rendu).
   if (kind === 'bot') {
     return (
       <svg style={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -338,7 +336,7 @@ export function BubbleIcon({ kind, size = 26, avatarImg }: { kind?: string; size
   )
 }
 
-// ---------- Chips de statut / mode (pages-bots-list.jsx) ----------
+// ---------- Chips de statut / mode ----------
 export function statusChip(isActive: boolean) {
   if (!isActive) return <Chip tone="mut"><Pause size={11} /> En pause</Chip>
   return <Chip tone="go">● En ligne</Chip>

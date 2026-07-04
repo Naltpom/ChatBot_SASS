@@ -1,7 +1,7 @@
 // Sous-page ADMIN FACTURATION — FACTURES GLOBALES (/admin/billing/invoices).
-// SUPERADMIN UNIQUEMENT (route protégée front + serveur). Extraite de la console
-// monolithique : affiche toutes les factures du compte Stripe, en remontant au
-// payeur via l'overview (customer cus_... -> email).
+// SUPERADMIN UNIQUEMENT (route protégée front + serveur). Affiche toutes les
+// factures du compte Stripe, en remontant au payeur via l'overview
+// (customer cus_... -> email).
 //
 // INVARIANT billing-OFF : les routes admin renvoient { billing: 'disabled' } quand
 // billing_enabled()==False. On détecte la sentinelle et on n'affiche qu'une InfoBox

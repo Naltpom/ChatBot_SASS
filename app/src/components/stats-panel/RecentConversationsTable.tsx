@@ -1,6 +1,5 @@
 // Card « Conversations récentes » — table dépliable (clic = ouvre les messages),
-// pur présentationnel, extrait de StatsPanel (refacto R13). Consomme timeAgo /
-// pathnameOf de utils/time (résorption D9 : new URL sans try/catch).
+// pur présentationnel.
 import React, { useState } from 'react'
 import { Bot as BotIcon, User } from 'lucide-react'
 import { Card, Chip } from '../../ui'

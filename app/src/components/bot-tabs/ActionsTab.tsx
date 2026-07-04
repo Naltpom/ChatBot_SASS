@@ -113,9 +113,8 @@ export default function ActionsTab({
           : secretKind === 'api_key' ? !!a.api_key_set : false
         const renameWarn = hasOwnSecretSet
           && !(savedByName?.secret_set || savedByName?.api_key_set) && !actionSecrets[i]
-        // Chip d'en-tête et corps d'édition tirés du registre (1 source). Le
-        // fallback reproduit l'ancien switch : type inconnu → chip Webhook,
-        // corps Capture de lead (ancienne branche `else`).
+        // Chip d'en-tête et corps d'édition tirés du registre (1 source).
+        // Fallback type inconnu → chip Webhook, corps Capture de lead.
         const chip = (ACTION_TYPES[a.type] ?? ACTION_TYPES.webhook).chip
         const Body = (ACTION_TYPES[a.type] ?? ACTION_TYPES.capture_lead).Body
         return (

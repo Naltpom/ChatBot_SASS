@@ -1,15 +1,13 @@
 /**
  * Chapote Bot Manager — primitives partagées (window.CBOCore).
  *
- * EXTRAIT d'admin.js : ces helpers sont réellement génériques et consommés à la
- * fois par le back-office (admin.js) ET le wizard d'onboarding (onboarding.js).
+ * Helpers génériques consommés à la fois par le back-office (admin.js) ET le
+ * wizard d'onboarding (onboarding.js).
  * Aucune étape de build : ES5/ES2015 prudent, servi tel quel.
  *
- * IMPORTANT — point de régression unique de l'extraction : les signatures sont
- * IDENTIQUES à l'ancienne version interne d'admin.js. Le seul couplage retiré est
- * la réaction à une session morte (401) : elle est déléguée au hook
- * CBOCore.onAuthLost, posé par admin.js (sinon no-op). Tout le HTML est construit
- * via createElement (textNode) pour neutraliser toute injection.
+ * La réaction à une session morte (401) est déléguée au hook CBOCore.onAuthLost,
+ * posé par admin.js (sinon no-op). Tout le HTML est construit via createElement
+ * (textNode) pour neutraliser toute injection.
  */
 (function () {
   'use strict';

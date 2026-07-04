@@ -1,7 +1,7 @@
-// Constantes partagées — wording porté du prototype Chapote.
+// Constantes partagées.
 import type { DesignJson } from './types/bot'
 
-// Modèles proposés en radio-cards (design pages-bot.jsx).
+// Modèles proposés en radio-cards.
 export interface ModelOption {
   provider: string
   model: string
@@ -21,8 +21,7 @@ export function findModelOption(provider: string, model: string) {
   return MODEL_OPTIONS.find(m => m.provider === provider && m.model === model)
 }
 
-// Captcha — wording + encarts RGPD du design (pages-security.jsx) :
-// l'angle "compliance-ready", chaque option documente son flux de données.
+// Captcha — encarts RGPD : chaque option documente son flux de données.
 export const CAPTCHA_OPTIONS = [
   {
     value: 'turnstile',
@@ -47,7 +46,7 @@ export const CAPTCHA_OPTIONS = [
     name: 'Désactivé',
     tag: 'Environnements fermés',
     tagTone: 'mut' as const,
-    desc: 'Pour les intranets et environnements fermés.',
+    desc: 'Pour les réseaux internes et environnements fermés.',
     rgpd: 'Le widget public est plus exposé aux bots — gardez une protection anti-abus active.',
     rgpdTone: 'danger' as const,
   },

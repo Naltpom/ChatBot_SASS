@@ -6,13 +6,7 @@ absent => fallback log. Contrat d'appel NON BLOQUANT : les destinataires sont
 recuperes AVEC la session db de la requete, PUIS asyncio.create_task(
 send_email(...)) — la tache de fond ne touche jamais la db.
 
-------------------------------------------------------------------------------
-REFONTE DESIGN (juin 2026) — emails « par catégorie » au lieu d'un template unique
-------------------------------------------------------------------------------
-Avant : un seul `render_email_html()` habillait TOUS les emails de la même coque
-(logo + bouton vert « Ouvrir le lien »). Résultat : monotonie.
-
-Maintenant : chaque email porte un `EmailTheme` (couleur de catégorie, libellé de
+Chaque email porte un `EmailTheme` (couleur de catégorie, libellé de
 bouton, mise en page). Trois mises en page, toutes 100 % email-safe (tables +
 styles inline, aucun <style>, aucune SVG inline — Gmail strippe les deux) :
 
@@ -29,7 +23,7 @@ Gmail ne rend pas les SVG, et l'inline évite toute dépendance à un asset héb
 versionnés dans le package (`api/src/services/assets/icon.png` / `icon-white.png`).
 
 Les notifications internes (lead / ticket / conseiller) restent en texte brut
-(inchangé) — elles ne passent pas par ce rendu brandé.
+— elles ne passent pas par ce rendu brandé.
 """
 import asyncio
 import logging
@@ -97,7 +91,7 @@ def _send_sync(to: list[str], subject: str, body: str,
     # bot.name, non contraint, alimente les sujets des builders
     msg["Subject"] = " ".join(subject.split())
     # html fourni => multipart/alternative (texte = fallback, html = version riche).
-    # Défaut None => texte brut, comportement inchangé.
+    # Défaut None => texte brut.
     msg.set_content(body)
     if html is not None:
         msg.add_alternative(html, subtype="html")
@@ -123,7 +117,7 @@ async def send_email(to: list[str], subject: str, body: str,
     """Envoi email. JAMAIS d'exception (appele en create_task) : SMTP non
     configure ou echec d'envoi => log + False. `reply_to` optionnel (defaut
     None). `html` optionnel : si fourni, l'email part en multipart/alternative
-    (texte = fallback) ; défaut None = texte brut, comportement inchange.
+    (texte = fallback) ; défaut None = texte brut.
     `from_addr` optionnel : surcharge l'expéditeur (défaut SMTP_FROM).
     `inline_images` optionnel : {cid: octets PNG} embarqués en multipart/related
     (ex. logo référencé par <img src="cid:...">)."""
@@ -485,7 +479,7 @@ class EmailTheme:
     'epure' (sobre, pastille + bouton). accent : couleur de catégorie (bouton,
     bandeau, pastille). wash : fond clair du bloc hero / pastille. eyebrow :
     libellé de catégorie en majuscules. emoji : pictogramme (hero/banner). cta :
-    libellé du bouton (remplace l'ancien « Ouvrir le lien »)."""
+    libellé du bouton."""
     accent: str
     wash: str = "#EEF2F6"
     eyebrow: str = ""
@@ -495,7 +489,7 @@ class EmailTheme:
     layout: str = "epure"          # hero | banner | epure
 
 
-# Thème par défaut (compat : rendu neutre proche de l'ancien si kind inconnu).
+# Thème par défaut (compat : rendu neutre si kind inconnu).
 # accent/cta/layout = défauts de la dataclass.
 DEFAULT_THEME = EmailTheme(accent="#2F9E79")
 
@@ -675,8 +669,8 @@ def _shell(inner: str) -> str:
 def render_email_html(text_body: str, *, theme: Optional[EmailTheme] = None) -> str:
     """Transforme un corps texte brut en email HTML brandé selon `theme`.
 
-    Compat : `render_email_html(text)` sans thème => rendu neutre (DEFAULT_THEME),
-    proche de l'ancien. Tables + styles inline, robuste Gmail/Outlook. Le texte
+    Compat : `render_email_html(text)` sans thème => rendu neutre (DEFAULT_THEME).
+    Tables + styles inline, robuste Gmail/Outlook. Le texte
     est HTML-échappé. Une URL nue seule sur sa ligne => bouton CTA (libellé =
     theme.cta). Trois mises en page : hero / banner / epure (voir EmailTheme)."""
     th = theme or DEFAULT_THEME
@@ -728,9 +722,9 @@ def send_account_email(recipients: list[str], subject: str, text: str, *,
                        from_addr: Optional[str] = None) -> None:
     """Envoi BRANDÉ (multipart/alternative) d'un email compte/facturation.
 
-    `kind` (NOUVEAU) sélectionne le thème dans THEMES (welcome, reset, verify,
-    suspended, …). Inconnu/omis => DEFAULT_THEME (rendu neutre, compat). Le reste
-    inchangé : `reply_to` défaut support ; `from_addr` défaut None (no-reply) ;
+    `kind` sélectionne le thème dans THEMES (welcome, reset, verify,
+    suspended, …). Inconnu/omis => DEFAULT_THEME (rendu neutre, compat).
+    `reply_to` défaut support ; `from_addr` défaut None (no-reply) ;
     fire-and-forget (ne bloque jamais l'endpoint)."""
     html = render_email_html(text, theme=_theme_for(kind))
     spawn_background(

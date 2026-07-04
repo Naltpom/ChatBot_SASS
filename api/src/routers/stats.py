@@ -7,7 +7,7 @@ n'utilise PAS _get_accessible_bot / _check_bot_perm mais require_bot_access
 permission fine par onglet). Même choix que documenté dans inbox.py:3-6.
 
 Les routes ne font qu'authentifier puis déléguer les agrégations LOURDES à
-services/stats_service.py (CHANTIER H) — la shape des réponses est inchangée.
+services/stats_service.py.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -62,21 +62,16 @@
     });
   }
 
-  // euros : déplacé dans cbo-core.js (aliasé en tête de fichier).
-
   // Note TVA statique (le catalogue LIVE ne porte pas de tax_note racine).
   var TAX_NOTE = 'TVA non applicable, art. 293 B du CGI';
 
   // URL du dashboard Chapote (app) : on s'appuie UNIQUEMENT sur app_base, jamais
   // sur api_base (l'hôte API ne sert pas le dashboard et renverrait une page
   // d'erreur). Si app_base n'est pas configuré, on renvoie null et l'appelant
-  // affiche une note explicative au lieu d'un lien cassé (#UX-4).
+  // affiche une note explicative au lieu d'un lien cassé.
   function appDashboardUrl() {
     return (typeof CFG.appBase === 'string' && CFG.appBase) ? (CFG.appBase + '/app') : null;
   }
-
-  // apiMsg / call : déplacés dans cbo-core.js. La réaction « session morte (401) »
-  // y est déléguée au hook CBOCore.onAuthLost, posé juste après l'état ci-dessous.
 
   /* ------------------------------------------------------------------ state */
 
@@ -126,7 +121,7 @@
 
   function render() {
     if (!root) return;
-    var fk = currentFocusKey();   // relève le focus logique AVANT le clear (point 5)
+    var fk = currentFocusKey();   // relève le focus logique AVANT le clear
     clear(root);
     noticeHost = h('div', { class: 'cbo-notice-host', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
     root.appendChild(noticeHost);
@@ -410,7 +405,7 @@
       h('option', { value: 'ai' }, 'IA seule')
     );
     // Bouton capturé en variable pour le désactiver pendant la requête : un
-    // double-clic ne crée pas deux bots (#UX-2). Réactivé dans tous les chemins
+    // double-clic ne crée pas deux bots. Réactivé dans tous les chemins
     // de sortie (succès = re-render via loadBots, échec/réseau = ré-activation).
     var createBtn = h('button', { class: 'button button-primary', onClick: function () {
       var nm = (name.value || '').trim();
@@ -444,7 +439,6 @@
       h('button', { class: 'button-link', onClick: function () { state.view = 'bots'; render(); } }, '← Mes bots'),
       h('h2', { text: bot.name || 'Bot' }),
       billingBadge(bot.billing_status),
-      // Toggle d'affichage du widget DIRECTEMENT dans l'en-tête (plus dans un onglet).
       h('span', { class: 'cbo-bothead-toggle' }, activationToggle(bot, {}))
     ));
     var tabs = h('div', { class: 'cbo-subtabs', role: 'tablist', 'aria-label': 'Réglages du bot' },
@@ -461,7 +455,7 @@
 
     if (state.botTab === 'payment') renderPayment(pane);
     else if (state.botTab === 'appearance') renderAppearance(pane);
-    else renderActivation(pane); // 'activation' par défaut (onglet Domaine fusionné ici)
+    else renderActivation(pane); // 'activation' par défaut
     return wrap;
   }
   function subTab(label, key) {
@@ -551,9 +545,6 @@
     pane.appendChild(grid);
     refresh();
   }
-
-  // renderPreview + icônes SVG du widget : déplacés dans cbo-core.js
-  // (window.CBOCore.renderPreview), aliasés en tête de fichier.
 
   function saveAppearance(btn, design) {
     btn.disabled = true;
@@ -747,7 +738,7 @@
       } else {
         // Aucun plan IA (arbre seul) : le SOCLE (9€) est facturé. Dès qu'un plan IA
         // est pris (managé/BYOK) le socle est INCLUS dans le prix du palier, donc
-        // pas ajouté ici. Aligne l'estimation sur les line_items Stripe (point 6).
+        // pas ajouté ici. Aligne l'estimation sur les line_items Stripe.
         total += (catalog.base_price_cents || 0);
       }
       return total;
@@ -771,8 +762,7 @@
       } },
       opts.submitLabel || (active ? 'Mettre à jour le plan' : 'Souscrire'));
     // 1re souscription : le consentement 14j (exécution immédiate, B2C) est
-    // OBLIGATOIRE -> bouton DÉSACTIVÉ tant qu'il n'est pas coché. Évite le clic
-    // « sans effet » (la notice d'avertissement s'affichait hors du cadre wizard).
+    // OBLIGATOIRE -> bouton DÉSACTIVÉ tant qu'il n'est pas coché.
     if (!active) {
       var syncConsent = function () {
         subscribeBtn.disabled = !consent.checked;
@@ -817,7 +807,7 @@
     });
   }
 
-  // btn désactivé pendant la requête (anti double-soumission #UX-2) et ré-activé
+  // btn désactivé pendant la requête (anti double-soumission) et ré-activé
   // dans tous les chemins (succès = re-render via loadBots, échec/réseau).
   function updateSubscription(btn, config) {
     if (btn) btn.disabled = true;
@@ -838,7 +828,7 @@
 
   // Polling d'activation après retour Stripe : borné à POLL_MAX essais. À
   // l'expiration on ne laisse PAS la notice trompeuse « Activation en cours… »
-  // mais un message clair invitant à recharger / contacter le support (#UX-3).
+  // mais un message clair invitant à recharger / contacter le support.
   var POLL_MAX = 12;
   function pollBillingActive(botId) {
     var tries = 0;
@@ -899,12 +889,10 @@
       ));
     }
 
-    // L'activation on/off du widget vit désormais dans l'en-tête du bot et dans la
-    // liste « Mes bots » (plus ici). Cet onglet ne gère QUE le ciblage des pages.
+    // Cet onglet ne gère QUE le ciblage des pages.
     pane.appendChild(h('p', { class: 'cbo-muted', text:
       'L’affichage du widget sur le site (on/off) se règle avec l’interrupteur en haut de cette page, ou dans « Mes bots ». Ci-dessous : sur quelles pages l’afficher.' }));
 
-    // Ciblage.
     var modeEverywhere = h('input', { type: 'radio', name: 'cbo-target', checked: t.mode !== 'custom' });
     var modeCustom = h('input', { type: 'radio', name: 'cbo-target', checked: t.mode === 'custom' });
     var customBox = h('div', { class: 'cbo-custom' });
@@ -941,7 +929,6 @@
     var includeIds = h('input', { type: 'text', class: 'regular-text', value: (t.include_ids || []).join(', '), placeholder: 'ex. 12, 34' });
     var excludeIds = h('input', { type: 'text', class: 'regular-text', value: (t.exclude_ids || []).join(', '), placeholder: 'ex. 7, 99' });
 
-    // Inclusions.
     customBox.appendChild(h('h3', { class: 'cbo-custom-h', text: 'Afficher sur' }));
     customBox.appendChild(h('label', { class: 'cbo-check' }, frontCb, h('span', { text: 'Page d’accueil' })));
     customBox.appendChild(fieldGroup('Types de contenu à inclure', inc.wrap));
@@ -979,8 +966,8 @@
       } }, 'Enregistrer le ciblage')
     ));
 
-    // Rappel domaine (anciennement onglet « Domaine », fusionné ici) : pour que le
-    // widget réponde aux visiteurs, ce domaine doit être autorisé côté Chapote.
+    // Rappel domaine : pour que le widget réponde aux visiteurs, ce domaine doit
+    // être autorisé côté Chapote.
     pane.appendChild(h('div', { class: 'cbo-domain' },
       h('h3', { class: 'cbo-custom-h', text: 'Autoriser ce domaine dans Chapote' }),
       h('p', { class: 'cbo-muted', text: 'Pour que le widget réponde aux visiteurs, ajoutez ce domaine à la liste des domaines autorisés de votre bot (onglet Sécurité dans Chapote) :' }),
@@ -1068,7 +1055,6 @@
       h('button', { class: 'button', onClick: function () { addRow('', ''); } }, 'Ajouter une question')
     ));
 
-    // Enregistrement.
     wrap.appendChild(h('div', { class: 'cbo-actions' },
       h('button', { class: 'button button-primary', onClick: function (e) {
         var faq = rows.map(function (r) {

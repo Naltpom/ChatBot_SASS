@@ -41,12 +41,11 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MAX_ARGS_CHARS = 4000
 _MAX_RESULT_CHARS = 2000
 # Nombre max de créneaux Cal.com retenus lors du compactage (_compact_slots) :
-# borne le contexte renvoyé au modèle. Valeur INCHANGÉE, extraite du littéral.
+# borne le contexte renvoyé au modèle.
 SLOT_COMPACT_THRESHOLD = 40
 
 # Notifications email envoyees en fire-and-forget (la reponse au modele ne doit
-# pas attendre l'email). Le pattern (reference forte + log d'exception) est
-# factorise dans services/background.spawn_background.
+# pas attendre l'email).
 def _spawn_email(coro) -> None:
     spawn_background(coro, error_label="Notification email en échec (tâche de fond)")
 
@@ -62,12 +61,12 @@ def _trunc(args: dict, key: str, maxlen: int) -> Optional[str]:
 
 
 async def _resolve_public_ip(url: str) -> str:
-    """Resolution + validation anti-SSRF FACTORISEE dans safe_fetch.resolve_public_ip
+    """Resolution + validation anti-SSRF via safe_fetch.resolve_public_ip
     (logique UNIQUE : https://, resolution DNS unique, rejet des IP non
     publiques via is_global, IPv4 d'abord). Seule la couche de message change
     ici : la FetchError de safe_fetch est retraduite en ActionError avec le
     libelle « webhook » (contrat d'erreur renvoye au modele en tool_result
-    is_error) — le comportement de validation reste identique a l'octet."""
+    is_error)."""
     try:
         return await resolve_public_ip(url)
     except FetchError as exc:

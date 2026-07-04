@@ -1,8 +1,7 @@
 // Hook éditeur de bot — extrait de BotPage pour isoler le chargement, le
 // dirty-tracking PAR ONGLET, le save() (PATCH partiel limité aux onglets dirty),
 // l'annulation et les helpers CRUD des listes JSON (actions / serveurs MCP /
-// déclencheurs). Comportement strictement identique à l'inline d'origine
-// (savebar/botpage/appearance/ab/triggers couvrent la rétro-compat).
+// déclencheurs).
 //
 // Les SECRETS write-only (BYOK, captcha, secrets d'actions, jetons MCP) sont
 // suivis ici par INDEX et rejoués dans le payload à la sauvegarde ; ils ne sont
@@ -32,15 +31,12 @@ const TAB_FIELDS: Record<string, (keyof Bot)[]> = {
 }
 
 // ---------- Helpers listes JSON (CRUD générique) ----------
-// updateList : remplace l'élément i par un merge { ...elt, ...fields }.
 function listUpdate<T>(list: T[] | undefined, i: number, fields: Partial<T>): T[] {
   return (list || []).map((x, j) => (j === i ? { ...x, ...fields } : x))
 }
-// listRemove : retire l'élément i.
 function listRemove<T>(list: T[] | undefined, i: number): T[] {
   return (list || []).filter((_, j) => j !== i)
 }
-// listAdd : ajoute un élément en fin de liste (append-only).
 function listAdd<T>(list: T[] | undefined, item: T): T[] {
   return [...(list || []), item]
 }
@@ -313,8 +309,6 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
   function updateActionType(i: number, v: string) {
     const a = (bot?.actions_json || [])[i] || ({} as BotAction)
     if (a.type === v) return
-    // Reconstruction propre via le registre : nom/description conservés, flags
-    // *_set remis à plat, défauts du type posés (1 seul endroit = actionRegistry).
     const next = makeAction(v as BotActionType, { name: a.name, description: a.description })
     patch({ actions_json: (bot?.actions_json || []).map((x, j) => (j === i ? next : x)) })
     setActionSecrets(prev => {
@@ -366,10 +360,10 @@ export function useBotEditor(botId: number, user: User | null | undefined): BotE
 
   // Garde « modifications non enregistrées » : tant qu'un onglet est dirty, on
   // intercepte la fermeture/rechargement de l'onglet (beforeunload) pour que le
-  // navigateur affiche sa confirmation native « quitter le site ? » (#UX-7). On
+  // navigateur affiche sa confirmation native « quitter le site ? ». On
   // s'en tient au beforeunload : l'app monte un <BrowserRouter> classique (pas un
   // data router), donc useBlocker/usePrompt de react-router 6 n'est pas
-  // disponible pour bloquer la navigation interne SPA — voir le rapport.
+  // disponible pour bloquer la navigation interne SPA.
   useEffect(() => {
     if (!dirty) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {

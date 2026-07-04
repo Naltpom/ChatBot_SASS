@@ -1,4 +1,4 @@
-// Onglet « Aperçu » de BotPage — landing de suivi du bot (fusion direction A + C).
+// Onglet « Aperçu » de BotPage — landing de suivi du bot.
 // Présentationnel : tout l'état/les handlers viennent de BotPage (même pattern que
 // les autres *Tab). Trois blocs :
 //   1. Bandeau d'état + anneau de progression (santé de mise en route, %).
@@ -86,7 +86,6 @@ export default function OverviewTab({
   const paymentRequired = billingTabVisible && status === 'inactive'
   const paymentDone = !billingTabVisible || status === 'active' || status === 'trialing'
 
-  // --- Étapes de mise en route (dérivées des champs réels) ------------------
   const steps: SetupStep[] = [
     {
       key: 'appearance', label: "Personnaliser l'apparence",
@@ -220,7 +219,6 @@ export default function OverviewTab({
 
       {/* ===== GESTION RAPIDE : domaines + activation/danger ===== */}
       <div className="grid2">
-        {/* Domaines autorisés */}
         <Card>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <span className="card-title" style={{ marginBottom: 0 }}>Domaines autorisés</span>
@@ -253,7 +251,6 @@ export default function OverviewTab({
           )}
         </Card>
 
-        {/* Activation du widget (la suppression de bot a été retirée). */}
         {canSecurity && (
           <Card>
             <div className="card-title">Activation</div>
@@ -262,7 +259,6 @@ export default function OverviewTab({
                 <div className="tl">Widget actif</div>
                 <div className="ts">Désactivé : le chat disparaît des sites, sans rien supprimer.</div>
               </div>
-              {/* Toggle aligné sur le composant Toggle de ui.tsx (import possible) */}
               <button className={`toggle ${bot.is_active ? 'on' : ''}`} aria-pressed={bot.is_active}
                       onClick={() => patch({ is_active: !bot.is_active })}>
                 <span className="knob" />

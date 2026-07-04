@@ -1,6 +1,6 @@
-// Machine d'états du CHAT de configuration du wizard (pages/BotWizard.tsx).
-// Extrait tel quel (comportement strictement identique) : questions, branchement
-// conditionnel (when()), transitions, correction (goBack), liste active dérivée.
+// Machine d'états du CHAT de configuration du wizard (pages/BotWizard.tsx) :
+// questions, branchement conditionnel (when()), transitions, correction (goBack),
+// liste active dérivée.
 // La PAGE compose ce hook + le rendu ; la transition de fin (message d'accueil +
 // passage à l'étape 'preset') est déléguée au parent via onComplete.
 import { useState } from 'react'
@@ -25,9 +25,8 @@ export function dotIndex(step: Step): number {
 }
 
 // ---------------------------------------------------------------------------
-// Questions du chat — Q&R enrichie (portée de BotCreate.dc.html, Q()) :
-// personnalisation (nom d'entreprise + ton de voix) et UN branchement
-// conditionnel (la question de suivi n'apparaît que si 'orders' est coché).
+// Questions du chat : personnalisation (nom d'entreprise + ton de voix) et UN
+// branchement conditionnel (la question de suivi n'apparaît que si 'orders' est coché).
 //   - 'single' : un choix parmi des chips.
 //   - 'multi'  : plusieurs choix (objectifs), avec un bouton « Continuer ».
 //   - 'text'   : saisie libre (input stylé + envoi), rendue en bulle utilisateur.
@@ -134,7 +133,6 @@ export function useWizardChat(init: ChatInit, onComplete: (welcome: string) => v
     setAnswers(a)
     advance(a, goals)
   }
-  // Question 'text' validée -> enregistre la réponse puis avance.
   function answerText(key: string, raw: string) {
     const v = raw.trim()
     if (!v) return
@@ -161,7 +159,6 @@ export function useWizardChat(init: ChatInit, onComplete: (welcome: string) => v
     }
     setQi(qi - 1)
   }
-  // Remet le chat au départ (« Recommencer à zéro »).
   function reset() {
     setQi(0); setAnswers({}); setGoals([]); setTextDraft('')
   }

@@ -1,14 +1,8 @@
-// Onglet « Apparence » de BotPage — extrait de l'inline historique. Contrôles
-// en pleine largeur, organisés en sous-onglets (Thème/Lanceur/Fenêtre/Messages)
-// au-dessus du formulaire ; l'aperçu live est désormais le widget flottant géré
-// par BotPage (plus de colonne d'aperçu ici). « Déclencheurs proactifs » est
-// rangé dans le sous-onglet Messages ; « Comportement » (mode) vit désormais
-// dans l'onglet Arbre. Présentationnel : état/handlers viennent de BotPage.
-//
-// La barre de sous-onglets + le formulaire sont délégués à AppearancePanel
-// (composant PARTAGÉ avec l'éditeur d'apparence embarqué) ; la carte
-// « Déclencheurs proactifs » reste ici, injectée via renderExtra pour la section
-// Conversation (l'état du sous-onglet vit dans AppearancePanel).
+// Onglet « Apparence » de BotPage. Contrôles en pleine largeur, organisés en
+// sous-onglets (Thème/Lanceur/Fenêtre/Messages) au-dessus du formulaire ;
+// l'aperçu live est le widget flottant géré par BotPage. « Déclencheurs
+// proactifs » est rangé dans le sous-onglet Messages ; « Comportement » (mode)
+// vit dans l'onglet Arbre. Présentationnel : état/handlers viennent de BotPage.
 import { Plus } from 'lucide-react'
 import { Btn, Card, Chip, Field, SectionTitle, Seg, Toggle } from '../../ui'
 import AppearancePanel from '../AppearancePanel'
@@ -63,7 +57,7 @@ export default function AppearanceTab({
           (composant PARTAGÉ avec l'éditeur d'apparence embarqué). La carte
           « Déclencheurs proactifs » reste ici, injectée pour la section
           « Conversation » via renderExtra (l'état du sous-onglet vit dans le
-          panneau). « Comportement » (mode) a été déplacé dans l'onglet Arbre. */}
+          panneau). */}
       <AppearancePanel
         design={bot.design_json || {}}
         botName={bot.name}

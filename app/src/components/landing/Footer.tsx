@@ -1,4 +1,4 @@
-// Footer : marque + colonnes de liens (types explicites, §8) + mentions.
+// Footer : marque + colonnes de liens + mentions.
 import { Link, useLocation } from 'react-router-dom'
 import { CLASH, FOOTER_COLUMNS, HatIcon } from './data'
 
@@ -22,7 +22,7 @@ export function Footer() {
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14, color: '#fff' }}>{col.title}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                 {col.links.map((link, i) =>
-                  // §8 a11y : routes internes (/cgu…) en <Link> ; placeholders « # »
+                  // a11y : routes internes (/cgu…) en <Link> ; placeholders « # »
                   // en <button> (focusables, pas de saut en haut). Ancres « #x » :
                   // sur la landing → <a> (saut natif même page) ; hors landing →
                   // <Link to="/#x"> (nav SPA vers l'accueil + ScrollToHash App.tsx).

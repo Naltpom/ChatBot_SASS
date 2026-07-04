@@ -37,7 +37,6 @@ export default function Showcase() {
     <div className="chapote" style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', color: '#1E2A32', WebkitFontSmoothing: 'antialiased' }}>
       <Header user={user} ctaTo={ctaTo} />
 
-      {/* Repère principal (a11y : « main landmark ») englobant le contenu. */}
       <main>
       {/* ===== Hero (visible sans JS : pas de ch-reveal) ===== */}
       <section style={{ maxWidth: 880, margin: '0 auto', padding: '72px 32px 36px', textAlign: 'center' }}>
@@ -53,7 +52,6 @@ export default function Showcase() {
         </p>
       </section>
 
-      {/* ===== Bandeau de chiffres ===== */}
       <section style={{ maxWidth: 1000, margin: '0 auto', padding: '8px 32px 8px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 14 }}>
           {STATS.map(s => (
@@ -65,7 +63,6 @@ export default function Showcase() {
         </div>
       </section>
 
-      {/* ===== Grille secteurs ===== */}
       <section style={{ maxWidth: 1120, margin: '0 auto', padding: '46px 32px 20px' }}>
         <h2 style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 30, letterSpacing: '-.02em', textAlign: 'center', margin: '0 0 8px' }}>
           Un assistant pour chaque type de site
@@ -84,7 +81,6 @@ export default function Showcase() {
         </div>
       </section>
 
-      {/* ===== Encart « votre marque ici » (l'annuaire opt-in viendra ensuite) ===== */}
       <section style={{ maxWidth: 1120, margin: '0 auto', padding: '30px 32px 8px' }}>
         <div style={{ background: 'linear-gradient(135deg,rgba(47,158,121,.1),rgba(28,63,92,.06))', border: '1px dashed rgba(47,158,121,.45)', borderRadius: 18, padding: '26px 24px', textAlign: 'center' }}>
           <div style={{ fontSize: 26 }}>✨</div>

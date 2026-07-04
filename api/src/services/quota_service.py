@@ -71,7 +71,7 @@ _RETRY_COOLDOWN_SECONDS = 30.0
 # le mois le plus long (31 j) + marge, puis la clé expire d'elle-même.
 _QUOTA_TTL_SECONDS = 35 * 86400
 
-# --- Plafond dur journalier widget (audit M2) ---
+# --- Plafond dur journalier widget ---
 # Plafond GÉNÉREUX par bot et par jour UTC, appliqué à TOUS les bots, BYOK
 # COMPRIS : un bot BYOK a `ai_quota_for(ent) is None` (aucun quota mensuel) —
 # sans ce plafond externe, un flux widget soutenu brûlerait la clé du client
@@ -81,7 +81,7 @@ WIDGET_DAILY_HARD_CAP = 5000
 # La clé du jour survit un peu après la bascule de jour UTC puis expire seule.
 _DAILY_CAP_TTL_SECONDS = 26 * 3600
 
-# --- Plafond de tours IA en aperçu (audit M8) ---
+# --- Plafond de tours IA en aperçu ---
 # TTL confortable vs la durée d'une session d'aperçu (JWT widget 30 min) ;
 # la clé expire d'elle-même bien après la mort de la session.
 _PREVIEW_TTL_SECONDS = 6 * 3600
@@ -264,7 +264,7 @@ async def ai_quota_usage(db: AsyncSession, bot_id: int) -> int:
     return await _count_sql(db, bot_id, period)
 
 
-# --- Plafond dur journalier widget (audit M2) --------------------------------
+# --- Plafond dur journalier widget --------------------------------------------
 
 
 def _daily_period(now=None) -> str:
@@ -315,7 +315,7 @@ async def widget_daily_consume(bot_id: int) -> None:
         _redis_failed(exc)
 
 
-# --- Plafond de tours IA en aperçu (audit M8) ---------------------------------
+# --- Plafond de tours IA en aperçu ---------------------------------------------
 
 
 async def preview_turn_acquire(conversation_id: int, max_turns: int) -> bool | None:
@@ -424,7 +424,7 @@ async def ai_overage_consume(db: AsyncSession, bot_id: int,
          PAS, mais l'INCRÉMENT durable (étapes 1-2) a TOUJOURS lieu — le plafond
          reste enforce, jamais de dépassement illimité non plafonné. Renvoie True.
 
-    Increment ATOMIQUE (≠ read-modify-write précédent) : indispensable car le
+    Increment ATOMIQUE : indispensable car le
     pré-check (lecture seule) ne verrouille rien et l'endpoint widget peut servir
     plusieurs réponses de dépassement en parallèle pour un même bot.
     """

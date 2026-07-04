@@ -212,7 +212,7 @@ async def test_safe_get_follow_truncates_public_response(monkeypatch):
 async def test_fetch_page_text_rejects_http_scheme():
     # http:// supprimé : resolve_public_ip refuse avant toute connexion.
     with pytest.raises(TreeGenerationError):
-        await fetch_page_text("http://intranet.local/")
+        await fetch_page_text("http://interne.local/")
 
 
 @pytest.mark.asyncio

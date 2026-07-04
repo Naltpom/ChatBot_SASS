@@ -19,8 +19,7 @@ interface AdminUser {
 
 function lastLogin(iso: string | null) {
   if (!iso) return <span style={{ color: 'var(--faint)' }}>jamais</span>
-  // L'API renvoie un datetime UTC naïf : formatFr l'interprète comme UTC
-  // (corrige le décalage de fuseau du new Date(iso) historique).
+  // L'API renvoie un datetime UTC naïf : formatFr l'interprète comme UTC.
   return <>{formatFr(iso)}</>
 }
 
@@ -70,7 +69,7 @@ export default function AdminUsers() {
                   <span style={{ display: 'block', fontWeight: 700 }}>{u.name}</span>
                   <span style={{ display: 'block', fontSize: 11, color: 'var(--faint)' }}>{u.email}</span>
                 </td>
-                <td>{u.auth_source === 'intranet' ? <Chip tone="acc">Intranet</Chip> : <Chip tone="mut">Local</Chip>}</td>
+                <td>{u.auth_source === 'google' ? <Chip tone="acc">Google</Chip> : <Chip tone="mut">Local</Chip>}</td>
                 <td>
                   {u.is_superadmin
                     ? <Chip tone="acc"><ShieldCheck size={13} /> Staff</Chip>

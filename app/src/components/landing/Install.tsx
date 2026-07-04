@@ -1,5 +1,5 @@
 // Section installation : la balise <script> réelle, copiable.
-// §5.1 D13 — le snippet affiché doit refléter le widget réel : attribut
+// Le snippet affiché doit refléter le widget réel : attribut
 // `data-bot-key` (clé publique pk_…) et src `{API_URL}/widget.js`. Voir
 // data.tsx (SNIPPET) et GET /api/bots/{id}/embed côté backend.
 import { useState } from 'react'

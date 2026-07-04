@@ -1,4 +1,4 @@
-// Save bar SOMBRE de l'éditeur de bot (refonte Chapote) — fixée en bas
+// Save bar SOMBRE de l'éditeur de bot — fixée en bas
 // (left:248px en desktop, left:0 en mobile/drawer). role="status" : pills des
 // onglets dirty (cliquables -> switchTab), Annuler/Enregistrer + indication
 // Ctrl/Cmd S. Présentationnel : tout l'état (dirty/saved/error, dirtyTabs) et les

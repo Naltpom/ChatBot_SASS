@@ -1,12 +1,11 @@
 """Stripe via l'API REST (httpx exclusivement, pas de SDK).
 
 Facturation MODULAIRE (spec §2.4). Le billing est actif dès que les DEUX clés
-sont posées (`billing_enabled()` = secret + webhook ; sortie du « tout-ou-rien
-5 vars » — les price IDs vivent désormais dans `billing_products`, plus en .env).
+sont posées (`billing_enabled()` = secret + webhook) ; les price IDs vivent
+dans `billing_products`.
 
-Catalogue piloté en base : `price_id_for_code(code, db)` / `code_for_price(...)`
-remplacent l'ancien mapping figé starter/pro/agence. Le Customer Stripe est
-attaché au User (plus à l'Organization).
+Catalogue piloté en base : `price_id_for_code(code, db)` / `code_for_price(...)`.
+Le Customer Stripe est attaché au User.
 
 MOCK_BILLING (spec §2.3) : quand `settings.MOCK_BILLING` est vrai, ce service
 N'ÉMET AUCUN appel sortant. Les fonctions retournent des URLs locales / des
@@ -54,8 +53,7 @@ class StripeError(Exception):
 def billing_enabled() -> bool:
     """Billing actif dès que secret + webhook sont posés (spec §6.1).
 
-    Sortie du « tout-ou-rien 5 vars » : les price IDs vivent dans
-    `billing_products` (catalogue seedé), plus en config. Clés absentes
+    Les price IDs vivent dans `billing_products` (catalogue seedé). Clés absentes
     ⇒ False ⇒ resolver ALL_UNLOCKED (invariant D0 : app 100 % gratuite)."""
     return bool(settings.STRIPE_SECRET_KEY and settings.STRIPE_WEBHOOK_SECRET)
 
@@ -72,8 +70,8 @@ def metering_enabled() -> bool:
 async def price_id_for_code(code: str, db: AsyncSession) -> Optional[str]:
     """Price ID Stripe d'un code catalogue (lookup `billing_products`).
 
-    Remplace l'ancien `price_id_for(plan)` figé. None si code inconnu, produit
-    inactif ou price non seedé (`seed_billing_catalog.py` pose stripe_price_id)."""
+    None si code inconnu, produit inactif ou price non seedé
+    (`seed_billing_catalog.py` pose stripe_price_id)."""
     row = (await db.execute(
         select(BillingProduct).where(
             BillingProduct.code == code,
@@ -86,8 +84,7 @@ async def price_id_for_code(code: str, db: AsyncSession) -> Optional[str]:
 async def code_for_price(price_id: str, db: AsyncSession) -> Optional[str]:
     """Inverse de price_id_for_code (sync webhook subscription.updated).
 
-    Remplace l'ancien `plan_for_price`. None si le price n'est dans aucun
-    `billing_products`."""
+    None si le price n'est dans aucun `billing_products`."""
     row = (await db.execute(
         select(BillingProduct).where(BillingProduct.stripe_price_id == price_id)
     )).scalar_one_or_none()
@@ -116,7 +113,7 @@ async def _stripe_request(method: str, path: str,
 async def create_customer(user: User, email: Optional[str]) -> str:
     """Cree le Customer Stripe du USER -> cus_... (l'appelant stocke et commit).
 
-    Le Customer est attaché au User (spec §1.1, plus à l'Organization).
+    Le Customer est attaché au User (spec §1.1).
     `metadata[user_id]` permet au webhook de remonter au payeur.
     `invoice_settings[footer]` pose la mention légale de franchise en base
     (art. 293 B du CGI) sur TOUTES les factures générées pour ce Customer.
@@ -146,8 +143,8 @@ async def create_checkout_session(
 ) -> str:
     """Session de checkout abonnement -> URL de paiement hebergee par Stripe.
 
-    Réécrit (spec §2.4, corrige A1) : plusieurs `line_items` (1 par produit :
-    base + plan IA + add-ons), chacun `[{"price": "price_...", "quantity": 1}]`.
+    Plusieurs `line_items` (spec §2.4), 1 par produit (base + plan IA +
+    add-ons), chacun `[{"price": "price_...", "quantity": 1}]`.
 
     INTRO 1er MOIS REMISÉ (modèle actuel) : plus d'essai gratuit. Le Checkout crée
     un abonnement ACTIF immédiatement, dont la 1re facture est remisée par
@@ -189,7 +186,7 @@ async def create_checkout_session(
     data: dict[str, Any] = {
         "mode": "subscription",
         "customer": customer_id,
-        # A1 : AUCUN metadata par line_item (Checkout ne le propage pas).
+        # AUCUN metadata par line_item (Checkout ne le propage pas).
         "subscription_data[metadata][bots]": json.dumps(bots_map, separators=(",", ":")),
         "subscription_data[metadata][group_key]": group_key,
         "subscription_data[metadata][user_id]": str(user_id),
@@ -236,7 +233,7 @@ async def create_subscription(
     """Crée une subscription par API (subs 2..n des formats per_bot/per_org).
 
     Contrairement au Checkout, `items[n][metadata][bot_id]` EST propagé vers les
-    subscription_items (corrige A1, privilégié dès la 2e sub). `items` =
+    subscription_items (privilégié dès la 2e sub). `items` =
     [{"price": "price_...", "quantity": 1, "metadata": {"bot_id": "42",
     "module": "mod_rag"}}].
 
@@ -266,8 +263,7 @@ async def update_subscription_items(
 
     `target_items` = [{"id": "si_..."?, "price": "price_...", "quantity": 1,
     "deleted": bool?, "metered": bool?, "metadata": {...}}]. Si la liste cible est
-    VIDE (0 item), Stripe refuse une sub sans item ⇒ on RÉSILIE (corrige D4,
-    garde §2.4).
+    VIDE (0 item), Stripe refuse une sub sans item ⇒ on RÉSILIE (garde §2.4).
 
     Un item MÉTRÉ (`metered=True`, usage_type metered : axe IA dépassement) N'ACCEPTE
     PAS de `quantity` (Stripe 400 sinon) : on l'omet pour ces items. Les items

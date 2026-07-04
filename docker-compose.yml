@@ -101,10 +101,6 @@ services:
       - BILLING_METERING_ENABLED=${BILLING_METERING_ENABLED:-false}
       - APP_URL=${APP_URL:-http://localhost:3001}
       - API_URL=${API_URL:-http://localhost:8001}
-      # Auth intranet Kertios (meme flux qu'ao_scrapping). Les comptes
-      # intranet deviennent superadmins du SaaS.
-      - INTRANET_AUTH_URL=${INTRANET_AUTH_URL:-https://intranet.kertios.com/main/auth_ret}
-      - INTRANET_AUTH_ENABLED=${INTRANET_AUTH_ENABLED:-true}
       # SSO Google : Client ID public (= audience des tokens). Vide = désactivé.
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # Auto-login admin (dev uniquement, ignore si ENV != dev)

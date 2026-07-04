@@ -1,7 +1,7 @@
 // Page « Mes équipes » — liste des équipes de l'utilisateur (rôle, statut),
 // bascule d'équipe active, renommage (admins), quitter une équipe (garde-fou
-// dernier admin côté API), création. Le type perso/entreprise n'existe plus :
-// une organisation = une équipe, et ne pas en avoir est normal.
+// dernier admin côté API), création. Une organisation = une équipe, et ne pas
+// en avoir est normal.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'

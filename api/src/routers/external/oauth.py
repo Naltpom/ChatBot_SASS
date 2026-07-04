@@ -76,8 +76,8 @@ def _ip(request: Request) -> str:
 
 
 def _rate_limited_response() -> JSONResponse:
-    """Réponse de rate-limit du endpoint /token, UNIFORMISÉE avec /authorize
-    (PR-09) : HTTP 429 + contrat {detail, code, message}. On conserve le champ
+    """Réponse de rate-limit du endpoint /token, UNIFORMISÉE avec /authorize :
+    HTTP 429 + contrat {detail, code, message}. On conserve le champ
     OAuth `error` (RFC 6749 §5.2) car /token est appelé server-to-server par le
     plugin PHP / des clients OAuth standards qui peuvent le lire. Les erreurs de
     GRANT (invalid_grant, invalid_request…) restent, elles, en 400 + {"error":…}
@@ -172,7 +172,7 @@ async def authorize(
 async def token(body: TokenIn, request: Request, db: AsyncSession = Depends(get_db)):
     """grant_type = authorization_code (échange + PKCE) ou refresh_token
     (rotation). Erreurs de grant au format OAuth (HTTP 400 + {"error": code}) ;
-    rate-limit uniformisé en HTTP 429 + {detail, code, message} (cf. PR-09)."""
+    rate-limit uniformisé en HTTP 429 + {detail, code, message}."""
     if not await oauth_token_limiter.check(_ip(request)):
         return _rate_limited_response()
     try:

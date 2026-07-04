@@ -1,5 +1,5 @@
-// Vue ADMIN (opérateur du SaaS) — portée de pages-admin.jsx : KPIs, table de
-// tous les clients, drill-down avec cards de bots paramétrables.
+// Vue ADMIN (opérateur du SaaS) : KPIs, table de tous les clients, drill-down
+// avec cards de bots paramétrables.
 import { useCallback, useEffect, useState } from 'react'
 import { Bot as BotIcon, Building2, ChevronRight, MessageSquare } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -31,7 +31,6 @@ function since(iso: string) {
   return new Date(iso).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
 }
 
-// ---------- Accueil admin : tous les clients ----------
 export default function AdminHome() {
   const navigate = useNavigate()
   const [orgs, setOrgs] = useState<AdminOrg[]>([])
@@ -110,7 +109,6 @@ export default function AdminHome() {
   )
 }
 
-// ---------- Détail d'un client (admin) ----------
 export function AdminClient() {
   const { orgId } = useParams()
   const navigate = useNavigate()

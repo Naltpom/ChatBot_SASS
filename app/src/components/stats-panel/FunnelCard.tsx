@@ -1,6 +1,5 @@
-// Card « Parcours dans l'arbre (funnel) » — pur présentationnel, extrait de
-// StatsPanel (refacto R13). Mappe node_key → libellé via le tree_json local
-// (logique nodeLabel historique) ; gère son erreur LOCALE de chargement.
+// Card « Parcours dans l'arbre (funnel) » — pur présentationnel. Mappe
+// node_key → libellé via le tree_json local ; gère son erreur LOCALE de chargement.
 import { Card, Chip, Meter } from '../../ui'
 import type { Tree, TreeNode } from '../../types/bot'
 import type { Funnel } from './types'

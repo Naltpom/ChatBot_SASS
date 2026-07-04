@@ -137,7 +137,6 @@ export function BotCard({ bot, onOpen, canCopy = true, ownerLabel }: {
     }
   }
 
-  // Relais du menu « Autres » : ok=true → « Copié ! », sinon feedback d'échec.
   function flash(ok: boolean) {
     if (ok) flashOk()
     else flashFail()
@@ -231,9 +230,6 @@ function botLandingPriority(b: BotSummary): number {
 }
 
 export default function BotList() {
-  // Nouveau modèle : on liste TOUS mes bots (perso + équipes) via GET /api/bots.
-  // Plus de dépendance à l'org active. `organizations` sert à mapper
-  // organization_id → nom d'équipe pour le badge d'appartenance.
   const { user } = useAuth()
   const navigate = useNavigate()
   const { data, loading, error, reload } = useApiResource<BotSummary[]>('/api/bots')

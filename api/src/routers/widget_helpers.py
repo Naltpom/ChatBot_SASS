@@ -26,10 +26,6 @@ from src.models.conversation import Conversation
 from src.models.user import Organization
 from src.services.rate_limit import ip_limiter
 
-# Application 100% gratuite : aucun plafond d'usage n'est appliqué. Les gardes
-# ci-dessous (origine, captcha, rate limits) sont purement anti-abus ;
-# ai_replies_today reste un simple compteur d'affichage informatif (dashboard).
-
 logger = logging.getLogger(__name__)
 
 
@@ -178,12 +174,7 @@ async def _session_active_bot(db: AsyncSession, request: Request, session: dict)
     owner, et l'Origin est l'iframe de l'API (pas un domaine whitelisté). Cohérent
     avec bootstrap/session ; chaque endpoint gère ENSUITE le cas aperçu (réponse
     neutralisée, sans side-effect). Sans ça, lead/handoff/feedback/poll renvoyaient
-    un 403 « Origine incohérente » en aperçu.
-
-    Source UNIQUE de cette garde : elle etait copiee-collee a l'identique dans
-    chaque endpoint, SAUF /message qui omettait le check org (faille : un bot
-    d'equipe dont l'org est suspendue continuait d'accepter /message et de
-    consommer l'IA). Le message d'erreur est aligne sur les autres endpoints."""
+    un 403 « Origine incohérente » en aperçu."""
     bot = await db.get(Bot, session["bot_id"])
     if session.get("domain") == _PREVIEW_DOMAIN:
         if bot is None:
@@ -195,9 +186,8 @@ async def _session_active_bot(db: AsyncSession, request: Request, session: dict)
 
 
 def _assert_message_len(text: str) -> None:
-    """Borne la longueur d'un message texte (413 si depassement). Factorise les
-    deux occurrences de /message (mode conseiller + mode IA). MAX_MESSAGE_CHARS
-    est partage avec inbox.py (HORS ZONE -> signale en issues)."""
+    """Borne la longueur d'un message texte (413 si depassement).
+    MAX_MESSAGE_CHARS est partage avec inbox.py."""
     if len(text) > settings.MAX_MESSAGE_CHARS:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                             f"Message trop long (max {settings.MAX_MESSAGE_CHARS} caractères)")
@@ -288,7 +278,7 @@ def sanitize_design(design: dict) -> dict:
     if out.get("openAnimation") not in ("zoom", "fade", "slide", "pop", "flip"):
         out["openAnimation"] = "zoom"
     out["bubbleTail"] = out.get("bubbleTail") is not False  # bool strict, defaut True
-    out["bordered"] = out.get("bordered") is True  # bool strict, defaut False (etait en passthrough)
+    out["bordered"] = out.get("bordered") is True  # bool strict, defaut False
     # THEME
     if out.get("chatBg") not in ("plain", "soft", "pattern"):
         out["chatBg"] = "plain"

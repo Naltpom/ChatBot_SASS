@@ -34,7 +34,7 @@ class Chapote_BO_Crypto {
         // Matériel de clé = constantes secrètes de wp-config si présentes. À défaut
         // (hébergeur qui ne définit pas AUTH_KEY/SECURE_AUTH_KEY), on REPLIE sur un
         // sel WordPress plutôt que sur un matériel vide qui produirait une clé faible
-        // dérivée du seul secret d'install (cf. #24/#25).
+        // dérivée du seul secret d'install.
         if (defined('AUTH_KEY') && AUTH_KEY && defined('SECURE_AUTH_KEY') && SECURE_AUTH_KEY) {
             $material = AUTH_KEY . '|' . SECURE_AUTH_KEY;
         } else {

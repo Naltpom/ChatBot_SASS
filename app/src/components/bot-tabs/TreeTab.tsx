@@ -1,4 +1,4 @@
-// Onglet « Arbre » de BotPage — extrait de l'inline historique. Bloc Test A/B
+// Onglet « Arbre » de BotPage. Bloc Test A/B
 // (activation/désactivation de la variante B + slider de répartition), barre
 // d'outils config-as-code (export/import) + génération IA, puis le TreeFlow
 // (UN SEUL monté à la fois, vue A OU B). Présentationnel : tout l'état et les
@@ -104,10 +104,8 @@ export default function TreeTab({
       </Card>
 
       {/* Barre d'outils config-as-code + génération IA (arbre A uniquement).
-          TreeFlow ne porte plus l'export/import ni la génération : on les
-          garde ici en boutons discrets. La variante B n'a ni export/import
-          (config.json l'exclut) ni génération IA (elle remplacerait la
-          variante : coût + confusion). */}
+          La variante B n'a ni export/import (config.json l'exclut) ni
+          génération IA (elle remplacerait la variante : coût + confusion). */}
       {treeView === 'a' && (
         <div className="col g14">
           <div className="row g8" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -196,8 +194,6 @@ export default function TreeTab({
                   allowAI={aiTabRelevant}
                   activeModules={activeModules} highlightModule={highlightModule} />
       )}
-      {/* Le test en direct n'est plus une carte ici : le widget flottant vit
-          directement sur la page du bot (BotPage), comme s'il était déployé. */}
     </div>
   )
 }

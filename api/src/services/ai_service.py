@@ -51,9 +51,9 @@ _MOCK_MCP_RE = re.compile(r"^!mcp ([a-z0-9_]+)(?:\s+(\{.*\}))?$")
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-# Bornes communes à tous les providers (valeurs INCHANGÉES, extraites en
-# constantes nommées) : plafond de tokens générés par réponse chat, et timeout
-# HTTP (secondes) du client réutilisé sur tous les tours de la boucle tool-use.
+# Bornes communes à tous les providers : plafond de tokens générés par réponse
+# chat, et timeout HTTP (secondes) du client réutilisé sur tous les tours de la
+# boucle tool-use.
 AI_MAX_TOKENS = 1024
 AI_TIMEOUT_S = 60
 
@@ -215,7 +215,7 @@ async def generate_reply(
     # Dispatch provider par REGISTRE (OCP) : une seule boucle tool-use generique
     # (_run_tool_loop) parametree par un adaptateur par-provider. Les trois
     # providers exposent et EXECUTENT les memes tools (actions / search_docs /
-    # MCP) — plus de degradation silencieuse cote Gemini (PR-23).
+    # MCP).
     adapter = _PROVIDER_ADAPTERS.get(bot.ai_provider)
     if adapter is None:
         raise AIServiceError(f"Provider inconnu : {bot.ai_provider}")
@@ -238,8 +238,7 @@ async def _mock_reply(
     conversation_id: Optional[str],
     has_kb: bool,
 ) -> AIResult:
-    """MOCK_AI : reponses simulees deterministes, AUCUN provider appele.
-    Comportement INCHANGE du bloc inline d'origine de generate_reply."""
+    """MOCK_AI : reponses simulees deterministes, AUCUN provider appele."""
     last = history[-1]["content"] if history else ""
     # Simulation deterministe d'un appel d'action : "!action nom {json}"
     mock = _MOCK_ACTION_RE.match(last.strip())
@@ -313,8 +312,8 @@ async def _dispatch_tool_call(bot, name, args: dict, db,
 
     Retourne (content, is_error) — la chaine `content` est deja bornee et prete
     a etre encapsulee au format du provider (tool_result Anthropic / message
-    role=tool OpenAI) par l'appelant. Ordre de priorite des branches identique a
-    l'original des deux boucles : tool interne search_docs, puis tools MCP
+    role=tool OpenAI) par l'appelant. Ordre de priorite des branches : tool
+    interne search_docs, puis tools MCP
     (prefixe reserve mcp_, court-circuites AVANT _run_action), puis actions
     configurees (actions_json). Sur ActionError : (str(e), True) — c'est
     l'appelant qui choisit l'encodage du message d'erreur selon son protocole."""
@@ -339,8 +338,7 @@ async def _build_tools(bot, has_kb: bool, conversation_id,
                        allow_mcp: bool = True) -> Optional[list[dict]]:
     """Tools exposes au modele (actions + search_docs + MCP decouverts), chaque
     entree encapsulee par `fmt(name, description, schema)` au format du provider
-    (_anthropic_tool / _openai_tool). None si aucun. Comportement INCHANGE des
-    deux builders par-provider d'origine (allow_actions/allow_mcp=True par defaut).
+    (_anthropic_tool / _openai_tool). None si aucun.
 
     Actions heritees aux noms reserves (search_docs, prefixe mcp_) ecartees par
     _eligible_actions. Pour les tools MCP decouverts (cache par conversation),
@@ -371,15 +369,12 @@ async def _build_tools(bot, has_kb: bool, conversation_id,
 #
 # La boucle (appel provider -> si demande d'outil, executer via
 # _dispatch_tool_call -> renvoyer le resultat -> reboucler, bornee a
-# MAX_TOOL_TURNS) etait DUPLIQUEE entre Anthropic et OpenAI. Elle est ici
-# factorisee une seule fois (_run_tool_loop) et parametree par un ADAPTATEUR
+# MAX_TOOL_TURNS) est unique (_run_tool_loop), parametree par un ADAPTATEUR
 # qui isole les seules differences par-provider :
 #   - tool_formatter : encapsulation d'un tool au format du provider ;
 #   - init_messages  : forme initiale de la conversation (system inline ou non) ;
 #   - request        : un appel provider -> _ProviderTurn normalise ;
 #   - append_turn    : ré-injection du tour d'assistant + des resultats d'outils.
-# Comportement par-provider INCHANGE pour Anthropic/OpenAI ; Gemini gagne le
-# function-calling (parite, fin de la degradation silencieuse).
 
 
 @dataclass
@@ -464,7 +459,7 @@ class _AnthropicAdapter:
         content = result.content
         text = "".join(b.get("text", "") for b in content)
         calls = []
-        # Comme l'original : on n'execute des outils que sur stop_reason tool_use.
+        # On n'execute des outils que sur stop_reason tool_use.
         if result.stop_reason == "tool_use":
             for b in content:
                 if b.get("type") == "tool_use":
@@ -533,8 +528,7 @@ class _OpenAIAdapter:
         messages.append(turn.raw_assistant)
         for call, content, is_error in tool_results:
             # Pas de is_error natif cote OpenAI : erreur encapsulee en JSON
-            # {"error": ...} (search_docs, MCP et ActionError compris), comme
-            # l'original.
+            # {"error": ...} (search_docs, MCP et ActionError compris).
             if is_error:
                 content = json.dumps({"error": content}, ensure_ascii=False)
             messages.append({"role": "tool", "tool_call_id": call.id,
@@ -542,9 +536,7 @@ class _OpenAIAdapter:
 
 
 class _GeminiAdapter:
-    """Format Gemini (generateContent + functionCalling). Le no-tools reste
-    identique a l'appel single-shot d'origine ; quand des tools sont exposes, le
-    function-calling est branche (PR-23 : fin de la degradation silencieuse)."""
+    """Format Gemini (generateContent + functionCalling)."""
     tool_formatter = staticmethod(_gemini_tool)
 
     def init_messages(self, system: str, history: list[dict]) -> list[dict]:

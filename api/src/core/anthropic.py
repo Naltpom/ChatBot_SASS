@@ -27,7 +27,6 @@ from typing import Any, Optional
 
 import httpx
 
-# Mêmes valeurs que les trois appelants actuels.
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 

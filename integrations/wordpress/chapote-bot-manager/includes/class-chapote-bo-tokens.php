@@ -79,10 +79,6 @@ class Chapote_BO_Tokens {
         return self::get();
     }
 
-    /* ---------------------------------------------------------------------- */
-    /* Verrou de refresh (rotation) : un seul refresh à la fois par install    */
-    /* ---------------------------------------------------------------------- */
-
     /**
      * Tente de prendre le verrou de refresh. add_option est atomique (clé
      * unique en base) : un seul process gagne. Un verrou orphelin (crash

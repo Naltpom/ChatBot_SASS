@@ -24,7 +24,7 @@ from src.models.conversation import Message
 
 def _today_start() -> datetime:
     # Minuit UTC du jour courant, en datetime NAÏF (comme les colonnes DateTime
-    # sans timezone) : utcnow() est naïf UTC -> mêmes year/month/day qu'avant.
+    # sans timezone) : utcnow() est naïf UTC.
     now = utcnow()
     return datetime(now.year, now.month, now.day)
 

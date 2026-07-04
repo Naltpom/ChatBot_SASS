@@ -7,7 +7,7 @@ require_bot_access pour la lecture — même anti-énumération 404). Toute la l
 métier (création de bot, sanitisation d'apparence, gating de modules, checkout /
 abonnement) est consommée via des SERVICES PARTAGÉS (services/billing_service,
 services/bot_service, services/entitlement_service, widget_helpers) : ZÉRO
-duplication, et — depuis PR-19 — AUCUN appel à un symbole PRIVÉ d'un router frère.
+duplication, et AUCUN appel à un symbole PRIVÉ d'un router frère.
 
 Dette PR-20 (résiduelle, documentée) : le checkout (`open_checkout`, entaché de
 toute la cascade Checkout) et les modifications d'abonnement (`subscription_update`
@@ -44,8 +44,6 @@ from src.models.billing import (
 )
 from src.models.bot import Bot, BotCreate, BotOut
 from src.models.user import User
-# Logique métier PARTAGÉE via SERVICES (PR-19) — plus d'appel aux symboles privés
-# des routers frères.
 from src.routers.bots_helpers import FIELD_PERMS, _check_bot_perm
 from src.services import stripe_service
 from src.services.billing_service import (

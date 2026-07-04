@@ -3,9 +3,6 @@
 // Ctrl/Cmd+S, avertissement beforeunload, et écoute du `request-save` du parent
 // (pont postMessage). La persistance réelle (PUT/PATCH + émission 'saved') et les
 // messages spécifiques (ex. highlight-module) restent à la charge de chaque page.
-//
-// ⚠ Le comportement observable (raccourcis, messages postMessage émis,
-// dirty-tracking, beforeunload) doit rester IDENTIQUE aux pages d'origine.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { postToParent, parseAdminMessage } from '../lib/embedBridge'
 import type { AdminMessage } from '../lib/embedBridge'

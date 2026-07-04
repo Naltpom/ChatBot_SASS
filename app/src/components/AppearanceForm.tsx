@@ -42,7 +42,7 @@ function ColorDots({ colors, value, onPick }: { colors: string[]; value: string;
   )
 }
 
-// Étiquette MAJUSCULE en tête de carte (maquette).
+// Étiquette MAJUSCULE en tête de carte.
 function CardLabel({ children }: { children: ReactNode }) {
   return <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--faint)', marginBottom: 12 }}>{children}</div>
 }

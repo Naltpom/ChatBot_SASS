@@ -1,7 +1,4 @@
 // Job de génération d'arbre du wizard + flux SSE (pages/BotWizard.tsx).
-// Extrait tel quel (comportement strictement identique) : POST /api/tree/jobs
-// (démarre la tâche de fond) -> streamSSE (progression temps réel) -> dès le
-// tree prêt on passe à l'étape arbre. Tout échec/skip -> ébauche par défaut.
 // Le hook possède l'état de progression (genStage), l'AbortController et son
 // nettoyage au démontage (anti fuite de ressource) ; la page fournit les entrées
 // (sources/contexte/fichiers) et les setters de résultat (note/arbre/étape).

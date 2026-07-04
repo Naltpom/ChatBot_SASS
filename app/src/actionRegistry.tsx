@@ -1,19 +1,12 @@
 // Registre unique des TYPES D'ACTION du chatbot (OCP / SOLID).
 //
-// AVANT : la connaissance de chaque type d'action (libellé, chip, valeurs par
-// défaut, naming du secret write-only, règles de sérialisation, formulaire
-// d'édition) était éclatée entre ActionsTab.tsx (rendu + chips + options du
-// sélecteur), useBotEditor.ts (défauts par type, reset, sérialisation) et la
-// logique inline. Ajouter un type imposait de toucher ~3 fichiers.
-//
-// MAINTENANT : tout vit ici, indexé par clé de type. Ajouter un type d'action =
+// Tout vit ici, indexé par clé de type. Ajouter un type d'action =
 // ajouter UNE entrée dans `ACTION_TYPES` (+ l'ajouter à l'union `BotActionType`
 // dans types/bot.ts pour le typage). Les consommateurs (ActionsTab,
 // useBotEditor) lisent le registre sans switch local sur les types.
 //
-// COMPORTEMENT CONSTANT : ce fichier ne fait que CENTRALISER des constantes/JSX
-// déjà existants ; la forme des objets `actions_json` produits/sérialisés est
-// strictement identique à l'avant-refactor (le backend action_executor les lit).
+// La forme des objets `actions_json` produits/sérialisés est lue par le
+// backend action_executor.
 import type { ReactNode } from 'react'
 import { Plus } from 'lucide-react'
 import { Btn, Field, InfoBox, Toggle } from './ui'

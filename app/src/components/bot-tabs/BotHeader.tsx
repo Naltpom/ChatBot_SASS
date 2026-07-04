@@ -1,4 +1,4 @@
-// En-tête de l'éditeur de bot (refonte Chapote) — lien retour, avatar navy, nom
+// En-tête de l'éditeur de bot — lien retour, avatar navy, nom
 // éditable inline (perm appearance ; sinon lecture seule), pills statut + mode,
 // ligne « domaine · clé publique » mono, et bouton « Activer le bot » si inactif.
 // Présentationnel : bot/handlers viennent de BotPage (useBotEditor).
@@ -32,7 +32,6 @@ export default function BotHeader({
         </span>
         <div style={{ flex: 1, minWidth: 200 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            {/* Nom éditable inline (perm appearance) — sinon affiché en lecture seule */}
             {hasPerm('appearance') ? (
               <input type="text" value={bot.name} placeholder="Nom du bot"
                      onChange={e => patch({ name: e.target.value })}

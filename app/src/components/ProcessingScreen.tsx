@@ -1,5 +1,5 @@
 // Écran d'attente de génération d'arbre par l'IA — composant PRÉSENTATIONNEL pur.
-// Extrait de pages/BotWizard.tsx (rendu identique à l'octet) pour être réutilisé
+// Extrait de pages/BotWizard.tsx pour être réutilisé
 // par l'éditeur embarqué (pages/embed/EmbedTreeEditor) pendant qu'un job de
 // génération tourne. Aucune logique réseau ici : le parent pilote la progression
 // (stage/pct) et enchaîne sur l'éditeur dès la fin (anti-piège StrictMode).

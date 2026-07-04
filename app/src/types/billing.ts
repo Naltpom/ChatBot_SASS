@@ -13,7 +13,7 @@
 
 // Clés de module débloquables — strictement alignées sur core/constants.MODULE_KEYS.
 // 'mcp' suit 'actions' : Actions (sans IA) et MCP (outils IA) sont DEUX modules
-// distincts (split 2026-06-24). L'ordre est figé (parité backend MODULE_KEYS).
+// distincts. L'ordre est figé (parité backend MODULE_KEYS).
 export type ModuleKey = 'ai' | 'inbox' | 'rag' | 'actions' | 'mcp' | 'ab' | 'white_label'
 
 // Format de facture choisi par le User (User.billing_grouping). Défaut = 'total'.

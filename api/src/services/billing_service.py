@@ -1,19 +1,13 @@
-"""Logique MÉTIER de facturation partagée — extraite de routers/billing.py (PR-19).
+"""Logique MÉTIER de facturation partagée.
 
 Ce module porte la logique de facturation RÉUTILISÉE par DEUX surfaces HTTP sans
 qu'elles se couplent l'une à l'autre :
 - le router DASHBOARD (routers/billing.py, auth get_current_user) ;
 - la surface EXTERNE plugin (routers/external/account.py, auth require_oauth_token).
 
-Avant PR-19, account.py importait routers/billing.py et appelait ses fonctions
-PRIVÉES (`_billable_bots`, `_catalog_payload`, `_validate_config_modules`,
-`_DISABLED`) — couplage router→router, abstraction fuyante. On déplace ici la
-logique PURE (pas de HTTP, pas de Depends) ; billing.py la RÉ-EXPOSE sous ses noms
-historiques (alias) pour ses appelants internes et les tests.
-
-PÉRIMÈTRE (serré) : on ne déplace QUE la logique consommée par les deux surfaces.
-Le moteur de Checkout/abonnement (`open_checkout` et sa cascade de helpers) reste
-dans billing.py — son extraction est le chantier PR-20 (split de billing.py).
+Logique PURE (pas de HTTP, pas de Depends) ; billing.py la RÉ-EXPOSE sous ses noms
+historiques (alias `_billable_bots`, `_catalog_payload`, ...) pour ses appelants
+internes et les tests.
 
 Ce service ne doit JAMAIS importer un router (sinon cycle import).
 """
@@ -236,14 +230,14 @@ async def catalog_payload(db: AsyncSession) -> dict:
     }
 
 
-# --- Helpers MÉTIER Checkout / abonnement (extraits du router, PR-20) -------
+# --- Helpers MÉTIER Checkout / abonnement -----------------------------------
 #
 # Logique PURE (config -> codes -> line_items, classification du delta de
-# proration, helpers de lecture du miroir/quota). Sortie du router billing.py au
-# split PR-20 : le router garde ses @router.post FINS (validation requête -> appel
-# service -> réponse) et RÉ-EXPOSE ces helpers sous leurs noms historiques (alias)
-# pour ses appelants internes (open_checkout / subscription_update / ...) et les
-# tests. AUCUN HTTP ici. Ne JAMAIS importer un router (cycle).
+# proration, helpers de lecture du miroir/quota). Le router billing.py garde ses
+# @router.post FINS (validation requête -> appel service -> réponse) et RÉ-EXPOSE
+# ces helpers sous leurs noms historiques (alias) pour ses appelants internes
+# (open_checkout / subscription_update / ...) et les tests. AUCUN HTTP ici.
+# Ne JAMAIS importer un router (cycle).
 
 
 async def reported_overage_this_month(db: AsyncSession, bot_id: int) -> int:
@@ -288,8 +282,7 @@ def config_to_codes(config: BotConfigPayload) -> tuple[list[str], list[str]]:
     IA est pris)."""
     codes: list[str] = ["base"]
     modules: list[str] = []
-    # Module IA : variante BYOK forfait OU plan IA managé. (`ai_free` supprimé du
-    # catalogue : plus d'IA gratuite à vie — point 7.)
+    # Module IA : variante BYOK forfait OU plan IA managé (pas d'IA gratuite).
     if config.ai_byok:
         codes.append("mod_ai_byok")
         modules.append(MODULE_AI)

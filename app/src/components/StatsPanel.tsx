@@ -1,9 +1,4 @@
-// Onglet Stats d'un bot — porté de pages-overview.jsx, branché sur les vraies
-// données de l'API stats. v4 : satisfaction CSAT, comparatif A/B et funnel
-// d'arbre (GET /funnel), avec mapping node_key → labels du tree_json local.
-// Refacto R13 : les cards présentationnelles sont extraites dans stats-panel/
-// (SatisfactionCard / AbTestCard / FunnelCard / RecentConversationsTable) ;
-// ce fichier ne garde que le câblage des fetchs et la mise en page.
+// Onglet Stats d'un bot, branché sur les vraies données de l'API stats.
 import { useEffect, useState } from 'react'
 import { GitBranch, MessageSquare, Sparkles, Users } from 'lucide-react'
 import { api } from '../api'

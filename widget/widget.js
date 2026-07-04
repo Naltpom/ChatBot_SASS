@@ -9,8 +9,6 @@
  * Vanilla JS, zéro dépendance. La clé data-bot-key est PUBLIQUE : elle ne
  * permet que d'initialiser une session (vérifiée côté serveur : domaine
  * whitelisté + captcha + rate limits). Aucune clé IA ne transite ici.
- *
- * Design : prototype "Chapote" (claude.ai/design), widget.jsx.
  */
 (function () {
   "use strict";
@@ -197,8 +195,7 @@
 
   // Rotation du JWT widget : le serveur renvoie parfois un refresh_token
   // (session glissante). On l'adopte et on le retire de la réponse pour ne pas
-  // le propager aux consommateurs. Factorisé (était dupliqué 5× : poll,
-  // handoff, feedback, lead, message).
+  // le propager aux consommateurs.
   function applyTokenRotation(resp) {
     if (resp && resp.refresh_token) { state.token = resp.refresh_token; delete resp.refresh_token; persistSession(); }
     return resp;
@@ -206,9 +203,8 @@
 
   // Retry-401 commun : sur un 401 non encore réessayé, on rejoue un handshake
   // de session propre puis on relance la requête (flag retried -> une seule
-  // fois). Factorisé (était dupliqué 3× : handoff, lead, message). Le poll et
-  // le feedback n'utilisent PAS ce helper (cf. leurs commentaires : un
-  // re-handshake y créerait une nouvelle conversation).
+  // fois). Le poll et le feedback n'utilisent PAS ce helper (cf. leurs
+  // commentaires : un re-handshake y créerait une nouvelle conversation).
   function retryAfterSession(err, retried, replay) {
     if (err.status === 401 && !retried) {
       return openSession().then(function () { return replay(); });
@@ -280,7 +276,7 @@
       });
     }).then(function (data) {
       state.token = data.token;
-      persistSession(); // mémorise la nouvelle session (token frais)
+      persistSession();
       return data.first;
     });
   }
@@ -1497,7 +1493,7 @@
   // (token + statut), vide le fil et relance une session fraîche (menu d'accueil).
   function resetChat() {
     stopPolling();
-    clearSession(); // oublie la session persistée (token + fil)
+    clearSession();
     state.token = null;
     state.chatStatus = "ai";
     state.aiMode = state.config && state.config.mode === "ai";

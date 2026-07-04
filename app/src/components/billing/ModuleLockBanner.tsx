@@ -1,5 +1,4 @@
-// Bannière « fonctionnalité verrouillée » — PROPRE et VISIBLE (remplace l'ancien
-// calque FeatureLock qui recouvrait tout). Posée AU-DESSUS du contenu d'un onglet
+// Bannière « fonctionnalité verrouillée » — PROPRE et VISIBLE. Posée AU-DESSUS du contenu d'un onglet
 // gardé par un module : le contenu reste pleinement visible et réglable en
 // dessous ; le blocage RÉEL est côté serveur (402 à l'enregistrement sans le
 // module). Quand `locked` est faux, ne rend rien (zéro surcoût).

@@ -183,7 +183,7 @@ async def test_reset_rejected_when_inactive(client, overrides, db):
 
 @pytest.mark.asyncio
 async def test_reset_rejected_when_not_local(client, overrides, db):
-    # Compte SSO (google/intranet) : pas de reset du mot de passe local -> 401.
+    # Compte SSO (Google) : pas de reset du mot de passe local -> 401.
     user = _user(hashed_password="hash-v1", auth_source="google")
     db.seed(user)
     token = create_password_reset_token(user.id, user.hashed_password)

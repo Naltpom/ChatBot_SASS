@@ -17,7 +17,7 @@ export function safeHref(url: unknown, mailto = false): string | undefined {
   if (!raw) return undefined
   let scheme: string
   try {
-    // base = window.location : résout les URLs relatives (schéma http(s) hérité)
+    // base factice http://localhost/ : résout les URLs relatives (schéma http hérité)
     // tout en rejetant les URLs absolues à schéma dangereux (javascript:, data:…).
     scheme = new URL(raw, 'http://localhost/').protocol.toLowerCase()
   } catch {
