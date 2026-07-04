@@ -218,7 +218,8 @@ async def demo_reply(source_text: str, host: str, history, message: str) -> str:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 GEMINI_URL.format(model=DEMO_CHAT_MODEL),
-                params={"key": api_key},
+                # Cle en header (jamais en query string : str(e) httpx contient l'URL)
+                headers={"x-goog-api-key": api_key},
                 json={
                     "system_instruction": {"parts": [{"text": system}]},
                     "contents": contents,
@@ -231,8 +232,13 @@ async def demo_reply(source_text: str, host: str, history, message: str) -> str:
             )
             resp.raise_for_status()
             data = resp.json()
+    except httpx.HTTPStatusError as e:
+        # Ne JAMAIS logger str(e) : le message httpx embarque l'URL de requete
+        logger.error("Demo chat : erreur API Gemini (%s) : %s",
+                     e.response.status_code, e.response.text[:500])
+        raise TreeGenerationError("Le service IA est momentanément indisponible, réessayez.") from e
     except httpx.HTTPError as e:
-        logger.error("Demo chat : erreur API Gemini %s", e)
+        logger.error("Demo chat : erreur réseau Gemini %s", e)
         raise TreeGenerationError("Le service IA est momentanément indisponible, réessayez.") from e
     candidates = data.get("candidates") or []
     parts = (candidates[0].get("content", {}).get("parts", []) if candidates else []) or []

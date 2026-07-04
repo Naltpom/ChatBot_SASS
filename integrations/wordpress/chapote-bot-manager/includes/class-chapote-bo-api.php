@@ -197,6 +197,11 @@ class Chapote_BO_API {
      * Appel authentifié. Si 401 → tente un refresh (rotation) puis rejoue UNE
      * fois. Si le refresh échoue, la session est purgée et on renvoie 401.
      *
+     * Le refresh est SÉRIALISÉ par un verrou (mutex par installation) : deux
+     * appels concurrents en 401 ne doivent jamais refresher en même temps —
+     * la rotation ferait rejeter le 2e refresh et purgerait la connexion
+     * fraîchement renouvelée.
+     *
      * @return array{status:int,data:array}
      */
     public static function account($method, $path, $body = null) {
@@ -217,6 +222,23 @@ class Chapote_BO_API {
             Chapote_BO_Tokens::clear();
             return $res;
         }
+
+        // Verrou occupé → un autre process refreshe déjà : on ne refreshe PAS,
+        // on attend puis on rejoue avec les tokens qu'il aura sauvés.
+        if (!Chapote_BO_Tokens::acquire_refresh_lock()) {
+            return self::retry_after_concurrent_refresh($method, $path, $body, $tokens['access_token'], $res);
+        }
+
+        // Sous verrou : re-lecture d'abord — un refresh concurrent a pu
+        // aboutir entre notre 401 et la prise du verrou.
+        $fresh = Chapote_BO_Tokens::get_fresh();
+        if ($fresh && !empty($fresh['access_token']) && $fresh['access_token'] !== $tokens['access_token']) {
+            Chapote_BO_Tokens::release_refresh_lock();
+            return self::request($method, $path, $body, array(
+                'Authorization' => 'Bearer ' . $fresh['access_token'],
+            ));
+        }
+
         $r = self::refresh($tokens['refresh_token']);
         if ($r['status'] === 200 && !empty($r['data']['access_token'])) {
             Chapote_BO_Tokens::save(
@@ -226,14 +248,52 @@ class Chapote_BO_API {
                 isset($r['data']['scope']) ? $r['data']['scope'] : '',
                 isset($r['data']['token_type']) ? $r['data']['token_type'] : 'Bearer'
             );
+            Chapote_BO_Tokens::release_refresh_lock();
             $new = Chapote_BO_Tokens::get();
             return self::request($method, $path, $body, array(
                 'Authorization' => 'Bearer ' . $new['access_token'],
             ));
         }
+        Chapote_BO_Tokens::release_refresh_lock();
 
-        // Refresh refusé → session morte (rejeu détecté, refresh expiré…).
+        // Refresh refusé. Avant de purger : re-lecture — si un couple valide a
+        // été sauvé entre-temps (refresh concurrent gagnant), on ne détruit
+        // PAS la connexion fraîchement renouvelée, on rejoue avec.
+        $latest = Chapote_BO_Tokens::get_fresh();
+        if ($latest && !empty($latest['access_token']) && $latest['access_token'] !== $tokens['access_token']) {
+            return self::request($method, $path, $body, array(
+                'Authorization' => 'Bearer ' . $latest['access_token'],
+            ));
+        }
+
+        // Session morte (rejeu détecté, refresh expiré…).
         Chapote_BO_Tokens::clear();
         return array('status' => 401, 'data' => array('error' => 'session_expired'));
+    }
+
+    /**
+     * Un autre process détient le verrou de refresh : on attend (borné) qu'il
+     * termine, puis on rejoue la requête avec l'access token éventuellement
+     * renouvelé. Jamais de refresh ici (le refresh token a déjà tourné).
+     *
+     * @param string $old_access access token qui vient de prendre le 401.
+     * @param array  $original   réponse 401 d'origine (repli).
+     * @return array{status:int,data:array}
+     */
+    private static function retry_after_concurrent_refresh($method, $path, $body, $old_access, $original) {
+        // 20 × 250 ms = 5 s max, largement au-dessus d'un aller-retour token.
+        for ($i = 0; $i < 20; $i++) {
+            if (!Chapote_BO_Tokens::refresh_lock_held()) {
+                break;
+            }
+            usleep(250000);
+        }
+        $fresh = Chapote_BO_Tokens::get_fresh();
+        if ($fresh && !empty($fresh['access_token']) && $fresh['access_token'] !== $old_access) {
+            return self::request($method, $path, $body, array(
+                'Authorization' => 'Bearer ' . $fresh['access_token'],
+            ));
+        }
+        return $original;
     }
 }

@@ -79,6 +79,9 @@ from src.services.quota_service import (
     ai_overage_precheck,
     ai_quota_consume,
     ai_quota_precheck,
+    preview_turn_acquire,
+    widget_daily_consume,
+    widget_daily_precheck,
 )
 from src.services.email_service import (
     SUPPORT_EMAIL,
@@ -203,6 +206,18 @@ AI_UNAVAILABLE_MESSAGE = (
 # 'ai', options []) ; AUCUN message assistant persisté (reason=overage_cap_reached).
 OVERAGE_CAP_MESSAGE = (
     "Le service de réponses automatiques a atteint sa limite pour ce mois-ci. "
+    "Vous pouvez naviguer dans le menu ou revenir un peu plus tard."
+)
+
+# --- Plafond dur journalier (audit M2) ---
+# Garde-fou anti-abus EXTERNE (quota_service.WIDGET_DAILY_HARD_CAP, généreux),
+# vérifié AVANT generate_reply pour TOUS les bots — BYOK COMPRIS (un bot BYOK a
+# ai_quota_for(ent) is None : sans ce plafond, un flux widget soutenu brûlerait
+# la clé du client sans borne). Message SOUPLE, forme d'une réponse IA (200,
+# source 'ai', options []) ; AUCUN message assistant persisté
+# (reason=daily_cap_reached). Ne change RIEN au quota/metering managés en deçà.
+DAILY_CAP_MESSAGE = (
+    "Le service de réponses automatiques a atteint sa limite pour aujourd'hui. "
     "Vous pouvez naviguer dans le menu ou revenir un peu plus tard."
 )
 
@@ -788,10 +803,18 @@ async def _handle_ai_preview(
     history = _preview_history(body.history, text)
     # Plafond de tours IA en aperçu : ces appels modèle ne sont ni comptés ni
     # facturés (un owner avec un preview_token pourrait enchaîner sans borne) ->
-    # on borne le nombre de réponses IA par conversation d'aperçu, en comptant les
-    # messages 'assistant' déjà produits (historique local). Au-delà : réponse
-    # canned SANS appel modèle. N'affecte PAS le chemin public/payant.
-    if sum(1 for m in history if m["role"] == "assistant") >= settings.PREVIEW_MAX_AI_TURNS:
+    # on borne le nombre de réponses IA par conversation d'aperçu, via un compteur
+    # Redis CÔTÉ SERVEUR (audit M8 : compter les messages 'assistant' de
+    # l'historique LOCAL était contournable, un client qui les strippe obtenait
+    # de l'IA managée illimitée). Redis configuré mais en panne => fail-closed
+    # (False). REDIS_URL non configurée (dev/tests) => None : repli DÉGRADÉ sur
+    # l'ancienne borne par historique local. Au-delà : réponse canned SANS appel
+    # modèle. N'affecte PAS le chemin public/payant.
+    allowed = await preview_turn_acquire(conversation.id, settings.PREVIEW_MAX_AI_TURNS)
+    if allowed is None:
+        allowed = (sum(1 for m in history if m["role"] == "assistant")
+                   < settings.PREVIEW_MAX_AI_TURNS)
+    if not allowed:
         return _maybe_refresh({"source": "ai",
                                "message": "Limite d'aperçu atteinte — relancez l'aperçu pour continuer à tester.",
                                "options": [], "status": conversation.status}, bot, session)
@@ -935,6 +958,18 @@ async def _handle_ai_message(
                                    "options": [], "status": conversation.status},
                                   bot, session)
 
+    # Plafond dur JOURNALIER (audit M2), TOUS bots — BYOK compris (quota is None
+    # => aucune autre borne). LECTURE SEULE avant l'effet coûteux ; la conso est
+    # comptée (widget_daily_consume) après un generate_reply réussi seulement.
+    # Plafond EXTERNE généreux : quota mensuel/metering managés inchangés en deçà.
+    if not await widget_daily_precheck(bot.id):
+        logger.info("billing.quota: bot %s plafond journalier atteint "
+                    "(reason=daily_cap_reached)", bot.id)
+        # Comme les autres replis : AUCUN message assistant persisté.
+        return _maybe_refresh({"source": "ai", "message": DAILY_CAP_MESSAGE,
+                               "options": [], "status": conversation.status},
+                              bot, session)
+
     history = await _build_ai_history(conversation, text, db)
 
     page_url = body.page_url or conversation.page_url
@@ -984,6 +1019,9 @@ async def _handle_ai_message(
             db, bot.id, customer_id, METER_EVENT_NAME, ent.overage_cap)
     elif quota is not None:
         await ai_quota_consume(db, bot.id, quota)
+    # Plafond dur journalier (audit M2) : compté pour TOUS les bots (BYOK compris),
+    # UNIQUEMENT sur génération réussie (jamais sur panne provider). Best-effort.
+    await widget_daily_consume(bot.id)
 
     msg = Message(
         conversation_id=conversation.id, bot_id=bot.id,

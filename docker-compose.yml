@@ -161,6 +161,10 @@ services:
       # `docker compose exec api python -m scripts.seed_billing_catalog`.
       - ./api/scripts:/app/scripts
       - ./widget:/app/widget
+      # Tests montés en dev : `docker compose exec api python -m pytest` direct,
+      # sans docker cp (pytest est dans requirements.txt). NON copiés dans l'image.
+      - ./api/tests:/app/tests
+      - ./api/pytest.ini:/app/pytest.ini
       - upload_files:/app/uploads
       # Cache du modele d'embeddings (download ~100-400 Mo au premier usage) :
       # survit aux rebuilds, efface par `docker compose down -v` (re-download

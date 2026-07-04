@@ -1,9 +1,10 @@
-"""Authentification : intranet d'abord (si active), fallback local.
+"""Authentification : intranet d'abord (si active, emails staff uniquement), fallback local.
 
 Meme flux qu'ao_scrapping : POST {mail, mdp} sur INTRANET_AUTH_URL, succes si
 redirect vers /main ou JSON {"retour": "Ok"}. Les comptes intranet (staff)
 sont crees superadmins du SaaS : vue sur tous les clients.
 """
+import hashlib
 import json
 import logging
 from typing import Optional
@@ -22,6 +23,17 @@ logger = logging.getLogger(__name__)
 
 class AuthenticationError(Exception):
     pass
+
+
+def _is_staff_email(email: str) -> bool:
+    """True si l'email appartient au domaine staff (seuls ces comptes passent
+    par l'intranet et peuvent devenir superadmins)."""
+    return email.lower().strip().endswith("@" + settings.INTRANET_STAFF_DOMAIN.lower())
+
+
+def _log_ref(email: str) -> str:
+    """Identifiant de log non-PII (hash court de l'email, jamais l'email brut)."""
+    return hashlib.sha256(email.encode("utf-8")).hexdigest()[:8]
 
 
 async def authenticate_intranet(email: str, password: str) -> Optional[dict]:
@@ -51,12 +63,12 @@ async def authenticate_intranet(email: str, password: str) -> Optional[dict]:
                     data = response.json()
                     # Comparaison stricte : un champ "success" truthy quelconque ne suffit pas
                     if data.get("retour") == "Ok" or data.get("success") is True or data.get("authenticated") is True:
-                        logger.info("Intranet auth success for %s", email)
+                        logger.info("Intranet auth success (ref=%s)", _log_ref(email))
                         return _user_info_from_email(email)
                 except (ValueError, json.JSONDecodeError) as e:
                     # Reponse 200 non-JSON (ex : page HTML) -> echec d'auth, pas une erreur
-                    logger.debug("Intranet 200 non-JSON for %s : %s", email, e)
-            logger.info("Intranet auth failed for %s (status=%s)", email, response.status_code)
+                    logger.debug("Intranet 200 non-JSON (ref=%s) : %s", _log_ref(email), e)
+            logger.info("Intranet auth failed (ref=%s, status=%s)", _log_ref(email), response.status_code)
             return None
     except httpx.RequestError as e:
         logger.warning("Intranet injoignable : %s", e)
@@ -71,9 +83,11 @@ def _user_info_from_email(email: str) -> dict:
 
 
 async def authenticate(db: AsyncSession, email: str, password: str) -> User:
-    """1. Intranet si active -> cree/maj le user (superadmin). 2. Fallback local."""
+    """1. Intranet (staff uniquement) -> cree/maj le user (superadmin). 2. Fallback local."""
     email = email.lower().strip()  # les emails sont stockes en minuscules
-    if settings.INTRANET_AUTH_ENABLED:
+    # Seuls les emails du domaine staff passent par l'intranet : on ne relaie
+    # JAMAIS le mot de passe en clair d'un client vers un service externe.
+    if settings.INTRANET_AUTH_ENABLED and _is_staff_email(email):
         info = await authenticate_intranet(email, password)
         if info:
             user = await _get_or_create_intranet_user(db, info, password)
@@ -94,6 +108,10 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> User:
 
 
 async def _get_or_create_intranet_user(db: AsyncSession, info: dict, password: str) -> User:
+    # Garde-fou : jamais d'elevation superadmin ni d'ecrasement de mot de passe
+    # pour un email hors domaine staff, meme si l'intranet le validait.
+    if not _is_staff_email(info["email"]):
+        raise AuthenticationError("Email ou mot de passe incorrect")
     result = await db.execute(select(User).where(User.email == info["email"]))
     user = result.scalar_one_or_none()
     if user:

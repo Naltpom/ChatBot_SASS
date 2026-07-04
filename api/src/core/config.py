@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     # superadmins du SaaS (vue sur tous les clients).
     INTRANET_AUTH_URL: str = "https://intranet.kertios.com/main/auth_ret"
     INTRANET_AUTH_ENABLED: bool = True
+    # Seuls les emails de ce domaine sont relayes a l'intranet : les mots de
+    # passe des clients ne quittent JAMAIS le SaaS, et seul le staff peut
+    # devenir superadmin via cette voie.
+    INTRANET_STAFF_DOMAIN: str = "kertios.com"
 
     # --- SSO Google (Sign in with Google, flux ID token) ---
     # Client ID OAuth (valeur PUBLIQUE, = audience attendue des tokens Google).

@@ -108,9 +108,11 @@ services:
       - FASTEMBED_CACHE_PATH=${FASTEMBED_CACHE_PATH:-/var/cache/fastembed}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
       - PYTHONUNBUFFERED=1
-    # API exposée derrière un reverse proxy (TLS) sur l'hôte.
+    # API exposée derrière un reverse proxy (TLS) sur l'hôte : bind loopback
+    # uniquement (127.0.0.1), le HTTP en clair ne doit jamais être joignable
+    # depuis l'extérieur.
     ports:
-      - "${API_PORT:-8001}:8000"
+      - "127.0.0.1:${API_PORT:-8001}:8000"
     volumes:
       # Seuls les uploads (volume nommé) et le widget statique (lecture seule) :
       # aucune source montée, le code vit dans l'image.
@@ -126,6 +128,10 @@ services:
     # Multi-worker possible : les rate-limiters sont partagés via Redis
     # (REDIS_URL). API_WORKERS ajuste le nombre de workers uvicorn.
     # TRUSTED_PROXY_IPS : IP(s) du reverse proxy autorisées à poser X-Forwarded-*.
+    # ⚠ En prod, TRUSTED_PROXY_IPS DOIT être l'IP source réelle du reverse proxy
+    # (jamais '*' : n'importe quel client pourrait usurper X-Forwarded-For).
+    # Le défaut 127.0.0.1 n'est correct que si le proxy se connecte depuis
+    # localhost (cas du bind loopback ci-dessous).
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2} --proxy-headers --forwarded-allow-ips=${TRUSTED_PROXY_IPS:-127.0.0.1}
     # python:3.11-slim n'embarque pas curl -> healthcheck via urllib.
     healthcheck:
@@ -156,8 +162,9 @@ services:
     environment:
       - MAINTENANCE_MODE=${MAINTENANCE_MODE:-on}
       - ALLOW_MAINTENANCE_IPS=${ALLOW_MAINTENANCE_IPS:-}
+    # Bind loopback uniquement : le reverse proxy de l'hôte termine le TLS.
     ports:
-      - "${APP_PORT:-3001}:80"
+      - "127.0.0.1:${APP_PORT:-3001}:80"
     depends_on:
       api:
         condition: service_healthy

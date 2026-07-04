@@ -222,7 +222,8 @@ async def generate_text_gemini(system_prompt: str, user_prompt: str,
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 GEMINI_URL.format(model=GEMINI_TREE_MODEL),
-                params={"key": api_key},
+                # Cle en header (jamais en query string : str(e) httpx contient l'URL)
+                headers={"x-goog-api-key": api_key},
                 json={
                     "system_instruction": {"parts": [{"text": system_prompt}]},
                     "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
@@ -235,8 +236,13 @@ async def generate_text_gemini(system_prompt: str, user_prompt: str,
             )
             resp.raise_for_status()
             data = resp.json()
+    except httpx.HTTPStatusError as e:
+        # Ne JAMAIS logger str(e) : le message httpx embarque l'URL de requete
+        logger.warning("generate_text_gemini: erreur API Gemini (%s) : %s",
+                       e.response.status_code, e.response.text[:500])
+        return None
     except httpx.HTTPError as e:
-        logger.warning("generate_text_gemini: erreur API Gemini %s", e)
+        logger.warning("generate_text_gemini: erreur réseau Gemini %s", e)
         return None
     cands = data.get("candidates") or []
     if not cands:
@@ -261,7 +267,8 @@ async def _generate_tree_gemini(source_text: str, system_prompt: str) -> str:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 GEMINI_URL.format(model=GEMINI_TREE_MODEL),
-                params={"key": api_key},
+                # Cle en header (jamais en query string : str(e) httpx contient l'URL)
+                headers={"x-goog-api-key": api_key},
                 json={
                     "system_instruction": {"parts": [{"text": system_prompt}]},
                     "contents": [{
@@ -279,8 +286,13 @@ async def _generate_tree_gemini(source_text: str, system_prompt: str) -> str:
             )
             resp.raise_for_status()
             data = resp.json()
+    except httpx.HTTPStatusError as e:
+        # Ne JAMAIS logger str(e) : le message httpx embarque l'URL de requete
+        logger.error("Génération d'arbre : erreur API Gemini (%s) : %s",
+                     e.response.status_code, e.response.text[:500])
+        raise TreeGenerationError("Le service IA est momentanément indisponible, réessayez") from e
     except httpx.HTTPError as e:
-        logger.error("Génération d'arbre : erreur API Gemini %s", e)
+        logger.error("Génération d'arbre : erreur réseau Gemini %s", e)
         raise TreeGenerationError("Le service IA est momentanément indisponible, réessayez") from e
 
     # Extraction defensive : structure candidates[0].content.parts attendue

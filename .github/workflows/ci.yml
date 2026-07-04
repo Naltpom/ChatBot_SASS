@@ -103,15 +103,12 @@ jobs:
       - name: pytest (vraie base Postgres, real_db forcé)
         working-directory: api
         # `python -m pytest` (et non `pytest`) : ajoute api/ à sys.path
-        # (import src.main). Deux tests déselectionnés : ils forcent MOCK_BILLING
-        # =False + clé rk_test pour exercer le VRAI Stripe (update prorata /
-        # downgrade item) => 2 rouges pré-existants liés à Stripe-réel, hors
-        # périmètre CI (cf. docs/CI.md §« 2 rouges billing déselectionnés »). Tout
-        # AUTRE échec, lui, casse le build.
+        # (import src.main). Les deux ex-« rouges billing » (prorata / downgrade)
+        # sont désormais corrigés (assertion always_invoice + mock de
+        # schedule_subscription_downgrade, plus d'appel Stripe réel) : ils tournent
+        # dans la suite. Tout échec casse le build.
         run: |
-          python -m pytest -q \
-            --deselect tests/test_billing_grouping.py::test_subscription_update_prorata_via_items \
-            --deselect tests/test_billing_grouping.py::test_subscription_update_downgrade_supprime_item
+          python -m pytest -q
 
   # ---------------------------------------------------------------------------
   # JOB 2 — e2e billing : stack complète, billing ARMÉ, specs qui NE SKIPPENT PAS.

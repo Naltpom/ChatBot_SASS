@@ -34,7 +34,10 @@ from src.models.billing import (
     BillingWebhookEvent,
 )
 from src.models.user import User
-from src.services.entitlement_service import apply_subscription_event
+from src.services.entitlement_service import (
+    _epoch_to_naive_utc,
+    apply_subscription_event,
+)
 
 logger = logging.getLogger("billing")
 
@@ -199,12 +202,27 @@ async def _sync_subscription_mirror(db: AsyncSession, event: dict) -> None:
         raw_bid = item_meta.get("bot_id")
         if raw_bid and str(raw_bid).isdigit():
             bot_id = int(raw_bid)
-        # Repli : cartographie Checkout (subscription_data.metadata.bots).
+        # Repli : cartographie Checkout (subscription_data.metadata.bots). Un item
+        # AGRÉGÉ (format total : qty>1, price PARTAGÉ entre bots, aucun
+        # item.metadata.bot_id) couvre PLUSIEURS bots : on émet UNE entrée
+        # raw_items PAR bot porteur du code (chacune qty=1, 1 unité par bot),
+        # sinon seule la 1re correspondance serait projetée et les AUTRES bots
+        # payés resteraient gatés (la projection lit raw_items[].bot_id).
         if bot_id is None and code:
-            for bid_str, codes in bots_map.items():
-                if code in codes and str(bid_str).isdigit():
-                    bot_id = int(bid_str)
-                    break
+            matched = [int(bid_str) for bid_str, codes in bots_map.items()
+                       if code in codes and str(bid_str).isdigit()]
+            if len(matched) > 1:
+                for mbid in matched:
+                    raw_items.append({
+                        "si_id": item.get("id"),
+                        "price_id": price,
+                        "code": code,
+                        "bot_id": mbid,
+                        "qty": 1,
+                    })
+                continue
+            if matched:
+                bot_id = matched[0]
         raw_items.append({
             "si_id": item.get("id"),
             "price_id": price,
@@ -237,4 +255,13 @@ async def _sync_subscription_mirror(db: AsyncSession, event: dict) -> None:
         cpe = sub_obj.get("cancel_at_period_end")
         if cpe is not None:
             row.cancel_at_period_end = bool(cpe)
+        # Bornes de période courante (epoch Stripe -> datetime naïf UTC) : lues
+        # par le summary (prochaine échéance) et le cancel (fin d'accès). On ne
+        # les écrase pas avec None si Stripe ne les fournit pas.
+        period_start = _epoch_to_naive_utc(sub_obj.get("current_period_start"))
+        period_end = _epoch_to_naive_utc(sub_obj.get("current_period_end"))
+        if period_start is not None:
+            row.current_period_start = period_start
+        if period_end is not None:
+            row.current_period_end = period_end
     await db.flush()
