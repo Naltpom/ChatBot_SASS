@@ -18,6 +18,10 @@
 (function () {
   'use strict';
 
+  var wpI18n = (window.wp && window.wp.i18n) || null;
+  var __ = wpI18n ? wpI18n.__ : function (s) { return s; };
+  var _sprintf = wpI18n ? wpI18n.sprintf : function (s) { var a = Array.prototype.slice.call(arguments, 1), i = 0; return s.replace(/%s/g, function () { return a[i++]; }); };
+
   var C = window.CBOCore || {};
   var A = window.CBOAdmin || {};
   var CFG = window.CHAPOTE_BO || {};
@@ -26,13 +30,13 @@
 
   // Phases visibles du stepper (regroupent les étapes internes).
   var PHASES = [
-    { label: 'Connexion',       steps: ['welcome', 'auth'] },
-    { label: 'Votre site',      steps: ['choose', 'pick'] },
-    { label: 'Personnalisation', steps: ['customize'] },
-    { label: 'Génération',      steps: ['waiting', 'tree'] },
-    { label: 'Aperçu',          steps: ['preview'] },
-    { label: 'Offre',           steps: ['offer'] },
-    { label: 'En ligne',        steps: ['activation'] }
+    { label: __('Sign in', 'chapote-bot-manager'),        steps: ['welcome', 'auth'] },
+    { label: __('Your site', 'chapote-bot-manager'),      steps: ['choose', 'pick'] },
+    { label: __('Customization', 'chapote-bot-manager'),  steps: ['customize'] },
+    { label: __('Generation', 'chapote-bot-manager'),     steps: ['waiting', 'tree'] },
+    { label: __('Preview', 'chapote-bot-manager'),        steps: ['preview'] },
+    { label: __('Plan', 'chapote-bot-manager'),           steps: ['offer'] },
+    { label: __('Live', 'chapote-bot-manager'),           steps: ['activation'] }
   ];
 
   // Étapes exigeant un bot déjà créé (sinon on retombe au choix de la source).
@@ -104,7 +108,7 @@
     call('GET', '/bots').then(function (br) {
       var bots = botsOf(br);
       var onb = onbFromCfg();
-      if (onb.done || bots.length > 0) { A.exitOnboarding('Connecté à Chapote.', 'ok'); return; }
+      if (onb.done || bots.length > 0) { A.exitOnboarding(__('Connected to Chapote.', 'chapote-bot-manager'), 'ok'); return; }
       goTo('choose');
     });
   }
@@ -165,7 +169,7 @@
   }
 
   function backBtn(step) {
-    return h('button', { type: 'button', class: 'button cbo-onb-back', onClick: function () { goTo(step); } }, '← Retour');
+    return h('button', { type: 'button', class: 'button cbo-onb-back', onClick: function () { goTo(step); } }, __('← Back', 'chapote-bot-manager'));
   }
   function actions() {
     var a = h('div', { class: 'cbo-onb-actions' });
@@ -177,18 +181,18 @@
 
   function renderWelcome(card) {
     card.appendChild(h('div', { class: 'cbo-onb-hero' },
-      h('span', { class: 'cbo-onb-badge', text: 'Assistant guidé' }),
-      h('h2', { text: 'Créons votre chatbot, ensemble' }),
+      h('span', { class: 'cbo-onb-badge', text: __('Guided setup', 'chapote-bot-manager') }),
+      h('h2', { text: __('Let’s build your chatbot, together', 'chapote-bot-manager') }),
       h('p', { class: 'cbo-onb-lead', text:
-        'En quelques minutes : on analyse votre site, une IA génère un assistant prêt à répondre, vous le personnalisez, et il passe en ligne.' }),
+        __('In just a few minutes: we analyze your site, an AI generates an assistant ready to answer, you customize it, and it goes live.', 'chapote-bot-manager') }),
       h('ul', { class: 'cbo-onb-bullets' },
-        h('li', null, 'On lit vos pages pour comprendre votre activité'),
-        h('li', null, 'Une IA construit l’arbre de conversation'),
-        h('li', null, 'Vous ajustez l’apparence et le contenu'),
-        h('li', null, 'Activation sur votre site en un clic')
+        h('li', null, __('We read your pages to understand your business', 'chapote-bot-manager')),
+        h('li', null, __('An AI builds the conversation tree', 'chapote-bot-manager')),
+        h('li', null, __('You fine-tune the appearance and the content', 'chapote-bot-manager')),
+        h('li', null, __('Activate it on your site in one click', 'chapote-bot-manager'))
       ),
       actions(h('button', { class: 'button button-primary button-hero',
-        onClick: function () { goTo(S().connected ? 'choose' : 'auth'); } }, 'Commencer'))
+        onClick: function () { goTo(S().connected ? 'choose' : 'auth'); } }, __('Get started', 'chapote-bot-manager')))
     ));
   }
 
@@ -196,21 +200,21 @@
 
   function renderAuth(card) {
     if (S().connected) {
-      card.appendChild(h('h2', { text: 'Vous êtes connecté à Chapote' }));
+      card.appendChild(h('h2', { text: __('You are connected to Chapote', 'chapote-bot-manager') }));
       card.appendChild(actions(backBtn('welcome'),
-        h('button', { class: 'button button-primary', onClick: function () { goTo('choose'); } }, 'Continuer')));
+        h('button', { class: 'button button-primary', onClick: function () { goTo('choose'); } }, __('Continue', 'chapote-bot-manager'))));
       return;
     }
-    card.appendChild(h('h2', { text: 'Connectez votre site à Chapote' }));
+    card.appendChild(h('h2', { text: __('Connect your site to Chapote', 'chapote-bot-manager') }));
     card.appendChild(h('p', { class: 'cbo-muted', text:
-      'Une fenêtre Chapote va s’ouvrir pour autoriser ce site, puis vous reviendrez ici. Vos identifiants ne transitent jamais par WordPress.' }));
+      __('A Chapote window will open to authorize this site, then you will come back here. Your credentials never pass through WordPress.', 'chapote-bot-manager') }));
     if (CFG.cryptoOk === false) {
       card.appendChild(h('p', { class: 'cbo-error', text:
-        'OpenSSL (AES-256-GCM) indisponible : impossible de stocker vos identifiants de façon chiffrée.' }));
+        __('OpenSSL (AES-256-GCM) is unavailable: your credentials cannot be stored encrypted.', 'chapote-bot-manager') }));
     }
     var info = h('div', { class: 'cbo-device' });
     var btn = h('button', { class: 'button button-primary button-hero', disabled: CFG.cryptoOk === false,
-      onClick: function () { A.startConnect(btn, info); } }, 'Se connecter avec Chapote');
+      onClick: function () { A.startConnect(btn, info); } }, __('Sign in with Chapote', 'chapote-bot-manager'));
     card.appendChild(btn);
     card.appendChild(info);
     card.appendChild(actions(backBtn('welcome')));
@@ -219,21 +223,21 @@
   /* ---------------------------------------------------------- 3. choose */
 
   function renderChoose(card) {
-    card.appendChild(h('h2', { text: 'On part de votre site WordPress' }));
+    card.appendChild(h('h2', { text: __('Let’s start from your WordPress site', 'chapote-bot-manager') }));
     card.appendChild(h('p', { class: 'cbo-muted' },
-      'Nous allons lister vos pages publiées pour comprendre votre activité et générer un assistant pertinent. Site analysé : ',
-      h('strong', { text: CFG.siteHost || CFG.homeUrl || 'ce site' }), '.'));
+      __('We will list your published pages to understand your business and generate a relevant assistant.', 'chapote-bot-manager') + ' ' + __('Site analyzed:', 'chapote-bot-manager') + ' ',
+      h('strong', { text: CFG.siteHost || CFG.homeUrl || __('this site', 'chapote-bot-manager') }), '.'));
     card.appendChild(actions(
-      h('button', { class: 'button button-primary button-hero', onClick: function () { goTo('pick'); } }, 'Analyser mon site'),
-      h('button', { class: 'button', onClick: function (e) { startBlank(e.currentTarget); } }, 'Partir d’un assistant vierge')
+      h('button', { class: 'button button-primary button-hero', onClick: function () { goTo('pick'); } }, __('Analyze my site', 'chapote-bot-manager')),
+      h('button', { class: 'button', onClick: function (e) { startBlank(e.currentTarget); } }, __('Start from a blank assistant', 'chapote-bot-manager'))
     ));
   }
 
   function startBlank(btn) {
     if (btn) btn.disabled = true;
-    call('POST', '/bots', { name: CFG.siteName || 'Mon assistant', mode: 'hybrid' }).then(function (res) {
+    call('POST', '/bots', { name: CFG.siteName || __('My assistant', 'chapote-bot-manager'), mode: 'hybrid' }).then(function (res) {
       if (btn) btn.disabled = false;
-      if (!res.ok || !res.data || !res.data.id) { A.setNotice(apiMsg(res, 'Création impossible.'), 'warn'); return; }
+      if (!res.ok || !res.data || !res.data.id) { A.setNotice(apiMsg(res, __('Could not create the assistant.', 'chapote-bot-manager')), 'warn'); return; }
       var o = O(); o.botId = String(res.data.id); o.jobId = '';
       persist({ bot_id: o.botId, step: 'customize' });
       goTo('customize');
@@ -257,27 +261,27 @@
 
   function renderPick(card) {
     var o = O();
-    card.appendChild(h('h2', { text: 'Quelles pages décrivent votre activité ?' }));
+    card.appendChild(h('h2', { text: __('Which pages describe your business?', 'chapote-bot-manager') }));
     card.appendChild(h('p', { class: 'cbo-muted', text:
-      'Cochez jusqu’à 15 pages. Les plus utiles sont pré-sélectionnées. Vous pourrez tout ajuster ensuite.' }));
+      __('Check up to 15 pages. The most useful ones are pre-selected. You can adjust everything later.', 'chapote-bot-manager') }));
 
     var counter = h('span', { class: 'cbo-onb-counter' });
-    var search = h('input', { type: 'search', class: 'regular-text', placeholder: 'Rechercher une page…',
-      value: o.search || '', 'aria-label': 'Rechercher une page' });
-    var listHost = h('div', { class: 'cbo-onb-pages', role: 'group', 'aria-label': 'Pages de votre site' });
+    var search = h('input', { type: 'search', class: 'regular-text', placeholder: __('Search for a page…', 'chapote-bot-manager'),
+      value: o.search || '', 'aria-label': __('Search for a page', 'chapote-bot-manager') });
+    var listHost = h('div', { class: 'cbo-onb-pages', role: 'group', 'aria-label': __('Pages on your site', 'chapote-bot-manager') });
 
     function updateCounter() {
       var n = Object.keys(o.selected).length;
       clear(counter);
       counter.appendChild(h('strong', { text: n + ' / 15' }));
-      counter.appendChild(h('span', { text: ' sélectionnée' + (n > 1 ? 's' : '') }));
+      counter.appendChild(h('span', { text: ' ' + __('selected', 'chapote-bot-manager') }));
       counter.classList.toggle('is-over', n >= 15);
     }
     function rowFor(p) {
       var cb = h('input', { type: 'checkbox', checked: !!o.selected[p.url] });
       cb.addEventListener('change', function () {
         if (cb.checked) {
-          if (Object.keys(o.selected).length >= 15) { cb.checked = false; A.setNotice('Maximum 15 pages. Décochez-en une d’abord.', 'warn'); return; }
+          if (Object.keys(o.selected).length >= 15) { cb.checked = false; A.setNotice(__('Maximum of 15 pages. Uncheck one first.', 'chapote-bot-manager'), 'warn'); return; }
           o.selected[p.url] = true;
         } else { delete o.selected[p.url]; }
         updateCounter();
@@ -288,8 +292,8 @@
           h('span', { class: 'cbo-onb-page-title', text: p.title || p.url }),
           h('span', { class: 'cbo-onb-page-url', text: p.url })
         ),
-        p.is_front ? h('span', { class: 'cbo-onb-tag', text: 'Accueil' })
-          : (p.relevant ? h('span', { class: 'cbo-onb-tag cbo-onb-tag-rel', text: 'Recommandé' }) : null)
+        p.is_front ? h('span', { class: 'cbo-onb-tag', text: __('Home', 'chapote-bot-manager') })
+          : (p.relevant ? h('span', { class: 'cbo-onb-tag cbo-onb-tag-rel', text: __('Recommended', 'chapote-bot-manager') }) : null)
       );
     }
     function mergedPages() {
@@ -302,18 +306,19 @@
     }
     function renderList() {
       clear(listHost);
-      if (o.pagesLoading) { listHost.appendChild(loadingNote('Lecture de vos pages…')); return; }
+      if (o.pagesLoading) { listHost.appendChild(loadingNote(__('Reading your pages…', 'chapote-bot-manager'))); return; }
       if (o.error) { listHost.appendChild(h('p', { class: 'cbo-error', text: o.error })); return; }
       var pages = mergedPages();
-      if (!pages.length) { listHost.appendChild(h('p', { class: 'cbo-muted', text: 'Aucune page trouvée.' })); return; }
+      if (!pages.length) { listHost.appendChild(h('p', { class: 'cbo-muted', text: __('No pages found.', 'chapote-bot-manager') })); return; }
       pages.forEach(function (p) { listHost.appendChild(rowFor(p)); });
     }
     function addManual(url) {
       url = (url || '').trim();
       if (!url) return;
       if (url.indexOf('//') === -1) url = (CFG.homeUrl || '').replace(/\/+$/, '') + (url.charAt(0) === '/' ? '' : '/') + url;
-      if (!sameHost(url)) { A.setNotice('L’URL doit appartenir à votre site (' + (CFG.siteHost || '') + ').', 'warn'); return; }
-      if (Object.keys(o.selected).length >= 15) { A.setNotice('Maximum 15 pages.', 'warn'); return; }
+      /* translators: %s: site host name */
+      if (!sameHost(url)) { A.setNotice(_sprintf(__('The URL must belong to your site (%s).', 'chapote-bot-manager'), CFG.siteHost || ''), 'warn'); return; }
+      if (Object.keys(o.selected).length >= 15) { A.setNotice(__('Maximum of 15 pages.', 'chapote-bot-manager'), 'warn'); return; }
       if (o.extra.indexOf(url) === -1) o.extra.push(url);
       o.selected[url] = true;
       updateCounter(); renderList();
@@ -329,7 +334,7 @@
         fetchPages(o.search).then(function (res) {
           o.pagesLoading = false;
           if (res.ok && res.data && Array.isArray(res.data.pages)) { o.pages = res.data.pages; o.error = ''; }
-          else o.error = apiMsg(res, 'Recherche impossible.');
+          else o.error = apiMsg(res, __('Search failed.', 'chapote-bot-manager'));
           renderList();
         });
       }, 300);
@@ -341,36 +346,36 @@
 
     // 1) Rôle de l'assistant (sert à la génération de l'arbre).
     var role = h('textarea', { rows: 2, class: 'large-text', maxlength: 600,
-      placeholder: 'ex. Répondre aux questions des clients sur nos prestations et orienter vers la prise de rendez-vous.' });
+      placeholder: __('e.g. Answer customer questions about our services and guide them to book an appointment.', 'chapote-bot-manager') });
     role.value = o.role || '';
     role.addEventListener('input', function () { o.role = role.value; });
-    card.appendChild(fieldFor('Quel sera le rôle de votre assistant ? (optionnel)', role));
+    card.appendChild(fieldFor(__('What will your assistant’s role be? (optional)', 'chapote-bot-manager'), role));
 
     // 2) Visiteurs / mois (sert au palier IA recommandé).
-    var vis = h('select', { 'aria-label': 'Visiteurs par mois' },
-      h('option', { value: '', selected: !o.visitors }, 'Je ne sais pas'),
-      h('option', { value: '1000', selected: o.visitors === '1000' }, 'Moins de 1 000 / mois'),
-      h('option', { value: '5000', selected: o.visitors === '5000' }, '1 000 à 10 000 / mois'),
-      h('option', { value: '30000', selected: o.visitors === '30000' }, '10 000 à 50 000 / mois'),
-      h('option', { value: '100000', selected: o.visitors === '100000' }, 'Plus de 50 000 / mois')
+    var vis = h('select', { 'aria-label': __('Visitors per month', 'chapote-bot-manager') },
+      h('option', { value: '', selected: !o.visitors }, __('I don’t know', 'chapote-bot-manager')),
+      h('option', { value: '1000', selected: o.visitors === '1000' }, __('Fewer than 1,000 / month', 'chapote-bot-manager')),
+      h('option', { value: '5000', selected: o.visitors === '5000' }, __('1,000 to 10,000 / month', 'chapote-bot-manager')),
+      h('option', { value: '30000', selected: o.visitors === '30000' }, __('10,000 to 50,000 / month', 'chapote-bot-manager')),
+      h('option', { value: '100000', selected: o.visitors === '100000' }, __('More than 50,000 / month', 'chapote-bot-manager'))
     );
     vis.addEventListener('change', function () { o.visitors = vis.value; });
-    card.appendChild(fieldFor('Combien de visiteurs par mois ? (optionnel)', vis));
+    card.appendChild(fieldFor(__('How many visitors per month? (optional)', 'chapote-bot-manager'), vis));
 
     // 3) Ajout manuel d'une URL (même domaine).
-    var manual = h('input', { type: 'url', class: 'regular-text', placeholder: 'https://' + (CFG.siteHost || 'mon-site') + '/page', 'aria-label': 'Ajouter une URL de votre site' });
+    var manual = h('input', { type: 'url', class: 'regular-text', placeholder: 'https://' + (CFG.siteHost || 'my-site') + '/page', 'aria-label': __('Add a URL from your site', 'chapote-bot-manager') });
     manual.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addManual(manual.value); manual.value = ''; } });
     card.appendChild(h('div', { class: 'cbo-onb-manual' },
-      h('label', { class: 'cbo-onb-manual-l', text: 'Ajouter une page manuellement (même domaine)' }),
+      h('label', { class: 'cbo-onb-manual-l', text: __('Add a page manually (same domain)', 'chapote-bot-manager') }),
       h('div', { class: 'cbo-onb-manual-row' }, manual,
-        h('button', { type: 'button', class: 'button', onClick: function () { addManual(manual.value); manual.value = ''; } }, 'Ajouter'))
+        h('button', { type: 'button', class: 'button', onClick: function () { addManual(manual.value); manual.value = ''; } }, __('Add', 'chapote-bot-manager')))
     ));
 
     // 4) Liste des pages détectées (recherche + compteur + cases).
     card.appendChild(h('div', { class: 'cbo-onb-pickbar' }, search, counter));
     card.appendChild(listHost);
 
-    var genBtn = h('button', { class: 'button button-primary button-hero', onClick: function () { submitGenerate(genBtn); } }, 'Générer mon chatbot');
+    var genBtn = h('button', { class: 'button button-primary button-hero', onClick: function () { submitGenerate(genBtn); } }, __('Generate my chatbot', 'chapote-bot-manager'));
     card.appendChild(actions(backBtn('choose'), genBtn));
 
     updateCounter();
@@ -384,7 +389,7 @@
             o.preselected = true;
             o.pages.forEach(function (p) { if ((p.is_front || p.relevant) && Object.keys(o.selected).length < 15) o.selected[p.url] = true; });
           }
-        } else { o.error = apiMsg(res, 'Impossible de lister vos pages.'); }
+        } else { o.error = apiMsg(res, __('Could not list your pages.', 'chapote-bot-manager')); }
         updateCounter(); renderList();
       });
     } else { renderList(); }
@@ -393,8 +398,8 @@
   function submitGenerate(btn) {
     var o = O();
     var urls = Object.keys(o.selected);
-    if (!urls.length) { A.setNotice('Sélectionnez au moins une page.', 'warn'); return; }
-    if (urls.length > 15) { A.setNotice('Maximum 15 pages.', 'warn'); return; }
+    if (!urls.length) { A.setNotice(__('Select at least one page.', 'chapote-bot-manager'), 'warn'); return; }
+    if (urls.length > 15) { A.setNotice(__('Maximum of 15 pages.', 'chapote-bot-manager'), 'warn'); return; }
     btn.disabled = true;
     var body = { urls: urls };
     if (o.botId) body.bot_id = o.botId;
@@ -403,7 +408,7 @@
     if (o.visitors) body.visitors_per_month = parseInt(o.visitors, 10) || 0;
     call('POST', '/site/generate', body).then(function (res) {
       btn.disabled = false;
-      if (!res.ok || !res.data) { A.setNotice(apiMsg(res, 'Génération impossible.'), 'warn'); return; }
+      if (!res.ok || !res.data) { A.setNotice(apiMsg(res, __('Generation failed.', 'chapote-bot-manager')), 'warn'); return; }
       o.botId = res.data.bot_id ? String(res.data.bot_id) : o.botId;
       o.jobId = res.data.job_id ? String(res.data.job_id) : '';
       persist({ bot_id: o.botId, step: 'customize' });
@@ -416,30 +421,30 @@
   function renderCustomize(card) {
     var o = O();
     if (!o.botId) { defer(function () { goTo('choose'); }); return; }
-    card.appendChild(h('h2', { text: 'Personnalisez l’apparence' }));
+    card.appendChild(h('h2', { text: __('Customize the appearance', 'chapote-bot-manager') }));
     card.appendChild(h('p', { class: 'cbo-muted', text:
-      'Couleurs, message d’accueil, position… Les changements sont enregistrés automatiquement. Pendant ce temps, votre assistant se construit en arrière-plan.' }));
+      __('Colors, welcome message, position… Changes are saved automatically. Meanwhile, your assistant is being built in the background.', 'chapote-bot-manager') }));
     var host = h('div', { class: 'cbo-onb-embed' });
     card.appendChild(host);
     card.appendChild(actions(backBtn('pick'),
-      h('button', { class: 'button button-primary button-hero', onClick: function () { goTo('waiting'); } }, 'Continuer')));
+      h('button', { class: 'button button-primary button-hero', onClick: function () { goTo('waiting'); } }, __('Continue', 'chapote-bot-manager'))));
     mountAppearance(host);
   }
 
   function mountAppearance(host) {
     var o = O();
     stopEditorSync(); // pas de double écoute si on revient sur cette étape
-    clear(host); host.appendChild(loadingNote('Ouverture de l’éditeur d’apparence…'));
+    clear(host); host.appendChild(loadingNote(__('Opening the appearance editor…', 'chapote-bot-manager')));
     call('POST', '/bots/' + encodeURIComponent(o.botId) + '/embed-token').then(function (res) {
       if (!res.ok || !res.data || !res.data.embed_token) {
-        clear(host); host.appendChild(h('p', { class: 'cbo-error', text: apiMsg(res, 'Éditeur d’apparence indisponible.') }));
+        clear(host); host.appendChild(h('p', { class: 'cbo-error', text: apiMsg(res, __('The appearance editor is unavailable.', 'chapote-bot-manager')) }));
         return;
       }
       var nonce = randNonce();
       o.editorNonce = nonce;
       var url = (CFG.appBase || '') + '/embed/appearance' + embedFrag(res.data.embed_token, nonce);
       clear(host);
-      host.appendChild(h('iframe', { class: 'cbo-onb-iframe', src: url, title: 'Apparence du chatbot', allow: 'clipboard-write' }));
+      host.appendChild(h('iframe', { class: 'cbo-onb-iframe', src: url, title: __('Chatbot appearance', 'chapote-bot-manager'), allow: 'clipboard-write' }));
       o.unlisten = listenEmbed(nonce, function () {}); // saved/dirty informatifs
     });
   }
@@ -449,14 +454,14 @@
   function renderWaiting(card) {
     var o = O();
     if (!o.botId) { defer(function () { goTo('choose'); }); return; }
-    card.appendChild(h('h2', { text: 'Votre assistant se construit…' }));
+    card.appendChild(h('h2', { text: __('Your assistant is being built…', 'chapote-bot-manager') }));
     var bar = h('div', { class: 'cbo-onb-bar' });
     var fill = h('div', { class: 'cbo-onb-bar-fill', style: 'width:6%' });
     bar.appendChild(fill);
-    var stage = h('p', { class: 'cbo-muted', role: 'status', 'aria-live': 'polite', text: 'Initialisation…' });
+    var stage = h('p', { class: 'cbo-muted', role: 'status', 'aria-live': 'polite', text: __('Initializing…', 'chapote-bot-manager') });
     card.appendChild(bar);
     card.appendChild(stage);
-    card.appendChild(h('p', { class: 'cbo-muted', text: 'Cela prend généralement moins d’une minute.' }));
+    card.appendChild(h('p', { class: 'cbo-muted', text: __('This usually takes less than a minute.', 'chapote-bot-manager') }));
     var act = h('div', { class: 'cbo-onb-actions' });
     card.appendChild(act);
 
@@ -468,11 +473,11 @@
 
   function stageLabel(stage) {
     var M = {
-      queued: 'En file d’attente…', fetch: 'Lecture de vos pages…', scrape: 'Lecture de vos pages…',
-      analyze: 'Analyse du contenu…', plan: 'Conception de l’arbre…', generate: 'Rédaction des réponses…',
-      build: 'Assemblage…', finalize: 'Finalisation…'
+      queued: __('Waiting in queue…', 'chapote-bot-manager'), fetch: __('Reading your pages…', 'chapote-bot-manager'), scrape: __('Reading your pages…', 'chapote-bot-manager'),
+      analyze: __('Analyzing the content…', 'chapote-bot-manager'), plan: __('Designing the conversation tree…', 'chapote-bot-manager'), generate: __('Writing the answers…', 'chapote-bot-manager'),
+      build: __('Assembling…', 'chapote-bot-manager'), finalize: __('Finalizing…', 'chapote-bot-manager')
     };
-    return M[stage] || 'Construction en cours…';
+    return M[stage] || __('Build in progress…', 'chapote-bot-manager');
   }
   function pollJob(o, stage, fill, act) {
     var tries = 0, MAX = 120;
@@ -491,16 +496,16 @@
           fill.style.width = '100%';
           goTo('tree'); return;
         }
-        if (st === 'error' || st === 'failed') { jobError(act, d.error || 'La génération a échoué.'); return; }
+        if (st === 'error' || st === 'failed') { jobError(act, d.error || __('Generation failed.', 'chapote-bot-manager')); return; }
         if (tries < MAX) setTimeout(loop, 2500);
-        else jobError(act, 'La génération prend plus de temps que prévu. Réessayez dans un instant.');
+        else jobError(act, __('Generation is taking longer than expected. Try again in a moment.', 'chapote-bot-manager'));
       });
     })();
   }
   function jobError(act, msg) {
     clear(act);
     act.appendChild(h('p', { class: 'cbo-error', text: msg }));
-    act.appendChild(h('button', { class: 'button', onClick: function () { goTo('pick'); } }, 'Revenir aux pages'));
+    act.appendChild(h('button', { class: 'button', onClick: function () { goTo('pick'); } }, __('Back to page selection', 'chapote-bot-manager')));
   }
 
   /* ------------------------------------------------------------ 7. tree */
@@ -508,26 +513,26 @@
   function renderTree(card) {
     var o = O();
     if (!o.botId) { defer(function () { goTo('choose'); }); return; }
-    card.appendChild(h('h2', { text: 'Votre arbre de conversation' }));
+    card.appendChild(h('h2', { text: __('Your conversation tree', 'chapote-bot-manager') }));
     card.appendChild(h('p', { class: 'cbo-muted', text:
-      'Voici la structure générée. Ouvrez l’éditeur pour ajuster questions et réponses ; vos modifications se synchronisent ici automatiquement.' }));
+      __('Here is the generated structure. Open the editor to adjust questions and answers; your changes sync back here automatically.', 'chapote-bot-manager') }));
     var treeHost = h('div', { class: 'cbo-onb-tree' });
     card.appendChild(treeHost);
     card.appendChild(actions(
       // Retour vers Personnalisation : 'waiting' est transitoire (il redirige vers
       // 'tree' dès que le job est fini) → y revenir bouclerait.
       backBtn('customize'),
-      h('button', { class: 'button button-primary', onClick: function (e) { openEditor(e.currentTarget, treeHost); } }, 'Ouvrir l’éditeur'),
-      h('button', { class: 'button button-primary button-hero', onClick: function () { if (o.editorWin && !o.editorWin.closed) postToEditor('request-save'); goTo('preview'); } }, 'Continuer')
+      h('button', { class: 'button button-primary', onClick: function (e) { openEditor(e.currentTarget, treeHost); } }, __('Open the editor', 'chapote-bot-manager')),
+      h('button', { class: 'button button-primary button-hero', onClick: function () { if (o.editorWin && !o.editorWin.closed) postToEditor('request-save'); goTo('preview'); } }, __('Continue', 'chapote-bot-manager'))
     ));
     loadBotTree(treeHost);
   }
 
   function loadBotTree(treeHost) {
     var o = O();
-    clear(treeHost); treeHost.appendChild(loadingNote('Chargement de l’arbre…'));
+    clear(treeHost); treeHost.appendChild(loadingNote(__('Loading the tree…', 'chapote-bot-manager')));
     call('GET', '/bots/' + encodeURIComponent(o.botId)).then(function (res) {
-      if (!res.ok || !res.data) { clear(treeHost); treeHost.appendChild(h('p', { class: 'cbo-error', text: apiMsg(res, 'Impossible de charger l’arbre.') })); return; }
+      if (!res.ok || !res.data) { clear(treeHost); treeHost.appendChild(h('p', { class: 'cbo-error', text: apiMsg(res, __('Could not load the tree.', 'chapote-bot-manager')) })); return; }
       o.bot = res.data;
       o.tree = res.data.tree_json || o.tree;
       o.updatedAt = res.data.updated_at || o.updatedAt;
@@ -542,14 +547,15 @@
     var o = O();
     clear(treeHost);
     var ordered = orderedNodes(o.tree);
-    if (!ordered.length) { treeHost.appendChild(h('p', { class: 'cbo-muted', text: 'Arbre encore vide — ouvrez l’éditeur pour le compléter.' })); return; }
-    treeHost.appendChild(h('p', { class: 'cbo-onb-treecount', text: ordered.length + ' étape' + (ordered.length > 1 ? 's' : '') + ' de conversation' }));
+    if (!ordered.length) { treeHost.appendChild(h('p', { class: 'cbo-muted', text: __('The tree is still empty — open the editor to build it.', 'chapote-bot-manager') })); return; }
+    /* translators: %s: number of conversation steps */
+    treeHost.appendChild(h('p', { class: 'cbo-onb-treecount', text: ordered.length === 1 ? __('1 conversation step', 'chapote-bot-manager') : _sprintf(__('%s conversation steps', 'chapote-bot-manager'), ordered.length) }));
     var startNode = startNodeOf(o.tree), usesAi = false, list = h('ol', { class: 'cbo-onb-tree-list' });
     ordered.forEach(function (n) {
       var isStart = startNode && n.id === startNode.id, k = nodeKind(n), meta = KIND_META[k] || KIND_META.q;
       var li = h('li', { class: 'cbo-onb-node ' + meta.cls },
         h('div', { class: 'cbo-onb-node-head' },
-          h('span', { class: 'cbo-onb-badge2 ' + meta.cls, text: isStart ? 'Accueil' : meta.label }),
+          h('span', { class: 'cbo-onb-badge2 ' + meta.cls, text: isStart ? __('Home', 'chapote-bot-manager') : meta.label }),
           h('span', { class: 'cbo-onb-node-msg', text: trunc(nodeMessage(n), 140) })));
       var opts = nodeOptions(n);
       if (opts.length) {
@@ -558,17 +564,18 @@
           var toAi = optNext(op) === AI_ID; if (toAi) usesAi = true;
           ul.appendChild(h('li', { class: 'cbo-onb-opt' + (toAi ? ' is-ai' : '') },
             h('span', { class: 'cbo-onb-opt-l', text: trunc(optLabel(op), 60) }),
-            toAi ? h('span', { class: 'cbo-onb-opt-to', text: '→ IA' }) : null));
+            toAi ? h('span', { class: 'cbo-onb-opt-to', text: __('→ AI', 'chapote-bot-manager') }) : null));
         });
-        if (opts.length > 8) ul.appendChild(h('li', { class: 'cbo-onb-opt cbo-muted', text: '+ ' + (opts.length - 8) + ' autres' }));
+        /* translators: %s: number of additional options not shown */
+        if (opts.length > 8) ul.appendChild(h('li', { class: 'cbo-onb-opt cbo-muted', text: _sprintf(__('+ %s more', 'chapote-bot-manager'), opts.length - 8) }));
         li.appendChild(ul);
-      } else if (k === 'hum') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: 'Transfert vers un conseiller' })); }
-      else if (k === 'lead') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: 'Collecte des coordonnées du visiteur' })); }
-      else if (k === 'rdv') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: 'Propose une prise de rendez-vous' })); }
+      } else if (k === 'hum') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: __('Hands the visitor over to a human agent', 'chapote-bot-manager') })); }
+      else if (k === 'lead') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: __('Collects the visitor’s contact details', 'chapote-bot-manager') })); }
+      else if (k === 'rdv') { li.appendChild(h('p', { class: 'cbo-onb-opt-note', text: __('Offers to book an appointment', 'chapote-bot-manager') })); }
       list.appendChild(li);
     });
     treeHost.appendChild(list);
-    if (usesAi) treeHost.appendChild(h('p', { class: 'cbo-onb-ai-note', text: 'Les questions ouvertes sont confiées à l’IA.' }));
+    if (usesAi) treeHost.appendChild(h('p', { class: 'cbo-onb-ai-note', text: __('Open-ended questions are handled by the AI.', 'chapote-bot-manager') }));
   }
 
   function openEditor(btn, treeHost) {
@@ -576,12 +583,12 @@
     if (btn) btn.disabled = true;
     call('POST', '/bots/' + encodeURIComponent(o.botId) + '/embed-token').then(function (res) {
       if (btn) btn.disabled = false;
-      if (!res.ok || !res.data || !res.data.embed_token) { A.setNotice(apiMsg(res, 'Éditeur indisponible.'), 'warn'); return; }
+      if (!res.ok || !res.data || !res.data.embed_token) { A.setNotice(apiMsg(res, __('The editor is unavailable.', 'chapote-bot-manager')), 'warn'); return; }
       var nonce = randNonce();
       o.editorNonce = nonce;
       var url = (CFG.appBase || '') + '/embed/tree-editor' + embedFrag(res.data.embed_token, nonce, o.jobId);
       var win = window.open(url, 'chapote_editor', 'width=1200,height=820');
-      if (!win) { A.setNotice('Autorisez les fenêtres pop-up pour ouvrir l’éditeur.', 'warn'); return; }
+      if (!win) { A.setNotice(__('Allow pop-up windows to open the editor.', 'chapote-bot-manager'), 'warn'); return; }
       o.editorWin = win;
       startEditorSync(nonce, win, treeHost);
     });
@@ -595,13 +602,13 @@
     stopEditorSync();
     o.unlisten = listenEmbed(nonce, function (msg) {
       if (msg.type === 'saved') {
-        A.setNotice('Modifications enregistrées.', 'ok');
+        A.setNotice(__('Changes saved.', 'chapote-bot-manager'), 'ok');
         // L'arbre est désormais en DB : on oublie le job de génération (sinon une
         // ré-ouverture rechargerait l'arbre généré périmé et masquerait l'édition).
         var s = O(); if (s) s.jobId = '';
         loadBotTree(treeHost);
       }
-      else if (msg.type === 'error') { A.setNotice('Une erreur est survenue dans l’éditeur.', 'warn'); }
+      else if (msg.type === 'error') { A.setNotice(__('An error occurred in the editor.', 'chapote-bot-manager'), 'warn'); }
     });
     o.syncTimer = setInterval(function () {
       var cur = O();
@@ -636,25 +643,25 @@
   function renderPreview(card) {
     var o = O();
     if (!o.botId) { defer(function () { goTo('choose'); }); return; }
-    card.appendChild(h('h2', { text: 'Aperçu de votre chatbot' }));
-    card.appendChild(h('p', { class: 'cbo-muted', text: 'Testez votre assistant comme le verront vos visiteurs. Cet aperçu est privé.' }));
+    card.appendChild(h('h2', { text: __('Preview your chatbot', 'chapote-bot-manager') }));
+    card.appendChild(h('p', { class: 'cbo-muted', text: __('Try your assistant exactly as your visitors will see it. This preview is private.', 'chapote-bot-manager') }));
     var host = h('div', { class: 'cbo-onb-preview' });
     card.appendChild(host);
     card.appendChild(actions(
       backBtn('tree'),
       // Reset : token frais + iframe neuve = conversation vierge (le widget ne
       // restaure pas la session en mode aperçu).
-      h('button', { class: 'button cbo-onb-reset', type: 'button', onClick: function () { loadPreview(host); } }, '↻ Recommencer'),
-      h('button', { class: 'button button-primary button-hero', onClick: function () { goTo('offer'); } }, 'Voir mon offre')
+      h('button', { class: 'button cbo-onb-reset', type: 'button', onClick: function () { loadPreview(host); } }, __('↻ Start over', 'chapote-bot-manager')),
+      h('button', { class: 'button button-primary button-hero', onClick: function () { goTo('offer'); } }, __('See my plan', 'chapote-bot-manager'))
     ));
     loadPreview(host);
   }
 
   function loadPreview(host) {
     var o = O();
-    clear(host); host.appendChild(loadingNote('Préparation de l’aperçu…'));
+    clear(host); host.appendChild(loadingNote(__('Preparing the preview…', 'chapote-bot-manager')));
     call('POST', '/bots/' + encodeURIComponent(o.botId) + '/preview-token').then(function (res) {
-      if (!res.ok || !res.data || !res.data.preview_token) { clear(host); host.appendChild(h('p', { class: 'cbo-error', text: apiMsg(res, 'Aperçu indisponible.') })); return; }
+      if (!res.ok || !res.data || !res.data.preview_token) { clear(host); host.appendChild(h('p', { class: 'cbo-error', text: apiMsg(res, __('The preview is unavailable.', 'chapote-bot-manager')) })); return; }
       var token = res.data.preview_token;
       // /widget-frame exige le couple key(public_key)+preview_token (le token
       // seul ne suffit pas : bootstrap valide bot.public_key == key).
@@ -662,7 +669,7 @@
         var url = (CFG.apiBase || '') + '/widget-frame?key=' + encodeURIComponent(pk) +
           '&preview_token=' + encodeURIComponent(token);
         clear(host);
-        host.appendChild(h('iframe', { class: 'cbo-onb-widgetframe', src: url, title: 'Aperçu du chatbot',
+        host.appendChild(h('iframe', { class: 'cbo-onb-widgetframe', src: url, title: __('Chatbot preview', 'chapote-bot-manager'),
           sandbox: 'allow-scripts allow-forms allow-same-origin allow-popups' }));
       }
       var pk = (o.bot && o.bot.public_key) || '';
@@ -681,10 +688,10 @@
   function renderOffer(card) {
     var o = O();
     if (!o.botId) { defer(function () { goTo('choose'); }); return; }
-    card.appendChild(h('h2', { text: 'Votre offre recommandée' }));
+    card.appendChild(h('h2', { text: __('Your recommended plan', 'chapote-bot-manager') }));
     var pane = h('div', { class: 'cbo-onb-offer' });
     card.appendChild(pane);
-    pane.appendChild(loadingNote('Calcul de la meilleure offre…'));
+    pane.appendChild(loadingNote(__('Working out the best plan…', 'chapote-bot-manager')));
     Promise.all([
       call('POST', '/bots/' + encodeURIComponent(o.botId) + '/recommendation', recoBody(o)),
       call('GET', '/catalog'),
@@ -697,7 +704,7 @@
       o.recommendation = rec;
       clear(pane);
       if (!live) {
-        pane.appendChild(h('p', { class: 'cbo-error', text: 'Catalogue indisponible — réessayez dans un instant.' }));
+        pane.appendChild(h('p', { class: 'cbo-error', text: __('The catalog is unavailable — try again in a moment.', 'chapote-bot-manager') }));
         pane.appendChild(actions(backBtn('preview')));
         return;
       }
@@ -728,17 +735,18 @@
     }
 
     var banner = h('div', { class: 'cbo-onb-reco' },
-      h('strong', { text: 'D’après votre arbre et vos réponses, voici l’offre conseillée.' }));
+      h('strong', { text: __('Based on your tree and your answers, here is the recommended plan.', 'chapote-bot-manager') }));
     if (rec && rec.reason) banner.appendChild(h('p', { class: 'cbo-muted', text: rec.reason }));
+    /* translators: %s: estimated number of replies per month */
     if (rec && rec.expected_replies) banner.appendChild(h('p', { class: 'cbo-muted',
-      text: 'Volume estimé : environ ' + Number(rec.expected_replies).toLocaleString('fr-FR') + ' réponses / mois.' }));
+      text: _sprintf(__('Estimated volume: about %s replies / month.', 'chapote-bot-manager'), Number(rec.expected_replies).toLocaleString('fr-FR')) }));
     // Pourquoi cette formule : explication PERSONNALISÉE générée par l'IA si dispo
     // (sur mesure pour ce commerce), sinon repli sur la liste statique par module.
     if (rec && rec.explanation_ai) {
       banner.appendChild(h('p', { class: 'cbo-onb-reco-pitch', text: rec.explanation_ai }));
     } else if (rec && Array.isArray(rec.explanations) && rec.explanations.length) {
       banner.appendChild(h('p', { class: 'cbo-onb-reco-intro',
-        text: 'Concrètement, voici ce que votre assistant utilise — et pourquoi :' }));
+        text: __('In practice, here is what your assistant uses — and why:', 'chapote-bot-manager') }));
       var exList = h('ul', { class: 'cbo-onb-reco-list' });
       rec.explanations.forEach(function (ex) {
         exList.appendChild(h('li', null,
@@ -750,7 +758,7 @@
     A.buildPaymentForm(pane, sBot, catalog, {
       banner: banner,
       required: (rec && Array.isArray(rec.required_modules)) ? rec.required_modules : [],
-      submitLabel: 'Souscrire et activer',
+      submitLabel: __('Subscribe and activate', 'chapote-bot-manager'),
       onSubscribe: function (config, consent, btn) { offerSubscribe(config, consent, btn); }
       // Pas de bouton « version gratuite » : le modèle n'a pas de palier gratuit
       // (souscription requise pour activer le widget).
@@ -760,7 +768,7 @@
 
   function offerSubscribe(config, consent, btn) {
     var o = O();
-    if (!consent) { A.setNotice('Cochez le consentement à l’exécution immédiate pour souscrire.', 'warn'); return; }
+    if (!consent) { A.setNotice(__('Check the immediate-execution consent box to subscribe.', 'chapote-bot-manager'), 'warn'); return; }
     if (btn) btn.disabled = true;
     pruneIfNeeded(config.modules).then(function () {
       persist({ step: 'activation', bot_id: o.botId });
@@ -796,7 +804,7 @@
   function renderActivation(card) {
     var o = O();
     if (!o.botId) { defer(function () { goTo('choose'); }); return; }
-    card.appendChild(h('h2', { text: 'Activation sur votre site' }));
+    card.appendChild(h('h2', { text: __('Activation on your site', 'chapote-bot-manager') }));
     var status = h('p', { class: 'cbo-muted', role: 'status', 'aria-live': 'polite' });
     var body = h('div', { class: 'cbo-onb-activate' });
     card.appendChild(status);
@@ -805,19 +813,19 @@
     if (o.done) { renderDone(status, body); return; }
     if (o.error) {
       body.appendChild(h('p', { class: 'cbo-error', text: o.error }));
-      body.appendChild(h('button', { class: 'button button-primary', onClick: function () { o.error = ''; o.activating = false; kickoffActivation(status); } }, 'Réessayer'));
+      body.appendChild(h('button', { class: 'button button-primary', onClick: function () { o.error = ''; o.activating = false; kickoffActivation(status); } }, __('Try again', 'chapote-bot-manager')));
       return;
     }
     if (o.stripe === 'cancel' && !o.activating) {
-      status.textContent = 'Paiement annulé.';
-      body.appendChild(h('p', { class: 'cbo-muted', text: 'Vous pouvez revoir l’offre ou activer la version gratuite.' }));
+      status.textContent = __('Payment canceled.', 'chapote-bot-manager');
+      body.appendChild(h('p', { class: 'cbo-muted', text: __('You can review the plan or activate the free version.', 'chapote-bot-manager') }));
       body.appendChild(actions(
-        h('button', { class: 'button', onClick: function () { o.stripe = ''; goTo('offer'); } }, 'Revoir l’offre'),
-        h('button', { class: 'button button-primary', onClick: function () { o.stripe = ''; kickoffActivation(status); } }, 'Activer en version gratuite')
+        h('button', { class: 'button', onClick: function () { o.stripe = ''; goTo('offer'); } }, __('Review the plan', 'chapote-bot-manager')),
+        h('button', { class: 'button button-primary', onClick: function () { o.stripe = ''; kickoffActivation(status); } }, __('Activate the free version', 'chapote-bot-manager'))
       ));
       return;
     }
-    status.textContent = 'Mise en ligne de votre assistant…';
+    status.textContent = __('Putting your assistant live…', 'chapote-bot-manager');
     if (!o.activating) kickoffActivation(status);
   }
 
@@ -825,7 +833,7 @@
     var o = O();
     o.activating = true;
     if (o.stripe === 'success') {
-      status.textContent = 'Paiement reçu. Vérification de l’abonnement…';
+      status.textContent = __('Payment received. Verifying your subscription…', 'chapote-bot-manager');
       waitBillingThenEnable(status);
     } else {
       enableWidget(status);
@@ -842,18 +850,18 @@
         var bs = (res.ok && res.data) ? res.data.billing_status : '';
         if (bs === 'active' || bs === 'trialing') { enableWidget(status); return; }
         if (tries < MAX) { setTimeout(loop, 3000); return; }
-        status.textContent = 'Abonnement en cours de validation — on active déjà votre widget.';
+        status.textContent = __('Your subscription is still being validated — activating your widget in the meantime.', 'chapote-bot-manager');
         enableWidget(status);
       });
     })();
   }
   function enableWidget(status) {
     var o = O();
-    if (status) status.textContent = 'Activation du widget sur votre site…';
+    if (status) status.textContent = __('Activating the widget on your site…', 'chapote-bot-manager');
     call('POST', '/bots/' + encodeURIComponent(o.botId) + '/local', { enabled: true, targeting: defaultTargeting() }).then(function (res) {
       var cur = O(); if (!cur) return;
       if (!res.ok) {
-        cur.activating = false; cur.error = apiMsg(res, 'Activation impossible. Réessayez.');
+        cur.activating = false; cur.error = apiMsg(res, __('Activation failed. Try again.', 'chapote-bot-manager'));
         if (O() === cur && cur.step === 'activation') A.render();
         return;
       }
@@ -871,11 +879,11 @@
     clear(body);
     body.appendChild(h('div', { class: 'cbo-onb-success' },
       h('div', { class: 'cbo-onb-success-ic', text: '✓' }),
-      h('h3', { text: 'Votre chatbot est en ligne !' }),
-      h('p', { class: 'cbo-muted', text: 'Il répond désormais à vos visiteurs. Vous pouvez tout ajuster depuis « Mes bots ».' }),
+      h('h3', { text: __('Your chatbot is live!', 'chapote-bot-manager') }),
+      h('p', { class: 'cbo-muted', text: __('It is now answering your visitors. You can adjust everything from “My bots”.', 'chapote-bot-manager') }),
       actions(
-        h('button', { class: 'button button-primary button-hero', onClick: function () { A.exitOnboarding('Bienvenue dans votre tableau de bord Chapote.', 'ok'); } }, 'Aller au tableau de bord'),
-        CFG.homeUrl ? h('a', { class: 'button', href: CFG.homeUrl, target: '_blank', rel: 'noopener' }, 'Voir mon site') : null
+        h('button', { class: 'button button-primary button-hero', onClick: function () { A.exitOnboarding(__('Welcome to your Chapote dashboard.', 'chapote-bot-manager'), 'ok'); } }, __('Go to the dashboard', 'chapote-bot-manager')),
+        CFG.homeUrl ? h('a', { class: 'button', href: CFG.homeUrl, target: '_blank', rel: 'noopener' }, __('View my site', 'chapote-bot-manager')) : null
       )
     ));
   }
@@ -940,8 +948,8 @@
   // --- Rendu d'arbre (renderTreeView) : type, options, parcours, troncature.
   var AI_ID = '__ai__';
   var KIND_META = {
-    q: { label: 'Question', cls: 'is-q' }, hum: { label: 'Conseiller', cls: 'is-hum' },
-    lead: { label: 'Lead', cls: 'is-lead' }, rdv: { label: 'Rendez-vous', cls: 'is-rdv' }
+    q: { label: __('Question', 'chapote-bot-manager'), cls: 'is-q' }, hum: { label: __('Agent', 'chapote-bot-manager'), cls: 'is-hum' },
+    lead: { label: __('Lead', 'chapote-bot-manager'), cls: 'is-lead' }, rdv: { label: __('Appointment', 'chapote-bot-manager'), cls: 'is-rdv' }
   };
   function nodeKind(n) {
     if (!n) return 'q';
@@ -951,9 +959,9 @@
     return 'q';
   }
   function nodeOptions(n) { var o = n && (n.options || n.choices || n.replies); return Array.isArray(o) ? o : []; }
-  function optLabel(o) { return (o && (o.label || o.text || o.title || o.value)) || 'Option'; }
+  function optLabel(o) { return (o && (o.label || o.text || o.title || o.value)) || __('Option', 'chapote-bot-manager'); }
   function optNext(o) { return o && (o.next != null ? o.next : (o.target != null ? o.target : o.goto)); }
-  function nodeMessage(n) { var m = n && (n.message || n.text || n.prompt || n.title || n.label || n.name); return m ? String(m) : '(sans message)'; }
+  function nodeMessage(n) { var m = n && (n.message || n.text || n.prompt || n.title || n.label || n.name); return m ? String(m) : __('(no message)', 'chapote-bot-manager'); }
   function trunc(s, n) {
     s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
     return s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : s;

@@ -52,24 +52,29 @@ class Chapote_BO_Admin {
         wp_enqueue_script(
             'chapote-bo-core',
             CHAPOTE_BO_URL . 'admin/js/cbo-core.js',
-            array(),
+            array('wp-i18n'),
             CHAPOTE_BO_VERSION,
             true
         );
         wp_enqueue_script(
             'chapote-bo-admin',
             CHAPOTE_BO_URL . 'admin/js/admin.js',
-            array('chapote-bo-core'),
+            array('chapote-bo-core', 'wp-i18n'),
             CHAPOTE_BO_VERSION,
             true
         );
         wp_enqueue_script(
             'chapote-bo-onboarding',
             CHAPOTE_BO_URL . 'admin/js/onboarding.js',
-            array('chapote-bo-core', 'chapote-bo-admin'),
+            array('chapote-bo-core', 'chapote-bo-admin', 'wp-i18n'),
             CHAPOTE_BO_VERSION,
             true
         );
+
+        // Traductions JS (wp.i18n) : fichiers JSON générés dans /languages.
+        wp_set_script_translations('chapote-bo-core', 'chapote-bot-manager', plugin_dir_path(CHAPOTE_BO_FILE) . 'languages');
+        wp_set_script_translations('chapote-bo-admin', 'chapote-bot-manager', plugin_dir_path(CHAPOTE_BO_FILE) . 'languages');
+        wp_set_script_translations('chapote-bo-onboarding', 'chapote-bot-manager', plugin_dir_path(CHAPOTE_BO_FILE) . 'languages');
 
         $host = wp_parse_url(home_url(), PHP_URL_HOST);
         if (wp_parse_url(home_url(), PHP_URL_PORT)) {
@@ -122,12 +127,12 @@ class Chapote_BO_Admin {
         echo '<h1>' . esc_html__('Chapote Bot Manager', 'chapote-bot-manager') . '</h1>';
         if (!Chapote_BO_Crypto::available()) {
             echo '<div class="notice notice-error"><p>'
-                . esc_html__('Le module PHP OpenSSL (AES-256-GCM) est requis pour stocker vos identifiants de façon chiffrée. Contactez votre hébergeur.', 'chapote-bot-manager')
+                . esc_html__('The PHP OpenSSL module (AES-256-GCM) is required to store your credentials encrypted. Please contact your hosting provider.', 'chapote-bot-manager')
                 . '</p></div>';
         }
         // Conteneur monté par la SPA vanilla. Fallback no-JS pour l'accessibilité.
         echo '<div id="chapote-bo-app"><noscript>'
-            . esc_html__('Ce back-office nécessite JavaScript.', 'chapote-bot-manager')
+            . esc_html__('This back office requires JavaScript.', 'chapote-bot-manager')
             . '</noscript></div>';
         echo '</div>';
     }

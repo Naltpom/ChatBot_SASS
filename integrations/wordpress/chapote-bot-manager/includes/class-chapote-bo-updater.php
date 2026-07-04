@@ -179,7 +179,7 @@ class Chapote_BO_Updater {
             }
         }
         if (empty($sections['description'])) {
-            $sections['description'] = esc_html__('Le chatbot Chapote dans WordPress.', 'chapote-bot-manager');
+            $sections['description'] = esc_html__('The Chapote chatbot inside WordPress.', 'chapote-bot-manager');
         }
         $info->sections = $sections;
 

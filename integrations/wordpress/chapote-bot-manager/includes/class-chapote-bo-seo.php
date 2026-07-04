@@ -92,7 +92,7 @@ class Chapote_BO_SEO {
         printf(
             '<div class="chapote-powered-by"><a href="%1$s">%2$s</a></div>' . "\n",
             esc_url('https://chapote.fr'),
-            esc_html__('Chatbot par Chapote', 'chapote-bot-manager')
+            esc_html__('Chatbot by Chapote', 'chapote-bot-manager')
         );
     }
 
