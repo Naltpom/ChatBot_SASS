@@ -195,9 +195,9 @@ async def fetch_page_text(url: str) -> str:
     extrait le texte brut.
 
     Délègue à `kb_service.fetch_user_url` (porte unique anti-SSRF : https imposé,
-    rejet des IP non publiques, épinglage anti-rebinding, lecture bornée). Le
-    `http://` et le fetch laxiste d'origine sont supprimés — une URL non https ou
-    interne lève FetchError, traduite ici en TreeGenerationError (message FR)."""
+    rejet des IP non publiques, épinglage anti-rebinding, lecture bornée). Une
+    URL non https ou interne lève FetchError, traduite ici en
+    TreeGenerationError (message FR)."""
     # Import local (comme bots.py) : évite de charger kb_service/embeddings au
     # simple import de tree_generator (importé largement, dont par la démo).
     from src.services.kb_service import FetchError, fetch_user_url

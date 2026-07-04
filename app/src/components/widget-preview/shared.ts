@@ -17,8 +17,7 @@ export interface Msg {
 // widget.js : fields filtrés sur le référentiel, email forcé en tête.
 export interface LeadSim { fields: string[]; after: { label: string; next: string }[] }
 
-// Référentiel des champs lead autorisés (parité widget.js). Interne au module :
-// seul leadFieldsOf() le consomme, pas d'usage hors d'ici (export retiré).
+// Référentiel des champs lead autorisés (parité widget.js).
 const LEAD_FIELD_KEYS = ['email', 'name', 'phone', 'message']
 
 export function leadFieldsOf(fields?: string[]): string[] {

@@ -75,7 +75,6 @@ export default function Analytics() {
       .finally(() => { if (alive()) setLeadsBusy(false) })
   }
 
-  // ---------- États de page ----------
   if (botsLoading) return <div className="center-page">Chargement…</div>
 
   if (botsError) {
@@ -112,7 +111,6 @@ export default function Analytics() {
         Analytics
       </SectionTitle>
 
-      {/* ---------- Sélecteur de bot ---------- */}
       {/* Même rendu en pilules .inbox-bot-* que l'Inbox (cohérence inter-pages) ;
           chip « En pause » pour les bots inactifs via le slot `extra`. */}
       <Card nopad>
@@ -127,18 +125,15 @@ export default function Analytics() {
         <Card style={{ textAlign: 'center', color: 'var(--mut)' }}>Chargement du chatbot…</Card>
       ) : (
         <>
-          {/* ---------- Stats ---------- */}
           <StatsPanel botId={detail.id} botName={detail.name}
                       tree={detail.tree_json} variantTree={detail.tree_variant_json}
                       abSplit={detail.ab_split_pct ?? 0} />
 
-          {/* ---------- Insights ---------- */}
           {/* onPrefill : pas d'éditeur d'arbre ici → on renvoie vers l'onglet
               Arbre du bot pour appliquer la suggestion. */}
           <InsightsPanel botId={detail.id}
                          onPrefill={() => navigate(`/app/bots/${detail.id}?tab=tree`)} />
 
-          {/* ---------- Leads ---------- */}
           <LeadsSection botName={detail.name} leads={leads} leadsBusy={leadsBusy} leadsError={leadsError}
                         onReload={() => loadLeads(detail.id, () => true)}
                         onOpenTree={() => navigate(`/app/bots/${detail.id}?tab=tree`)} />

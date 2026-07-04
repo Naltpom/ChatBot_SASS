@@ -284,7 +284,6 @@ def _check_mcp_servers(servers: Any) -> None:
 
 
 # Triggers proactifs : bornes de validation (PATCH, perm 'appearance').
-# Constantes + prédicat de validité factorisés dans src.core.triggers.
 
 
 def _check_triggers(triggers: Any) -> None:

@@ -114,7 +114,6 @@ export default function APropos() {
           </ul>
         </Section>
 
-        {/* Le modèle hybride, en trois temps. */}
         <Section style={{ padding: '36px 24px 0' }}>
           <h2 style={h2}>Le modèle hybride, en trois temps</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
@@ -140,7 +139,6 @@ export default function APropos() {
           </div>
         </Section>
 
-        {/* CTA. */}
         <Section style={{ padding: '42px 24px 72px', textAlign: 'center' }}>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link to={ctaTo} style={btnPrimary}>Installer Chapote →</Link>

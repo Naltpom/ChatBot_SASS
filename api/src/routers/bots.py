@@ -68,10 +68,6 @@ router = APIRouter(prefix="/api", tags=["bots"])
 
 logger = logging.getLogger("billing")
 
-# `_bot_limiter_key` vit desormais dans core/billing_keys (scope partage
-# rate-limit IA + facturation, spec §2.5). Importe ci-dessus, reexporte pour
-# les appelants historiques (treegen/insights ci-dessous) sans changer leur API.
-
 
 # --- Meta : sources canoniques des permissions / catalogue (lecture seule) ---
 
@@ -289,13 +285,6 @@ async def create_bot(org_id: int, body: BotCreate, db: AsyncSession = Depends(ge
 async def get_bot(bot_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     bot, membership = await _get_accessible_bot(db, bot_id, user)
     return _mask_bot_out(BotOut.from_bot(bot), user, membership, bot)
-
-
-# Colonnes JSON/int NOT NULL : un null explicite serait persiste (JSON null) ou
-# violerait l'integrite -> bot illisible (tous les GET en 500). tree_variant_json
-# n'y figure PAS : null explicite = desactivation voulue de la variante A/B.
-# `_strip_notnull_nulls` (+ sa constante) et `_enforce_config_modules` sont
-# déplacés dans services/bot_service (PR-19) et ré-exposés en tête via alias.
 
 
 def _enforce_field_perms(user: User, membership: "Membership | None", bot: Bot, data: dict) -> None:

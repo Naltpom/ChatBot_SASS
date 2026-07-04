@@ -110,9 +110,6 @@ class Chapote_BO_Admin {
                 'cgu' => $app_base . '/legal/cgu',
                 'cgv' => $app_base . '/legal/cgv',
             ),
-            // Le catalogue de facturation (prix, paliers IA, modules) n'est PLUS
-            // dupliqué ici : la SPA admin le récupère en LIVE via le proxy REST
-            // /catalog (-> GET /api/account/catalog, source unique backend).
             'dashboardBase' => $app_base,
         ));
     }

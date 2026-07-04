@@ -39,7 +39,7 @@ class BotConfigPayload(BaseModel):
     subscription update), le service billing (validation / checkout) ET la surface
     plugin (/api/account). Il vit ICI (models) — et non dans routers/billing.py —
     pour être importable des deux côtés sans coupler les routers entre eux ni créer
-    de cycle service↔router (PR-19, découplage surface externe)."""
+    de cycle service↔router."""
     modules: list[str] = Field(default_factory=list)   # sous-ensemble de MODULE_KEYS
     ai_tier_id: str | None = None                       # ai_free | ai_starter | ...
     ai_byok: bool = False
@@ -47,7 +47,7 @@ class BotConfigPayload(BaseModel):
 
 class BotEntitlement(Base):
     """Droits d'un bot, projetés depuis Stripe (jamais édités via PATCH /api/bots).
-    Absence de ligne = socle gratuit. Schéma CANONIQUE (corrige B3/B4)."""
+    Absence de ligne = socle gratuit. Schéma CANONIQUE."""
     __tablename__ = "bot_entitlements"
 
     id = Column(Integer, primary_key=True)
@@ -213,8 +213,7 @@ class BillingPreset(Base):
 
 
 class BillingWebhookEvent(Base):
-    """Idempotence webhook (nom CANONIQUE, corrige B6 : ni billing_events ni
-    processed_webhook_events)."""
+    """Idempotence webhook (event.id)."""
     __tablename__ = "billing_webhook_events"
 
     id = Column(Integer, primary_key=True)

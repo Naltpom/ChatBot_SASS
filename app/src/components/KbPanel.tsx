@@ -176,7 +176,6 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
         </InfoBox>
       ) : null}
 
-      {/* ---- Ajouter une source ---- */}
       <Card>
         <div className="card-title">Ajouter une source</div>
         <div className="col" style={{ gap: 12 }}>
@@ -238,7 +237,6 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
         </div>
       </Card>
 
-      {/* ---- Liste des sources ---- */}
       {hasPending && (
         <InfoBox tone="info" title="Indexation en cours">
           L'indexation tourne en arrière-plan. Au tout premier ajout, le serveur télécharge le modèle
@@ -318,7 +316,6 @@ export default function KbPanel({ botId, aiActive }: { botId: number; aiActive: 
         </Card>
       )}
 
-      {/* ---- Tester la recherche ---- */}
       <Card>
         <div className="card-title">Tester la recherche</div>
         <div className="row g8" style={{ flexWrap: 'wrap' }}>

@@ -1,4 +1,4 @@
-"""Logique MÉTIER « bot » partagée — extraite de routers/bots.py (PR-19).
+"""Logique MÉTIER « bot » partagée.
 
 Logique RÉUTILISÉE par le router DASHBOARD (routers/bots.py) ET la surface EXTERNE
 plugin (routers/external/account.py) sans coupler les routers entre eux :
@@ -6,10 +6,9 @@ plugin (routers/external/account.py) sans coupler les routers entre eux :
 - `strip_notnull_nulls` + `enforce_config_modules` : pipeline de gating des modules
   au PATCH (parité + 402 sur capacité payante non souscrite).
 
-Avant PR-19, account.py appelait ces fonctions sous leurs noms PRIVÉS dans
-routers/bots.py (`_billing_status_for_bots`, `_strip_notnull_nulls`,
-`_enforce_config_modules`) — couplage router→router. bots.py les RÉ-EXPOSE
-désormais sous ces alias historiques (appelants internes + tests inchangés).
+bots.py RÉ-EXPOSE ces fonctions sous leurs alias privés historiques
+(`_billing_status_for_bots`, `_strip_notnull_nulls`, `_enforce_config_modules`)
+pour ses appelants internes et les tests.
 
 Ce service ne doit JAMAIS importer un router (sinon cycle import).
 """

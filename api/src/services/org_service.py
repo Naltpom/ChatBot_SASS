@@ -1,11 +1,6 @@
-"""Logique metier des organisations sortie des routers (CHANTIER H).
-
-Deux regles etaient reimplementees a la main dans les routers :
-- la garde « dernier admin » (3x dans `orgs.py` : leave/update_member/remove_member) ;
+"""Logique metier des organisations partagee par les routers :
+- la garde « dernier admin » (`orgs.py` : leave/update_member/remove_member) ;
 - la consommation des invitations en attente a l'inscription (`auth.py`).
-
-Centralisees ici comme fonctions reutilisables. Comportement reproduit a
-l'identique (memes requetes, memes seuils) : les routers delegent simplement.
 """
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -27,7 +22,7 @@ async def ensure_not_last_admin(db: AsyncSession, org_id: int, detail: str) -> N
 
     A appeler AVANT de retirer/retrograder un admin (leave, retrogradation
     role->member, suppression de membre). `detail` = message d'erreur (les
-    libelles different selon le contexte d'appel — preserves a l'identique)."""
+    libelles different selon le contexte d'appel)."""
     if (await count_admins(db, org_id)) <= 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail)
 

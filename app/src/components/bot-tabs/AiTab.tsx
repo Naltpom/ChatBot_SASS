@@ -1,7 +1,7 @@
 // Onglet « IA » de BotPage — présentationnel. Sous-onglets Modèle / Instructions
 // / Connaissances (RAG). Le mode est binaire : un toggle « Activer l'IA »
 // bascule arbre (gratuit) <-> hybride (IA). Verrou module = bannière au-dessus
-// (pas de calque). KbPanel (RAG) vit HORS save bar comme dans l'original.
+// (pas de calque). KbPanel (RAG) vit HORS save bar.
 import { useState } from 'react'
 import { Card, Chip, Divider, InfoBox, SectionTitle, Seg, Toggle } from '../../ui'
 import { MODEL_OPTIONS, ModelOption } from '../../botConstants'
@@ -47,8 +47,7 @@ export default function AiTab({
           a son propre verrou). */}
       <ModuleLockBanner locked={locked && sec !== 'rag'} label="Intelligence artificielle" onUpgrade={onUpgrade} />
 
-      {/* Activer l'IA : binaire arbre <-> hybride (remplace l'ancien sélecteur de
-          mode Arbre/Hybride/IA). Toucher le mode est gardé serveur par MODULE_AI. */}
+      {/* Activer l'IA : binaire arbre <-> hybride. Toucher le mode est gardé serveur par MODULE_AI. */}
       <Card>
         <div className="toggle-row">
           <div>
@@ -61,7 +60,6 @@ export default function AiTab({
 
       <SubTabs value={sec} onChange={setSec} options={IA_TABS} maxWidth={520} />
 
-      {/* ---------------- Modèle & clé ---------------- */}
       {sec === 'model' && (
         <Card>
           <div className="card-title">Modèle IA</div>
@@ -107,7 +105,6 @@ export default function AiTab({
         </Card>
       )}
 
-      {/* ---------------- Instructions ---------------- */}
       {sec === 'prompt' && (
         <div className="grid2">
           <Card>
@@ -129,7 +126,6 @@ export default function AiTab({
         </div>
       )}
 
-      {/* ---------------- Connaissances (RAG) ---------------- */}
       {sec === 'rag' && (
         <div className="col g14">
           <ModuleLockBanner locked={ragLocked} label="Connaissances (RAG)" onUpgrade={onUpgrade} />

@@ -17,7 +17,6 @@ export function Comparatif() {
         </div>
         <div className="ch-reveal ch-cmp-scroll" style={{ overflowX: 'auto', padding: '4px 0 26px' }}>
         <div className="ch-cmp-table" style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 24, overflow: 'hidden', boxShadow: '0 16px 44px -24px rgba(28,63,92,.24)' }}>
-          {/* en-têtes */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr' }}>
             <div style={{ padding: '22px 24px' }} />
             <div style={{ padding: '20px 14px', textAlign: 'center', background: 'rgba(47,158,121,.07)', borderBottom: '3px solid #2F9E79' }}>
@@ -27,7 +26,6 @@ export function Comparatif() {
             <div style={{ padding: '20px 14px', textAlign: 'center', borderBottom: '1px solid #EEF1F4' }}><div style={{ fontWeight: 600, fontSize: 15, color: '#6B7B8D' }}>Chatbot 100% IA</div></div>
             <div style={{ padding: '20px 14px', textAlign: 'center', borderBottom: '1px solid #EEF1F4' }}><div style={{ fontWeight: 600, fontSize: 15, color: '#6B7B8D' }}>Support classique</div></div>
           </div>
-          {/* lignes */}
           {CMP_ROWS.map((row, idx) => {
             const lastRow = idx === CMP_ROWS.length - 1
             const cell = (c: Cell, chapoteCol: boolean) => (

@@ -1,5 +1,4 @@
 // Construction d'arbre du wizard — LOGIQUE PURE (entrée → sortie, sans état React).
-// Extrait tel quel de pages/BotWizard.tsx (comportement strictement identique) :
 //   - rawBranches : réponses du chat → ébauche d'arbre (modèle interne Branch).
 //   - buildTree (+ makeNode/slug) : ébauche → tree_json réel ({ start, nodes }).
 // allowAI=false (mode tree pur) → les destinations IA deviennent un message.
@@ -7,7 +6,7 @@
 import type { Tree, TreeNode } from '../types/bot'
 
 // ---------------------------------------------------------------------------
-// Brouillon d'arbre éditable (modèle interne du wizard, façon BotCreate.dc.html)
+// Brouillon d'arbre éditable (modèle interne du wizard)
 export interface SubBranch { answer: string; type: string; title: string }
 export interface Branch { answer: string; type: string; title: string; subs: SubBranch[] }
 

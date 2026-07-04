@@ -1,6 +1,5 @@
-// Polices, keyframes/responsive scoped (.chapote) et apparition au scroll —
-// extraits de Landing.tsx (R4). Portée landing uniquement : tout est injecté
-// au montage et nettoyé au démontage.
+// Polices, keyframes/responsive scoped (.chapote) et apparition au scroll.
+// Portée landing uniquement : tout est injecté au montage et nettoyé au démontage.
 import { useEffect } from 'react'
 
 const FONT_LINKS = [

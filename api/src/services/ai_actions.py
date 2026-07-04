@@ -2,11 +2,9 @@
 schemas de tools (Anthropic/OpenAI), execution d'un tool et tool interne
 search_docs (RAG).
 
-Extrait de ai_service.py pour alleger ce dernier — comportement INCHANGE.
 Ne JAMAIS importer ai_service ici (cycle) : les donnees (bot, db, history…)
 sont passees en parametres. action_executor est importe normalement ;
-kb_service / mcp_client sont importes paresseusement (lazy) la ou ils servent,
-comme dans l'original.
+kb_service / mcp_client sont importes paresseusement (lazy) la ou ils servent.
 """
 import json
 import logging
@@ -20,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Boucle tool-use bornee : au-dela, on rend le dernier texte disponible.
 # ATTENTION cout : chaque tour = un appel provider facture, pour UNE seule
 # reponse rendue au visiteur (count des Message ai) — borne a 2 pour limiter
-# le ratio appels/reponse a 2x maximum (documente).
+# le ratio appels/reponse a 2x maximum.
 # Decision RAG : 2 tours suffisent aussi a search_docs (recherche puis
 # reponse). Au dernier tour autorise, les tool_use ne sont PAS executes :
 # aucun effet de bord (lead, webhook) qui serait ensuite annonce en echec au
@@ -94,7 +92,7 @@ def _openai_tool(name: str, description: str, schema: dict) -> dict:
 
 # Types JSON Schema -> enum `Type` de l'API Gemini. Le JSON proto3 de Gemini
 # attend l'enum en MAJUSCULES (STRING, OBJECT, ...) : une valeur en minuscules
-# fait rejeter la functionDeclaration (parite providers, PR-23).
+# fait rejeter la functionDeclaration.
 _GEMINI_TYPES = {
     "string": "STRING", "number": "NUMBER", "integer": "INTEGER",
     "boolean": "BOOLEAN", "array": "ARRAY", "object": "OBJECT",

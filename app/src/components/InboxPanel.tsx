@@ -268,7 +268,6 @@ export default function InboxPanel({ botId, onPending }: { botId: number; onPend
         {/* ---- Transcript ---- */}
         {showDetail && (
         <Card>
-          {/* Retour à la liste (mobile uniquement). */}
           {isMobile && (
             <button className="back-link" style={{ marginBottom: 10, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     onClick={backToList}>

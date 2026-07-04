@@ -50,8 +50,7 @@ def validated_redirect_host(uri: str, *, allow_insecure_localhost: bool) -> str 
     """Valide la FORME du redirect_uri (page admin du plugin WP) et renvoie son
     hôte EXACT en minuscule, ou None si la forme est invalide.
 
-    Durcissements (§3.2 / §Qualité audit) : comparaison EXACTE du paramètre `page`
-    (fini le match par sous-chaîne `:97`), https imposé (http toléré seulement sur
+    Comparaison EXACTE du paramètre `page`, https imposé (http toléré seulement sur
     localhost/127.x/::1 en dev), pas d'userinfo. L'hôte renvoyé sert de clé
     d'allowlist (comparaison exacte → un sous-domaine forgé est rejeté)."""
     parsed = urlparse(uri or "")
@@ -157,7 +156,7 @@ async def _issue_token_pair(db: AsyncSession, user_id: int) -> tuple[str, str, i
     persiste le HASH du refresh."""
     refresh = secrets.token_urlsafe(48)
     # `jti` de l'access lié à CETTE ligne refresh (access_jti) : révoquer la ligne
-    # (revoke/rotate -> is_revoked) rejette l'access immédiatement (audit §3.4).
+    # (revoke/rotate -> is_revoked) rejette l'access immédiatement.
     access, jti = create_oauth_token(user_id)
     tok = OAuthToken(
         user_id=user_id,

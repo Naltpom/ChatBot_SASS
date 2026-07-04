@@ -1,4 +1,4 @@
-// Widget Chapote animé (port de ChapoteWidget.dc.html) — extrait de Landing.tsx.
+// Widget Chapote animé.
 // Boucle de 3 phases (arbre / IA / humain) toutes les 5 s, purement décoratif.
 import { useEffect, useState } from 'react'
 import { HatIcon } from './data'

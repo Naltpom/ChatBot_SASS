@@ -1,5 +1,4 @@
-// Barre de sous-onglets en pilules — réutilisée (Apparence, IA, Actions…). Même
-// look que la maquette : fond gris, pilule active blanche surélevée.
+// Barre de sous-onglets en pilules — réutilisée (Apparence, IA, Actions…).
 export default function SubTabs<T extends string>({ value, onChange, options, maxWidth = 600 }: {
   value: T
   onChange: (v: T) => void

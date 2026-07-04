@@ -1,6 +1,5 @@
 // Carte centrée + constantes communes aux pages auth secondaires
-// (ForgotPassword / ResetPassword / VerifyEmail). Extrait d'une page pour ne pas
-// faire dépendre ces pages d'un détail d'implémentation d'une autre page.
+// (ForgotPassword / ResetPassword / VerifyEmail).
 import { Link } from 'react-router-dom'
 import HatIcon from './HatIcon'
 

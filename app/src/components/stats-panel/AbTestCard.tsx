@@ -1,5 +1,5 @@
 // Card « Test A/B » — comparatif des variantes A et B (conversations + CSAT),
-// pur présentationnel, extrait de StatsPanel (refacto R13).
+// pur présentationnel.
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import { Card, Chip, Meter } from '../../ui'
 import type { Stats } from './types'

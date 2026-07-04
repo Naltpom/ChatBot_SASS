@@ -2,7 +2,6 @@
 // saisie texte/URL, état busy/erreur, et appel POST /api/bots/{id}/tree/generate
 // (treegen_limiter 10/24h/org). Le tree_json renvoyé est posé dans l'arbre A LOCAL
 // via patch() (la save bar apparaît, l'utilisateur prévisualise puis enregistre).
-// Extrait tel quel de BotPage (comportement strictement identique).
 import { useState } from 'react'
 import { api, ApiError } from '../api'
 import { errMsg } from '../utils/errors'

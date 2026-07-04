@@ -4,7 +4,7 @@ Invariant directeur (D0) : **billing OFF ⇒ comportement strictement identique 
 aujourd'hui** (tout débloqué, aucun gating). Le resolver garantit ça :
 
 - RÈGLE 1 — `billing_enabled() == False` ⇒ `ALL_UNLOCKED` (les clés Stripe absentes
-  rendent l'app 100 % gratuite ; les 32 e2e existants restent verts).
+  rendent l'app 100 % gratuite).
 - RÈGLE 2 — bot sans ligne `bot_entitlements` (legacy / dev) ⇒ `ALL_UNLOCKED`
   (gratuit). Un nouveau bot n'a un entitlement `free` que si le billing est ON.
 - RÈGLE 3 — BYOK (`bot.api_key_mode == 'byok'`) ⇒ module IA en forfait, bot non
@@ -142,7 +142,7 @@ async def resolve(db: AsyncSession, bot) -> Entitlement:
     modules de l'essai débloqués ; `trialing` expiré ⇒ GATE (has_module False,
     comme `inactive`). `status='active'` ⇒ normal (trial_end ignoré).
     """
-    # RÈGLE 1 — billing OFF : tout débloqué (= comportement actuel, 32 e2e verts).
+    # RÈGLE 1 — billing OFF : tout débloqué.
     if not billing_enabled():
         return _unlocked_for(bot.id)
     row = await _load(db, bot.id)
@@ -165,7 +165,7 @@ async def resolve_many(db: AsyncSession, bots) -> dict[int, Entitlement]:
 
     Utilisé par les listes plugin/dashboard qui résolvent une collection de bots.
     """
-    # RÈGLE 1 — billing OFF : tout débloqué (= comportement actuel, 32 e2e verts).
+    # RÈGLE 1 — billing OFF : tout débloqué.
     if not billing_enabled():
         return {b.id: _unlocked_for(b.id) for b in bots}
     if not bots:
@@ -321,7 +321,7 @@ def _net_modules_quota(
       'trialing' si seul un abonnement en ESSAI (Stripe status='trialing', carte
       posée au Checkout, 0 € pendant 7 j) le couvre ; sinon 'past_due' si seule une
       sub en impayé le couvre ; sinon 'inactive'.
-      `past_due` dégrade tous les modules payants (has_module -> False, finding #4) :
+      `past_due` dégrade tous les modules payants (has_module -> False) :
       un client en impayé ne garde PAS l'accès aux modules tant que le paiement n'est
       pas régularisé. Les items past_due restent néanmoins comptés dans `modules`
       (pour conserver l'historique de synchro / re-bascule rapide), c'est le `status`
@@ -372,7 +372,7 @@ def _net_modules_quota(
 
     final_quota: int | None = None if ai_unlimited else ai_quota
     # Priorité : une sub vraiment active prime sur un essai, qui prime sur un
-    # impayé (dégradation, finding #4) ; sinon plus rien -> inactive. L'essai
+    # impayé (dégradation) ; sinon plus rien -> inactive. L'essai
     # (trialing) débloque les modules mais plafonne l'IA (ai_quota_for).
     if has_active:
         status = "active"
@@ -650,7 +650,7 @@ async def apply_subscription_event(db: AsyncSession, event: dict) -> None:
         affected_bot_ids |= await _bots_covered([target_sub])
         affected_bot_ids |= await _bots_covered(user_subs)
 
-    # Finding #5 — payeur non résolu : si le miroir local ne connaît pas encore
+    # Payeur non résolu : si le miroir local ne connaît pas encore
     # la sub de l'event (target_sub is None), on n'a AUCUN bot à projeter et le
     # `user_id` du payeur est inconnu. Marquer l'event comme traité (idempotence)
     # ici perdrait l'activation : au replay (une fois le customer/sub lié), on

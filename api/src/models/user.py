@@ -78,8 +78,6 @@ class Organization(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     # Owner d'org = payeur des bots d'équipe (spec §1.1). L'owner est TOUJOURS
     # membre admin (invariant applicatif posé par le mini-volet owner §1.2).
-    # nullable=False après backfill (migration M2). Le Customer Stripe a migré
-    # vers le User : stripe_customer_id / stripe_subscription_id RETIRES.
     owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
 

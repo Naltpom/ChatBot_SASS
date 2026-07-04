@@ -83,7 +83,7 @@ def _redis_failed(exc: Exception) -> None:
 
 
 class _MemoryWindow:
-    """Fenetre glissante en memoire process (implementation historique)."""
+    """Fenetre glissante en memoire process."""
 
     def __init__(self, max_events: int, window_seconds: int):
         self.max_events = max_events

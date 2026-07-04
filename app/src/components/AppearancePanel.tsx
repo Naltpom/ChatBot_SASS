@@ -12,7 +12,7 @@ import { ReactNode, useState } from 'react'
 import AppearanceForm, { AppearanceSection } from './AppearanceForm'
 import type { DesignJson } from '../types/bot'
 
-// Sous-onglets PAR ZONE du widget (mêmes libellés/ordre que l'historique).
+// Sous-onglets PAR ZONE du widget.
 const AF_TABS: { value: AppearanceSection; label: string }[] = [
   { value: 'colors', label: 'Couleurs' },
   { value: 'launcher', label: 'Lanceur' },
@@ -46,8 +46,7 @@ export default function AppearancePanel({
 
   return (
     <div className="col g18">
-      {/* Barre de sous-onglets en pilules larges (maquette) — pilule active en
-          blanc surélevé. Style identique à l'onglet Apparence historique. */}
+      {/* Barre de sous-onglets en pilules larges — pilule active en blanc surélevé. */}
       <div style={{ display: 'flex', gap: 2, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 11, padding: 3, maxWidth: 600 }}>
         {tabs.map(t => {
           const on = t.value === active

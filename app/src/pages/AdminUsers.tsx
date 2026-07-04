@@ -19,8 +19,7 @@ interface AdminUser {
 
 function lastLogin(iso: string | null) {
   if (!iso) return <span style={{ color: 'var(--faint)' }}>jamais</span>
-  // L'API renvoie un datetime UTC naïf : formatFr l'interprète comme UTC
-  // (corrige le décalage de fuseau du new Date(iso) historique).
+  // L'API renvoie un datetime UTC naïf : formatFr l'interprète comme UTC.
   return <>{formatFr(iso)}</>
 }
 

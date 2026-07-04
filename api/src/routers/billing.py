@@ -44,10 +44,10 @@ from src.models.billing import (
 from src.models.bot import Bot
 from src.models.user import User
 from src.services import stripe_service
-# Logique métier de facturation PARTAGÉE (PR-19) : déplacée dans billing_service
-# pour être consommée par la surface plugin (routers/external/account.py) SANS
-# coupler les routers entre eux. Ré-exposée ici sous ses noms historiques (alias)
-# pour les appelants internes de ce module et les tests.
+# Logique métier de facturation PARTAGÉE : vit dans billing_service pour être
+# consommée par la surface plugin (routers/external/account.py) SANS coupler les
+# routers entre eux. Ré-exposée ici sous ses noms historiques (alias) pour les
+# appelants internes de ce module et les tests.
 from src.services.billing_service import (  # noqa: F401 (ré-exports historiques)
     DISABLED as _DISABLED,
     _catalog_rows,
@@ -81,7 +81,7 @@ from src.services.entitlement_service import (
     set_bot_status,
 )
 from src.services.quota_service import ai_quota_usage, quota_period
-# PR-20 : l'orchestration du webhook Stripe (idempotence / garde d'ordre / miroir
+# L'orchestration du webhook Stripe (idempotence / garde d'ordre / miroir
 # + projection / commit) vit dans stripe_webhook_service. Le handler HTTP ci-dessous
 # se contente de vérifier la signature puis de déléguer. `_sync_subscription_mirror`
 # et `_last_event_created_for_sub` sont ré-exposés ici (alias) pour les appelants
@@ -95,10 +95,6 @@ from src.services.stripe_webhook_service import (  # noqa: F401 (ré-export)
 logger = logging.getLogger("billing")
 
 router = APIRouter(prefix="/api", tags=["billing"])
-
-# `_DISABLED` (réponse billing OFF) et `BotConfigPayload` vivent désormais hors de
-# ce router (PR-19) : importés ci-dessus (billing_service / models.billing).
-# `_DISABLED` reste ré-exposé sous ce nom pour les appelants internes de ce module.
 
 
 # --- Payloads -------------------------------------------------------------
@@ -146,12 +142,6 @@ class OveragePayload(BaseModel):
 
 
 # --- Helpers --------------------------------------------------------------
-
-# Helpers MÉTIER PURS (catalogue, config->codes->line_items, classification du
-# delta de proration, lecture miroir/quota) déplacés dans services/billing_service
-# (PR-19 + split PR-20). Ré-exposés ci-dessus sous leurs noms historiques (alias)
-# pour les endpoints de ce router et les tests.
-
 
 async def billing_on_org_owner_change(
     db: AsyncSession, org_id: int, old_owner_id: int | None, new_owner_id: int | None
@@ -205,8 +195,7 @@ async def _project_mock_entitlement(
     `duration:once`, carte via if_required). On reflète donc `status='active'`,
     PAS de `trial_end`, et AUCUN plafond IA (le client paie dès le 1er mois)."""
     ai_quota = await _ai_quota_for_codes(db, codes)
-    # Abo ACTIF dès la 1re facture (intro 1er mois remisé, carte via if_required).
-    # Pas de trial_end ni de plafond IA d'essai. Via l'unique writer (actor=stripe).
+    # Via l'unique writer (actor=stripe).
     await set_bot_status(
         db, bot.id,
         new_status="active", actor_kind="stripe", reason="mock_checkout",
@@ -385,9 +374,6 @@ async def get_summary(db: AsyncSession = Depends(get_db),
 # Le % et l'id du coupon sont stockés sur `billing_products` (intro_percent /
 # intro_coupon_id) : sur les paliers IA (ai_*) et sur 'base' (= défaut IA off/BYOK).
 # Plus aucune valeur en dur : l'admin les édite (rotation du coupon au changement).
-# `_intro_product_code` / `_intro_coupon_for` / `_user_has_subscription` (offre de
-# bienvenue) déplacés dans services/billing_service (split PR-20), ré-exposés en
-# alias ci-dessus.
 
 
 # --- POST /api/billing/checkout -------------------------------------------
@@ -400,12 +386,12 @@ async def open_checkout(
     """Ouvre une session de Checkout Stripe pour `bot` selon `config` (intro 1er
     mois remisé) et renvoie le dict de réponse — SANS commit (l'appelant commit).
 
-    PUBLIC (PR-19) : consommé aussi par la surface plugin (account.account_checkout)
+    PUBLIC : consommé aussi par la surface plugin (account.account_checkout)
     pour passer des success_url/cancel_url vers le site WordPress. Reste un point
     d'entrée de ce router (orchestration Checkout + projection MOCK) ; sa cascade de
     helpers MÉTIER PURS (config_to_codes, line_items_for_codes, ensure_customer,
-    intro_coupon_for…) vit désormais dans services/billing_service (split PR-20),
-    consommée ici via les alias historiques (_config_to_codes, …).
+    intro_coupon_for…) vit dans services/billing_service, consommée ici via les
+    alias historiques (_config_to_codes, …).
 
     Factorisé pour servir DEUX chemins (point 3) : la 1re souscription
     (POST /billing/checkout) ET la relance de paiement d'un bot 'inactive'
@@ -1310,7 +1296,7 @@ async def _sync_overage_item(db: AsyncSession, user: User, bot: Bot,
 async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """Webhook Stripe (subscription.*, checkout.session.completed).
 
-    Handler FIN (PR-20) : intrinsèquement HTTP. Il lit le corps en BYTES BRUTS
+    Handler FIN : intrinsèquement HTTP. Il lit le corps en BYTES BRUTS
     (await request.body() AVANT tout parse JSON — la signature HMAC porte sur les
     octets exacts), vérifie la signature, applique la garde billing-OFF, puis
     DÉLÈGUE toute l'orchestration (idempotence par event.id, garde d'ordre, miroir

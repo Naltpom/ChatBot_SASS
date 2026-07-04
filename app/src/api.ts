@@ -12,7 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-// Parsing 401 FACTORISÉ (était dupliqué sur api/postForm/streamSSE) : un 401 hors
+// Un 401 hors
 // /api/auth = session expirée/absente → redirection login. Les 401 des routes
 // /api/auth sont des erreurs de credentials (login, register…) : l'écran de login
 // gère lui-même, on ne redirige pas. Retourne true si une redirection a été lancée.
@@ -32,9 +32,8 @@ async function toApiError(res: Response, fallback: string): Promise<ApiError> {
   return new ApiError(res.status, data.detail || data.message || fallback, data.code)
 }
 
-// Le JWT dashboard vit désormais dans un cookie httpOnly `chapote_session`
-// (audit §3.5) : inaccessible au JS, donc plus de localStorage ni d'en-tête
-// Authorization ici. `credentials: 'include'` fait porter ce cookie sur chaque
+// Le JWT dashboard vit dans un cookie httpOnly `chapote_session` : inaccessible
+// au JS. `credentials: 'include'` fait porter ce cookie sur chaque
 // requête (l'API renvoie Access-Control-Allow-Credentials + origine explicite).
 export async function api<T = any>(path: string, options: { method?: string; body?: any } = {}): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -54,7 +53,7 @@ export async function api<T = any>(path: string, options: { method?: string; bod
 }
 
 // Upload multipart générique (PDF de la base de connaissances, image…) — pas de
-// Content-Type manuel (le navigateur pose le boundary), juste le Bearer.
+// Content-Type manuel (le navigateur pose le boundary).
 export async function postFile<T = any>(path: string, file: File, field = 'file'): Promise<T> {
   const form = new FormData()
   form.append(field, file)
@@ -71,7 +70,7 @@ export async function postFile<T = any>(path: string, file: File, field = 'file'
 
 // Upload multipart générique avec FormData PRÉ-CONSTRUITE (plusieurs champs/
 // fichiers, ex. génération d'arbre depuis sources). Comme postFile : pas de
-// Content-Type manuel (boundary auto), juste le Bearer, et MÊME gestion 401/
+// Content-Type manuel (boundary auto), et MÊME gestion 401/
 // ApiError que api(). À utiliser quand le caller assemble lui-même le FormData.
 export async function postForm<T = any>(path: string, form: FormData): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {

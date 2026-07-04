@@ -71,7 +71,7 @@ class OAuthToken(Base):
     client_id = Column(String, nullable=False)
     refresh_token_hash = Column(String, unique=True, nullable=False, index=True)  # sha256
     # `jti` de l'access JWT (scope='plugin') émis avec CE refresh (même pair).
-    # Révocation stateful (audit §3.4) : require_oauth_token charge la ligne par ce
+    # Révocation stateful : require_oauth_token charge la ligne par ce
     # jti et rejette l'access si is_revoked -> déconnexion/rotation coupent l'access
     # immédiatement (sans attendre l'expiration du JWT). Nullable (lignes héritées).
     access_jti = Column(String, nullable=True, index=True)
@@ -88,7 +88,7 @@ class OAuthRedirectDomain(Base):
     """Allowlist des domaines WordPress (hôte du redirect_uri) ENREGISTRÉS par un
     utilisateur pour le client public 'chapote_wp'.
 
-    Anti-phishing de consentement (§3.2 audit) : la validation par FORME seule
+    Anti-phishing de consentement : la validation par FORME seule
     laissait un attaquant fabriquer une URL d'autorisation vers un WP qu'il
     contrôle. Désormais l'/authorize n'accepte un redirect_uri que si son hôte est
     enregistré ici pour CET utilisateur. Bootstrap : le 1er domaine d'un user

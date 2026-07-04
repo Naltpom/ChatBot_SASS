@@ -294,8 +294,7 @@ async def _extract(source: KbSource, text_content: Optional[str],
         # fetch_user_url, qui a le bypass DEV loopback du WP local) -> on NE
         # re-fetch PAS via l'anti-SSRF (qui refuserait localhost/IP privees).
         # text_content est du TEXTE BRUT (fetch_user_url applique deja
-        # html_to_text) : pas de re-extraction. Aucun appelant url existant ne
-        # passe text_content -> changement retro-compatible.
+        # html_to_text) : pas de re-extraction.
         if text_content is not None:
             return [(text_content, None)], 1
         try:

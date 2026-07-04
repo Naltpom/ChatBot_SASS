@@ -1,7 +1,4 @@
 // Inscription — design Chapote (carte centrée sur fond dégradé, stepper).
-// Conserve la fonctionnalité réelle : type perso/entreprise, invitations
-// d'équipe (entreprise), register(RegisterPayload). L'étape de succès propose
-// « Configurer mon premier bot » (→ /app/bots/new), comme demandé.
 import { Fragment, useState } from 'react'
 import { Building2, Check, User as UserIcon, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -15,8 +12,8 @@ interface Invite { email: string; role: 'admin' | 'member' }
 interface RegisterForm { prenom: string; nom: string; email: string; pwd: string; org: string }
 
 // Validation e-mail raisonnable (un seul @, un domaine avec point, pas
-// d'espaces) : `includes('@')` laissait passer « a@b » sans TLD. Volontairement
-// permissive (pas de RFC complète) pour ne pas rejeter de vrais e-mails.
+// d'espaces). Volontairement permissive (pas de RFC complète) pour ne pas
+// rejeter de vrais e-mails.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const CLASH = "'Clash Display',sans-serif"
@@ -106,8 +103,8 @@ export default function Register() {
   const [busy, setBusy] = useState(false)
   const set = (k: keyof RegisterForm, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  // Stepper (dots numérotés, façon template) : on compte le choix du type, les
-  // informations, [l'invitation équipe] puis l'écran « C'est prêt ! ».
+  // Stepper : on compte le choix du type, les informations, [l'invitation
+  // équipe] puis l'écran « C'est prêt ! ».
   const totalDots = type === 'entreprise' ? 4 : 3
   const stepCaption = (i: number) => `Étape ${i + 1} sur ${totalDots} — ${i + 1 === totalDots ? "C'est prêt !" : i === 0 ? 'Type de compte' : i === 1 ? 'Votre compte' : 'Votre équipe'}`
   const emailValid = EMAIL_RE.test(form.email.trim())
@@ -115,7 +112,7 @@ export default function Register() {
     && (type === 'perso' || form.org.trim()))
 
   // Liste explicite de ce qui manque pour activer « Créer mon compte » : le
-  // bouton désactivé seul n'indiquait pas POURQUOI (#UX-6). Affichée sous le
+  // bouton désactivé seul n'indique pas POURQUOI. Affichée sous le
   // formulaire (aria-live) tant que la saisie est incomplète.
   const missingFields = (() => {
     const m: string[] = []

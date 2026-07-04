@@ -14,7 +14,6 @@ import PriceCart from '../billing/PriceCart'
 import type { BillingCatalog, BotConfig, BotEntitlementView } from '../../types/billing'
 import type { Tree } from '../../types/bot'
 
-// Libellés FR des clés de module (entitlement) pour l'onglet Facturation.
 const MODULE_LABELS: Record<string, string> = {
   ai: 'Intelligence artificielle',
   inbox: 'Live chat / Inbox',
@@ -90,9 +89,6 @@ export default function BotBillingTab({ billing, botName, onSubscribe, subscribe
   // ni afficher d'essai. (legacy : trial_end/trial_expired restent lus côté back
   // mais ne sont plus dérivés ici.)
   const status = billing.status ?? billing.subscription_status
-  // « Paiement requis » : Checkout abandonné ou abonnement annulé (point 3/4).
-  // Le bot est gardé (config sauvegardée) mais ses modules sont gate tant que pas
-  // payé -> on propose de relancer le Checkout.
   const paymentRequired = status === 'inactive'
   // Plan modifiable EN APP : un abonnement vivant (essai/payé/relance). Pour un
   // bot 'inactive'/'none'/'canceled', le bon chemin est la (re)souscription via
@@ -101,7 +97,7 @@ export default function BotBillingTab({ billing, botName, onSubscribe, subscribe
 
   return (
     <div className="col" style={{ gap: 16 }}>
-      {/* PAIEMENT REQUIS (point 3) : Checkout abandonné ou abonnement annulé. Le
+      {/* PAIEMENT REQUIS : Checkout abandonné ou abonnement annulé. Le
           bot est conservé (config sauvegardée) ; on relance le Checkout pour le
           (ré)activer. Avec BILLING_ENFORCE, l'IA & les modules restent coupés
           (402) tant que pas payé. */}

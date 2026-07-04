@@ -2,8 +2,7 @@
 // flux d'abonnement (souscription/relance Checkout, Customer Portal, modification
 // de plan au prorata, annulation fin de période, toggle dépassement IA métré),
 // avec leurs busy/err locaux et les chargements paresseux associés (entitlement au
-// montage, catalogue à l'ouverture de l'onglet). Extrait tel quel de BotPage :
-// mêmes appels API, mêmes setState, comportement strictement identique.
+// montage, catalogue à l'ouverture de l'onglet).
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { errMsg } from '../utils/errors'

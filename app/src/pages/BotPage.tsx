@@ -1,13 +1,9 @@
-// Éditeur de bot — refonte charte Chapote. 7 onglets :
-// Apparence / Arbre / IA / Humain / Actions / Intégration / Sécurité.
+// Éditeur de bot (onglets définis dans TABS ci-dessous).
 // Header bot (avatar navy, nom éditable inline, pills statut+mode, domaine · pk
 // mono, bouton « Activer le bot » si inactif). L'état dirty est suivi PAR ONGLET
 // (comparaison à savedBot, la photo du dernier état serveur, via useBotEditor) et
 // matérialisé par une SAVE BAR SOMBRE fixée en bas (left:248px right:0) avec pills
 // des onglets dirty + Annuler/Enregistrer + indication Ctrl/Cmd S.
-// Stats / Insights / Leads / Inbox sont désormais des pages dédiées (les
-// composants StatsPanel/InsightsPanel/InboxPanel restent dans components/ et
-// sont importés ailleurs — ils ne sont plus montés ici).
 //
 // BotPage est un ORCHESTRATEUR fin : il compose l'éditeur (useBotEditor) et les
 // hooks de domaine — facturation/abonnement (useBotBilling), intégrations
@@ -158,7 +154,7 @@ export default function BotPage() {
   const isPersonalScope = !!bot && isPersonalBot(bot)
   // Admin d'org (ou superadmin / propriétaire perso) : zone de danger. La perm
   // « admin » n'est jamais accordée par bot → canAccessBotPerm ne renvoie true
-  // que pour superadmin / propriétaire / role admin (équivalent à l'ancien calcul).
+  // que pour superadmin / propriétaire / role admin.
   const isOrgAdmin = !!bot && canAccessBotPerm(user, bot, 'admin')
   // Mode arbre pur : les onglets IA et Actions n'ont pas lieu d'être
   const aiTabRelevant = !!bot && bot.mode !== 'tree'
@@ -302,7 +298,7 @@ export default function BotPage() {
   const mcpServers = bot.mcp_servers_json || []
   const canActivate = !bot.is_active && hasPerm('security')
   // Bot perso déplaçable vers une équipe si l'utilisateur en a au moins une
-  // (POST /move réservé serveur au propriétaire). isPersonalScope défini plus haut.
+  // (POST /move réservé serveur au propriétaire).
   const myTeams = user?.organizations || []
   const canMoveToTeam = isPersonalScope && myTeams.length > 0
 
@@ -474,8 +470,7 @@ export default function BotPage() {
           le tree_json EN MÉMOIRE -> reflète les modifications non enregistrées ;
           réponses IA simulées (aucun appel). Calque pointer-events:none -> ne bloque
           aucun clic de la page ; le wrap interne ré-active les clics du widget.
-          Affiché sur TOUS les onglets, y compris Apparence (refonte : l'aperçu
-          encadré latéral est supprimé, on règle en voyant la démo flottante en direct). */}
+          Affiché sur TOUS les onglets, y compris Apparence. */}
       <div style={{
         position: 'fixed', top: 0, left: 0, right: 0,
         // Le bas du calque s'arrête au-dessus de la save bar quand elle est

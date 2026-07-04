@@ -1,12 +1,10 @@
 // Téléchargement du plugin WordPress avec un nom de fichier VERSIONNÉ.
 //
-// Le bouton « Télécharger le plugin » pointait sur le « dernier stable » non daté
-// (chapote-bot-manager.zip) — impossible de savoir quelle version on a (cf. l'incident
-// où la prod servait une 2.1.0 sous le même nom). Ce hook lit la version dans le
-// manifeste (chapote-bot-manager.json, régénéré à chaque déploiement par deploy.sh) et
-// renvoie un lien vers l'archive VERSIONNÉE chapote-bot-manager-<version>.zip (qui
-// existe aussi dans /downloads/). Repli silencieux sur le dernier stable tant que
-// le manifeste n'est pas chargé (ou en prérendu, où l'effet ne tourne pas).
+// Lit la version dans le manifeste (chapote-bot-manager.json, régénéré à chaque
+// déploiement par deploy.sh) et renvoie un lien vers l'archive VERSIONNÉE
+// chapote-bot-manager-<version>.zip (qui existe aussi dans /downloads/). Repli
+// silencieux sur le dernier stable tant que le manifeste n'est pas chargé (ou en
+// prérendu, où l'effet ne tourne pas).
 import { useEffect, useState } from 'react'
 import { WP_PLUGIN_MANIFEST_URL, WP_PLUGIN_URL } from '../integrations'
 

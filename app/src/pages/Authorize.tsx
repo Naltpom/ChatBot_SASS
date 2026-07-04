@@ -71,7 +71,7 @@ export default function Authorize() {
 
   // Non connecté : on mémorise le retour (params inclus) puis on redirige vers
   // le login. Après authentification, Login consomme cbsaas_after_login et y
-  // revient (postLoginDest). Même mécanisme que l'ex-page /link.
+  // revient (postLoginDest).
   useEffect(() => {
     if (!loading && !user) {
       try { sessionStorage.setItem('cbsaas_after_login', `/authorize${location.search}`) } catch { /* SSR / storage off */ }
@@ -111,7 +111,6 @@ export default function Authorize() {
   if (loading) return <div className="center-page">Chargement…</div>
   // Pas connecté → login (le retour a été mémorisé par l'effet ci-dessus).
   if (!user) return <Navigate to="/login" replace />
-  // Connecté mais preview pas encore résolue.
   if (previewLoading) return <div className="center-page">Chargement…</div>
 
   async function authorize() {
@@ -156,7 +155,7 @@ export default function Authorize() {
   return (
     <div className="center-page" style={{ padding: 24 }}>
       <div className="card" style={{ width: '100%', maxWidth: 460 }}>
-        {/* En-tête de marque (cohérent Login / Register / ex-/link). */}
+        {/* En-tête de marque (cohérent Login / Register). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 18 }}>
           <span style={{
             width: 34, height: 34, borderRadius: 10, background: NAVY,

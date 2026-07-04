@@ -90,7 +90,7 @@ async def _check_auth_rate(request: Request) -> None:
 async def _user_out(db: AsyncSession, user: User) -> UserOut:
     """UserOut avec organisations + role + permissions par bot du user.
 
-    Pose aussi les champs facturation (spec §1.3, corrige C2) :
+    Pose aussi les champs facturation (spec §1.3) :
     - `is_owner` par org (`org.owner_user_id == user.id`) ;
     - `owned_org_ids` (orgs possedees, derivees des `is_owner`) ;
     - `billing_enabled` (calcule serveur, pilote l'affichage front)."""

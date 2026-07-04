@@ -10,11 +10,10 @@ export interface ApiResource<T> {
 }
 
 // Charge une ressource GET via le client api() (donc gestion 401 -> /login
-// conservée). Reproduit le boilerplate loading/error/retry dupliqué dans
-// BotList/AdminDashboard/AdminUsers/Analytics/Inbox :
+// conservée) :
 //   - loading vrai pendant le fetch, faux à la résolution (succès ou échec) ;
 //   - error = err.message (ApiError porte déjà un message FR exploitable) ;
-//   - reload() relance la requête (équivalent du `setRetry(n => n + 1)`).
+//   - reload() relance la requête.
 // Course conditions : une réponse n'est appliquée que si le hook est toujours
 // monté ET que la requête n'a pas été relancée entre-temps (path changé ou
 // reload()). Le drapeau `alive` par effet garantit qu'une réponse obsolète est

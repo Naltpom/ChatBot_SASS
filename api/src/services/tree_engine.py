@@ -86,7 +86,7 @@ def normalize_tree(tree: dict[str, Any]) -> dict[str, Any]:
     url Calendly inconnue/placeholder). Un rejet fait échouer la persistance
     best-effort et le bot garde l'arbre PAR DÉFAUT -> offre/reco calculées sur le
     mauvais arbre. On normalise donc chaque noeud pour que validate_tree passe
-    toujours, en réutilisant la même logique que format_node_response (l.121).
+    toujours, en réutilisant la même logique que format_node_response.
 
     Retourne une COPIE (deepcopy, ne mute pas l'entrée). Tolérant aux arbres
     malformés : sans dict `nodes`, l'arbre est renvoyé tel quel. Un arbre sans

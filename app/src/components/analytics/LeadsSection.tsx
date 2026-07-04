@@ -1,5 +1,4 @@
-// Section « Leads » de la page Analytics — pur présentationnel, extrait
-// d'Analytics.tsx (refacto R14, 3 responsabilités → Stats / Insights / Leads).
+// Section « Leads » de la page Analytics — pur présentationnel.
 // Affiche le tableau des contacts capturés (date/email/nom/tel/message/source),
 // le bouton « Actualiser » et l'export CSV anti-injection (downloadCsv).
 import { Inbox, RefreshCw } from 'lucide-react'
@@ -21,8 +20,7 @@ export interface LeadRow {
 
 export interface LeadsData { total: number; leads: LeadRow[] }
 
-// Colonnes exportées (clés de LeadRow) → en-têtes CSV. Typer via keyof LeadRow
-// supprime le `as any` de l'indexation (export anti-injection conservé).
+// Colonnes exportées (clés de LeadRow) → en-têtes CSV.
 const CSV_COLUMNS: (keyof LeadRow)[] = ['created_at', 'email', 'name', 'phone', 'message', 'source']
 
 export default function LeadsSection({ botName, leads, leadsBusy, leadsError, onReload, onOpenTree }: {

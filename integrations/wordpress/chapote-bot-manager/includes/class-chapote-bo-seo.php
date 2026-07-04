@@ -81,10 +81,6 @@ class Chapote_BO_SEO {
         return array_values($out);
     }
 
-    /* ---------------------------------------------------------------------- */
-    /* 1) Backlink opt-in (wp_footer)                                          */
-    /* ---------------------------------------------------------------------- */
-
     public static function render_backlink() {
         if (is_admin()) {
             return;
@@ -99,10 +95,6 @@ class Chapote_BO_SEO {
             esc_html__('Chatbot par Chapote', 'chapote-bot-manager')
         );
     }
-
-    /* ---------------------------------------------------------------------- */
-    /* 2) FAQ JSON-LD (wp_head)                                                */
-    /* ---------------------------------------------------------------------- */
 
     public static function render_faq_jsonld() {
         if (is_admin() || self::$faq_emitted) {

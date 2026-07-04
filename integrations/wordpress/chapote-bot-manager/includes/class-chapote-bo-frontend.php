@@ -8,7 +8,6 @@
  *
  * Aucune dépendance à un token ici : tout repose sur les options locales
  * (public_key mémorisée à l'activation, qui n'a lieu que si le bot est payé).
- * Réutilise le pattern d'injection du plugin v1.
  */
 
 if (!defined('ABSPATH')) {

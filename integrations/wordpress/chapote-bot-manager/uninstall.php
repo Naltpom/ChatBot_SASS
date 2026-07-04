@@ -8,7 +8,6 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     exit;
 }
 
-// Options du plugin.
 delete_option('chapote_bo_settings');
 delete_option('chapote_bo_bots_local');
 delete_option('chapote_bo_seo');

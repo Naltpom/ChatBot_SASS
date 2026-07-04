@@ -1,10 +1,8 @@
-"""Agrégations de statistiques par bot (CHANTIER H).
+"""Agrégations de statistiques par bot.
 
-Code EXTRAIT tel quel des routes de `routers/stats.py` : fonctions pures qui
-prennent une session `db` + des paramètres déjà validés et renvoient les
-structures sérialisables consommées par le dashboard (StatsPanel). Aucun
-changement de comportement ni de shape de réponse — les routes ne font plus que
-l'authentification puis délèguent ici.
+Fonctions pures qui prennent une session `db` + des paramètres déjà validés et
+renvoient les structures sérialisables consommées par le dashboard (StatsPanel) ;
+les routes de `routers/stats.py` ne font que l'authentification puis délèguent ici.
 
 Périmètre : seules les agrégations venant de `stats.py` vivent ici. L'appel
 `count_ai_messages_today` reste dans `usage_service` (importé, non déplacé).
@@ -25,7 +23,6 @@ async def compute_bot_stats(db: AsyncSession, bot_id: int, days: int) -> dict:
     """Stats agrégées d'un bot sur `days` jours (cf. GET /api/stats/bots/{id})."""
     since = utcnow() - timedelta(days=days)
 
-    # Totaux
     totals = (await db.execute(
         select(
             func.count(func.distinct(Conversation.id)),
@@ -47,7 +44,7 @@ async def compute_bot_stats(db: AsyncSession, bot_id: int, days: int) -> dict:
     )).one()
 
     # A/B : conversations + satisfaction par variant (toujours present dans la
-    # reponse, zeros si A/B inactif — cles ADDITIVES, shape historique intacte)
+    # reponse, zeros si A/B inactif)
     conv_by_variant = dict((await db.execute(
         select(Conversation.variant, func.count(Conversation.id))
         .where(Conversation.bot_id == bot_id, Conversation.started_at >= since,
@@ -74,7 +71,6 @@ async def compute_bot_stats(db: AsyncSession, bot_id: int, days: int) -> dict:
         return {"conversations": conv_by_variant.get(v, 0),
                 "satisfaction": {"up": up, "down": down, "total": up + down}}
 
-    # Serie journaliere
     day = func.date_trunc("day", Message.created_at)
     daily_rows = (await db.execute(
         select(
@@ -105,7 +101,6 @@ async def compute_bot_stats(db: AsyncSession, bot_id: int, days: int) -> dict:
         "ai_replies": msg_totals[1],
         "tree_replies": msg_totals[2],
         "ai_replies_today": await count_ai_messages_today(db, bot_id),
-        # Cles ADDITIVES (CSAT + A/B) : la shape historique reste intacte
         "satisfaction": {"up": msg_totals[3], "down": msg_totals[4],
                          "total": msg_totals[3] + msg_totals[4]},
         "variants": {"a": _variant_block("a"), "b": _variant_block("b")},

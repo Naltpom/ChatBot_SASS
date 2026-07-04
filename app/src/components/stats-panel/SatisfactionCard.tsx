@@ -1,5 +1,4 @@
-// Card « Satisfaction visiteurs (CSAT) » — pur présentationnel, extrait de
-// StatsPanel (refacto R13). Affiche pouces haut/bas + jauge d'avis positifs.
+// Card « Satisfaction visiteurs (CSAT) » — pur présentationnel.
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import { Card, Chip, Meter } from '../../ui'
 import type { Satisfaction } from './types'

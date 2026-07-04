@@ -101,10 +101,9 @@ function buildDesign(look: Look): DesignJson {
 const RANDOM_SWATCHES = ['#1C3F5C', '#2F9E79', '#8C6DFF', '#E86A5F', '#0F766E', '#7C3AED', '#0EA5E9', '#D946A6']
 
 // Composition de bot par défaut (étape 'plan'). Arbre seul : aucun module payant,
-// AUCUN plan IA pré-sélectionné (ai_tier_id=null — l'IA gratuite à vie 'ai_free'
-// est supprimée, point 7 ; l'utilisateur choisit un plan IA s'il veut l'IA). La
-// dérivation du chat (deriveConfigFromChat) ou le configurateur fait ensuite
-// évoluer cette config.
+// AUCUN plan IA pré-sélectionné (ai_tier_id=null ; l'utilisateur choisit un plan
+// IA s'il veut l'IA). La dérivation du chat (deriveConfigFromChat) ou le
+// configurateur fait ensuite évoluer cette config.
 const DEFAULT_BOT_CONFIG: BotConfig = { modules: [], ai_tier_id: null, ai_byok: false }
 
 // Sources : types de page proposés + libellé d'en-tête FR utilisé côté backend.
@@ -208,7 +207,6 @@ export default function BotWizard() {
   const [error, setError] = useState('')
   const [createdBotId, setCreatedBotId] = useState<number | null>(null)
 
-  // L'IA est câblée si l'utilisateur l'a choisie (tout est gratuit, pas de budget).
   const wantsAI = answers.fallback === 'ia' || answers.fallback === 'both'
   const wantsHuman = answers.fallback === 'human' || answers.fallback === 'both'
   const allowAI = wantsAI
@@ -234,7 +232,6 @@ export default function BotWizard() {
 
   // -------------------------------------------------------------------------
   // Capacités activées (récap PRESET — données frontend pures, charte du design).
-  // Tout est gratuit : aucune notion de prix/quota.
   const caps = useMemo(() => {
     const list: { icon: string; label: string; desc: string; tint: string }[] = [
       { icon: '🌿', label: 'Arbre guidé illimité', desc: 'Branches & options sans limite', tint: 'rgba(47,158,121,.12)' },
@@ -431,7 +428,7 @@ export default function BotWizard() {
   // -------------------------------------------------------------------------
   // Idempotence : l'id du bot déjà créé est mémorisé. Si le PATCH échoue ou si
   // l'utilisateur reclique « Créer », on NE recrée PAS un bot — on réutilise
-  // celui-ci. Corrige le bug des doublons (un clic répété = un seul bot).
+  // celui-ci (un clic répété = un seul bot).
   const createdBotIdRef = useRef<number | null>(null)
   // Garde SYNCHRONE contre les double-clics ultra-rapides : `disabled={busy}` ne
   // prend effet qu'au prochain rendu, deux clics consécutifs pourraient sinon
@@ -468,9 +465,9 @@ export default function BotWizard() {
       // 2) configuration : design + arbre + captcha. On N'ENVOIE PAS les champs IA
       // (ai_provider/ai_model/api_key_mode) ici : sur un bot pas encore souscrit,
       // ils déclencheraient le gate IA (402) qui ferait échouer TOUT le PATCH —
-      // arbre compris (cause du bug « arbre/options non reportés »). Le bot garde
-      // ses défauts IA, ajustables dans l'onglet IA une fois activé ; le plan
-      // choisi (botConfig) est porté au paiement (écran DONE -> Facturation).
+      // arbre compris. Le bot garde ses défauts IA, ajustables dans l'onglet IA
+      // une fois activé ; le plan choisi (botConfig) est porté au paiement
+      // (écran DONE -> Facturation).
       await api(`/api/bots/${botId}`, {
         method: 'PATCH',
         body: { design_json: design, tree_json: tree, captcha_provider: 'turnstile' },
@@ -1127,7 +1124,6 @@ function URLRow({ row, mobile, canRemove, onUrl, onType, onValidate, onRemove }:
             width: '100%', height: 42, border: `1px solid ${row.status === 'err' ? 'rgba(232,106,95,.55)' : row.status === 'ok' ? 'rgba(47,158,121,.55)' : '#D8DEE6'}`,
             borderRadius: 11, padding: '0 38px 0 13px', fontSize: 14, fontFamily: 'inherit',
           }} />
-        {/* Indicateur de statut dans l'input. */}
         <span style={{ position: 'absolute', right: 12, top: 0, height: 42, display: 'flex', alignItems: 'center', fontSize: 15 }}>
           {row.status === 'checking' && <span style={{ width: 14, height: 14, border: '2px solid #CBD5DF', borderTopColor: NAVY, borderRadius: '50%', display: 'inline-block', animation: 'spin .7s linear infinite' }} />}
           {row.status === 'ok' && <span style={{ color: MINT, fontWeight: 700 }}>✓</span>}
@@ -1146,8 +1142,6 @@ function URLRow({ row, mobile, canRemove, onUrl, onType, onValidate, onRemove }:
     </div>
   )
 }
-// ProcessingScreen est désormais un composant partagé (components/ProcessingScreen),
-// réutilisé par l'éditeur embarqué. Importé en tête de fichier.
 function SegBlock({ label, value, opts, onPick }: { label: string; value: string; opts: [string, string][]; onPick: (v: string) => void }) {
   return (
     <div>

@@ -16,7 +16,6 @@ export interface TwoFAStatus {
 
 export const getStatus = () => api<TwoFAStatus>('/api/auth/2fa/status')
 
-// --- TOTP (authenticator) ---
 export const totpSetup = () =>
   api<{ secret: string; otpauth_uri: string }>('/api/auth/2fa/totp/setup', { method: 'POST' })
 
@@ -29,7 +28,6 @@ export const totpDisable = (code: string) =>
 export const regenerateRecovery = (code: string) =>
   api<{ recovery_codes: string[] }>('/api/auth/2fa/recovery/regenerate', { method: 'POST', body: { code } })
 
-// --- Passkeys (WebAuthn) : enrôlement ---
 export async function addPasskey(name: string): Promise<void> {
   const { options } = await api<{ options: string }>('/api/auth/2fa/webauthn/register/begin', { method: 'POST' })
   const credential = await startRegistration(JSON.parse(options))

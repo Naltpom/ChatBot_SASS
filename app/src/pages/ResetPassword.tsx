@@ -19,7 +19,6 @@ export default function ResetPassword() {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
 
-  // Redirection automatique vers la connexion après le succès.
   useEffect(() => {
     if (!done) return
     const t = setTimeout(() => navigate('/login'), 2500)

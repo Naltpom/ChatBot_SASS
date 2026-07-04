@@ -169,7 +169,6 @@ export default function Demo() {
             {/* Widget captcha (invisible/managed) — rendu seulement si clé publique. */}
             <div ref={widgetRef} style={{ display: 'flex', justifyContent: 'center', marginTop: TURNSTILE_SITE_KEY ? 16 : 0 }} />
 
-            {/* Exemples cliquables */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 16 }}>
               <span style={{ fontSize: 13, color: MUT }}>Pas d'idée ?</span>
               {EXAMPLES.map(ex => (

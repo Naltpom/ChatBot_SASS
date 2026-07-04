@@ -345,7 +345,6 @@ async def require_billing_owner(bot: "Bot", user: "User", db: AsyncSession):
 # --- OAuth « plugin » : surface EXTERNE (plugin WordPress), Authorization Code + PKCE (S256), RFC 7636 ---
 # Token scope='plugin' (JAMAIS 'dashboard') : un access JWT volé ne donne accès
 # qu'à l'API de compte (/api/account/*), bornée par l'ownership (require_billing_owner).
-# Constantes de module (même pattern que TWOFA_CHALLENGE_EXPIRE_MINUTES).
 OAUTH_PLUGIN_CLIENT_ID = "chapote_wp"
 OAUTH_PLUGIN_ACCESS_EXPIRE_MINUTES = 30  # access JWT scope='plugin' (30 min ; refresh opaque rotatif 90j en base — le plugin refresh réactivement sur 401)
 OAUTH_AUTH_CODE_EXPIRE_MINUTES = 5  # code d'autorisation (Authorization Code + PKCE) : usage unique, TTL court

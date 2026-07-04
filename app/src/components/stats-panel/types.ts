@@ -1,7 +1,5 @@
 // Types partagés des sous-composants de StatsPanel — formes exactes renvoyées
-// par l'API stats (snake_case). Extraits de StatsPanel.tsx (refacto R13) pour
-// que les cards SatisfactionCard / AbTestCard / FunnelCard /
-// RecentConversationsTable les consomment sans dupliquer les interfaces.
+// par l'API stats (snake_case).
 
 export interface DailyRow {
   day: string
@@ -13,7 +11,7 @@ export interface DailyRow {
 export interface Satisfaction { up: number; down: number; total: number }
 
 // % d'avis positifs (up / up+down), arrondi — partagé par SatisfactionCard et
-// AbTestCard. Le diviseur min(1, …) évite la division par zéro (renvoie 0).
+// AbTestCard. Le diviseur max(1, …) évite la division par zéro (renvoie 0).
 export const satPct = (s: Satisfaction): number =>
   Math.round((s.up / Math.max(1, s.up + s.down)) * 100)
 
@@ -27,7 +25,7 @@ export interface Stats {
   ai_replies_today: number
   daily: DailyRow[]
   top_pages: { page: string; conversations: number }[]
-  // Clés ADDITIVES v4 — toujours présentes (zéros si A/B inactif / aucun avis)
+  // Clés ADDITIVES — toujours présentes (zéros si A/B inactif / aucun avis)
   satisfaction: Satisfaction
   variants: {
     a: { conversations: number; satisfaction: Satisfaction }

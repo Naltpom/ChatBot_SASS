@@ -10,8 +10,7 @@ import { formatFr } from '../utils/time'
 import { errMsg } from '../utils/errors'
 import TwoFASection from '../components/TwoFASection'
 
-// §5.1 D9 : l'API renvoie des datetimes UTC naïfs. formatFr() les interprète
-// comme UTC (au lieu de `new Date(iso)` qui les lisait en heure locale).
+// L'API renvoie des datetimes UTC naïfs : formatFr() les interprète comme UTC.
 function fmtDate(iso?: string | null) {
   return iso ? formatFr(iso, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
 }
@@ -143,7 +142,6 @@ export default function Profile() {
         </Card>
       </div>
 
-      {/* Authentification à deux facteurs (TOTP + passkeys). */}
       <TwoFASection />
     </div>
   )

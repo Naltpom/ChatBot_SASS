@@ -1,4 +1,4 @@
-"""Orchestration du webhook Stripe — extraite de routers/billing.py (PR-20).
+"""Orchestration du webhook Stripe.
 
 Le webhook est le module le PLUS revenue-critical du repo. Cette couche service
 porte TOUTE la logique métier de traitement d'un event Stripe subscription.* :
@@ -16,9 +16,8 @@ porte TOUTE la logique métier de traitement d'un event Stripe subscription.* :
   projette les entitlements. Cet ORDRE est critique (la projection lit le miroir).
 
 Le handler HTTP (routers/billing.py) se limite à : lire le corps BRUT, vérifier
-la signature, garde billing-OFF, puis déléguer ici. Le COMMIT DB est fait ICI au
-MÊME point qu'avant l'extraction (après mémorisation du `created`, dans la branche
-subscription.*) pour préserver exactement l'ordre des opérations DB.
+la signature, garde billing-OFF, puis déléguer ici. Le COMMIT DB est fait ICI
+(après mémorisation du `created`, dans la branche subscription.*).
 
 Ce module ne doit JAMAIS importer un router (sinon cycle d'import).
 """
@@ -44,17 +43,16 @@ logger = logging.getLogger("billing")
 
 async def process_webhook_event(db: AsyncSession, event: dict) -> dict:
     """Traite un event Stripe déjà vérifié (signature OK, billing ON) et renvoie
-    le dict de réponse du webhook. COMPORTEMENT STRICTEMENT IDENTIQUE au handler
-    historique : seules les branches subscription.* mutent l'état ; les gardes
-    d'idempotence/ordre/résurrection court-circuitent AVANT tout `_sync` ; le
-    commit a lieu au même point.
+    le dict de réponse du webhook. Seules les branches subscription.* mutent
+    l'état ; les gardes d'idempotence/ordre/résurrection court-circuitent AVANT
+    tout `_sync`.
     """
     event_type = event.get("type") or ""
 
     # Pour les events subscription.*, on reflète le miroir local AVANT de projeter
     # (apply_subscription_event lit billing_subscriptions comme source de l'état
     # cible). MAIS les gardes d'idempotence et d'ordre doivent passer AVANT tout
-    # _sync (#6) : sinon un event rejoué / arrivé dans le désordre réécrit le
+    # _sync : sinon un event rejoué / arrivé dans le désordre réécrit le
     # miroir et désynchronise l'état.
     if event_type.startswith("customer.subscription."):
         sub_obj = (event.get("data") or {}).get("object") or {}
@@ -127,14 +125,12 @@ async def process_webhook_event(db: AsyncSession, event: dict) -> dict:
 
 async def _last_event_created_for_sub(db: AsyncSession, stripe_sub_id: str) -> int | None:
     """Max du champ Stripe `created` (epoch s) parmi les events subscription.*
-    déjà traités pour CETTE subscription (garde d'ordre webhook, #6).
+    déjà traités pour CETTE subscription (garde d'ordre webhook).
 
     Le `created` est mémorisé dans `BillingWebhookEvent.payload['created']` par
     `process_webhook_event` après projection. Requête BORNÉE : on FILTRE par
     subscription dans le JSON et on ne remonte que la ligne au `created` MAX
-    (`ORDER BY created DESC LIMIT 1`) — une seule ligne traverse la frontière DB,
-    au lieu du scan complet O(n) historique (toute la table chargée en Python).
-    Sémantique identique (le plus récent `created` vu pour cette sub).
+    (`ORDER BY created DESC LIMIT 1`).
 
     Accès JSON via les comparateurs GÉNÉRIQUES `as_string()`/`as_integer()` (et
     non `.astext`, spécifique PG) — `payload['k'].as_string()` rend `->> 'k'` sur

@@ -1,4 +1,4 @@
-// « Équipe & permissions » — portée de pages-team.jsx (design) :
+// « Équipe & permissions » :
 // invitation par email, rôles admin/membre, matrice de permissions PAR BOT
 // (copy / test / appearance / context / security / inbox), invitations en attente.
 // La matrice vit dans sa propre section, TOUJOURS rendue (découvrable dès le
@@ -34,7 +34,7 @@ interface Member {
 
 interface Invitation { id: number; email: string; role: string }
 
-// Légende des 5 permissions — affichée sous la matrice ET dans l'état vide,
+// Légende des permissions — affichée sous la matrice ET dans l'état vide,
 // pour que la délégation fine soit découvrable avant le premier membre.
 function PermLegend() {
   return (
@@ -95,7 +95,6 @@ export default function Team() {
     )
   }
 
-  // ---------- Membres & permissions ----------
   async function invite() {
     const email = inviteEmail.trim().toLowerCase()
     if (!email.includes('@')) return
@@ -198,7 +197,6 @@ export default function Team() {
         </Card>
       )}
 
-      {/* ---- Membres + invitations en attente ---- */}
       <Card nopad>
         <div className="card-title" style={{ padding: '14px 16px 4px' }}>Membres</div>
         {members.map((m, i) => (
@@ -232,7 +230,6 @@ export default function Team() {
           </div>
         ))}
 
-        {/* Invitations en attente */}
         {invitations.map((inv, i) => (
           <div key={inv.id} className="member-row" style={{ borderBottom: i < invitations.length - 1 ? '1px solid var(--border)' : 'none' }}>
             <span className="member-avatar pending">{inv.email[0].toUpperCase()}</span>
@@ -269,7 +266,6 @@ export default function Team() {
           </Card>
         ) : (
           <Card>
-            {/* Sélecteur de membre */}
             <div className="row g8" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
               {memberUsers.length <= 4 ? (
                 <Seg small value={String(selectedMember!.id)} onChange={v => setSelectedId(Number(v))}

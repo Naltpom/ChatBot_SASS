@@ -1,11 +1,7 @@
-// Dates & heures — utilitaires partagés (résorption du bug §5.1 D9).
+// Dates & heures — utilitaires partagés.
 //
 // CONTEXTE CLÉ : l'API renvoie des datetimes UTC *naïfs* (sérialisés par les
-// schémas Pydantic *Out, sans suffixe « Z » ni offset). Les pages existantes
-// parsaient de façon incohérente :
-//   - InboxPanel/StatsPanel  → new Date(iso + 'Z')   (correct : interprète UTC)
-//   - Analytics/AdminUsers/Profile → new Date(iso)    (faux : interprété en
-//     heure locale, décalé du fuseau du navigateur)
+// schémas Pydantic *Out, sans suffixe « Z » ni offset).
 //
 // parseUtc() unifie : si la chaîne ne porte aucun fuseau (ni « Z » ni offset
 // ±HH:MM), on la traite comme UTC en ajoutant « Z ». Une chaîne déjà
@@ -18,8 +14,7 @@ const HAS_TZ = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/
 
 /**
  * Parse une chaîne ISO en Date, en interprétant comme UTC les datetimes
- * *naïfs* (sans fuseau). Sémantique alignée sur l'impl historique correcte
- * (InboxPanel/StatsPanel) : `new Date(iso + 'Z')`.
+ * *naïfs* (sans fuseau).
  *
  * - "2026-06-16T09:30:00"        → traité comme UTC (ajout de « Z »)
  * - "2026-06-16T09:30:00Z"       → tel quel
@@ -38,8 +33,7 @@ export function parseUtc(iso: string): Date {
 
 /**
  * Formate une chaîne ISO (UTC naïf) en français. Par défaut : date + heure
- * (jj/mm/aaaa hh:mm), équivalent aux `toLocaleString('fr-FR')` /
- * `toLocaleDateString + toLocaleTimeString` éparpillés dans les pages.
+ * (jj/mm/aaaa hh:mm).
  *
  * - formatFr(iso)                                  → "16/06/2026 11:30"
  * - formatFr(iso, { dateStyle: 'short' })          → "16/06/2026" (date seule)
@@ -63,7 +57,6 @@ export function formatFr(iso: string, opts?: Intl.DateTimeFormatOptions): string
 
 /**
  * Nombre de minutes écoulées depuis `iso` (UTC naïf), borné à >= 0.
- * Repris à l'identique de InboxPanel/StatsPanel.
  */
 export function minutesSince(iso: string): number {
   return Math.max(0, Math.round((Date.now() - parseUtc(iso).getTime()) / 60000))
@@ -71,7 +64,6 @@ export function minutesSince(iso: string): number {
 
 /**
  * Libellé relatif en français : « il y a N min / h / j ».
- * Repris de l'impl la plus complète (InboxPanel/StatsPanel, identiques).
  */
 export function timeAgo(iso: string): string {
   const mins = minutesSince(iso)
@@ -83,7 +75,6 @@ export function timeAgo(iso: string): string {
 /**
  * Extrait le pathname d'une URL, robuste aux URL invalides ou vides :
  * retourne la chaîne d'entrée telle quelle si elle n'est pas parsable.
- * Repris de InboxPanel.pathnameOf (qui acceptait aussi null).
  */
 export function pathnameOf(url: string | null | undefined): string {
   if (!url) return ''

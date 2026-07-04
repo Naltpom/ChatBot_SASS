@@ -91,8 +91,8 @@ interface RFNodeData extends Record<string, unknown> {
 type RFNode = Node<RFNodeData, 'tree'>
 type RFEdge = TreeRFEdge
 
-// Signature STRUCTURELLE du tree (sans les pos) : déclenche une re-sync seulement
-// si la structure logique change (start + nodes sans pos + options).
+// Signature STRUCTURELLE du tree (sans les pos) : compare deux états logiques
+// (start + nodes sans pos + options), ex. pour savoir si une suppression a abouti.
 function structuralSig(tree: Tree): string {
   const t = tree && typeof tree === 'object' ? tree : {}
   const nodes = t.nodes || {}
@@ -450,11 +450,6 @@ function CanvasInner({ tree, onChange, allowAI = true, activeModules, highlightM
     return () => clearTimeout(id)
   }, [full, fitView])
 
-  // RE-SEED les nodes/edges quand la STRUCTURE du tree change (ajout, lien,
-  // suppression, label, type…). `structuralSig` EXCLUT les pos : c'est lui
-  // l'anti-boucle — un changement de pos SEUL (drag) ne change pas sig, donc
-  // l'effet ne se déclenche pas et la position locale est préservée. Pas de
-  // boucle possible : setNodes/setEdges ne touchent jamais au tree.
   // (1) TOPOLOGIE -> re-seed complet (re-layout dagre) : ajout/lien/suppression/type.
   // `pos` est exclu de topoSig -> un drag ne re-layout pas (position préservée).
   // Pas de boucle : setNodes/setEdges ne touchent jamais au tree.
@@ -688,8 +683,8 @@ function CanvasInner({ tree, onChange, allowAI = true, activeModules, highlightM
   // Re-dispose TOUT le graphe via dagre dans la direction `d`. Écrase les pos
   // manuels ET efface les plis (option.bend, coords ABSOLUES devenues incohérentes
   // quand les nœuds bougent). Repositionne aussi la sentinelle IA (hors tree.nodes
-  // -> via tree.aiPos, l'ancienne boucle l'oubliait). Persiste (emit). structuralSig
-  // exclut pos -> l'effet de re-sync ne tournera pas : on met le canvas à jour ici.
+  // -> via tree.aiPos). Persiste (emit). topoSig exclut pos -> l'effet de re-sync
+  // ne tournera pas : on met le canvas à jour ici.
   const relayoutTo = useCallback((d: 'TB' | 'LR') => {
     const auto = layout(tree, d)
     let next = clearAllBends(tree)

@@ -127,7 +127,7 @@ export default function SecurityTab({
           {/* role=radiogroup + radios accessibles au clavier (Enter/Space). On
               garde des <div> (et non des <button>) car l'option sélectionnée
               imbrique des inputs : un bouton contenant des champs serait du HTML
-              invalide. Libellé/texte cliquable strictement inchangés. */}
+              invalide. */}
           <div className="col g10" role="radiogroup" aria-label="Vérification anti-bot (captcha)">
             {CAPTCHA_OPTIONS.map(o => {
               const selected = bot.captcha_provider === o.value

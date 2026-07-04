@@ -1,8 +1,7 @@
 <?php
 /**
  * Frontiere de securite : chiffrement AES-256-GCM des tokens OAuth
- * (Chapote_BO_Crypto). C'est la cible la plus critique de WP-01 et la plus pure
- * (openssl natif). On verifie : aller-retour, AUTHENTICITE (toute alteration du
+ * (Chapote_BO_Crypto). On verifie : aller-retour, AUTHENTICITE (toute alteration du
  * blob = echec, jamais de clair renvoye), forme du blob (IV 12 / tag 16), et
  * ISOLATION par installation (changer le secret d'install casse le dechiffrement).
  */
@@ -94,7 +93,7 @@ final class CryptoTest extends TestCase {
      * Isolation par installation : un blob chiffre sous un secret d'install NE
      * DOIT PAS se dechiffrer apres rotation du secret. Demontre que le secret
      * (option non autoloadee) participe reellement a la cle => un simple dump de
-     * la table options (sans le secret/wp-config) ne suffit pas (spec risque 7).
+     * la table options (sans le secret/wp-config) ne suffit pas.
      */
     public function test_changing_install_secret_breaks_decryption(): void {
         $blob = Chapote_BO_Crypto::encrypt('token-secret');

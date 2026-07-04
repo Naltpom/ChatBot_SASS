@@ -2,18 +2,11 @@
 // conversation pour l'éditeur de workflow (style n8n/Make). AUCUN React, AUCUN
 // import @xyflow. Tout est testable/portable.
 //
-// Différence clé avec l'ancien TreeFlow : React Flow rend un VRAI GRAPHE. Un
-// nœud = une seule box ; aretes multiples entrantes ; cycles natifs. On a donc
-// SUPPRIMÉ toute la machinerie possession/claimed/'link'/back-edge : un « retour
-// au menu » (option next===start) est simplement une arête vers le nœud start,
-// et le type « Lien » disparaît (c'est le geste « tirer une arête vers un nœud
-// existant »).
-//
 // CONTRAT validate_tree (api/src/services/tree_engine.py) — l'éditeur émet
 // TOUJOURS un Tree valide : chaque nœud a un message NON VIDE ; le nœud start a
 // >=1 option ; chaque option.next pointe vers un id existant ou '__ai__'.
 //
-// MODÈLE inchangé (on AJOUTE seulement node.pos) :
+// MODÈLE :
 //   Tree = { start?, nodes?: Record<id, TreeNode> }
 //   TreeNode = { message?, options?, type?, url?, fields?, pos? }
 //   NodeOption = { label, next }   // next==='__ai__' = bascule IA (pas un nœud)
@@ -26,9 +19,7 @@ import type { ModuleKey } from '../../types/billing'
 // c'est une CIBLE d'arête, materialisée par un nœud sentinelle '__ai__'). -----
 export type NodeKind = 'q' | 'hum' | 'act' | 'ai-sentinel'
 
-// Couleurs (bord-gauche carte + pastille + badge) et libellés — repris de
-// TreeFlow.tsx (q=#2F9E79 Question, ia=#8C6DFF IA, hum=#E86A5F Conseiller,
-// act=#2563EB Action).
+// Couleurs (bord-gauche carte + pastille + badge) et libellés.
 export const KIND_COLOR: Record<NodeKind, string> = {
   q: '#2F9E79',
   hum: '#E86A5F',
@@ -45,7 +36,7 @@ export const KIND_LABEL: Record<NodeKind, string> = {
 // Identifiant sentinelle de l'IA (cible d'arête, pas un vrai nœud du tree).
 export const AI_ID = '__ai__'
 
-// Légende affichée dans la barre d'outils (mêmes 4 couleurs que l'actuel).
+// Légende affichée dans la barre d'outils.
 export const LEGEND: { color: string; label: string }[] = [
   { color: KIND_COLOR.q, label: KIND_LABEL.q },
   { color: KIND_COLOR['ai-sentinel'], label: KIND_LABEL['ai-sentinel'] },
@@ -63,7 +54,7 @@ export const MODULE_BADGE: Partial<Record<ModuleKey, { label: string; color: str
   ai: { label: KIND_LABEL['ai-sentinel'], color: KIND_COLOR['ai-sentinel'] },
 }
 
-// ----- id unique stable (PORTÉ de TreeFlow.tsx l.48-53) -----
+// ----- id unique stable -----
 let _seq = 1
 export function newNodeId(nodes: Record<string, unknown>): string {
   let id: string
@@ -304,7 +295,7 @@ export function resolvePositions(
 }
 
 // ============================================================================
-// gc / ensureQ — PORTÉS de TreeFlow.tsx (l.204-211 / l.219-227).
+// gc / ensureQ
 // ============================================================================
 
 // Retire un nœud devenu inaccessible (ni racine, ni référencé ailleurs), récursivement.
@@ -397,7 +388,7 @@ export function addChildNode(
 }
 
 // Drag d'une poignée vers un nœud EXISTANT : ajoute une option {label:'Réponse',
-// next:targetId} sur sourceId. ensureQ sourceId. (= l'ancien type « Lien ».)
+// next:targetId} sur sourceId. ensureQ sourceId.
 export function connectExisting(tree: Tree, sourceId: string, targetId: string): Tree {
   const t = ensureBase(clone(tree))
   const nd = t.nodes!
@@ -412,8 +403,8 @@ export function connectExisting(tree: Tree, sourceId: string, targetId: string):
 }
 
 // Change le TYPE d'un nœud EN PLACE (mode GRAPHE : un nœud partagé l'est assumé,
-// pas de fork). PORTÉ d'applyType (TreeFlow.tsx l.146-201). Ne touche JAMAIS la
-// sentinelle ni le start. PRÉSERVE message + options + pos.
+// pas de fork). Ne touche JAMAIS la sentinelle ni le start. PRÉSERVE message +
+// options + pos.
 export function setNodeType(tree: Tree, nodeId: string, kind: 'q' | 'hum' | 'act'): Tree {
   const t = clone(tree)
   if (!t.nodes || nodeId === AI_ID || nodeId === t.start) return t
@@ -513,7 +504,6 @@ export function setNodePos(tree: Tree, nodeId: string, pos: { x: number; y: numb
   return t
 }
 
-// Supprime une option (PORTÉ removeOption + gc, TreeFlow.tsx l.204-211,282-289).
 export function deleteOption(tree: Tree, parentId: string, optIdx: number): Tree {
   const t = clone(tree)
   const opts = t.nodes?.[parentId]?.options

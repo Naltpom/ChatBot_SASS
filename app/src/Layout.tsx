@@ -1,5 +1,4 @@
-// Shell sidebar — porté du prototype Chapote (sidebar 222px, logo, org
-// switcher, nav). Deux modes déduits du pathname :
+// Shell sidebar — deux modes déduits du pathname :
 // /app/* = espace client (OrgSwitcher), /admin/* = back-office staff.
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
@@ -131,7 +130,6 @@ export default function Layout({ children }: { children: ReactNode }) {
   // (sidebar + topbar mobile) et on le rend pleine largeur, sans padding.
   const chromeless = path === '/app/bots/new'
 
-  // Fermeture auto du drawer à chaque changement de route.
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
 
   if (chromeless) {
@@ -189,8 +187,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                   GET /api/bots) — chaque bot pointe vers sa page, pastille de
                   statut. L'intitulé « Mes chatbots » reste cliquable -> /app. */}
               <BotNav />
-              {/* Séparation entre la liste des bots et le reste de la nav
-                  (Analytics/Inbox/Facturation…), comme la maquette de référence. */}
               <div className="nav-divider" />
               <button className={`nav-item ${path.startsWith('/app/analytics') ? 'active' : ''}`}
                       aria-current={path.startsWith('/app/analytics') ? 'page' : undefined}
@@ -219,7 +215,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                   <span className="nav-ico"><CreditCard size={16} /></span>Facturation
                 </button>
               )}
-              {/* Lien team-scoped : visible seulement avec une équipe active. */}
               {activeOrg && (
                 <button className={`nav-item ${path.startsWith('/app/team') ? 'active' : ''}`}
                         aria-current={path.startsWith('/app/team') ? 'page' : undefined}

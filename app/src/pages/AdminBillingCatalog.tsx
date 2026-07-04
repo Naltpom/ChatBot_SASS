@@ -1,6 +1,6 @@
 // Sous-page ADMIN FACTURATION — CATALOGUE (/admin/billing/catalog).
-// SUPERADMIN UNIQUEMENT (route protégée front + serveur). Extraite de la console
-// monolithique : édition de la table billing_products — libellé (PATCH label),
+// SUPERADMIN UNIQUEMENT (route protégée front + serveur). Édition de la table
+// billing_products — libellé (PATCH label),
 // quota inclus pour les paliers IA (PATCH included_replies), statut actif
 // (PATCH is_active) et CHANGEMENT DE PRIX (POST .../price → nouveau Price Stripe +
 // désactivation de l'ancien, les abonnés existants gardent l'ancien prix).
@@ -40,7 +40,6 @@ export default function AdminBillingCatalog() {
   const [error, setError] = useState('')
   // Code dont le prix est en cours de changement (modale dédiée).
   const [pricing, setPricing] = useState<CatalogProduct | null>(null)
-  // Onglet actif : produits/prix vs présélections.
   const [tab, setTab] = useState<'products' | 'presets'>('products')
 
   const [tick, setTick] = useState(0)
@@ -90,7 +89,6 @@ export default function AdminBillingCatalog() {
         </InfoBox>
       )}
 
-      {/* Onglets : Produits & prix · Présélections. */}
       <div className="tabs">
         <button className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>
           Produits &amp; prix

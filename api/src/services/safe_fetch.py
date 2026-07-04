@@ -1,7 +1,6 @@
 """Fetch HTTP sortant SECURISE (anti-SSRF) : ingestion KB + notifications.
 
-Pattern repris d'action_executor (JAMAIS celui, laxiste, de
-tree_generator.fetch_page_text) : https uniquement, resolution DNS UNIQUE
+Pattern repris d'action_executor : https uniquement, resolution DNS UNIQUE
 avec rejet des IP non publiques, connexion EPINGLEE sur l'IP validee (anti
 DNS-rebinding TOCTOU : httpx ne re-resout pas l'hote, le Host HTTP et le SNI
 TLS — verification du certificat comprise — restent le hostname d'origine),
@@ -122,7 +121,7 @@ async def _pinned_stream(method: str, url: str, *, headers: Optional[dict] = Non
 
 async def _read_bounded(resp: httpx.Response, max_bytes: int) -> bytes:
     """Lecture en stream coupee a max_bytes (le corps reel peut etre plus gros :
-    on s'arrete des qu'on a assez, comme l'historique)."""
+    on s'arrete des qu'on a assez)."""
     read = 0
     parts: list[bytes] = []
     async for part in resp.aiter_bytes():
