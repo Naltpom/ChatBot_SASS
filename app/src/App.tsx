@@ -38,6 +38,8 @@ import mentionsMd from './legal/MENTIONS_LEGALES.md?raw'
 import cguMd from './legal/CGU.md?raw'
 import cgvMd from './legal/CGV.md?raw'
 import confidMd from './legal/POLITIQUE_CONFIDENTIALITE.md?raw'
+import tiktokConfidMd from './legal/TIKTOK_CONFIDENTIALITE.md?raw'
+import tiktokCguMd from './legal/TIKTOK_CGU.md?raw'
 import Layout from './Layout'
 
 // Éditeurs EMBARQUÉS (/embed/*) ouverts par le plugin WordPress dans une iframe/
@@ -155,6 +157,11 @@ export function AppRoutes() {
       <Route path="/legal/cgu" element={<LegalPage md={cguMd} />} />
       <Route path="/legal/cgv" element={<LegalPage md={cgvMd} />} />
       <Route path="/legal/confidentialite" element={<LegalPage md={confidMd} />} />
+      {/* App développeur TikTok « Chapote Publisher » (outil privé, sans lien avec
+          le chatbot) : pages légales exigées par TikTok. Le redirect OAuth
+          /tiktok/callback est une page statique servie par nginx (public/tiktok/). */}
+      <Route path="/legal/tiktok-confidentialite" element={<LegalPage md={tiktokConfidMd} />} />
+      <Route path="/legal/tiktok-cgu" element={<LegalPage md={tiktokCguMd} />} />
       <Route path="/mentions-legales" element={<Navigate to="/legal/mentions-legales" replace />} />
       <Route path="/cgu" element={<Navigate to="/legal/cgu" replace />} />
       <Route path="/cgv" element={<Navigate to="/legal/cgv" replace />} />
