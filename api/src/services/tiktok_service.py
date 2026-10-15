@@ -92,6 +92,9 @@ def authorize_url(state: str) -> str:
 # --------------------------------------------------------------------------
 
 def _json(resp: httpx.Response) -> dict:
+    # /v2/oauth/revoke/ répond 200 avec un corps VIDE en cas de succès.
+    if resp.status_code < 400 and not resp.content.strip():
+        return {}
     try:
         body = resp.json()
     except ValueError:

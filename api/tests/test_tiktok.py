@@ -57,7 +57,7 @@ class FakeTikTok:
                                              "refresh_expires_in": 31536000, "open_id": "oid-1",
                                              "scope": "user.info.basic,video.upload,video.publish", "token_type": "Bearer"})
         if path == "/v2/oauth/revoke/":
-            return httpx.Response(200, json={})
+            return httpx.Response(200, content=b"")  # corps vide, comme TikTok
         if path == "/v2/user/info/":
             return self.ok({"user": {"open_id": "oid-1", "display_name": "kiwi.signal", "avatar_url": "https://p16.tiktok/a.jpg"}})
         if path == "/v2/post/publish/creator_info/query/":
