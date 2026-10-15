@@ -89,6 +89,14 @@ class Settings(BaseSettings):
     # contre un WordPress local. Le chemin prod (safe_get_follow) reste intact.
     ALLOW_PRIVATE_FETCH: bool = False
 
+    # --- TikTok « Chapote Publisher » (outil privé du superadmin, /tiktok) ---
+    # Mêmes noms de variables que scripts/tiktok.py. Clé vide => fonctionnalité
+    # désactivée (503). Le secret ne quitte jamais l'API.
+    TIKTOK_CLIENT_KEY: str | None = None
+    TIKTOK_CLIENT_SECRET: str | None = None
+    TIKTOK_REDIRECT_URI: str = "https://chapote.fr/tiktok/callback"
+    TIKTOK_API_BASE: str = "https://open.tiktokapis.com"
+
     APP_URL: str = "http://localhost:3001"
     API_URL: str = "http://localhost:8001"
 

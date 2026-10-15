@@ -85,6 +85,23 @@ export async function postForm<T = any>(path: string, form: FormData): Promise<T
   return res.json()
 }
 
+// Envoi d'octets bruts (PUT application/octet-stream) — segments vidéo du
+// publieur TikTok, relayés par l'API vers TikTok. Même gestion 401/ApiError.
+export async function putBytes<T = any>(path: string, body: Blob, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body,
+    signal,
+  })
+  redirectIfSessionExpired(res.status, path)
+  if (!res.ok) {
+    throw await toApiError(res, `Envoi échoué (${res.status})`)
+  }
+  return res.json()
+}
+
 // Consomme un flux SSE (text/event-stream) via fetch (credentials: 'include' —
 // porte le cookie de session) plutôt qu'EventSource, qui ne gère pas finement
 // les requêtes cross-origin avec credentials. Appelle `onEvent` pour chaque

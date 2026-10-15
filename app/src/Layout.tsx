@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Building2, Check, ChevronDown, CircleUser,
-  CreditCard, Inbox, Layers, LayoutDashboard, LogOut, Menu, Plug, ShieldCheck, Target, Users,
+  CreditCard, Clapperboard, Inbox, Layers, LayoutDashboard, LogOut, Menu, Plug, ShieldCheck, Target, Users,
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
@@ -124,7 +124,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
 
   const path = location.pathname
-  const inAdmin = path.startsWith('/admin')
+  const inAdmin = path.startsWith('/admin') || path.startsWith('/tiktok')
   // Le wizard de création (/app/bots/new) a son propre en-tête plein écran
   // (logo + étapes + « Quitter ») : on masque le chrome du tableau de bord
   // (sidebar + topbar mobile) et on le rend pleine largeur, sans padding.
@@ -294,6 +294,11 @@ export default function Layout({ children }: { children: ReactNode }) {
                   </button>
                 </div>
               )}
+              <button className={`nav-item ${path.startsWith('/tiktok') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/tiktok') ? 'page' : undefined}
+                      onClick={() => navigate('/tiktok')}>
+                <span className="nav-ico"><Clapperboard size={16} /></span>TikTok
+              </button>
               <div className="nav-divider" />
               <button className="nav-item" onClick={() => navigate('/app')}>
                 <span className="nav-ico"><ArrowLeftRight size={16} /></span>Espace client
