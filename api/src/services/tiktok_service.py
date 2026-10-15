@@ -36,7 +36,8 @@ USER_INFO_FIELDS = "open_id,avatar_url,display_name"
 
 MB = 1024 * 1024
 MIN_CHUNK = 5 * MB
-CHUNK_SIZE = 10 * MB          # dernier chunk < 20 Mo : reste sous les limites de body du proxy
+MAX_CHUNK = 64 * MB
+CHUNK_SIZE = 10 * MB          # au-delà de 64 Mio ; dernier chunk < 20 Mio
 MAX_VIDEO_SIZE = 4 * 1024 * MB
 ALLOWED_MIME = {"video/mp4", "video/quicktime"}
 
@@ -220,8 +221,13 @@ def chunk_plan(video_size: int) -> tuple[int, int]:
     """(chunk_size, total_chunk_count) conformes aux règles FILE_UPLOAD."""
     if video_size <= 0:
         raise ValueError("Taille de vidéo invalide")
-    if video_size < max(MIN_CHUNK, CHUNK_SIZE):
+    # Jusqu'à 64 Mio (et toujours sous 5 Mio) : UN seul chunk de la taille du
+    # fichier. Un chunk unique annoncé plus petit que la vidéo est refusé par
+    # TikTok (« The chunk size is invalid »).
+    if video_size <= MAX_CHUNK:
         return video_size, 1
+    # Au-delà : chunks de 10 Mio, floor() ; le dernier absorbe le reste
+    # (< 2 x 10 Mio), jamais de petit chunk final.
     return CHUNK_SIZE, video_size // CHUNK_SIZE
 
 

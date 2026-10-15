@@ -56,11 +56,11 @@ def _require_enabled() -> None:
                             "TikTok non configuré (TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET).")
 
 
-def _http_error(e: tt.TikTokError) -> HTTPException:
-    """Erreur TikTok -> HTTPException lisible. Jamais de 401 (le front
-    l'interpréterait comme une session Chapote expirée)."""
+def _http_error(e: tt.TikTokError, step: str = "") -> HTTPException:
+    """Erreur TikTok -> HTTPException lisible (préfixée de l'étape en échec).
+    Jamais de 401 (le front l'interpréterait comme une session Chapote expirée)."""
     code = 429 if e.http_status == 429 else (400 if 400 <= e.http_status < 500 else 502)
-    return HTTPException(code, e.describe())
+    return HTTPException(code, f"{step} — {e.describe()}" if step else e.describe())
 
 
 async def _get_account(db: AsyncSession, open_id: str) -> TikTokAccount:
@@ -292,7 +292,10 @@ async def publish_init(open_id: str, body: PublishIn, db: AsyncSession = Depends
     try:
         data, chunk_size, total = await tt.init_video(token, post_info, body.video_size)
     except tt.TikTokError as e:
-        raise _http_error(e)
+        cs, n = tt.chunk_plan(body.video_size)
+        logger.warning("TikTok init refusé : video_size=%s chunk_size=%s total=%s (%s)",
+                       body.video_size, cs, n, e.describe())
+        raise _http_error(e, f"Initialisation ({body.video_size} octets, {n} segment(s) de {cs} octets)")
 
     db.add(TikTokPublish(
         publish_id=data["publish_id"], open_id=acc.open_id, title=body.title,
@@ -335,7 +338,7 @@ async def upload_chunk(publish_id: str, index: int, request: Request,
     except tt.TikTokError as e:
         pub.status, pub.fail_reason = "FAILED", e.code
         await db.commit()
-        raise _http_error(e)
+        raise _http_error(e, f"Envoi du segment {index + 1}/{pub.total_chunk_count} (octets {start}-{end}/{pub.video_size})")
     if index == pub.total_chunk_count - 1:
         pub.status = "PROCESSING_UPLOAD"
         await db.commit()

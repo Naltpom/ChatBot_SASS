@@ -103,15 +103,33 @@ def _account(db, **kw):
 # Découpage
 # --------------------------------------------------------------------------
 
-def test_chunk_plan_rules():
-    assert tt.chunk_plan(3 * MB) == (3 * MB, 1)            # < 5 Mo : un seul chunk
-    assert tt.chunk_plan(8 * MB) == (8 * MB, 1)
-    size = 47 * MB + 123
+@pytest.mark.parametrize("size_mb, chunk_mb, count", [
+    (3, 3, 1),      # < 5 Mio : un seul chunk = taille du fichier
+    (5, 5, 1),
+    (12, 12, 1),    # <= 64 Mio : un seul chunk
+    (64, 64, 1),
+    (70, 10, 7),    # > 64 Mio : chunks de 10 Mio, floor()
+    (133, 10, 13),
+])
+def test_chunk_plan_rules(size_mb, chunk_mb, count):
+    size = size_mb * MB
+    assert tt.chunk_plan(size) == (chunk_mb * MB, count)
+
+
+@pytest.mark.parametrize("size", [3 * MB + 7, 12 * MB + 1, 64 * MB, 70 * MB + 123, 133 * MB + 999_999, 4 * 1024 * MB])
+def test_chunk_ranges_cover_file_without_small_last_chunk(size):
     cs, n = tt.chunk_plan(size)
-    assert (cs, n) == (10 * MB, 4)
-    assert tt.chunk_range(3, cs, n, size) == (30 * MB, size - 1)   # le dernier absorbe le reste
-    assert size - 30 * MB < 2 * cs
-    assert 5 * MB <= cs <= 64 * MB
+    assert 1 <= n <= 1000
+    ranges = [tt.chunk_range(i, cs, n, size) for i in range(n)]
+    assert ranges[0][0] == 0 and ranges[-1][1] == size - 1
+    assert all(ranges[i][1] + 1 == ranges[i + 1][0] for i in range(n - 1))   # contigus
+    sizes = [e - s + 1 for s, e in ranges]
+    assert all(x == cs for x in sizes[:-1])
+    if n == 1:
+        assert cs == size                                                     # chunk unique = fichier entier
+    else:
+        assert 5 * MB <= cs <= 64 * MB
+        assert cs <= sizes[-1] < 2 * cs <= 128 * MB                           # jamais de petit chunk final
 
 
 # --------------------------------------------------------------------------
@@ -248,15 +266,15 @@ def _publish_body(**kw):
 @pytest.mark.asyncio
 async def test_publish_full_flow(overrides, client, tiktok, db):
     _account(db)
-    size = 23 * MB + 5
+    size = 70 * MB + 5
     r = await client.post("/api/admin/tiktok/accounts/oid-1/publish", json=_publish_body(video_size=size))
     assert r.status_code == 200, r.text
     plan = r.json()
-    assert plan == {"publish_id": "v_pub_file~1", "chunk_size": 10 * MB, "total_chunk_count": 2, "video_size": size}
+    assert plan == {"publish_id": "v_pub_file~1", "chunk_size": 10 * MB, "total_chunk_count": 7, "video_size": size}
 
     init = json.loads(tiktok.last("/v2/post/publish/video/init/").content)
     assert init["source_info"] == {"source": "FILE_UPLOAD", "video_size": size,
-                                   "chunk_size": 10 * MB, "total_chunk_count": 2}
+                                   "chunk_size": 10 * MB, "total_chunk_count": 7}
     pi = init["post_info"]
     assert pi["privacy_level"] == "PUBLIC_TO_EVERYONE" and pi["title"] == "Ma vidéo #test"
     assert pi["disable_comment"] is False
@@ -267,16 +285,16 @@ async def test_publish_full_flow(overrides, client, tiktok, db):
     [pub] = db.rows(TikTokPublish)
     assert pub.upload_url_enc != UPLOAD_URL
 
-    r = await client.put("/api/admin/tiktok/publishes/v_pub_file~1/chunks/0", content=b"\0" * (10 * MB))
-    assert r.status_code == 200 and r.json()["http_status"] == 206
-    put = tiktok.calls[-1]
-    assert str(put.url) == UPLOAD_URL
-    assert put.headers["Content-Range"] == f"bytes 0-{10 * MB - 1}/{size}"
-    assert put.headers["Content-Type"] == "video/mp4"
-
-    r = await client.put("/api/admin/tiktok/publishes/v_pub_file~1/chunks/1", content=b"\0" * (size - 10 * MB))
-    assert r.status_code == 200 and r.json()["http_status"] == 201
-    assert tiktok.calls[-1].headers["Content-Range"] == f"bytes {10 * MB}-{size - 1}/{size}"
+    for i in range(7):
+        start = i * 10 * MB
+        end = size - 1 if i == 6 else start + 10 * MB - 1
+        r = await client.put(f"/api/admin/tiktok/publishes/v_pub_file~1/chunks/{i}", content=b"\0" * (end - start + 1))
+        assert r.status_code == 200 and r.json()["http_status"] == (201 if i == 6 else 206)
+        put = tiktok.calls[-1]
+        assert str(put.url) == UPLOAD_URL
+        assert put.headers["Content-Range"] == f"bytes {start}-{end}/{size}"
+        assert put.headers["Content-Length"] == str(end - start + 1)
+        assert put.headers["Content-Type"] == "video/mp4"
 
     r = await client.get("/api/admin/tiktok/publishes/v_pub_file~1/status")
     assert r.json()["status"] == "PUBLISH_COMPLETE"
