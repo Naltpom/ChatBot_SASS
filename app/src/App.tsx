@@ -34,6 +34,9 @@ import AdminBillingInvoices from './pages/AdminBillingInvoices'
 import AdminBillingCatalog from './pages/AdminBillingCatalog'
 import LegalPage from './pages/LegalPage'
 import APropos from './pages/APropos'
+import TikTokDashboard from './pages/tiktok/TikTokDashboard'
+import TikTokPublish from './pages/tiktok/TikTokPublish'
+import TikTokCallback from './pages/tiktok/TikTokCallback'
 import mentionsMd from './legal/MENTIONS_LEGALES.md?raw'
 import cguMd from './legal/CGU.md?raw'
 import cgvMd from './legal/CGV.md?raw'
@@ -158,8 +161,7 @@ export function AppRoutes() {
       <Route path="/legal/cgv" element={<LegalPage md={cgvMd} />} />
       <Route path="/legal/confidentialite" element={<LegalPage md={confidMd} />} />
       {/* App développeur TikTok « Chapote Publisher » (outil privé, sans lien avec
-          le chatbot) : pages légales exigées par TikTok. Le redirect OAuth
-          /tiktok/callback est une page statique servie par nginx (public/tiktok/). */}
+          le chatbot) : pages légales exigées par TikTok. */}
       <Route path="/legal/tiktok-confidentialite" element={<LegalPage md={tiktokConfidMd} />} />
       <Route path="/legal/tiktok-cgu" element={<LegalPage md={tiktokCguMd} />} />
       <Route path="/mentions-legales" element={<Navigate to="/legal/mentions-legales" replace />} />
@@ -171,6 +173,12 @@ export function AppRoutes() {
           cookie/chrome dashboard). Non prérendus (chunk @xyflow isolé). */}
       <Route path="/embed/tree-editor" element={<React.Suspense fallback={<EmbedChunkFallback />}><EmbedTreeEditor /></React.Suspense>} />
       <Route path="/embed/appearance" element={<React.Suspense fallback={<EmbedChunkFallback />}><EmbedAppearance /></React.Suspense>} />
+      {/* TikTok « Chapote Publisher » : outil privé du superadmin (noindex).
+          /tiktok/callback est public : en mode manuel (scripts/tiktok.py) il
+          affiche juste le code ; sinon il exige la session admin. */}
+      <Route path="/tiktok" element={<Protected adminOnly><TikTokDashboard /></Protected>} />
+      <Route path="/tiktok/publish" element={<Protected adminOnly><TikTokPublish /></Protected>} />
+      <Route path="/tiktok/callback" element={<TikTokCallback />} />
       {/* Application (clients) */}
       <Route path="/app" element={<Protected><BotList /></Protected>} />
       <Route path="/app/bots/new" element={<Protected><BotWizard /></Protected>} />
