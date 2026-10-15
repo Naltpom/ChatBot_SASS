@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Redirect OAuth de l'app développeur TikTok « Chapote Publisher » (outil
+       privé, sans lien avec le chatbot). Page 100 % statique : le code est lu
+       et affiché côté client, JAMAIS envoyé ailleurs (aucune requête réseau,
+       aucun analytics, aucune police distante). Servie par nginx sur
+       location = /tiktok/callback (voir nginx.conf). -->
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Autorisation TikTok — Chapote</title>
+  <link rel="stylesheet" href="/tiktok/callback.css" />
+  <script src="/tiktok/callback.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">← Retour à l'accueil</a>
+    <article class="legal-doc">
+      <h1>Autorisation TikTok</h1>
+
+      <section id="ok" hidden>
+        <p>Copiez ce code et collez-le dans la commande <code>python3 scripts/tiktok.py exchange</code>. Il expire après quelques minutes.</p>
+        <label for="code">Code d'autorisation</label>
+        <div class="row">
+          <input id="code" type="text" readonly spellcheck="false" autocomplete="off" />
+          <button id="copy" type="button">Copier</button>
+        </div>
+        <p id="copied" class="hint" aria-live="polite"></p>
+        <div id="state-block" hidden>
+          <label for="state">State</label>
+          <input id="state" type="text" readonly spellcheck="false" autocomplete="off" />
+        </div>
+      </section>
+
+      <section id="err" hidden>
+        <blockquote>
+          <strong>Erreur : </strong><span id="err-code"></span><br />
+          <span id="err-desc"></span>
+        </blockquote>
+      </section>
+
+      <section id="none" hidden>
+        <p>Aucun code reçu.</p>
+      </section>
+
+      <noscript><p>JavaScript est nécessaire pour afficher le code d'autorisation.</p></noscript>
+    </article>
+  </div>
+</body>
+</html>

@@ -76,6 +76,6 @@ export type FooterColumn = { title: string; links: NavLink[] }
 // ou placeholder. Le pack légal pointe vers les pages publiques réelles.
 export const FOOTER_COLUMNS: FooterColumn[] = [
   { title: 'Produit', links: [{ href: '#features', label: 'Fonctionnalités' }, { href: '#why', label: 'Comparatif' }, { href: '#pricing', label: 'Tarifs' }, { href: '#install', label: 'Installation' }, { href: '/demo', label: 'Démo' }, { href: '/a-propos', label: 'À propos' }] },
-  { title: 'Légal', links: [{ href: '/legal/mentions-legales', label: 'Mentions légales' }, { href: '/legal/cgu', label: 'CGU' }, { href: '/legal/cgv', label: 'CGV' }, { href: '/legal/confidentialite', label: 'Confidentialité' }] },
+  { title: 'Légal', links: [{ href: '/legal/mentions-legales', label: 'Mentions légales' }, { href: '/legal/cgu', label: 'CGU' }, { href: '/legal/cgv', label: 'CGV' }, { href: '/legal/confidentialite', label: 'Confidentialité' }, { href: '/legal/tiktok-confidentialite', label: 'Confidentialité TikTok' }] },
   { title: 'Ressources', links: [{ href: '#', label: 'Documentation' }, { href: 'mailto:hello@chapote.fr', label: 'Contact' }, { href: '#', label: 'GitHub' }] },
 ]
