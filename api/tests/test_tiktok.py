@@ -66,6 +66,7 @@ class FakeTikTok:
         self.init_error = None
         self.status = {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [123]}
         self.refresh_count = 0
+        self.upload_failures = []      # codes HTTP renvoyés (un par PUT) avant succès
 
     @staticmethod
     def ok(data):
@@ -107,6 +108,11 @@ class FakeTikTok:
                 return self.err(403, self.init_error)
             return self.ok({"publish_id": "v_pub_file~1", "upload_url": UPLOAD_URL})
         if req.url.host == "upload.tiktok.test":
+            if self.upload_failures:
+                code = self.upload_failures.pop(0)
+                if code == 0:
+                    raise httpx.ConnectError("coupure", request=req)
+                return httpx.Response(code, text="<html>Service Temporarily Unavailable</html>")
             rng = req.headers["Content-Range"].split("/")
             end = int(rng[0].split("-")[1])
             return httpx.Response(201 if end + 1 == int(rng[1]) else 206)
@@ -133,6 +139,7 @@ def tiktok(monkeypatch, tmp_path):
     monkeypatch.setattr(tiktok_jobs, "launch", lambda post_id: fake.launched.append(post_id))
     # Morceaux de 1 Ko vers Chapote : vidéos de test légères.
     monkeypatch.setattr(tiktok_router, "PART_SIZE", 1024)
+    monkeypatch.setattr(tt, "CHUNK_RETRY_DELAYS", (0, 0, 0))
     return fake
 
 
@@ -713,6 +720,27 @@ async def test_large_video_uploaded_in_tiktok_chunks(pg_session, tiktok, tmp_pat
     assert post.status == "PROCESSING_UPLOAD" and not path.exists()
 
 
+@pytest.mark.asyncio
+async def test_put_chunk_retries_transient_errors(tiktok):
+    tiktok.upload_failures = [503, 0, 502]
+    assert await tt.put_chunk(UPLOAD_URL, b"x" * 10, 0, 9, 10, "video/mp4") == 201
+    assert len([c for c in tiktok.calls if c.url.host == "upload.tiktok.test"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_put_chunk_gives_up_with_french_message(tiktok):
+    tiktok.upload_failures = [503] * 4
+    with pytest.raises(tt.TikTokError) as e:
+        await tt.put_chunk(UPLOAD_URL, b"x" * 10, 0, 9, 10, "video/mp4")
+    assert e.value.code == "upload_unavailable"
+    assert "momentanément indisponible" in e.value.describe()
+    tiktok.upload_failures = [400]
+    with pytest.raises(tt.TikTokError) as e:
+        await tt.put_chunk(UPLOAD_URL, b"x" * 10, 0, 9, 10, "video/mp4")
+    assert e.value.code == "upload_http_400"
+    assert len([c for c in tiktok.calls if c.url.host == "upload.tiktok.test"]) == 5
+
+
 @pytest.mark.real_db
 @pytest.mark.asyncio
 async def test_draft_post_goes_to_inbox(pg_session, tiktok):
@@ -907,3 +935,10 @@ async def test_admin_overview_read_only_without_tokens(pg_session, tiktok):
         assert "oid-" not in r.text and "token" not in r.text
         # Aucune route d'usage côté opérateur.
         assert (await c.as_(admin).post("/api/admin/tiktok/oauth/start")).status_code in (404, 405)
+
+
+def test_httpx_urls_not_logged():
+    # L'URL d'upload TikTok porte un upload_token : httpx ne doit pas la journaliser.
+    import logging
+    import src.main  # noqa: F401
+    assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
