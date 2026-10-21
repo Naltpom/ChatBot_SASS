@@ -85,8 +85,8 @@ export async function postForm<T = any>(path: string, form: FormData): Promise<T
   return res.json()
 }
 
-// Envoi d'octets bruts (PUT application/octet-stream) — segments vidéo du
-// publieur TikTok, relayés par l'API vers TikTok. Même gestion 401/ApiError.
+// Envoi d'octets bruts (PUT application/octet-stream) — morceaux de la vidéo
+// du module TikTok, reçus par l'API avant l'envoi à TikTok. Même gestion 401/ApiError.
 export async function putBytes<T = any>(path: string, body: Blob, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: 'PUT',

@@ -1,18 +1,22 @@
-"""Client TikTok (Login Kit + Content Posting API, Direct Post) — côté serveur.
+"""Client TikTok (Login Kit + Content Posting API) — côté serveur.
 
-Outil privé « Chapote Publisher » : le superadmin publie ses propres vidéos sur
-ses comptes TikTok. TOUS les appels TikTok passent par ici (le navigateur ne
-voit ni le client_secret ni les jetons ; il n'envoie que les octets vidéo à
-l'API, qui les relaie vers l'upload_url pré-signée).
+Module « Chapote Publisher » de l'Espace client : chaque tenant connecte ses
+propres comptes TikTok et y publie ses vidéos. TOUS les appels TikTok passent
+par ici : le navigateur ne voit ni le client_secret ni les jetons.
 
 Contrats TikTok (https://developers.tiktok.com/doc/) :
 - OAuth (/v2/oauth/token/, /v2/oauth/revoke/) : formulaire urlencoded ; erreur
-  au niveau racine {error, error_description, log_id}.
+  au niveau racine {error, error_description, log_id}. Access token 24 h,
+  refresh token 365 j ; le refresh token renvoyé PEUT changer (rotation).
 - API v2 (user/info, post/publish/*) : {data, error: {code, message, log_id}},
   succès ⇔ error.code == "ok".
-- Upload FILE_UPLOAD : chunks de 5 à 64 Mo, le dernier absorbe le reste
-  (jusqu'à 128 Mo) ; total_chunk_count = floor(video_size / chunk_size) ;
-  vidéo < 5 Mo => un seul chunk de la taille du fichier.
+- Direct Post : POST /v2/post/publish/video/init/ (video.publish), post_info +
+  source_info. Brouillon : POST /v2/post/publish/inbox/video/init/
+  (video.upload), source_info seul. upload_url valable 1 h. 6 init / min / jeton.
+- FILE_UPLOAD (media transfer guide) : chunks de 5 à 64 MB, le dernier absorbe
+  le reste (jusqu'à 128 MB) ; total_chunk_count = floor(video_size / chunk_size),
+  1 à 1000 ; < 5 MB => envoi en un bloc ; > 64 MB => plusieurs chunks ; envoi
+  séquentiel. 4 GB max, MP4 / MOV / WebM, 10 min max à l'init.
 """
 import logging
 from datetime import datetime, timedelta
@@ -34,18 +38,59 @@ AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
 SCOPES = "user.info.basic,video.upload,video.publish"
 USER_INFO_FIELDS = "open_id,avatar_url,display_name"
 
-MB = 1024 * 1024
+# Limites FILE_UPLOAD de la doc TikTok (unités « MB » décimales : les bornes
+# retenues tiennent aussi en lecture MiB — chunk unique <= 64e6 < 64 Mio,
+# chunk de 10e6 >= 5 Mio).
+MB = 1000 * 1000
 MIN_CHUNK = 5 * MB
 MAX_CHUNK = 64 * MB
-CHUNK_SIZE = 10 * MB          # au-delà de 64 Mio ; dernier chunk < 20 Mio
-MAX_VIDEO_SIZE = 4 * 1024 * MB
-ALLOWED_MIME = {"video/mp4", "video/quicktime"}
+MAX_LAST_CHUNK = 128 * MB
+MAX_CHUNK_COUNT = 1000
+CHUNK_SIZE = 10 * MB            # au-delà de 64 MB ; dernier chunk < 20 MB
+MAX_VIDEO_SIZE = 4 * 1000 * MB  # « Maximum of 4GB »
+MAX_DURATION_SEC = 600          # 10 min max à l'init (le créateur peut avoir moins)
+ALLOWED_MIME = {"video/mp4", "video/quicktime", "video/webm"}
+TITLE_MAX = 2200                # post_info.title : 2200 runes UTF-16
 
-# Marge avant expiration de l'access token (24 h chez TikTok) pour rafraîchir.
+# Marge avant expiration de l'access token pour rafraîchir à la volée.
 REFRESH_MARGIN = timedelta(minutes=5)
 
 # Transport httpx injectable (tests : httpx.MockTransport).
 _transport: Optional[httpx.AsyncBaseTransport] = None
+
+
+# Messages FR des codes d'erreur TikTok (init, status/fetch, creator_info).
+ERROR_MESSAGES = {
+    "access_token_invalid": "L'autorisation TikTok a expiré ou a été révoquée : reconnectez le compte.",
+    "scope_not_authorized": "Ce compte n'a pas accordé les autorisations de publication : reconnectez-le en acceptant toutes les autorisations.",
+    "spam_risk_too_many_posts": "Ce compte a atteint le nombre maximal de publications autorisées pour aujourd'hui. Réessayez plus tard.",
+    "spam_risk_too_many_pending_share": "Trop de vidéos en attente dans la boîte de réception TikTok de ce compte (5 par 24 h). Publiez ou supprimez-les depuis l'app TikTok, puis réessayez.",
+    "spam_risk_user_banned_from_posting": "Ce compte n'est pas autorisé à publier pour le moment.",
+    "reached_active_user_cap": "La limite quotidienne d'utilisateurs de l'application est atteinte. Réessayez plus tard.",
+    "unaudited_client_can_only_post_to_private_accounts": "Tant que l'application n'est pas validée par TikTok, la publication n'est possible que sur un compte privé.",
+    "privacy_level_option_mismatch": "Ce niveau de confidentialité n'est pas proposé par TikTok pour ce compte.",
+    "rate_limit_exceeded": "Trop de requêtes vers TikTok. Patientez une minute puis réessayez.",
+    "invalid_param": "TikTok a refusé la demande (paramètre invalide).",
+    "url_ownership_unverified": "Source vidéo refusée par TikTok.",
+    "invalid_publish_id": "Publication introuvable chez TikTok.",
+    "token_not_authorized_for_specified_publish_id": "Cette publication n'appartient pas à ce compte TikTok.",
+    "internal_error": "Erreur temporaire chez TikTok. Réessayez plus tard.",
+    # fail_reason (status/fetch)
+    "file_format_check_failed": "Format vidéo refusé par TikTok.",
+    "duration_check_failed": "Durée de la vidéo refusée par TikTok.",
+    "frame_rate_check_failed": "Fréquence d'images refusée par TikTok.",
+    "picture_size_check_failed": "Dimensions de la vidéo refusées par TikTok.",
+    "internal": "Erreur temporaire chez TikTok. Réessayez la publication.",
+    "video_pull_failed": "TikTok n'a pas pu récupérer la vidéo.",
+    "publish_cancelled": "La publication a été annulée.",
+    "auth_removed": "L'autorisation a été retirée pendant le traitement : reconnectez le compte.",
+    "spam_risk_text": "La légende a été jugée indésirable par TikTok.",
+    "spam_risk": "La publication a été jugée à risque par TikTok.",
+}
+
+# Codes creator_info / init signifiant « ce créateur ne peut pas publier maintenant ».
+CANNOT_POST = {"spam_risk_too_many_posts", "spam_risk_user_banned_from_posting",
+               "reached_active_user_cap", "spam_risk_too_many_pending_share"}
 
 
 class TikTokError(Exception):
@@ -59,16 +104,23 @@ class TikTokError(Exception):
         self.http_status = http_status
 
     def describe(self) -> str:
-        txt = f"Erreur TikTok « {self.code} »"
-        if self.message:
-            txt += f" : {self.message}"
+        """Message FR pour l'utilisateur (code TikTok + log_id en référence)."""
+        txt = ERROR_MESSAGES.get(self.code)
+        if txt is None:
+            txt = f"Erreur TikTok « {self.code} »"
+            if self.message:
+                txt += f" : {self.message}"
         if self.log_id:
-            txt += f" (log_id {self.log_id})"
+            txt += f" (réf. {self.log_id})"
         return txt
 
 
 def is_enabled() -> bool:
     return bool(settings.TIKTOK_CLIENT_KEY and settings.TIKTOK_CLIENT_SECRET)
+
+
+def max_upload_bytes() -> int:
+    return min(settings.TIKTOK_MAX_UPLOAD_MB * 1024 * 1024, MAX_VIDEO_SIZE)
 
 
 def _client(**kw) -> httpx.AsyncClient:
@@ -82,7 +134,7 @@ def authorize_url(state: str) -> str:
         "response_type": "code",
         "redirect_uri": settings.TIKTOK_REDIRECT_URI,
         "state": state,
-        # Toujours afficher l'écran d'autorisation (utile pour connecter le 2e compte).
+        # Toujours afficher l'écran d'autorisation (utile pour connecter un 2e compte).
         "disable_auto_auth": "1",
     }
     return f"{AUTHORIZE_URL}?{urlencode(params)}"
@@ -171,20 +223,31 @@ async def creator_info(access_token: str) -> dict:
     return await _api("POST", "/v2/post/publish/creator_info/query/", access_token, json={})
 
 
-async def init_video(access_token: str, post_info: dict, video_size: int) -> tuple[dict, int, int]:
+def _source_info(video_size: int) -> dict:
     chunk_size, total = chunk_plan(video_size)
-    data = await _api("POST", "/v2/post/publish/video/init/", access_token, json={
-        "post_info": post_info,
-        "source_info": {
-            "source": "FILE_UPLOAD",
-            "video_size": video_size,
-            "chunk_size": chunk_size,
-            "total_chunk_count": total,
-        },
-    })
+    return {"source": "FILE_UPLOAD", "video_size": video_size,
+            "chunk_size": chunk_size, "total_chunk_count": total}
+
+
+def _check_init(data: dict) -> dict:
     if not data.get("publish_id") or not data.get("upload_url"):
         raise TikTokError("invalid_response", "publish_id/upload_url absents de la réponse init")
-    return data, chunk_size, total
+    return data
+
+
+async def init_direct_post(access_token: str, post_info: dict, video_size: int) -> dict:
+    """Direct Post (video.publish) : publie sur le profil après traitement."""
+    return _check_init(await _api("POST", "/v2/post/publish/video/init/", access_token, json={
+        "post_info": post_info, "source_info": _source_info(video_size),
+    }))
+
+
+async def init_inbox_upload(access_token: str, video_size: int) -> dict:
+    """Brouillon (video.upload) : la vidéo arrive dans la boîte de réception
+    TikTok du créateur, qui termine l'édition et publie depuis l'app."""
+    return _check_init(await _api("POST", "/v2/post/publish/inbox/video/init/", access_token, json={
+        "source_info": _source_info(video_size),
+    }))
 
 
 async def put_chunk(upload_url: str, content: bytes, start: int, end: int,
@@ -202,6 +265,8 @@ async def put_chunk(upload_url: str, content: bytes, start: int, end: int,
             err = body.get("error") or {}
         except ValueError:
             err = {}
+        if resp.status_code == 403 and not err:
+            err = {"code": "upload_url_expired", "message": "Lien d'envoi TikTok expiré"}
         raise TikTokError(err.get("code") or f"upload_http_{resp.status_code}",
                           err.get("message") or "Échec de l'envoi d'un segment vidéo",
                           err.get("log_id") or "", resp.status_code)
@@ -219,15 +284,15 @@ async def publish_status(access_token: str, publish_id: str) -> dict:
 
 def chunk_plan(video_size: int) -> tuple[int, int]:
     """(chunk_size, total_chunk_count) conformes aux règles FILE_UPLOAD."""
-    if video_size <= 0:
+    if video_size <= 0 or video_size > MAX_VIDEO_SIZE:
         raise ValueError("Taille de vidéo invalide")
-    # Jusqu'à 64 Mio (et toujours sous 5 Mio) : UN seul chunk de la taille du
+    # Jusqu'à 64 MB (et toujours sous 5 MB) : UN seul chunk de la taille du
     # fichier. Un chunk unique annoncé plus petit que la vidéo est refusé par
     # TikTok (« The chunk size is invalid »).
     if video_size <= MAX_CHUNK:
         return video_size, 1
-    # Au-delà : chunks de 10 Mio, floor() ; le dernier absorbe le reste
-    # (< 2 x 10 Mio), jamais de petit chunk final.
+    # Au-delà : chunks de 10 MB, floor() ; le dernier absorbe le reste
+    # (< 2 x 10 MB), jamais de petit chunk final.
     return CHUNK_SIZE, video_size // CHUNK_SIZE
 
 
@@ -249,46 +314,78 @@ def apply_tokens(account: TikTokAccount, tok: dict, now: Optional[datetime] = No
     account.access_token_enc = encrypt_secret(tok["access_token"])
     if tok.get("refresh_token"):
         account.refresh_token_enc = encrypt_secret(tok["refresh_token"])
-    account.access_expires_at = now + timedelta(seconds=int(tok.get("expires_in") or 86400))
+    account.access_token_expires_at = now + timedelta(seconds=int(tok.get("expires_in") or 86400))
     if tok.get("refresh_expires_in"):
-        account.refresh_expires_at = now + timedelta(seconds=int(tok["refresh_expires_in"]))
+        account.refresh_token_expires_at = now + timedelta(seconds=int(tok["refresh_expires_in"]))
     if tok.get("scope"):
-        account.scope = tok["scope"]
+        account.scopes = tok["scope"]
+    account.needs_reconnect = False
+
+
+def clear_tokens(account: TikTokAccount) -> None:
+    account.access_token_enc = None
+    account.refresh_token_enc = None
+    account.access_token_expires_at = None
+    account.refresh_token_expires_at = None
 
 
 class ReconnectRequired(Exception):
     """Le compte doit être reconnecté (refresh token expiré, révoqué ou illisible)."""
 
 
-async def valid_access_token(db: AsyncSession, account: TikTokAccount) -> str:
-    """Access token valide, rafraîchi automatiquement via le refresh token."""
-    now = utcnow()
-    if account.access_expires_at and account.access_expires_at - REFRESH_MARGIN > now:
-        token = decrypt_secret(account.access_token_enc)
-        if token:
-            return token
+# Codes OAuth signifiant que le refresh token ne servira plus jamais.
+_DEAD_REFRESH = {"invalid_grant", "invalid_request", "access_token_invalid"}
 
-    # Verrou de ligne : deux requêtes simultanées ne rafraîchissent pas en double.
+
+async def valid_access_token(db: AsyncSession, account: TikTokAccount, *,
+                             force_refresh: bool = False,
+                             margin: timedelta = REFRESH_MARGIN) -> str:
+    """Access token valide, rafraîchi automatiquement via le refresh token.
+    Un refresh impossible marque le compte « à reconnecter » (needs_reconnect)
+    et lève ReconnectRequired."""
+    if account.revoked_at is not None:
+        raise ReconnectRequired("compte déconnecté")
+    now = utcnow()
+
+    def _fresh(acc: TikTokAccount) -> Optional[str]:
+        if force_refresh or not acc.access_token_expires_at:
+            return None
+        if acc.access_token_expires_at - margin <= now:
+            return None
+        return decrypt_secret(acc.access_token_enc)
+
+    token = _fresh(account)
+    if token:
+        return token
+
+    # Verrou de ligne : deux requêtes simultanées ne rafraîchissent pas en double
+    # (le refresh token peut tourner : le 2e refresh échouerait).
     locked = (await db.execute(
         select(TikTokAccount).where(TikTokAccount.id == account.id).with_for_update()
     )).scalar_one_or_none() or account
-    if locked.access_expires_at and locked.access_expires_at - REFRESH_MARGIN > now:
-        token = decrypt_secret(locked.access_token_enc)
+    if not force_refresh:
+        token = _fresh(locked)
         if token:
             return token
 
-    if locked.refresh_expires_at and locked.refresh_expires_at <= now:
-        raise ReconnectRequired("refresh token expiré")
+    async def _dead(reason: str):
+        locked.needs_reconnect = True
+        await db.commit()
+        raise ReconnectRequired(reason)
+
+    if locked.refresh_token_expires_at and locked.refresh_token_expires_at <= now:
+        await _dead("refresh token expiré")
     refresh = decrypt_secret(locked.refresh_token_enc)
     if not refresh:
-        raise ReconnectRequired("refresh token illisible")
+        await _dead("refresh token absent ou illisible")
     try:
         tok = await refresh_tokens(refresh)
     except TikTokError as e:
-        if e.code in ("invalid_grant", "invalid_request", "access_token_invalid"):
-            raise ReconnectRequired(e.describe())
+        if e.code in _DEAD_REFRESH:
+            logger.info("TikTok : refresh refusé pour le compte %s (%s)", locked.id, e.code)
+            await _dead(e.code)
         raise
     apply_tokens(locked, tok, now)
     await db.commit()
-    logger.info("TikTok : access token rafraîchi pour %s", locked.open_id)
+    logger.info("TikTok : access token rafraîchi pour le compte %s", locked.id)
     return tok["access_token"]

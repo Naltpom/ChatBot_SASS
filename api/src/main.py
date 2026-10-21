@@ -23,10 +23,11 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.core.errors import install_error_handlers
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
-from src.routers import admin, admin_billing, admin_prospecting, auth, billing, bots, embed, inbox, kb, orgs, public, stats, tiktok, tree, twofa, uploads, widget
+from src.routers import admin, admin_billing, admin_prospecting, admin_tiktok, auth, billing, bots, embed, inbox, kb, orgs, public, stats, tiktok, tree, twofa, uploads, widget
 from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
 from src.routers.external import onboarding as ext_onboarding
+from src.services import tiktok_jobs
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -50,7 +51,11 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as session:
         await ensure_dev_admin(session)
     logger.info("API prête (DB supposée déjà migrée — voir deploy.sh / make migrate)")
+    # Module TikTok : refresh des jetons, suivi des publications, nettoyage
+    # (un seul worker par tick, cf. services/tiktok_jobs). No-op si désactivé.
+    tiktok_jobs.start_scheduler()
     yield
+    await tiktok_jobs.stop_scheduler()
 
 
 # Doc interactive (Swagger /docs, ReDoc /redoc, schema /openapi.json) : on la
@@ -271,6 +276,7 @@ app.include_router(admin.router)
 app.include_router(admin_billing.router)
 app.include_router(admin_prospecting.router)
 app.include_router(tiktok.router)
+app.include_router(admin_tiktok.router)
 app.include_router(uploads.router)
 app.include_router(stats.router)
 app.include_router(tree.router)

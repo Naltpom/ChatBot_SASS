@@ -7,4 +7,4 @@ from src.models.kb import KbSource, KbChunk  # noqa: F401
 from src.models.analytics import TreeEvent, InsightsReport  # noqa: F401
 from src.models.demo import DemoGeneration  # noqa: F401
 from src.models.oauth import OAuthAuthorizationCode, OAuthToken  # noqa: F401
-from src.models.tiktok import TikTokAccount, TikTokPublish  # noqa: F401
+from src.models.tiktok import TikTokAccount, TikTokPost  # noqa: F401

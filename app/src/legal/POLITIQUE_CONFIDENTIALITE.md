@@ -39,7 +39,7 @@ Coordonnées : [À COMPLÉTER — raison sociale, adresse], e‑mail : rgpd@chap
 
 Nous faisons appel à des prestataires agissant comme sous‑traitants ultérieurs :
 
-- **Hébergement :** [À COMPLÉTER — hébergeur, localisation UE de préférence].
+- **Hébergement :** **OVH SAS** (2 rue Kellermann, 59100 Roubaix), serveurs situés en France.
 - **Paiement :** Stripe Payments Europe, Ltd.
 - **Fournisseurs d'IA :** selon le modèle utilisé — Anthropic, OpenAI, Google (Gemini). En mode **BYOK**, le Client utilise sa propre clé et sa propre relation contractuelle avec le fournisseur.
 - **Protection anti‑robot (captcha) :** **Cloudflare, Inc.** — widget **Turnstile** (mode invisible) protégeant le handshake du Widget et la démo publique `/demo`. À cette fin, l'**adresse IP** du visiteur et des **signaux techniques du navigateur** sont transmis à Cloudflare à des fins de vérification ; **aucun cookie publicitaire** n'est utilisé. Ce traitement est encadré par le **Cloudflare Turnstile Privacy Addendum** [lien officiel à insérer — cloudflare.com].

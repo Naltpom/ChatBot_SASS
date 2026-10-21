@@ -124,7 +124,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
 
   const path = location.pathname
-  const inAdmin = path.startsWith('/admin') || path.startsWith('/tiktok')
+  const inAdmin = path.startsWith('/admin')
   // Le wizard de création (/app/bots/new) a son propre en-tête plein écran
   // (logo + étapes + « Quitter ») : on masque le chrome du tableau de bord
   // (sidebar + topbar mobile) et on le rend pleine largeur, sans padding.
@@ -204,6 +204,12 @@ export default function Layout({ children }: { children: ReactNode }) {
                       aria-current={path.startsWith('/app/integrations') ? 'page' : undefined}
                       onClick={() => navigate('/app/integrations')}>
                 <span className="nav-ico"><Plug size={16} /></span>Intégrations
+              </button>
+              {/* Publication TikTok : comptes TikTok du client + composer. */}
+              <button className={`nav-item ${path.startsWith('/app/tiktok') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/app/tiktok') ? 'page' : undefined}
+                      onClick={() => navigate('/app/tiktok')}>
+                <span className="nav-ico"><Clapperboard size={16} /></span>TikTok
               </button>
               {/* Facturation : visible uniquement pour un payeur (owner d'org ou
                   compte perso) ; masquée pour un admin non-owner (canSeeBilling).
@@ -294,9 +300,9 @@ export default function Layout({ children }: { children: ReactNode }) {
                   </button>
                 </div>
               )}
-              <button className={`nav-item ${path.startsWith('/tiktok') ? 'active' : ''}`}
-                      aria-current={path.startsWith('/tiktok') ? 'page' : undefined}
-                      onClick={() => navigate('/tiktok')}>
+              <button className={`nav-item ${path.startsWith('/admin/tiktok') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/admin/tiktok') ? 'page' : undefined}
+                      onClick={() => navigate('/admin/tiktok')}>
                 <span className="nav-ico"><Clapperboard size={16} /></span>TikTok
               </button>
               <div className="nav-divider" />

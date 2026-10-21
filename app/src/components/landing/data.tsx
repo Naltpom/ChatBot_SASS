@@ -41,6 +41,17 @@ export const PILIERS: Pilier[] = [
   { bg: 'rgba(232,106,95,.12)', co: '#E86A5F', t: 'Relais humain', d: "Bascule fluide vers un conseiller quand l'humain fait la différence.", icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 6h16v10H9l-4 3.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><circle cx="12" cy="11" r="2.2" stroke="currentColor" strokeWidth="1.8" /></svg> },
 ]
 
+// Modules complémentaires de l'Espace client (affichés sous les piliers, section
+// « Fonctionnalités »). Uniquement des modules réellement disponibles.
+export type Module = { t: string; d: string; links: NavLink[] }
+export const MODULES: Module[] = [
+  {
+    t: 'Publication TikTok',
+    d: "Connectez vos comptes TikTok depuis l'Espace client et publiez vos vidéos directement sur votre profil ou en brouillon, avec vos propres réglages de confidentialité, d'interactions et de divulgation commerciale.",
+    links: [{ href: '/legal/tiktok-cgu', label: 'Conditions' }, { href: '/legal/tiktok-confidentialite', label: 'Confidentialité' }],
+  },
+]
+
 export type Cell = { kind: 'ok' | 'warn' | 'no'; label: string; strong?: boolean }
 export type CmpRow = { label: string; badge?: string; chapote: Cell; ia: Cell; classic: Cell }
 export const CMP_ROWS: CmpRow[] = [
@@ -76,6 +87,6 @@ export type FooterColumn = { title: string; links: NavLink[] }
 // ou placeholder. Le pack légal pointe vers les pages publiques réelles.
 export const FOOTER_COLUMNS: FooterColumn[] = [
   { title: 'Produit', links: [{ href: '#features', label: 'Fonctionnalités' }, { href: '#why', label: 'Comparatif' }, { href: '#pricing', label: 'Tarifs' }, { href: '#install', label: 'Installation' }, { href: '/demo', label: 'Démo' }, { href: '/a-propos', label: 'À propos' }] },
-  { title: 'Légal', links: [{ href: '/legal/mentions-legales', label: 'Mentions légales' }, { href: '/legal/cgu', label: 'CGU' }, { href: '/legal/cgv', label: 'CGV' }, { href: '/legal/confidentialite', label: 'Confidentialité' }, { href: '/legal/tiktok-confidentialite', label: 'Confidentialité TikTok' }] },
+  { title: 'Légal', links: [{ href: '/legal/mentions-legales', label: 'Mentions légales' }, { href: '/legal/cgu', label: 'CGU' }, { href: '/legal/cgv', label: 'CGV' }, { href: '/legal/confidentialite', label: 'Confidentialité' }, { href: '/legal/tiktok-cgu', label: 'CGU module TikTok' }, { href: '/legal/tiktok-confidentialite', label: 'Confidentialité TikTok' }] },
   { title: 'Ressources', links: [{ href: '#', label: 'Documentation' }, { href: 'mailto:hello@chapote.fr', label: 'Contact' }, { href: '#', label: 'GitHub' }] },
 ]

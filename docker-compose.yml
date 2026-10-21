@@ -103,7 +103,7 @@ services:
       - API_URL=${API_URL:-http://localhost:8001}
       # SSO Google : Client ID public (= audience des tokens). Vide = désactivé.
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
-      # TikTok « Chapote Publisher » (/tiktok). Vides = désactivé.
+      # Module TikTok « Chapote Publisher » (/app/tiktok). Vides = désactivé.
       - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
       - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
       - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://chapote.fr/tiktok/callback}
