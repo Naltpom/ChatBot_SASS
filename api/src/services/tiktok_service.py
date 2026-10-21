@@ -18,6 +18,7 @@ Contrats TikTok (https://developers.tiktok.com/doc/) :
   1 à 1000 ; < 5 MB => envoi en un bloc ; > 64 MB => plusieurs chunks ; envoi
   séquentiel. 4 GB max, MP4 / MOV / WebM, 10 min max à l'init.
 """
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -51,6 +52,11 @@ MAX_VIDEO_SIZE = 4 * 1000 * MB  # « Maximum of 4GB »
 MAX_DURATION_SEC = 600          # 10 min max à l'init (le créateur peut avoir moins)
 ALLOWED_MIME = {"video/mp4", "video/quicktime", "video/webm"}
 TITLE_MAX = 2200                # post_info.title : 2200 runes UTF-16
+
+# Envoi d'un segment : réessais sur erreur passagère du serveur d'upload
+# (5xx, 429, coupure réseau) ; un segment peut être renvoyé tel quel.
+CHUNK_RETRY_DELAYS = (2, 5, 15)
+_RETRYABLE_HTTP = {429, 500, 502, 503, 504}
 
 # Marge avant expiration de l'access token pour rafraîchir à la volée.
 REFRESH_MARGIN = timedelta(minutes=5)
@@ -86,6 +92,8 @@ ERROR_MESSAGES = {
     "auth_removed": "L'autorisation a été retirée pendant le traitement : reconnectez le compte.",
     "spam_risk_text": "La légende a été jugée indésirable par TikTok.",
     "spam_risk": "La publication a été jugée à risque par TikTok.",
+    "upload_unavailable": "Le serveur d'envoi TikTok est momentanément indisponible. Réessayez dans quelques minutes.",
+    "upload_network_error": "Connexion au serveur d'envoi TikTok interrompue. Réessayez dans quelques minutes.",
 }
 
 # Codes creator_info / init signifiant « ce créateur ne peut pas publier maintenant ».
@@ -257,20 +265,34 @@ async def put_chunk(upload_url: str, content: bytes, start: int, end: int,
         "Content-Length": str(len(content)),
         "Content-Range": f"bytes {start}-{end}/{total_size}",
     }
-    async with _client(timeout=300) as c:
-        resp = await c.put(upload_url, content=content, headers=headers)
-    if resp.status_code not in (200, 201, 206):
+    for attempt in range(len(CHUNK_RETRY_DELAYS) + 1):
+        retry = attempt < len(CHUNK_RETRY_DELAYS)
         try:
-            body = resp.json()
-            err = body.get("error") or {}
-        except ValueError:
-            err = {}
-        if resp.status_code == 403 and not err:
-            err = {"code": "upload_url_expired", "message": "Lien d'envoi TikTok expiré"}
-        raise TikTokError(err.get("code") or f"upload_http_{resp.status_code}",
-                          err.get("message") or "Échec de l'envoi d'un segment vidéo",
-                          err.get("log_id") or "", resp.status_code)
-    return resp.status_code
+            async with _client(timeout=300) as c:
+                resp = await c.put(upload_url, content=content, headers=headers)
+        except httpx.TransportError as e:
+            if not retry:
+                raise TikTokError("upload_network_error", "Connexion au serveur d'envoi TikTok interrompue") from e
+            resp = None
+        if resp is not None and resp.status_code in (200, 201, 206):
+            return resp.status_code
+        if resp is not None and (resp.status_code not in _RETRYABLE_HTTP or not retry):
+            break
+        logger.info("TikTok : segment %s-%s/%s à renvoyer (%s), essai %s",
+                    start, end, total_size, resp.status_code if resp is not None else "réseau", attempt + 2)
+        await asyncio.sleep(CHUNK_RETRY_DELAYS[attempt])
+    try:
+        body = resp.json()
+        err = body.get("error") or {}
+    except ValueError:
+        err = {}
+    if resp.status_code == 403 and not err:
+        err = {"code": "upload_url_expired", "message": "Lien d'envoi TikTok expiré"}
+    elif resp.status_code in _RETRYABLE_HTTP and not err.get("code"):
+        err = {"code": "upload_unavailable"}
+    raise TikTokError(err.get("code") or f"upload_http_{resp.status_code}",
+                      err.get("message") or "Échec de l'envoi d'un segment vidéo",
+                      err.get("log_id") or "", resp.status_code)
 
 
 async def publish_status(access_token: str, publish_id: str) -> dict:

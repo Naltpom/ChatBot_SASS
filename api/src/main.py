@@ -31,6 +31,9 @@ from src.services import tiktok_jobs
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
+# httpx journalise chaque URL appelée en INFO, query string comprise : l'URL
+# d'upload TikTok porte un upload_token. Seuls les avertissements passent.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 WIDGET_JS = Path("/app/widget/widget.js")
