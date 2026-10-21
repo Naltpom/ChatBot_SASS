@@ -1,21 +1,16 @@
-// /tiktok/callback — redirect OAuth de l'app TikTok « Chapote Publisher ».
+// /tiktok/callback — redirect OAuth de l'app TikTok « Chapote Publisher »
+// (URI déclarée sur le portail TikTok : https://chapote.fr/tiktok/callback).
 //
-// Deux modes :
-//  - automatique : state émis par le tableau de bord (préfixe « web_ ») -> l'API
-//    vérifie le state (cookie httpOnly), échange le code côté serveur, stocke les
-//    jetons chiffrés, puis on revient sur /tiktok ;
-//  - manuel : ?manual=1, ou state d'un autre émetteur (scripts/tiktok.py) -> le
-//    code est seulement affiché pour `python3 scripts/tiktok.py exchange`, il
-//    n'est envoyé nulle part.
+// L'API vérifie le state (JWT signé : tenant + utilisateur, 10 min, usage
+// unique), échange le code côté serveur et enregistre le compte dans le tenant
+// d'origine ; on revient ensuite sur la page TikTok de l'Espace client.
 // Page autoportante (mise en page des pages légales), hors shell applicatif.
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { useAuth } from '../../AuthContext'
 import { errMsg } from '../../utils/errors'
-import { TikTokAccount, useNoIndex } from './common'
-
-const WEB_STATE_PREFIX = 'web_'
+import { TikTokAccount } from './common'
 
 function readParams() {
   const p = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
@@ -24,96 +19,73 @@ function readParams() {
     state: p.get('state'),
     error: p.get('error'),
     errorDescription: p.get('error_description'),
-    manual: p.get('manual') === '1',
   }
 }
 
 export default function TikTokCallback() {
-  useNoIndex()
-  const [params] = useState(readParams)
-  const { code, state, error, errorDescription } = params
-  const manual = !!code && (params.manual || !state || !state.startsWith(WEB_STATE_PREFIX))
+  const [{ code, state, error, errorDescription }] = useState(readParams)
+
+  // Jamais indexée (complète l'en-tête X-Robots-Tag de nginx).
+  useEffect(() => {
+    const meta = document.createElement('meta')
+    meta.name = 'robots'
+    meta.content = 'noindex, nofollow'
+    document.head.appendChild(meta)
+    return () => { meta.remove() }
+  }, [])
 
   return (
     <div style={{ background: '#fff', minHeight: '100vh' }}>
       <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 24px 90px', color: '#1f2937', fontSize: 15, lineHeight: 1.65 }}>
         <Link to="/" style={{ color: '#2563eb', fontSize: 14, textDecoration: 'none' }}>← Retour à l'accueil</Link>
-        <h1 style={{ fontSize: 28, margin: '22px 0 8px' }}>Autorisation TikTok</h1>
+        <h1 style={{ fontSize: 28, margin: '22px 0 8px' }}>Connexion TikTok</h1>
         {error ? (
-          <ErrorBlock code={error} description={errorDescription} />
-        ) : !code ? (
-          <p>Aucun code reçu.</p>
-        ) : manual ? (
-          <ManualCode code={code} state={state} />
+          <ErrorBlock title={error === 'access_denied' ? 'Autorisation refusée' : `Erreur : ${error}`}
+                      description={error === 'access_denied' ? "Vous avez refusé l'accès : aucun compte n'a été connecté." : errorDescription} />
+        ) : !code || !state ? (
+          <ErrorBlock title="Lien incomplet" description="Aucun code d'autorisation reçu. Relancez la connexion depuis l'Espace client." />
         ) : (
-          <AutoExchange code={code} state={state!} />
+          <AutoExchange code={code} state={state} />
         )}
       </div>
     </div>
   )
 }
 
-function ErrorBlock({ code, description }: { code: string; description?: string | null }) {
+function ErrorBlock({ title, description }: { title: string; description?: string | null }) {
   return (
     <div className="infobox danger" role="alert">
-      <div className="ib-title">Erreur : {code}</div>
+      <div className="ib-title">{title}</div>
       {description && <div>{description}</div>}
-      <div style={{ marginTop: 8 }}><Link to="/tiktok">Retour au tableau de bord TikTok</Link></div>
+      <div style={{ marginTop: 8 }}><Link to="/app/tiktok">Retour à la page TikTok de l'Espace client</Link></div>
     </div>
   )
 }
 
-function ManualCode({ code, state }: { code: string; state: string | null }) {
-  const [copied, setCopied] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code)
-    } catch {
-      inputRef.current?.select()
-      document.execCommand('copy')
-    }
-    setCopied(true)
-  }
-  return (
-    <>
-      <p>Copiez ce code et collez-le dans la commande <code>python3 scripts/tiktok.py exchange</code>. Il expire après quelques minutes.</p>
-      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, margin: '18px 0 6px' }} htmlFor="tt-code">Code d'autorisation</label>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <input id="tt-code" ref={inputRef} className="mono" type="text" readOnly value={code}
-               spellCheck={false} autoComplete="off" style={{ flex: 1, minWidth: 0 }} />
-        <button type="button" className="btn btn-primary" onClick={copy}>Copier</button>
-      </div>
-      <p aria-live="polite" style={{ fontSize: 13, color: '#15803d', minHeight: '1.2em' }}>{copied ? 'Code copié.' : ''}</p>
-      {state && (
-        <>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, margin: '18px 0 6px' }} htmlFor="tt-state">State</label>
-          <input id="tt-state" className="mono" type="text" readOnly value={state} spellCheck={false} autoComplete="off" />
-        </>
-      )}
-    </>
-  )
-}
-
 function AutoExchange({ code, state }: { code: string; state: string }) {
-  const { user, loading } = useAuth()
+  const { user, loading, setActiveOrg } = useAuth()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
   const started = useRef(false)
 
   useEffect(() => {
-    if (loading || !user?.is_superadmin || started.current) return
+    if (loading || !user || started.current) return
     started.current = true  // le code est à usage unique (StrictMode monte deux fois)
     // Retire le code de la barre d'adresse (historique, copies d'URL).
     window.history.replaceState(null, '', window.location.pathname)
-    api<TikTokAccount>('/api/admin/tiktok/oauth/exchange', { method: 'POST', body: { code, state } })
-      .then(acc => navigate(`/tiktok?connected=${encodeURIComponent(acc.display_name || acc.open_id)}`, { replace: true }))
+    api<{ account: TikTokAccount; org_id: number | null }>('/api/tiktok/oauth/exchange', { method: 'POST', body: { code, state } })
+      .then(({ account, org_id }) => {
+        const org = org_id ? user.organizations.find(o => o.id === org_id) : null
+        if (org) setActiveOrg(org)
+        const q = new URLSearchParams({ connected: account.display_name || 'TikTok' })
+        if (!org_id && user.organizations.length) q.set('space', 'perso')
+        navigate(`/app/tiktok?${q}`, { replace: true })
+      })
       .catch(e => setError(errMsg(e)))
-  }, [loading, user, code, state, navigate])
+  }, [loading, user, code, state, navigate, setActiveOrg])
 
   if (loading) return <p>Chargement…</p>
-  if (!user) return <p>Connectez-vous à votre session administrateur (<Link to="/login">connexion</Link>), puis relancez la connexion TikTok depuis <Link to="/tiktok">le tableau de bord</Link>.</p>
-  if (!user.is_superadmin) return <p>Accès réservé à l'administrateur.</p>
-  if (error) return <ErrorBlock code="Connexion impossible" description={error} />
+  if (!user) return <p>Connectez-vous à votre Espace client (<Link to="/login">connexion</Link>), puis relancez la connexion TikTok depuis la page TikTok.</p>
+  if (error) return <ErrorBlock title="Connexion impossible" description={error} />
   return <p>Connexion du compte TikTok en cours…</p>
 }

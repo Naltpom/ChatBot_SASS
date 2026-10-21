@@ -34,8 +34,9 @@ import AdminBillingInvoices from './pages/AdminBillingInvoices'
 import AdminBillingCatalog from './pages/AdminBillingCatalog'
 import LegalPage from './pages/LegalPage'
 import APropos from './pages/APropos'
-import TikTokDashboard from './pages/tiktok/TikTokDashboard'
-import TikTokPublish from './pages/tiktok/TikTokPublish'
+import TikTokPage from './pages/tiktok/TikTokPage'
+import TikTokComposer from './pages/tiktok/TikTokComposer'
+import AdminTikTok from './pages/AdminTikTok'
 import TikTokCallback from './pages/tiktok/TikTokCallback'
 import mentionsMd from './legal/MENTIONS_LEGALES.md?raw'
 import cguMd from './legal/CGU.md?raw'
@@ -160,8 +161,8 @@ export function AppRoutes() {
       <Route path="/legal/cgu" element={<LegalPage md={cguMd} />} />
       <Route path="/legal/cgv" element={<LegalPage md={cgvMd} />} />
       <Route path="/legal/confidentialite" element={<LegalPage md={confidMd} />} />
-      {/* App développeur TikTok « Chapote Publisher » (outil privé, sans lien avec
-          le chatbot) : pages légales exigées par TikTok. */}
+      {/* Module TikTok « Chapote Publisher » de l'Espace client : pages légales
+          (CGU + confidentialité) référencées par l'app TikTok. */}
       <Route path="/legal/tiktok-confidentialite" element={<LegalPage md={tiktokConfidMd} />} />
       <Route path="/legal/tiktok-cgu" element={<LegalPage md={tiktokCguMd} />} />
       <Route path="/mentions-legales" element={<Navigate to="/legal/mentions-legales" replace />} />
@@ -173,12 +174,10 @@ export function AppRoutes() {
           cookie/chrome dashboard). Non prérendus (chunk @xyflow isolé). */}
       <Route path="/embed/tree-editor" element={<React.Suspense fallback={<EmbedChunkFallback />}><EmbedTreeEditor /></React.Suspense>} />
       <Route path="/embed/appearance" element={<React.Suspense fallback={<EmbedChunkFallback />}><EmbedAppearance /></React.Suspense>} />
-      {/* TikTok « Chapote Publisher » : outil privé du superadmin (noindex).
-          /tiktok/callback est public : en mode manuel (scripts/tiktok.py) il
-          affiche juste le code ; sinon il exige la session admin. */}
-      <Route path="/tiktok" element={<Protected adminOnly><TikTokDashboard /></Protected>} />
-      <Route path="/tiktok/publish" element={<Protected adminOnly><TikTokPublish /></Protected>} />
+      {/* Redirect OAuth TikTok (URI déclarée sur le portail TikTok) : page
+          publique qui finalise la connexion puis renvoie vers /app/tiktok. */}
       <Route path="/tiktok/callback" element={<TikTokCallback />} />
+      <Route path="/tiktok" element={<Navigate to="/app/tiktok" replace />} />
       {/* Application (clients) */}
       <Route path="/app" element={<Protected><BotList /></Protected>} />
       <Route path="/app/bots/new" element={<Protected><BotWizard /></Protected>} />
@@ -186,6 +185,8 @@ export function AppRoutes() {
       <Route path="/app/analytics" element={<Protected><Analytics /></Protected>} />
       <Route path="/app/inbox" element={<Protected><Inbox /></Protected>} />
       <Route path="/app/integrations" element={<Protected><Integrations /></Protected>} />
+      <Route path="/app/tiktok" element={<Protected><TikTokPage /></Protected>} />
+      <Route path="/app/tiktok/publish" element={<Protected><TikTokComposer /></Protected>} />
       <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
       <Route path="/app/team" element={<Protected><Team /></Protected>} />
       <Route path="/app/orgs" element={<Protected><MyOrgs /></Protected>} />
@@ -200,6 +201,7 @@ export function AppRoutes() {
       <Route path="/admin/billing" element={<Protected adminOnly><AdminBilling /></Protected>} />
       <Route path="/admin/billing/invoices" element={<Protected adminOnly><AdminBillingInvoices /></Protected>} />
       <Route path="/admin/billing/catalog" element={<Protected adminOnly><AdminBillingCatalog /></Protected>} />
+      <Route path="/admin/tiktok" element={<Protected adminOnly><AdminTikTok /></Protected>} />
       {/* Alias historique demandé (/app/admin/billing) -> redirige vers la route admin canonique. */}
       <Route path="/app/admin/billing" element={<Navigate to="/admin/billing" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />

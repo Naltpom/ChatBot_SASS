@@ -89,13 +89,20 @@ class Settings(BaseSettings):
     # contre un WordPress local. Le chemin prod (safe_get_follow) reste intact.
     ALLOW_PRIVATE_FETCH: bool = False
 
-    # --- TikTok « Chapote Publisher » (outil privé du superadmin, /tiktok) ---
-    # Mêmes noms de variables que scripts/tiktok.py. Clé vide => fonctionnalité
-    # désactivée (503). Le secret ne quitte jamais l'API.
+    # --- Module TikTok « Chapote Publisher » (Espace client, /app/tiktok) ---
+    # Clés de l'app TikTok (Login Kit + Content Posting API). Clé vide =>
+    # module désactivé (503). Le secret ne quitte jamais l'API ; les jetons des
+    # comptes connectés vivent chiffrés en base (tiktok_accounts).
     TIKTOK_CLIENT_KEY: str | None = None
     TIKTOK_CLIENT_SECRET: str | None = None
     TIKTOK_REDIRECT_URI: str = "https://chapote.fr/tiktok/callback"
     TIKTOK_API_BASE: str = "https://open.tiktokapis.com"
+    # Taille max d'une vidéo envoyée à Chapote (Mo). Plafonnée par la limite
+    # TikTok (4 Go) dans tiktok_service.
+    TIKTOK_MAX_UPLOAD_MB: int = 1024
+    # Fichiers vidéo temporaires (le temps de la publication). JAMAIS sous
+    # UPLOAD_DIR, qui est servi publiquement (/uploads).
+    TIKTOK_TMP_DIR: str = "/tmp/chapote_tiktok"
 
     APP_URL: str = "http://localhost:3001"
     API_URL: str = "http://localhost:8001"

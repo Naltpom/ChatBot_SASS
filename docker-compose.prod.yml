@@ -73,11 +73,12 @@ services:
       - API_URL=${API_URL}
       # SSO Google : Client ID public (= audience des tokens). Vide = désactivé.
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
-      # TikTok « Chapote Publisher » (/tiktok, outil privé du superadmin). Mêmes
-      # noms que scripts/tiktok.py. Vides = fonctionnalité désactivée.
+      # Module TikTok « Chapote Publisher » (Espace client /app/tiktok). Clés de
+      # l'app TikTok ; vides = module désactivé.
       - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
       - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
       - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://chapote.fr/tiktok/callback}
+      - TIKTOK_MAX_UPLOAD_MB=${TIKTOK_MAX_UPLOAD_MB:-1024}
       # SMTP (envoi des emails : leads, demandes de conseiller, prospection).
       # HOST vide = fallback log, jamais bloquant (les emails ne partent PAS).
       - SMTP_HOST=${SMTP_HOST:-}
