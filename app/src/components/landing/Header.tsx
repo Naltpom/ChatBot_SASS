@@ -14,25 +14,25 @@ export function Header({ user, ctaTo }: { user: User | null; ctaTo: string }) {
   //    parasite), puis ScrollToHash (App.tsx) scrolle jusqu'à la section.
   const onLanding = useLocation().pathname === '/'
   return (
-    <header style={{ position: 'sticky', top: 0, zIndex: 60, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', background: 'rgba(249,249,251,.82)', borderBottom: '1px solid rgba(226,232,240,.7)' }}>
-      <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+    <header style={{ position: 'sticky', top: 0, zIndex: 60, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', background: 'rgba(249,249,251,.92)', borderBottom: '1px solid #E2E8F0' }}>
+      <div className="ch-pad" style={{ maxWidth: 1280, margin: '0 auto', padding: '14px 32px', display: 'flex', alignItems: 'center', gap: 20 }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-          <span style={{ width: 36, height: 36, borderRadius: 11, background: '#1C3F5C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon size={20} /></span>
+          <span style={{ width: 34, height: 34, borderRadius: 10, background: '#1C3F5C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HatIcon size={20} /></span>
           <span style={{ fontFamily: CLASH, fontWeight: 600, fontSize: 22, color: '#1E2A32', letterSpacing: '-.01em' }}>Chapote</span>
         </Link>
-        <nav className="ch-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 30 }}>
+        <nav className="ch-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 26, marginLeft: 'auto' }}>
           {NAV.map(({ href, label }) => href.startsWith('/')
             ? <Link key={label} className="ch-navlink" to={href}>{label}</Link>
             : onLanding
               ? <a key={label} className="ch-navlink" href={href}>{label}</a>
               : <Link key={label} className="ch-navlink" to={`/${href}`}>{label}</Link>)}
         </nav>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Actions « bureau » : masquées sous 920px (le burger prend le relais)
-              pour éviter que le gros CTA ne déborde la barre en mobile. */}
-          <div className="ch-desktop-actions" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {!user && <Link className="ch-navlink" to="/login" style={{ whiteSpace: 'nowrap' }}>Se connecter</Link>}
-            <Link to={ctaTo} className="ch-cta-primary" style={{ background: '#1C3F5C', color: '#fff', borderRadius: 12, padding: '11px 18px', fontWeight: 600, fontSize: 14.5, whiteSpace: 'nowrap', textDecoration: 'none', boxShadow: '0 6px 16px -8px rgba(28,63,92,.6)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginLeft: 'auto' }}>
+          {/* Actions « bureau » : « Se connecter » masqué sous 720px, le CTA sous
+              440px (le menu burger les reprend tous les deux). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+            {!user && <Link className="ch-navlink ch-login" to="/login" style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>Se connecter</Link>}
+            <Link to={ctaTo} className="ch-cta-flat ch-header-cta" style={{ background: '#1C3F5C', color: '#fff', borderRadius: 11, padding: '11px 18px', fontWeight: 600, fontSize: 14.5, whiteSpace: 'nowrap', textDecoration: 'none', transition: 'background .2s' }}>
               {user ? "Ouvrir l'application" : 'Installer la balise'}
             </Link>
           </div>
@@ -51,7 +51,7 @@ export function Header({ user, ctaTo }: { user: User | null; ctaTo: string }) {
           {/* Connexion + CTA repliés dans le menu (masqués dans la barre en mobile). */}
           <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {!user && <Link to="/login" onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none', color: '#1E2A32', fontWeight: 600 }}>Se connecter</Link>}
-            <Link to={ctaTo} onClick={() => setMobileOpen(false)} className="ch-cta-primary" style={{ background: '#1C3F5C', color: '#fff', borderRadius: 12, padding: '12px 18px', fontWeight: 600, fontSize: 15, textDecoration: 'none', textAlign: 'center' }}>
+            <Link to={ctaTo} onClick={() => setMobileOpen(false)} className="ch-cta-flat" style={{ background: '#1C3F5C', color: '#fff', borderRadius: 12, padding: '12px 18px', fontWeight: 600, fontSize: 15, textDecoration: 'none', textAlign: 'center' }}>
               {user ? "Ouvrir l'application" : 'Installer la balise'}
             </Link>
           </div>
