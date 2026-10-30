@@ -10,7 +10,7 @@ test.use({ viewport: { width: 390, height: 820 } })
 test('landing mobile : nav repliée derrière le burger', async ({ page }) => {
   await blockAutoLogin(page)
   await page.goto('/')
-  // La nav desktop est masquée (<920px), le burger est visible.
+  // La nav desktop est masquée (<1040px), le burger est visible.
   await expect(page.locator('.ch-nav-links').first()).toBeHidden()
   const burger = page.locator('.ch-menu-btn')
   await expect(burger).toBeVisible()

@@ -1,20 +1,23 @@
 // Landing publique « Chapote » — composition des sections.
 // Le contenu présentationnel est éclaté dans app/src/components/landing/* :
-// header sticky, hero + widget animé, 4 piliers, comparatif, installation,
-// logos, tarifs (modulaires, 1er mois remisé), témoignages, CTA final,
+// header sticky, hero « Aiguillage » (question qui passe arbre → IA → humain),
+// ce qu'est Chapote, pourquoi (moins cher / plus malin / plus rapide), bandeau
+// défilant, « comment ça répond » (storytelling scrollé), coûts (courbe),
+// installation (balise tapée au scroll), comparatif, tarifs (carte), CTA final,
 // footer. Les données statiques + tokens vivent dans landing/data, les assets
-// (polices/keyframes/reveal) dans landing/assets. Rétro-compat DOM/visuelle
-// préservée (landing.spec + responsive.spec).
+// (polices/keyframes/reveal/progression de scroll) dans landing/assets.
 import { useAuth } from '../AuthContext'
 import { useChapoteAssets, useReveal } from '../components/landing/assets'
 import { Header } from '../components/landing/Header'
 import { Hero } from '../components/landing/Hero'
-import { Piliers } from '../components/landing/Piliers'
-import { Comparatif } from '../components/landing/Comparatif'
+import { Chapote } from '../components/landing/Chapote'
+import { Pourquoi } from '../components/landing/Pourquoi'
+import { Marquee } from '../components/landing/Marquee'
+import { Story } from '../components/landing/Story'
+import { Couts } from '../components/landing/Couts'
 import { Install } from '../components/landing/Install'
-import { Logos } from '../components/landing/Logos'
+import { Comparatif } from '../components/landing/Comparatif'
 import { Pricing } from '../components/landing/Pricing'
-import { Temoignages } from '../components/landing/Temoignages'
 import { CtaFinal } from '../components/landing/CtaFinal'
 import { Footer } from '../components/landing/Footer'
 
@@ -25,16 +28,18 @@ export default function Landing() {
   const ctaTo = user ? '/app' : '/register'
 
   return (
-    <div className="chapote" style={{ fontFamily: "'Inter',system-ui,sans-serif", background: '#F9F9FB', color: '#1E2A32', WebkitFontSmoothing: 'antialiased' }}>
+    <div className="chapote" style={{ fontFamily: "'Plus Jakarta Sans',system-ui,sans-serif", background: '#F9F9FB', color: '#1E2A32', WebkitFontSmoothing: 'antialiased' }}>
       <Header user={user} ctaTo={ctaTo} />
       <main>
         <Hero ctaTo={ctaTo} />
-        <Piliers />
-        <Comparatif />
+        <Chapote />
+        <Pourquoi />
+        <Marquee />
+        <Story />
+        <Couts />
         <Install />
-        <Logos />
+        <Comparatif />
         <Pricing ctaTo={ctaTo} />
-        <Temoignages />
         <CtaFinal ctaTo={ctaTo} />
       </main>
       <Footer />
