@@ -16,7 +16,7 @@ export default function CataloguePage() {
   const [loading, setLoading] = useState(false)
   const [q, setQ] = useState('')
   const [ins, setIns] = useState('')
-  const [sort, setSort] = useState('new')
+  const [sort, setSort] = useState('popular')
   const gen = useRef(0)
   const sentinel = useRef<HTMLDivElement>(null)
 
@@ -28,7 +28,7 @@ export default function CataloguePage() {
       if (g !== gen.current) return
       setPieces(prev => (offset === 0 ? d.pieces : [...prev, ...d.pieces]))
       setMeta({ instruments: d.instruments, total: d.total, next_offset: d.next_offset })
-      if (offset === 0 && !q && !ins && sort === 'new') setHero(d.pieces.slice(0, 3))
+      if (offset === 0 && !q && !ins && sort === 'popular') setHero(d.pieces.slice(0, 3))
       setError(false)
     } catch {
       if (g === gen.current) setError(true)
@@ -59,17 +59,19 @@ export default function CataloguePage() {
     <main>
       <div className="announce">{t.announce} · <a href="#catalogue">{t.seeNew} ›</a></div>
       <section className="hero">
-        <h1>{t.heroTitle1}<br /><span>{t.heroTitle2}</span></h1>
-        <p>{t.heroText}</p>
-        <div className="hero-ctas">
-          <a className="btn" href="#catalogue">{t.shop}</a>
-          <a className="link-more" href="https://www.instagram.com/ghosthands.music/" target="_blank" rel="noreferrer">{t.watchReels}</a>
+        <div className="hero-text">
+          <h1>{t.heroTitle1} <span>{t.heroTitle2}</span></h1>
+          <p>{t.heroText}</p>
+          <div className="hero-ctas">
+            <a className="btn" href="#catalogue">{t.shop}</a>
+            <a className="link-more" href="https://www.instagram.com/ghosthands.music/" target="_blank" rel="noreferrer">{t.watchReels}</a>
+          </div>
         </div>
         {hero.length > 0 && (
-          <div className="vitrine" aria-hidden="true">
-            {hero[1] && <div className="side"><Paper src={hero[1].sheets[0].preview} title={hero[1].title} /></div>}
-            <div className="mid"><Paper src={hero[0].sheets[0].preview} title={hero[0].title} /></div>
-            {hero[2] && <div className="side"><Paper src={hero[2].sheets[0].preview} title={hero[2].title} /></div>}
+          <div className="fan" aria-hidden="true">
+            {hero.slice(0, 3).map((p, i) => (
+              <div key={p.slug} className={`fan-sheet f${i}`}><Paper src={p.sheets[0].preview} title={p.title} /></div>
+            ))}
           </div>
         )}
       </section>
