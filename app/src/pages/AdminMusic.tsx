@@ -47,7 +47,7 @@ const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-
 const STATUS: Record<string, { label: string; tone: 'go' | 'warn' | 'danger' | 'mut' }> = {
   paid: { label: 'Payée', tone: 'go' }, pending: { label: 'En attente', tone: 'warn' },
   expired: { label: 'Expirée', tone: 'mut' }, failed: { label: 'Refusée', tone: 'danger' },
-  refunded: { label: 'Remboursée', tone: 'mut' },
+  refunded: { label: 'Remboursée', tone: 'mut' }, disputed: { label: 'Litige en cours', tone: 'danger' },
 }
 const IG: Record<string, string> = {
   sent: 'envoyé en DM', no_conversation: 'pas de conversation', window_closed: 'fenêtre de 24 h fermée', error: 'erreur',

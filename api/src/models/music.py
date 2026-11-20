@@ -34,6 +34,7 @@ ORDER_PAID = "paid"           # payée (ou gratuite) : liens de téléchargement
 ORDER_EXPIRED = "expired"     # session Checkout expirée sans paiement
 ORDER_FAILED = "failed"       # paiement asynchrone refusé
 ORDER_REFUNDED = "refunded"   # remboursée par l'admin dans Stripe : liens coupés
+ORDER_DISPUTED = "disputed"   # litige bancaire en cours : accès coupé ; litige gagné -> payée, perdu -> remboursée
 
 PROMO_PERCENT = "percent"
 PROMO_AMOUNT = "amount"

@@ -41,6 +41,7 @@ from src.core.database import get_db
 from src.core.security import get_current_user, get_optional_user
 from src.core.time import utcnow
 from src.models.music import (
+    ORDER_DISPUTED,
     ORDER_EXPIRED,
     ORDER_FAILED,
     ORDER_PAID,
@@ -566,16 +567,23 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(400, str(exc))
     etype = event.get("type", "")
     obj = (event.get("data") or {}).get("object") or {}
-    # remboursement complet ou litige bancaire : la commande est coupée (liens, pages nettes, « Mes partitions »)
-    if etype in ("charge.refunded", "charge.dispute.created"):
+    # remboursement complet : coupée ; litige bancaire : suspendue, puis rendue s'il est gagné, coupée s'il est perdu
+    if etype in ("charge.refunded", "charge.dispute.created", "charge.dispute.closed"):
         pi = obj.get("payment_intent")
-        full_refund = etype == "charge.dispute.created" or (obj.get("refunded") is True)
-        if pi and full_refund:
-            order = (await db.execute(select(MusicOrder).where(MusicOrder.stripe_payment_intent == pi))).scalar_one_or_none()
-            if order is not None and order.status == ORDER_PAID:
-                order.status = ORDER_REFUNDED
-                await db.commit()
-                logger.info("Commande %s coupée (%s)", order.public_id, etype)
+        order = (await db.execute(select(MusicOrder).where(MusicOrder.stripe_payment_intent == pi))).scalar_one_or_none() \
+            if pi else None
+        new = None
+        if order is not None:
+            if etype == "charge.refunded" and obj.get("refunded") is True and order.status in (ORDER_PAID, ORDER_DISPUTED):
+                new = ORDER_REFUNDED
+            elif etype == "charge.dispute.created" and order.status == ORDER_PAID:
+                new = ORDER_DISPUTED
+            elif etype == "charge.dispute.closed" and order.status == ORDER_DISPUTED:
+                new = ORDER_PAID if obj.get("status") in ("won", "warning_closed") else ORDER_REFUNDED
+        if new:
+            order.status = new
+            await db.commit()
+            logger.info("Commande %s : %s (%s)", order.public_id, new, etype)
         return {"received": True}
     public_id = (obj.get("metadata") or {}).get("music_order")
     if not etype.startswith("checkout.session.") or not public_id:

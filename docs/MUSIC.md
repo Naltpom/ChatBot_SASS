@@ -96,8 +96,9 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
 - Codes promo : utilisation réservée à la commande de façon atomique (plus de course entre commandes simultanées),
   rendue si la session expire ou échoue ; réponse unique `promo_invalid` (ne révèle pas qu'un code existe) ;
   devis avec code et commandes limités par IP (30 / 10 min).
-- Remboursement complet (`charge.refunded`) ou litige (`charge.dispute.created`) : commande `refunded`, accès coupé.
-  **À cocher dans Stripe** pour le webhook de la boutique : ces deux événements en plus des `checkout.session.*`.
+- Remboursement complet (`charge.refunded` avec `refunded` vrai) : commande `refunded`, accès coupé ; remboursement partiel : rien.
+- Litige (`charge.dispute.created`) : commande `disputed`, accès suspendu ; `charge.dispute.closed` gagné -> `paid` (accès rendu), perdu -> `refunded`.
+  **Cochés dans Stripe** pour le webhook de la boutique (live) : `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` en plus des `checkout.session.*`.
 - Droits admin sur la boutique (pages privées, pages nettes) : superadmin avec 2nd facteur en production.
 
 ## Suivi des liens et INSTA20 (21/11/2026)
