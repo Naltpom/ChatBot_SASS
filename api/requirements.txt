@@ -21,6 +21,9 @@ beautifulsoup4>=4.12
 # 2FA : TOTP (authenticator) + WebAuthn (passkeys)
 pyotp==2.9.0
 webauthn==2.5.2
+# Boutique de partitions : aperçus des pages (le rendu PDF est fait par
+# pdftoppm, paquet poppler-utils installé dans le Dockerfile).
+pillow>=10.0
 # Tests : épinglés (reproductibilité du harness). Config asyncio dans pytest.ini.
 # Embarqués dans l'image (surcoût négligeable, ~5 Mo) : choix assumé pour garder
 # le conteneur de dev prêt à lancer pytest sans installation à la volée.

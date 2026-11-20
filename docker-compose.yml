@@ -142,6 +142,10 @@ services:
       # plus de STRIPE_PRICE_* (catalogue modulaire).
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - STRIPE_MUSIC_WEBHOOK_SECRET=${STRIPE_MUSIC_WEBHOOK_SECRET:-}
+      - MUSIC_INGEST_TOKEN=${MUSIC_INGEST_TOKEN:-}
+      - MUSIC_URL=${MUSIC_URL:-http://localhost:3002}
+      - MUSIC_DIR=/app/music_files
       # Embeddings locaux (RAG) : cache du modele fastembed hors de /app
       # (zéro interaction avec le watcher --reload). Changer de modele peut
       # changer la dimension (la base attend vector(384)).

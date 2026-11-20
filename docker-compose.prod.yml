@@ -65,6 +65,12 @@ services:
       # défaut false = sûr en prod ; métrage IA off par défaut (activable plus tard).
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      # Boutique de partitions (music.chapote.fr) : webhook Stripe DÉDIÉ (son propre
+      # secret), jeton d'envoi des partitions par la production, URL publique.
+      - STRIPE_MUSIC_WEBHOOK_SECRET=${STRIPE_MUSIC_WEBHOOK_SECRET:-}
+      - MUSIC_INGEST_TOKEN=${MUSIC_INGEST_TOKEN:-}
+      - MUSIC_URL=${MUSIC_URL:-https://music.chapote.fr}
+      - MUSIC_DIR=/app/music_files
       - MOCK_BILLING=${MOCK_BILLING:-false}
       - BILLING_ENFORCE=${BILLING_ENFORCE:-true}
       - BILLING_METERING_ENABLED=${BILLING_METERING_ENABLED:-false}
@@ -121,6 +127,8 @@ services:
       # Seuls les uploads (volume nommé) et le widget statique (lecture seule) :
       # aucune source montée, le code vit dans l'image.
       - upload_files:/app/uploads
+      # Partitions de la boutique (PDF complets + aperçus) : PRIVÉ, jamais servi tel quel.
+      - music_files:/app/music_files
       - ./widget:/app/widget:ro
       # Cache du modele d'embeddings (download au premier usage, ~100-400 Mo)
       - fastembed_cache:/var/cache/fastembed
@@ -173,8 +181,24 @@ services:
       api:
         condition: service_healthy
 
+  # Site music.chapote.fr (boutique de partitions) : bundle statique + relais
+  # /api/music/ vers `api` (même origine). Le reverse proxy de l'hôte termine le
+  # TLS de music.chapote.fr et envoie tout vers ce port (loopback uniquement).
+  music:
+    build:
+      context: ./music
+      dockerfile: Dockerfile
+    container_name: chatbot-music
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MUSIC_PORT:-3002}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
   upload_files:
   fastembed_cache:
+  music_files:

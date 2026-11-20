@@ -760,11 +760,14 @@ async def report_meter_event(event_name: str, customer_id: str, value: int = 1,
     await _stripe_request("POST", "/billing/meter_events", data=data)
 
 
-def verify_webhook_signature(payload: bytes, sig_header: Optional[str], tolerance: int = 300) -> dict:
+def verify_webhook_signature(payload: bytes, sig_header: Optional[str], tolerance: int = 300,
+                             secret: Optional[str] = None) -> dict:
     """Verifie le header "Stripe-Signature: t=<epoch>,v1=<hex>[,v1=...]" puis
     retourne l'evenement decode. Leve StripeError si signature absente,
-    perimee (anti-rejeu, tolerance en secondes) ou invalide."""
-    secret = settings.STRIPE_WEBHOOK_SECRET
+    perimee (anti-rejeu, tolerance en secondes) ou invalide.
+    `secret` : secret d'un autre endpoint (boutique music) ; défaut = celui de
+    l'abonnement Chapote (STRIPE_WEBHOOK_SECRET)."""
+    secret = secret if secret is not None else settings.STRIPE_WEBHOOK_SECRET
     if not secret or not sig_header:
         raise StripeError("Signature de webhook absente")
 
@@ -792,3 +795,17 @@ def verify_webhook_signature(payload: bytes, sig_header: Optional[str], toleranc
         raise StripeError("Signature de webhook invalide")
 
     return json.loads(payload)
+
+
+# --------------------------------------------------------------------------
+# Boutique de partitions (paiement unique, montant calculé par le back)
+# --------------------------------------------------------------------------
+
+async def create_payment_checkout(data: dict) -> dict:
+    """Session Checkout `mode=payment` (corps déjà form-encodé par l'appelant).
+    Renvoie la session Stripe (id, url)."""
+    return await _stripe_request("POST", "/checkout/sessions", data=data)
+
+
+async def retrieve_checkout_session(session_id: str) -> dict:
+    return await _stripe_request("GET", f"/checkout/sessions/{session_id}")

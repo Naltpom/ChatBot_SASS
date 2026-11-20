@@ -1,0 +1,356 @@
+"""Boutique de partitions (music.chapote.fr) — sur la vraie base jetable (`real_db`).
+
+Prix calculés par le back (lot, codes promo), envoi des partitions par la
+production (jeton), diffusion décidée par l'admin, aperçus floutés côté serveur,
+commande gratuite / simulée / Stripe Checkout, webhook dédié, téléchargement.
+"""
+import json
+import shutil
+import time
+from datetime import timedelta
+from io import BytesIO
+
+import httpx
+import pytest
+from sqlalchemy import select
+
+from src.core.config import settings
+from src.core.database import get_db
+from src.core.security import AUTH_COOKIE_NAME, create_dashboard_token
+from src.core.time import utcnow
+from src.main import app
+from src.models.music import ORDER_PAID, MusicOrder, MusicPromoCode, MusicSheet
+from src.models.user import User
+from src.services import music_service as ms
+from src.services import stripe_service
+
+from conftest import sign_stripe
+
+pytestmark = [pytest.mark.real_db, pytest.mark.asyncio]
+
+TOKEN = "ingest-token-de-test"
+MUSIC_SECRET = "whsec_music_test"
+needs_pdftoppm = pytest.mark.skipif(not shutil.which("pdftoppm"), reason="poppler-utils absent")
+
+
+def pdf_bytes(pages: int = 3) -> bytes:
+    from PIL import Image, ImageDraw
+    imgs = []
+    for n in range(pages):
+        im = Image.new("RGB", (595, 842), "white")
+        d = ImageDraw.Draw(im)
+        for y in range(120, 800, 60):
+            for k in range(5):
+                d.line([(50, y + 6 * k), (545, y + 6 * k)], fill="black")
+        d.text((280, 40), f"page {n + 1}", fill="black")
+        imgs.append(im)
+    buf = BytesIO()
+    imgs[0].save(buf, "PDF", save_all=True, append_images=imgs[1:])
+    return buf.getvalue()
+
+
+@pytest.fixture
+def music(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MUSIC_DIR", str(tmp_path / "music"))
+    monkeypatch.setattr(settings, "MUSIC_INGEST_TOKEN", TOKEN)
+    monkeypatch.setattr(settings, "STRIPE_MUSIC_WEBHOOK_SECRET", MUSIC_SECRET)
+    monkeypatch.setattr(settings, "MUSIC_URL", "https://music.test")
+    sent = []
+
+    async def fake_send(to, subject, body, **kw):
+        sent.append({"to": to, "subject": subject, "body": body, "html": kw.get("html")})
+        return True
+    monkeypatch.setattr(ms, "send_email", fake_send)
+    return sent
+
+
+class Client:
+    def __init__(self, session):
+        self._session = session
+
+    async def __aenter__(self):
+        async def _get_db():
+            yield self._session
+        app.dependency_overrides[get_db] = _get_db
+        self.http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+        return self
+
+    async def __aexit__(self, *exc):
+        await self.http.aclose()
+        app.dependency_overrides.pop(get_db, None)
+
+    def as_(self, user):
+        self.http.cookies.set(AUTH_COOKIE_NAME, create_dashboard_token(user.id))
+        return self.http
+
+
+async def _user(db, email, **kw):
+    u = User(email=email, hashed_password="x", name=email.split("@")[0], is_active=True, **kw)
+    db.add(u)
+    await db.flush()
+    return u
+
+
+async def _ingest(http, ref, *, piece="Swan Lake", instrument="violon", rights="domaine public",
+                  pages=3, pdf=True, **extra):
+    meta = {"source_ref": ref, "piece_title": piece, "composer": "Tchaikovsky", "instrument": instrument,
+            "title": f"{piece} ({instrument})", "rights": rights,
+            "reel_url": "https://www.instagram.com/reel/x/", **extra}
+    files = {"pdf": ("partition.pdf", pdf_bytes(pages), "application/pdf")} if pdf else None
+    return await http.post("/api/music/ingest", data={"meta": json.dumps(meta)}, files=files,
+                           headers={"Authorization": f"Bearer {TOKEN}"})
+
+
+async def _sheet(db, ref, *, piece="Swan Lake", instrument="violon", published=True, price=None):
+    s = MusicSheet(source_ref=ref, piece_slug=ms.slugify(piece), piece_title=piece, composer="Tchaikovsky",
+                   instrument=instrument, instrument_label=ms.instrument_label(instrument), title=piece,
+                   rights="domaine public", public_domain=True, published=published, pages=3,
+                   has_cover=False, price_cents=price, released_at=utcnow())
+    db.add(s)
+    await db.flush()
+    return s
+
+
+# --------------------------------------------------------------------------
+# Prix
+# --------------------------------------------------------------------------
+
+async def test_quote_unit_bundle_and_promos(pg_session, music):
+    v = await _sheet(pg_session, "gh/1", instrument="violon")
+    p = await _sheet(pg_session, "gh/2", instrument="piano")
+    other = await _sheet(pg_session, "gh/3", piece="Nocturne", instrument="piano")
+    pg_session.add_all([
+        MusicPromoCode(code="MOINS10", kind="percent", value=10, active=True, uses=0),
+        MusicPromoCode(code="UNEURO", kind="amount", value=100, active=True, uses=0),
+        MusicPromoCode(code="FINI", kind="percent", value=50, active=True, uses=3, max_uses=3),
+        MusicPromoCode(code="VIEUX", kind="percent", value=50, active=True, uses=0,
+                       expires_at=utcnow() - timedelta(days=1)),
+    ])
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        r = await c.http.post("/api/music/quote", json={"sheet_ids": [v.id]})
+        assert r.json()["total_cents"] == 199
+        # deux instruments du même morceau = lot à 2,99 €
+        r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id, p.id]})).json()
+        assert (r["list_total_cents"], r["total_cents"], r["bundle_savings_cents"]) == (398, 299, 99)
+        assert sum(l["price_cents"] for l in r["lines"]) == 299
+        # le lot ne s'applique pas entre deux morceaux différents
+        r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id, other.id]})).json()
+        assert r["total_cents"] == 398
+        r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id, p.id], "promo_code": "moins10"})).json()
+        assert (r["discount_cents"], r["total_cents"]) == (29, 270)
+        assert sum(l["price_cents"] for l in r["lines"]) == 270
+        r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id], "promo_code": "UNEURO"})).json()
+        assert r["total_cents"] == 99
+        for code, err in [("FINI", "promo_used_up"), ("VIEUX", "promo_expired"), ("NOPE", "promo_unknown")]:
+            r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id], "promo_code": code})).json()
+            assert (r["promo_error"], r["total_cents"]) == (err, 199)
+
+
+async def test_admin_prices_apply(pg_session, music):
+    admin = await _user(pg_session, "admin@t.dev", is_superadmin=True)
+    v = await _sheet(pg_session, "gh/1")
+    p = await _sheet(pg_session, "gh/2", instrument="piano")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(admin)
+        assert (await h.put("/api/admin/music/pricing", json={"unit_price_cents": 100,
+                                                               "bundle_price_cents": None})).status_code == 200
+        assert (await h.patch(f"/api/admin/music/sheets/{p.id}", json={"price_cents": 50})).status_code == 200
+        r = (await h.post("/api/music/quote", json={"sheet_ids": [v.id, p.id]})).json()
+        assert r["total_cents"] == 150 and r["bundles"] == []
+
+
+# --------------------------------------------------------------------------
+# Envoi des partitions, diffusion, aperçus
+# --------------------------------------------------------------------------
+
+async def test_ingest_requires_token(pg_session, music):
+    async with Client(pg_session) as c:
+        r = await c.http.post("/api/music/ingest", data={"meta": "{}"}, headers={"Authorization": "Bearer faux"})
+        assert r.status_code == 401
+
+
+@needs_pdftoppm
+async def test_ingest_publishes_public_domain_only_and_blurs(pg_session, music):
+    async with Client(pg_session) as c:
+        r = await _ingest(c.http, "ghost-hands/a", pages=3)
+        assert r.status_code == 200, r.text
+        pd = r.json()
+        assert pd["published"] is True and pd["pages"] == 3
+        assert pd["url"] == "https://music.test/s/swan-lake?i=violon"
+        r = await _ingest(c.http, "ghost-hands/b", piece="Enter Sandman", instrument="batterie",
+                          rights="protégé (reprise)")
+        priv = r.json()
+        assert priv["published"] is False
+
+        cat = (await c.http.get("/api/music/catalog")).json()
+        assert [p["slug"] for p in cat["pieces"]] == ["swan-lake"]
+        assert (await c.http.get("/api/music/pieces/enter-sandman")).status_code == 404
+        assert (await c.http.get(f"/api/music/sheets/{priv['id']}/pages/1.png")).status_code == 404
+
+        one = await c.http.get(f"/api/music/sheets/{pd['id']}/pages/1.png")
+        two = await c.http.get(f"/api/music/sheets/{pd['id']}/pages/2.jpg")
+        assert one.headers["content-type"] == "image/png" and two.headers["content-type"] == "image/jpeg"
+        from PIL import Image
+        assert Image.open(BytesIO(two.content)).width <= 620   # floutée et réduite
+        assert (await c.http.get(f"/api/music/sheets/{pd['id']}/pages/2.png")).status_code == 404
+        # une seule page : le bas de la page 1 est flouté (sinon l'aperçu donnerait tout)
+        r = await _ingest(c.http, "ghost-hands/c", piece="Ave Maria", pages=1)
+        one_page = await c.http.get(f"/api/music/sheets/{r.json()['id']}/pages/1.png")
+        im = Image.open(BytesIO(one_page.content)).convert("L")
+        w, h = im.size
+        def lines(y0, y1):  # pixels très sombres (lignes de portée nettes)
+            return sum(1 for y in range(y0, y1) for x in range(0, w, 4) if im.getpixel((x, y)) < 60)
+        assert lines(int(h * 0.1), int(h * 0.35)) > 50 and lines(int(h * 0.5), int(h * 0.95)) == 0
+        # le PDF complet n'est servi par aucune route publique
+        assert (await c.http.get(f"/api/music/sheets/{pd['id']}/partition.pdf")).status_code == 404
+
+        # mise à jour sans PDF : la décision de diffusion de l'admin est gardée
+        s = await pg_session.get(MusicSheet, priv["id"])
+        s.published = True
+        await pg_session.commit()
+        r = await _ingest(c.http, "ghost-hands/b", piece="Enter Sandman", instrument="batterie",
+                          rights="protégé (reprise)", pdf=False)
+        assert r.json()["published"] is True and r.json()["created"] is False
+
+
+@needs_pdftoppm
+async def test_admin_can_publish_any_sheet(pg_session, music):
+    admin = await _user(pg_session, "admin@t.dev", is_superadmin=True)
+    user = await _user(pg_session, "u@t.dev")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        priv = (await _ingest(c.http, "gh/p", piece="Whiplash", instrument="batterie", rights="protégé")).json()
+        assert (await c.as_(user).get("/api/admin/music/sheets")).status_code == 403
+        h = c.as_(admin)
+        rows = (await h.get("/api/admin/music/sheets?status=private")).json()["sheets"]
+        assert [r["id"] for r in rows] == [priv["id"]]
+        assert (await h.patch(f"/api/admin/music/sheets/{priv['id']}", json={"published": True})).json()["published"]
+        assert (await c.http.get("/api/music/pieces/whiplash")).status_code == 200
+        ov = (await h.get("/api/admin/music/overview")).json()
+        assert ov["sheets"] == {"total": 1, "published": 1, "private": 0}
+
+
+# --------------------------------------------------------------------------
+# Commande
+# --------------------------------------------------------------------------
+
+async def test_checkout_requires_consent_and_minimum(pg_session, music):
+    v = await _sheet(pg_session, "gh/1", price=30)
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [v.id]})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "consent_required"
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [v.id], "consent": True})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "amount_too_low"
+
+
+@needs_pdftoppm
+async def test_free_order_delivers_and_downloads(pg_session, music, monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_BILLING", False)
+    pg_session.add(MusicPromoCode(code="OFFERT", kind="percent", value=100, active=True, uses=0, max_uses=1))
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        sid = (await _ingest(c.http, "gh/a")).json()["id"]
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [sid], "consent": True,
+                                                          "promo_code": "OFFERT", "email": "fan@example.com"})
+        assert r.status_code == 200, r.text
+        assert r.json()["redirect"].startswith("https://music.test/thanks?order=")
+        public_id = r.json()["order"]
+        k = ms.download_key(public_id)
+        assert (await c.http.get(f"/api/music/orders/{public_id}?k=mauvaise")).status_code == 404
+        o = (await c.http.get(f"/api/music/orders/{public_id}?k={k}")).json()
+        assert o["status"] == ORDER_PAID and o["email"] == "f•••@example.com"
+        pdf = await c.http.get(o["items"][0]["download"])
+        assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+        assert len(music) == 1 and music[0]["to"] == ["fan@example.com"]
+        assert f"/api/music/download/{public_id}/" in music[0]["body"]
+        promo = (await pg_session.execute(select(MusicPromoCode))).scalar_one()
+        await pg_session.refresh(promo)
+        assert promo.uses == 1
+        # code épuisé
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [sid], "consent": True,
+                                                          "promo_code": "OFFERT"})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "promo_used_up"
+
+
+async def test_stripe_checkout_and_webhook(pg_session, music, monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_BILLING", False)
+    monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_x")
+    v = await _sheet(pg_session, "gh/1")
+    p = await _sheet(pg_session, "gh/2", instrument="piano")
+    await pg_session.commit()
+    sent = {}
+
+    async def fake_create(data):
+        sent.update(data)
+        return {"id": "cs_test_123", "url": "https://checkout.stripe.test/cs_test_123"}
+    monkeypatch.setattr(stripe_service, "create_payment_checkout", fake_create)
+
+    async with Client(pg_session) as c:
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [v.id, p.id], "consent": True, "lang": "fr"})
+        assert r.status_code == 200, r.text
+        assert r.json()["redirect"] == "https://checkout.stripe.test/cs_test_123"
+        public_id = r.json()["order"]
+        # le montant envoyé à Stripe est celui calculé par le back (lot 2,99 €)
+        amounts = [int(v_) for k_, v_ in sent.items() if k_.endswith("[unit_amount]")]
+        assert sum(amounts) == 299 and sent["mode"] == "payment"
+        assert sent["metadata[music_order]"] == public_id and sent["locale"] == "fr"
+
+        o = (await c.http.get(f"/api/music/orders/{public_id}?k={ms.download_key(public_id)}")).json()
+        assert o["status"] == "pending" and o["items"][0]["download"] is None
+
+        # mauvais secret (celui de l'abonnement Chapote) : refusé
+        event = {"type": "checkout.session.completed", "data": {"object": {
+            "id": "cs_test_123", "payment_status": "paid", "status": "complete", "payment_intent": "pi_1",
+            "customer_details": {"email": "buyer@example.com"}, "metadata": {"music_order": public_id}}}}
+        raw = json.dumps(event).encode()
+        bad = await c.http.post("/api/music/stripe/webhook", content=raw,
+                                headers={"stripe-signature": sign_stripe(raw, "whsec_autre", int(time.time()))})
+        assert bad.status_code == 400
+        for _ in range(2):  # idempotent
+            ok = await c.http.post("/api/music/stripe/webhook", content=raw,
+                                   headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
+            assert ok.status_code == 200
+        order = (await pg_session.execute(select(MusicOrder))).scalar_one()
+        await pg_session.refresh(order)
+        assert order.status == ORDER_PAID and order.email == "buyer@example.com"
+        assert order.stripe_payment_intent == "pi_1" and order.amount_cents == 299
+        assert len(music) == 1 and "Vos partitions" in music[0]["subject"]
+        # la page « merci » retrouve la commande avec l'identifiant de session Stripe
+        o = (await c.http.get(f"/api/music/orders/{public_id}?session_id=cs_test_123")).json()
+        assert o["status"] == ORDER_PAID and o["key"] == ms.download_key(public_id)
+
+        # événement d'un autre produit (abonnement Chapote) : ignoré
+        other = json.dumps({"type": "checkout.session.completed", "data": {"object": {"id": "cs_x", "metadata": {}}}}).encode()
+        r = await c.http.post("/api/music/stripe/webhook", content=other,
+                              headers={"stripe-signature": sign_stripe(other, MUSIC_SECRET, int(time.time()))})
+        assert r.json().get("ignored") is True
+
+
+async def test_admin_promos_and_orders(pg_session, music, monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_BILLING", True)
+    admin = await _user(pg_session, "admin@t.dev", is_superadmin=True)
+    v_id = (await _sheet(pg_session, "gh/1")).id
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(admin)
+        r = await h.post("/api/admin/music/promos", json={"code": "noel", "kind": "percent", "value": 20})
+        assert r.status_code == 200 and r.json()["code"] == "NOEL"
+        assert (await h.post("/api/admin/music/promos", json={"code": "NOEL", "kind": "amount",
+                                                               "value": 50})).status_code == 409
+        assert (await h.post("/api/admin/music/promos", json={"code": "TROP", "kind": "percent",
+                                                               "value": 150})).status_code == 400
+        # MOCK_BILLING : commande payée tout de suite (dev / e2e)
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [v_id], "consent": True,
+                                                          "promo_code": "NOEL", "email": "a@b.fr"})
+        assert r.status_code == 200
+        orders = (await h.get("/api/admin/music/orders")).json()["orders"]
+        assert orders[0]["status"] == ORDER_PAID and orders[0]["amount_cents"] == 160
+        ov = (await h.get("/api/admin/music/overview")).json()
+        assert ov["orders"]["paid"] == 1 and ov["revenue_cents"]["total"] == 160
+        promo_id = (await h.get("/api/admin/music/promos")).json()["promos"][0]["id"]
+        r = await h.patch(f"/api/admin/music/promos/{promo_id}", json={"active": False})
+        assert r.json()["usable"] is False and r.json()["uses"] == 1
+        assert (await h.post(f"/api/admin/music/orders/{orders[0]['id']}/resend")).json()["sent"] is True
