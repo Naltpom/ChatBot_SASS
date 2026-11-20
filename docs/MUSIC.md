@@ -85,3 +85,17 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
   à une adresse e-mail (commande à 0 € `granted_by_user_id`, liée au compte s'il existe, e-mail de livraison
   facultatif) et retirer un don. Les dons ne comptent ni dans les ventes ni dans le chiffre.
 - `index.html` servi en `no-cache` (un déploiement se voit tout de suite) ; fichiers de `/assets/` gardés un an.
+
+## Aperçu limité à l'extrait et sécurité (20/11/2026)
+
+- Aperçu public de la page 1 : net seulement jusqu'au bas de la dernière ligne jouée par l'extrait audio de 25 s
+  (curseur), flouté dessous (`preview_cut`, `render_page1_preview`, refait à chaque ingestion avec curseur).
+- Achats faits sans compte : rattachés à un compte par l'adresse e-mail **seulement si elle est vérifiée**
+  (lien de confirmation, ou connexion Google) ; « Mes partitions » propose d'envoyer le lien. Un don de l'admin
+  n'est lié au compte que si son adresse est vérifiée.
+- Codes promo : utilisation réservée à la commande de façon atomique (plus de course entre commandes simultanées),
+  rendue si la session expire ou échoue ; réponse unique `promo_invalid` (ne révèle pas qu'un code existe) ;
+  devis avec code et commandes limités par IP (30 / 10 min).
+- Remboursement complet (`charge.refunded`) ou litige (`charge.dispute.created`) : commande `refunded`, accès coupé.
+  **À cocher dans Stripe** pour le webhook de la boutique : ces deux événements en plus des `checkout.session.*`.
+- Droits admin sur la boutique (pages privées, pages nettes) : superadmin avec 2nd facteur en production.

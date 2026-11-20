@@ -143,9 +143,10 @@ async def test_quote_unit_bundle_and_promos(pg_session, music):
         assert sum(l["price_cents"] for l in r["lines"]) == 270
         r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id], "promo_code": "UNEURO"})).json()
         assert r["total_cents"] == 99
-        for code, err in [("FINI", "promo_used_up"), ("VIEUX", "promo_expired"), ("NOPE", "promo_unknown")]:
+        # une seule réponse pour un code inconnu, épuisé ou expiré : on ne révèle pas qu'un code existe
+        for code in ("FINI", "VIEUX", "NOPE"):
             r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id], "promo_code": code})).json()
-            assert (r["promo_error"], r["total_cents"]) == (err, 199)
+            assert (r["promo_error"], r["total_cents"]) == ("promo_invalid", 199)
 
 
 async def test_admin_prices_apply(pg_session, music):
@@ -273,7 +274,7 @@ async def test_free_order_delivers_and_downloads(pg_session, music, monkeypatch)
         # code épuisé
         r = await c.http.post("/api/music/checkout", json={"sheet_ids": [sid], "consent": True,
                                                           "promo_code": "OFFERT"})
-        assert r.status_code == 400 and r.json()["detail"]["code"] == "promo_used_up"
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "promo_invalid"
 
 
 async def test_stripe_checkout_and_webhook(pg_session, music, monkeypatch):
@@ -329,6 +330,17 @@ async def test_stripe_checkout_and_webhook(pg_session, music, monkeypatch):
         r = await c.http.post("/api/music/stripe/webhook", content=other,
                               headers={"stripe-signature": sign_stripe(other, MUSIC_SECRET, int(time.time()))})
         assert r.json().get("ignored") is True
+
+        # remboursement complet dans Stripe : la commande est coupée (plus de téléchargement)
+        assert o["items"][0]["download"]
+        ev = json.dumps({"type": "charge.refunded", "data": {"object": {"id": "ch_1", "payment_intent": "pi_1", "refunded": True}}}).encode()
+        r = await c.http.post("/api/music/stripe/webhook", content=ev,
+                              headers={"stripe-signature": sign_stripe(ev, MUSIC_SECRET, int(time.time()))})
+        assert r.status_code == 200
+        await pg_session.refresh(order)
+        assert order.status == "refunded"
+        o = (await c.http.get(f"/api/music/orders/{public_id}?k={ms.download_key(public_id)}")).json()
+        assert o["items"][0]["download"] is None
 
 
 async def test_admin_promos_and_orders(pg_session, music, monkeypatch):
@@ -399,6 +411,13 @@ async def test_player_notes_preview_and_buyer(pg_session, music, monkeypatch):
         prev = (await c.http.get(f"/api/music/sheets/{sid}/notes")).json()
         assert prev["full"] is False and prev["duration"] == 25 and prev["full_duration"] == 60
         assert prev["cursor"] == [[1.0, 0, 0.2, 0.1, 0.2]]  # aperçu : 25 s ; page 5 et x > 1 écartés
+        # aperçu public de la page 1 : net jusqu'au bas de la dernière ligne jouée par l'extrait (0,2 + marge), flouté dessous
+        from PIL import Image, ImageChops
+        d = ms.sheet_dir(sid)
+        with Image.open(d / "p1.png") as p1, Image.open(d / "c1.png") as c1:
+            w, h = c1.size
+            assert ImageChops.difference(p1.convert("RGB").crop((0, 0, w, int(h * 0.2))), c1.convert("RGB").crop((0, 0, w, int(h * 0.2)))).getbbox() is None
+            assert ImageChops.difference(p1.convert("RGB").crop((0, int(h * 0.3), w, h)), c1.convert("RGB").crop((0, int(h * 0.3), w, h))).getbbox() is not None
         assert max(n[0] for n in prev["notes"]) < 25
         assert (await c.http.get(f"/api/music/sheets/{sid}/clear/2.png")).status_code == 404
         r = await c.http.post("/api/music/checkout", json={"sheet_ids": [sid], "consent": True})
@@ -418,7 +437,7 @@ async def test_shared_account_apps_and_verified_reviews(pg_session, music, monke
     await pg_session.commit()
     v_id, other_id = v.id, other.id
     async with Client(pg_session) as c:
-        # achat sans compte avec l'e-mail, puis inscription depuis music : l'achat est retrouvé
+        # achat sans compte avec l'e-mail, puis inscription depuis music : l'achat est retrouvé une fois l'adresse vérifiée
         await c.http.post("/api/music/checkout", json={"sheet_ids": [v_id], "consent": True, "email": "fan@example.com"})
         r = await c.http.post("/api/auth/register", json={"name": "Fan Club", "email": "fan@example.com", "password": "secret-123"},
                               headers={"X-Chapote-App": "music"})
@@ -426,6 +445,11 @@ async def test_shared_account_apps_and_verified_reviews(pg_session, music, monke
         u = (await pg_session.execute(select(User).where(User.email == "fan@example.com"))).scalar_one()
         await pg_session.refresh(u)
         assert u.signup_app == "music"
+        acc = (await c.http.get("/api/music/account")).json()
+        assert acc["sheets"] == [] and acc["user"]["email_verified"] is False  # adresse pas encore prouvée : rien
+        assert (await c.http.get(f"/api/music/sheets/{v_id}/clear/1.png")).status_code == 404
+        u.email_verified = True
+        await pg_session.commit()
         acc = (await c.http.get("/api/music/account")).json()
         assert [s["sheet_id"] for s in acc["sheets"]] == [v_id]
         from src.models.user import UserApp
@@ -534,7 +558,7 @@ async def test_private_piece_only_for_owners_and_admin_grants(pg_session, music,
     pub = await _sheet(pg_session, "gh/q", piece="Rocky", instrument="piano")
     solo = await _sheet(pg_session, "gh/s", piece="Secret", published=False)
     admin = await _user(pg_session, "boss@t.dev", is_superadmin=True)
-    fan = await _user(pg_session, "fan@t.dev")
+    fan = await _user(pg_session, "fan@t.dev", email_verified=True)
     await pg_session.commit()
     priv_id, pub_id, solo_id, fan_email = priv.id, pub.id, solo.id, fan.email
     async with Client(pg_session) as c:
@@ -576,3 +600,11 @@ async def test_private_piece_only_for_owners_and_admin_grants(pg_session, music,
         h = c.as_(fan)
         assert (await h.get("/api/music/pieces/secret")).status_code == 404
     assert any(m["to"] == [fan_email] for m in music)
+
+
+def test_preview_cut_follows_the_audio_excerpt():
+    assert ms.preview_cut(None, 3) is None
+    assert abs(ms.preview_cut([[1, 0, 0.5, 0.1, 0.2], [20, 0, 0.5, 0.3, 0.4], [30, 0, 0.5, 0.6, 0.7]], 3) - 0.412) < 1e-9
+    assert ms.preview_cut([[1, 0, 0.5, 0.1, 0.2], [24, 1, 0.5, 0.1, 0.2]], 3) == 1.0  # l'extrait atteint la page 2
+    assert ms.preview_cut([[1, 0, 0.5, 0.1, 0.2], [20, 0, 0.5, 0.7, 0.8]], 1) == 0.5  # une seule page : la moitié au plus
+    assert ms.preview_cut([[30, 0, 0.5, 0.1, 0.2]], 3) == 0.2  # rien dans l'extrait : le haut seulement

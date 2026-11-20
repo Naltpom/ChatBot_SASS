@@ -183,8 +183,10 @@ async def grant_sheet(sheet_id: int, body: GrantIn, db: AsyncSession = Depends(g
     if already:
         raise HTTPException(409, "Cette personne a déjà cette partition")
     now = utcnow()
+    # lié au compte seulement si son adresse est vérifiée (sinon elle s'y rattachera à la vérification)
+    linked = owner if owner is not None and owner.email_verified else None
     order = MusicOrder(public_id=uuid.uuid4().hex, status=ORDER_PAID, email=email, lang="en",
-                       user_id=owner.id if owner else None, subtotal_cents=0, discount_cents=0, amount_cents=0,
+                       user_id=linked.id if linked else None, subtotal_cents=0, discount_cents=0, amount_cents=0,
                        currency="eur", consent_at=now, paid_at=now, granted_by_user_id=admin.id)
     db.add(order)
     await db.flush()

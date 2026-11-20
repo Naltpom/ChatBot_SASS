@@ -44,13 +44,15 @@ from src.models.music import (
     ORDER_FAILED,
     ORDER_PAID,
     ORDER_PENDING,
+    ORDER_REFUNDED,
     MusicOrder,
     MusicOrderItem,
     MusicReview,
     MusicSheet,
 )
 from src.models.user import User
-from src.services.user_apps import record_app
+from src.services.rate_limit import music_limiter
+from src.services.user_apps import client_ip, record_app
 from src.services import music_service as ms
 from src.services import fx_rates, stripe_service
 from src.services.stripe_service import StripeError
@@ -58,6 +60,12 @@ from src.services.stripe_service import StripeError
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/music", tags=["music"])
+
+
+async def _music_user(db: AsyncSession = Depends(get_db),
+                      user: Optional[User] = Depends(get_optional_user)) -> Optional[User]:
+    """Visiteur éventuellement connecté ; un superadmin sans 2nd facteur (production) n'a pas les droits admin ici."""
+    return await _admin_ok(db, user)
 
 
 def _err(exc: ms.MusicError) -> HTTPException:
@@ -196,7 +204,7 @@ async def catalog(instrument: Optional[str] = None, q: Optional[str] = None,
 
 
 @router.get("/pieces/{slug}")
-async def piece(slug: str, db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(get_optional_user)):
+async def piece(slug: str, db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(_music_user)):
     """Toutes les fiches existent ; une partition privée (non diffusée) ne se voit que par qui l'a (achat ou don)
     et par un administrateur. Sinon 404 `private` : le site renvoie au catalogue."""
     st = await ms.get_settings(db)
@@ -223,7 +231,17 @@ async def piece(slug: str, db: AsyncSession = Depends(get_db), user: Optional[Us
 
 
 def _is_admin(user: Optional[User]) -> bool:
-    return bool(user is not None and getattr(user, "is_superadmin", False))
+    """Administrateur pour la boutique : superadmin, avec en production la même exigence de 2nd facteur que
+    l'administration (posée sur l'utilisateur par _admin_ok avant usage)."""
+    return bool(user is not None and getattr(user, "is_superadmin", False) and getattr(user, "_music_admin_ok", True))
+
+
+async def _admin_ok(db: AsyncSession, user: Optional[User]) -> Optional[User]:
+    """Marque un superadmin sans 2nd facteur (en production) comme non-admin pour la boutique."""
+    if user is not None and getattr(user, "is_superadmin", False) and settings.is_production and settings.TWOFA_ENFORCE_ADMIN:
+        from src.core.security import user_has_2fa
+        user._music_admin_ok = await user_has_2fa(db, user)
+    return user
 
 
 async def _owned_ids(db: AsyncSession, user: Optional[User], sheet_ids: list[int]) -> set[int]:
@@ -233,8 +251,16 @@ async def _owned_ids(db: AsyncSession, user: Optional[User], sheet_ids: list[int
     rows = (await db.execute(
         select(MusicOrderItem.sheet_id).join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
         .where(MusicOrderItem.sheet_id.in_(sheet_ids), MusicOrder.status == ORDER_PAID,
-               or_(MusicOrder.user_id == user.id, func.lower(MusicOrder.email) == user.email.lower())))).all()
+               _mine(user)))).all()
     return {r[0] for r in rows}
+
+
+def _mine(user: User):
+    """Commandes du compte : celles passées connecté, et celles faites sans compte avec la même adresse SEULEMENT si
+    l'adresse du compte est vérifiée (sinon n'importe qui s'inscrirait avec l'e-mail d'un acheteur pour voir ses achats)."""
+    if getattr(user, "email_verified", False):
+        return or_(MusicOrder.user_id == user.id, func.lower(MusicOrder.email) == user.email.lower())
+    return MusicOrder.user_id == user.id
 
 
 async def _visible_sheet(db: AsyncSession, sheet_id: int, user: Optional[User] = None,
@@ -257,7 +283,7 @@ async def _published_sheet(db: AsyncSession, sheet_id: int) -> MusicSheet:
 
 @router.get("/sheets/{sheet_id}/pages/{page}.{ext}")
 async def sheet_page(sheet_id: int, page: int, ext: str, db: AsyncSession = Depends(get_db),
-                     user: Optional[User] = Depends(get_optional_user)):
+                     user: Optional[User] = Depends(_music_user)):
     s = await _visible_sheet(db, sheet_id, user)
     if page < 1 or page > s.pages or ext != ("png" if page == 1 else "jpg"):
         raise HTTPException(404, "Introuvable")
@@ -270,7 +296,7 @@ async def sheet_page(sheet_id: int, page: int, ext: str, db: AsyncSession = Depe
 
 @router.get("/sheets/{sheet_id}/cover.jpg")
 async def sheet_cover(sheet_id: int, db: AsyncSession = Depends(get_db),
-                      user: Optional[User] = Depends(get_optional_user)):
+                      user: Optional[User] = Depends(_music_user)):
     s = await _visible_sheet(db, sheet_id, user)
     path = ms.cover_path(s.id)
     if not s.has_cover or not path.exists():
@@ -287,13 +313,31 @@ class QuoteIn(BaseModel):
     promo_code: Optional[str] = Field(None, max_length=40)
 
 
+PROMO_ERRORS = {"promo_unknown", "promo_inactive", "promo_expired", "promo_used_up"}
+
+
+async def _limit(request: Request) -> None:
+    """Par IP : empêche de deviner les codes promo en masse (devis avec code, commandes)."""
+    if not await music_limiter.check(client_ip(request)):
+        raise HTTPException(429, {"code": "rate_limited", "message": "Too many attempts, please try again in a few minutes."})
+
+
+def _quote_out(q) -> dict:
+    d = q.as_dict()
+    if d.get("promo_error") in PROMO_ERRORS:  # une seule réponse : ne dit pas si le code existe
+        d["promo_error"] = "promo_invalid"
+    return d
+
+
 @router.post("/quote")
-async def post_quote(body: QuoteIn, db: AsyncSession = Depends(get_db)):
+async def post_quote(body: QuoteIn, request: Request, db: AsyncSession = Depends(get_db)):
+    if body.promo_code:
+        await _limit(request)
     try:
         q = await ms.quote(db, body.sheet_ids, body.promo_code)
     except ms.MusicError as exc:
         raise _err(exc)
-    return q.as_dict()
+    return _quote_out(q)
 
 
 class CheckoutIn(QuoteIn):
@@ -318,8 +362,9 @@ def _clean_instagram(raw: Optional[str]) -> Optional[str]:
 
 
 @router.post("/checkout")
-async def checkout(body: CheckoutIn, db: AsyncSession = Depends(get_db),
-                   user: Optional[User] = Depends(get_optional_user)):
+async def checkout(body: CheckoutIn, request: Request, db: AsyncSession = Depends(get_db),
+                   user: Optional[User] = Depends(_music_user)):
+    await _limit(request)
     if not body.consent:
         raise HTTPException(400, {"code": "consent_required",
                                   "message": "Please confirm you want immediate access to the PDF."})
@@ -328,7 +373,7 @@ async def checkout(body: CheckoutIn, db: AsyncSession = Depends(get_db),
     except ms.MusicError as exc:
         raise _err(exc)
     if body.promo_code and q.promo_error:
-        raise HTTPException(400, {"code": q.promo_error, "message": "This promo code cannot be used."})
+        raise HTTPException(400, {"code": "promo_invalid", "message": "This promo code cannot be used."})
     if 0 < q.total_cents < ms.STRIPE_MIN_CENTS:
         raise HTTPException(400, {"code": "amount_too_low", "message": "The minimum order is 0,50 €."})
 
@@ -346,6 +391,10 @@ async def checkout(body: CheckoutIn, db: AsyncSession = Depends(get_db),
     )
     db.add(order)
     await db.flush()
+    # utilisation du code réservée tout de suite, de façon atomique (rendue si la commande expire ou échoue)
+    if q.promo and not await ms.reserve_promo(db, q.promo.id):
+        await db.rollback()
+        raise HTTPException(400, {"code": "promo_invalid", "message": "This promo code cannot be used."})
     items = []
     for line in q.lines:
         it = MusicOrderItem(order_id=order.id, sheet_id=line.sheet.id, price_cents=line.price_cents,
@@ -441,6 +490,7 @@ async def _apply_session(db: AsyncSession, order: MusicOrder, session: dict) -> 
             await db.commit()
     elif status == "expired" and order.status == ORDER_PENDING:
         order.status = ORDER_EXPIRED
+        await ms.release_promo(db, order)
         await db.commit()
 
 
@@ -512,6 +562,17 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(400, str(exc))
     etype = event.get("type", "")
     obj = (event.get("data") or {}).get("object") or {}
+    # remboursement complet ou litige bancaire : la commande est coupée (liens, pages nettes, « Mes partitions »)
+    if etype in ("charge.refunded", "charge.dispute.created"):
+        pi = obj.get("payment_intent")
+        full_refund = etype == "charge.dispute.created" or (obj.get("refunded") is True)
+        if pi and full_refund:
+            order = (await db.execute(select(MusicOrder).where(MusicOrder.stripe_payment_intent == pi))).scalar_one_or_none()
+            if order is not None and order.status == ORDER_PAID:
+                order.status = ORDER_REFUNDED
+                await db.commit()
+                logger.info("Commande %s coupée (%s)", order.public_id, etype)
+        return {"received": True}
     public_id = (obj.get("metadata") or {}).get("music_order")
     if not etype.startswith("checkout.session.") or not public_id:
         return {"received": True, "ignored": True}
@@ -522,6 +583,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         await _apply_session(db, order, obj)
     elif etype == "checkout.session.async_payment_failed" and order.status == ORDER_PENDING:
         order.status = ORDER_FAILED
+        await ms.release_promo(db, order)
         await db.commit()
     return {"received": True}
 
@@ -615,6 +677,8 @@ async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
             ms.save_cursor(sheet.id, json.loads((await cursor.read()).decode("utf-8")), sheet.pages)
         except (ValueError, UnicodeDecodeError) as exc:
             raise HTTPException(422, f"curseur.json invalide : {exc}")
+        # aperçu public de la page 1 : net seulement sur ce que joue l'extrait audio
+        ms.render_page1_preview(sheet.id, ms.preview_cut(ms.load_cursor(sheet.id), sheet.pages))
     elif pdf is not None:
         ms.save_cursor(sheet.id, None)
     await db.commit()
@@ -698,15 +762,14 @@ async def _owns_sheet(db: AsyncSession, sheet_id: int, *, user: Optional[User] =
         if (await db.execute(stmt.where(MusicOrder.public_id == order))).first():
             return True
     if user is not None:
-        cond = or_(MusicOrder.user_id == user.id, func.lower(MusicOrder.email) == user.email.lower())
-        if (await db.execute(stmt.where(cond))).first():
+        if (await db.execute(stmt.where(_mine(user)))).first():
             return True
     return False
 
 
 @router.get("/sheets/{sheet_id}/notes")
 async def sheet_notes(sheet_id: int, order: Optional[str] = None, k: Optional[str] = None,
-                      db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(get_optional_user)):
+                      db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(_music_user)):
     s = await _visible_sheet(db, sheet_id, user, order, k)
     data = ms.load_notes(s.id) if s.has_notes else None
     if data is None:
@@ -722,7 +785,7 @@ async def sheet_notes(sheet_id: int, order: Optional[str] = None, k: Optional[st
 
 @router.get("/sheets/{sheet_id}/clear/{page}.png")
 async def clear_page(sheet_id: int, page: int, order: Optional[str] = None, k: Optional[str] = None,
-                     db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(get_optional_user)):
+                     db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(_music_user)):
     """Page nette (lecteur de l'acheteur) : seulement pour qui a payé la partition."""
     s = await db.get(MusicSheet, sheet_id)
     if s is None or page < 1 or page > s.pages or not (
@@ -746,8 +809,7 @@ async def account(db: AsyncSession = Depends(get_db), user: User = Depends(get_c
         select(MusicOrder, MusicOrderItem, MusicSheet)
         .join(MusicOrderItem, MusicOrderItem.order_id == MusicOrder.id)
         .join(MusicSheet, MusicSheet.id == MusicOrderItem.sheet_id)
-        .where(MusicOrder.status == ORDER_PAID,
-               or_(MusicOrder.user_id == user.id, func.lower(MusicOrder.email) == user.email.lower()))
+        .where(MusicOrder.status == ORDER_PAID, _mine(user))
         .order_by(MusicOrder.paid_at.desc()))).all()
     reviewed = {r.sheet_id: r.rating for r in (await db.execute(
         select(MusicReview).where(MusicReview.user_id == user.id))).scalars()}
@@ -764,7 +826,8 @@ async def account(db: AsyncSession = Depends(get_db), user: User = Depends(get_c
                          if ms.links_valid(o) else None),
             "my_rating": reviewed.get(sh.id),
         })
-    return {"user": {"name": user.name, "email": user.email, "signup_app": user.signup_app}, "sheets": sheets}
+    return {"user": {"name": user.name, "email": user.email, "signup_app": user.signup_app,
+                     "email_verified": bool(user.email_verified)}, "sheets": sheets}
 
 
 # --------------------------------------------------------------------------

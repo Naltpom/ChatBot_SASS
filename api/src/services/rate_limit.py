@@ -348,6 +348,8 @@ ip_limiter = RateLimiter(
 )
 # Anti-bruteforce login/register : 10 tentatives / 15 min par IP
 auth_limiter = RateLimiter("rl:auth:", 10, 900)
+# Boutique de partitions : devis avec code promo et commandes, par IP (anti-devinette des codes promo)
+music_limiter = RateLimiter("rl:music:", 30, 600)
 # Vérification du 2nd facteur 2FA (TOTP/recovery/passkey) : anti-bruteforce du
 # code à 6 chiffres. Deux protections COMPLÉMENTAIRES (cf. routers/twofa) :
 #  1) THROTTLE PAR-IP ATOMIQUE (clé {user_id}:{ip}) : incrément-et-test en UN seul
