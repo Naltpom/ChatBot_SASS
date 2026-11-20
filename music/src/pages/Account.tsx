@@ -2,7 +2,7 @@
 // Le même compte fonctionne sur chapote.fr (cookie partagé par les sous-domaines).
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { ApiError, getAccount, googleLogin, login, register, type AccountView } from '../api'
+import { ApiError, getAccount, googleLogin, login, register, requestVerifyEmail, type AccountView } from '../api'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { Center, Icon, Stars } from '../components/ui'
@@ -112,6 +112,7 @@ export default function AccountPage() {
   const { me, ready, signOut } = useAuth()
   const [data, setData] = useState<AccountView | null>(null)
   const [open, setOpen] = useState<number | null>(null)
+  const [verifySent, setVerifySent] = useState(false)
 
   useEffect(() => {
     if (!me) { setData(null); return }
@@ -128,6 +129,14 @@ export default function AccountPage() {
         <button type="button" className="linkish" onClick={signOut}>{t.signOut}</button>
       </div>
       <p>{me.name} · {me.email}</p>
+      {data && data.user.email_verified === false && (
+        <div className="verify-box">
+          <b>{t.verifyTitle}</b>
+          <span>{t.verifyText(me.email)}</span>
+          {verifySent ? <span className="ok-text">{t.verifySent}</span>
+            : <button type="button" className="btn ghost" onClick={() => requestVerifyEmail().then(() => setVerifySent(true)).catch(() => setVerifySent(true))}>{t.verifySend}</button>}
+        </div>
+      )}
       {!data ? <Center>{t.loading}</Center> : data.sheets.length === 0 ? <p className="empty">{t.noSheetsYet}</p> : (
         <div className="dl-list">
           {data.sheets.map(s => (

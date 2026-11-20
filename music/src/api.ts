@@ -80,7 +80,7 @@ export interface OrderView {
 export interface Me { id: number; email: string; name: string; avatar_url?: string | null; twofa_required?: boolean }
 
 export interface AccountView {
-  user: { name: string; email: string; signup_app: string | null }
+  user: { name: string; email: string; signup_app: string | null; email_verified?: boolean }
   sheets: { sheet_id: number; piece_slug: string; piece_title: string; instrument_label: string; pages: number
             has_notes: boolean; bought_at: string | null; download: string | null; my_rating: number | null }[]
 }
@@ -176,3 +176,4 @@ export const register = (name: string, email: string, password: string) =>
   post<Me>('/api/auth/register', { name, email, password, account_type: 'perso', invites: [] })
 export const googleLogin = (credential: string) => post<Me>('/api/auth/google', { credential })
 export const logout = () => post<{ ok: boolean }>('/api/auth/logout', {})
+export const requestVerifyEmail = () => post<{ sent: boolean }>('/api/auth/verify-email/request', {})

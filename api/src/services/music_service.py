@@ -443,12 +443,32 @@ async def mark_paid(db: AsyncSession, order: MusicOrder, *, email: Optional[str]
         order.email = email.strip()[:320]
     if payment_intent:
         order.stripe_payment_intent = payment_intent
-    if order.promo_code_id:
-        promo = await db.get(MusicPromoCode, order.promo_code_id)
-        if promo is not None:
-            promo.uses += 1
+    # l'utilisation du code promo est réservée à la commande (reserve_promo), pas comptée ici
     await db.flush()
     return True
+
+
+async def reserve_promo(db: AsyncSession, promo_id: int) -> bool:
+    """Réserve une utilisation du code de façon atomique (pas de course entre commandes simultanées) :
+    False si le code est épuisé, inactif ou expiré à cet instant."""
+    from sqlalchemy import or_ as _or, update
+    now = utcnow()
+    row = (await db.execute(
+        update(MusicPromoCode)
+        .where(MusicPromoCode.id == promo_id, MusicPromoCode.active.is_(True),
+               _or(MusicPromoCode.expires_at.is_(None), MusicPromoCode.expires_at > now),
+               _or(MusicPromoCode.max_uses.is_(None), MusicPromoCode.uses < MusicPromoCode.max_uses))
+        .values(uses=MusicPromoCode.uses + 1)
+        .returning(MusicPromoCode.id))).first()
+    return row is not None
+
+
+async def release_promo(db: AsyncSession, order: MusicOrder) -> None:
+    """Rend l'utilisation réservée d'une commande qui n'aboutit pas (expirée, refusée)."""
+    from sqlalchemy import update
+    if order.promo_code_id:
+        await db.execute(update(MusicPromoCode).where(MusicPromoCode.id == order.promo_code_id, MusicPromoCode.uses > 0)
+                         .values(uses=MusicPromoCode.uses - 1))
 
 
 _TEXTS = {

@@ -143,9 +143,10 @@ async def test_quote_unit_bundle_and_promos(pg_session, music):
         assert sum(l["price_cents"] for l in r["lines"]) == 270
         r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id], "promo_code": "UNEURO"})).json()
         assert r["total_cents"] == 99
-        for code, err in [("FINI", "promo_used_up"), ("VIEUX", "promo_expired"), ("NOPE", "promo_unknown")]:
+        # une seule réponse pour un code inconnu, épuisé ou expiré : on ne révèle pas qu'un code existe
+        for code in ("FINI", "VIEUX", "NOPE"):
             r = (await c.http.post("/api/music/quote", json={"sheet_ids": [v.id], "promo_code": code})).json()
-            assert (r["promo_error"], r["total_cents"]) == (err, 199)
+            assert (r["promo_error"], r["total_cents"]) == ("promo_invalid", 199)
 
 
 async def test_admin_prices_apply(pg_session, music):
@@ -273,7 +274,7 @@ async def test_free_order_delivers_and_downloads(pg_session, music, monkeypatch)
         # code épuisé
         r = await c.http.post("/api/music/checkout", json={"sheet_ids": [sid], "consent": True,
                                                           "promo_code": "OFFERT"})
-        assert r.status_code == 400 and r.json()["detail"]["code"] == "promo_used_up"
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "promo_invalid"
 
 
 async def test_stripe_checkout_and_webhook(pg_session, music, monkeypatch):
@@ -329,6 +330,17 @@ async def test_stripe_checkout_and_webhook(pg_session, music, monkeypatch):
         r = await c.http.post("/api/music/stripe/webhook", content=other,
                               headers={"stripe-signature": sign_stripe(other, MUSIC_SECRET, int(time.time()))})
         assert r.json().get("ignored") is True
+
+        # remboursement complet dans Stripe : la commande est coupée (plus de téléchargement)
+        assert o["items"][0]["download"]
+        ev = json.dumps({"type": "charge.refunded", "data": {"object": {"id": "ch_1", "payment_intent": "pi_1", "refunded": True}}}).encode()
+        r = await c.http.post("/api/music/stripe/webhook", content=ev,
+                              headers={"stripe-signature": sign_stripe(ev, MUSIC_SECRET, int(time.time()))})
+        assert r.status_code == 200
+        await pg_session.refresh(order)
+        assert order.status == "refunded"
+        o = (await c.http.get(f"/api/music/orders/{public_id}?k={ms.download_key(public_id)}")).json()
+        assert o["items"][0]["download"] is None
 
 
 async def test_admin_promos_and_orders(pg_session, music, monkeypatch):
@@ -425,7 +437,7 @@ async def test_shared_account_apps_and_verified_reviews(pg_session, music, monke
     await pg_session.commit()
     v_id, other_id = v.id, other.id
     async with Client(pg_session) as c:
-        # achat sans compte avec l'e-mail, puis inscription depuis music : l'achat est retrouvé
+        # achat sans compte avec l'e-mail, puis inscription depuis music : l'achat est retrouvé une fois l'adresse vérifiée
         await c.http.post("/api/music/checkout", json={"sheet_ids": [v_id], "consent": True, "email": "fan@example.com"})
         r = await c.http.post("/api/auth/register", json={"name": "Fan Club", "email": "fan@example.com", "password": "secret-123"},
                               headers={"X-Chapote-App": "music"})
@@ -433,6 +445,11 @@ async def test_shared_account_apps_and_verified_reviews(pg_session, music, monke
         u = (await pg_session.execute(select(User).where(User.email == "fan@example.com"))).scalar_one()
         await pg_session.refresh(u)
         assert u.signup_app == "music"
+        acc = (await c.http.get("/api/music/account")).json()
+        assert acc["sheets"] == [] and acc["user"]["email_verified"] is False  # adresse pas encore prouvée : rien
+        assert (await c.http.get(f"/api/music/sheets/{v_id}/clear/1.png")).status_code == 404
+        u.email_verified = True
+        await pg_session.commit()
         acc = (await c.http.get("/api/music/account")).json()
         assert [s["sheet_id"] for s in acc["sheets"]] == [v_id]
         from src.models.user import UserApp
@@ -541,7 +558,7 @@ async def test_private_piece_only_for_owners_and_admin_grants(pg_session, music,
     pub = await _sheet(pg_session, "gh/q", piece="Rocky", instrument="piano")
     solo = await _sheet(pg_session, "gh/s", piece="Secret", published=False)
     admin = await _user(pg_session, "boss@t.dev", is_superadmin=True)
-    fan = await _user(pg_session, "fan@t.dev")
+    fan = await _user(pg_session, "fan@t.dev", email_verified=True)
     await pg_session.commit()
     priv_id, pub_id, solo_id, fan_email = priv.id, pub.id, solo.id, fan.email
     async with Client(pg_session) as c:
