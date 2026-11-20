@@ -98,7 +98,10 @@ jobs:
           cache-dependency-path: api/requirements.txt
 
       - name: Installer les dépendances
-        run: pip install -r api/requirements.txt
+        run: |
+          # pdftoppm (poppler-utils) : rendu des aperçus de la boutique de partitions
+          sudo apt-get update -q && sudo apt-get install -y -q poppler-utils
+          pip install -r api/requirements.txt
 
       - name: pytest (vraie base Postgres, real_db forcé)
         working-directory: api

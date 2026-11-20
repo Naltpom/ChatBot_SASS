@@ -1,0 +1,284 @@
+"""Back-office de la boutique de partitions (/admin/music, superadmin).
+
+- vue d'ensemble : partitions (en vente / privées), commandes payées, chiffre ;
+- toutes les partitions, y compris celles qui ne sont pas diffusées (badge privé) :
+  diffuser ou retirer n'importe laquelle, prix propre ;
+- prix généraux (partition, lot d'un morceau) ;
+- codes promo (pourcentage ou montant, plafond, date de fin) ;
+- commandes (statut, montant, lignes) et renvoi de l'e-mail de livraison.
+"""
+from datetime import datetime, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.database import get_db
+from src.core.security import require_superadmin
+from src.core.time import utcnow
+from src.models.music import (
+    ORDER_PAID,
+    PROMO_AMOUNT,
+    PROMO_PERCENT,
+    MusicOrder,
+    MusicOrderItem,
+    MusicPromoCode,
+    MusicSheet,
+)
+from src.services import music_service as ms
+
+router = APIRouter(prefix="/api/admin/music", tags=["admin-music"],
+                   dependencies=[Depends(require_superadmin)])
+
+
+def _iso(d: Optional[datetime]) -> Optional[str]:
+    return d.isoformat() + "Z" if d else None
+
+
+async def _sales_by_sheet(db: AsyncSession) -> dict[int, tuple[int, int]]:
+    rows = (await db.execute(
+        select(MusicOrderItem.sheet_id, func.count(MusicOrderItem.id), func.coalesce(func.sum(MusicOrderItem.price_cents), 0))
+        .join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
+        .where(MusicOrder.status == ORDER_PAID)
+        .group_by(MusicOrderItem.sheet_id)
+    )).all()
+    return {sid: (int(n), int(cents)) for sid, n, cents in rows}
+
+
+@router.get("/overview")
+async def overview(db: AsyncSession = Depends(get_db)):
+    st = await ms.get_settings(db)
+    total, published = (await db.execute(
+        select(func.count(MusicSheet.id), func.count(MusicSheet.id).filter(MusicSheet.published.is_(True)))
+    )).one()
+    since = utcnow() - timedelta(days=30)
+    paid = select(func.count(MusicOrder.id), func.coalesce(func.sum(MusicOrder.amount_cents), 0)).where(
+        MusicOrder.status == ORDER_PAID)
+    n_all, cents_all = (await db.execute(paid)).one()
+    n_30, cents_30 = (await db.execute(paid.where(MusicOrder.paid_at >= since))).one()
+    by_status = dict((await db.execute(
+        select(MusicOrder.status, func.count(MusicOrder.id)).group_by(MusicOrder.status))).all())
+    sales = await _sales_by_sheet(db)
+    top_ids = sorted(sales, key=lambda i: -sales[i][0])[:5]
+    tops = {s.id: s for s in (await db.execute(select(MusicSheet).where(MusicSheet.id.in_(top_ids)))).scalars()} \
+        if top_ids else {}
+    await db.commit()
+    return {
+        "sheets": {"total": int(total), "published": int(published), "private": int(total) - int(published)},
+        "orders": {"paid": int(n_all), "paid_30d": int(n_30), "by_status": {k: int(v) for k, v in by_status.items()}},
+        "revenue_cents": {"total": int(cents_all), "last_30d": int(cents_30)},
+        "pricing": {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
+                    "currency": st.currency},
+        "top_sheets": [{"id": i, "title": f"{tops[i].piece_title} — {tops[i].instrument_label}",
+                        "sales": sales[i][0], "revenue_cents": sales[i][1]} for i in top_ids if i in tops],
+    }
+
+
+# --------------------------------------------------------------------------
+# Partitions
+# --------------------------------------------------------------------------
+
+@router.get("/sheets")
+async def list_sheets(q: Optional[str] = None, instrument: Optional[str] = None,
+                      status: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    st = await ms.get_settings(db)
+    stmt = select(MusicSheet)
+    if q:
+        like = f"%{q.strip()[:80]}%"
+        stmt = stmt.where(or_(MusicSheet.piece_title.ilike(like), MusicSheet.composer.ilike(like),
+                              MusicSheet.title.ilike(like), MusicSheet.source_ref.ilike(like)))
+    if instrument:
+        stmt = stmt.where(MusicSheet.instrument == instrument)
+    if status == "published":
+        stmt = stmt.where(MusicSheet.published.is_(True))
+    elif status == "private":
+        stmt = stmt.where(MusicSheet.published.is_(False))
+    sheets = (await db.execute(stmt.order_by(MusicSheet.released_at.desc().nullslast(),
+                                             MusicSheet.id.desc()))).scalars().all()
+    sales = await _sales_by_sheet(db)
+    await db.commit()
+    return {"sheets": [{
+        "id": s.id, "source_ref": s.source_ref, "piece_slug": s.piece_slug, "piece_title": s.piece_title,
+        "composer": s.composer, "instrument": s.instrument, "instrument_label": s.instrument_label,
+        "title": s.title, "rights": s.rights, "public_domain": s.public_domain, "published": s.published,
+        "published_at": _iso(s.published_at), "pages": s.pages, "reel_url": s.reel_url,
+        "price_cents": s.price_cents, "effective_price_cents": ms.sheet_price(s, st),
+        "released_at": _iso(s.released_at), "sales": sales.get(s.id, (0, 0))[0],
+        "revenue_cents": sales.get(s.id, (0, 0))[1], "url": ms.piece_url(s.piece_slug, s.instrument),
+        "preview": f"/api/admin/music/sheets/{s.id}/page1.png",
+    } for s in sheets]}
+
+
+@router.get("/sheets/{sheet_id}/page1.png")
+async def admin_page1(sheet_id: int, db: AsyncSession = Depends(get_db)):
+    from fastapi.responses import FileResponse
+    s = await db.get(MusicSheet, sheet_id)
+    path = ms.page_path(sheet_id, 1)
+    if s is None or not path.exists():
+        raise HTTPException(404, "Introuvable")
+    return FileResponse(path, media_type="image/png")
+
+
+class SheetPatch(BaseModel):
+    published: Optional[bool] = None
+    price_cents: Optional[int] = Field(None, ge=0, le=100_000)
+    reset_price: bool = False
+
+
+@router.patch("/sheets/{sheet_id}")
+async def patch_sheet(sheet_id: int, body: SheetPatch, db: AsyncSession = Depends(get_db)):
+    s = await db.get(MusicSheet, sheet_id)
+    if s is None:
+        raise HTTPException(404, "Partition introuvable")
+    if body.published is not None and body.published != s.published:
+        s.published = body.published
+        s.published_at = utcnow() if body.published else None
+    if body.reset_price:
+        s.price_cents = None
+    elif body.price_cents is not None:
+        s.price_cents = body.price_cents
+    await db.commit()
+    return {"id": s.id, "published": s.published, "price_cents": s.price_cents}
+
+
+# --------------------------------------------------------------------------
+# Prix généraux
+# --------------------------------------------------------------------------
+
+class PricingIn(BaseModel):
+    unit_price_cents: int = Field(..., ge=0, le=100_000)
+    bundle_price_cents: Optional[int] = Field(None, ge=0, le=100_000)
+
+
+@router.get("/pricing")
+async def get_pricing(db: AsyncSession = Depends(get_db)):
+    st = await ms.get_settings(db)
+    await db.commit()
+    return {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
+            "currency": st.currency}
+
+
+@router.put("/pricing")
+async def put_pricing(body: PricingIn, db: AsyncSession = Depends(get_db)):
+    st = await ms.get_settings(db)
+    st.unit_price_cents = body.unit_price_cents
+    st.bundle_price_cents = body.bundle_price_cents
+    await db.commit()
+    return {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
+            "currency": st.currency}
+
+
+# --------------------------------------------------------------------------
+# Codes promo
+# --------------------------------------------------------------------------
+
+def _promo(p: MusicPromoCode) -> dict:
+    return {"id": p.id, "code": p.code, "kind": p.kind, "value": p.value, "active": p.active,
+            "max_uses": p.max_uses, "uses": p.uses, "expires_at": _iso(p.expires_at), "note": p.note,
+            "created_at": _iso(p.created_at), "usable": ms.promo_problem(p) is None}
+
+
+class PromoIn(BaseModel):
+    code: str = Field(..., min_length=2, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
+    kind: str = Field(..., pattern=f"^({PROMO_PERCENT}|{PROMO_AMOUNT})$")
+    value: int = Field(..., ge=1, le=100_000)
+    max_uses: Optional[int] = Field(None, ge=1)
+    expires_at: Optional[datetime] = None
+    note: Optional[str] = Field(None, max_length=200)
+    active: bool = True
+
+
+class PromoPatch(BaseModel):
+    active: Optional[bool] = None
+    max_uses: Optional[int] = Field(None, ge=1)
+    clear_max_uses: bool = False
+    expires_at: Optional[datetime] = None
+    clear_expires_at: bool = False
+    note: Optional[str] = Field(None, max_length=200)
+
+
+def _naive_utc(d: Optional[datetime]) -> Optional[datetime]:
+    if d is None or d.tzinfo is None:
+        return d
+    return (d - d.utcoffset()).replace(tzinfo=None)
+
+
+@router.get("/promos")
+async def list_promos(db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(MusicPromoCode).order_by(MusicPromoCode.created_at.desc()))).scalars().all()
+    return {"promos": [_promo(p) for p in rows]}
+
+
+@router.post("/promos")
+async def create_promo(body: PromoIn, db: AsyncSession = Depends(get_db)):
+    if body.kind == PROMO_PERCENT and body.value > 100:
+        raise HTTPException(400, "Un pourcentage va de 1 à 100")
+    p = MusicPromoCode(code=body.code.upper(), kind=body.kind, value=body.value, max_uses=body.max_uses,
+                       expires_at=_naive_utc(body.expires_at), note=body.note, active=body.active, uses=0)
+    db.add(p)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Ce code existe déjà")
+    return _promo(p)
+
+
+@router.patch("/promos/{promo_id}")
+async def patch_promo(promo_id: int, body: PromoPatch, db: AsyncSession = Depends(get_db)):
+    p = await db.get(MusicPromoCode, promo_id)
+    if p is None:
+        raise HTTPException(404, "Code introuvable")
+    if body.active is not None:
+        p.active = body.active
+    if body.clear_max_uses:
+        p.max_uses = None
+    elif body.max_uses is not None:
+        p.max_uses = body.max_uses
+    if body.clear_expires_at:
+        p.expires_at = None
+    elif body.expires_at is not None:
+        p.expires_at = _naive_utc(body.expires_at)
+    if body.note is not None:
+        p.note = body.note
+    await db.commit()
+    return _promo(p)
+
+
+# --------------------------------------------------------------------------
+# Commandes
+# --------------------------------------------------------------------------
+
+@router.get("/orders")
+async def list_orders(status: Optional[str] = None, limit: int = 100, db: AsyncSession = Depends(get_db)):
+    stmt = select(MusicOrder).order_by(MusicOrder.created_at.desc()).limit(max(1, min(limit, 500)))
+    if status:
+        stmt = stmt.where(MusicOrder.status == status)
+    orders = (await db.execute(stmt)).scalars().all()
+    ids = [o.id for o in orders]
+    items: dict[int, list[str]] = {}
+    if ids:
+        for it in (await db.execute(select(MusicOrderItem).where(MusicOrderItem.order_id.in_(ids))
+                                    .order_by(MusicOrderItem.id))).scalars():
+            items.setdefault(it.order_id, []).append(it.label)
+    return {"orders": [{
+        "id": o.id, "public_id": o.public_id, "status": o.status, "email": o.email,
+        "amount_cents": o.amount_cents, "subtotal_cents": o.subtotal_cents, "discount_cents": o.discount_cents,
+        "promo_code": o.promo_code, "created_at": _iso(o.created_at), "paid_at": _iso(o.paid_at),
+        "emailed_at": _iso(o.emailed_at), "items": items.get(o.id, []),
+    } for o in orders]}
+
+
+@router.post("/orders/{order_id}/resend")
+async def resend(order_id: int, db: AsyncSession = Depends(get_db)):
+    o = await db.get(MusicOrder, order_id)
+    if o is None or o.status != ORDER_PAID:
+        raise HTTPException(404, "Commande payée introuvable")
+    ok = await ms.deliver(db, o)
+    await db.commit()
+    if not ok:
+        raise HTTPException(502, "E-mail non envoyé (adresse absente ou SMTP indisponible)")
+    return {"sent": True}

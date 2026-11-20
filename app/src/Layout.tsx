@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Building2, Check, ChevronDown, CircleUser,
-  CreditCard, Clapperboard, Inbox, Layers, LayoutDashboard, LogOut, Menu, Plug, ShieldCheck, Target, Users,
+  CreditCard, Clapperboard, Inbox, Music, Layers, LayoutDashboard, LogOut, Menu, Plug, ShieldCheck, Target, Users,
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
@@ -304,6 +304,11 @@ export default function Layout({ children }: { children: ReactNode }) {
                       aria-current={path.startsWith('/admin/tiktok') ? 'page' : undefined}
                       onClick={() => navigate('/admin/tiktok')}>
                 <span className="nav-ico"><Clapperboard size={16} /></span>TikTok
+              </button>
+              <button className={`nav-item ${path.startsWith('/admin/music') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/admin/music') ? 'page' : undefined}
+                      onClick={() => navigate('/admin/music')}>
+                <span className="nav-ico"><Music size={16} /></span>Musique
               </button>
               <div className="nav-divider" />
               <button className="nav-item" onClick={() => navigate('/app')}>

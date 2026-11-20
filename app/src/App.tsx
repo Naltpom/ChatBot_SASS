@@ -37,6 +37,7 @@ import APropos from './pages/APropos'
 import TikTokPage from './pages/tiktok/TikTokPage'
 import TikTokComposer from './pages/tiktok/TikTokComposer'
 import AdminTikTok from './pages/AdminTikTok'
+import AdminMusic from './pages/AdminMusic'
 import TikTokCallback from './pages/tiktok/TikTokCallback'
 import mentionsMd from './legal/MENTIONS_LEGALES.md?raw'
 import cguMd from './legal/CGU.md?raw'
@@ -202,6 +203,7 @@ export function AppRoutes() {
       <Route path="/admin/billing/invoices" element={<Protected adminOnly><AdminBillingInvoices /></Protected>} />
       <Route path="/admin/billing/catalog" element={<Protected adminOnly><AdminBillingCatalog /></Protected>} />
       <Route path="/admin/tiktok" element={<Protected adminOnly><AdminTikTok /></Protected>} />
+      <Route path="/admin/music" element={<Protected adminOnly><AdminMusic /></Protected>} />
       {/* Alias historique demandé (/app/admin/billing) -> redirige vers la route admin canonique. */}
       <Route path="/app/admin/billing" element={<Navigate to="/admin/billing" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />

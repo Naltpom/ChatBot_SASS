@@ -107,6 +107,21 @@ class Settings(BaseSettings):
     APP_URL: str = "http://localhost:3001"
     API_URL: str = "http://localhost:8001"
 
+    # --- Boutique de partitions (music.chapote.fr) ---
+    # URL publique du site (liens des e-mails, retour de Stripe Checkout).
+    MUSIC_URL: str = "http://localhost:3002"
+    # Jeton Bearer de l'envoi des partitions par la chaîne de production
+    # (POST /api/music/ingest). Vide = envoi refusé (503).
+    MUSIC_INGEST_TOKEN: str | None = None
+    # Secret de signature du webhook Stripe DÉDIÉ à la boutique (endpoint
+    # /api/music/stripe/webhook, distinct de celui de l'abonnement Chapote).
+    STRIPE_MUSIC_WEBHOOK_SECRET: str | None = None
+    # Fichiers des partitions (PDF complets, aperçus) : PRIVÉS, jamais sous
+    # UPLOAD_DIR (servi publiquement). Volume Docker en production.
+    MUSIC_DIR: str = "/app/music_files"
+    # Durée de validité des liens de téléchargement après paiement (jours).
+    MUSIC_DOWNLOAD_DAYS: int = 365
+
     # Uploads (images avatar/lanceur) — volume Docker
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_BYTES: int = 1_000_000  # 1 Mo
