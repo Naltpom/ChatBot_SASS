@@ -91,8 +91,9 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .hero p { margin: 12px auto 0; max-width: 460px; font-size: clamp(15px, 1.9vw, 18px); line-height: 1.45; color: var(--ink2); }
 .hero-ctas { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px 22px; justify-content: center; align-items: center; }
 /* trois feuilles posées en éventail, un peu de travers, comme sur un pupitre */
-.fan { position: relative; height: 190px; width: 100%; max-width: 330px; margin: 0 auto; padding-top: 16px;
-  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%); mask-image: linear-gradient(to bottom, #000 72%, transparent 100%); }
+/* coupé seulement en bas (clip-path), fondu vers le fond de page : les coins inclinés débordent librement sur les côtés et en haut */
+.fan { position: relative; height: 190px; width: 100%; max-width: 330px; margin: 0 auto; padding-top: 16px; clip-path: inset(-200px -200px 0 -200px); }
+.fan::after { content: ""; position: absolute; z-index: 4; left: -60px; right: -60px; bottom: 0; height: 34%; background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none; }
 .fan-sheet { position: absolute; top: 18px; left: 50%; width: 38%; transform-origin: 50% 100%; transition: transform 0.4s ease; }
 .fan-sheet .paper { border-radius: 3px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 10px 26px rgba(0, 0, 0, 0.16); }
 .fan-sheet.f0 { z-index: 3; transform: translateX(-50%) rotate(-1.5deg); }
