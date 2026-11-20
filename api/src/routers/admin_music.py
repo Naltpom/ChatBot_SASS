@@ -26,8 +26,10 @@ from src.models.music import (
     MusicOrder,
     MusicOrderItem,
     MusicPromoCode,
+    MusicReview,
     MusicSheet,
 )
+from src.models.user import User, UserApp
 from src.services import music_service as ms
 
 router = APIRouter(prefix="/api/admin/music", tags=["admin-music"],
@@ -59,6 +61,9 @@ async def overview(db: AsyncSession = Depends(get_db)):
         MusicOrder.status == ORDER_PAID)
     n_all, cents_all = (await db.execute(paid)).one()
     n_30, cents_30 = (await db.execute(paid.where(MusicOrder.paid_at >= since))).one()
+    music_accounts = (await db.execute(select(func.count(UserApp.id)).where(UserApp.app == "music"))).scalar_one()
+    music_signups = (await db.execute(select(func.count(User.id)).where(User.signup_app == "music"))).scalar_one()
+    reviews_n = (await db.execute(select(func.count(MusicReview.id)))).scalar_one()
     by_status = dict((await db.execute(
         select(MusicOrder.status, func.count(MusicOrder.id)).group_by(MusicOrder.status))).all())
     sales = await _sales_by_sheet(db)
@@ -70,6 +75,8 @@ async def overview(db: AsyncSession = Depends(get_db)):
         "sheets": {"total": int(total), "published": int(published), "private": int(total) - int(published)},
         "orders": {"paid": int(n_all), "paid_30d": int(n_30), "by_status": {k: int(v) for k, v in by_status.items()}},
         "revenue_cents": {"total": int(cents_all), "last_30d": int(cents_30)},
+        "accounts": {"using_music": int(music_accounts), "signed_up_on_music": int(music_signups)},
+        "reviews": int(reviews_n),
         "pricing": {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
                     "currency": st.currency},
         "top_sheets": [{"id": i, "title": f"{tops[i].piece_title} — {tops[i].instrument_label}",
@@ -83,7 +90,9 @@ async def overview(db: AsyncSession = Depends(get_db)):
 
 @router.get("/sheets")
 async def list_sheets(q: Optional[str] = None, instrument: Optional[str] = None,
-                      status: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+                      status: Optional[str] = None, offset: int = 0, limit: int = 50,
+                      db: AsyncSession = Depends(get_db)):
+    offset, limit = max(0, offset), max(1, min(limit, 200))
     st = await ms.get_settings(db)
     stmt = select(MusicSheet)
     if q:
@@ -96,11 +105,12 @@ async def list_sheets(q: Optional[str] = None, instrument: Optional[str] = None,
         stmt = stmt.where(MusicSheet.published.is_(True))
     elif status == "private":
         stmt = stmt.where(MusicSheet.published.is_(False))
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     sheets = (await db.execute(stmt.order_by(MusicSheet.released_at.desc().nullslast(),
-                                             MusicSheet.id.desc()))).scalars().all()
+                                             MusicSheet.id.desc()).offset(offset).limit(limit))).scalars().all()
     sales = await _sales_by_sheet(db)
     await db.commit()
-    return {"sheets": [{
+    return {"total": int(total), "next_offset": offset + limit if offset + limit < total else None, "sheets": [{
         "id": s.id, "source_ref": s.source_ref, "piece_slug": s.piece_slug, "piece_title": s.piece_title,
         "composer": s.composer, "instrument": s.instrument, "instrument_label": s.instrument_label,
         "title": s.title, "rights": s.rights, "public_domain": s.public_domain, "published": s.published,
@@ -109,6 +119,7 @@ async def list_sheets(q: Optional[str] = None, instrument: Optional[str] = None,
         "released_at": _iso(s.released_at), "sales": sales.get(s.id, (0, 0))[0],
         "revenue_cents": sales.get(s.id, (0, 0))[1], "url": ms.piece_url(s.piece_slug, s.instrument),
         "preview": f"/api/admin/music/sheets/{s.id}/page1.png",
+        "likes": s.instagram_likes, "has_notes": s.has_notes,
     } for s in sheets]}
 
 
@@ -253,22 +264,27 @@ async def patch_promo(promo_id: int, body: PromoPatch, db: AsyncSession = Depend
 # --------------------------------------------------------------------------
 
 @router.get("/orders")
-async def list_orders(status: Optional[str] = None, limit: int = 100, db: AsyncSession = Depends(get_db)):
-    stmt = select(MusicOrder).order_by(MusicOrder.created_at.desc()).limit(max(1, min(limit, 500)))
+async def list_orders(status: Optional[str] = None, offset: int = 0, limit: int = 50,
+                      db: AsyncSession = Depends(get_db)):
+    offset, limit = max(0, offset), max(1, min(limit, 200))
+    stmt = select(MusicOrder)
     if status:
         stmt = stmt.where(MusicOrder.status == status)
-    orders = (await db.execute(stmt)).scalars().all()
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    orders = (await db.execute(stmt.order_by(MusicOrder.created_at.desc()).offset(offset).limit(limit))).scalars().all()
     ids = [o.id for o in orders]
     items: dict[int, list[str]] = {}
     if ids:
         for it in (await db.execute(select(MusicOrderItem).where(MusicOrderItem.order_id.in_(ids))
                                     .order_by(MusicOrderItem.id))).scalars():
             items.setdefault(it.order_id, []).append(it.label)
-    return {"orders": [{
+    return {"total": int(total), "next_offset": offset + limit if offset + limit < total else None, "orders": [{
         "id": o.id, "public_id": o.public_id, "status": o.status, "email": o.email,
         "amount_cents": o.amount_cents, "subtotal_cents": o.subtotal_cents, "discount_cents": o.discount_cents,
         "promo_code": o.promo_code, "created_at": _iso(o.created_at), "paid_at": _iso(o.paid_at),
         "emailed_at": _iso(o.emailed_at), "items": items.get(o.id, []),
+        "instagram_username": o.instagram_username, "instagram_status": o.instagram_status,
+        "user_id": o.user_id,
     } for o in orders]}
 
 
@@ -282,3 +298,35 @@ async def resend(order_id: int, db: AsyncSession = Depends(get_db)):
     if not ok:
         raise HTTPException(502, "E-mail non envoyé (adresse absente ou SMTP indisponible)")
     return {"sent": True}
+
+
+# --------------------------------------------------------------------------
+# Avis : lecture et retrait (règles des CGU) — jamais de modification du contenu
+# --------------------------------------------------------------------------
+
+@router.get("/reviews")
+async def list_reviews(offset: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db)):
+    offset, limit = max(0, offset), max(1, min(limit, 200))
+    total = (await db.execute(select(func.count(MusicReview.id)))).scalar_one()
+    rows = (await db.execute(
+        select(MusicReview, MusicSheet, User)
+        .join(MusicSheet, MusicSheet.id == MusicReview.sheet_id).join(User, User.id == MusicReview.user_id)
+        .order_by(MusicReview.updated_at.desc()).offset(offset).limit(limit))).all()
+    return {"total": int(total), "next_offset": offset + limit if offset + limit < total else None,
+            "reviews": [{"id": r.id, "rating": r.rating, "comment": r.comment, "hidden": r.hidden,
+                         "date": _iso(r.updated_at), "user": u.email,
+                         "sheet": f"{sh.piece_title} — {sh.instrument_label}"} for r, sh, u in rows]}
+
+
+class ReviewPatch(BaseModel):
+    hidden: bool
+
+
+@router.patch("/reviews/{review_id}")
+async def patch_review(review_id: int, body: ReviewPatch, db: AsyncSession = Depends(get_db)):
+    r = await db.get(MusicReview, review_id)
+    if r is None:
+        raise HTTPException(404, "Avis introuvable")
+    r.hidden = body.hidden
+    await db.commit()
+    return {"id": r.id, "hidden": r.hidden}

@@ -289,6 +289,10 @@ def page_path(sheet_id: int, page: int) -> Path:
     return sheet_dir(sheet_id) / (f"p{page}.png" if page == 1 else f"p{page}.jpg")
 
 
+def clear_page_path(sheet_id: int, page: int) -> Path:
+    return sheet_dir(sheet_id) / f"c{page}.png"
+
+
 def cover_path(sheet_id: int) -> Path:
     return sheet_dir(sheet_id) / "cover.jpg"
 
@@ -319,11 +323,15 @@ def render_previews(pdf: bytes, out_dir: Path) -> int:
             raise MusicError("bad_pdf", "PDF sans page.")
         for old in out_dir.glob("p*.*"):
             old.unlink()
+        for old in out_dir.glob("c*.png"):
+            old.unlink()
         for n, p in enumerate(pages, start=1):
             with Image.open(p) as im:
                 im = im.convert("RGB")
                 if im.width > 1240:
                     im = im.resize((1240, round(im.height * 1240 / im.width)), Image.LANCZOS)
+                # page nette, servie seulement aux acheteurs (lecteur « Play »)
+                im.save(out_dir / f"c{n}.png", optimize=True)
                 if n == 1 and len(pages) == 1:
                     # partition d'une seule page : offrir la page entière = tout donner. Le haut
                     # reste lisible (titre, premiers systèmes), le reste est flouté.
@@ -408,7 +416,7 @@ _TEXTS = {
         "hello": "Thank you for your order!",
         "intro": "Here are your sheets. Each link downloads the PDF; they work for {days} days.",
         "total": "Order total",
-        "help": "A problem with your order? Reply to this e-mail or write to support@chapote.fr.",
+        "help": "A problem with your order? Reply to this e-mail or write to music@chapote.fr.",
         "legal": "Sheets for personal use. Ghost Hands Sheets is a service of Chapote (chapote.fr). VAT not applicable, art. 293 B CGI.",
         "button": "Download",
         "page": "Open my order page",
@@ -418,7 +426,7 @@ _TEXTS = {
         "hello": "Merci pour votre commande !",
         "intro": "Voici vos partitions. Chaque lien télécharge le PDF ; ils restent valables {days} jours.",
         "total": "Total de la commande",
-        "help": "Un problème avec votre commande ? Répondez à cet e-mail ou écrivez à support@chapote.fr.",
+        "help": "Un problème avec votre commande ? Répondez à cet e-mail ou écrivez à music@chapote.fr.",
         "legal": "Partitions pour un usage personnel. Ghost Hands Sheets est un service de Chapote (chapote.fr). TVA non applicable, art. 293 B du CGI.",
         "button": "Télécharger",
         "page": "Ouvrir ma commande",
@@ -470,8 +478,68 @@ async def deliver(db: AsyncSession, order: MusicOrder) -> bool:
         return False
     items = await order_items(db, order)
     subject, text, body = build_delivery_email(order, items)
-    ok = await send_email([order.email], subject, text, html=body, reply_to="support@chapote.fr")
+    ok = await send_email([order.email], subject, text, html=body, reply_to=settings.MUSIC_REPLY_TO,
+                          from_addr=settings.MUSIC_EMAIL_FROM)
     if ok:
         order.emailed_at = utcnow()
         await db.flush()
     return ok
+
+
+# --------------------------------------------------------------------------
+# Notes du lecteur « Play » (notes.json de la vidéo, compacté)
+# --------------------------------------------------------------------------
+
+PREVIEW_SECONDS = 25.0
+
+
+def notes_path(sheet_id: int) -> Path:
+    return sheet_dir(sheet_id) / "notes.json"
+
+
+def compact_notes(raw: dict) -> dict:
+    """notes.json de la production -> forme compacte servie au lecteur :
+    notes = [[t, d, p, v, main (0 gauche, 1 droite), rôle (1 mélodie/instrument, 0 accompagnement), élément?]]."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("notes"), list):
+        raise ValueError("champ notes manquant")
+    out = []
+    for n in raw["notes"][:20000]:
+        try:
+            t, d, p = float(n["t"]), float(n.get("d") or 0.2), int(n["p"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        row = [round(t, 3), round(max(0.05, d), 3), p, int(n.get("v") or 80),
+               1 if n.get("main") == "D" else 0, 0 if n.get("role") == "fond" else 1]
+        if n.get("element"):
+            row.append(str(n["element"])[:30])
+        out.append(row)
+    out.sort(key=lambda r: r[0])
+    duree = float(raw.get("duree") or (max((r[0] + r[1] for r in out), default=0)))
+    return {"instrument": str(raw.get("instrument") or ""), "duration": round(duree, 2),
+            "bpm": raw.get("bpm") if isinstance(raw.get("bpm"), (int, float)) else None, "notes": out}
+
+
+def save_notes(sheet_id: int, raw: dict) -> bool:
+    import json as _json
+    data = compact_notes(raw)
+    if not data["notes"]:
+        return False
+    d = sheet_dir(sheet_id)
+    d.mkdir(parents=True, exist_ok=True)
+    notes_path(sheet_id).write_text(_json.dumps(data, separators=(",", ":")), encoding="utf-8")
+    return True
+
+
+def load_notes(sheet_id: int) -> Optional[dict]:
+    import json as _json
+    p = notes_path(sheet_id)
+    if not p.exists():
+        return None
+    return _json.loads(p.read_text(encoding="utf-8"))
+
+
+def preview_notes(data: dict) -> dict:
+    """Aperçu : seulement les PREVIEW_SECONDS premières secondes."""
+    notes = [n for n in data["notes"] if n[0] < PREVIEW_SECONDS]
+    return {**data, "notes": notes, "duration": min(data["duration"], PREVIEW_SECONDS),
+            "full_duration": data["duration"], "preview_seconds": PREVIEW_SECONDS}

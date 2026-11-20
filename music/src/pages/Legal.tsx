@@ -44,8 +44,7 @@ export default function LegalPage() {
   return (
     <main className="legal">
       <nav className="legal-tabs chips" aria-label="Legal">
-        {KEYS.map(k => <Link key={k} to={`/legal/${k}`} className="chip" aria-current={k === doc ? 'page' : undefined}
-                             style={k === doc ? { background: 'var(--ink)', color: '#fff' } : undefined}>{labels[k]}</Link>)}
+        {KEYS.map(k => <Link key={k} to={`/legal/${k}`} className="chip" aria-current={k === doc ? 'page' : undefined}>{labels[k]}</Link>)}
       </nav>
       <h1>{d.title}</h1>
       <p className="upd">{UPDATED[lang]}</p>

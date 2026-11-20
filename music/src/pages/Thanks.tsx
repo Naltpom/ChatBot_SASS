@@ -3,9 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { getOrder, type OrderView } from '../api'
 import { euros, useI18n } from '../i18n'
 import { Center, Icon } from '../components/ui'
+import Player from '../components/Player'
+import { useAuth } from '../auth'
 
 export default function ThanksPage() {
   const { t } = useI18n()
+  const { me } = useAuth()
   const [params] = useSearchParams()
   const order = params.get('order') || ''
   const k = params.get('k') || undefined
@@ -46,11 +49,17 @@ export default function ThanksPage() {
           </a>
         ))}
       </div>
+      {data.items.filter(it => it.has_notes).slice(0, 3).map(it => (
+        <Player key={it.id} sheetId={it.sheet_id} instrument={it.instrument} title={`${it.piece_title} — ${it.instrument_label}`}
+                auth={{ order: data.order, k: data.key || undefined }}
+                pages={Array.from({ length: it.pages }, (_, i) => `/api/music/sheets/${it.sheet_id}/clear/${i + 1}.png?order=${data.order}&k=${data.key}`)} />
+      ))}
       <div style={{ marginTop: 18, display: 'flex', justifyContent: 'space-between', color: 'var(--ink2)' }}>
         <span>{t.orderTotal}</span><b style={{ color: 'var(--ink)' }}>{euros(data.amount_cents)}</b>
       </div>
       <p style={{ fontSize: 14, color: 'var(--mut)' }}>{t.thanksKeep}</p>
-      <p style={{ fontSize: 14, color: 'var(--mut)' }}>{t.help} <a href="mailto:support@chapote.fr">support@chapote.fr</a>.</p>
+      {!me && <p style={{ fontSize: 14 }}><Link to="/account">{t.signUp}</Link> — {t.thanksAccount}</p>}
+      <p style={{ fontSize: 14, color: 'var(--mut)' }}>{t.help} <a href="mailto:music@chapote.fr">music@chapote.fr</a>.</p>
       <Link to="/" className="link-more" style={{ fontSize: 17 }}>{t.more}</Link>
     </main>
   )

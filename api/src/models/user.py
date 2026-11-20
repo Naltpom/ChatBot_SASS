@@ -52,6 +52,8 @@ class User(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
+    # Service par lequel le compte a été créé (chapote, music…). NULL = compte antérieur (chapote).
+    signup_app = Column(String(30), nullable=True)
     # --- Facturation (le User est le Customer Stripe — spec §1.3) ---
     stripe_customer_id = Column(String, unique=True, nullable=True, index=True)  # cus_...
     billing_grouping = Column(String, nullable=False, default="total",
@@ -190,3 +192,16 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class UserApp(Base):
+    """Services Chapote utilisés par un compte (un même compte pour chapote.fr, music.chapote.fr
+    et les outils à venir) : première et dernière utilisation de chacun."""
+    __tablename__ = "user_apps"
+    __table_args__ = (UniqueConstraint("user_id", "app", name="uq_user_apps_user_app"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    app = Column(String(30), nullable=False)
+    first_seen_at = Column(DateTime, default=utcnow, nullable=False)
+    last_seen_at = Column(DateTime, default=utcnow, nullable=False)

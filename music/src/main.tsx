@@ -2,6 +2,7 @@ import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-dom'
 import { CartProvider } from './cart'
+import { AuthProvider } from './auth'
 import { LangProvider, useI18n } from './i18n'
 import { Center, Footer, Header } from './components/ui'
 import CheckoutSheet from './components/CheckoutSheet'
@@ -9,6 +10,7 @@ import CataloguePage from './pages/Catalogue'
 import PiecePage from './pages/Piece'
 import ThanksPage from './pages/Thanks'
 import LegalPage from './pages/Legal'
+import AccountPage from './pages/Account'
 import './styles.css'
 
 function NotFound() {
@@ -30,6 +32,7 @@ function Shell() {
         <Route path="/s/:slug" element={<PiecePage />} />
         <Route path="/thanks" element={<ThanksPage />} />
         <Route path="/legal/:doc" element={<LegalPage />} />
+        <Route path="/account" element={<AccountPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Footer />
@@ -41,11 +44,13 @@ function Shell() {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <LangProvider>
-      <CartProvider>
-        <BrowserRouter>
-          <Shell />
-        </BrowserRouter>
-      </CartProvider>
+      <AuthProvider>
+        <CartProvider>
+          <BrowserRouter>
+            <Shell />
+          </BrowserRouter>
+        </CartProvider>
+      </AuthProvider>
     </LangProvider>
   </StrictMode>,
 )

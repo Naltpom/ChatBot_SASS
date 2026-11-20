@@ -1,29 +1,58 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getCatalog, type Catalog } from '../api'
-import { euros, useI18n } from '../i18n'
-import { Center, Icon, Paper } from '../components/ui'
+import { getCatalog, type Catalog, type Piece } from '../api'
+import { compact, euros, useI18n } from '../i18n'
+import { Center, Icon, Paper, Stars } from '../components/ui'
+
+const PAGE = 24
 
 export default function CataloguePage() {
-  const { t } = useI18n()
-  const [data, setData] = useState<Catalog | null>(null)
+  const { t, lang } = useI18n()
+  const [pieces, setPieces] = useState<Piece[]>([])
+  const [meta, setMeta] = useState<Pick<Catalog, 'instruments' | 'total' | 'next_offset'> | null>(null)
+  const [hero, setHero] = useState<Piece[]>([])
   const [error, setError] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [q, setQ] = useState('')
   const [ins, setIns] = useState('')
+  const [sort, setSort] = useState('new')
+  const gen = useRef(0)
+  const sentinel = useRef<HTMLDivElement>(null)
+
+  const load = useCallback(async (offset: number) => {
+    const g = offset === 0 ? ++gen.current : gen.current
+    setLoading(true)
+    try {
+      const d = await getCatalog({ q: q.trim(), instrument: ins, offset, limit: PAGE, sort })
+      if (g !== gen.current) return
+      setPieces(prev => (offset === 0 ? d.pieces : [...prev, ...d.pieces]))
+      setMeta({ instruments: d.instruments, total: d.total, next_offset: d.next_offset })
+      if (offset === 0 && !q && !ins && sort === 'new') setHero(d.pieces.slice(0, 3))
+      setError(false)
+    } catch {
+      if (g === gen.current) setError(true)
+    } finally {
+      if (g === gen.current) setLoading(false)
+    }
+  }, [q, ins, sort])
 
   useEffect(() => {
-    let alive = true
-    const h = setTimeout(() => {
-      getCatalog(q.trim(), ins).then(d => { if (alive) { setData(d); setError(false) } }).catch(() => alive && setError(true))
-    }, q ? 250 : 0)
-    return () => { alive = false; clearTimeout(h) }
-  }, [q, ins])
+    const h = setTimeout(() => load(0), q ? 250 : 0)
+    return () => clearTimeout(h)
+  }, [load, q])
 
-  const pieces = data?.pieces || []
-  const hero = pieces.slice(0, 3)
+  // défilement infini : la page suivante se charge quand la fin de la grille approche
+  useEffect(() => {
+    const el = sentinel.current
+    if (!el || meta?.next_offset == null) return
+    const io = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && !loading && meta?.next_offset != null) load(meta.next_offset)
+    }, { rootMargin: '600px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [meta?.next_offset, loading, load])
+
   const filtered = !!(q || ins)
-  const fresh = filtered ? [] : pieces.filter(p => p.is_new)
-  const rest = filtered ? pieces : pieces.filter(p => !p.is_new)
 
   return (
     <main>
@@ -48,30 +77,58 @@ export default function CataloguePage() {
         <div className="toolbar section">
           <label htmlFor="q" className="sr">{t.search}</label>
           <input id="q" className="search" type="search" placeholder={t.search} value={q} onChange={e => setQ(e.target.value)} />
-          {data && data.instruments.length > 1 && (
+          {meta && meta.instruments.length > 1 && (
             <div className="chips" role="group" aria-label={t.instrument}>
               <button type="button" className="chip" aria-pressed={ins === ''} onClick={() => setIns('')}>{t.all}</button>
-              {data.instruments.map(i => (
+              {meta.instruments.map(i => (
                 <button type="button" key={i.key} className="chip" aria-pressed={ins === i.key} onClick={() => setIns(i.key)}>{i.label}</button>
               ))}
             </div>
           )}
         </div>
 
-        {error ? <Center>{t.errNetwork}</Center> : !data ? <Center>{t.loading}</Center> : (
-          <>
-            {fresh.length > 0 && (
-              <section className="section">
-                <h2>{t.newWeek} <span>{t.newWeekSub}</span></h2>
-                <Grid pieces={fresh} />
-              </section>
-            )}
-            <section className="section">
-              {(rest.length > 0 || filtered) && <h2>{filtered ? t.results(pieces.length) : t.allSheets}</h2>}
-              {pieces.length === 0 ? <p className="empty">{t.noResult}</p> : <Grid pieces={rest} />}
-            </section>
-          </>
-        )}
+        <section className="section">
+          <div className="grid-head">
+            <h2>{filtered ? t.results(meta?.total ?? 0) : <>{t.allSheets} <span>{t.newWeekSub}</span></>}</h2>
+            <label className="sort">
+              <span className="sr">{t.sortLabel}</span>
+              <select value={sort} onChange={e => setSort(e.target.value)} aria-label={t.sortLabel}>
+                <option value="new">{t.sortNew}</option>
+                <option value="popular">{t.sortPopular}</option>
+                <option value="az">{t.sortAz}</option>
+              </select>
+            </label>
+          </div>
+          {error && !pieces.length ? <Center>{t.errNetwork}</Center>
+            : !meta ? <Center>{t.loading}</Center>
+            : pieces.length === 0 ? <p className="empty">{t.noResult}</p> : (
+            <div className="grid">
+              {pieces.map(p => {
+                const many = p.sheets.length > 1
+                return (
+                  <Link key={p.slug} to={`/s/${p.slug}`} className="card">
+                    <div className="card-tile">
+                      {p.is_new && <span className="card-new">{t.isNew}</span>}
+                      <Paper src={p.sheets[0].preview} title={p.title} />
+                    </div>
+                    <div className="card-meta">
+                      <span className="card-ins">{p.sheets.map(s => s.instrument_label).join(' · ')}</span>
+                      <span className="card-title">{p.title}</span>
+                      <span className="card-sub">{[p.composer, t.pages(p.sheets[0].pages)].filter(Boolean).join(' · ')}</span>
+                      <span className="card-social">
+                        {p.rating != null && <Stars value={p.rating} small label={t.rating(p.rating.toFixed(1), p.reviews)} />}
+                        {p.likes != null && <span>♥ {compact(p.likes, lang)}</span>}
+                      </span>
+                      <span className="card-price">{many ? `${t.from} ` : ''}{euros(p.from_cents)}</span>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+          <div ref={sentinel} aria-hidden="true" style={{ height: 1 }} />
+          {loading && pieces.length > 0 && <p className="empty" style={{ textAlign: 'center' }}>{t.loadingMore}</p>}
+        </section>
 
         <section className="values">
           <div>{Icon.note}<h3>{t.v1t}</h3><p>{t.v1}</p></div>
@@ -81,31 +138,5 @@ export default function CataloguePage() {
         </section>
       </div>
     </main>
-  )
-}
-
-function Grid({ pieces }: { pieces: Catalog['pieces'] }) {
-  const { t } = useI18n()
-  return (
-    <div className="grid">
-      {pieces.map(p => {
-        const labels = p.sheets.map(s => s.instrument_label).join(' · ')
-        const many = p.sheets.length > 1
-        return (
-          <Link key={p.slug} to={`/s/${p.slug}`} className="card">
-            <div className="card-tile">
-              {p.is_new && <span className="card-new">{t.isNew}</span>}
-              <Paper src={p.sheets[0].preview} title={p.title} />
-            </div>
-            <div className="card-meta">
-              <span className="card-ins">{labels}</span>
-              <span className="card-title">{p.title}</span>
-              <span className="card-sub">{[p.composer, t.pages(p.sheets[0].pages)].filter(Boolean).join(' · ')}</span>
-              <span className="card-price">{many ? `${t.from} ` : ''}{euros(p.from_cents)}</span>
-            </div>
-          </Link>
-        )
-      })}
-    </div>
   )
 }
