@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getOrder, type OrderView } from '../api'
-import { euros, useI18n } from '../i18n'
+import { useI18n } from '../i18n'
+import { useMoney } from '../money'
 import { Center, Icon } from '../components/ui'
 import Player from '../components/Player'
 import { useAuth } from '../auth'
 
 export default function ThanksPage() {
   const { t } = useI18n()
+  const { eur: euros } = useMoney()
   const { me } = useAuth()
   const [params] = useSearchParams()
   const order = params.get('order') || ''

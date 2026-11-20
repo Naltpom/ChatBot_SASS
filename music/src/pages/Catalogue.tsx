@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getCatalog, type Catalog, type Piece } from '../api'
-import { compact, euros, useI18n } from '../i18n'
-import { Center, Icon, Paper, Stars } from '../components/ui'
+import { compact, useI18n } from '../i18n'
+import { Price } from '../money'
+import { Center, Icon, Paper } from '../components/ui'
 
 const PAGE = 24
 
@@ -108,18 +109,22 @@ export default function CataloguePage() {
                 return (
                   <Link key={p.slug} to={`/s/${p.slug}`} className="card">
                     <div className="card-tile">
-                      {p.is_new && <span className="card-new">{t.isNew}</span>}
                       <Paper src={p.sheets[0].preview} title={p.title} />
+                      <span className="card-tags">
+                        {p.is_new && <span className="card-new">{t.isNew}</span>}
+                        <span className="card-ins">{p.sheets.map(s => s.instrument_label).join(' · ')}</span>
+                      </span>
                     </div>
                     <div className="card-meta">
-                      <span className="card-ins">{p.sheets.map(s => s.instrument_label).join(' · ')}</span>
                       <span className="card-title">{p.title}</span>
                       <span className="card-sub">{[p.composer, t.pages(p.sheets[0].pages)].filter(Boolean).join(' · ')}</span>
-                      <span className="card-social">
-                        {p.rating != null && <Stars value={p.rating} small label={t.rating(p.rating.toFixed(1), p.reviews)} />}
-                        {p.likes != null && <span>♥ {compact(p.likes, lang)}</span>}
+                      <span className="card-foot">
+                        <span className="card-price"><Price cents={p.from_cents} prefix={many ? t.from : undefined} /></span>
+                        <span className="card-social">
+                          {p.rating != null && <span title={t.rating(p.rating.toFixed(1), p.reviews)}>{Icon.star}{p.rating.toFixed(1)}</span>}
+                          {p.likes != null && <span title="Instagram">{Icon.heart}{compact(p.likes, lang)}</span>}
+                        </span>
                       </span>
-                      <span className="card-price">{many ? `${t.from} ` : ''}{euros(p.from_cents)}</span>
                     </div>
                   </Link>
                 )

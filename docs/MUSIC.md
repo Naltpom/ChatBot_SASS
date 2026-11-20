@@ -56,3 +56,13 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
   `POST /api/music/ingest/instagram-done`, traités par la production (message privé si la fenêtre de 24 h est ouverte).
 - **IP réelle** : le nginx de music transmet la vraie IP (`X-Music-Client-IP`) signée par la clé partagée `X-Music-Proxy-Key` (= `MUSIC_INGEST_TOKEN`), utilisée par les limiteurs de connexion.
 - **E-mails** : expéditeur `MUSIC_EMAIL_FROM` (« Ghost Hands Sheets <music@chapote.fr> »), réponses `MUSIC_REPLY_TO`.
+
+## Devises (20/11/2026)
+
+- **Paiement** : Adaptive Pricing de Stripe sur chaque session (`adaptive_pricing[enabled]=true`, désactivable par
+  `MUSIC_ADAPTIVE_PRICING=false`). L'acheteur voit et paie le montant dans sa devise (taux garanti 24 h, frais de
+  conversion de 2 à 4 % à sa charge), on reçoit des euros ; la session et le webhook restent en euros
+  (`presentment_details` donne la devise payée). Si Stripe refuse l'option, la session est recréée en euros.
+  À activer aussi dans le tableau de bord Stripe (Settings → Adaptive Pricing), qui en fixe la valeur par défaut.
+- **Site** : prix en euros + équivalent indicatif « ≈ 2,15 $ » dans la devise du pays du navigateur
+  (`navigator.languages`), taux BCE du jour (`GET /api/music/rates`, cache 6 h côté API).

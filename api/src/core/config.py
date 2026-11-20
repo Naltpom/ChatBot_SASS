@@ -121,6 +121,8 @@ class Settings(BaseSettings):
     MUSIC_DIR: str = "/app/music_files"
     # Durée de validité des liens de téléchargement après paiement (jours).
     MUSIC_DOWNLOAD_DAYS: int = 365
+    # Adaptive Pricing de Stripe (prix payé dans la devise de l'acheteur, reçu en euros).
+    MUSIC_ADAPTIVE_PRICING: bool = True
     # Expéditeur et adresse de réponse des e-mails de la boutique (alias de contact@).
     MUSIC_EMAIL_FROM: str = "Ghost Hands Sheets <music@chapote.fr>"
     MUSIC_REPLY_TO: str = "music@chapote.fr"

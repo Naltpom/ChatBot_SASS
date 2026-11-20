@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, getPiece, type Piece } from '../api'
 import { useCart } from '../cart'
-import { compact, euros, useI18n } from '../i18n'
+import { compact, useI18n } from '../i18n'
+import { Price, useMoney } from '../money'
 import { Center, Icon, Paper, Stars } from '../components/ui'
 import Player from '../components/Player'
 import Reviews from '../components/Reviews'
@@ -11,6 +12,7 @@ export default function PiecePage() {
   const { slug = '' } = useParams()
   const [params] = useSearchParams()
   const { t, lang } = useI18n()
+  const { eur: euros } = useMoney()
   const cart = useCart()
   const [piece, setPiece] = useState<Piece | null>(null)
   const [error, setError] = useState<'gone' | 'net' | null>(null)
@@ -95,7 +97,7 @@ export default function PiecePage() {
                   <label key={s.id} className={`ins ${on ? 'on' : ''}`}>
                     <input type="checkbox" checked={on} onChange={() => toggle(s.id)} />
                     <span className="name"><b>{s.instrument_label}</b><small>{t.pages(s.pages)} · PDF</small></span>
-                    <span className="price">{euros(s.price_cents)}</span>
+                    <span className="price"><Price cents={s.price_cents} /></span>
                   </label>
                 )
               })}
@@ -130,7 +132,7 @@ export default function PiecePage() {
       <Reviews piece={piece} />
 
       <div className="buybar">
-        <div className="p"><small>{chosen.map(s => s.instrument_label).join(' + ')}</small><b>{euros(total)}</b></div>
+        <div className="p"><small>{chosen.map(s => s.instrument_label).join(' + ')}</small><b><Price cents={total} /></b></div>
         <button type="button" className="btn" onClick={buy}>{chosen.length > 1 ? t.getSheets : t.getSheet}</button>
       </div>
     </main>

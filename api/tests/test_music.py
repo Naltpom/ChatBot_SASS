@@ -23,6 +23,7 @@ from src.models.music import ORDER_PAID, MusicOrder, MusicPromoCode, MusicSheet
 from src.models.user import User
 from src.services import music_service as ms
 from src.services import stripe_service
+from src.services.stripe_service import StripeError
 
 from conftest import sign_stripe
 
@@ -297,6 +298,7 @@ async def test_stripe_checkout_and_webhook(pg_session, music, monkeypatch):
         amounts = [int(v_) for k_, v_ in sent.items() if k_.endswith("[unit_amount]")]
         assert sum(amounts) == 299 and sent["mode"] == "payment"
         assert sent["metadata[music_order]"] == public_id and sent["locale"] == "fr"
+        assert sent["adaptive_pricing[enabled]"] == "true"
 
         o = (await c.http.get(f"/api/music/orders/{public_id}?k={ms.download_key(public_id)}")).json()
         assert o["status"] == "pending" and o["items"][0]["download"] is None
@@ -488,3 +490,34 @@ async def test_client_ip_from_music_proxy_needs_the_key(monkeypatch):
     assert client_ip(req({"X-Music-Client-IP": "1.2.3.4", "X-Music-Proxy-Key": "cle"})) == "1.2.3.4"
     assert client_ip(req({"X-Music-Client-IP": "1.2.3.4", "X-Music-Proxy-Key": "fausse"})) == "10.0.0.5"
     assert client_ip(req({"X-Music-Client-IP": "1.2.3.4"})) == "10.0.0.5"
+
+
+@pytest.mark.asyncio
+async def test_checkout_falls_back_without_adaptive_pricing(pg_session, music, monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_BILLING", False)
+    monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_x")
+    v = await _sheet(pg_session, "gh/ap")
+    await pg_session.commit()
+    calls = []
+
+    async def fake_create(data):
+        calls.append(dict(data))
+        if "adaptive_pricing[enabled]" in data:
+            raise StripeError("Adaptive Pricing is not available for this account")
+        return {"id": "cs_test_ap", "url": "https://checkout.stripe.test/cs_test_ap"}
+    monkeypatch.setattr(stripe_service, "create_payment_checkout", fake_create)
+
+    async with Client(pg_session) as c:
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [v.id], "consent": True, "lang": "en"})
+        assert r.status_code == 200, r.text
+    assert len(calls) == 2 and "adaptive_pricing[enabled]" not in calls[1]
+
+
+def test_parse_ecb_rates():
+    from src.services.fx_rates import parse_ecb
+    xml = ("<?xml version='1.0' encoding='UTF-8'?><gesmes:Envelope xmlns:gesmes='http://www.gesmes.org/xml/2002-08-01'"
+           " xmlns='http://www.ecb.int/vocabulary/2002-08-01/eurofxref'><Cube><Cube time='2026-11-20'>"
+           "<Cube currency='USD' rate='1.0812'/><Cube currency='GBP' rate='0.8431'/><Cube currency='XX' rate='2'/>"
+           "</Cube></Cube></gesmes:Envelope>")
+    date, rates = parse_ecb(xml)
+    assert date == "2026-11-20" and rates == {"USD": 1.0812, "GBP": 0.8431}
