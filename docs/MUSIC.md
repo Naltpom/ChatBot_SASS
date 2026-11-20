@@ -37,3 +37,22 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
 - Volume `music_files` (`/app/music_files`, privé). L'image API embarque `poppler-utils`.
 - Variables : `MUSIC_URL`, `MUSIC_INGEST_TOKEN`, `STRIPE_MUSIC_WEBHOOK_SECRET` (+ `STRIPE_SECRET_KEY`, SMTP).
 - Dev : `cd music && npm run dev` (port 3002, proxy `/api/music` vers `localhost:8001`).
+
+## V2 (20/11/2026)
+
+- **Langues** : EN, FR, ES, RU (langue du navigateur par défaut, menu avec drapeaux) ; textes légaux traduits
+  (le français fait foi). Thème clair/sombre selon l'appareil ; les partitions restent sur fond blanc.
+- **Comptes partagés** : le cookie de session vaut pour `chapote.fr` et ses sous-domaines (domaine parent commun
+  d'`APP_URL` et `MUSIC_URL` en production, ou `AUTH_COOKIE_DOMAIN`). Le site music expose seulement
+  `/api/auth/(login|register|google|logout|me)` et envoie `X-Chapote-App: music` ; `users.signup_app` garde le
+  service d'inscription, `user_apps` les services utilisés. Connexion Google : ajouter `https://music.chapote.fr`
+  aux origines JavaScript autorisées du client OAuth.
+- **Avis** : 1 à 5 étoiles, seulement par un compte qui a payé la partition (`music_reviews`) ; l'admin peut masquer.
+- **Chiffres** : j'aime et commentaires du Reel (`POST /api/music/ingest/stats`, envoyés par la production),
+  téléchargements réels.
+- **Lecteur** : notes de la vidéo (`notes.json` envoyé à l'ingestion), aperçu de 25 s ; complet et pages nettes
+  (`/sheets/{id}/clear/{n}.png`) pour l'acheteur (clé de commande ou compte).
+- **Pseudo Instagram** facultatif à la commande : `GET /api/music/ingest/instagram-pending` +
+  `POST /api/music/ingest/instagram-done`, traités par la production (message privé si la fenêtre de 24 h est ouverte).
+- **IP réelle** : le nginx de music a une IP fixe (réseau `music`, 172.31.250.10) à laquelle l'API fait confiance.
+- **E-mails** : expéditeur `MUSIC_EMAIL_FROM` (« Ghost Hands Sheets <music@chapote.fr> »), réponses `MUSIC_REPLY_TO`.

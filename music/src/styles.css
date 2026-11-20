@@ -310,3 +310,11 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .score img { width: 100%; display: block; }
 .spinner.small { width: 22px; height: 22px; border-width: 3px; border-color: rgba(0,0,0,0.2); border-top-color: #111214; }
 @media (min-width: 900px) { .score { height: 360px; } .roll { height: 140px; } }
+
+/* en-tête compact sur téléphone : logo + nom sur une ligne, drapeau sans code */
+.brand { white-space: nowrap; }
+@media (max-width: 480px) {
+  .brand small, .lang-code { display: none; }
+  .top-actions { gap: 0; }
+  .icon-btn { min-width: 40px; padding: 0 6px; }
+}
