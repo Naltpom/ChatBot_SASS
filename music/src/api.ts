@@ -93,7 +93,11 @@ export interface NotesData {
   full: boolean
   full_duration?: number
   preview_seconds?: number
+  cursor?: CursorEvent[]
 }
+
+/** [temps (s), page (0…), x, haut, bas du système] — fractions de la page A4 */
+export type CursorEvent = [number, number, number, number, number]
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message) }

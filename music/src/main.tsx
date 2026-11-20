@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-dom'
 import { CartProvider } from './cart'
 import { AuthProvider } from './auth'
+import { RatesProvider } from './money'
 import { LangProvider, useI18n } from './i18n'
 import { Center, Footer, Header } from './components/ui'
 import CheckoutSheet from './components/CheckoutSheet'
@@ -44,6 +45,7 @@ function Shell() {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <LangProvider>
+      <RatesProvider>
       <AuthProvider>
         <CartProvider>
           <BrowserRouter>
@@ -51,6 +53,7 @@ createRoot(document.getElementById('root')!).render(
           </BrowserRouter>
         </CartProvider>
       </AuthProvider>
+      </RatesProvider>
     </LangProvider>
   </StrictMode>,
 )

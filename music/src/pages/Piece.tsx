@@ -2,15 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, getPiece, type Piece } from '../api'
 import { useCart } from '../cart'
-import { compact, euros, useI18n } from '../i18n'
+import { compact, useI18n } from '../i18n'
+import { Price, useMoney } from '../money'
 import { Center, Icon, Paper, Stars } from '../components/ui'
-import Player from '../components/Player'
+import { PlayBar, SheetCursor, useScorePlayer } from '../components/Player'
 import Reviews from '../components/Reviews'
 
 export default function PiecePage() {
   const { slug = '' } = useParams()
   const [params] = useSearchParams()
   const { t, lang } = useI18n()
+  const { eur: euros } = useMoney()
   const cart = useCart()
   const [piece, setPiece] = useState<Piece | null>(null)
   const [error, setError] = useState<'gone' | 'net' | null>(null)
@@ -36,6 +38,14 @@ export default function PiecePage() {
   // aperçu montré : la première partition choisie
   const shown = useMemo(() => piece?.sheets.find(s => picked.includes(s.id)) || piece?.sheets[0], [piece, picked])
   useEffect(() => { setPage(0); gallery.current?.scrollTo({ left: 0 }) }, [shown?.id])
+  const player = useScorePlayer(shown?.id ?? 0)
+  // pendant la lecture, la galerie suit la page du curseur
+  useEffect(() => player.subscribe((_, pos) => {
+    const el = gallery.current
+    if (!el || !pos || !player.playing) return
+    const w = el.scrollWidth / Math.max(1, el.children.length)
+    if (Math.round(el.scrollLeft / w) !== pos.page) el.scrollTo({ left: pos.page * w, behavior: 'smooth' })
+  }), [player.playing, player.data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) return <Center><p>{error === 'gone' ? t.pieceGone : t.errNetwork}</p><Link to="/">{t.backHome}</Link></Center>
   if (!piece || !shown) return <Center>{t.loading}</Center>
@@ -65,14 +75,17 @@ export default function PiecePage() {
           <div className="gallery" ref={gallery} onScroll={onScroll}>
             {shown.pages_preview.map((src, i) => (
               <div className="page" key={src}>
-                <Paper src={src} alt={t.pageOf(i + 1, shown.pages)} title={piece.title} />
+                <div className="sheet-wrap">
+                  <Paper src={src} alt={t.pageOf(i + 1, shown.pages)} title={piece.title} />
+                  {shown.has_notes && <SheetCursor player={player} page={i} />}
+                </div>
                 {i > 0 && <div className="lock"><span>{t.locked(2, shown.pages)}</span></div>}
               </div>
             ))}
           </div>
           {shown.pages > 1 && <div className="dots" aria-hidden="true">{shown.pages_preview.map((_, i) => <i key={i} className={i === page ? 'on' : ''} />)}</div>}
           <p className="page-note">{t.pageOf(page + 1, shown.pages)} · {page === 0 ? t.freePreview : t.locked(2, shown.pages)}</p>
-          {shown.has_notes && <Player sheetId={shown.id} instrument={shown.instrument} title={`${piece.title} — ${shown.instrument_label}`} pages={shown.pages_preview} />}
+          {shown.has_notes && <PlayBar player={player} title={`${piece.title} — ${shown.instrument_label}`} />}
         </section>
 
         <section className="piece-buy">
@@ -81,10 +94,14 @@ export default function PiecePage() {
           <p className="piece-sub">{[piece.composer, piece.public_domain ? t.publicDomain : null].filter(Boolean).join(' · ')}</p>
           <div className="social">
             {piece.rating != null && <span><Stars value={piece.rating} small /> {t.rating(piece.rating.toFixed(1), piece.reviews)}</span>}
-            {shown.likes != null && <span>♥ {t.likes(compact(shown.likes, lang))}</span>}
             {piece.downloads > 0 && <span>↓ {t.downloads(piece.downloads)}</span>}
           </div>
-          {shown.reel_url && <a className="link-more" href={shown.reel_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', padding: '8px 0' }}>{t.watchOn}</a>}
+          {(shown.likes != null || shown.reel_url) && (
+            <a className="likes-pill" href={shown.reel_url || undefined} target="_blank" rel="noreferrer">
+              {shown.likes != null && <span className="likes-n">{Icon.heart}<b>{compact(shown.likes, lang)}</b> {t.likes('').trim()}</span>}
+              {shown.reel_url && <span className="likes-go">{t.watchOn}</span>}
+            </a>
+          )}
 
           <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
             <legend className="sr">{t.instrument}</legend>
@@ -95,7 +112,7 @@ export default function PiecePage() {
                   <label key={s.id} className={`ins ${on ? 'on' : ''}`}>
                     <input type="checkbox" checked={on} onChange={() => toggle(s.id)} />
                     <span className="name"><b>{s.instrument_label}</b><small>{t.pages(s.pages)} · PDF</small></span>
-                    <span className="price">{euros(s.price_cents)}</span>
+                    <span className="price"><Price cents={s.price_cents} /></span>
                   </label>
                 )
               })}
@@ -130,7 +147,7 @@ export default function PiecePage() {
       <Reviews piece={piece} />
 
       <div className="buybar">
-        <div className="p"><small>{chosen.map(s => s.instrument_label).join(' + ')}</small><b>{euros(total)}</b></div>
+        <div className="p"><small>{chosen.map(s => s.instrument_label).join(' + ')}</small><b><Price cents={total} /></b></div>
         <button type="button" className="btn" onClick={buy}>{chosen.length > 1 ? t.getSheets : t.getSheet}</button>
       </div>
     </main>

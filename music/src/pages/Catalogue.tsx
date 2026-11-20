@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getCatalog, type Catalog, type Piece } from '../api'
-import { compact, euros, useI18n } from '../i18n'
-import { Center, Icon, Paper, Stars } from '../components/ui'
+import { compact, useI18n } from '../i18n'
+import { Price } from '../money'
+import { Center, Icon, Paper } from '../components/ui'
 
 const PAGE = 24
 
@@ -15,7 +16,7 @@ export default function CataloguePage() {
   const [loading, setLoading] = useState(false)
   const [q, setQ] = useState('')
   const [ins, setIns] = useState('')
-  const [sort, setSort] = useState('new')
+  const [sort, setSort] = useState('popular')
   const gen = useRef(0)
   const sentinel = useRef<HTMLDivElement>(null)
 
@@ -27,7 +28,7 @@ export default function CataloguePage() {
       if (g !== gen.current) return
       setPieces(prev => (offset === 0 ? d.pieces : [...prev, ...d.pieces]))
       setMeta({ instruments: d.instruments, total: d.total, next_offset: d.next_offset })
-      if (offset === 0 && !q && !ins && sort === 'new') setHero(d.pieces.slice(0, 3))
+      if (offset === 0 && !q && !ins && sort === 'popular') setHero(d.pieces.slice(0, 3))
       setError(false)
     } catch {
       if (g === gen.current) setError(true)
@@ -58,17 +59,19 @@ export default function CataloguePage() {
     <main>
       <div className="announce">{t.announce} · <a href="#catalogue">{t.seeNew} ›</a></div>
       <section className="hero">
-        <h1>{t.heroTitle1}<br /><span>{t.heroTitle2}</span></h1>
-        <p>{t.heroText}</p>
-        <div className="hero-ctas">
-          <a className="btn" href="#catalogue">{t.shop}</a>
-          <a className="link-more" href="https://www.instagram.com/ghosthands.music/" target="_blank" rel="noreferrer">{t.watchReels}</a>
+        <div className="hero-text">
+          <h1>{t.heroTitle1} <span>{t.heroTitle2}</span></h1>
+          <p>{t.heroText}</p>
+          <div className="hero-ctas">
+            <a className="btn" href="#catalogue">{t.shop}</a>
+            <a className="link-more" href="https://www.instagram.com/ghosthands.music/" target="_blank" rel="noreferrer">{t.watchReels}</a>
+          </div>
         </div>
         {hero.length > 0 && (
-          <div className="vitrine" aria-hidden="true">
-            {hero[1] && <div className="side"><Paper src={hero[1].sheets[0].preview} title={hero[1].title} /></div>}
-            <div className="mid"><Paper src={hero[0].sheets[0].preview} title={hero[0].title} /></div>
-            {hero[2] && <div className="side"><Paper src={hero[2].sheets[0].preview} title={hero[2].title} /></div>}
+          <div className="fan" aria-hidden="true">
+            {hero.slice(0, 3).map((p, i) => (
+              <div key={p.slug} className={`fan-sheet f${i}`}><Paper src={p.sheets[0].preview} title={p.title} /></div>
+            ))}
           </div>
         )}
       </section>
@@ -108,18 +111,22 @@ export default function CataloguePage() {
                 return (
                   <Link key={p.slug} to={`/s/${p.slug}`} className="card">
                     <div className="card-tile">
-                      {p.is_new && <span className="card-new">{t.isNew}</span>}
                       <Paper src={p.sheets[0].preview} title={p.title} />
+                      <span className="card-tags">
+                        {p.is_new && <span className="card-new">{t.isNew}</span>}
+                        <span className="card-ins">{p.sheets.map(s => s.instrument_label).join(' · ')}</span>
+                      </span>
                     </div>
                     <div className="card-meta">
-                      <span className="card-ins">{p.sheets.map(s => s.instrument_label).join(' · ')}</span>
                       <span className="card-title">{p.title}</span>
                       <span className="card-sub">{[p.composer, t.pages(p.sheets[0].pages)].filter(Boolean).join(' · ')}</span>
-                      <span className="card-social">
-                        {p.rating != null && <Stars value={p.rating} small label={t.rating(p.rating.toFixed(1), p.reviews)} />}
-                        {p.likes != null && <span>♥ {compact(p.likes, lang)}</span>}
+                      <span className="card-foot">
+                        <span className="card-price"><Price cents={p.from_cents} prefix={many ? t.from : undefined} /></span>
+                        <span className="card-social">
+                          {p.rating != null && <span title={t.rating(p.rating.toFixed(1), p.reviews)}>{Icon.star}{p.rating.toFixed(1)}</span>}
+                          {p.likes != null && <span title="Instagram">{Icon.heart}{compact(p.likes, lang)}</span>}
+                        </span>
                       </span>
-                      <span className="card-price">{many ? `${t.from} ` : ''}{euros(p.from_cents)}</span>
                     </div>
                   </Link>
                 )

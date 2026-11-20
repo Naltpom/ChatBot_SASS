@@ -6,11 +6,13 @@ import { Link } from 'react-router-dom'
 import { ApiError, postCheckout, postQuote, type Quote } from '../api'
 import { useCart } from '../cart'
 import { useAuth } from '../auth'
-import { euros, useI18n } from '../i18n'
+import { useI18n } from '../i18n'
+import { useMoney } from '../money'
 import { Icon, Paper } from './ui'
 
 export default function CheckoutSheet() {
   const { t, lang } = useI18n()
+  const { eur: euros, approx, currency } = useMoney()
   const cart = useCart()
   const lines = cart.sheet
   const [quote, setQuote] = useState<Quote | null>(null)
@@ -129,6 +131,7 @@ export default function CheckoutSheet() {
                 {quote.bundle_savings_cents > 0 && <div><span>{t.bundleSaving}</span><span>−{euros(quote.bundle_savings_cents)}</span></div>}
                 {quote.discount_cents > 0 && <div><span>{t.discount} {quote.promo_code}</span><span>−{euros(quote.discount_cents)}</span></div>}
                 <div className="tot"><span>{t.total}</span><b>{euros(quote.total_cents)}</b></div>
+                {approx(quote.total_cents) && <div className="fx"><span /><span>{approx(quote.total_cents)}</span></div>}
               </div>
             )}
 
@@ -142,7 +145,7 @@ export default function CheckoutSheet() {
             <button type="button" className="btn block" onClick={pay} disabled={busy || !quote}>
               {busy ? '…' : free ? t.getFree : t.pay(quote ? euros(quote.total_cents) : '')}
             </button>
-            {!free && <p className="hint">{t.payHint}</p>}
+            {!free && <p className="hint">{t.payHint}{currency ? ` · ${t.fxNote(currency)}` : ''}</p>}
           </>
         )}
       </div>

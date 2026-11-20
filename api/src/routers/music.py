@@ -4,6 +4,7 @@ Le site music.chapote.fr (conteneur `music`) appelle ces routes sur la MÊME
 origine : son nginx relaie /api/music/* vers l'API. Aucun compte acheteur.
 
 Public :
+- GET  /api/music/rates                  taux BCE du jour (équivalent indicatif)
 - GET  /api/music/catalog                 morceaux en vente (regroupés par morceau)
 - GET  /api/music/pieces/{slug}           un morceau et ses partitions en vente
 - GET  /api/music/sheets/{id}/pages/{n}   aperçu : page 1 nette, pages suivantes floutées
@@ -51,7 +52,7 @@ from src.models.music import (
 from src.models.user import User
 from src.services.user_apps import record_app
 from src.services import music_service as ms
-from src.services import stripe_service
+from src.services import fx_rates, stripe_service
 from src.services.stripe_service import StripeError
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,13 @@ async def _sheet_stats(db: AsyncSession, ids: list[int]) -> dict[int, dict]:
 async def music_config():
     """Réglages publics du site (connexion Google si configurée)."""
     return {"google_client_id": settings.GOOGLE_CLIENT_ID or None}
+
+
+@router.get("/rates")
+async def music_rates():
+    """Taux BCE du jour (base EUR) pour l'équivalent indicatif des prix."""
+    data = await fx_rates.get_rates()
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=3600"})
 
 
 @router.get("/catalog")
@@ -340,8 +348,19 @@ async def checkout(body: CheckoutIn, db: AsyncSession = Depends(get_db),
                 f"line_items[{n}][price_data][unit_amount]": str(it.price_cents),
                 f"line_items[{n}][price_data][product_data][name]": f"{it.label} (PDF)",
             })
+    if settings.MUSIC_ADAPTIVE_PRICING:
+        # Stripe affiche et encaisse le prix dans la devise de l'acheteur (taux garanti
+        # 24 h, frais de conversion à sa charge) ; on reçoit toujours des euros.
+        data["adaptive_pricing[enabled]"] = "true"
     try:
-        session = await stripe_service.create_payment_checkout(data)
+        try:
+            session = await stripe_service.create_payment_checkout(data)
+        except StripeError as exc:
+            if "adaptive_pricing[enabled]" not in data or "adaptive" not in str(exc).lower():
+                raise
+            logger.warning("Adaptive Pricing refusé par Stripe, paiement en euros : %s", exc)
+            data.pop("adaptive_pricing[enabled]")
+            session = await stripe_service.create_payment_checkout(data)
     except StripeError as exc:
         await db.rollback()
         raise HTTPException(502, {"code": "stripe_error", "message": str(exc)})
@@ -503,6 +522,7 @@ class IngestMeta(BaseModel):
 @router.post("/ingest", dependencies=[Depends(_require_ingest)])
 async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
                  cover: Optional[UploadFile] = File(None), notes: Optional[UploadFile] = File(None),
+                 cursor: Optional[UploadFile] = File(None),
                  db: AsyncSession = Depends(get_db)):
     try:
         m = IngestMeta(**json.loads(meta))
@@ -547,6 +567,13 @@ async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
             sheet.has_notes = ms.save_notes(sheet.id, json.loads((await notes.read()).decode("utf-8")))
         except (ValueError, UnicodeDecodeError) as exc:
             raise HTTPException(422, f"notes.json invalide : {exc}")
+    if cursor is not None:
+        try:
+            ms.save_cursor(sheet.id, json.loads((await cursor.read()).decode("utf-8")), sheet.pages)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise HTTPException(422, f"curseur.json invalide : {exc}")
+    elif pdf is not None:
+        ms.save_cursor(sheet.id, None)
     await db.commit()
     return {"created": created, **_state(sheet)}
 
@@ -641,6 +668,9 @@ async def sheet_notes(sheet_id: int, order: Optional[str] = None, k: Optional[st
     data = ms.load_notes(s.id) if s.has_notes else None
     if data is None:
         raise HTTPException(404, "Pas de notes pour cette partition")
+    cursor = ms.load_cursor(s.id)
+    if cursor:
+        data = {**data, "cursor": cursor}
     full = await _owns_sheet(db, s.id, user=user, order=order, key=k)
     if not full:
         data = ms.preview_notes(data)
