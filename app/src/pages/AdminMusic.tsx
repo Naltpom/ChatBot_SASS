@@ -109,13 +109,14 @@ export default function AdminMusic() {
       </div>
       <Seg value={tab} onChange={setTab} options={[
         { value: 'sheets', label: 'Partitions' }, { value: 'pricing', label: 'Prix' },
-        { value: 'promos', label: 'Codes promo' }, { value: 'orders', label: 'Commandes' }, { value: 'reviews', label: 'Avis' },
+        { value: 'promos', label: 'Codes promo' }, { value: 'orders', label: 'Commandes' }, { value: 'reviews', label: 'Avis' }, { value: 'tracking', label: 'Suivi des liens' },
       ]} />
       {tab === 'sheets' && <Sheets onChange={ov.reload} unitPrice={d.pricing.unit_price_cents} />}
       {tab === 'pricing' && <Pricing initial={d.pricing} onSaved={ov.reload} />}
       {tab === 'promos' && <Promos />}
       {tab === 'orders' && <Orders top={d.top_sheets} />}
       {tab === 'reviews' && <Reviews />}
+      {tab === 'tracking' && <Tracking />}
     </div>
   )
 }
@@ -490,5 +491,92 @@ function Reviews() {
         </>
       )}
     </Card>
+  )
+}
+
+
+interface TrackRow {
+  code: string; instagram: string | null; source: string | null; sheet_ref: string | null; sent_at: string | null
+  first_at: string | null; last_at: string | null; events: number; visits: number; kinds: Record<string, number>
+  orders: number; revenue_cents: number
+}
+interface TrackDetail {
+  code: string; instagram: string | null; sent_at: string | null
+  events: { at: string; visit: string; kind: string; path: string | null; data: string | null }[]
+  orders: { public_id: string; status: string; amount_cents: number; created_at: string; promo_code: string | null }[]
+}
+const KIND: Record<string, string> = {
+  landing: 'Arrivée par le lien', page: 'Page', play: '▶ Lecture', pause: '⏸ Pause', add_to_cart: 'Ajout au panier',
+  checkout_open: 'Ouvre le paiement', checkout: 'Lance le paiement', purchase: 'Achat ✓', promo: 'Code promo',
+  reel_click: 'Clic vers le Reel', lang: 'Change de langue',
+}
+const hour = (iso: string | null) => (iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
+
+/** Liens suivis (?b=…) : qui a cliqué et ce qu'il a fait sur music.chapote.fr (visiteurs qui ont accepté le suivi). */
+function Tracking() {
+  const [data, setData] = useState<{ links_sent: number; links_with_visits: number; next_offset: number | null; rows: TrackRow[] } | null>(null)
+  const [err, setErr] = useState('')
+  const [open, setOpen] = useState<string | null>(null)
+  const [detail, setDetail] = useState<TrackDetail | null>(null)
+  const load = useCallback(async (offset = 0) => {
+    try {
+      const r = await api<{ links_sent: number; links_with_visits: number; next_offset: number | null; rows: TrackRow[] }>(`/api/admin/music/tracking?offset=${offset}`)
+      setData(d => (offset && d ? { ...r, rows: [...d.rows, ...r.rows] } : r))
+    } catch (e: any) { setErr(e.message || 'Erreur') }
+  }, [])
+  useEffect(() => { load() }, [load])
+  const show = async (code: string) => {
+    if (open === code) { setOpen(null); return }
+    setOpen(code); setDetail(null)
+    try { setDetail(await api<TrackDetail>(`/api/admin/music/tracking/${code}`)) } catch (e: any) { setErr(e.message || 'Erreur') }
+  }
+  if (err && !data) return <ErrorRetry message={err} onRetry={() => { setErr(''); load() }} />
+  if (!data) return <p className="muted">Chargement…</p>
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <InfoBox>Chaque lien envoyé après un « SHEET » porte un code (<code>?b=…</code>). Seuls les visiteurs qui acceptent la bannière sont suivis.
+        Liens envoyés : <b>{data.links_sent}</b> · liens avec au moins une visite suivie : <b>{data.links_with_visits}</b>.</InfoBox>
+      <Card nopad>
+        {data.rows.length === 0 ? <p className="muted" style={{ padding: 14, margin: 0 }}>Aucune visite suivie pour l’instant.</p> : (
+          <div className="table-scroll">
+            <table className="kc">
+              <thead><tr><th>Instagram</th><th>Code</th><th>Envoyé</th><th>Dernière visite</th><th>Visites</th><th>Lectures</th><th>Panier</th><th>Paiement</th><th>Achats</th><th></th></tr></thead>
+              <tbody>
+                {data.rows.map(r => (<Fragment key={r.code}>
+                  <tr>
+                    <td>{r.instagram ? `@${r.instagram}` : <span className="muted">inconnu</span>}<div className="muted" style={{ fontSize: 12 }}>{r.sheet_ref || ''}</div></td>
+                    <td><code>{r.code}</code></td>
+                    <td>{hour(r.sent_at)}</td>
+                    <td>{hour(r.last_at)}</td>
+                    <td>{r.visits}</td>
+                    <td>{r.kinds.play || 0}</td>
+                    <td>{r.kinds.add_to_cart || 0}</td>
+                    <td>{(r.kinds.checkout_open || 0) + (r.kinds.checkout || 0)}</td>
+                    <td>{r.orders ? <Chip tone="go">{r.orders} · {eur(r.revenue_cents)}</Chip> : '—'}</td>
+                    <td><Btn small kind="ghost" onClick={() => show(r.code)}>{open === r.code ? 'Fermer' : 'Parcours'}</Btn></td>
+                  </tr>
+                  {open === r.code && (
+                    <tr><td colSpan={10} style={{ padding: '10px 14px' }}>
+                      {!detail ? <span className="muted">Chargement…</span> : (
+                        <ol style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4, fontSize: 13.5 }}>
+                          {detail.events.map((e, i) => (
+                            <li key={i}><span className="muted">{hour(e.at)} · visite {e.visit.slice(0, 4)}</span> — <b>{KIND[e.kind] || e.kind}</b>
+                              {e.path ? <span className="muted"> · {e.path}</span> : null}{e.data ? <span className="muted"> · {e.data}</span> : null}</li>
+                          ))}
+                          {detail.orders.map(o => (
+                            <li key={o.public_id}><b>Commande {STATUS[o.status]?.label || o.status}</b> · {eur(o.amount_cents)}{o.promo_code ? ` · ${o.promo_code}` : ''} · {hour(o.created_at)}</li>
+                          ))}
+                        </ol>
+                      )}
+                    </td></tr>
+                  )}
+                </Fragment>))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {data.next_offset != null && <div style={{ padding: 14 }}><Btn small kind="ghost" onClick={() => load(data.next_offset!)}>Charger plus</Btn></div>}
+      </Card>
+    </div>
   )
 }

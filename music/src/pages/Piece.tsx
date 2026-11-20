@@ -7,6 +7,7 @@ import { Price, useMoney } from '../money'
 import { Center, Icon, Paper, Stars } from '../components/ui'
 import { PlayBar, SheetCursor, useScorePlayer } from '../components/Player'
 import Reviews from '../components/Reviews'
+import { track } from '../track'
 
 export default function PiecePage() {
   const { slug = '' } = useParams()
@@ -70,8 +71,9 @@ export default function PiecePage() {
   const toLines = () => chosen.map(s => ({ id: s.id, label: `${piece.title} — ${s.instrument_label}` }))
   const toggle = (id: number) => setPicked(p => (p.includes(id) ? (p.length > 1 ? p.filter(x => x !== id) : p) : [...p, id]))
   const view = (id: number) => setPicked(p => [id, ...p.filter(x => x !== id)])
-  const buy = () => cart.openSheet(toLines())
-  const addCart = () => { cart.add(toLines()); setAdded(true); setTimeout(() => setAdded(false), 1800) }
+  const ev = () => ({ piece: piece.slug, sheets: chosen.map(s => s.instrument), cents: total })
+  const buy = () => { track('checkout_open', ev()); cart.openSheet(toLines()) }
+  const addCart = () => { track('add_to_cart', ev()); cart.add(toLines()); setAdded(true); setTimeout(() => setAdded(false), 1800) }
 
   const onScroll = () => {
     const el = gallery.current
@@ -111,7 +113,7 @@ export default function PiecePage() {
             {piece.downloads > 0 && <span>↓ {t.downloads(piece.downloads)}</span>}
           </div>
           {(shown.likes != null || shown.reel_url) && (
-            <a className="likes-pill" href={shown.reel_url || undefined} target="_blank" rel="noreferrer">
+            <a className="likes-pill" href={shown.reel_url || undefined} target="_blank" rel="noreferrer" onClick={() => track('reel_click', { piece: piece.slug })}>
               {shown.likes != null && <span className="likes-n">{Icon.heart}<b>{compact(shown.likes, lang)}</b> {t.likes('').trim()}</span>}
               {shown.reel_url && <span className="likes-go">{t.watchOn}</span>}
             </a>

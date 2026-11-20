@@ -99,3 +99,12 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
 - Remboursement complet (`charge.refunded`) ou litige (`charge.dispute.created`) : commande `refunded`, accès coupé.
   **À cocher dans Stripe** pour le webhook de la boutique : ces deux événements en plus des `checkout.session.*`.
 - Droits admin sur la boutique (pages privées, pages nettes) : superadmin avec 2nd facteur en production.
+
+## Suivi des liens et INSTA20 (21/11/2026)
+
+- Les liens envoyés après « SHEET » portent `?b=<8 caractères>` (un code par envoi, déclaré par la production avec
+  `POST /api/music/ingest/links` : code -> pseudo Instagram) et `&code=INSTA20` (-20 %, créé par la migration).
+- Le site garde le code (stockage local, retiré de l'adresse) ; une bannière demande l'accord. Avec l'accord seulement,
+  les actions sont envoyées par lots à `POST /api/music/track` (arrivée, pages, lecture, panier, paiement, achat,
+  clic vers le Reel, langue) ; la commande garde le code (`track_code`). Conservation 13 mois. Sans accord : rien.
+- Admin, onglet « Suivi des liens » : liens envoyés, liens visités, et pour chacun le parcours et les achats.

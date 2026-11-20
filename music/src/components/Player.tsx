@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getNotes, type CursorEvent, type NoteRow, type NotesData } from '../api'
 import { useI18n } from '../i18n'
+import { track } from '../track'
 
 
 
@@ -155,6 +156,7 @@ export function useScorePlayer(sheetId: number, auth?: { order?: string; k?: str
   }
 
   const toggle = async () => {
+    track(playing ? 'pause' : 'play', { sheet: sheetId, at: Math.round(timeRef.current) })
     if (playing) { fromRef.current = timeRef.current; stop(); return }
     let d = data
     if (!d) {

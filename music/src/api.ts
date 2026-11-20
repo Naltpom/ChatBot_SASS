@@ -157,7 +157,7 @@ export const getNotes = (sheetId: number, auth?: { order?: string; k?: string })
 }
 export const postQuote = (sheet_ids: number[], promo_code?: string) =>
   post<Quote>('/api/music/quote', { sheet_ids, promo_code: promo_code || null })
-export const postCheckout = (body: { sheet_ids: number[]; promo_code?: string; email?: string; instagram?: string; consent: boolean; lang: string }) =>
+export const postCheckout = (body: { sheet_ids: number[]; promo_code?: string; email?: string; instagram?: string; consent: boolean; lang: string; track?: string }) =>
   post<{ order: string; redirect: string }>('/api/music/checkout', {
     ...body, promo_code: body.promo_code || null, email: body.email || null, instagram: body.instagram || null,
   })

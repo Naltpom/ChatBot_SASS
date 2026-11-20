@@ -608,3 +608,37 @@ def test_preview_cut_follows_the_audio_excerpt():
     assert ms.preview_cut([[1, 0, 0.5, 0.1, 0.2], [24, 1, 0.5, 0.1, 0.2]], 3) == 1.0  # l'extrait atteint la page 2
     assert ms.preview_cut([[1, 0, 0.5, 0.1, 0.2], [20, 0, 0.5, 0.7, 0.8]], 1) == 0.5  # une seule page : la moitié au plus
     assert ms.preview_cut([[30, 0, 0.5, 0.1, 0.2]], 3) == 0.2  # rien dans l'extrait : le haut seulement
+
+
+async def test_tracked_links_events_orders_and_admin(pg_session, music, monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_BILLING", True)
+    v = await _sheet(pg_session, "gh/t")
+    admin = await _user(pg_session, "boss2@t.dev", is_superadmin=True)
+    await pg_session.commit()
+    vid = v.id
+    async with Client(pg_session) as c:
+        auth = {"Authorization": f"Bearer {TOKEN}"}
+        r = await c.http.post("/api/music/ingest/links", json=[{"code": "ab12cd34", "instagram": "@fan.name", "source": "sheet_dm",
+                                                                 "sheet_ref": "gh/t"}], headers=auth)
+        assert r.json()["saved"] == 1
+        assert (await c.http.post("/api/music/ingest/links", json=[])).status_code in (401, 503)
+        ev = {"code": "ab12cd34", "visit": "v1visit1", "events": [
+            {"kind": "landing", "path": "/s/swan-lake"}, {"kind": "play", "path": "/s/swan-lake", "data": {"instrument": "violon"}},
+            {"kind": "BAD-KIND"}]}
+        assert (await c.http.post("/api/music/track", json=ev)).status_code == 204
+        assert (await c.http.post("/api/music/track", json={**ev, "code": "../x"})).status_code == 422
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [vid], "consent": True, "email": "f@x.dev", "track": "ab12cd34"})
+        assert r.status_code == 200, r.text
+        h = c.as_(admin)
+        t = (await h.get("/api/admin/music/tracking")).json()
+        row = t["rows"][0]
+        assert row["code"] == "ab12cd34" and row["instagram"] == "fan.name" and row["kinds"] == {"landing": 1, "play": 1}
+        assert row["orders"] == 1 and t["links_sent"] == 1 and t["links_with_visits"] == 1
+        d = (await h.get("/api/admin/music/tracking/ab12cd34")).json()
+        assert [e["kind"] for e in d["events"]] == ["landing", "play"] and d["orders"][0]["status"] == "paid"
+        # code promo INSTA20 : créé par la migration en production ; ici, simple vérification du devis -20 %
+        from src.models.music import MusicPromoCode
+        pg_session.add(MusicPromoCode(code="INSTA20", kind="percent", value=20, active=True))
+        await pg_session.commit()
+        q = (await c.http.post("/api/music/quote", json={"sheet_ids": [vid], "promo_code": "insta20"})).json()
+        assert q["total_cents"] == 160  # 1,99 € - 20 % (réduction arrondie au centime inférieur)

@@ -22,6 +22,7 @@ Production (Bearer MUSIC_INGEST_TOKEN) :
 from __future__ import annotations
 
 import hmac
+import secrets
 import json
 import logging
 import re
@@ -49,9 +50,11 @@ from src.models.music import (
     MusicOrderItem,
     MusicReview,
     MusicSheet,
+    MusicTrackEvent,
+    MusicTrackLink,
 )
 from src.models.user import User
-from src.services.rate_limit import music_limiter
+from src.services.rate_limit import music_limiter, track_limiter
 from src.services.user_apps import client_ip, record_app
 from src.services import music_service as ms
 from src.services import fx_rates, stripe_service
@@ -341,6 +344,7 @@ async def post_quote(body: QuoteIn, request: Request, db: AsyncSession = Depends
 
 
 class CheckoutIn(QuoteIn):
+    track: Optional[str] = Field(None, pattern=r"^[a-z0-9]{6,16}$")  # lien d'arrivée (?b=…), si suivi accepté
     email: Optional[EmailStr] = None
     consent: bool = False
     lang: str = Field("en", pattern="^(en|fr|es|ru)$")
@@ -384,7 +388,7 @@ async def checkout(body: CheckoutIn, request: Request, db: AsyncSession = Depend
     email = str(body.email) if body.email else (user.email if user else None)
     order = MusicOrder(
         public_id=uuid.uuid4().hex, status=ORDER_PENDING, email=email, lang=body.lang,
-        user_id=user.id if user else None, instagram_username=instagram,
+        user_id=user.id if user else None, instagram_username=instagram, track_code=body.track,
         subtotal_cents=q.subtotal_cents, discount_cents=q.discount_cents, amount_cents=q.total_cents,
         currency=q.currency, promo_code_id=q.promo.id if q.promo else None,
         promo_code=q.promo.code if q.promo else None, consent_at=utcnow(),
@@ -881,3 +885,71 @@ async def post_review(sheet_id: int, body: ReviewIn, db: AsyncSession = Depends(
     await record_app(db, user, "music")
     await db.commit()
     return {"id": r.id, "rating": r.rating, "comment": r.comment}
+
+
+
+# --------------------------------------------------------------------------
+# Suivi des liens (?b=…) : parcours d'un visiteur arrivé par un lien suivi, seulement s'il l'a accepté
+# --------------------------------------------------------------------------
+
+TRACK_CODE = re.compile(r"^[a-z0-9]{6,16}$")
+TRACK_KIND = re.compile(r"^[a-z_]{2,40}$")
+
+
+class TrackEventIn(BaseModel):
+    kind: str = Field(..., max_length=40)
+    path: Optional[str] = Field(None, max_length=300)
+    data: Optional[dict] = None
+
+
+class TrackIn(BaseModel):
+    code: str = Field(..., max_length=16)
+    visit: str = Field(..., max_length=16)
+    events: list[TrackEventIn] = Field(..., max_length=40)
+
+
+@router.post("/track", status_code=204)
+async def track(body: TrackIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Lot d'événements du site (le site n'en envoie qu'après l'accord du visiteur). Rien d'autre que le code du lien,
+    la visite, le type d'action, la page et quelques détails (instrument, montant) : ni IP ni navigateur."""
+    if not TRACK_CODE.match(body.code) or not TRACK_CODE.match(body.visit):
+        raise HTTPException(422, "code invalide")
+    if not await track_limiter.check(client_ip(request)):
+        raise HTTPException(429, "trop d'événements")
+    now = utcnow()
+    for ev in body.events:
+        if not TRACK_KIND.match(ev.kind):
+            continue
+        data = json.dumps(ev.data, ensure_ascii=False, separators=(",", ":"))[:500] if ev.data else None
+        db.add(MusicTrackEvent(code=body.code, visit=body.visit, kind=ev.kind, path=(ev.path or "")[:300] or None,
+                               data=data, created_at=now))
+    if secrets.randbelow(200) == 0:  # de temps en temps : conservation de 13 mois (politique de confidentialité)
+        from sqlalchemy import delete
+        await db.execute(delete(MusicTrackEvent).where(MusicTrackEvent.created_at < now - timedelta(days=396)))
+    await db.commit()
+
+
+class TrackLinkIn(BaseModel):
+    code: str = Field(..., max_length=16)
+    instagram: Optional[str] = Field(None, max_length=60)
+    source: Optional[str] = Field(None, max_length=40)
+    sheet_ref: Optional[str] = Field(None, max_length=120)
+
+
+@router.post("/ingest/links", dependencies=[Depends(_require_ingest)])
+async def ingest_links(links: list[TrackLinkIn], db: AsyncSession = Depends(get_db)):
+    """La production déclare les liens suivis qu'elle envoie (code -> pseudo Instagram)."""
+    n = 0
+    for ln in links[:500]:
+        if not TRACK_CODE.match(ln.code):
+            continue
+        row = await db.get(MusicTrackLink, ln.code)
+        if row is None:
+            row = MusicTrackLink(code=ln.code, created_at=utcnow())
+            db.add(row)
+        row.instagram_username = (ln.instagram or "").lstrip("@")[:60] or row.instagram_username
+        row.source = ln.source or row.source
+        row.sheet_ref = ln.sheet_ref or row.sheet_ref
+        n += 1
+    await db.commit()
+    return {"saved": n}
