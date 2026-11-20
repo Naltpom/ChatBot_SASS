@@ -196,15 +196,56 @@ async def catalog(instrument: Optional[str] = None, q: Optional[str] = None,
 
 
 @router.get("/pieces/{slug}")
-async def piece(slug: str, db: AsyncSession = Depends(get_db)):
+async def piece(slug: str, db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(get_optional_user)):
+    """Toutes les fiches existent ; une partition privée (non diffusée) ne se voit que par qui l'a (achat ou don)
+    et par un administrateur. Sinon 404 `private` : le site renvoie au catalogue."""
     st = await ms.get_settings(db)
-    sheets = (await db.execute(select(MusicSheet).where(
-        MusicSheet.piece_slug == slug, MusicSheet.published.is_(True)))).scalars().all()
+    sheets = (await db.execute(select(MusicSheet).where(MusicSheet.piece_slug == slug))).scalars().all()
     if not sheets:
         raise HTTPException(404, {"code": "not_found", "message": "This piece is not available."})
-    p = _pieces(list(sheets), st, await _sheet_stats(db, [s.id for s in sheets]))[0]
+    admin = _is_admin(user)
+    owned = await _owned_ids(db, user, [s.id for s in sheets])
+    visible = [s for s in sheets if s.published or admin or s.id in owned]
+    if not visible:
+        raise HTTPException(404, {"code": "private", "message": "This piece is not available."})
+    p = _pieces(visible, st, await _sheet_stats(db, [s.id for s in visible]))[0]
+    by_id = {s.id: s for s in visible}
+    for x in p["sheets"]:
+        sh = by_id[x["id"]]
+        x["published"] = sh.published
+        x["owned"] = sh.id in owned
+        if sh.id in owned or admin:  # pages nettes pour qui a la partition (et l'admin)
+            x["pages_full"] = [f"/api/music/sheets/{sh.id}/clear/{n}.png" for n in range(1, sh.pages + 1)]
+    p["private"] = any(not s.published for s in visible)
+    p["admin"] = admin
     p["pricing"] = {"unit_cents": st.unit_price_cents, "bundle_cents": st.bundle_price_cents, "currency": st.currency}
     return p
+
+
+def _is_admin(user: Optional[User]) -> bool:
+    return bool(user is not None and getattr(user, "is_superadmin", False))
+
+
+async def _owned_ids(db: AsyncSession, user: Optional[User], sheet_ids: list[int]) -> set[int]:
+    """Partitions (parmi sheet_ids) que le compte a payées ou reçues (commande payée à son compte ou à son e-mail)."""
+    if user is None or not sheet_ids:
+        return set()
+    rows = (await db.execute(
+        select(MusicOrderItem.sheet_id).join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
+        .where(MusicOrderItem.sheet_id.in_(sheet_ids), MusicOrder.status == ORDER_PAID,
+               or_(MusicOrder.user_id == user.id, func.lower(MusicOrder.email) == user.email.lower())))).all()
+    return {r[0] for r in rows}
+
+
+async def _visible_sheet(db: AsyncSession, sheet_id: int, user: Optional[User] = None,
+                         order: Optional[str] = None, key: Optional[str] = None) -> MusicSheet:
+    """La partition si elle est diffusée, ou privée mais possédée (compte, ou commande + clé) ou vue par un admin."""
+    s = await db.get(MusicSheet, sheet_id)
+    if s is None:
+        raise HTTPException(404, "Introuvable")
+    if not s.published and not _is_admin(user) and not await _owns_sheet(db, s.id, user=user, order=order, key=key):
+        raise HTTPException(404, "Introuvable")
+    return s
 
 
 async def _published_sheet(db: AsyncSession, sheet_id: int) -> MusicSheet:
@@ -215,20 +256,22 @@ async def _published_sheet(db: AsyncSession, sheet_id: int) -> MusicSheet:
 
 
 @router.get("/sheets/{sheet_id}/pages/{page}.{ext}")
-async def sheet_page(sheet_id: int, page: int, ext: str, db: AsyncSession = Depends(get_db)):
-    s = await _published_sheet(db, sheet_id)
+async def sheet_page(sheet_id: int, page: int, ext: str, db: AsyncSession = Depends(get_db),
+                     user: Optional[User] = Depends(get_optional_user)):
+    s = await _visible_sheet(db, sheet_id, user)
     if page < 1 or page > s.pages or ext != ("png" if page == 1 else "jpg"):
         raise HTTPException(404, "Introuvable")
     path = ms.page_path(s.id, page)
     if not path.exists():
         raise HTTPException(404, "Introuvable")
     return FileResponse(path, media_type="image/png" if page == 1 else "image/jpeg",
-                        headers={"Cache-Control": "public, max-age=3600"})
+                        headers={"Cache-Control": f"{'public' if s.published else 'private'}, max-age=3600"})
 
 
 @router.get("/sheets/{sheet_id}/cover.jpg")
-async def sheet_cover(sheet_id: int, db: AsyncSession = Depends(get_db)):
-    s = await _published_sheet(db, sheet_id)
+async def sheet_cover(sheet_id: int, db: AsyncSession = Depends(get_db),
+                      user: Optional[User] = Depends(get_optional_user)):
+    s = await _visible_sheet(db, sheet_id, user)
     path = ms.cover_path(s.id)
     if not s.has_cover or not path.exists():
         raise HTTPException(404, "Introuvable")
@@ -664,14 +707,14 @@ async def _owns_sheet(db: AsyncSession, sheet_id: int, *, user: Optional[User] =
 @router.get("/sheets/{sheet_id}/notes")
 async def sheet_notes(sheet_id: int, order: Optional[str] = None, k: Optional[str] = None,
                       db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(get_optional_user)):
-    s = await _published_sheet(db, sheet_id)
+    s = await _visible_sheet(db, sheet_id, user, order, k)
     data = ms.load_notes(s.id) if s.has_notes else None
     if data is None:
         raise HTTPException(404, "Pas de notes pour cette partition")
     cursor = ms.load_cursor(s.id)
     if cursor:
         data = {**data, "cursor": cursor}
-    full = await _owns_sheet(db, s.id, user=user, order=order, key=k)
+    full = _is_admin(user) or await _owns_sheet(db, s.id, user=user, order=order, key=k)
     if not full:
         data = ms.preview_notes(data)
     return {**data, "full": full}
@@ -681,8 +724,9 @@ async def sheet_notes(sheet_id: int, order: Optional[str] = None, k: Optional[st
 async def clear_page(sheet_id: int, page: int, order: Optional[str] = None, k: Optional[str] = None,
                      db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(get_optional_user)):
     """Page nette (lecteur de l'acheteur) : seulement pour qui a payé la partition."""
-    s = await _published_sheet(db, sheet_id)
-    if page < 1 or page > s.pages or not await _owns_sheet(db, s.id, user=user, order=order, key=k):
+    s = await db.get(MusicSheet, sheet_id)
+    if s is None or page < 1 or page > s.pages or not (
+            _is_admin(user) or await _owns_sheet(db, s.id, user=user, order=order, key=k)):
         raise HTTPException(404, "Introuvable")
     path = ms.clear_page_path(s.id, page)
     if not path.exists():

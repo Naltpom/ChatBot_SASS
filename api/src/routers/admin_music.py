@@ -5,19 +5,22 @@
   diffuser ou retirer n'importe laquelle, prix propre ;
 - prix généraux (partition, lot d'un morceau) ;
 - codes promo (pourcentage ou montant, plafond, date de fin) ;
-- commandes (statut, montant, lignes) et renvoi de l'e-mail de livraison.
+- commandes (statut, montant, lignes) et renvoi de l'e-mail de livraison ;
+- qui possède chaque partition (achats et dons) ; donner une partition à une adresse e-mail (commande à 0 €
+  marquée `granted_by_user_id`, avec l'e-mail de livraison si demandé) ou retirer un don.
 """
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.security import require_superadmin
+from src.core.security import get_current_user, require_superadmin
 from src.core.time import utcnow
 from src.models.music import (
     ORDER_PAID,
@@ -44,7 +47,7 @@ async def _sales_by_sheet(db: AsyncSession) -> dict[int, tuple[int, int]]:
     rows = (await db.execute(
         select(MusicOrderItem.sheet_id, func.count(MusicOrderItem.id), func.coalesce(func.sum(MusicOrderItem.price_cents), 0))
         .join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
-        .where(MusicOrder.status == ORDER_PAID)
+        .where(MusicOrder.status == ORDER_PAID, MusicOrder.granted_by_user_id.is_(None))
         .group_by(MusicOrderItem.sheet_id)
     )).all()
     return {sid: (int(n), int(cents)) for sid, n, cents in rows}
@@ -58,7 +61,7 @@ async def overview(db: AsyncSession = Depends(get_db)):
     )).one()
     since = utcnow() - timedelta(days=30)
     paid = select(func.count(MusicOrder.id), func.coalesce(func.sum(MusicOrder.amount_cents), 0)).where(
-        MusicOrder.status == ORDER_PAID)
+        MusicOrder.status == ORDER_PAID, MusicOrder.granted_by_user_id.is_(None))  # les dons ne sont pas des ventes
     n_all, cents_all = (await db.execute(paid)).one()
     n_30, cents_30 = (await db.execute(paid.where(MusicOrder.paid_at >= since))).one()
     music_accounts = (await db.execute(select(func.count(UserApp.id)).where(UserApp.app == "music"))).scalar_one()
@@ -109,6 +112,7 @@ async def list_sheets(q: Optional[str] = None, instrument: Optional[str] = None,
     sheets = (await db.execute(stmt.order_by(MusicSheet.released_at.desc().nullslast(),
                                              MusicSheet.id.desc()).offset(offset).limit(limit))).scalars().all()
     sales = await _sales_by_sheet(db)
+    owners = await _owners_count(db, [s.id for s in sheets])
     await db.commit()
     return {"total": int(total), "next_offset": offset + limit if offset + limit < total else None, "sheets": [{
         "id": s.id, "source_ref": s.source_ref, "piece_slug": s.piece_slug, "piece_title": s.piece_title,
@@ -120,7 +124,93 @@ async def list_sheets(q: Optional[str] = None, instrument: Optional[str] = None,
         "revenue_cents": sales.get(s.id, (0, 0))[1], "url": ms.piece_url(s.piece_slug, s.instrument),
         "preview": f"/api/admin/music/sheets/{s.id}/page1.png",
         "likes": s.instagram_likes, "has_notes": s.has_notes,
+        "owners": owners.get(s.id, 0),
     } for s in sheets]}
+
+
+async def _owners_count(db: AsyncSession, ids: list[int]) -> dict[int, int]:
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(MusicOrderItem.sheet_id, func.count(func.distinct(func.coalesce(func.cast(MusicOrder.user_id, String()),
+                                                                                 func.lower(MusicOrder.email)))))
+        .join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
+        .where(MusicOrder.status == ORDER_PAID, MusicOrderItem.sheet_id.in_(ids))
+        .group_by(MusicOrderItem.sheet_id))).all()
+    return {sid: int(n) for sid, n in rows}
+
+
+@router.get("/sheets/{sheet_id}/owners")
+async def sheet_owners(sheet_id: int, db: AsyncSession = Depends(get_db)):
+    """Comptes et adresses qui possèdent la partition : achats payés et dons d'un administrateur."""
+    if await db.get(MusicSheet, sheet_id) is None:
+        raise HTTPException(404, "Partition introuvable")
+    rows = (await db.execute(
+        select(MusicOrder, MusicOrderItem, User)
+        .join(MusicOrderItem, MusicOrderItem.order_id == MusicOrder.id)
+        .outerjoin(User, User.id == MusicOrder.user_id)
+        .where(MusicOrderItem.sheet_id == sheet_id, MusicOrder.status == ORDER_PAID)
+        .order_by(MusicOrder.paid_at.desc()))).all()
+    return {"owners": [{
+        "order_id": o.id, "item_id": it.id, "email": o.email, "user_id": o.user_id,
+        "name": u.name if u else None, "has_account": u is not None,
+        "source": "grant" if o.granted_by_user_id else "purchase",
+        "amount_cents": it.price_cents, "at": _iso(o.paid_at),
+    } for o, it, u in rows]}
+
+
+class GrantIn(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    send_email: bool = True
+
+
+@router.post("/sheets/{sheet_id}/grant")
+async def grant_sheet(sheet_id: int, body: GrantIn, db: AsyncSession = Depends(get_db),
+                      admin: User = Depends(get_current_user)):
+    """Donne la partition (publique ou privée) : commande à 0 € payée, liée au compte s'il existe."""
+    s = await db.get(MusicSheet, sheet_id)
+    if s is None:
+        raise HTTPException(404, "Partition introuvable")
+    email = body.email.strip().lower()
+    if "@" not in email or " " in email:
+        raise HTTPException(422, "Adresse e-mail invalide")
+    owner = (await db.execute(select(User).where(func.lower(User.email) == email))).scalar_one_or_none()
+    already = (await db.execute(
+        select(MusicOrderItem.id).join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
+        .where(MusicOrderItem.sheet_id == s.id, MusicOrder.status == ORDER_PAID,
+               or_(func.lower(MusicOrder.email) == email,
+                   MusicOrder.user_id == (owner.id if owner else -1))))).first()
+    if already:
+        raise HTTPException(409, "Cette personne a déjà cette partition")
+    now = utcnow()
+    order = MusicOrder(public_id=uuid.uuid4().hex, status=ORDER_PAID, email=email, lang="en",
+                       user_id=owner.id if owner else None, subtotal_cents=0, discount_cents=0, amount_cents=0,
+                       currency="eur", consent_at=now, paid_at=now, granted_by_user_id=admin.id)
+    db.add(order)
+    await db.flush()
+    db.add(MusicOrderItem(order_id=order.id, sheet_id=s.id, price_cents=0,
+                          label=f"{s.piece_title} — {s.instrument_label}"[:500]))
+    await db.commit()
+    sent = False
+    if body.send_email:
+        sent = await ms.deliver(db, order)
+        await db.commit()
+    return {"order_id": order.id, "email": email, "has_account": owner is not None, "emailed": sent}
+
+
+@router.delete("/sheets/{sheet_id}/grant/{order_id}")
+async def revoke_grant(sheet_id: int, order_id: int, db: AsyncSession = Depends(get_db)):
+    """Retire un don (jamais un achat payé)."""
+    o = await db.get(MusicOrder, order_id)
+    if o is None or not o.granted_by_user_id:
+        raise HTTPException(404, "Don introuvable")
+    item = (await db.execute(select(MusicOrderItem).where(MusicOrderItem.order_id == o.id,
+                                                          MusicOrderItem.sheet_id == sheet_id))).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "Don introuvable")
+    await db.delete(o)
+    await db.commit()
+    return {"revoked": True}
 
 
 @router.get("/sheets/{sheet_id}/page1.png")
@@ -284,7 +374,7 @@ async def list_orders(status: Optional[str] = None, offset: int = 0, limit: int 
         "promo_code": o.promo_code, "created_at": _iso(o.created_at), "paid_at": _iso(o.paid_at),
         "emailed_at": _iso(o.emailed_at), "items": items.get(o.id, []),
         "instagram_username": o.instagram_username, "instagram_status": o.instagram_status,
-        "user_id": o.user_id,
+        "user_id": o.user_id, "granted": bool(o.granted_by_user_id),
     } for o in orders]}
 
 

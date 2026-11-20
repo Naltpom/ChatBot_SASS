@@ -18,6 +18,9 @@ export interface SheetInfo {
   rating: number | null
   reviews: number
   has_notes: boolean
+  published?: boolean
+  owned?: boolean
+  pages_full?: string[]
 }
 
 export interface Piece {
@@ -35,6 +38,8 @@ export interface Piece {
   rating: number | null
   reviews: number
   pricing?: Pricing
+  private?: boolean
+  admin?: boolean
 }
 
 export interface Pricing { unit_cents: number; bundle_cents: number | null; currency: string }

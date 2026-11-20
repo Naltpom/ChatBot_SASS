@@ -525,3 +525,54 @@ def test_parse_ecb_rates():
            "</Cube></Cube></gesmes:Envelope>")
     date, rates = parse_ecb(xml)
     assert date == "2026-11-20" and rates == {"USD": 1.0812, "GBP": 0.8431}
+
+
+async def test_private_piece_only_for_owners_and_admin_grants(pg_session, music, monkeypatch):
+    """Une fiche privée existe mais ne se voit que par qui a la partition (achat ou don) et par l'admin ;
+    l'admin voit les propriétaires, donne et retire un don."""
+    priv = await _sheet(pg_session, "gh/p", piece="Rocky", published=False)
+    pub = await _sheet(pg_session, "gh/q", piece="Rocky", instrument="piano")
+    solo = await _sheet(pg_session, "gh/s", piece="Secret", published=False)
+    admin = await _user(pg_session, "boss@t.dev", is_superadmin=True)
+    fan = await _user(pg_session, "fan@t.dev")
+    await pg_session.commit()
+    priv_id, pub_id, solo_id, fan_email = priv.id, pub.id, solo.id, fan.email
+    async with Client(pg_session) as c:
+        # visiteur : fiche entièrement privée -> 404 « private » ; fiche mixte -> seulement la partition diffusée
+        r = await c.http.get("/api/music/pieces/secret")
+        assert r.status_code == 404 and r.json()["detail"]["code"] == "private"
+        assert (await c.http.get("/api/music/pieces/nope")).json()["detail"]["code"] == "not_found"
+        p = (await c.http.get("/api/music/pieces/rocky")).json()
+        assert [x["id"] for x in p["sheets"]] == [pub_id] and p["private"] is False
+        assert (await c.http.get(f"/api/music/sheets/{solo_id}/pages/1.png")).status_code == 404
+        # admin : tout voir, avec le bandeau « privé »
+        h = c.as_(admin)
+        p = (await h.get("/api/music/pieces/secret")).json()
+        assert p["private"] is True and p["admin"] is True and p["sheets"][0]["published"] is False
+        assert p["sheets"][0]["pages_full"][0].endswith(f"/sheets/{solo_id}/clear/1.png")
+        # don à fan@t.dev
+        r = await h.post(f"/api/admin/music/sheets/{solo_id}/grant", json={"email": "Fan@T.dev"})
+        assert r.status_code == 200 and r.json()["has_account"] is True and r.json()["emailed"] is True, r.text
+        assert (await h.post(f"/api/admin/music/sheets/{solo_id}/grant", json={"email": "fan@t.dev"})).status_code == 409
+        owners = (await h.get(f"/api/admin/music/sheets/{solo_id}/owners")).json()["owners"]
+        assert len(owners) == 1 and owners[0]["source"] == "grant" and owners[0]["email"] == "fan@t.dev"
+        listed = {s["id"]: s for s in (await h.get("/api/admin/music/sheets?limit=10")).json()["sheets"]}
+        assert listed[solo_id]["owners"] == 1 and listed[solo_id]["sales"] == 0  # un don n'est pas une vente
+        assert (await h.get("/api/admin/music/overview")).json()["orders"]["paid"] == 0
+        order_id = owners[0]["order_id"]
+        # le fan voit la fiche privée, ses pages nettes, et la retrouve dans « Mes partitions »
+        h = c.as_(fan)
+        p = (await h.get("/api/music/pieces/secret")).json()
+        assert p["private"] is True and p["admin"] is False and p["sheets"][0]["owned"] is True
+        assert [s["sheet_id"] for s in (await h.get("/api/music/account")).json()["sheets"]] == [solo_id]
+        p = (await h.get("/api/music/pieces/rocky")).json()
+        assert [x["id"] for x in p["sheets"]] == [pub_id]  # privée non possédée : toujours cachée
+        # une partition privée ne s'achète pas
+        r = await c.http.post("/api/music/quote", json={"sheet_ids": [priv_id]})
+        assert r.status_code != 200 or not r.json().get("lines"), r.text
+        # retrait du don : plus d'accès
+        h = c.as_(admin)
+        assert (await h.delete(f"/api/admin/music/sheets/{solo_id}/grant/{order_id}")).json()["revoked"] is True
+        h = c.as_(fan)
+        assert (await h.get("/api/music/pieces/secret")).status_code == 404
+    assert any(m["to"] == [fan_email] for m in music)

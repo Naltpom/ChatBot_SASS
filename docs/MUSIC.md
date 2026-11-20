@@ -74,3 +74,14 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
   renvoyé par `GET /sheets/{id}/notes` (`cursor`, coupé à 25 s pour l'aperçu). Un nouveau PDF sans curseur efface l'ancien.
 - Le site joue les notes et fait glisser un curseur sur la feuille même (galerie de la fiche, pages empilées pour
   l'acheteur), la galerie suit la page jouée. Plus de rouleau de notes ni de grosse note.
+
+## Fiches privées et dons (20/11/2026)
+
+- Toutes les partitions ont une fiche `/s/<morceau>`. Une partition **privée** (non diffusée) ne s'y voit que par
+  qui l'a (achat ou don, compte ou e-mail de la commande) et par un administrateur, avec un bandeau « page privée » ;
+  sinon `GET /pieces/{slug}` répond 404 `private` et le site renvoie au catalogue. Elle ne s'achète pas.
+- Qui a la partition voit ses pages nettes (`pages_full`) et le lecteur complet sur la fiche.
+- Admin, onglet Partitions, colonne « Propriétaires » : achats et dons de chaque partition, **donner** la partition
+  à une adresse e-mail (commande à 0 € `granted_by_user_id`, liée au compte s'il existe, e-mail de livraison
+  facultatif) et retirer un don. Les dons ne comptent ni dans les ventes ni dans le chiffre.
+- `index.html` servi en `no-cache` (un déploiement se voit tout de suite) ; fichiers de `/assets/` gardés un an.
