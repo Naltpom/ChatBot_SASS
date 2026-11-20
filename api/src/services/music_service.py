@@ -541,5 +541,49 @@ def load_notes(sheet_id: int) -> Optional[dict]:
 def preview_notes(data: dict) -> dict:
     """Aperçu : seulement les PREVIEW_SECONDS premières secondes."""
     notes = [n for n in data["notes"] if n[0] < PREVIEW_SECONDS]
-    return {**data, "notes": notes, "duration": min(data["duration"], PREVIEW_SECONDS),
-            "full_duration": data["duration"], "preview_seconds": PREVIEW_SECONDS}
+    out = {**data, "notes": notes, "duration": min(data["duration"], PREVIEW_SECONDS),
+           "full_duration": data["duration"], "preview_seconds": PREVIEW_SECONDS}
+    if data.get("cursor"):
+        out["cursor"] = [e for e in data["cursor"] if e[0] < PREVIEW_SECONDS]
+    return out
+
+
+def cursor_path(sheet_id: int) -> Path:
+    return sheet_dir(sheet_id) / "cursor.json"
+
+
+def compact_cursor(raw: dict, pages: Optional[int] = None) -> list:
+    """curseur.json de la production -> [[t, page, x, y0, y1]] (page à partir de 0, positions en fractions de la page A4),
+    trié par temps. Sert le curseur de lecture posé sur la feuille."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("events"), list):
+        raise ValueError("champ events manquant")
+    out = []
+    for e in raw["events"][:20000]:
+        try:
+            t, pg, x, y0, y1 = float(e[0]), int(e[1]), float(e[2]), float(e[3]), float(e[4])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if t < 0 or pg < 0 or (pages and pg >= pages) or not (0 <= x <= 1 and 0 <= y0 < y1 <= 1):
+            continue
+        out.append([round(t, 3), pg, round(x, 4), round(y0, 4), round(y1, 4)])
+    out.sort(key=lambda r: r[0])
+    return out
+
+
+def save_cursor(sheet_id: int, raw: Optional[dict], pages: Optional[int] = None) -> bool:
+    """Enregistre le curseur (ou l'efface si raw est None : un nouveau PDF sans curseur rend l'ancien faux)."""
+    import json as _json
+    p = cursor_path(sheet_id)
+    ev = compact_cursor(raw, pages) if raw is not None else []
+    if not ev:
+        p.unlink(missing_ok=True)
+        return False
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(_json.dumps(ev, separators=(",", ":")), encoding="utf-8")
+    return True
+
+
+def load_cursor(sheet_id: int) -> Optional[list]:
+    import json as _json
+    p = cursor_path(sheet_id)
+    return _json.loads(p.read_text(encoding="utf-8")) if p.exists() else None

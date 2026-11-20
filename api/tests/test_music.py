@@ -390,18 +390,22 @@ async def test_player_notes_preview_and_buyer(pg_session, music, monkeypatch):
     monkeypatch.setattr(settings, "MOCK_BILLING", True)
     async with Client(pg_session) as c:
         meta = {"source_ref": "gh/n", "piece_title": "Nocturne", "instrument": "piano", "rights": "domaine public"}
-        files = {"pdf": ("p.pdf", pdf_bytes(2), "application/pdf"), "notes": ("notes.json", notes_json(60), "application/json")}
+        curseur = json.dumps({"version": 1, "pages": 2, "events": [[1.0, 0, 0.2, 0.1, 0.2], [30.0, 1, 0.5, 0.3, 0.4],
+                                                                   [31.0, 5, 0.5, 0.3, 0.4], [32.0, 1, 1.5, 0.3, 0.4]]}).encode()
+        files = {"pdf": ("p.pdf", pdf_bytes(2), "application/pdf"), "notes": ("notes.json", notes_json(60), "application/json"),
+                 "cursor": ("curseur.json", curseur, "application/json")}
         sid = (await c.http.post("/api/music/ingest", data={"meta": json.dumps(meta)}, files=files,
                                  headers={"Authorization": f"Bearer {TOKEN}"})).json()["id"]
         prev = (await c.http.get(f"/api/music/sheets/{sid}/notes")).json()
         assert prev["full"] is False and prev["duration"] == 25 and prev["full_duration"] == 60
+        assert prev["cursor"] == [[1.0, 0, 0.2, 0.1, 0.2]]  # aperçu : 25 s ; page 5 et x > 1 écartés
         assert max(n[0] for n in prev["notes"]) < 25
         assert (await c.http.get(f"/api/music/sheets/{sid}/clear/2.png")).status_code == 404
         r = await c.http.post("/api/music/checkout", json={"sheet_ids": [sid], "consent": True})
         order = r.json()["order"]
         k = ms.download_key(order)
         full = (await c.http.get(f"/api/music/sheets/{sid}/notes?order={order}&k={k}")).json()
-        assert full["full"] is True and full["duration"] == 60
+        assert full["full"] is True and full["duration"] == 60 and len(full["cursor"]) == 2
         ok = await c.http.get(f"/api/music/sheets/{sid}/clear/2.png?order={order}&k={k}")
         assert ok.status_code == 200 and ok.headers["content-type"] == "image/png"
         assert (await c.http.get(f"/api/music/sheets/{sid}/clear/2.png?order={order}&k=faux")).status_code == 404

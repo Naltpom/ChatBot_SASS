@@ -522,6 +522,7 @@ class IngestMeta(BaseModel):
 @router.post("/ingest", dependencies=[Depends(_require_ingest)])
 async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
                  cover: Optional[UploadFile] = File(None), notes: Optional[UploadFile] = File(None),
+                 cursor: Optional[UploadFile] = File(None),
                  db: AsyncSession = Depends(get_db)):
     try:
         m = IngestMeta(**json.loads(meta))
@@ -566,6 +567,13 @@ async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
             sheet.has_notes = ms.save_notes(sheet.id, json.loads((await notes.read()).decode("utf-8")))
         except (ValueError, UnicodeDecodeError) as exc:
             raise HTTPException(422, f"notes.json invalide : {exc}")
+    if cursor is not None:
+        try:
+            ms.save_cursor(sheet.id, json.loads((await cursor.read()).decode("utf-8")), sheet.pages)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise HTTPException(422, f"curseur.json invalide : {exc}")
+    elif pdf is not None:
+        ms.save_cursor(sheet.id, None)
     await db.commit()
     return {"created": created, **_state(sheet)}
 
@@ -660,6 +668,9 @@ async def sheet_notes(sheet_id: int, order: Optional[str] = None, k: Optional[st
     data = ms.load_notes(s.id) if s.has_notes else None
     if data is None:
         raise HTTPException(404, "Pas de notes pour cette partition")
+    cursor = ms.load_cursor(s.id)
+    if cursor:
+        data = {**data, "cursor": cursor}
     full = await _owns_sheet(db, s.id, user=user, order=order, key=k)
     if not full:
         data = ms.preview_notes(data)

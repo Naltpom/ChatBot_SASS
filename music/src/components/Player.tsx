@@ -1,11 +1,11 @@
-// Lecteur « Play » : joue les notes de la vidéo (synthèse Web Audio), affiche en grand la note
-// jouée, fait défiler un rouleau de notes et la partition. Aperçu de 25 s ; complet pour l'acheteur.
+// Lecture de la partition : joue les notes de la vidéo (synthèse Web Audio) et fait avancer un curseur SUR la feuille
+// (place de chaque note dans le PDF : curseur.json de la production). Aperçu de 25 s ; complet pour l'acheteur.
 import { useEffect, useRef, useState } from 'react'
-import { getNotes, type NoteRow, type NotesData } from '../api'
+import { getNotes, type CursorEvent, type NoteRow, type NotesData } from '../api'
 import { useI18n } from '../i18n'
 
-const GOLD = '#F2B544'
-const TEAL = '#5FD4D0'
+
+
 
 function midiHz(p: number) { return 440 * Math.pow(2, (p - 69) / 12) }
 
@@ -82,32 +82,46 @@ function scheduleNote(ctx: AudioContext, out: AudioNode, n: NoteRow, at: number,
   o1.start(at); o2.start(at); o1.stop(end); o2.stop(end)
 }
 
-export default function Player({ sheetId, pages, instrument, auth, title }: {
-  sheetId: number
-  pages: string[]
-  instrument: string
-  title: string
-  auth?: { order?: string; k?: string }
-}) {
-  const { t } = useI18n()
+export type CursorPos = { page: number; x: number; y0: number; y1: number }
+type Listener = (time: number, pos: CursorPos | null) => void
+
+/** Position du curseur au temps t : glisse d'une note à la suivante sur la même ligne, saute à la ligne suivante. */
+export function cursorAt(ev: CursorEvent[] | undefined, t: number): CursorPos | null {
+  if (!ev || !ev.length) return null
+  let lo = 0, hi = ev.length - 1
+  if (t < ev[0][0]) return { page: ev[0][1], x: ev[0][2], y0: ev[0][3], y1: ev[0][4] }
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (ev[mid][0] <= t) lo = mid; else hi = mid - 1
+  }
+  const a = ev[lo], b = ev[lo + 1]
+  let x = a[2]
+  if (b && b[1] === a[1] && b[3] === a[3] && b[2] > a[2]) {
+    x = a[2] + (b[2] - a[2]) * Math.min(1, (t - a[0]) / Math.max(0.001, b[0] - a[0]))
+  }
+  return { page: a[1], x, y0: a[3], y1: a[4] }
+}
+
+export function useScorePlayer(sheetId: number, auth?: { order?: string; k?: string }) {
   const [data, setData] = useState<NotesData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
   const [playing, setPlaying] = useState(false)
-  const [time, setTime] = useState(0)
   const [ended, setEnded] = useState(false)
   const ctxRef = useRef<AudioContext | null>(null)
-  const startRef = useRef(0)       // ctx.currentTime au temps 0 du morceau
-  const fromRef = useRef(0)        // position de départ (reprise)
+  const startRef = useRef(0)
+  const fromRef = useRef(0)
+  const timeRef = useRef(0)
   const nextIdx = useRef(0)
   const raf = useRef(0)
-  const canvas = useRef<HTMLCanvasElement>(null)
-  const scroller = useRef<HTMLDivElement>(null)
   const master = useRef<GainNode | null>(null)
+  const listeners = useRef(new Set<Listener>())
+  const dataRef = useRef<NotesData | null>(null)
 
-  useEffect(() => () => { cancelAnimationFrame(raf.current); ctxRef.current?.close() }, [])
-  useEffect(() => { stop(true); setData(null) }, [sheetId]) // eslint-disable-line react-hooks/exhaustive-deps
-
+  const emit = (time: number) => {
+    const pos = cursorAt(dataRef.current?.cursor, time)
+    listeners.current.forEach(l => l(time, pos))
+  }
   const stop = (reset = false) => {
     cancelAnimationFrame(raf.current)
     setPlaying(false)
@@ -115,19 +129,22 @@ export default function Player({ sheetId, pages, instrument, auth, title }: {
       master.current.gain.setTargetAtTime(0, ctxRef.current.currentTime, 0.03)
       master.current = null
     }
-    if (reset) { fromRef.current = 0; setTime(0); setEnded(false) }
+    if (reset) { fromRef.current = 0; timeRef.current = 0; setEnded(false); emit(0) }
   }
+
+  useEffect(() => () => { cancelAnimationFrame(raf.current); ctxRef.current?.close() }, [])
+  useEffect(() => { stop(true); setData(null); dataRef.current = null }, [sheetId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const tick = (d: NotesData) => {
     const ctx = ctxRef.current!
     const now = ctx.currentTime - startRef.current
-    // programme les notes des 0,6 s à venir
     while (nextIdx.current < d.notes.length && d.notes[nextIdx.current][0] < now + 0.6) {
       const n = d.notes[nextIdx.current]
       if (n[0] >= fromRef.current - 0.01 && master.current) scheduleNote(ctx, master.current, n, startRef.current + n[0], d.instrument)
       nextIdx.current++
     }
-    setTime(now)
+    timeRef.current = Math.max(0, now)
+    emit(timeRef.current)
     if (now >= d.duration) {
       stop()
       fromRef.current = 0
@@ -137,12 +154,12 @@ export default function Player({ sheetId, pages, instrument, auth, title }: {
     raf.current = requestAnimationFrame(() => tick(d))
   }
 
-  const play = async () => {
-    if (playing) { fromRef.current = time; stop(); return }
+  const toggle = async () => {
+    if (playing) { fromRef.current = timeRef.current; stop(); return }
     let d = data
     if (!d) {
       setLoading(true); setError(false)
-      try { d = await getNotes(sheetId, auth); setData(d) } catch { setError(true); setLoading(false); return }
+      try { d = await getNotes(sheetId, auth); setData(d); dataRef.current = d } catch { setError(true); setLoading(false); return }
       setLoading(false)
     }
     if (!ctxRef.current) ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
@@ -161,82 +178,101 @@ export default function Player({ sheetId, pages, instrument, auth, title }: {
     raf.current = requestAnimationFrame(() => tick(d!))
   }
 
-  // rouleau de notes + défilement de la partition
-  useEffect(() => {
-    const c = canvas.current
-    if (!c || !data) return
-    const dpr = window.devicePixelRatio || 1
-    const w = c.clientWidth, h = c.clientHeight
-    if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr }
-    const g = c.getContext('2d')!
-    g.setTransform(dpr, 0, 0, dpr, 0, 0)
-    g.clearRect(0, 0, w, h)
-    const ps = data.notes.map(n => n[2])
-    const lo = Math.min(...ps) - 2, hi = Math.max(...ps) + 2
-    const pxs = w / 6 // 6 s visibles
-    const head = w * 0.22
-    g.fillStyle = 'rgba(127,127,127,0.08)'
-    g.fillRect(0, 0, w, h)
-    for (const n of data.notes) {
-      const x = head + (n[0] - time) * pxs
-      const len = Math.max(3, n[1] * pxs)
-      if (x > w || x + len < 0) continue
-      const y = h - ((n[2] - lo) / (hi - lo)) * (h - 10) - 5
-      const on = time >= n[0] && time < n[0] + n[1]
-      g.globalAlpha = n[5] ? (on ? 1 : 0.85) : 0.35
-      g.fillStyle = data.instrument === 'batterie' ? (n[4] ? GOLD : TEAL) : (n[4] ? GOLD : TEAL)
-      g.beginPath()
-      g.roundRect(x, y - 3, len, 6, 3)
-      g.fill()
-    }
-    g.globalAlpha = 1
-    g.fillStyle = 'rgba(255,255,255,0.9)'
-    g.fillRect(head - 1, 0, 2, h)
-    // partition : défile au fil du morceau
-    const sc = scroller.current
-    if (sc && data.duration > 0) {
-      const total = data.full ? data.duration : (data.full_duration || data.duration)
-      sc.scrollTop = Math.max(0, (time / total) * (sc.scrollHeight - sc.clientHeight))
-    }
-  }, [time, data])
+  const subscribe = (l: Listener) => {
+    listeners.current.add(l)
+    l(timeRef.current, cursorAt(dataRef.current?.cursor, timeRef.current))
+    return () => { listeners.current.delete(l) }
+  }
 
-  const sounding = data ? data.notes.filter(n => n[5] && time >= n[0] && time < n[0] + Math.max(n[1], 0.15)) : []
-  const top = sounding.length ? sounding.reduce((a, b) => (b[2] > a[2] ? b : a)) : null
-  const label = top
-    ? (data!.instrument === 'batterie' ? (top[6] || '') : `${t.noteNames[top[2] % 12]}${Math.floor(top[2] / 12) - 1}`)
-    : ''
+  return { data, loading, error, playing, ended, toggle, subscribe, started: playing || timeRef.current > 0 }
+}
+
+export type ScorePlayer = ReturnType<typeof useScorePlayer>
+
+const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+
+/** Barre de lecture : bouton, titre, temps et progression (mis à jour sans re-rendu). */
+export function PlayBar({ player, title }: { player: ScorePlayer; title: string }) {
+  const { t } = useI18n()
+  const timeEl = useRef<HTMLSpanElement>(null)
+  const bar = useRef<HTMLSpanElement>(null)
+  const { data } = player
   const total = data ? (data.full ? data.duration : data.full_duration || data.duration) : 0
-  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
-  const previewOver = ended && data && !data.full
-
+  useEffect(() => player.subscribe(time => {
+    if (!data) return
+    if (timeEl.current) timeEl.current.textContent = `· ${fmt(time)} / ${fmt(data.duration)}`
+    if (bar.current) bar.current.style.width = `${Math.min(100, (time / Math.max(1, total)) * 100)}%`
+  }), [data]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <section className="player" aria-label={t.listen}>
-      <div className="player-top">
-        <button type="button" className="play-btn" onClick={play} disabled={loading}
-                aria-label={playing ? t.pause : t.play}>
-          {loading ? <span className="spinner small" /> : playing
-            ? <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" /><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" /></svg>
-            : <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor" /></svg>}
-        </button>
-        <div className="player-meta">
-          <b>{data?.full ? t.fullPlayer : t.listen}</b>
-          <small>{title} · {data ? `${fmt(time)} / ${fmt(data.duration)}` : ''}{data && !data.full ? ` (${fmt(total)})` : ''}</small>
-        </div>
-        <div className="big-note" aria-live="off">{label}</div>
-      </div>
-      {error && <div className="msg err">{t.errGeneric}</div>}
-      {data && (
-        <>
-          <canvas ref={canvas} className="roll" aria-hidden="true" />
-          <div className="progress"><span style={{ width: `${Math.min(100, (time / Math.max(1, total)) * 100)}%` }} />
+    <div className="playbar">
+      <button type="button" className="play-btn" onClick={player.toggle} disabled={player.loading}
+              aria-label={player.playing ? t.pause : t.play}>
+        {player.loading ? <span className="spinner small" /> : player.playing
+          ? <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" /><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" /></svg>
+          : <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor" /></svg>}
+      </button>
+      <div className="playbar-meta">
+        <b>{data?.full ? t.fullPlayer : t.listen}</b>
+        <small><span className="playbar-title">{title}</span>{data && <span ref={timeEl} className="tnum" />}</small>
+        {data && (
+          <span className="progress"><span ref={bar} />
             {!data.full && <i style={{ left: `${(data.duration / Math.max(1, total)) * 100}%` }} />}
+          </span>
+        )}
+      </div>
+      {player.error && <span className="playbar-err">{t.errGeneric}</span>}
+      {player.ended && data && !data.full && <span className="playbar-end">{t.previewEnd}</span>}
+    </div>
+  )
+}
+
+/** Curseur posé sur une page de la partition (à placer dans un conteneur position: relative autour de la feuille). */
+export function SheetCursor({ player, page }: { player: ScorePlayer; page: number }) {
+  const el = useRef<HTMLDivElement>(null)
+  useEffect(() => player.subscribe((time, pos) => {
+    const c = el.current
+    if (!c) return
+    if (!pos || pos.page !== page || (time <= 0 && !player.playing)) { c.style.opacity = '0'; return }
+    const pad = (pos.y1 - pos.y0) * 0.35
+    c.style.opacity = '1'
+    c.style.left = `${pos.x * 100}%`
+    c.style.top = `${(pos.y0 - pad) * 100}%`
+    c.style.height = `${(pos.y1 - pos.y0 + 2 * pad) * 100}%`
+  }), [page, player.data, player.playing]) // eslint-disable-line react-hooks/exhaustive-deps
+  return <div ref={el} className="sheet-cursor" aria-hidden="true" />
+}
+
+/** Lecteur complet (page de remerciement, compte) : pages empilées qui défilent sous le curseur. */
+export default function Player({ sheetId, pages, auth, title }: {
+  sheetId: number
+  pages: string[]
+  instrument: string
+  title: string
+  auth?: { order?: string; k?: string }
+}) {
+  const { t } = useI18n()
+  const player = useScorePlayer(sheetId, auth)
+  const box = useRef<HTMLDivElement>(null)
+  const pageEls = useRef<(HTMLDivElement | null)[]>([])
+  const shownPages = player.data && !player.data.full ? pages.slice(0, 1) : pages
+  useEffect(() => player.subscribe((_, pos) => {
+    const b = box.current, p = pos && pageEls.current[pos.page]
+    if (!b || !p || !player.playing) return
+    // garde la ligne jouée au tiers haut de la fenêtre
+    const y = p.offsetTop + pos.y0 * p.offsetHeight - b.clientHeight * 0.3
+    if (Math.abs(b.scrollTop - y) > 4) b.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
+  }), [player.playing, player.data]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <section className="reader" aria-label={t.listen}>
+      <PlayBar player={player} title={title} />
+      <div className="reader-pages" ref={box}>
+        {shownPages.map((src, i) => (
+          <div key={src} className="reader-page" ref={e => { pageEls.current[i] = e }}>
+            <img src={src} alt={t.pageOf(i + 1, pages.length)} loading="lazy" />
+            <SheetCursor player={player} page={i} />
           </div>
-          <div className="score" ref={scroller}>
-            {(data.full ? pages : pages.slice(0, 1)).map((src, i) => <img key={src} src={src} alt={t.pageOf(i + 1, pages.length)} />)}
-          </div>
-          {previewOver && <div className="msg ok">{t.previewEnd}</div>}
-        </>
-      )}
+        ))}
+      </div>
     </section>
   )
 }

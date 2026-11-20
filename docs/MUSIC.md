@@ -66,3 +66,11 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
   À activer aussi dans le tableau de bord Stripe (Settings → Adaptive Pricing), qui en fixe la valeur par défaut.
 - **Site** : prix en euros + équivalent indicatif « ≈ 2,15 $ » dans la devise du pays du navigateur
   (`navigator.languages`), taux BCE du jour (`GET /api/music/rates`, cache 6 h côté API).
+
+## Lecture sur la feuille (20/11/2026)
+
+- La production envoie `curseur.json` avec la partition (`cursor` à l'ingestion) : pour chaque attaque, son temps et sa
+  place sur la page du PDF (`[t, page, x, haut, bas du système]`, fractions de la page A4). Stocké en `cursor.json`,
+  renvoyé par `GET /sheets/{id}/notes` (`cursor`, coupé à 25 s pour l'aperçu). Un nouveau PDF sans curseur efface l'ancien.
+- Le site joue les notes et fait glisser un curseur sur la feuille même (galerie de la fiche, pages empilées pour
+  l'acheteur), la galerie suit la page jouée. Plus de rouleau de notes ni de grosse note.
