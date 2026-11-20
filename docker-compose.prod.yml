@@ -123,9 +123,6 @@ services:
     # depuis l'extérieur.
     ports:
       - "127.0.0.1:${API_PORT:-8001}:8000"
-    networks:
-      - default
-      - music
     volumes:
       # Seuls les uploads (volume nommé) et le widget statique (lecture seule) :
       # aucune source montée, le code vit dans l'image.
@@ -147,9 +144,7 @@ services:
     # (jamais '*' : n'importe quel client pourrait usurper X-Forwarded-For).
     # Le défaut 127.0.0.1 n'est correct que si le proxy se connecte depuis
     # localhost (cas du bind loopback ci-dessous).
-    # + l'IP fixe du nginx de music.chapote.fr (réseau `music`) : il transmet la vraie IP du
-    # visiteur, utilisée par les limiteurs (connexion, inscription).
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2} --proxy-headers --forwarded-allow-ips=${TRUSTED_PROXY_IPS:-127.0.0.1},172.31.250.10
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2} --proxy-headers --forwarded-allow-ips=${TRUSTED_PROXY_IPS:-127.0.0.1}
     # python:3.11-slim n'embarque pas curl -> healthcheck via urllib.
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)\""]
@@ -197,19 +192,13 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${MUSIC_PORT:-3002}:80"
-    networks:
-      music:
-        ipv4_address: 172.31.250.10
+    # Clé partagée avec l'API : le nginx de music lui transmet la vraie IP du visiteur
+    # (X-Music-Client-IP) signée par cette clé ; l'API ne la croit que si la clé correspond.
+    environment:
+      - MUSIC_PROXY_KEY=${MUSIC_INGEST_TOKEN:-}
     depends_on:
       api:
         condition: service_healthy
-
-networks:
-  # Réseau propre au site music : IP fixe pour que l'API lui fasse confiance (X-Forwarded-For).
-  music:
-    ipam:
-      config:
-        - subnet: 172.31.250.0/24
 
 volumes:
   postgres_data:

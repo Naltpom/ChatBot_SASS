@@ -474,3 +474,17 @@ async def test_cookie_domain_shared_between_subdomains(monkeypatch):
     assert settings.cookie_domain == "chapote.fr"
     monkeypatch.setattr(type(settings), "is_production", property(lambda self: False))
     assert settings.cookie_domain is None
+
+
+@pytest.mark.asyncio
+async def test_client_ip_from_music_proxy_needs_the_key(monkeypatch):
+    from starlette.requests import Request as StarletteRequest
+    from src.services.user_apps import client_ip
+    monkeypatch.setattr(settings, "MUSIC_INGEST_TOKEN", "cle")
+
+    def req(headers):
+        return StarletteRequest({"type": "http", "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+                                 "client": ("10.0.0.5", 1234)})
+    assert client_ip(req({"X-Music-Client-IP": "1.2.3.4", "X-Music-Proxy-Key": "cle"})) == "1.2.3.4"
+    assert client_ip(req({"X-Music-Client-IP": "1.2.3.4", "X-Music-Proxy-Key": "fausse"})) == "10.0.0.5"
+    assert client_ip(req({"X-Music-Client-IP": "1.2.3.4"})) == "10.0.0.5"

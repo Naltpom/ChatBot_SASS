@@ -54,5 +54,5 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
   (`/sheets/{id}/clear/{n}.png`) pour l'acheteur (clé de commande ou compte).
 - **Pseudo Instagram** facultatif à la commande : `GET /api/music/ingest/instagram-pending` +
   `POST /api/music/ingest/instagram-done`, traités par la production (message privé si la fenêtre de 24 h est ouverte).
-- **IP réelle** : le nginx de music a une IP fixe (réseau `music`, 172.31.250.10) à laquelle l'API fait confiance.
+- **IP réelle** : le nginx de music transmet la vraie IP (`X-Music-Client-IP`) signée par la clé partagée `X-Music-Proxy-Key` (= `MUSIC_INGEST_TOKEN`), utilisée par les limiteurs de connexion.
 - **E-mails** : expéditeur `MUSIC_EMAIL_FROM` (« Ghost Hands Sheets <music@chapote.fr> »), réponses `MUSIC_REPLY_TO`.
