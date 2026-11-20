@@ -351,6 +351,47 @@ def render_previews(pdf: bytes, out_dir: Path) -> int:
         return len(pages)
 
 
+def preview_cut(cursor: Optional[list], pages: int) -> Optional[float]:
+    """Hauteur (fraction de la page 1) jusqu'où l'aperçu est net : la fin de la dernière ligne jouée par l'extrait
+    audio (PREVIEW_SECONDS). None sans curseur (aperçu par défaut). Si l'extrait déborde sur la page 2, la page 1
+    est nette en entier ; une partition d'une seule page n'est jamais montrée au-delà de la moitié."""
+    if not cursor:
+        return None
+    jouees = [e for e in cursor if e[0] < PREVIEW_SECONDS]
+    if not jouees:
+        return 0.2
+    if any(e[1] > 0 for e in jouees):
+        cut = 1.0
+    else:
+        cut = max(e[4] for e in jouees) + 0.012  # bas du dernier système joué, et un peu d'air
+    if pages <= 1:
+        cut = min(cut, 0.5)
+    return max(0.12, min(1.0, cut))
+
+
+def render_page1_preview(sheet_id: int, cut: Optional[float]) -> bool:
+    """Réécrit l'aperçu public de la page 1 à partir de la page nette (c1.png) : net jusqu'à `cut`, flouté dessous
+    (même flou irréversible que les autres pages). cut None ou >= 1 : page 1 nette en entier (sauf partition d'une page,
+    déjà coupée par render_previews)."""
+    from PIL import Image, ImageFilter
+    d = sheet_dir(sheet_id)
+    src = d / "c1.png"
+    if not src.exists() or cut is None:
+        return False
+    with Image.open(src) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        if cut >= 1.0:
+            im.save(d / "p1.png", optimize=True)
+            return True
+        y = int(h * cut)
+        small = im.resize((110, max(1, round(h * 110 / w))), Image.BILINEAR)
+        blurred = small.resize((w, h), Image.BILINEAR).filter(ImageFilter.GaussianBlur(10))
+        blurred.paste(im.crop((0, 0, w, y)), (0, 0))
+        blurred.save(d / "p1.png", optimize=True)
+    return True
+
+
 def save_sheet_files(sheet_id: int, pdf: Optional[bytes], cover: Optional[bytes]) -> Optional[int]:
     """Écrit le PDF (et ses aperçus) et la couverture. Renvoie le nombre de pages si PDF."""
     d = sheet_dir(sheet_id)

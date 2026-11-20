@@ -615,6 +615,8 @@ async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
             ms.save_cursor(sheet.id, json.loads((await cursor.read()).decode("utf-8")), sheet.pages)
         except (ValueError, UnicodeDecodeError) as exc:
             raise HTTPException(422, f"curseur.json invalide : {exc}")
+        # aperçu public de la page 1 : net seulement sur ce que joue l'extrait audio
+        ms.render_page1_preview(sheet.id, ms.preview_cut(ms.load_cursor(sheet.id), sheet.pages))
     elif pdf is not None:
         ms.save_cursor(sheet.id, None)
     await db.commit()

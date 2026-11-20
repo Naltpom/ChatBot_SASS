@@ -399,6 +399,13 @@ async def test_player_notes_preview_and_buyer(pg_session, music, monkeypatch):
         prev = (await c.http.get(f"/api/music/sheets/{sid}/notes")).json()
         assert prev["full"] is False and prev["duration"] == 25 and prev["full_duration"] == 60
         assert prev["cursor"] == [[1.0, 0, 0.2, 0.1, 0.2]]  # aperçu : 25 s ; page 5 et x > 1 écartés
+        # aperçu public de la page 1 : net jusqu'au bas de la dernière ligne jouée par l'extrait (0,2 + marge), flouté dessous
+        from PIL import Image, ImageChops
+        d = ms.sheet_dir(sid)
+        with Image.open(d / "p1.png") as p1, Image.open(d / "c1.png") as c1:
+            w, h = c1.size
+            assert ImageChops.difference(p1.convert("RGB").crop((0, 0, w, int(h * 0.2))), c1.convert("RGB").crop((0, 0, w, int(h * 0.2)))).getbbox() is None
+            assert ImageChops.difference(p1.convert("RGB").crop((0, int(h * 0.3), w, h)), c1.convert("RGB").crop((0, int(h * 0.3), w, h))).getbbox() is not None
         assert max(n[0] for n in prev["notes"]) < 25
         assert (await c.http.get(f"/api/music/sheets/{sid}/clear/2.png")).status_code == 404
         r = await c.http.post("/api/music/checkout", json={"sheet_ids": [sid], "consent": True})
@@ -576,3 +583,11 @@ async def test_private_piece_only_for_owners_and_admin_grants(pg_session, music,
         h = c.as_(fan)
         assert (await h.get("/api/music/pieces/secret")).status_code == 404
     assert any(m["to"] == [fan_email] for m in music)
+
+
+def test_preview_cut_follows_the_audio_excerpt():
+    assert ms.preview_cut(None, 3) is None
+    assert abs(ms.preview_cut([[1, 0, 0.5, 0.1, 0.2], [20, 0, 0.5, 0.3, 0.4], [30, 0, 0.5, 0.6, 0.7]], 3) - 0.412) < 1e-9
+    assert ms.preview_cut([[1, 0, 0.5, 0.1, 0.2], [24, 1, 0.5, 0.1, 0.2]], 3) == 1.0  # l'extrait atteint la page 2
+    assert ms.preview_cut([[1, 0, 0.5, 0.1, 0.2], [20, 0, 0.5, 0.7, 0.8]], 1) == 0.5  # une seule page : la moitié au plus
+    assert ms.preview_cut([[30, 0, 0.5, 0.1, 0.2]], 3) == 0.2  # rien dans l'extrait : le haut seulement
