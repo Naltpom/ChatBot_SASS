@@ -54,7 +54,7 @@ from src.services.google_oauth import GoogleAuthError, verify_google_id_token
 from src.services.org_service import consume_invitations
 from src.services.rate_limit import auth_limiter, password_reset_email_limiter
 from src.services.stripe_service import billing_enabled
-from src.services.user_apps import app_from_request, record_app
+from src.services.user_apps import app_from_request, client_ip, record_app
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -82,7 +82,7 @@ def _send_password_changed(user: User) -> None:
 
 async def _check_auth_rate(request: Request) -> None:
     """Anti-bruteforce : limite les tentatives login/register par IP."""
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
     if not await auth_limiter.check(ip):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de tentatives, réessayez dans quelques minutes")

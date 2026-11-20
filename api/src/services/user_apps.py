@@ -6,12 +6,14 @@ chaque service utilisé avec sa première et sa dernière utilisation.
 
 Le front indique son service par l'en-tête `X-Chapote-App` (défaut : chapote).
 """
+import hmac
 from typing import Optional
 
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.time import utcnow
 from src.models.user import User, UserApp
 
@@ -44,3 +46,15 @@ async def apps_of(db: AsyncSession, user_id: int) -> list[dict]:
     rows = (await db.execute(select(UserApp).where(UserApp.user_id == user_id).order_by(UserApp.first_seen_at))).scalars()
     return [{"app": r.app, "first_seen_at": r.first_seen_at.isoformat() + "Z",
              "last_seen_at": r.last_seen_at.isoformat() + "Z"} for r in rows]
+
+
+def client_ip(request: Request) -> str:
+    """IP du visiteur pour les limiteurs. Derrière le nginx de music.chapote.fr, toutes les
+    requêtes arrivent du même conteneur : il transmet la vraie IP (X-Music-Client-IP) signée par
+    la clé partagée (X-Music-Proxy-Key = MUSIC_INGEST_TOKEN). Sans clé valable, l'IP vue par uvicorn."""
+    key = settings.MUSIC_INGEST_TOKEN
+    given = request.headers.get("x-music-proxy-key") or ""
+    forwarded = (request.headers.get("x-music-client-ip") or "").strip()
+    if key and forwarded and hmac.compare_digest(given, key):
+        return forwarded[:64]
+    return request.client.host if request.client else "unknown"
