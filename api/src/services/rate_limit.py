@@ -350,6 +350,8 @@ ip_limiter = RateLimiter(
 auth_limiter = RateLimiter("rl:auth:", 10, 900)
 # Boutique de partitions : devis avec code promo et commandes, par IP (anti-devinette des codes promo)
 music_limiter = RateLimiter("rl:music:", 30, 600)
+# Suivi des visites arrivées par un lien ?b=… (lots d'événements)
+track_limiter = RateLimiter("rl:mtrack:", 300, 600)
 # Vérification du 2nd facteur 2FA (TOTP/recovery/passkey) : anti-bruteforce du
 # code à 6 chiffres. Deux protections COMPLÉMENTAIRES (cf. routers/twofa) :
 #  1) THROTTLE PAR-IP ATOMIQUE (clé {user_id}:{ip}) : incrément-et-test en UN seul

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useCart } from '../cart'
 import { useAuth } from '../auth'
 import { LANGS, useI18n, type Lang } from '../i18n'
+import { consentState, setConsent, track, trackCode } from '../track'
 
 export function Logo({ size = 22 }: { size?: number }) {
   return (
@@ -108,7 +109,7 @@ function LangMenu({ lang, setLang, label }: { lang: Lang; setLang: (l: Lang) => 
           {LANGS.map(l => (
             <li key={l.code}>
               <button type="button" role="option" aria-selected={l.code === lang}
-                      onClick={() => { setLang(l.code); setOpen(false) }}>
+                      onClick={() => { track('lang', { to: l.code }); setLang(l.code); setOpen(false) }}>
                 <Flag code={l.code} /><span>{l.name}</span>
                 {l.code === lang && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>}
               </button>
@@ -133,6 +134,7 @@ export function Footer() {
             <Link to="/legal/use">{t.use}</Link>
             <Link to="/legal/privacy">{t.privacy}</Link>
             <Link to="/legal/notice">{t.notice}</Link>
+            {trackCode() && <button type="button" className="linkish" onClick={() => window.dispatchEvent(new Event('gh-track-manage'))}>{t.trackManage}</button>}
             <a href="mailto:music@chapote.fr">{t.contact}</a>
           </nav>
         </div>
@@ -164,4 +166,27 @@ export function Stars({ value, small, label, onPick }: { value: number; small?: 
 
 export function Center({ children }: { children: ReactNode }) {
   return <div className="center">{children}</div>
+}
+
+
+/** Bannière d'accord du suivi : seulement pour un visiteur arrivé par un lien suivi (?b=…), tant qu'il n'a pas choisi. */
+export function TrackBanner() {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(() => !!trackCode() && consentState() === null)
+  useEffect(() => {
+    const show = () => setOpen(true)
+    window.addEventListener('gh-track-manage', show)
+    return () => window.removeEventListener('gh-track-manage', show)
+  }, [])
+  if (!open || !trackCode()) return null
+  const choose = (yes: boolean) => { setConsent(yes); setOpen(false) }
+  return (
+    <div className="track-banner" role="dialog" aria-live="polite" aria-label={t.trackManage}>
+      <p>{t.trackText} <Link to="/legal/privacy">{t.trackManage}</Link></p>
+      <div className="track-actions">
+        <button type="button" className="btn ghost small" onClick={() => choose(false)}>{t.trackNo}</button>
+        <button type="button" className="btn small" onClick={() => choose(true)}>{t.trackYes}</button>
+      </div>
+    </div>
+  )
 }

@@ -5,6 +5,7 @@ import { useI18n } from '../i18n'
 import { useMoney } from '../money'
 import { Center, Icon } from '../components/ui'
 import Player from '../components/Player'
+import { track } from '../track'
 import { useAuth } from '../auth'
 
 export default function ThanksPage() {
@@ -24,6 +25,10 @@ export default function ThanksPage() {
       getOrder(order, { k, session_id: sessionId }).then(o => {
         if (!alive) return
         setData(o)
+        if (o.status === 'paid' && sessionStorage.getItem('gh-bought') !== order) {
+          try { sessionStorage.setItem('gh-bought', order) } catch { /* rien */ }
+          track('purchase', { cents: o.amount_cents, sheets: o.items.length })
+        }
         // paiement pas encore confirmé par Stripe : on réessaie quelques fois
         if (o.status === 'pending' && tries++ < 20) timer = setTimeout(load, 2000)
       }).catch(() => alive && setError(true))

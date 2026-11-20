@@ -128,12 +128,13 @@ Nathan Provost, personne physique, éditeur du service Chapote. Contact : rgpd@c
 - **Commande :** partitions achetées, montants, code promo, dates, horodatage du consentement à la fourniture immédiate, statut du paiement.
 - **Adresse e-mail :** celle que vous saisissez sur le site ou sur la page de paiement Stripe, pour vous envoyer vos liens de téléchargement.
 - **Pseudo Instagram (facultatif) :** pour vous envoyer aussi vos partitions dans la conversation Instagram où vous les avez demandées.
+- **Suivi d'un lien envoyé (seulement avec votre accord) :** si vous arrivez par un lien que nous vous avons envoyé sur Instagram, il porte un code ; avec votre accord (bannière), nous enregistrons avec ce code les pages vues et les actions faites sur le site pendant vos visites (lecture, panier, paiement), pour savoir si nos liens sont utiles. Ce code nous permet de savoir à quel compte Instagram nous avons envoyé le lien. Refuser ne change rien au site. Conservation : 13 mois. Vous pouvez changer d'avis par le lien « Statistiques de visite » en bas de page.
 - **Compte (facultatif) :** nom, adresse e-mail, mot de passe (conservé sous forme chiffrée irréversible) ou identifiant Google, service par lequel le compte a été créé et services utilisés (music.chapote.fr, chapote.fr).
 - **Avis :** note, commentaire et date, publiés avec le nom affiché du compte.
 - **Paiement :** traité par Stripe ; le site ne reçoit ni ne stocke vos données de carte bancaire.
 - **Données techniques :** journaux du serveur (dont l'adresse IP), pour la sécurité et le bon fonctionnement du site ; cookie de session si vous vous connectez.
 
-Le site n'utilise ni cookie publicitaire, ni outil de mesure d'audience, ni police ou script hébergé par un tiers. Votre navigateur garde votre langue et votre panier (stockage local), qui ne nous sont pas transmis.
+Le site n'utilise ni cookie publicitaire, ni outil de mesure d'audience tiers, ni police ou script hébergé par un tiers ; le seul suivi est celui des liens envoyés, décrit ci-dessus, avec votre accord. Votre navigateur garde votre langue et votre panier (stockage local), qui ne nous sont pas transmis.
 
 ## Finalités et bases légales
 - Exécution de la commande et livraison des partitions (dont l'envoi Instagram si vous l'avez demandé) : exécution du contrat.
@@ -274,12 +275,13 @@ Nathan Provost, individual, publisher of the Chapote service. Contact: rgpd@chap
 - **Order:** sheets bought, amounts, promo code, dates, timestamp of the consent to immediate supply, payment status.
 - **E-mail address:** the one you enter on the website or on the Stripe payment page, to send your download links.
 - **Instagram username (optional):** to also send your sheets in the Instagram conversation where you asked for them.
+- **Tracking of a link we sent (only with your consent):** if you arrive through a link we sent you on Instagram, it carries a code; with your consent (banner), we record with this code the pages viewed and the actions taken on the website during your visits (playing, cart, payment), to know whether our links are useful. This code tells us which Instagram account we sent the link to. Refusing changes nothing on the website. Retention: 13 months. You can change your mind with the "Visit statistics" link at the bottom of the page.
 - **Account (optional):** name, e-mail address, password (stored as an irreversible hash) or Google identifier, service where the account was created and services used (music.chapote.fr, chapote.fr).
 - **Reviews:** rating, comment and date, published with the account's display name.
 - **Payment:** processed by Stripe; the website neither receives nor stores your card data.
 - **Technical data:** server logs (including IP address), for security and proper operation; a session cookie if you sign in.
 
-The website uses no advertising cookie, no audience measurement tool, and no font or script hosted by a third party. Your browser keeps your language and your cart (local storage), which are not sent to us.
+The website uses no advertising cookie, no third-party audience measurement tool, and no font or script hosted by a third party; the only tracking is that of the links we send, described above, with your consent. Your browser keeps your language and your cart (local storage), which are not sent to us.
 
 ## Purposes and legal bases
 - Performing the order and delivering the sheets (including the Instagram delivery if you asked for it): performance of the contract.
@@ -420,12 +422,13 @@ Nathan Provost, persona física, editor del servicio Chapote. Contacto: rgpd@cha
 - **Pedido:** partituras compradas, importes, código promocional, fechas, fecha y hora del consentimiento al suministro inmediato, estado del pago.
 - **E-mail:** el que indicas en el sitio o en la página de pago de Stripe, para enviarte los enlaces de descarga.
 - **Usuario de Instagram (opcional):** para enviarte también las partituras en la conversación de Instagram donde las pediste.
+- **Seguimiento de un enlace enviado (solo con tu consentimiento):** si llegas por un enlace que te enviamos en Instagram, lleva un código; con tu consentimiento (banner), registramos con ese código las páginas vistas y las acciones en el sitio durante tus visitas (reproducción, carrito, pago), para saber si nuestros enlaces son útiles. Este código nos indica a qué cuenta de Instagram enviamos el enlace. Rechazar no cambia nada en el sitio. Conservación: 13 meses. Puedes cambiar de opinión con el enlace «Estadísticas de visita» al pie de la página.
 - **Cuenta (opcional):** nombre, e-mail, contraseña (guardada como hash irreversible) o identificador de Google, servicio desde el que se creó la cuenta y servicios usados (music.chapote.fr, chapote.fr).
 - **Opiniones:** nota, comentario y fecha, publicados con el nombre visible de la cuenta.
 - **Pago:** lo procesa Stripe; el sitio no recibe ni guarda los datos de tu tarjeta.
 - **Datos técnicos:** registros del servidor (incluida la dirección IP), para la seguridad y el buen funcionamiento del sitio; una cookie de sesión si inicias sesión.
 
-El sitio no usa cookies publicitarias, ni herramientas de medición de audiencia, ni fuentes o scripts alojados por terceros. Tu navegador guarda tu idioma y tu carrito (almacenamiento local), que no se nos envían.
+El sitio no usa cookies publicitarias, ni herramientas de medición de audiencia de terceros, ni fuentes o scripts alojados por terceros; el único seguimiento es el de los enlaces enviados, descrito arriba, con tu consentimiento. Tu navegador guarda tu idioma y tu carrito (almacenamiento local), que no se nos envían.
 
 ## Finalidades y bases legales
 - Ejecución del pedido y entrega de las partituras (incluido el envío por Instagram si lo pediste): ejecución del contrato.
@@ -566,12 +569,13 @@ music@chapote.fr`,
 - **Заказ:** купленные ноты, суммы, промокод, даты, время согласия на немедленное предоставление, статус оплаты.
 - **E-mail:** адрес, указанный на сайте или на странице оплаты Stripe, для отправки ссылок на скачивание.
 - **Ник в Instagram (необязательно):** чтобы также отправить ноты в диалог Instagram, где вы их просили.
+- **Отслеживание присланной ссылки (только с вашего согласия):** если вы пришли по ссылке, которую мы отправили вам в Instagram, в ней есть код; с вашего согласия (баннер) мы записываем с этим кодом просмотренные страницы и действия на сайте во время ваших визитов (прослушивание, корзина, оплата), чтобы понять, полезны ли наши ссылки. Этот код показывает, какому аккаунту Instagram мы отправили ссылку. Отказ ничего не меняет на сайте. Срок хранения: 13 месяцев. Передумать можно по ссылке «Статистика посещений» внизу страницы.
 - **Аккаунт (необязательно):** имя, e-mail, пароль (хранится в виде необратимого хеша) или идентификатор Google, сервис, через который создан аккаунт, и используемые сервисы (music.chapote.fr, chapote.fr).
 - **Отзывы:** оценка, комментарий и дата, публикуются с отображаемым именем аккаунта.
 - **Оплата:** обрабатывается Stripe; сайт не получает и не хранит данные вашей карты.
 - **Технические данные:** журналы сервера (включая IP-адрес) для безопасности и нормальной работы сайта; cookie сеанса, если вы входите в аккаунт.
 
-Сайт не использует рекламные cookie, инструменты веб-аналитики, а также шрифты и скрипты сторонних серверов. Ваш браузер хранит язык и корзину (локальное хранилище); эти данные нам не передаются.
+Сайт не использует рекламные cookie, сторонние инструменты веб-аналитики, а также шрифты и скрипты сторонних серверов; единственное отслеживание — присланных ссылок, описанное выше, с вашего согласия. Ваш браузер хранит язык и корзину (локальное хранилище); эти данные нам не передаются.
 
 ## Цели и правовые основания
 - Исполнение заказа и доставка нот (включая отправку в Instagram, если вы её запросили): исполнение договора.

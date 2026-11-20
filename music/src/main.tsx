@@ -5,7 +5,8 @@ import { CartProvider } from './cart'
 import { AuthProvider } from './auth'
 import { RatesProvider } from './money'
 import { LangProvider, useI18n } from './i18n'
-import { Center, Footer, Header } from './components/ui'
+import { Center, Footer, Header, TrackBanner } from './components/ui'
+import { captureParams, landing, track } from './track'
 import CheckoutSheet from './components/CheckoutSheet'
 import CataloguePage from './pages/Catalogue'
 import PiecePage from './pages/Piece'
@@ -21,6 +22,8 @@ function NotFound() {
 
 function Shell() {
   const { pathname } = useLocation()
+  useEffect(() => { landing() }, [])
+  useEffect(() => { track('page') }, [pathname])
   useEffect(() => {
     window.scrollTo(0, 0)
     if (pathname === '/') document.title = 'Ghost Hands Sheets — sheet music from the Reels'
@@ -38,9 +41,12 @@ function Shell() {
       </Routes>
       <Footer />
       <CheckoutSheet />
+      <TrackBanner />
     </div>
   )
 }
+
+captureParams()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

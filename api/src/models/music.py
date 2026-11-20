@@ -131,6 +131,8 @@ class MusicOrder(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
     # Partition offerte par un administrateur (commande à 0 €, sans paiement).
     granted_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Code de suivi du lien d'arrivée (?b=…), si le visiteur a accepté le suivi.
+    track_code = Column(String(16), nullable=True, index=True)
 
 
 class MusicOrderItem(Base):
@@ -157,3 +159,28 @@ class MusicReview(Base):
     hidden = Column(Boolean, nullable=False, default=False)  # retiré par l'admin (règles des CGU)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class MusicTrackLink(Base):
+    """Lien suivi envoyé à quelqu'un (ex. réponse à « SHEET ») : son code ?b=… et à qui il a été donné."""
+    __tablename__ = "music_track_links"
+
+    code = Column(String(16), primary_key=True)
+    instagram_username = Column(String(60), nullable=True)
+    source = Column(String(40), nullable=True)            # sheet_dm, merci…
+    sheet_ref = Column(String(120), nullable=True)        # source_ref de la partition du lien
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class MusicTrackEvent(Base):
+    """Ce que fait sur le site un visiteur arrivé par un lien suivi, après avoir accepté le suivi."""
+    __tablename__ = "music_track_events"
+    __table_args__ = (Index("ix_music_track_events_code_at", "code", "created_at"),)
+
+    id = Column(Integer, primary_key=True)
+    code = Column(String(16), nullable=False)
+    visit = Column(String(16), nullable=False)            # une visite (onglet) : plusieurs par code
+    kind = Column(String(40), nullable=False)             # landing, page, play, add_to_cart, checkout, purchase…
+    path = Column(String(300), nullable=True)
+    data = Column(Text, nullable=True)                    # JSON court (instrument, montant…)
+    created_at = Column(DateTime, nullable=False, default=utcnow)

@@ -8,6 +8,7 @@ import { useCart } from '../cart'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { useMoney } from '../money'
+import { savedPromo, track, trackCode, trackingOn } from '../track'
 import { Icon, Paper } from './ui'
 
 export default function CheckoutSheet() {
@@ -16,8 +17,9 @@ export default function CheckoutSheet() {
   const cart = useCart()
   const lines = cart.sheet
   const [quote, setQuote] = useState<Quote | null>(null)
-  const [promo, setPromo] = useState('')
-  const [appliedPromo, setAppliedPromo] = useState('')
+  // code reçu dans le lien (?code=INSTA20) : appliqué tout seul
+  const [promo, setPromo] = useState(savedPromo)
+  const [appliedPromo, setAppliedPromo] = useState(savedPromo)
   const { me } = useAuth()
   const [email, setEmail] = useState('')
   const [instagram, setInstagram] = useState('')
@@ -61,8 +63,10 @@ export default function CheckoutSheet() {
     if (free && !email.trim()) { setErr(t.emailRequired); return }
     setBusy(true)
     try {
+      track('checkout', { cents: quote?.total_cents, sheets: ids.length, promo: quote?.promo_code || null })
       const r = await postCheckout({ sheet_ids: ids, promo_code: quote?.promo_code || undefined, email: email.trim() || undefined,
-                                    instagram: instagram.trim() || undefined, consent, lang })
+                                    instagram: instagram.trim() || undefined, consent, lang,
+                                    track: trackingOn() ? trackCode() || undefined : undefined })
       // l'achat est parti : on retire ces partitions du panier
       ids.forEach(id => cart.lines.some(l => l.id === id) && cart.remove(id))
       window.location.assign(r.redirect)
@@ -106,7 +110,7 @@ export default function CheckoutSheet() {
                 <label htmlFor="promo" className="sr">{t.code}</label>
                 <input id="promo" className="field" value={promo} placeholder={t.code} autoCapitalize="characters"
                        onChange={e => setPromo(e.target.value.toUpperCase())} />
-                <button type="button" className="btn dark small" onClick={() => setAppliedPromo(promo.trim())}>{t.apply}</button>
+                <button type="button" className="btn dark small" onClick={() => { track('promo', { code: promo.trim().toUpperCase() }); setAppliedPromo(promo.trim()) }}>{t.apply}</button>
               </div>
               {appliedPromo && quote && !quote.promo_error && <div className="msg ok" style={{ marginTop: 8 }}>{t.promoOk(appliedPromo)}</div>}
               {promoError && <div className="msg err" style={{ marginTop: 8 }}>{promoError}</div>}

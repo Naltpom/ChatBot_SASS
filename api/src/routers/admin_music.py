@@ -31,6 +31,8 @@ from src.models.music import (
     MusicPromoCode,
     MusicReview,
     MusicSheet,
+    MusicTrackEvent,
+    MusicTrackLink,
 )
 from src.models.user import User, UserApp
 from src.services import music_service as ms
@@ -422,3 +424,68 @@ async def patch_review(review_id: int, body: ReviewPatch, db: AsyncSession = Dep
     r.hidden = body.hidden
     await db.commit()
     return {"id": r.id, "hidden": r.hidden}
+
+
+
+# --------------------------------------------------------------------------
+# Suivi des liens (?b=…) : qui a cliqué, ce qu'il a fait (visiteurs qui ont accepté le suivi)
+# --------------------------------------------------------------------------
+
+FUNNEL = ("landing", "page", "play", "add_to_cart", "checkout_open", "checkout", "purchase")
+
+
+@router.get("/tracking")
+async def tracking(offset: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db)):
+    offset, limit = max(0, offset), max(1, min(limit, 200))
+    ev = (select(MusicTrackEvent.code, func.min(MusicTrackEvent.created_at).label("first"),
+                 func.max(MusicTrackEvent.created_at).label("last"), func.count(MusicTrackEvent.id).label("n"),
+                 func.count(func.distinct(MusicTrackEvent.visit)).label("visits"))
+          .group_by(MusicTrackEvent.code).subquery())
+    links_total = (await db.execute(select(func.count(MusicTrackLink.code)))).scalar_one()
+    clicked = (await db.execute(select(func.count()).select_from(ev))).scalar_one()
+    rows = (await db.execute(
+        select(ev.c.code, ev.c.first, ev.c.last, ev.c.n, ev.c.visits, MusicTrackLink)
+        .outerjoin(MusicTrackLink, MusicTrackLink.code == ev.c.code)
+        .order_by(ev.c.last.desc()).offset(offset).limit(limit))).all()
+    codes = [r[0] for r in rows]
+    kinds: dict[str, dict[str, int]] = {}
+    orders: dict[str, tuple[int, int]] = {}
+    if codes:
+        for code, kind, n in (await db.execute(
+                select(MusicTrackEvent.code, MusicTrackEvent.kind, func.count(MusicTrackEvent.id))
+                .where(MusicTrackEvent.code.in_(codes)).group_by(MusicTrackEvent.code, MusicTrackEvent.kind))).all():
+            kinds.setdefault(code, {})[kind] = int(n)
+        for code, n, cents in (await db.execute(
+                select(MusicOrder.track_code, func.count(MusicOrder.id), func.coalesce(func.sum(MusicOrder.amount_cents), 0))
+                .where(MusicOrder.track_code.in_(codes), MusicOrder.status == ORDER_PAID)
+                .group_by(MusicOrder.track_code))).all():
+            orders[code] = (int(n), int(cents))
+    return {
+        "links_sent": int(links_total), "links_with_visits": int(clicked),
+        "next_offset": offset + limit if offset + limit < clicked else None,
+        "rows": [{
+            "code": code, "instagram": link.instagram_username if link else None,
+            "source": link.source if link else None, "sheet_ref": link.sheet_ref if link else None,
+            "sent_at": _iso(link.created_at) if link else None, "first_at": _iso(first), "last_at": _iso(last),
+            "events": int(n), "visits": int(visits), "kinds": kinds.get(code, {}),
+            "orders": orders.get(code, (0, 0))[0], "revenue_cents": orders.get(code, (0, 0))[1],
+        } for code, first, last, n, visits, link in rows],
+    }
+
+
+@router.get("/tracking/{code}")
+async def tracking_detail(code: str, db: AsyncSession = Depends(get_db)):
+    link = await db.get(MusicTrackLink, code)
+    events = (await db.execute(select(MusicTrackEvent).where(MusicTrackEvent.code == code)
+                               .order_by(MusicTrackEvent.created_at, MusicTrackEvent.id).limit(2000))).scalars().all()
+    if link is None and not events:
+        raise HTTPException(404, "Lien inconnu")
+    orders = (await db.execute(select(MusicOrder).where(MusicOrder.track_code == code)
+                               .order_by(MusicOrder.created_at))).scalars().all()
+    return {
+        "code": code, "instagram": link.instagram_username if link else None, "source": link.source if link else None,
+        "sheet_ref": link.sheet_ref if link else None, "sent_at": _iso(link.created_at) if link else None,
+        "events": [{"at": _iso(e.created_at), "visit": e.visit, "kind": e.kind, "path": e.path, "data": e.data} for e in events],
+        "orders": [{"public_id": o.public_id, "status": o.status, "amount_cents": o.amount_cents,
+                    "created_at": _iso(o.created_at), "promo_code": o.promo_code} for o in orders],
+    }
