@@ -23,6 +23,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
@@ -35,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
+from src.core.security import get_current_user, get_optional_user
 from src.core.time import utcnow
 from src.models.music import (
     ORDER_EXPIRED,
@@ -43,8 +45,11 @@ from src.models.music import (
     ORDER_PENDING,
     MusicOrder,
     MusicOrderItem,
+    MusicReview,
     MusicSheet,
 )
+from src.models.user import User
+from src.services.user_apps import record_app
 from src.services import music_service as ms
 from src.services import stripe_service
 from src.services.stripe_service import StripeError
@@ -62,9 +67,15 @@ def _err(exc: ms.MusicError) -> HTTPException:
 # Catalogue
 # --------------------------------------------------------------------------
 
-def _sheet_public(s: MusicSheet, st) -> dict:
+def _sheet_public(s: MusicSheet, st, stats: Optional[dict] = None) -> dict:
+    stats = stats or {}
     return {
         "id": s.id,
+        "likes": s.instagram_likes,
+        "downloads": stats.get("downloads", 0),
+        "rating": stats.get("rating"),
+        "reviews": stats.get("reviews", 0),
+        "has_notes": s.has_notes,
         "instrument": s.instrument,
         "instrument_label": s.instrument_label,
         "pages": s.pages,
@@ -79,9 +90,10 @@ def _sheet_public(s: MusicSheet, st) -> dict:
     }
 
 
-def _pieces(sheets: list[MusicSheet], st) -> list[dict]:
+def _pieces(sheets: list[MusicSheet], st, stats: Optional[dict] = None) -> list[dict]:
     pieces: dict[str, dict] = {}
     now = utcnow()
+    stats = stats or {}
     for s in sheets:
         p = pieces.get(s.piece_slug)
         if p is None:
@@ -89,7 +101,7 @@ def _pieces(sheets: list[MusicSheet], st) -> list[dict]:
                 "slug": s.piece_slug, "title": s.piece_title, "composer": s.composer,
                 "public_domain": s.public_domain, "sheets": [], "_latest": None,
             }
-        p["sheets"].append(_sheet_public(s, st))
+        p["sheets"].append(_sheet_public(s, st, stats.get(s.id)))
         rel = s.released_at or s.created_at
         if p["_latest"] is None or rel > p["_latest"]:
             p["_latest"] = rel
@@ -101,13 +113,49 @@ def _pieces(sheets: list[MusicSheet], st) -> list[dict]:
         p["is_new"] = bool(latest and now - latest < timedelta(days=ms.NEW_DAYS))
         p["latest"] = latest.isoformat() + "Z" if latest else None
         p["cover"] = next((x["cover"] for x in p["sheets"] if x["cover"]), None)
+        likes = [x["likes"] for x in p["sheets"] if x["likes"] is not None]
+        p["likes"] = sum(likes) if likes else None
+        p["downloads"] = sum(x["downloads"] for x in p["sheets"])
+        n = sum(x["reviews"] for x in p["sheets"])
+        p["reviews"] = n
+        p["rating"] = (round(sum((x["rating"] or 0) * x["reviews"] for x in p["sheets"]) / n, 1) if n else None)
         out.append(p)
     out.sort(key=lambda p: p["latest"] or "", reverse=True)
     return out
 
 
+async def _sheet_stats(db: AsyncSession, ids: list[int]) -> dict[int, dict]:
+    """Téléchargements réels (commandes payées) et note moyenne des avis visibles, par partition."""
+    if not ids:
+        return {}
+    out: dict[int, dict] = {i: {"downloads": 0, "rating": None, "reviews": 0} for i in ids}
+    rows = (await db.execute(
+        select(MusicOrderItem.sheet_id, func.coalesce(func.sum(MusicOrderItem.downloads), 0))
+        .join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
+        .where(MusicOrder.status == ORDER_PAID, MusicOrderItem.sheet_id.in_(ids))
+        .group_by(MusicOrderItem.sheet_id))).all()
+    for sid, n in rows:
+        out[sid]["downloads"] = int(n)
+    rows = (await db.execute(
+        select(MusicReview.sheet_id, func.avg(MusicReview.rating), func.count(MusicReview.id))
+        .where(MusicReview.sheet_id.in_(ids), MusicReview.hidden.is_(False))
+        .group_by(MusicReview.sheet_id))).all()
+    for sid, avg, n in rows:
+        out[sid]["rating"] = round(float(avg), 1)
+        out[sid]["reviews"] = int(n)
+    return out
+
+
+@router.get("/config")
+async def music_config():
+    """Réglages publics du site (connexion Google si configurée)."""
+    return {"google_client_id": settings.GOOGLE_CLIENT_ID or None}
+
+
 @router.get("/catalog")
 async def catalog(instrument: Optional[str] = None, q: Optional[str] = None,
+                  offset: int = Query(0, ge=0), limit: int = Query(24, ge=1, le=60),
+                  sort: str = Query("new", pattern="^(new|popular|az)$"),
                   db: AsyncSession = Depends(get_db)):
     st = await ms.get_settings(db)
     stmt = select(MusicSheet).where(MusicSheet.published.is_(True))
@@ -116,14 +164,24 @@ async def catalog(instrument: Optional[str] = None, q: Optional[str] = None,
         stmt = stmt.where(or_(MusicSheet.piece_title.ilike(like), MusicSheet.composer.ilike(like),
                               MusicSheet.title.ilike(like)))
     sheets = (await db.execute(stmt)).scalars().all()
-    pieces = _pieces(list(sheets), st)
+    pieces = _pieces(list(sheets), st, await _sheet_stats(db, [s.id for s in sheets]))
     if instrument:
         pieces = [p for p in pieces if any(x["instrument"] == instrument for x in p["sheets"])]
+    if sort == "popular":
+        pieces.sort(key=lambda p: (-(p["likes"] or 0), -(p["downloads"] or 0)))
+    elif sort == "az":
+        pieces.sort(key=lambda p: p["title"].lower())
     instruments: dict[str, str] = {}
-    for s in sheets:
-        instruments[s.instrument] = s.instrument_label
+    all_published = (await db.execute(select(MusicSheet.instrument, MusicSheet.instrument_label)
+                                      .where(MusicSheet.published.is_(True)).distinct())).all()
+    for key, label in all_published:
+        instruments[key] = label
+    total = len(pieces)
+    page = pieces[offset:offset + limit]
     return {
-        "pieces": pieces,
+        "pieces": page,
+        "total": total,
+        "next_offset": offset + limit if offset + limit < total else None,
         "instruments": [{"key": k, "label": v} for k, v in sorted(instruments.items(), key=lambda kv: kv[1])],
         "pricing": {"unit_cents": st.unit_price_cents, "bundle_cents": st.bundle_price_cents, "currency": st.currency},
     }
@@ -136,7 +194,7 @@ async def piece(slug: str, db: AsyncSession = Depends(get_db)):
         MusicSheet.piece_slug == slug, MusicSheet.published.is_(True)))).scalars().all()
     if not sheets:
         raise HTTPException(404, {"code": "not_found", "message": "This piece is not available."})
-    p = _pieces(list(sheets), st)[0]
+    p = _pieces(list(sheets), st, await _sheet_stats(db, [s.id for s in sheets]))[0]
     p["pricing"] = {"unit_cents": st.unit_price_cents, "bundle_cents": st.bundle_price_cents, "currency": st.currency}
     return p
 
@@ -190,11 +248,27 @@ async def post_quote(body: QuoteIn, db: AsyncSession = Depends(get_db)):
 class CheckoutIn(QuoteIn):
     email: Optional[EmailStr] = None
     consent: bool = False
-    lang: str = Field("en", pattern="^(en|fr)$")
+    lang: str = Field("en", pattern="^(en|fr|es|ru)$")
+    instagram: Optional[str] = Field(None, max_length=60)
+
+
+IG_USERNAME = re.compile(r"^[A-Za-z0-9._]{1,30}$")
+
+
+def _clean_instagram(raw: Optional[str]) -> Optional[str]:
+    """Pseudo Instagram facultatif : « @nom », « instagram.com/nom/ » ou « nom » -> « nom »."""
+    v = (raw or "").strip()
+    if not v:
+        return None
+    v = re.sub(r"^(https?://)?(www\.)?instagram\.com/", "", v, flags=re.I).strip("/").lstrip("@").lower()
+    if not IG_USERNAME.match(v):
+        raise HTTPException(400, {"code": "instagram_invalid", "message": "Invalid Instagram username."})
+    return v
 
 
 @router.post("/checkout")
-async def checkout(body: CheckoutIn, db: AsyncSession = Depends(get_db)):
+async def checkout(body: CheckoutIn, db: AsyncSession = Depends(get_db),
+                   user: Optional[User] = Depends(get_optional_user)):
     if not body.consent:
         raise HTTPException(400, {"code": "consent_required",
                                   "message": "Please confirm you want immediate access to the PDF."})
@@ -210,8 +284,11 @@ async def checkout(body: CheckoutIn, db: AsyncSession = Depends(get_db)):
     if q.total_cents > 0 and not settings.MOCK_BILLING and not settings.STRIPE_SECRET_KEY:
         raise HTTPException(503, {"code": "payments_off", "message": "Payments are not available right now."})
 
+    instagram = _clean_instagram(body.instagram)
+    email = str(body.email) if body.email else (user.email if user else None)
     order = MusicOrder(
-        public_id=uuid.uuid4().hex, status=ORDER_PENDING, email=body.email, lang=body.lang,
+        public_id=uuid.uuid4().hex, status=ORDER_PENDING, email=email, lang=body.lang,
+        user_id=user.id if user else None, instagram_username=instagram,
         subtotal_cents=q.subtotal_cents, discount_cents=q.discount_cents, amount_cents=q.total_cents,
         currency=q.currency, promo_code_id=q.promo.id if q.promo else None,
         promo_code=q.promo.code if q.promo else None, consent_at=utcnow(),
@@ -245,8 +322,8 @@ async def checkout(body: CheckoutIn, db: AsyncSession = Depends(get_db)):
         "payment_intent_data[metadata][music_order]": order.public_id,
         "payment_intent_data[description]": f"Ghost Hands sheets — order {order.public_id[:8]}",
     }
-    if body.email:
-        data["customer_email"] = str(body.email)
+    if email:
+        data["customer_email"] = email
     if any(i.price_cents <= 0 for i in items):
         # Stripe refuse les lignes à 0 : une seule ligne pour toute la commande.
         data.update({
@@ -328,7 +405,8 @@ async def get_order(public_id: str, k: Optional[str] = None, session_id: Optiona
         "currency": order.currency,
         "links_valid": valid,
         "items": [{
-            "id": it.id, "piece_title": s.piece_title, "piece_slug": s.piece_slug,
+            "id": it.id, "sheet_id": s.id, "has_notes": s.has_notes, "instrument": s.instrument,
+            "piece_title": s.piece_title, "piece_slug": s.piece_slug,
             "instrument_label": s.instrument_label, "pages": s.pages, "price_cents": it.price_cents,
             "download": (f"/api/music/download/{order.public_id}/{it.id}?k={ms.download_key(order.public_id)}"
                          if valid else None),
@@ -424,7 +502,8 @@ class IngestMeta(BaseModel):
 
 @router.post("/ingest", dependencies=[Depends(_require_ingest)])
 async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
-                 cover: Optional[UploadFile] = File(None), db: AsyncSession = Depends(get_db)):
+                 cover: Optional[UploadFile] = File(None), notes: Optional[UploadFile] = File(None),
+                 db: AsyncSession = Depends(get_db)):
     try:
         m = IngestMeta(**json.loads(meta))
     except Exception as exc:
@@ -463,6 +542,11 @@ async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
         sheet.pages = pages
     if cover_bytes and ms.cover_path(sheet.id).exists():
         sheet.has_cover = True
+    if notes is not None:
+        try:
+            sheet.has_notes = ms.save_notes(sheet.id, json.loads((await notes.read()).decode("utf-8")))
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise HTTPException(422, f"notes.json invalide : {exc}")
     await db.commit()
     return {"created": created, **_state(sheet)}
 
@@ -473,3 +557,190 @@ async def ingest_state(source_ref: str, db: AsyncSession = Depends(get_db)):
     if sheet is None:
         raise HTTPException(404, "Inconnue")
     return _state(sheet)
+
+
+# --------------------------------------------------------------------------
+# Chiffres Instagram (envoyés par la production) et envoi Instagram des commandes
+# --------------------------------------------------------------------------
+
+class StatLine(BaseModel):
+    source_ref: str = Field(..., max_length=200)
+    likes: Optional[int] = Field(None, ge=0)
+    comments: Optional[int] = Field(None, ge=0)
+
+
+@router.post("/ingest/stats", dependencies=[Depends(_require_ingest)])
+async def ingest_stats(lines: list[StatLine], db: AsyncSession = Depends(get_db)):
+    refs = {l.source_ref: l for l in lines[:2000]}
+    sheets = (await db.execute(select(MusicSheet).where(MusicSheet.source_ref.in_(refs)))).scalars().all()
+    now = utcnow()
+    for sh in sheets:
+        l = refs[sh.source_ref]
+        sh.instagram_likes, sh.instagram_comments, sh.stats_updated_at = l.likes, l.comments, now
+    await db.commit()
+    return {"updated": len(sheets)}
+
+
+@router.get("/ingest/instagram-pending", dependencies=[Depends(_require_ingest)])
+async def instagram_pending(db: AsyncSession = Depends(get_db)):
+    """Commandes payées depuis moins de 48 h avec un pseudo Instagram, pas encore traitées."""
+    since = utcnow() - timedelta(hours=48)
+    orders = (await db.execute(select(MusicOrder).where(
+        MusicOrder.status == ORDER_PAID, MusicOrder.instagram_username.is_not(None),
+        MusicOrder.instagram_status.is_(None), MusicOrder.paid_at >= since))).scalars().all()
+    out = []
+    for o in orders:
+        items = await ms.order_items(db, o)
+        out.append({"order": o.public_id, "username": o.instagram_username, "lang": o.lang,
+                    "paid_at": o.paid_at.isoformat() + "Z",
+                    "items": [{"source_ref": sh.source_ref, "title": f"{sh.piece_title} — {sh.instrument_label}",
+                               "download_url": ms.download_url(o, it)} for it, sh in items]})
+    return {"orders": out}
+
+
+class InstagramDone(BaseModel):
+    order: str = Field(..., max_length=40)
+    status: str = Field(..., pattern="^(sent|no_conversation|window_closed|error)$")
+
+
+@router.post("/ingest/instagram-done", dependencies=[Depends(_require_ingest)])
+async def instagram_done(body: InstagramDone, db: AsyncSession = Depends(get_db)):
+    o = (await db.execute(select(MusicOrder).where(MusicOrder.public_id == body.order))).scalar_one_or_none()
+    if o is None:
+        raise HTTPException(404, "Commande inconnue")
+    o.instagram_status = body.status
+    if body.status == "sent":
+        o.instagram_sent_at = utcnow()
+    await db.commit()
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Lecteur : notes horodatées (aperçu de PREVIEW_SECONDS, complet pour l'acheteur)
+# --------------------------------------------------------------------------
+
+async def _owns_sheet(db: AsyncSession, sheet_id: int, *, user: Optional[User] = None,
+                      order: Optional[str] = None, key: Optional[str] = None) -> bool:
+    """Vrai si la commande donnée (clé valide) ou le compte connecté a payé cette partition."""
+    stmt = (select(MusicOrderItem.id).join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
+            .where(MusicOrderItem.sheet_id == sheet_id, MusicOrder.status == ORDER_PAID))
+    if order and ms.check_key(order, key):
+        if (await db.execute(stmt.where(MusicOrder.public_id == order))).first():
+            return True
+    if user is not None:
+        cond = or_(MusicOrder.user_id == user.id, func.lower(MusicOrder.email) == user.email.lower())
+        if (await db.execute(stmt.where(cond))).first():
+            return True
+    return False
+
+
+@router.get("/sheets/{sheet_id}/notes")
+async def sheet_notes(sheet_id: int, order: Optional[str] = None, k: Optional[str] = None,
+                      db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(get_optional_user)):
+    s = await _published_sheet(db, sheet_id)
+    data = ms.load_notes(s.id) if s.has_notes else None
+    if data is None:
+        raise HTTPException(404, "Pas de notes pour cette partition")
+    full = await _owns_sheet(db, s.id, user=user, order=order, key=k)
+    if not full:
+        data = ms.preview_notes(data)
+    return {**data, "full": full}
+
+
+@router.get("/sheets/{sheet_id}/clear/{page}.png")
+async def clear_page(sheet_id: int, page: int, order: Optional[str] = None, k: Optional[str] = None,
+                     db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(get_optional_user)):
+    """Page nette (lecteur de l'acheteur) : seulement pour qui a payé la partition."""
+    s = await _published_sheet(db, sheet_id)
+    if page < 1 or page > s.pages or not await _owns_sheet(db, s.id, user=user, order=order, key=k):
+        raise HTTPException(404, "Introuvable")
+    path = ms.clear_page_path(s.id, page)
+    if not path.exists():
+        raise HTTPException(404, "Introuvable")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+# --------------------------------------------------------------------------
+# Compte (partagé avec chapote.fr) : mes partitions
+# --------------------------------------------------------------------------
+
+@router.get("/account")
+async def account(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    await record_app(db, user, "music")
+    await db.commit()
+    rows = (await db.execute(
+        select(MusicOrder, MusicOrderItem, MusicSheet)
+        .join(MusicOrderItem, MusicOrderItem.order_id == MusicOrder.id)
+        .join(MusicSheet, MusicSheet.id == MusicOrderItem.sheet_id)
+        .where(MusicOrder.status == ORDER_PAID,
+               or_(MusicOrder.user_id == user.id, func.lower(MusicOrder.email) == user.email.lower()))
+        .order_by(MusicOrder.paid_at.desc()))).all()
+    reviewed = {r.sheet_id: r.rating for r in (await db.execute(
+        select(MusicReview).where(MusicReview.user_id == user.id))).scalars()}
+    sheets, seen = [], set()
+    for o, it, sh in rows:
+        if sh.id in seen:
+            continue
+        seen.add(sh.id)
+        sheets.append({
+            "sheet_id": sh.id, "piece_slug": sh.piece_slug, "piece_title": sh.piece_title,
+            "instrument_label": sh.instrument_label, "pages": sh.pages, "has_notes": sh.has_notes,
+            "bought_at": o.paid_at.isoformat() + "Z" if o.paid_at else None,
+            "download": (f"/api/music/download/{o.public_id}/{it.id}?k={ms.download_key(o.public_id)}"
+                         if ms.links_valid(o) else None),
+            "my_rating": reviewed.get(sh.id),
+        })
+    return {"user": {"name": user.name, "email": user.email, "signup_app": user.signup_app}, "sheets": sheets}
+
+
+# --------------------------------------------------------------------------
+# Avis (acheteurs vérifiés)
+# --------------------------------------------------------------------------
+
+def _display_name(u: User) -> str:
+    parts = (u.name or "").split()
+    if not parts:
+        return "—"
+    return parts[0] if len(parts) == 1 else f"{parts[0]} {parts[-1][0]}."
+
+
+@router.get("/pieces/{slug}/reviews")
+async def piece_reviews(slug: str, offset: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=50),
+                        db: AsyncSession = Depends(get_db)):
+    base = (select(MusicReview, MusicSheet, User)
+            .join(MusicSheet, MusicSheet.id == MusicReview.sheet_id)
+            .join(User, User.id == MusicReview.user_id)
+            .where(MusicSheet.piece_slug == slug, MusicSheet.published.is_(True), MusicReview.hidden.is_(False)))
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    rows = (await db.execute(base.order_by(MusicReview.updated_at.desc()).offset(offset).limit(limit))).all()
+    return {
+        "total": int(total),
+        "next_offset": offset + limit if offset + limit < total else None,
+        "reviews": [{"id": r.id, "rating": r.rating, "comment": r.comment, "author": _display_name(u),
+                     "instrument_label": sh.instrument_label, "date": r.updated_at.isoformat() + "Z"}
+                    for r, sh, u in rows],
+    }
+
+
+class ReviewIn(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    comment: Optional[str] = Field(None, max_length=2000)
+
+
+@router.post("/sheets/{sheet_id}/review")
+async def post_review(sheet_id: int, body: ReviewIn, db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    s = await _published_sheet(db, sheet_id)
+    if not await _owns_sheet(db, s.id, user=user):
+        raise HTTPException(403, {"code": "not_a_buyer", "message": "Only buyers can rate this sheet."})
+    r = (await db.execute(select(MusicReview).where(MusicReview.sheet_id == s.id,
+                                                    MusicReview.user_id == user.id))).scalar_one_or_none()
+    comment = (body.comment or "").strip() or None
+    if r is None:
+        r = MusicReview(sheet_id=s.id, user_id=user.id, rating=body.rating, comment=comment, hidden=False)
+        db.add(r)
+    else:
+        r.rating, r.comment = body.rating, comment
+    await record_app(db, user, "music")
+    await db.commit()
+    return {"id": r.id, "rating": r.rating, "comment": r.comment}

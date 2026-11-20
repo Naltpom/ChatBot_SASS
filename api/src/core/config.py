@@ -121,6 +121,13 @@ class Settings(BaseSettings):
     MUSIC_DIR: str = "/app/music_files"
     # Durée de validité des liens de téléchargement après paiement (jours).
     MUSIC_DOWNLOAD_DAYS: int = 365
+    # Expéditeur et adresse de réponse des e-mails de la boutique (alias de contact@).
+    MUSIC_EMAIL_FROM: str = "Ghost Hands Sheets <music@chapote.fr>"
+    MUSIC_REPLY_TO: str = "music@chapote.fr"
+    # Domaine du cookie de session, partagé par les sous-domaines (chapote.fr ->
+    # chapote.fr, music.chapote.fr…). Vide = en production, domaine parent commun
+    # d'APP_URL et MUSIC_URL ; en dev, cookie limité à l'hôte.
+    AUTH_COOKIE_DOMAIN: str | None = None
 
     # Uploads (images avatar/lanceur) — volume Docker
     UPLOAD_DIR: str = "/app/uploads"
@@ -209,6 +216,24 @@ class Settings(BaseSettings):
     @property
     def webauthn_origin(self) -> str:
         return self.APP_URL.rstrip("/")
+
+    @property
+    def cookie_domain(self) -> str | None:
+        """Domaine du cookie de session. Explicite (AUTH_COOKIE_DOMAIN) ou, en
+        production, suffixe commun des hôtes d'APP_URL et MUSIC_URL (au moins
+        deux labels : « chapote.fr »). None = cookie limité à l'hôte (dev)."""
+        if self.AUTH_COOKIE_DOMAIN:
+            return self.AUTH_COOKIE_DOMAIN.lstrip(".")
+        if not self.is_production:
+            return None
+        from urllib.parse import urlparse
+        hosts = [(urlparse(u).hostname or "").split(".") for u in (self.APP_URL, self.MUSIC_URL)]
+        common: list[str] = []
+        for a, b in zip(reversed(hosts[0]), reversed(hosts[1])):
+            if a != b or not a:
+                break
+            common.insert(0, a)
+        return ".".join(common) if len(common) >= 2 else None
 
     @property
     def is_production(self) -> bool:

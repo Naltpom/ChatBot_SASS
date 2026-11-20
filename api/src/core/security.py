@@ -75,6 +75,10 @@ AUTH_COOKIE_NAME = "chapote_session"
 def set_auth_cookie(response: Response, token: str) -> None:
     """Pose le JWT dashboard dans le cookie de session httpOnly (durée = TTL du
     JWT). À appeler par tout endpoint qui authentifie (login/register/SSO/2FA)."""
+    domain = settings.cookie_domain
+    if domain:
+        # ancien cookie limité à l'hôte (avant le partage entre sous-domaines) : retiré
+        response.delete_cookie(key=AUTH_COOKIE_NAME, path="/", samesite="lax", secure=settings.is_production)
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=token,
@@ -83,6 +87,7 @@ def set_auth_cookie(response: Response, token: str) -> None:
         samesite="lax",
         secure=settings.is_production,
         path="/",
+        domain=domain,
     )
 
 
@@ -95,6 +100,10 @@ def clear_auth_cookie(response: Response) -> None:
         samesite="lax",
         secure=settings.is_production,
     )
+    if settings.cookie_domain:
+        # cookie partagé entre sous-domaines (chapote.fr, music.chapote.fr…)
+        response.delete_cookie(key=AUTH_COOKIE_NAME, path="/", samesite="lax",
+                               secure=settings.is_production, domain=settings.cookie_domain)
 
 
 # Challenge 2FA : émis après un 1er facteur (mot de passe/SSO) valide quand la
@@ -214,6 +223,18 @@ async def get_current_user(
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Utilisateur introuvable")
     return user
+
+
+async def get_optional_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Comme get_current_user, mais None si personne n'est connecté (cookie absent,
+    expiré ou invalide) : pour les pages publiques qui s'enrichissent d'un compte."""
+    try:
+        return await get_current_user(request, db)
+    except HTTPException:
+        return None
 
 
 def get_widget_session(

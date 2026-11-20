@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, getPiece, type Piece } from '../api'
 import { useCart } from '../cart'
-import { euros, useI18n } from '../i18n'
-import { Center, Icon, Paper } from '../components/ui'
+import { compact, euros, useI18n } from '../i18n'
+import { Center, Icon, Paper, Stars } from '../components/ui'
+import Player from '../components/Player'
+import Reviews from '../components/Reviews'
 
 export default function PiecePage() {
   const { slug = '' } = useParams()
   const [params] = useSearchParams()
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const cart = useCart()
   const [piece, setPiece] = useState<Piece | null>(null)
   const [error, setError] = useState<'gone' | 'net' | null>(null)
@@ -70,12 +72,18 @@ export default function PiecePage() {
           </div>
           {shown.pages > 1 && <div className="dots" aria-hidden="true">{shown.pages_preview.map((_, i) => <i key={i} className={i === page ? 'on' : ''} />)}</div>}
           <p className="page-note">{t.pageOf(page + 1, shown.pages)} · {page === 0 ? t.freePreview : t.locked(2, shown.pages)}</p>
+          {shown.has_notes && <Player sheetId={shown.id} instrument={shown.instrument} title={`${piece.title} — ${shown.instrument_label}`} pages={shown.pages_preview} />}
         </section>
 
         <section className="piece-buy">
           {piece.sheets.some(s => s.released_at && Date.now() - Date.parse(s.released_at) < 7 * 864e5) && <span className="new-tag">{t.isNew}</span>}
           <h1>{piece.title}</h1>
           <p className="piece-sub">{[piece.composer, piece.public_domain ? t.publicDomain : null].filter(Boolean).join(' · ')}</p>
+          <div className="social">
+            {piece.rating != null && <span><Stars value={piece.rating} small /> {t.rating(piece.rating.toFixed(1), piece.reviews)}</span>}
+            {shown.likes != null && <span>♥ {t.likes(compact(shown.likes, lang))}</span>}
+            {piece.downloads > 0 && <span>↓ {t.downloads(piece.downloads)}</span>}
+          </div>
           {shown.reel_url && <a className="link-more" href={shown.reel_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', padding: '8px 0' }}>{t.watchOn}</a>}
 
           <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
@@ -118,6 +126,8 @@ export default function PiecePage() {
           </section>
         </section>
       </div>
+
+      <Reviews piece={piece} />
 
       <div className="buybar">
         <div className="p"><small>{chosen.map(s => s.instrument_label).join(' + ')}</small><b>{euros(total)}</b></div>

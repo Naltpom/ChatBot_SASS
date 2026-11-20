@@ -22,6 +22,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 
 from src.core.database import Base
@@ -62,6 +63,12 @@ class MusicSheet(Base):
     price_cents = Column(Integer, nullable=True)
     # Date de sortie de la vidéo (tri « nouveautés »).
     released_at = Column(DateTime, nullable=True)
+    # Chiffres publics du Reel (envoyés par la production depuis l'API Instagram).
+    instagram_likes = Column(Integer, nullable=True)
+    instagram_comments = Column(Integer, nullable=True)
+    stats_updated_at = Column(DateTime, nullable=True)
+    # Notes horodatées de la vidéo (lecteur « Play ») : MUSIC_DIR/<id>/notes.json.
+    has_notes = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -113,6 +120,12 @@ class MusicOrder(Base):
     stripe_payment_intent = Column(String(255), nullable=True)
     # Consentement horodaté : exécution immédiate + renonciation au droit de rétractation.
     consent_at = Column(DateTime, nullable=False)
+    # Compte de l'acheteur s'il était connecté (facultatif).
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Pseudo Instagram facultatif : envoi en plus dans la conversation « SHEET » (fenêtre de 24 h).
+    instagram_username = Column(String(60), nullable=True)
+    instagram_sent_at = Column(DateTime, nullable=True)
+    instagram_status = Column(String(40), nullable=True)  # sent | no_conversation | window_closed | error
     paid_at = Column(DateTime, nullable=True)
     emailed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
@@ -127,3 +140,18 @@ class MusicOrderItem(Base):
     label = Column(String(500), nullable=False)
     price_cents = Column(Integer, nullable=False)
     downloads = Column(Integer, nullable=False, default=0)
+
+
+class MusicReview(Base):
+    """Avis d'un acheteur vérifié (compte connecté ayant une commande payée de la partition)."""
+    __tablename__ = "music_reviews"
+    __table_args__ = (UniqueConstraint("sheet_id", "user_id", name="uq_music_reviews_sheet_user"),)
+
+    id = Column(Integer, primary_key=True)
+    sheet_id = Column(Integer, ForeignKey("music_sheets.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    rating = Column(Integer, nullable=False)          # 1 à 5
+    comment = Column(Text, nullable=True)
+    hidden = Column(Boolean, nullable=False, default=False)  # retiré par l'admin (règles des CGU)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

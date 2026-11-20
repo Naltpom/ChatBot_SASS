@@ -354,3 +354,123 @@ async def test_admin_promos_and_orders(pg_session, music, monkeypatch):
         r = await h.patch(f"/api/admin/music/promos/{promo_id}", json={"active": False})
         assert r.json()["usable"] is False and r.json()["uses"] == 1
         assert (await h.post(f"/api/admin/music/orders/{orders[0]['id']}/resend")).json()["sent"] is True
+
+
+# --------------------------------------------------------------------------
+# V2 : pagination, chiffres Instagram, lecteur, comptes partagés, avis, pseudo Instagram
+# --------------------------------------------------------------------------
+
+def notes_json(seconds: float = 60.0) -> bytes:
+    notes = [{"t": i * 0.5, "d": 0.4, "p": 60 + i % 12, "v": 80, "main": "D" if i % 2 else "G", "role": "instrument"}
+             for i in range(int(seconds * 2))]
+    return json.dumps({"instrument": "piano", "duree": seconds, "bpm": 120, "notes": notes}).encode()
+
+
+async def test_catalog_pagination_and_instagram_stats(pg_session, music):
+    for i in range(5):
+        await _sheet(pg_session, f"gh/{i}", piece=f"Piece {i}", instrument="piano")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        p1 = (await c.http.get("/api/music/catalog?limit=2")).json()
+        assert p1["total"] == 5 and len(p1["pieces"]) == 2 and p1["next_offset"] == 2
+        p3 = (await c.http.get("/api/music/catalog?limit=2&offset=4")).json()
+        assert len(p3["pieces"]) == 1 and p3["next_offset"] is None
+        r = await c.http.post("/api/music/ingest/stats", json=[{"source_ref": "gh/3", "likes": 64692, "comments": 120}],
+                              headers={"Authorization": f"Bearer {TOKEN}"})
+        assert r.json()["updated"] == 1
+        top = (await c.http.get("/api/music/catalog?sort=popular&limit=1")).json()["pieces"][0]
+        assert top["title"] == "Piece 3" and top["likes"] == 64692
+        assert (await c.http.post("/api/music/ingest/stats", json=[])).status_code == 401  # sans jeton
+
+
+@needs_pdftoppm
+async def test_player_notes_preview_and_buyer(pg_session, music, monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_BILLING", True)
+    async with Client(pg_session) as c:
+        meta = {"source_ref": "gh/n", "piece_title": "Nocturne", "instrument": "piano", "rights": "domaine public"}
+        files = {"pdf": ("p.pdf", pdf_bytes(2), "application/pdf"), "notes": ("notes.json", notes_json(60), "application/json")}
+        sid = (await c.http.post("/api/music/ingest", data={"meta": json.dumps(meta)}, files=files,
+                                 headers={"Authorization": f"Bearer {TOKEN}"})).json()["id"]
+        prev = (await c.http.get(f"/api/music/sheets/{sid}/notes")).json()
+        assert prev["full"] is False and prev["duration"] == 25 and prev["full_duration"] == 60
+        assert max(n[0] for n in prev["notes"]) < 25
+        assert (await c.http.get(f"/api/music/sheets/{sid}/clear/2.png")).status_code == 404
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [sid], "consent": True})
+        order = r.json()["order"]
+        k = ms.download_key(order)
+        full = (await c.http.get(f"/api/music/sheets/{sid}/notes?order={order}&k={k}")).json()
+        assert full["full"] is True and full["duration"] == 60
+        ok = await c.http.get(f"/api/music/sheets/{sid}/clear/2.png?order={order}&k={k}")
+        assert ok.status_code == 200 and ok.headers["content-type"] == "image/png"
+        assert (await c.http.get(f"/api/music/sheets/{sid}/clear/2.png?order={order}&k=faux")).status_code == 404
+
+
+async def test_shared_account_apps_and_verified_reviews(pg_session, music, monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_BILLING", True)
+    v = await _sheet(pg_session, "gh/1")
+    other = await _sheet(pg_session, "gh/2", piece="Other")
+    await pg_session.commit()
+    v_id, other_id = v.id, other.id
+    async with Client(pg_session) as c:
+        # achat sans compte avec l'e-mail, puis inscription depuis music : l'achat est retrouvé
+        await c.http.post("/api/music/checkout", json={"sheet_ids": [v_id], "consent": True, "email": "fan@example.com"})
+        r = await c.http.post("/api/auth/register", json={"name": "Fan Club", "email": "fan@example.com", "password": "secret-123"},
+                              headers={"X-Chapote-App": "music"})
+        assert r.status_code == 200, r.text
+        u = (await pg_session.execute(select(User).where(User.email == "fan@example.com"))).scalar_one()
+        await pg_session.refresh(u)
+        assert u.signup_app == "music"
+        acc = (await c.http.get("/api/music/account")).json()
+        assert [s["sheet_id"] for s in acc["sheets"]] == [v_id]
+        from src.models.user import UserApp
+        apps = {a.app for a in (await pg_session.execute(select(UserApp).where(UserApp.user_id == u.id))).scalars()}
+        assert apps == {"music"}
+        # connexion plus tard sur chapote.fr : le service s'ajoute, l'inscription reste « music »
+        await c.http.post("/api/auth/login", json={"email": "fan@example.com", "password": "secret-123"})
+        apps = {a.app for a in (await pg_session.execute(select(UserApp).where(UserApp.user_id == u.id))).scalars()}
+        assert apps == {"music", "chapote"}
+        # avis : seulement sur une partition achetée
+        assert (await c.http.post(f"/api/music/sheets/{other_id}/review", json={"rating": 5})).status_code == 403
+        assert (await c.http.post(f"/api/music/sheets/{v_id}/review", json={"rating": 4, "comment": "Super"})).status_code == 200
+        assert (await c.http.post(f"/api/music/sheets/{v_id}/review", json={"rating": 5})).status_code == 200  # modification
+        rv = (await c.http.get("/api/music/pieces/swan-lake/reviews")).json()
+        assert rv["total"] == 1 and rv["reviews"][0]["rating"] == 5 and rv["reviews"][0]["author"] == "Fan C."
+        piece = (await c.http.get("/api/music/pieces/swan-lake")).json()
+        assert piece["rating"] == 5.0 and piece["reviews"] == 1
+        # l'admin masque l'avis
+        admin = await _user(pg_session, "admin@t.dev", is_superadmin=True)
+        await pg_session.commit()
+        h = c.as_(admin)
+        rid = (await h.get("/api/admin/music/reviews")).json()["reviews"][0]["id"]
+        assert (await h.patch(f"/api/admin/music/reviews/{rid}", json={"hidden": True})).json()["hidden"] is True
+        assert (await c.http.get("/api/music/pieces/swan-lake/reviews")).json()["total"] == 0
+
+
+async def test_instagram_username_and_thank_you_queue(pg_session, music, monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_BILLING", True)
+    v_id = (await _sheet(pg_session, "gh/1")).id
+    await pg_session.commit()
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    async with Client(pg_session) as c:
+        bad = await c.http.post("/api/music/checkout", json={"sheet_ids": [v_id], "consent": True, "instagram": "pas un pseudo !"})
+        assert bad.status_code == 400 and bad.json()["detail"]["code"] == "instagram_invalid"
+        r = await c.http.post("/api/music/checkout", json={"sheet_ids": [v_id], "consent": True,
+                                                          "instagram": "https://www.instagram.com/Fan.Name/", "lang": "es"})
+        order = r.json()["order"]
+        pending = (await c.http.get("/api/music/ingest/instagram-pending", headers=auth)).json()["orders"]
+        assert pending[0]["username"] == "fan.name" and pending[0]["lang"] == "es"
+        assert pending[0]["items"][0]["download_url"].startswith("https://music.test/api/music/download/")
+        await c.http.post("/api/music/ingest/instagram-done", json={"order": order, "status": "sent"}, headers=auth)
+        assert (await c.http.get("/api/music/ingest/instagram-pending", headers=auth)).json()["orders"] == []
+        assert (await c.http.get("/api/music/ingest/instagram-pending")).status_code in (401, 503)
+
+
+@pytest.mark.asyncio
+async def test_cookie_domain_shared_between_subdomains(monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_COOKIE_DOMAIN", None)
+    monkeypatch.setattr(settings, "APP_URL", "https://chapote.fr")
+    monkeypatch.setattr(settings, "MUSIC_URL", "https://music.chapote.fr")
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    assert settings.cookie_domain == "chapote.fr"
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: False))
+    assert settings.cookie_domain is None

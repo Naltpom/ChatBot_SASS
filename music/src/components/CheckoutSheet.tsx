@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, postCheckout, postQuote, type Quote } from '../api'
 import { useCart } from '../cart'
+import { useAuth } from '../auth'
 import { euros, useI18n } from '../i18n'
 import { Icon, Paper } from './ui'
 
@@ -15,7 +16,9 @@ export default function CheckoutSheet() {
   const [quote, setQuote] = useState<Quote | null>(null)
   const [promo, setPromo] = useState('')
   const [appliedPromo, setAppliedPromo] = useState('')
+  const { me } = useAuth()
   const [email, setEmail] = useState('')
+  const [instagram, setInstagram] = useState('')
   const [consent, setConsent] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -33,6 +36,8 @@ export default function CheckoutSheet() {
       .catch((e: ApiError) => { if (alive) { setQuote(null); setErr(e.code === 'network' ? t.errNetwork : t.errGeneric) } })
     return () => { alive = false }
   }, [key, appliedPromo, lines === null]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { if (me && !email) setEmail(me.email) }, [me]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!lines) return
@@ -54,13 +59,15 @@ export default function CheckoutSheet() {
     if (free && !email.trim()) { setErr(t.emailRequired); return }
     setBusy(true)
     try {
-      const r = await postCheckout({ sheet_ids: ids, promo_code: quote?.promo_code || undefined, email: email.trim() || undefined, consent, lang })
+      const r = await postCheckout({ sheet_ids: ids, promo_code: quote?.promo_code || undefined, email: email.trim() || undefined,
+                                    instagram: instagram.trim() || undefined, consent, lang })
       // l'achat est parti : on retire ces partitions du panier
       ids.forEach(id => cart.lines.some(l => l.id === id) && cart.remove(id))
       window.location.assign(r.redirect)
     } catch (e) {
       const ae = e as ApiError
       setErr(ae.code === 'network' ? t.errNetwork : ae.code === 'amount_too_low' ? t.minAmount
+        : ae.code === 'instagram_invalid' ? t.igLabel
         : t.promoErr[ae.code] || t.errGeneric)
       setBusy(false)
     }
@@ -108,6 +115,13 @@ export default function CheckoutSheet() {
               <input id="email" className="field" type="email" inputMode="email" autoComplete="email" value={email}
                      onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
               {!free && <span className="field-hint">{t.emailHint}</span>}
+            </div>
+
+            <div>
+              <label htmlFor="ig" className="field-label">{t.igLabel}</label>
+              <input id="ig" className="field" autoComplete="off" autoCapitalize="none" spellCheck={false} value={instagram}
+                     onChange={e => setInstagram(e.target.value)} placeholder="@" />
+              <span className="field-hint">{t.igHint}</span>
             </div>
 
             {quote && (

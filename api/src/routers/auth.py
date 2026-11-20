@@ -54,6 +54,7 @@ from src.services.google_oauth import GoogleAuthError, verify_google_id_token
 from src.services.org_service import consume_invitations
 from src.services.rate_limit import auth_limiter, password_reset_email_limiter
 from src.services.stripe_service import billing_enabled
+from src.services.user_apps import app_from_request, record_app
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -143,9 +144,15 @@ async def _twofa_challenge_or_none(db: AsyncSession, user: User):
     })
 
 
-async def _issue_session(db: AsyncSession, user: User, response: Response) -> UserOut:
+async def _issue_session(db: AsyncSession, user: User, response: Response,
+                         request: Optional[Request] = None, signup: bool = False) -> UserOut:
     """Connexion réussie : pose le JWT dashboard dans le cookie httpOnly (le token
-    ne quitte JAMAIS le cookie) et renvoie l'UserOut pour hydrater le front."""
+    ne quitte JAMAIS le cookie) et renvoie l'UserOut pour hydrater le front.
+    `request` : note le service utilisé (en-tête X-Chapote-App : chapote, music…)
+    et, à l'inscription (`signup`), le service d'inscription du compte."""
+    if request is not None:
+        await record_app(db, user, app_from_request(request), signup=signup)
+        await db.commit()
     set_auth_cookie(response, create_dashboard_token(user.id))
     return await _user_out(db, user)
 
@@ -211,7 +218,7 @@ async def register(body: UserRegister, request: Request, response: Response,
     for inv_email, org_name, role, existing in org_member_mails:
         send_org_member_email(inv_email, org_name, role,
                               existing=existing, app_url=settings.APP_URL)
-    return await _issue_session(db, user, response)
+    return await _issue_session(db, user, response, request, signup=True)
 
 
 @router.post("/login", response_model=UserOut)
@@ -226,7 +233,7 @@ async def login(body: UserLogin, request: Request, response: Response,
     challenge = await _twofa_challenge_or_none(db, user)
     if challenge is not None:
         return challenge
-    return await _issue_session(db, user, response)
+    return await _issue_session(db, user, response, request)
 
 
 class GoogleAuthPayload(BaseModel):
@@ -247,6 +254,7 @@ async def google_login(body: GoogleAuthPayload, request: Request, response: Resp
 
     email = claims["email"].lower().strip()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    created = user is None
     if user is None:
         # Création perso : aucune org, aucun membership (cf. register perso). Pas
         # de mot de passe utilisable -> on hash un secret aléatoire (la colonne
@@ -287,7 +295,7 @@ async def google_login(body: GoogleAuthPayload, request: Request, response: Resp
     challenge = await _twofa_challenge_or_none(db, user)
     if challenge is not None:
         return challenge
-    return await _issue_session(db, user, response)
+    return await _issue_session(db, user, response, request, signup=created)
 
 
 @router.post("/dev-login", response_model=UserOut)
