@@ -117,7 +117,7 @@ jobs:
   # JOB 2 — e2e billing : stack complète, billing ARMÉ, specs qui NE SKIPPENT PAS.
   # ---------------------------------------------------------------------------
   e2e-billing:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright ne supporte pas encore ubuntu 26.04 (ubuntu-latest)
     # Job BLOQUANT : la stack est armée (billing_enabled via clés Stripe factices,
     # MOCK_BILLING=true => zéro appel sortant, BILLING_ENFORCE=True, admin dev seedé
     # pour dev-login). Vert observé sur le run de PR-25 (les specs d'enforcement
@@ -283,7 +283,7 @@ jobs:
   # deux jobs = couverture e2e totale.
   # ---------------------------------------------------------------------------
   e2e-full:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright ne supporte pas encore ubuntu 26.04 (ubuntu-latest)
 
     steps:
       - name: Checkout
