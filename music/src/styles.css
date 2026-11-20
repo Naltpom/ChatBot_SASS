@@ -317,7 +317,7 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .review-list p { margin: 6px 0 0; color: var(--ink2); }
 
 /* ---------- lecteur ---------- */
-.playbar { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; background: var(--tile); border-radius: 16px; padding: 10px 14px 10px 10px; }
+.playbar { margin: 0 0 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; background: var(--tile); border-radius: 16px; padding: 10px 14px 10px 10px; }
 .play-btn { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--ink); color: var(--bg); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; transition: transform 0.15s; }
 .play-btn:active { transform: scale(0.94); }
 .playbar-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -354,3 +354,11 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .likes-n svg { width: 18px; height: 18px; color: #ff2d55; }
 .likes-n b { font-size: 16px; font-variant-numeric: tabular-nums; }
 .likes-go { color: var(--blue); font-weight: 500; }
+
+.private-banner { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 0; padding: 11px 14px; border-radius: 12px; background: #fff4e5; color: #8a4b00; font-size: 14px; line-height: 1.4; border: 1px solid #ffd8a8; }
+.private-banner svg { flex: none; margin-top: 1px; }
+@media (prefers-color-scheme: dark) { .private-banner { background: #2b1d0b; color: #ffcc80; border-color: #5c3b0f; } }
+.ins-owned { width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--bg); }
+.ins-owned .tick { width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--tile); color: #1e8e3e; font-weight: 700; font-size: 13px; }
+.ins .price.muted { font-weight: 500; font-size: 13.5px; color: var(--mut); }
+.own-note { margin: 12px 0 0; font-size: 14px; color: #1e8e3e; font-weight: 600; }

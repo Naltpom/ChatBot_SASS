@@ -2,7 +2,7 @@
 // Vue d'ensemble, toutes les partitions (diffusées ou privées : l'admin choisit, partition par
 // partition), prix généraux et prix propres modifiés directement dans le tableau, codes promo,
 // commandes, avis. Pagination côté API ; une modification ne met à jour que sa ligne.
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { api, API_URL } from '../api'
 import { useApiResource } from '../hooks/useApiResource'
 import { ErrorRetry } from '../components/ErrorRetry'
@@ -22,7 +22,11 @@ interface Sheet {
   instrument_label: string; title: string; rights: string | null; public_domain: boolean; published: boolean
   pages: number; reel_url: string | null; price_cents: number | null; effective_price_cents: number
   released_at: string | null; sales: number; revenue_cents: number; url: string; preview: string
-  likes: number | null; has_notes: boolean
+  likes: number | null; has_notes: boolean; owners: number
+}
+interface Owner {
+  order_id: number; item_id: number; email: string | null; user_id: number | null; name: string | null
+  has_account: boolean; source: 'grant' | 'purchase'; amount_cents: number; at: string | null
 }
 interface Promo {
   id: number; code: string; kind: 'percent' | 'amount'; value: number; active: boolean; max_uses: number | null
@@ -32,7 +36,7 @@ interface Order {
   id: number; public_id: string; status: string; email: string | null; amount_cents: number
   discount_cents: number; promo_code: string | null; created_at: string; paid_at: string | null
   emailed_at: string | null; items: string[]; instagram_username: string | null; instagram_status: string | null
-  user_id: number | null
+  user_id: number | null; granted?: boolean
 }
 interface Review { id: number; rating: number; comment: string | null; hidden: boolean; date: string; user: string; sheet: string }
 interface Page<T> { total: number; next_offset: number | null }
@@ -149,7 +153,67 @@ function PriceCell({ s, onSave }: { s: Sheet; onSave: (cents: number | null) => 
   )
 }
 
+/** Qui possède la partition (achats et dons) ; donner la partition à une adresse e-mail ; retirer un don. */
+function Owners({ sheet, onCount }: { sheet: Sheet; onCount: (n: number) => void }) {
+  const [owners, setOwners] = useState<Owner[] | null>(null)
+  const [email, setEmail] = useState('')
+  const [sendMail, setSendMail] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ tone: 'go' | 'danger'; text: string } | null>(null)
+  const load = useCallback(async () => {
+    const r = await api<{ owners: Owner[] }>(`/api/admin/music/sheets/${sheet.id}/owners`)
+    setOwners(r.owners)
+    onCount(r.owners.length)
+  }, [sheet.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load().catch(e => setMsg({ tone: 'danger', text: e.message || 'Erreur' })) }, [load])
+  const give = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await api<{ email: string; has_account: boolean; emailed: boolean }>(`/api/admin/music/sheets/${sheet.id}/grant`,
+        { method: 'POST', body: { email, send_email: sendMail } })
+      setMsg({ tone: 'go', text: `Donnée à ${r.email}${r.has_account ? ' (compte existant)' : ' (pas encore de compte : elle apparaîtra à son inscription avec cette adresse)'}${r.emailed ? ', e-mail envoyé' : ''}.` })
+      setEmail('')
+      await load()
+    } catch (e: any) { setMsg({ tone: 'danger', text: e.message || 'Erreur' }) } finally { setBusy(false) }
+  }
+  const revoke = async (o: Owner) => {
+    setMsg(null)
+    try {
+      await api(`/api/admin/music/sheets/${sheet.id}/grant/${o.order_id}`, { method: 'DELETE' })
+      await load()
+    } catch (e: any) { setMsg({ tone: 'danger', text: e.message || 'Erreur' }) }
+  }
+  return (
+    <div style={{ padding: '12px 14px', display: 'grid', gap: 10, background: 'var(--bg-soft, rgba(127,127,127,0.06))' }}>
+      <div style={{ fontWeight: 600 }}>Propriétaires de « {sheet.piece_title} — {sheet.instrument_label} »</div>
+      {owners === null ? <span className="muted">Chargement…</span> : owners.length === 0 ? <span className="muted">Personne pour l’instant.</span> : (
+        <div style={{ display: 'grid', gap: 6 }}>
+          {owners.map(o => (
+            <div key={o.item_id} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 13.5 }}>
+              {o.source === 'grant' ? <Chip tone="acc">Don</Chip> : <Chip tone="go">Achat · {eur(o.amount_cents)}</Chip>}
+              <span>{o.name ? `${o.name} · ` : ''}{o.email || '—'}</span>
+              <span className="muted">{o.has_account ? 'compte' : 'sans compte'} · {day(o.at)}</span>
+              {o.source === 'grant' && <Btn small kind="ghost" onClick={() => revoke(o)}>Retirer le don</Btn>}
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <input type="email" placeholder="adresse e-mail de la personne" aria-label="Adresse e-mail" value={email}
+               onChange={e => setEmail(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && email) give() }}
+               style={{ flex: '1 1 240px', minWidth: 0 }} />
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+          <input type="checkbox" checked={sendMail} onChange={e => setSendMail(e.target.checked)} /> lui envoyer l’e-mail avec le PDF
+        </label>
+        <Btn small onClick={give} disabled={!email || busy}>{busy ? '…' : 'Donner la partition'}</Btn>
+      </div>
+      {msg && <InfoBox tone={msg.tone}>{msg.text}</InfoBox>}
+    </div>
+  )
+}
+
 function Sheets({ onChange, unitPrice }: { onChange: () => void; unitPrice: number }) {
+  const [open, setOpen] = useState<number | null>(null)
   const [status, setStatus] = useState('all')
   const [q, setQ] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -185,16 +249,16 @@ function Sheets({ onChange, unitPrice }: { onChange: () => void; unitPrice: numb
         <>
           <div className="table-scroll">
             <table className="kc">
-              <thead><tr><th>Page 1</th><th>Morceau</th><th>Instrument</th><th>Droits</th><th>Diffusée</th><th>Prix</th><th>Ventes</th><th>J’aime</th><th>Sortie</th></tr></thead>
+              <thead><tr><th>Page 1</th><th>Morceau</th><th>Instrument</th><th>Droits</th><th>Diffusée</th><th>Prix</th><th>Ventes</th><th>Propriétaires</th><th>J’aime</th><th>Sortie</th></tr></thead>
               <tbody>
-                {list.items.map(s => (
-                  <tr key={s.id}>
+                {list.items.map(s => (<Fragment key={s.id}>
+                  <tr>
                     <td><img src={`${API_URL}${s.preview}`} alt="" loading="lazy" width={44} height={58}
                              style={{ objectFit: 'cover', objectPosition: 'top', borderRadius: 4, border: '1px solid var(--border)', background: '#fff' }} /></td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{s.piece_title}</div>
                       <div className="muted" style={{ fontSize: 12.5 }}>{s.composer || '—'} · {s.pages} p.{s.has_notes ? ' · lecteur' : ''} · {s.source_ref}</div>
-                      {s.published && <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5 }}>Voir la page</a>}
+                      <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5 }}>{s.published ? 'Voir la page' : 'Voir la page privée'}</a>
                       {s.reel_url && <> · <a href={s.reel_url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5 }}>Reel</a></>}
                     </td>
                     <td>{s.instrument_label}</td>
@@ -208,10 +272,15 @@ function Sheets({ onChange, unitPrice }: { onChange: () => void; unitPrice: numb
                     </td>
                     <td><PriceCell s={s} onSave={c => savePrice(s, c)} /></td>
                     <td>{s.sales ? `${s.sales} · ${eur(s.revenue_cents)}` : '—'}</td>
+                    <td><Btn small kind="ghost" onClick={() => setOpen(open === s.id ? null : s.id)}>
+                      {s.owners} {open === s.id ? '▴' : '▾'}</Btn></td>
                     <td>{s.likes != null ? s.likes.toLocaleString('fr-FR') : '—'}</td>
                     <td>{day(s.released_at)}</td>
                   </tr>
-                ))}
+                  {open === s.id && (
+                    <tr><td colSpan={10} style={{ padding: 0 }}><Owners sheet={s} onCount={n => list.update(s.id, { owners: n })} /></td></tr>
+                  )}
+                </Fragment>))}
               </tbody>
             </table>
           </div>
@@ -364,7 +433,7 @@ function Orders({ top }: { top: Overview['top_sheets'] }) {
                   {list.items.map(o => (
                     <tr key={o.id}>
                       <td>{day(o.paid_at || o.created_at)}</td>
-                      <td><Chip tone={(STATUS[o.status] || STATUS.expired).tone}>{(STATUS[o.status] || { label: o.status }).label}</Chip></td>
+                      <td>{o.granted ? <Chip tone="acc">Offerte</Chip> : <Chip tone={(STATUS[o.status] || STATUS.expired).tone}>{(STATUS[o.status] || { label: o.status }).label}</Chip>}</td>
                       <td>{o.email || '—'}{o.user_id ? <span className="muted"> · compte</span> : null}</td>
                       <td style={{ fontSize: 13 }}>{o.items.join(', ')}</td>
                       <td>{eur(o.amount_cents)}{o.discount_cents ? <span className="muted"> (−{eur(o.discount_cents)})</span> : null}</td>

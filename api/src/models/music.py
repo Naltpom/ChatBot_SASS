@@ -129,6 +129,8 @@ class MusicOrder(Base):
     paid_at = Column(DateTime, nullable=True)
     emailed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
+    # Partition offerte par un administrateur (commande à 0 €, sans paiement).
+    granted_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class MusicOrderItem(Base):
