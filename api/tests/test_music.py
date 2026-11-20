@@ -342,6 +342,30 @@ async def test_stripe_checkout_and_webhook(pg_session, music, monkeypatch):
         o = (await c.http.get(f"/api/music/orders/{public_id}?k={ms.download_key(public_id)}")).json()
         assert o["items"][0]["download"] is None
 
+        # litige bancaire : suspendue ; gagné -> rendue ; perdu -> coupée
+        async def send(ev):
+            raw = json.dumps(ev).encode()
+            return await c.http.post("/api/music/stripe/webhook", content=raw,
+                                     headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
+        order.status = ORDER_PAID
+        await pg_session.commit()
+        await send({"type": "charge.dispute.created", "data": {"object": {"id": "dp_1", "payment_intent": "pi_1", "status": "needs_response"}}})
+        await pg_session.refresh(order)
+        assert order.status == "disputed"
+        await send({"type": "charge.dispute.closed", "data": {"object": {"id": "dp_1", "payment_intent": "pi_1", "status": "won"}}})
+        await pg_session.refresh(order)
+        assert order.status == ORDER_PAID
+        await send({"type": "charge.dispute.created", "data": {"object": {"id": "dp_2", "payment_intent": "pi_1", "status": "needs_response"}}})
+        await send({"type": "charge.dispute.closed", "data": {"object": {"id": "dp_2", "payment_intent": "pi_1", "status": "lost"}}})
+        await pg_session.refresh(order)
+        assert order.status == "refunded"
+        # remboursement partiel : rien ne change
+        order.status = ORDER_PAID
+        await pg_session.commit()
+        await send({"type": "charge.refunded", "data": {"object": {"id": "ch_1", "payment_intent": "pi_1", "refunded": False, "amount_refunded": 100}}})
+        await pg_session.refresh(order)
+        assert order.status == ORDER_PAID
+
 
 async def test_admin_promos_and_orders(pg_session, music, monkeypatch):
     monkeypatch.setattr(settings, "MOCK_BILLING", True)
