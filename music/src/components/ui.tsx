@@ -182,11 +182,9 @@ export function TrackBanner() {
   const choose = (yes: boolean) => { setConsent(yes); setOpen(false) }
   return (
     <div className="track-banner" role="dialog" aria-live="polite" aria-label={t.trackManage}>
+      <button type="button" className="track-close" aria-label={t.trackNo} onClick={() => choose(false)}>{Icon.close}</button>
       <p>{t.trackText} <Link to="/legal/privacy">{t.trackManage}</Link></p>
-      <div className="track-actions">
-        <button type="button" className="btn ghost small" onClick={() => choose(false)}>{t.trackNo}</button>
-        <button type="button" className="btn small" onClick={() => choose(true)}>{t.trackYes}</button>
-      </div>
+      <button type="button" className="btn small block" onClick={() => choose(true)}>{t.trackYes}</button>
     </div>
   )
 }
