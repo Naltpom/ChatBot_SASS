@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { ApiError, cancelSubscription, getAccount, googleLogin, login, register, requestVerifyEmail, type AccountView } from '../api'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMoney } from '../money'
+import { SubscriptionCard, useOffer } from '../components/Subscription'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { Center, Icon, Stars } from '../components/ui'
@@ -120,6 +121,7 @@ export default function AccountPage() {
   const { eur } = useMoney()
   const subOk = params.get('sub') === 'ok'
   const [cancelling, setCancelling] = useState(false)
+  const offer = useOffer()
 
   useEffect(() => {
     if (!me) { setData(null); return }
@@ -158,6 +160,7 @@ export default function AccountPage() {
       </div>
       <p>{me.name} · {me.email}</p>
       {subOk && !data?.subscription && <div className="msg ok">{t.subOk}</div>}
+      {data && !data.subscription && !subOk && offer?.variant === 'sub' && <SubscriptionCard offer={offer} />}
       {data?.subscription && (
         <div className="sub-status">
           <b>✓ {t.subActive}</b>

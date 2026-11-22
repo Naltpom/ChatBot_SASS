@@ -25,7 +25,7 @@ export function SubscriptionCard({ offer }: { offer: Offer }) {
   const [err, setErr] = useState('')
   const code = savedPromo()
   const trial = offer.trial_days > 0
-  const [plan, setPlan] = useState<Plan>('month')
+  const [plan, setPlan] = useState<Plan>('year')
   const cents = (p: Plan) => offer.plans.find(x => x.plan === p)?.cents ?? 0
   const price = `${eur(cents(plan))} ${t.planPer[plan]}`
   const monthsFree = cents('month') ? Math.floor(12 - cents('year') / cents('month')) : 0  // arrondi vers le bas : jamais plus que la vraie économie
@@ -51,10 +51,17 @@ export function SubscriptionCard({ offer }: { offer: Offer }) {
         {offer.plans.map(p => (
           <button type="button" key={p.plan} role="radio" aria-checked={plan === p.plan}
                   className={`plan ${plan === p.plan ? 'on' : ''}`} onClick={() => { setPlan(p.plan); track('plan', { plan: p.plan }) }}>
+            {p.plan === 'year' && <span className="plan-best">{t.planBest}</span>}
             <span className="plan-name">{t.planName[p.plan]}</span>
-            <b>{eur(p.cents)}</b>
-            <small>{t.planPer[p.plan]}</small>
-            {p.plan === 'year' && monthsFree > 0 && <span className="plan-save">{t.planSave(monthsFree)}</span>}
+            {p.plan === 'year' ? <>
+              <b>{eur(Math.floor(p.cents / 12))}</b>
+              <small>{t.planPer.month}</small>
+              <small className="plan-total">{t.planYearTotal(eur(p.cents))}</small>
+              {monthsFree > 0 && <small className="plan-free">{t.planSave(monthsFree)}</small>}
+            </> : <>
+              <b>{eur(p.cents)}</b>
+              <small>{t.planPer[p.plan]}</small>
+            </>}
           </button>
         ))}
       </div>

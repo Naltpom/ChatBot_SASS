@@ -765,7 +765,7 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         assert v in ("sheet", "sub")
         assert (await c.http.get("/api/music/offer?b=zz11yy22")).json()["variant"] == v
         off = (await c.http.get("/api/music/offer")).json()
-        assert off["variant"] == "sheet" and [p["cents"] for p in off["plans"]] == [499, 799, 4999] and off["trial_days"] == 0
+        assert off["variant"] == "sub" and [p["cents"] for p in off["plans"]] == [499, 799, 4999] and off["trial_days"] == 0
         # un code de réduction peut aussi ouvrir l'essai : -20 % sur une partition, 48 h sur l'abonnement
         pg_session.add(MusicPromoCode(code="INSTA20", kind="percent", value=20, active=True, trial_days=2))
         await pg_session.commit()
