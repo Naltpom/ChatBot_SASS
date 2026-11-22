@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, getPiece, type Piece } from '../api'
 import { useCart } from '../cart'
 import { compact, useI18n } from '../i18n'
@@ -12,7 +12,6 @@ import { PdfButton, SubscriptionCard, useOffer } from '../components/Subscriptio
 
 export default function PiecePage() {
   const { slug = '' } = useParams()
-  const navigate = useNavigate()
   const offer = useOffer()
   const [mode, setMode] = useState<'sub' | 'unit'>('sub')  // groupe B : l'abonnement est l'onglet ouvert par défaut
   const [params] = useSearchParams()
@@ -40,8 +39,7 @@ export default function PiecePage() {
       setPicked(first.published !== false && !first.owned ? [first.id] : [first.id, ...(buyable[0] ? [buyable[0].id] : [])])
     }).catch((e: ApiError) => {
       if (!alive) return
-      // fiche privée : on renvoie au catalogue sans rien dire de son existence
-      if (e.status === 404 && e.code === 'private') { navigate('/', { replace: true }); return }
+      // fiche privée ou inconnue : même réponse de l'API (404 not_found), rien ne dit qu'elle existe
       setError(e.status === 404 ? 'gone' : 'net')
     })
     return () => { alive = false }

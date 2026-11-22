@@ -170,3 +170,14 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
 - Exports : MIDI, ABC, impression/PDF. Le son reste dans le navigateur (rien n'est envoyé au serveur) ; mentionné dans
   la politique de confidentialité.
 - Compte : menu sur la photo de profil (`/account/achats`, `/abonnement`, `/profil`, `/securite`, studio, déconnexion).
+
+## Journaux et petits durcissements (23/11/2026)
+
+- **Clés hors des journaux** : le nginx du conteneur `music` écrit son journal d'accès sans paramètres d'URL ni page
+  d'origine (`log_format music_sans_cles`) ; le journal d'accès d'uvicorn masque `k`, `key`, `token`, `access_token`
+  et `session_id` (`***`). Le reverse proxy de l'hôte garde son propre journal : à régler sur le VPS.
+- **Fiche privée** : `GET /pieces/{slug}` répond exactement comme pour une fiche inconnue (404 `not_found`), le site affiche
+  « introuvable » dans les deux cas : rien ne trahit un titre pas encore diffusé.
+- **Empreinte de carte des anciens abonnements** : `python -m scripts.music_card_fingerprints [--essai]` (depuis `api/`,
+  ou `docker compose exec api …`) la relit chez Stripe ; idempotent, rien n'est modifié chez Stripe. Les nouveaux
+  abonnements l'ont dès leur création.
