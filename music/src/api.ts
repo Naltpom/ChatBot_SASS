@@ -175,11 +175,18 @@ export const getOrder = (order: string, auth: { k?: string; session_id?: string 
 // --- compte (partagé avec chapote.fr) ---
 export const getMe = () => call<Me>('/api/auth/me')
 export const getAccount = () => call<AccountView>('/api/music/account')
-export interface Subscription { status: string; weekly_cents: number; trial_end: string | null; current_period_end: string | null
+export interface Subscription { status: string; plan?: 'week' | 'month' | 'year'; price_cents?: number; weekly_cents: number; trial_end: string | null; current_period_end: string | null
   cancel_at_period_end: boolean; trial_downloads_left: number | null }
-export interface Offer { variant: 'sheet' | 'sub'; sub_weekly_cents: number; currency: string; trial_downloads: number }
-export const getOffer = (b: string | null) => call<Offer>(`/api/music/offer${b ? `?b=${encodeURIComponent(b)}` : ''}`)
-export const subscribe = (body: { promo_code?: string; consent: boolean; lang: string; track?: string }) =>
+export type Plan = 'week' | 'month' | 'year'
+export interface Offer { variant: 'sheet' | 'sub'; plans: { plan: Plan; cents: number }[]; sub_weekly_cents: number; currency: string
+  trial_days: number; trial_downloads: number }
+export const getOffer = (b: string | null, code?: string) => {
+  const p = new URLSearchParams()
+  if (b) p.set('b', b)
+  if (code) p.set('code', code)
+  return call<Offer>(`/api/music/offer?${p}`)
+}
+export const subscribe = (body: { plan: Plan; promo_code?: string; consent: boolean; lang: string; track?: string }) =>
   post<{ redirect: string }>('/api/music/subscribe', { ...body, promo_code: body.promo_code || null, track: body.track || null })
 export const cancelSubscription = () => post<{ subscription: Subscription }>('/api/music/subscription/cancel', {})
 export const login = (email: string, password: string) => post<Me>('/api/auth/login', { email, password })

@@ -133,3 +133,11 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
 - **Webhook Stripe de la boutique** : cocher `customer.subscription.created`, `.updated`, `.deleted`.
 - Admin : cartes « Abonnés » et « Test A/B des liens », prix de l'abonnement (onglet Prix), codes « Essai abonnement »,
   groupe A/B dans « Suivi des liens ».
+
+### Formules (22/11/2026, soir)
+
+- Trois formules renouvelées automatiquement (résiliation dans « Mes partitions ») : semaine 4,99 €, mois 7,99 €,
+  année 49,99 € (`sub_weekly_cents`, `sub_monthly_cents`, `sub_yearly_cents`, onglet Prix) ; `plan` sur l'abonnement.
+- Un code de réduction peut aussi ouvrir un essai (`music_promo_codes.trial_days`) : **INSTA20** = -20 % sur une partition
+  et 48 h d'essai sur un abonnement ; c'est le code de tous les liens « SHEET ». Test A/B : A partition seule,
+  B partition + les trois formules.

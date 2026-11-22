@@ -1070,8 +1070,23 @@ def _dt(epoch) -> Optional[datetime]:
         return None
 
 
+PLANS = ("week", "month", "year")
+
+
+def _plan_prices(st) -> dict[str, int]:
+    return {"week": st.sub_weekly_cents, "month": st.sub_monthly_cents, "year": st.sub_yearly_cents}
+
+
+def _promo_trial_days(promo) -> int:
+    """Jours d'essai d'abonnement qu'ouvre un code : code « essai » (valeur), ou code de réduction avec trial_days."""
+    if promo is None:
+        return 0
+    days = promo.value if promo.kind == PROMO_TRIAL else (promo.trial_days or 0)
+    return max(0, min(30, int(days)))
+
+
 def _sub_out(sub: MusicSubscription) -> dict:
-    return {"status": sub.status, "weekly_cents": sub.weekly_cents,
+    return {"status": sub.status, "plan": sub.plan, "price_cents": sub.weekly_cents, "weekly_cents": sub.weekly_cents,
             "trial_end": sub.trial_end.isoformat() + "Z" if sub.trial_end else None,
             "current_period_end": sub.current_period_end.isoformat() + "Z" if sub.current_period_end else None,
             "cancel_at_period_end": sub.cancel_at_period_end,
@@ -1079,7 +1094,7 @@ def _sub_out(sub: MusicSubscription) -> dict:
 
 
 @router.get("/offer")
-async def offer(b: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def offer(b: Optional[str] = None, code: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Ce que voit le visiteur : l'abonnement n'est proposé qu'aux liens du groupe « sub » du test A/B."""
     st = await ms.get_settings(db)
     variant = "sheet"
@@ -1087,11 +1102,19 @@ async def offer(b: Optional[str] = None, db: AsyncSession = Depends(get_db)):
         link = await db.get(MusicTrackLink, b)
         if link is not None and link.variant == "sub":
             variant = "sub"
-    return {"variant": variant, "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency,
-            "trial_downloads": settings.MUSIC_TRIAL_DOWNLOADS}
+    trial_days = 0
+    if code:
+        found = await ms.find_promo(db, code)
+        if found is not None and not ms.promo_problem(found):
+            trial_days = _promo_trial_days(found)
+    prices = _plan_prices(st)
+    return {"variant": variant, "plans": [{"plan": p, "cents": prices[p]} for p in PLANS],
+            "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency,
+            "trial_days": trial_days, "trial_downloads": settings.MUSIC_TRIAL_DOWNLOADS}
 
 
 class SubscribeIn(BaseModel):
+    plan: str = Field("week", pattern="^(week|month|year)$")
     promo_code: Optional[str] = Field(None, max_length=40)
     consent: bool = False
     lang: str = Field("en", pattern="^(en|fr|es|ru)$")
@@ -1114,14 +1137,17 @@ async def subscribe(body: SubscribeIn, request: Request, db: AsyncSession = Depe
     trial_days, promo = 0, None
     if (body.promo_code or "").strip():
         found = await ms.find_promo(db, body.promo_code)
-        if found is None or ms.promo_problem(found) or found.kind != PROMO_TRIAL:
+        if found is None or ms.promo_problem(found):
             raise HTTPException(400, {"code": "promo_invalid", "message": "This promo code cannot be used."})
-        had_one = (await db.execute(select(MusicSubscription.id).where(
-            MusicSubscription.user_id == user.id, MusicSubscription.trial_end.is_not(None)))).first()
-        if had_one:
-            raise HTTPException(400, {"code": "trial_used", "message": "You already had a free trial."})
-        trial_days, promo = max(1, min(30, found.value)), found
-    sub = MusicSubscription(user_id=user.id, email=user.email, status="incomplete", weekly_cents=st.sub_weekly_cents,
+        days = _promo_trial_days(found)
+        if days:  # un code sans essai (simple réduction) ne change rien à l'abonnement
+            had_one = (await db.execute(select(MusicSubscription.id).where(
+                MusicSubscription.user_id == user.id, MusicSubscription.trial_end.is_not(None)))).first()
+            if had_one:
+                raise HTTPException(400, {"code": "trial_used", "message": "You already had a free trial."})
+            trial_days, promo = days, found
+    price = _plan_prices(st)[body.plan]
+    sub = MusicSubscription(user_id=user.id, email=user.email, status="incomplete", weekly_cents=price, plan=body.plan,
                             promo_code=promo.code if promo else None, track_code=body.track, consent_at=utcnow())
     db.add(sub)
     await db.flush()
@@ -1137,9 +1163,9 @@ async def subscribe(body: SubscribeIn, request: Request, db: AsyncSession = Depe
         "subscription_data[metadata][music_sub]": str(sub.id),
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": st.currency,
-        "line_items[0][price_data][unit_amount]": str(st.sub_weekly_cents),
-        "line_items[0][price_data][recurring][interval]": "week",
-        "line_items[0][price_data][product_data][name]": "Ghost Hands Sheets — every sheet (weekly)",
+        "line_items[0][price_data][unit_amount]": str(price),
+        "line_items[0][price_data][recurring][interval]": body.plan,
+        "line_items[0][price_data][product_data][name]": f"Ghost Hands Sheets — every sheet ({ {'week': 'weekly', 'month': 'monthly', 'year': 'yearly'}[body.plan] })",
     }
     if trial_days:
         data["subscription_data[trial_period_days]"] = str(trial_days)
@@ -1148,7 +1174,7 @@ async def subscribe(body: SubscribeIn, request: Request, db: AsyncSession = Depe
         now = utcnow()
         sub.status = "trialing" if trial_days else "active"
         sub.trial_end = now + timedelta(days=trial_days) if trial_days else None
-        sub.current_period_end = sub.trial_end or now + timedelta(days=7)
+        sub.current_period_end = sub.trial_end or now + timedelta(days={"week": 7, "month": 30, "year": 365}[body.plan])
         await db.commit()
         return {"redirect": data["success_url"]}
     try:

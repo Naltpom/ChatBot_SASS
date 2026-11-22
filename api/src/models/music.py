@@ -83,8 +83,10 @@ class MusicSettings(Base):
     unit_price_cents = Column(Integer, nullable=False, default=199)
     # Prix de toutes les partitions d'un même morceau (≥ 2 instruments) ; NULL = pas de lot.
     bundle_price_cents = Column(Integer, nullable=True, default=299)
-    # Abonnement « toutes les partitions » : prix par semaine (test A/B, 22/11/2026).
-    sub_weekly_cents = Column(Integer, nullable=False, default=1400)
+    # Abonnement « toutes les partitions » (test A/B, 22/11/2026) : trois formules, renouvelées automatiquement.
+    sub_weekly_cents = Column(Integer, nullable=False, default=499)
+    sub_monthly_cents = Column(Integer, nullable=False, default=799)
+    sub_yearly_cents = Column(Integer, nullable=False, default=4999)
     currency = Column(String(3), nullable=False, default="eur")
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -100,6 +102,8 @@ class MusicPromoCode(Base):
     max_uses = Column(Integer, nullable=True)               # NULL = illimité
     uses = Column(Integer, nullable=False, default=0)       # commandes payées
     expires_at = Column(DateTime, nullable=True)
+    # Un code de réduction peut aussi ouvrir un essai gratuit de l'abonnement (jours) ; NULL = non.
+    trial_days = Column(Integer, nullable=True)
     note = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
@@ -203,7 +207,8 @@ class MusicSubscription(Base):
     stripe_customer_id = Column(String(255), nullable=True)
     stripe_session_id = Column(String(255), nullable=True, unique=True)
     status = Column(String(20), nullable=False, default="incomplete")  # incomplete, trialing, active, past_due, canceled…
-    weekly_cents = Column(Integer, nullable=False)
+    plan = Column(String(10), nullable=False, default="week")  # week | month | year
+    weekly_cents = Column(Integer, nullable=False)  # prix de la formule (par semaine, mois ou an selon `plan`)
     trial_end = Column(DateTime, nullable=True)
     current_period_end = Column(DateTime, nullable=True)
     cancel_at_period_end = Column(Boolean, nullable=False, default=False)

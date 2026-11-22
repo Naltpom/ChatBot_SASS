@@ -708,11 +708,13 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         h = c.as_(fan)
         assert (await h.get(f"/api/music/sheets/{ids[0]}/pdf")).status_code == 404
         assert (await h.post("/api/music/subscribe", json={"consent": False})).status_code == 400
-        assert (await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "INSTA20"})).status_code == 400
-        r = await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "essai48", "track": "ab12cd34"})
+        assert (await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "NOPE"})).status_code == 400
+        assert (await h.post("/api/music/subscribe", json={"consent": True, "plan": "decade"})).status_code == 422
+        r = await h.post("/api/music/subscribe", json={"consent": True, "plan": "month", "promo_code": "essai48", "track": "ab12cd34"})
         assert r.status_code == 200, r.text
         acc = (await h.get("/api/music/account")).json()
         assert acc["subscription"]["status"] == "trialing" and acc["subscription"]["trial_downloads_left"] == 1
+        assert acc["subscription"]["plan"] == "month" and acc["subscription"]["price_cents"] == 799
         assert (await h.post("/api/music/subscribe", json={"consent": True})).status_code == 409
         # toutes les partitions en vente : pages nettes, notes complètes, PDF (1 pendant l'essai ici)
         piece = (await h.get("/api/music/pieces/swan-lake")).json()
@@ -762,7 +764,14 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         v = (await c.http.post("/api/music/ingest/links", json=[{"code": "zz11yy22"}], headers=auth)).json()["variants"]["zz11yy22"]
         assert v in ("sheet", "sub")
         assert (await c.http.get("/api/music/offer?b=zz11yy22")).json()["variant"] == v
-        assert (await c.http.get("/api/music/offer")).json()["variant"] == "sheet"
+        off = (await c.http.get("/api/music/offer")).json()
+        assert off["variant"] == "sheet" and [p["cents"] for p in off["plans"]] == [499, 799, 4999] and off["trial_days"] == 0
+        # un code de réduction peut aussi ouvrir l'essai : -20 % sur une partition, 48 h sur l'abonnement
+        pg_session.add(MusicPromoCode(code="INSTA20", kind="percent", value=20, active=True, trial_days=2))
+        await pg_session.commit()
+        assert (await c.http.get("/api/music/offer?code=insta20")).json()["trial_days"] == 2
+        q = (await c.http.post("/api/music/quote", json={"sheet_ids": [ids[0]], "promo_code": "INSTA20"})).json()
+        assert q["total_cents"] == 160
         # même personne, deuxième « SHEET » : même groupe, quel que soit le tirage
         first = (await c.http.post("/api/music/ingest/links", json=[{"code": "pp00aa11", "instagram": "@Same.Person"}], headers=auth)).json()["variants"]["pp00aa11"]
         for n in range(6):

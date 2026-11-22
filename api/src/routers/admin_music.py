@@ -101,7 +101,8 @@ async def overview(db: AsyncSession = Depends(get_db)):
         "accounts": {"using_music": int(music_accounts), "signed_up_on_music": int(music_signups)},
         "reviews": int(reviews_n),
         "pricing": {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
-                    "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency},
+                    "sub_weekly_cents": st.sub_weekly_cents, "sub_monthly_cents": st.sub_monthly_cents,
+                    "sub_yearly_cents": st.sub_yearly_cents, "currency": st.currency},
         "subscriptions": subs,
         "ab": ab,
         "top_sheets": [{"id": i, "title": f"{tops[i].piece_title} — {tops[i].instrument_label}",
@@ -277,6 +278,8 @@ class PricingIn(BaseModel):
     unit_price_cents: int = Field(..., ge=0, le=100_000)
     bundle_price_cents: Optional[int] = Field(None, ge=0, le=100_000)
     sub_weekly_cents: Optional[int] = Field(None, ge=50, le=100_000)
+    sub_monthly_cents: Optional[int] = Field(None, ge=50, le=100_000)
+    sub_yearly_cents: Optional[int] = Field(None, ge=50, le=1_000_000)
 
 
 @router.get("/pricing")
@@ -284,7 +287,8 @@ async def get_pricing(db: AsyncSession = Depends(get_db)):
     st = await ms.get_settings(db)
     await db.commit()
     return {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
-            "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency}
+            "sub_weekly_cents": st.sub_weekly_cents, "sub_monthly_cents": st.sub_monthly_cents,
+            "sub_yearly_cents": st.sub_yearly_cents, "currency": st.currency}
 
 
 @router.put("/pricing")
@@ -292,11 +296,13 @@ async def put_pricing(body: PricingIn, db: AsyncSession = Depends(get_db)):
     st = await ms.get_settings(db)
     st.unit_price_cents = body.unit_price_cents
     st.bundle_price_cents = body.bundle_price_cents
-    if body.sub_weekly_cents is not None:
-        st.sub_weekly_cents = body.sub_weekly_cents
+    for f in ("sub_weekly_cents", "sub_monthly_cents", "sub_yearly_cents"):
+        if getattr(body, f) is not None:
+            setattr(st, f, getattr(body, f))
     await db.commit()
     return {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
-            "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency}
+            "sub_weekly_cents": st.sub_weekly_cents, "sub_monthly_cents": st.sub_monthly_cents,
+            "sub_yearly_cents": st.sub_yearly_cents, "currency": st.currency}
 
 
 # --------------------------------------------------------------------------
@@ -306,7 +312,7 @@ async def put_pricing(body: PricingIn, db: AsyncSession = Depends(get_db)):
 def _promo(p: MusicPromoCode) -> dict:
     return {"id": p.id, "code": p.code, "kind": p.kind, "value": p.value, "active": p.active,
             "max_uses": p.max_uses, "uses": p.uses, "expires_at": _iso(p.expires_at), "note": p.note,
-            "created_at": _iso(p.created_at), "usable": ms.promo_problem(p) is None}
+            "created_at": _iso(p.created_at), "usable": ms.promo_problem(p) is None, "trial_days": p.trial_days}
 
 
 class PromoIn(BaseModel):
@@ -317,10 +323,12 @@ class PromoIn(BaseModel):
     expires_at: Optional[datetime] = None
     note: Optional[str] = Field(None, max_length=200)
     active: bool = True
+    trial_days: Optional[int] = Field(None, ge=1, le=30)  # code de réduction qui ouvre aussi un essai d'abonnement
 
 
 class PromoPatch(BaseModel):
     active: Optional[bool] = None
+    trial_days: Optional[int] = Field(None, ge=0, le=30)  # 0 = plus d'essai
     max_uses: Optional[int] = Field(None, ge=1)
     clear_max_uses: bool = False
     expires_at: Optional[datetime] = None
@@ -347,7 +355,8 @@ async def create_promo(body: PromoIn, db: AsyncSession = Depends(get_db)):
     if body.kind == PROMO_PERCENT and body.value > 100:
         raise HTTPException(400, "Un pourcentage va de 1 à 100")
     p = MusicPromoCode(code=body.code.upper(), kind=body.kind, value=body.value, max_uses=body.max_uses,
-                       expires_at=_naive_utc(body.expires_at), note=body.note, active=body.active, uses=0)
+                       expires_at=_naive_utc(body.expires_at), note=body.note, active=body.active, uses=0,
+                       trial_days=body.trial_days if body.kind != PROMO_TRIAL else None)
     db.add(p)
     try:
         await db.commit()
@@ -374,6 +383,8 @@ async def patch_promo(promo_id: int, body: PromoPatch, db: AsyncSession = Depend
         p.expires_at = _naive_utc(body.expires_at)
     if body.note is not None:
         p.note = body.note
+    if body.trial_days is not None and p.kind != PROMO_TRIAL:
+        p.trial_days = body.trial_days or None
     await db.commit()
     return _promo(p)
 
