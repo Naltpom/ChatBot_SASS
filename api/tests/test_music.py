@@ -763,3 +763,9 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         assert v in ("sheet", "sub")
         assert (await c.http.get("/api/music/offer?b=zz11yy22")).json()["variant"] == v
         assert (await c.http.get("/api/music/offer")).json()["variant"] == "sheet"
+        # même personne, deuxième « SHEET » : même groupe, quel que soit le tirage
+        first = (await c.http.post("/api/music/ingest/links", json=[{"code": "pp00aa11", "instagram": "@Same.Person"}], headers=auth)).json()["variants"]["pp00aa11"]
+        for n in range(6):
+            code = f"pp00aa2{n}"
+            got = (await c.http.post("/api/music/ingest/links", json=[{"code": code, "instagram": "same.person"}], headers=auth)).json()["variants"][code]
+            assert got == first
