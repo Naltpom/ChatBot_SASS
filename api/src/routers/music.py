@@ -1040,9 +1040,15 @@ async def ingest_links(links: list[TrackLinkIn], db: AsyncSession = Depends(get_
             continue
         row = await db.get(MusicTrackLink, ln.code)
         if row is None:
-            row = MusicTrackLink(code=ln.code, created_at=utcnow(),
-                                 variant="sub" if secrets.randbelow(10_000) < int(settings.MUSIC_SUB_AB_SHARE * 10_000) else "sheet")
+            # même groupe pour toute personne déjà tirée (plusieurs « SHEET » = plusieurs liens, une seule expérience)
+            who = (ln.instagram or "").lstrip("@").lower()[:60]
+            prev = (await db.execute(select(MusicTrackLink.variant).where(
+                func.lower(MusicTrackLink.instagram_username) == who, MusicTrackLink.variant.is_not(None))
+                .order_by(MusicTrackLink.created_at).limit(1))).scalar_one_or_none() if who else None
+            variant = prev or ("sub" if secrets.randbelow(10_000) < int(settings.MUSIC_SUB_AB_SHARE * 10_000) else "sheet")
+            row = MusicTrackLink(code=ln.code, created_at=utcnow(), variant=variant)
             db.add(row)
+            await db.flush()
         variants[ln.code] = row.variant or "sheet"
         row.instagram_username = (ln.instagram or "").lstrip("@")[:60] or row.instagram_username
         row.source = ln.source or row.source
