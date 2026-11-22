@@ -942,3 +942,78 @@ def test_httpx_urls_not_logged():
     import logging
     import src.main  # noqa: F401
     assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
+
+
+# --------------------------------------------------------------------------
+# Jeton de service (chaîne de production claude-cloud)
+# --------------------------------------------------------------------------
+
+SERVICE = "svc-token-test"
+
+
+@pytest.fixture
+def service(monkeypatch):
+    monkeypatch.setattr(settings, "TIKTOK_SERVICE_TOKEN", SERVICE)
+    monkeypatch.setattr(settings, "TIKTOK_SERVICE_USER_EMAIL", "Prod@T.dev")
+
+
+def _bearer(c, token=SERVICE):
+    c.http.cookies.clear()
+    c.http.headers["Authorization"] = f"Bearer {token}"
+    return c.http
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_service_token_publishes_as_configured_user(pg_session, tiktok, service):
+    u = await _user(pg_session, "prod@t.dev")
+    acc = await _account(pg_session, owner=u)
+    await pg_session.commit()
+    data = mp4_bytes(42_000)
+    async with Client(pg_session) as c:
+        h = _bearer(c)
+        assert [a["id"] for a in (await h.get("/api/tiktok/accounts")).json()] == [acc.id]
+        assert (await h.get(f"/api/tiktok/accounts/{acc.id}/creator-info")).json()["can_post"] is True
+        r = await h.post("/api/tiktok/posts", json=_direct(acc.id, len(data)))
+        assert r.status_code == 200, r.text
+        pid = r.json()["post_id"]
+        await _send(h, pid, data)
+        r = await h.post(f"/api/tiktok/posts/{pid}/submit")
+        assert r.status_code == 200 and r.json()["status"] == "QUEUED"
+        assert (await pg_session.get(TikTokPost, pid)).user_id == u.id
+        assert (await h.get(f"/api/tiktok/posts/{pid}")).status_code == 200
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_service_token_scoped_to_its_user(pg_session, tiktok, service):
+    await _user(pg_session, "prod@t.dev")
+    other = await _user(pg_session, "other@t.dev")
+    acc = await _account(pg_session, owner=other)
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = _bearer(c)
+        assert (await h.get("/api/tiktok/accounts")).json() == []
+        assert (await h.get(f"/api/tiktok/accounts/{acc.id}/creator-info")).status_code == 404
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_service_token_rejected_or_unconfigured(pg_session, tiktok, service, monkeypatch):
+    u = await _user(pg_session, "prod@t.dev")
+    acc = await _account(pg_session, owner=u)
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        # Mauvais jeton : 401, même avec un cookie valide (pas de repli).
+        c.as_(u)
+        c.http.headers["Authorization"] = "Bearer faux"
+        assert (await c.http.get("/api/tiktok/accounts")).status_code == 401
+        # Connexion / déconnexion : jamais par le jeton de service.
+        h = _bearer(c)
+        assert (await h.post("/api/tiktok/oauth/start", json={})).status_code == 401
+        assert (await h.delete(f"/api/tiktok/accounts/{acc.id}")).status_code == 401
+        monkeypatch.setattr(settings, "TIKTOK_SERVICE_TOKEN", None)
+        assert (await h.get("/api/tiktok/accounts")).status_code == 503
+        monkeypatch.setattr(settings, "TIKTOK_SERVICE_TOKEN", SERVICE)
+        monkeypatch.setattr(settings, "TIKTOK_SERVICE_USER_EMAIL", "absent@t.dev")
+        assert (await h.get("/api/tiktok/accounts")).status_code == 503

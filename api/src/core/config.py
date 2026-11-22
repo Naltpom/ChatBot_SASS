@@ -103,6 +103,13 @@ class Settings(BaseSettings):
     # Fichiers vidéo temporaires (le temps de la publication). JAMAIS sous
     # UPLOAD_DIR, qui est servi publiquement (/uploads).
     TIKTOK_TMP_DIR: str = "/tmp/chapote_tiktok"
+    # Jeton de service (Bearer) : la chaîne de production (claude-cloud) publie
+    # sans cookie de session, AU NOM de l'utilisateur TIKTOK_SERVICE_USER_EMAIL
+    # (mêmes règles de tenant que lui). Ne couvre que la publication (comptes,
+    # creator-info, posts) : jamais la connexion ni la déconnexion d'un compte.
+    # Vide (l'un ou l'autre) = Bearer refusé (503).
+    TIKTOK_SERVICE_TOKEN: str | None = None
+    TIKTOK_SERVICE_USER_EMAIL: str | None = None
 
     APP_URL: str = "http://localhost:3001"
     API_URL: str = "http://localhost:8001"

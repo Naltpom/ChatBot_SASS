@@ -107,6 +107,8 @@ services:
       - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
       - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
       - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://chapote.fr/tiktok/callback}
+      - TIKTOK_SERVICE_TOKEN=${TIKTOK_SERVICE_TOKEN:-}
+      - TIKTOK_SERVICE_USER_EMAIL=${TIKTOK_SERVICE_USER_EMAIL:-}
       # Auto-login admin (dev uniquement, ignore si ENV != dev)
       - AUTO_LOGIN_ADMIN_DEV=${AUTO_LOGIN_ADMIN_DEV:-false}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@kertios.com}

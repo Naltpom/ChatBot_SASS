@@ -10,6 +10,11 @@ faut être MEMBRE de l'organisation (pas de passe-droit superadmin : le staff
 n'utilise pas les comptes TikTok des clients). Un compte / une publication d'un
 autre tenant répond 404 (anti-énumération).
 
+Jeton de service : les routes de publication (config, comptes, creator-info,
+posts) acceptent aussi `Authorization: Bearer <TIKTOK_SERVICE_TOKEN>`, qui agit
+au nom de TIKTOK_SERVICE_USER_EMAIL (chaîne de production claude-cloud). La
+connexion et la déconnexion d'un compte restent réservées à la session.
+
 Flux OAuth : POST /oauth/start (state JWT signé, 10 min, usage unique) ->
 TikTok -> https://chapote.fr/tiktok/callback (page SPA) -> POST /oauth/exchange.
 
@@ -20,6 +25,7 @@ Flux de publication (rien n'est envoyé à TikTok avant le clic « Publier ») :
   4. POST /posts/{id}/submit           -> validation serveur, envoi TikTok en tâche de fond
   5. GET  /posts/{id}                  -> statut (suivi par la tâche de fond)
 """
+import hmac
 import logging
 import os
 import shutil
@@ -67,6 +73,34 @@ DISK_MARGIN = 2 * 1024 * 1024 * 1024
 state_store = SingleUseTokens("rl:tiktokstate:", STATE_TTL_SECONDS)
 oauth_limiter = RateLimiter("rl:tiktokoauth:", 20, 3600)
 post_limiter = RateLimiter("rl:tiktokpost:", 30, 86400)
+
+
+# --------------------------------------------------------------------------
+# Authentification : session dashboard, ou jeton de service
+# --------------------------------------------------------------------------
+
+async def _service_user(db: AsyncSession, given: str) -> User:
+    token, email = settings.TIKTOK_SERVICE_TOKEN, settings.TIKTOK_SERVICE_USER_EMAIL
+    if not token or not email:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Jeton de service TikTok non configuré")
+    if not given or not hmac.compare_digest(given.encode(), token.encode()):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Jeton invalide")
+    user = (await db.execute(
+        select(User).where(func.lower(User.email) == email.strip().lower())
+    )).scalar_one_or_none()
+    if user is None or not user.is_active:
+        logger.error("TikTok : utilisateur du jeton de service introuvable ou inactif")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Jeton de service TikTok mal configuré")
+    return user
+
+
+async def get_tiktok_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    """Bearer présent = jeton de service (jamais de repli sur le cookie) ; sinon
+    cookie de session dashboard."""
+    auth = request.headers.get("authorization") or ""
+    if auth[:7].lower() == "bearer ":
+        return await _service_user(db, auth[7:].strip())
+    return await get_current_user(request, db)
 
 
 # --------------------------------------------------------------------------
@@ -196,7 +230,7 @@ def _post_out(post: TikTokPost, acc: Optional[TikTokAccount]) -> dict:
 # --------------------------------------------------------------------------
 
 @router.get("/config")
-async def tiktok_config(user: User = Depends(get_current_user)):
+async def tiktok_config(user: User = Depends(get_tiktok_user)):
     return {
         "enabled": tt.is_enabled(),
         "max_upload_bytes": tt.max_upload_bytes(),
@@ -285,7 +319,7 @@ async def oauth_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db),
 
 @router.get("/accounts")
 async def list_accounts(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
-                        user: User = Depends(get_current_user)):
+                        user: User = Depends(get_tiktok_user)):
     tenant = await _tenant(db, user, org_id)
     accounts = (await db.execute(
         select(TikTokAccount).where(tenant.where(TikTokAccount), TikTokAccount.revoked_at.is_(None))
@@ -345,7 +379,7 @@ async def _creator_info(db: AsyncSession, acc: TikTokAccount) -> dict:
 
 @router.get("/accounts/{account_id}/creator-info")
 async def get_creator_info(account_id: int, db: AsyncSession = Depends(get_db),
-                           user: User = Depends(get_current_user)):
+                           user: User = Depends(get_tiktok_user)):
     _require_enabled()
     acc, _ = await _get_account(db, user, account_id)
     return await _creator_info(db, acc)
@@ -375,7 +409,7 @@ class PostIn(BaseModel):
 
 @router.post("/posts")
 async def create_post(body: PostIn, db: AsyncSession = Depends(get_db),
-                      user: User = Depends(get_current_user)):
+                      user: User = Depends(get_tiktok_user)):
     """Clic « Publier » : valide la demande et prépare la réception de la vidéo."""
     _require_enabled()
     acc, tenant = await _get_account(db, user, body.account_id)
@@ -435,7 +469,7 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db),
 
 @router.put("/posts/{post_id}/parts/{index}")
 async def upload_part(post_id: int, index: int, request: Request,
-                      db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+                      db: AsyncSession = Depends(get_db), user: User = Depends(get_tiktok_user)):
     """Reçoit le morceau `index` de la vidéo (corps brut, envoi séquentiel)."""
     post = await _get_post(db, user, post_id, lock=True)
     if post.status != POST_RECEIVING or not post.tmp_path:
@@ -468,7 +502,7 @@ async def _reject(db: AsyncSession, post: TikTokPost, code: str, message: str, h
 
 @router.post("/posts/{post_id}/submit")
 async def submit_post(post_id: int, db: AsyncSession = Depends(get_db),
-                      user: User = Depends(get_current_user)):
+                      user: User = Depends(get_tiktok_user)):
     """Vidéo reçue : validation serveur (format, taille, durée, options du
     créateur), puis envoi à TikTok en tâche de fond."""
     _require_enabled()
@@ -519,7 +553,7 @@ async def submit_post(post_id: int, db: AsyncSession = Depends(get_db),
 
 @router.delete("/posts/{post_id}")
 async def cancel_post(post_id: int, db: AsyncSession = Depends(get_db),
-                      user: User = Depends(get_current_user)):
+                      user: User = Depends(get_tiktok_user)):
     """Annule une publication dont la vidéo est encore en cours d'envoi vers Chapote."""
     post = await _get_post(db, user, post_id, lock=True)
     if post.status != POST_RECEIVING:
@@ -531,7 +565,7 @@ async def cancel_post(post_id: int, db: AsyncSession = Depends(get_db),
 
 @router.get("/posts")
 async def list_posts(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
-                     user: User = Depends(get_current_user)):
+                     user: User = Depends(get_tiktok_user)):
     tenant = await _tenant(db, user, org_id)
     posts = (await db.execute(
         select(TikTokPost).where(tenant.where(TikTokPost))
@@ -545,7 +579,7 @@ async def list_posts(org_id: Optional[int] = Query(None), db: AsyncSession = Dep
 
 @router.get("/posts/{post_id}")
 async def get_post(post_id: int, db: AsyncSession = Depends(get_db),
-                   user: User = Depends(get_current_user)):
+                   user: User = Depends(get_tiktok_user)):
     post = await _get_post(db, user, post_id)
     return _post_out(post, await db.get(TikTokAccount, post.tiktok_account_id))
 
