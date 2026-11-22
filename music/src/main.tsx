@@ -1,4 +1,4 @@
-import { StrictMode, useEffect } from 'react'
+import { StrictMode, Suspense, lazy, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-dom'
 import { CartProvider } from './cart'
@@ -13,6 +13,7 @@ import PiecePage from './pages/Piece'
 import ThanksPage from './pages/Thanks'
 import LegalPage from './pages/Legal'
 import AccountPage from './pages/Account'
+const StudioPage = lazy(() => import('./studio/Studio'))
 import './styles.css'
 
 function NotFound() {
@@ -29,7 +30,7 @@ function Shell() {
     if (pathname === '/') document.title = 'Ghost Hands Sheets — sheet music from the Reels'
   }, [pathname])
   return (
-    <div className={pathname.startsWith('/s/') ? 'has-buybar' : ''}>
+    <div className={`shell${pathname.startsWith('/s/') ? ' has-buybar' : ''}`}>
       <Header />
       <Routes>
         <Route path="/" element={<CataloguePage />} />
@@ -37,6 +38,8 @@ function Shell() {
         <Route path="/thanks" element={<ThanksPage />} />
         <Route path="/legal/:doc" element={<LegalPage />} />
         <Route path="/account" element={<AccountPage />} />
+        <Route path="/account/:section" element={<AccountPage />} />
+        <Route path="/studio" element={<Suspense fallback={<Center>…</Center>}><StudioPage /></Suspense>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Footer />

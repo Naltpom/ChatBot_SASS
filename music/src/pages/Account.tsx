@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, cancelSubscription, changePassword, getAccount, getRetention, googleLogin, login, patchProfile, register, requestVerifyEmail,
   retainSubscription, uploadAvatar, type AccountView, type Subscription } from '../api'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMoney } from '../money'
 import { SubscriptionCard, useOffer } from '../components/Subscription'
 import { useAuth } from '../auth'
@@ -115,13 +115,14 @@ type AccTab = 'profile' | 'security' | 'purchases' | 'sub'
 
 export default function AccountPage() {
   const { t } = useI18n()
-  const { me, ready, signOut, refresh } = useAuth()
+  const { me, ready, refresh } = useAuth()
   const [data, setData] = useState<AccountView | null>(null)
-  const [params, setParams] = useSearchParams()
+  const [params] = useSearchParams()
+  const { section } = useParams()
   const navigate = useNavigate()
   const subOk = params.get('sub') === 'ok'
-  const tab = (params.get('tab') as AccTab) || (subOk ? 'sub' : 'purchases')
-  const setTab = (x: AccTab) => setParams(p => { const n = new URLSearchParams(p); n.set('tab', x); n.delete('sub'); return n }, { replace: true })
+  const SECTIONS: Record<string, AccTab> = { achats: 'purchases', abonnement: 'sub', profil: 'profile', securite: 'security' }
+  const tab: AccTab = SECTIONS[section || ''] || (subOk ? 'sub' : 'purchases')
 
   const load = () => getAccount().then(setData).catch(() => me && setData({ user: { name: me.name, email: me.email, signup_app: null }, sheets: [] }))
   useEffect(() => {
@@ -143,18 +144,10 @@ export default function AccountPage() {
   if (!ready) return <Center>{t.loading}</Center>
   if (!me) return <AuthForm />
 
-  const tabs: [AccTab, string][] = [['purchases', t.accPurchases], ['sub', t.accSub], ['profile', t.accProfile], ['security', t.accSecurity]]
+  const titles: Record<AccTab, string> = { purchases: t.accPurchases, sub: t.accSub, profile: t.accProfile, security: t.accSecurity }
   return (
     <main className="thanks account">
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        <h1>{t.account}</h1>
-        <button type="button" className="linkish" onClick={signOut}>{t.signOut}</button>
-      </div>
-      <div className="acc-tabs" role="tablist">
-        {tabs.map(([k, label]) => (
-          <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
-        ))}
-      </div>
+      <h1>{titles[tab]}</h1>
       {!data ? <Center>{t.loading}</Center>
         : tab === 'profile' ? <ProfileTab data={data} onSaved={() => { load(); refresh?.() }} />
         : tab === 'security' ? <SecurityTab data={data} />

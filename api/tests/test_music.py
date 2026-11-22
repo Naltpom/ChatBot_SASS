@@ -56,6 +56,13 @@ def music(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "MUSIC_INGEST_TOKEN", TOKEN)
     monkeypatch.setattr(settings, "STRIPE_MUSIC_WEBHOOK_SECRET", MUSIC_SECRET)
     monkeypatch.setattr(settings, "MUSIC_URL", "https://music.test")
+    # limiteurs par IP (mémoire partagée entre tests) : neutres ici, testés à part
+    from src.services import rate_limit
+
+    async def _always(key):
+        return True
+    monkeypatch.setattr(rate_limit.music_limiter, "check", _always)
+    monkeypatch.setattr(rate_limit.track_limiter, "check", _always)
     sent = []
 
     async def fake_send(to, subject, body, **kw):
@@ -695,7 +702,7 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
     pub2 = await _sheet(pg_session, "gh/s2", piece="Other")
     priv = await _sheet(pg_session, "gh/s3", piece="Hidden", published=False)
     fan = await _user(pg_session, "sub@t.dev", email_verified=True)
-    pg_session.add(MusicPromoCode(code="ESSAI48", kind="trial", value=2, active=True))
+    pg_session.add(MusicPromoCode(code="ESSAI48", kind="trial", value=2, active=True, applies_to="sub"))
     await pg_session.commit()
     ids = (pub.id, pub2.id, priv.id)
     for sid in ids:
@@ -717,9 +724,14 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         assert acc["subscription"]["plan"] == "month" and acc["subscription"]["price_cents"] == 799
         assert (await h.post("/api/music/subscribe", json={"consent": True})).status_code == 409
         # toutes les partitions en vente : pages nettes, notes complètes, PDF (1 pendant l'essai ici)
+        # essai : rien d'ouvert d'office ; le PDF débloque la partition (compté), et seulement elle
         piece = (await h.get("/api/music/pieces/swan-lake")).json()
-        assert piece["subscribed"] is True and piece["sheets"][0]["owned"] is True and piece["sheets"][0]["pdf"]
+        assert piece["subscribed"] is True and piece["sheets"][0]["owned"] is False and piece["sheets"][0]["pdf"]
+        assert piece["trial_left"] == 1 and "pages_full" not in piece["sheets"][0]
+        assert (await h.get(f"/api/music/sheets/{ids[1]}/clear/1.png")).status_code == 404
         assert (await h.get(f"/api/music/sheets/{ids[0]}/pdf")).status_code == 200
+        piece = (await h.get("/api/music/pieces/swan-lake")).json()
+        assert piece["sheets"][0]["owned"] is True and piece["trial_left"] == 0
         assert (await h.get(f"/api/music/sheets/{ids[0]}/pdf")).status_code == 200  # même partition : pas recomptée
         r = await h.get(f"/api/music/sheets/{ids[1]}/pdf")
         assert r.status_code == 403 and r.json()["detail"]["code"] == "trial_limit"
@@ -729,15 +741,24 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         sub_id = sub.id
         monkeypatch.setattr(settings, "MOCK_BILLING", False)
         monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_x")
+        # Stripe simulé : le webhook relit l'abonnement chez Stripe (l'état fait foi, pas l'événement)
+        stripe_state = {"id": "sub_1", "customer": "cus_1", "status": "active", "cancel_at_period_end": False,
+                        "current_period_end": int(time.time()) + 7 * 86400, "metadata": {"music_sub": str(sub_id)},
+                        "default_payment_method": {"card": {"fingerprint": "fp_card_1"}}}
+
+        async def fake_stripe(method, path, data=None, params=None):
+            if method == "GET" and path == "/subscriptions/sub_1":
+                return dict(stripe_state)
+            return {}
+        monkeypatch.setattr(stripe_service, "_stripe_request", fake_stripe)
         ev = {"type": "customer.subscription.updated", "data": {"object": {
-            "id": "sub_1", "customer": "cus_1", "status": "active", "cancel_at_period_end": False,
-            "current_period_end": int(time.time()) + 7 * 86400, "metadata": {"music_sub": str(sub_id)}}}}
+            "id": "sub_1", "customer": "cus_1", "status": "trialing", "metadata": {"music_sub": str(sub_id)}}}}
         raw = json.dumps(ev).encode()
         r = await c.http.post("/api/music/stripe/webhook", content=raw,
                               headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
         assert r.status_code == 200
         await pg_session.refresh(sub)
-        assert sub.status == "active" and sub.stripe_subscription_id == "sub_1"
+        assert sub.status == "active" and sub.stripe_subscription_id == "sub_1" and sub.card_fingerprint == "fp_card_1"
         assert (await h.get(f"/api/music/sheets/{ids[1]}/pdf")).status_code == 200
         # résiliation : plus de prélèvement, accès jusqu'à la fin de la période
         called = []
@@ -750,8 +771,16 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         assert r.status_code == 200 and r.json()["subscription"]["cancel_at_period_end"] is True and called == ["sub_1"]
         assert (await h.get(f"/api/music/sheets/{ids[1]}/pdf")).status_code == 200
         # fin : Stripe envoie deleted -> plus d'accès, et plus d'essai possible
+        stripe_state["status"] = "canceled"
         ev = {"type": "customer.subscription.deleted", "data": {"object": {
             "id": "sub_1", "status": "canceled", "cancel_at_period_end": True, "metadata": {"music_sub": str(sub_id)}}}}
+        raw = json.dumps(ev).encode()
+        await c.http.post("/api/music/stripe/webhook", content=raw,
+                          headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
+        assert (await h.get(f"/api/music/sheets/{ids[1]}/pdf")).status_code == 404
+        # un « updated » en retard ne fait pas revivre l'abonnement
+        stripe_state["status"] = "active"
+        ev = {"type": "customer.subscription.updated", "data": {"object": {"id": "sub_1", "status": "active", "metadata": {"music_sub": str(sub_id)}}}}
         raw = json.dumps(ev).encode()
         await c.http.post("/api/music/stripe/webhook", content=raw,
                           headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
@@ -761,6 +790,31 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         r = await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "ESSAI48"})
         assert r.status_code == 200
         assert (await h.get("/api/music/account")).json()["subscription"]["status"] == "active"
+        # paiement de l'abonnement contesté : l'abonnement s'arrête tout de suite
+        cur = (await pg_session.execute(select(MusicSubscription).where(MusicSubscription.status == "active"))).scalar_one()
+        cur.stripe_customer_id = "cus_9"
+        cur.stripe_subscription_id = "sub_9"
+        await pg_session.commit()
+        monkeypatch.setattr(settings, "MOCK_BILLING", False)
+        cancelled = []
+
+        async def fake_stripe2(method, path, data=None, params=None):
+            if method == "GET" and path == "/charges/ch_s":
+                return {"id": "ch_s", "customer": "cus_9"}
+            return {}
+
+        async def fake_cancel_now(sid, prorate=False):
+            cancelled.append(sid)
+        monkeypatch.setattr(stripe_service, "_stripe_request", fake_stripe2)
+        monkeypatch.setattr(stripe_service, "cancel_subscription", fake_cancel_now)
+        # vrai format d'un litige Stripe : pas de « customer », seulement la charge
+        ev = {"type": "charge.dispute.created", "data": {"object": {"id": "dp_s", "object": "dispute", "charge": "ch_s", "payment_intent": "pi_sub"}}}
+        raw = json.dumps(ev).encode()
+        await c.http.post("/api/music/stripe/webhook", content=raw,
+                          headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
+        await pg_session.refresh(cur)
+        assert cur.status == "canceled" and cancelled == ["sub_9"]
+        monkeypatch.setattr(settings, "MOCK_BILLING", True)
         # test A/B : un lien déclaré reçoit un groupe ; l'offre suit ce groupe
         auth = {"Authorization": f"Bearer {TOKEN}"}
         v = (await c.http.post("/api/music/ingest/links", json=[{"code": "zz11yy22"}], headers=auth)).json()["variants"]["zz11yy22"]
@@ -769,7 +823,7 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         off = (await c.http.get("/api/music/offer")).json()
         assert off["variant"] == "sub" and [p["cents"] for p in off["plans"]] == [499, 799, 4999] and off["trial_days"] == 0
         # un code de réduction peut aussi ouvrir l'essai : -20 % sur une partition, 48 h sur l'abonnement
-        pg_session.add(MusicPromoCode(code="INSTA20", kind="percent", value=20, active=True, trial_days=2))
+        pg_session.add(MusicPromoCode(code="INSTA20", kind="percent", value=20, active=True, trial_days=2, applies_to="both"))
         await pg_session.commit()
         o2 = (await c.http.get("/api/music/offer?code=insta20")).json()
         assert o2["trial_days"] == 2 and o2["first_discount_pct"] == 20
@@ -816,11 +870,11 @@ async def test_profile_avatar_and_retention_offer(pg_session, music, monkeypatch
         assert acc["nickname"] == "jean.d" and acc["avatar"] and acc["password_login"] is True
         # abonnement payé : première résiliation -> offre -50 % ; acceptée -> abonnement gardé, plus d'offre
         assert (await h.post("/api/music/subscribe", json={"consent": True, "plan": "month"})).status_code == 200
-        off = (await h.get("/api/music/subscription/retention")).json()
+        off = (await h.post("/api/music/subscription/retention")).json()
         assert off == {"eligible": True, "percent": 50, "next_cents": 399}
         r = await h.post("/api/music/subscription/retain")
         assert r.status_code == 200 and r.json()["subscription"]["retention_applied"] is True
-        assert (await h.get("/api/music/subscription/retention")).json()["eligible"] is False
+        assert (await h.post("/api/music/subscription/retention")).json()["eligible"] is False
         r = await h.post("/api/music/subscription/cancel")
         assert r.json()["subscription"]["cancel_at_period_end"] is True
     # autre compte : refuse l'offre en résiliant -> plus jamais proposée
@@ -829,8 +883,43 @@ async def test_profile_avatar_and_retention_offer(pg_session, music, monkeypatch
     async with Client(pg_session) as c:
         h = c.as_(other)
         await h.post("/api/music/subscribe", json={"consent": True, "plan": "week"})
-        assert (await h.get("/api/music/subscription/retention")).json()["eligible"] is True
+        assert (await h.post("/api/music/subscription/retention")).json()["eligible"] is True
         await h.post("/api/music/subscription/cancel")
         sub = (await pg_session.execute(select(MusicSubscription).where(MusicSubscription.email == "prof2@t.dev"))).scalar_one()
         await pg_session.refresh(sub)
         assert sub.retention_offered_at is not None and sub.retention_accepted_at is None
+
+
+
+async def test_subscription_codes_scope_consumption_and_trial_guards(pg_session, music, monkeypatch):
+    """Codes sur l'abonnement : seulement ceux prévus pour lui, consommés (max_uses), remise plafonnée à 50 % ;
+    essai seulement avec une adresse vérifiée ; /offer limité."""
+    from src.models.music import MusicPromoCode, MusicSubscription
+    monkeypatch.setattr(settings, "MOCK_BILLING", True)
+    a = await _user(pg_session, "s1@t.dev", email_verified=True)
+    b = await _user(pg_session, "s2@t.dev", email_verified=True)
+    unv = await _user(pg_session, "s3@t.dev")
+    pg_session.add(MusicPromoCode(code="SHEETONLY", kind="percent", value=100, active=True))
+    pg_session.add(MusicPromoCode(code="SUBHALF", kind="percent", value=50, active=True, applies_to="sub", max_uses=1))
+    pg_session.add(MusicPromoCode(code="SUBMORE", kind="percent", value=50, active=True, applies_to="both"))
+    pg_session.add(MusicPromoCode(code="TRY", kind="trial", value=2, active=True, applies_to="sub"))
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(a)
+        assert (await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "SHEETONLY"})).status_code == 400
+        r = await h.post("/api/music/subscribe", json={"consent": True, "plan": "year", "promo_codes": ["SUBHALF", "SUBMORE"]})
+        assert r.status_code == 200
+        sub = (await pg_session.execute(select(MusicSubscription).where(MusicSubscription.email == "s1@t.dev"))).scalar_one()
+        assert sub.first_discount_pct == 50  # -50 % puis -50 % = -75 %, plafonné à 50 %
+        promo = (await pg_session.execute(select(MusicPromoCode).where(MusicPromoCode.code == "SUBHALF"))).scalar_one()
+        await pg_session.refresh(promo)
+        assert promo.uses == 1
+        h = c.as_(b)  # code épuisé pour un autre compte
+        assert (await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "SUBHALF"})).status_code == 400
+        # adresse non vérifiée : pas d'essai (paiement immédiat)
+        h = c.as_(unv)
+        assert (await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "TRY"})).status_code == 200
+        s3 = (await pg_session.execute(select(MusicSubscription).where(MusicSubscription.email == "s3@t.dev"))).scalar_one()
+        assert s3.status == "active" and s3.trial_end is None
+        # un code « partitions » ne donne rien sur l'offre d'abonnement
+        assert (await c.http.get("/api/music/offer?code=SHEETONLY")).json()["first_discount_pct"] == 0

@@ -42,6 +42,7 @@ export interface Piece {
   private?: boolean
   admin?: boolean
   subscribed?: boolean
+  trial_left?: number
 }
 
 export interface Pricing { unit_cents: number; bundle_cents: number | null; currency: string }
@@ -191,7 +192,7 @@ export const getOffer = (b: string | null, code?: string) => {
 export const subscribe = (body: { plan: Plan; promo_code?: string; consent: boolean; lang: string; track?: string }) =>
   post<{ redirect: string }>('/api/music/subscribe', { ...body, promo_code: body.promo_code || null, track: body.track || null })
 export const cancelSubscription = () => post<{ subscription: Subscription }>('/api/music/subscription/cancel', {})
-export const getRetention = () => call<{ eligible: boolean; percent: number | null; next_cents: number | null }>('/api/music/subscription/retention')
+export const getRetention = () => post<{ eligible: boolean; percent: number | null; next_cents: number | null }>('/api/music/subscription/retention', {})
 export const retainSubscription = () => post<{ subscription: Subscription }>('/api/music/subscription/retain', {})
 export const patchProfile = (body: { name?: string; nickname?: string }) =>
   call<{ name: string; nickname: string | null }>('/api/music/account/profile', { method: 'PATCH', body: JSON.stringify(body) })

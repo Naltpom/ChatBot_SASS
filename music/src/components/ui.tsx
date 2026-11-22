@@ -51,10 +51,11 @@ export function Header() {
         <Link to="/" className="brand"><Logo />Ghost Hands <small>{t.brandSub}</small></Link>
         <div className="top-actions">
           <LangMenu lang={lang} setLang={setLang} label={t.language} />
-          <Link to="/account" className="icon-btn" aria-label={me ? `${t.account} : ${me.name}` : t.signIn}>
-            {me ? <span className="avatar">{(me.name || me.email).slice(0, 1).toUpperCase()}</span>
-                : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>}
-          </Link>
+          {me ? <UserMenu /> : (
+            <Link to="/account" className="icon-btn" aria-label={t.signIn}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
+            </Link>
+          )}
           <button type="button" className="icon-btn" onClick={() => cart.openSheet()} aria-label={`${t.cart} (${cart.lines.length})`}>
             {Icon.bag}
             {cart.lines.length > 0 && <span className="badge">{cart.lines.length}</span>}
@@ -136,6 +137,7 @@ export function Footer() {
             <Link to="/legal/notice">{t.notice}</Link>
             {trackCode() && <button type="button" className="linkish" onClick={() => window.dispatchEvent(new Event('gh-track-manage'))}>{t.trackManage}</button>}
             <a href="mailto:music@chapote.fr">{t.contact}</a>
+            <Link to="/studio">{t.studio} <span className="beta">BETA</span></Link>
           </nav>
         </div>
       </div>
@@ -209,6 +211,42 @@ export function Modal({ open, title, children, onClose }: { open: boolean; title
         <h2>{title}</h2>
         {children}
       </div>
+    </div>
+  )
+}
+
+
+/** Menu du compte, sur la photo de profil : les pages du compte, le studio (bêta) et la déconnexion. */
+export function UserMenu() {
+  const { t } = useI18n()
+  const { me, signOut } = useAuth()
+  const [open, setOpen] = useState(false)
+  const [imgOk, setImgOk] = useState(true)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const off = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', off); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', off); document.removeEventListener('keydown', esc) }
+  }, [open])
+  if (!me) return null
+  const items: [string, string][] = [['/account/achats', t.accPurchases], ['/account/abonnement', t.accSub],
+    ['/account/profil', t.accProfile], ['/account/securite', t.accSecurity]]
+  return (
+    <div className="user-menu" ref={ref}>
+      <button type="button" className="icon-btn" aria-haspopup="menu" aria-expanded={open} aria-label={`${t.account} : ${me.name}`} onClick={() => setOpen(o => !o)}>
+        {me.avatar_url && imgOk ? <img className="avatar" src="/api/music/account/avatar" alt="" onError={() => setImgOk(false)} />
+          : <span className="avatar">{(me.name || me.email).slice(0, 1).toUpperCase()}</span>}
+      </button>
+      {open && (
+        <div className="user-list" role="menu">
+          <div className="user-head"><b>{me.name}</b><small>{me.email}</small></div>
+          {items.map(([to, label]) => <Link key={to} to={to} role="menuitem" onClick={() => setOpen(false)}>{label}</Link>)}
+          <Link to="/studio" role="menuitem" onClick={() => setOpen(false)}>{t.studio} <span className="beta">BETA</span></Link>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); signOut() }}>{t.signOut}</button>
+        </div>
+      )}
     </div>
   )
 }

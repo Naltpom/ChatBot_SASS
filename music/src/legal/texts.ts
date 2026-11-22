@@ -133,6 +133,7 @@ Nathan Provost, personne physique, éditeur du service Chapote. Contact : rgpd@c
 - **Commande :** partitions achetées, montants, code promo, dates, horodatage du consentement à la fourniture immédiate, statut du paiement.
 - **Adresse e-mail :** celle que vous saisissez sur le site ou sur la page de paiement Stripe, pour vous envoyer vos liens de téléchargement.
 - **Pseudo Instagram (facultatif) :** pour vous envoyer aussi vos partitions dans la conversation Instagram où vous les avez demandées.
+- **Studio (bêta) :** le son du micro est analysé dans votre navigateur, sur votre appareil ; il n'est ni envoyé à nos serveurs ni enregistré par nous.
 - **Suivi d'un lien envoyé (seulement avec votre accord) :** si vous arrivez par un lien que nous vous avons envoyé sur Instagram, il porte un code ; avec votre accord (bannière), nous enregistrons avec ce code les pages vues et les actions faites sur le site pendant vos visites (lecture, panier, paiement), pour savoir si nos liens sont utiles. Ce code nous permet de savoir à quel compte Instagram nous avons envoyé le lien. Refuser ne change rien au site. Conservation : 13 mois. Vous pouvez changer d'avis par le lien « Statistiques de visite » en bas de page.
 - **Compte (facultatif) :** nom, adresse e-mail, mot de passe (conservé sous forme chiffrée irréversible) ou identifiant Google, service par lequel le compte a été créé et services utilisés (music.chapote.fr, chapote.fr).
 - **Avis :** note, commentaire et date, publiés avec le nom affiché du compte.
@@ -285,6 +286,7 @@ Nathan Provost, individual, publisher of the Chapote service. Contact: rgpd@chap
 - **Order:** sheets bought, amounts, promo code, dates, timestamp of the consent to immediate supply, payment status.
 - **E-mail address:** the one you enter on the website or on the Stripe payment page, to send your download links.
 - **Instagram username (optional):** to also send your sheets in the Instagram conversation where you asked for them.
+- **Studio (beta):** the microphone sound is analysed in your browser, on your device; it is neither sent to our servers nor stored by us.
 - **Tracking of a link we sent (only with your consent):** if you arrive through a link we sent you on Instagram, it carries a code; with your consent (banner), we record with this code the pages viewed and the actions taken on the website during your visits (playing, cart, payment), to know whether our links are useful. This code tells us which Instagram account we sent the link to. Refusing changes nothing on the website. Retention: 13 months. You can change your mind with the "Visit statistics" link at the bottom of the page.
 - **Account (optional):** name, e-mail address, password (stored as an irreversible hash) or Google identifier, service where the account was created and services used (music.chapote.fr, chapote.fr).
 - **Reviews:** rating, comment and date, published with the account's display name.
@@ -437,6 +439,7 @@ Nathan Provost, persona física, editor del servicio Chapote. Contacto: rgpd@cha
 - **Pedido:** partituras compradas, importes, código promocional, fechas, fecha y hora del consentimiento al suministro inmediato, estado del pago.
 - **E-mail:** el que indicas en el sitio o en la página de pago de Stripe, para enviarte los enlaces de descarga.
 - **Usuario de Instagram (opcional):** para enviarte también las partituras en la conversación de Instagram donde las pediste.
+- **Estudio (beta):** el sonido del micrófono se analiza en tu navegador, en tu dispositivo; no se envía a nuestros servidores ni lo guardamos.
 - **Seguimiento de un enlace enviado (solo con tu consentimiento):** si llegas por un enlace que te enviamos en Instagram, lleva un código; con tu consentimiento (banner), registramos con ese código las páginas vistas y las acciones en el sitio durante tus visitas (reproducción, carrito, pago), para saber si nuestros enlaces son útiles. Este código nos indica a qué cuenta de Instagram enviamos el enlace. Rechazar no cambia nada en el sitio. Conservación: 13 meses. Puedes cambiar de opinión con el enlace «Estadísticas de visita» al pie de la página.
 - **Cuenta (opcional):** nombre, e-mail, contraseña (guardada como hash irreversible) o identificador de Google, servicio desde el que se creó la cuenta y servicios usados (music.chapote.fr, chapote.fr).
 - **Opiniones:** nota, comentario y fecha, publicados con el nombre visible de la cuenta.
@@ -589,6 +592,7 @@ music@chapote.fr`,
 - **Заказ:** купленные ноты, суммы, промокод, даты, время согласия на немедленное предоставление, статус оплаты.
 - **E-mail:** адрес, указанный на сайте или на странице оплаты Stripe, для отправки ссылок на скачивание.
 - **Ник в Instagram (необязательно):** чтобы также отправить ноты в диалог Instagram, где вы их просили.
+- **Студия (бета):** звук микрофона анализируется в вашем браузере, на вашем устройстве; он не отправляется на наши серверы и не сохраняется нами.
 - **Отслеживание присланной ссылки (только с вашего согласия):** если вы пришли по ссылке, которую мы отправили вам в Instagram, в ней есть код; с вашего согласия (баннер) мы записываем с этим кодом просмотренные страницы и действия на сайте во время ваших визитов (прослушивание, корзина, оплата), чтобы понять, полезны ли наши ссылки. Этот код показывает, какому аккаунту Instagram мы отправили ссылку. Отказ ничего не меняет на сайте. Срок хранения: 13 месяцев. Передумать можно по ссылке «Статистика посещений» внизу страницы.
 - **Аккаунт (необязательно):** имя, e-mail, пароль (хранится в виде необратимого хеша) или идентификатор Google, сервис, через который создан аккаунт, и используемые сервисы (music.chapote.fr, chapote.fr).
 - **Отзывы:** оценка, комментарий и дата, публикуются с отображаемым именем аккаунта.

@@ -32,7 +32,7 @@ interface Owner {
 }
 interface Promo {
   id: number; code: string; kind: 'percent' | 'amount' | 'trial'; value: number; active: boolean; max_uses: number | null
-  uses: number; expires_at: string | null; note: string | null; usable: boolean; trial_days?: number | null
+  uses: number; expires_at: string | null; note: string | null; usable: boolean; trial_days?: number | null; applies_to?: string
 }
 interface Order {
   id: number; public_id: string; status: string; email: string | null; amount_cents: number
@@ -372,6 +372,7 @@ function Promos() {
   const [expires, setExpires] = useState('')
   const [note, setNote] = useState('')
   const [trialDays, setTrialDays] = useState('')
+  const [appliesTo, setAppliesTo] = useState<'sheet' | 'sub' | 'both'>('sheet')
   const [err, setErr] = useState('')
 
   const create = async () => {
@@ -382,7 +383,7 @@ function Promos() {
       const p = await api<Promo>('/api/admin/music/promos', { method: 'POST', body: {
         code: code.trim(), kind, value: v, max_uses: maxUses ? parseInt(maxUses, 10) : null,
         expires_at: expires ? new Date(expires + 'T23:59:59').toISOString() : null, note: note || null,
-        trial_days: kind !== 'trial' && trialDays ? parseInt(trialDays, 10) : null } })
+        trial_days: kind !== 'trial' && trialDays ? parseInt(trialDays, 10) : null, applies_to: kind === 'trial' ? 'sub' : appliesTo } })
       setPromos(prev => [p, ...(prev || [])])
       setCode(''); setValue(''); setMaxUses(''); setExpires(''); setNote(''); setTrialDays('')
     } catch (e: any) { setErr(e.message || 'Erreur') }
@@ -404,6 +405,9 @@ function Promos() {
             <Seg small value={kind} onChange={v => setKind(v as 'percent' | 'amount' | 'trial')} options={[{ value: 'percent', label: '%' }, { value: 'amount', label: '€' }, { value: 'trial', label: 'Essai abonnement' }]} />
           </Field>
           <Field label={kind === 'percent' ? 'Réduction (%)' : kind === 'amount' ? 'Réduction (€)' : 'Jours d’essai gratuit (abonnement)'}><input type="text" inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} /></Field>
+          {kind !== 'trial' && <Field label="Valable sur">
+            <Seg small value={appliesTo} onChange={v => setAppliesTo(v as 'sheet' | 'sub' | 'both')} options={[{ value: 'sheet', label: 'Partitions' }, { value: 'sub', label: 'Abonnement' }, { value: 'both', label: 'Les deux' }]} />
+          </Field>}
           {kind !== 'trial' && <Field label="Essai abonnement (jours)" hint="Facultatif : le même code ouvre aussi un essai gratuit"><input type="text" inputMode="numeric" value={trialDays} onChange={e => setTrialDays(e.target.value)} placeholder="2" /></Field>}
           <Field label="Utilisations max" hint="Vide = illimité"><input type="text" inputMode="numeric" value={maxUses} onChange={e => setMaxUses(e.target.value)} /></Field>
           <Field label="Valable jusqu’au" hint="Vide = sans fin"><input type="date" value={expires} onChange={e => setExpires(e.target.value)} style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid var(--border)' }} /></Field>
@@ -423,7 +427,7 @@ function Promos() {
                 {promos.map(p => (
                   <tr key={p.id}>
                     <td><strong>{p.code}</strong> {!p.usable && <Chip tone="mut">inutilisable</Chip>}</td>
-                    <td>{p.kind === 'percent' ? `${p.value} %` : p.kind === 'trial' ? `essai ${p.value} j` : eur(p.value)}{p.trial_days ? ` + essai ${p.trial_days} j` : ''}</td>
+                    <td>{p.kind === 'percent' ? `${p.value} %` : p.kind === 'trial' ? `essai ${p.value} j` : eur(p.value)}{p.trial_days ? ` + essai ${p.trial_days} j` : ''}<div className="muted" style={{ fontSize: 12 }}>{p.applies_to === 'both' ? 'partitions + abonnement' : p.applies_to === 'sub' ? 'abonnement' : 'partitions'}</div></td>
                     <td>{p.uses}{p.max_uses != null ? ` / ${p.max_uses}` : ''}</td>
                     <td>{day(p.expires_at)}</td>
                     <td>{p.note || '—'}</td>

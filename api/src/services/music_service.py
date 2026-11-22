@@ -233,8 +233,8 @@ async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str
     for code in codes:
         found = await find_promo(db, code)
         err = promo_problem(found)
-        if err is None and found.kind == PROMO_TRIAL:
-            err = "promo_unknown"  # code d'essai de l'abonnement : sans effet sur une partition
+        if err is None and (found.kind == PROMO_TRIAL or (found.applies_to or "sheet") == "sub"):
+            err = "promo_unknown"  # code réservé à l'abonnement : sans effet sur une partition
         if err is not None:
             promo_error = promo_error or err
             continue
@@ -459,6 +459,14 @@ async def mark_paid(db: AsyncSession, order: MusicOrder, *, email: Optional[str]
     """Passe la commande à « payée » (idempotent). Renvoie True si elle vient de l'être."""
     if order.status == ORDER_PAID:
         return False
+    # passage conditionnel : si le webhook et la page de retour arrivent ensemble, un seul « gagne »
+    # (un seul e-mail de livraison)
+    from sqlalchemy import update
+    won = (await db.execute(update(MusicOrder).where(MusicOrder.id == order.id, MusicOrder.status != ORDER_PAID)
+                            .values(status=ORDER_PAID).returning(MusicOrder.id))).first()
+    if won is None:
+        await db.refresh(order)
+        return False
     order.status = ORDER_PAID
     order.paid_at = utcnow()
     if email:
@@ -485,14 +493,14 @@ async def reserve_promo(db: AsyncSession, promo_id: int) -> bool:
     return row is not None
 
 
-async def release_promo(db: AsyncSession, order: MusicOrder) -> None:
-    """Rend l'utilisation réservée d'une commande qui n'aboutit pas (expirée, refusée)."""
+async def release_promo(db: AsyncSession, order) -> None:
+    """Rend l'utilisation réservée d'une commande ou d'un abonnement qui n'aboutit pas (expiré, refusé)."""
     from sqlalchemy import update
     codes = [c for c in (order.promo_code or "").split("+") if c]
     if codes:
         await db.execute(update(MusicPromoCode).where(MusicPromoCode.code.in_(codes), MusicPromoCode.uses > 0)
                          .values(uses=MusicPromoCode.uses - 1))
-    elif order.promo_code_id:
+    elif getattr(order, "promo_code_id", None):
         await db.execute(update(MusicPromoCode).where(MusicPromoCode.id == order.promo_code_id, MusicPromoCode.uses > 0)
                          .values(uses=MusicPromoCode.uses - 1))
 

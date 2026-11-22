@@ -90,7 +90,7 @@ export function SubscriptionCard({ offer }: { offer: Offer }) {
 }
 
 /** Télécharge le PDF d'une partition qu'on a (achat ou abonnement) ; affiche la raison d'un refus (limite de l'essai). */
-export function PdfButton({ url, name }: { url: string; name: string }) {
+export function PdfButton({ url, name, onDone }: { url: string; name: string; onDone?: () => void }) {
   const { t } = useI18n()
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
@@ -110,6 +110,7 @@ export function PdfButton({ url, name }: { url: string; name: string }) {
       a.download = `${name}.pdf`
       document.body.appendChild(a); a.click(); a.remove()
       setTimeout(() => URL.revokeObjectURL(a.href), 4000)
+      onDone?.()
     } catch { setMsg(t.errNetwork) } finally { setBusy(false) }
   }
   return (
