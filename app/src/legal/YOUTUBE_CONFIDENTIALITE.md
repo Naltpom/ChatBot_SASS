@@ -62,10 +62,10 @@ La base légale est **l'exécution du contrat** conclu entre Chapote et son clie
 
 ## 8. Révocation de l'accès
 
-L'accès de Chapote Publisher à une chaîne peut être retiré à tout moment :
+L'accès de Chapote à une chaîne peut être retiré à tout moment :
 
 - **depuis Chapote** : Espace client → YouTube → « Déconnecter ». L'autorisation est révoquée auprès de Google et les jetons sont supprimés de Chapote ;
-- **depuis votre compte Google** : page [Applications tierces ayant accès à votre compte](https://security.google.com/settings/security/permissions) → Chapote Publisher → Supprimer l'accès. Chapote cesse alors de pouvoir publier et la chaîne apparaît « À reconnecter ».
+- **depuis votre compte Google** : page [Applications tierces ayant accès à votre compte](https://myaccount.google.com/permissions) → Chapote → Supprimer l'accès. Chapote cesse alors de pouvoir publier et la chaîne apparaît « À reconnecter ».
 
 ## 9. Suppression des données sur demande
 
