@@ -47,10 +47,14 @@ from src.models.music import (
     ORDER_PAID,
     ORDER_PENDING,
     ORDER_REFUNDED,
+    PROMO_TRIAL,
+    SUB_ACTIVE_STATES,
     MusicOrder,
     MusicOrderItem,
     MusicReview,
     MusicSheet,
+    MusicSubDownload,
+    MusicSubscription,
     MusicTrackEvent,
     MusicTrackLink,
 )
@@ -217,6 +221,9 @@ async def piece(slug: str, db: AsyncSession = Depends(get_db), user: Optional[Us
         raise HTTPException(404, {"code": "not_found", "message": "This piece is not available."})
     admin = _is_admin(user)
     owned = await _owned_ids(db, user, [s.id for s in sheets])
+    subscribed = await _active_sub(db, user) is not None
+    if subscribed:  # abonné : toutes les partitions en vente du morceau sont à lui
+        owned |= {s.id for s in sheets if s.published}
     visible = [s for s in sheets if s.published or admin or s.id in owned]
     if not visible:
         raise HTTPException(404, {"code": "private", "message": "This piece is not available."})
@@ -228,7 +235,9 @@ async def piece(slug: str, db: AsyncSession = Depends(get_db), user: Optional[Us
         x["owned"] = sh.id in owned
         if sh.id in owned or admin:  # pages nettes pour qui a la partition (et l'admin)
             x["pages_full"] = [f"/api/music/sheets/{sh.id}/clear/{n}.png" for n in range(1, sh.pages + 1)]
+            x["pdf"] = f"/api/music/sheets/{sh.id}/pdf"
     p["private"] = any(not s.published for s in visible)
+    p["subscribed"] = subscribed
     p["admin"] = admin
     p["pricing"] = {"unit_cents": st.unit_price_cents, "bundle_cents": st.bundle_price_cents, "currency": st.currency}
     return p
@@ -585,6 +594,10 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             await db.commit()
             logger.info("Commande %s : %s (%s)", order.public_id, new, etype)
         return {"received": True}
+    if etype.startswith("customer.subscription."):
+        if (obj.get("metadata") or {}).get("music_sub"):
+            await _sync_subscription(db, obj)
+        return {"received": True}
     public_id = (obj.get("metadata") or {}).get("music_order")
     if not etype.startswith("checkout.session.") or not public_id:
         return {"received": True, "ignored": True}
@@ -790,7 +803,26 @@ async def _owns_sheet(db: AsyncSession, sheet_id: int, *, user: Optional[User] =
     if user is not None:
         if (await db.execute(stmt.where(_mine(user)))).first():
             return True
+        # abonné : toutes les partitions en vente
+        if await _active_sub(db, user) is not None:
+            s = await db.get(MusicSheet, sheet_id)
+            if s is not None and s.published:
+                return True
     return False
+
+
+async def _active_sub(db: AsyncSession, user: Optional[User]) -> Optional[MusicSubscription]:
+    """Abonnement en cours (essai ou payé, période pas finie) du compte, s'il y en a un."""
+    if user is None:
+        return None
+    now = utcnow()
+    rows = (await db.execute(select(MusicSubscription).where(
+        MusicSubscription.user_id == user.id, MusicSubscription.status.in_(SUB_ACTIVE_STATES))
+        .order_by(MusicSubscription.id.desc()))).scalars().all()
+    for sub in rows:
+        if sub.current_period_end is None or sub.current_period_end > now:
+            return sub
+    return None
 
 
 @router.get("/sheets/{sheet_id}/notes")
@@ -884,8 +916,15 @@ async def account(db: AsyncSession = Depends(get_db), user: User = Depends(get_c
                          if ms.links_valid(o) else None),
             "my_rating": reviewed.get(sh.id),
         })
+    sub = await _active_sub(db, user)
+    sub_out = _sub_out(sub) if sub else None
+    if sub is not None and sub.status == "trialing":
+        used = (await db.execute(select(func.count(MusicSubDownload.id)).where(
+            MusicSubDownload.subscription_id == sub.id, MusicSubDownload.in_trial.is_(True)))).scalar_one()
+        sub_out["trial_downloads_left"] = max(0, settings.MUSIC_TRIAL_DOWNLOADS - int(used))
     return {"user": {"name": user.name, "email": user.email, "signup_app": user.signup_app,
-                     "email_verified": bool(user.email_verified)}, "sheets": sheets}
+                     "email_verified": bool(user.email_verified)}, "sheets": sheets,
+            "subscription": sub_out}
 
 
 # --------------------------------------------------------------------------
@@ -992,18 +1031,200 @@ class TrackLinkIn(BaseModel):
 
 @router.post("/ingest/links", dependencies=[Depends(_require_ingest)])
 async def ingest_links(links: list[TrackLinkIn], db: AsyncSession = Depends(get_db)):
-    """La production déclare les liens suivis qu'elle envoie (code -> pseudo Instagram)."""
-    n = 0
+    """La production déclare les liens suivis qu'elle envoie (code -> pseudo Instagram). Chaque nouveau lien est tiré
+    au sort dans le test A/B : « sub » (abonnement, code d'essai) ou « sheet » (prix par partition) ; renvoyé à la production
+    pour qu'elle mette le bon code promo dans le lien."""
+    n, variants = 0, {}
     for ln in links[:500]:
         if not TRACK_CODE.match(ln.code):
             continue
         row = await db.get(MusicTrackLink, ln.code)
         if row is None:
-            row = MusicTrackLink(code=ln.code, created_at=utcnow())
+            row = MusicTrackLink(code=ln.code, created_at=utcnow(),
+                                 variant="sub" if secrets.randbelow(10_000) < int(settings.MUSIC_SUB_AB_SHARE * 10_000) else "sheet")
             db.add(row)
+        variants[ln.code] = row.variant or "sheet"
         row.instagram_username = (ln.instagram or "").lstrip("@")[:60] or row.instagram_username
         row.source = ln.source or row.source
         row.sheet_ref = ln.sheet_ref or row.sheet_ref
         n += 1
     await db.commit()
-    return {"saved": n}
+    return {"saved": n, "variants": variants}
+
+
+
+# --------------------------------------------------------------------------
+# Abonnement « toutes les partitions » (test A/B des liens « SHEET ») : Stripe, chaque semaine, essai avec un code
+# --------------------------------------------------------------------------
+
+def _dt(epoch) -> Optional[datetime]:
+    try:
+        return datetime.utcfromtimestamp(int(epoch)) if epoch else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _sub_out(sub: MusicSubscription) -> dict:
+    return {"status": sub.status, "weekly_cents": sub.weekly_cents,
+            "trial_end": sub.trial_end.isoformat() + "Z" if sub.trial_end else None,
+            "current_period_end": sub.current_period_end.isoformat() + "Z" if sub.current_period_end else None,
+            "cancel_at_period_end": sub.cancel_at_period_end,
+            "trial_downloads_left": None}
+
+
+@router.get("/offer")
+async def offer(b: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Ce que voit le visiteur : l'abonnement n'est proposé qu'aux liens du groupe « sub » du test A/B."""
+    st = await ms.get_settings(db)
+    variant = "sheet"
+    if b and TRACK_CODE.match(b):
+        link = await db.get(MusicTrackLink, b)
+        if link is not None and link.variant == "sub":
+            variant = "sub"
+    return {"variant": variant, "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency,
+            "trial_downloads": settings.MUSIC_TRIAL_DOWNLOADS}
+
+
+class SubscribeIn(BaseModel):
+    promo_code: Optional[str] = Field(None, max_length=40)
+    consent: bool = False
+    lang: str = Field("en", pattern="^(en|fr|es|ru)$")
+    track: Optional[str] = Field(None, pattern=r"^[a-z0-9]{6,16}$")
+
+
+@router.post("/subscribe")
+async def subscribe(body: SubscribeIn, request: Request, db: AsyncSession = Depends(get_db),
+                    user: User = Depends(get_current_user)):
+    """Stripe Checkout en abonnement hebdomadaire. Essai seulement avec un code d'essai valable et une seule fois
+    par compte ; sans code, le premier prélèvement est immédiat."""
+    await _limit(request)
+    if not body.consent:
+        raise HTTPException(400, {"code": "consent_required", "message": "Please accept the subscription terms."})
+    if await _active_sub(db, user) is not None:
+        raise HTTPException(409, {"code": "already_subscribed", "message": "You already have a subscription."})
+    if not settings.MOCK_BILLING and not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(503, {"code": "payments_off", "message": "Payments are not available right now."})
+    st = await ms.get_settings(db)
+    trial_days, promo = 0, None
+    if (body.promo_code or "").strip():
+        found = await ms.find_promo(db, body.promo_code)
+        if found is None or ms.promo_problem(found) or found.kind != PROMO_TRIAL:
+            raise HTTPException(400, {"code": "promo_invalid", "message": "This promo code cannot be used."})
+        had_one = (await db.execute(select(MusicSubscription.id).where(
+            MusicSubscription.user_id == user.id, MusicSubscription.trial_end.is_not(None)))).first()
+        if had_one:
+            raise HTTPException(400, {"code": "trial_used", "message": "You already had a free trial."})
+        trial_days, promo = max(1, min(30, found.value)), found
+    sub = MusicSubscription(user_id=user.id, email=user.email, status="incomplete", weekly_cents=st.sub_weekly_cents,
+                            promo_code=promo.code if promo else None, track_code=body.track, consent_at=utcnow())
+    db.add(sub)
+    await db.flush()
+    base = settings.MUSIC_URL.rstrip("/")
+    data = {
+        "mode": "subscription",
+        "success_url": f"{base}/account?sub=ok",
+        "cancel_url": f"{base}/",
+        "locale": body.lang,
+        "customer_email": user.email,
+        "client_reference_id": str(user.id),
+        "metadata[music_sub]": str(sub.id),
+        "subscription_data[metadata][music_sub]": str(sub.id),
+        "line_items[0][quantity]": "1",
+        "line_items[0][price_data][currency]": st.currency,
+        "line_items[0][price_data][unit_amount]": str(st.sub_weekly_cents),
+        "line_items[0][price_data][recurring][interval]": "week",
+        "line_items[0][price_data][product_data][name]": "Ghost Hands Sheets — every sheet (weekly)",
+    }
+    if trial_days:
+        data["subscription_data[trial_period_days]"] = str(trial_days)
+        data["payment_method_collection"] = "always"
+    if settings.MOCK_BILLING:
+        now = utcnow()
+        sub.status = "trialing" if trial_days else "active"
+        sub.trial_end = now + timedelta(days=trial_days) if trial_days else None
+        sub.current_period_end = sub.trial_end or now + timedelta(days=7)
+        await db.commit()
+        return {"redirect": data["success_url"]}
+    try:
+        session = await stripe_service.create_payment_checkout(data)
+    except StripeError as exc:
+        await db.rollback()
+        raise HTTPException(502, {"code": "stripe_error", "message": str(exc)})
+    sub.stripe_session_id = session.get("id")
+    await db.commit()
+    return {"redirect": session.get("url")}
+
+
+@router.post("/subscription/cancel")
+async def cancel_subscription(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Résiliation en un clic : plus de prélèvement ; l'accès reste jusqu'à la fin de la période (ou de l'essai)
+    déjà commencée, sans remboursement."""
+    sub = await _active_sub(db, user)
+    if sub is None:
+        raise HTTPException(404, {"code": "no_subscription", "message": "No active subscription."})
+    if sub.stripe_subscription_id and not settings.MOCK_BILLING:
+        try:
+            await stripe_service.cancel_at_period_end(sub.stripe_subscription_id)
+        except StripeError as exc:
+            raise HTTPException(502, {"code": "stripe_error", "message": str(exc)})
+    sub.cancel_at_period_end = True
+    await db.commit()
+    return {"subscription": _sub_out(sub)}
+
+
+@router.get("/sheets/{sheet_id}/pdf")
+async def sheet_pdf(sheet_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """PDF pour le compte connecté qui a la partition (achat, don ou abonnement). Pendant l'essai de l'abonnement :
+    MUSIC_TRIAL_DOWNLOADS partitions au plus."""
+    s = await db.get(MusicSheet, sheet_id)
+    if s is None:
+        raise HTTPException(404, "Introuvable")
+    bought = (await db.execute(
+        select(MusicOrderItem.id).join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
+        .where(MusicOrderItem.sheet_id == s.id, MusicOrder.status == ORDER_PAID, _mine(user)))).first() is not None
+    sub = None if bought else await _active_sub(db, user)
+    if not bought and not (sub is not None and s.published):
+        raise HTTPException(404, "Introuvable")
+    if sub is not None:
+        done = (await db.execute(select(MusicSubDownload).where(MusicSubDownload.subscription_id == sub.id,
+                                                                MusicSubDownload.sheet_id == s.id))).scalar_one_or_none()
+        if done is None:
+            in_trial = sub.status == "trialing"
+            if in_trial:
+                n = (await db.execute(select(func.count(MusicSubDownload.id)).where(
+                    MusicSubDownload.subscription_id == sub.id, MusicSubDownload.in_trial.is_(True)))).scalar_one()
+                if n >= settings.MUSIC_TRIAL_DOWNLOADS:
+                    raise HTTPException(403, {"code": "trial_limit",
+                                              "message": f"During the free trial you can download {settings.MUSIC_TRIAL_DOWNLOADS} sheets."})
+            db.add(MusicSubDownload(subscription_id=sub.id, sheet_id=s.id, in_trial=in_trial))
+            await db.commit()
+    path = ms.pdf_path(s.id)
+    if not path.exists():
+        raise HTTPException(404, "Introuvable")
+    name = re.sub(r"[^A-Za-z0-9 _.-]+", "", f"{s.piece_title} - {s.instrument_label}")[:120] or "sheet"
+    return FileResponse(path, media_type="application/pdf", filename=f"{name}.pdf",
+                        headers={"Cache-Control": "private, no-store"})
+
+
+async def _sync_subscription(db: AsyncSession, obj: dict) -> None:
+    """customer.subscription.* (abonnement de la boutique : metadata.music_sub) -> état local."""
+    sid = (obj.get("metadata") or {}).get("music_sub")
+    sub = None
+    if obj.get("id"):
+        sub = (await db.execute(select(MusicSubscription).where(
+            MusicSubscription.stripe_subscription_id == obj["id"]))).scalar_one_or_none()
+    if sub is None and sid and str(sid).isdigit():
+        sub = await db.get(MusicSubscription, int(sid))
+    if sub is None:
+        return
+    sub.stripe_subscription_id = obj.get("id") or sub.stripe_subscription_id
+    sub.stripe_customer_id = obj.get("customer") or sub.stripe_customer_id
+    sub.status = str(obj.get("status") or sub.status)[:20]
+    sub.trial_end = _dt(obj.get("trial_end")) or sub.trial_end
+    end = obj.get("current_period_end")
+    if not end:
+        items = ((obj.get("items") or {}).get("data") or [])
+        end = items[0].get("current_period_end") if items else None
+    sub.current_period_end = _dt(end) or sub.current_period_end
+    sub.cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
+    await db.commit()

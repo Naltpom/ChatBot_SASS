@@ -372,3 +372,15 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .track-close { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--tile); color: var(--mut); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .has-buybar .track-banner { bottom: calc(88px + env(safe-area-inset-bottom)); }
 @media (min-width: 900px) { .has-buybar .track-banner { bottom: 16px; } }
+
+.sub-card { margin: 14px 0 6px; padding: 16px; border-radius: 16px; border: 2px solid var(--blue); background: var(--bg); display: flex; flex-direction: column; gap: 10px; }
+.sub-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sub-head b { font-size: 17px; }
+.sub-price { font-weight: 700; font-size: 17px; }
+.sub-trial { align-self: flex-start; background: #e8f5ec; color: #1e7a3a; border-radius: 999px; padding: 4px 10px; font-size: 13px; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .sub-trial { background: #12301c; color: #7ee2a0; } }
+.sub-card ul { margin: 0; padding-left: 18px; font-size: 14px; color: var(--ink2); display: grid; gap: 4px; }
+.sub-confirm { display: flex; flex-direction: column; gap: 10px; }
+.sub-confirm .hint { margin: 0; font-size: 13px; color: var(--mut); }
+.pdf-btn { margin-top: 10px; display: grid; gap: 8px; }
+.sub-status { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; margin: 12px 0; padding: 14px 16px; border-radius: 14px; background: var(--tile); font-size: 14.5px; text-align: left; }

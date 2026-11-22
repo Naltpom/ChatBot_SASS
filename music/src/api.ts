@@ -21,6 +21,7 @@ export interface SheetInfo {
   published?: boolean
   owned?: boolean
   pages_full?: string[]
+  pdf?: string
 }
 
 export interface Piece {
@@ -40,6 +41,7 @@ export interface Piece {
   pricing?: Pricing
   private?: boolean
   admin?: boolean
+  subscribed?: boolean
 }
 
 export interface Pricing { unit_cents: number; bundle_cents: number | null; currency: string }
@@ -81,6 +83,7 @@ export interface Me { id: number; email: string; name: string; avatar_url?: stri
 
 export interface AccountView {
   user: { name: string; email: string; signup_app: string | null; email_verified?: boolean }
+  subscription?: Subscription | null
   sheets: { sheet_id: number; piece_slug: string; piece_title: string; instrument_label: string; pages: number
             has_notes: boolean; bought_at: string | null; download: string | null; my_rating: number | null }[]
 }
@@ -172,6 +175,13 @@ export const getOrder = (order: string, auth: { k?: string; session_id?: string 
 // --- compte (partagé avec chapote.fr) ---
 export const getMe = () => call<Me>('/api/auth/me')
 export const getAccount = () => call<AccountView>('/api/music/account')
+export interface Subscription { status: string; weekly_cents: number; trial_end: string | null; current_period_end: string | null
+  cancel_at_period_end: boolean; trial_downloads_left: number | null }
+export interface Offer { variant: 'sheet' | 'sub'; sub_weekly_cents: number; currency: string; trial_downloads: number }
+export const getOffer = (b: string | null) => call<Offer>(`/api/music/offer${b ? `?b=${encodeURIComponent(b)}` : ''}`)
+export const subscribe = (body: { promo_code?: string; consent: boolean; lang: string; track?: string }) =>
+  post<{ redirect: string }>('/api/music/subscribe', { ...body, promo_code: body.promo_code || null, track: body.track || null })
+export const cancelSubscription = () => post<{ subscription: Subscription }>('/api/music/subscription/cancel', {})
 export const login = (email: string, password: string) => post<Me>('/api/auth/login', { email, password })
 export const register = (name: string, email: string, password: string) =>
   post<Me>('/api/auth/register', { name, email, password, account_type: 'perso', invites: [] })

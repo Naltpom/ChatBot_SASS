@@ -71,6 +71,11 @@ Dès la confirmation du paiement, les partitions sont téléchargeables sur la p
 ## 7. Droit de rétractation
 Conformément à l'article L221-28, 13° du Code de la consommation, le droit de rétractation ne peut être exercé pour la fourniture d'un contenu numérique non fourni sur un support matériel dont l'exécution a commencé après accord préalable exprès du consommateur et renoncement exprès à son droit de rétractation. En cochant la case prévue avant le paiement, l'Acheteur demande la fourniture immédiate des partitions et reconnaît perdre son droit de rétractation ; ce consentement est horodaté et conservé avec la commande.
 
+## 7 bis. Abonnement
+Certains visiteurs se voient proposer un abonnement donnant accès à toutes les partitions en vente sur le site (PDF et lecteur complet), au prix affiché par semaine, toutes taxes comprises. Un compte est nécessaire. L'abonnement est payé par Stripe et se renouvelle automatiquement chaque semaine jusqu'à sa résiliation.
+Un code reçu dans un lien peut ouvrir un essai gratuit (48 heures), une seule fois par compte ; la carte est demandée à l'inscription et le premier prélèvement a lieu à la fin de l'essai, sauf résiliation avant. Pendant l'essai, le nombre de partitions téléchargeables est limité (indiqué avant l'inscription). Sans code, le premier prélèvement a lieu tout de suite.
+L'Acheteur peut résilier à tout moment depuis « Mes partitions » : aucun prélèvement n'a plus lieu, l'accès reste ouvert jusqu'à la fin de la semaine (ou de l'essai) en cours, sans remboursement de la période commencée. En demandant l'accès immédiat aux partitions lors de l'inscription, l'Acheteur renonce expressément à son droit de rétractation (article L221-28 13° du Code de la consommation). Les partitions téléchargées pendant l'abonnement restent soumises à la licence de l'article 8.
+
 ## 8. Licence d'utilisation
 L'achat confère à l'Acheteur un droit d'usage personnel et non exclusif de la partition : la consulter, l'imprimer pour son propre usage, la travailler et jouer le morceau. Il est interdit de revendre, partager, diffuser, mettre en ligne ou reproduire la partition ou le fichier PDF, en tout ou partie, au bénéfice de tiers.
 
@@ -213,6 +218,11 @@ As soon as payment is confirmed, the sheets can be downloaded from the order con
 
 ## 7. Right of withdrawal
 Under article L221-28, 13° of the French Consumer Code, the right of withdrawal cannot be exercised for the supply of digital content not supplied on a tangible medium where performance has begun with the consumer's prior express consent and express waiver of the right of withdrawal. By ticking the box before payment, the Buyer requests immediate supply of the sheets and acknowledges losing the right of withdrawal; this consent is timestamped and kept with the order.
+
+## 7a. Subscription
+Some visitors are offered a subscription giving access to all the sheets on sale on the website (PDF and full player), at the price shown per week, all taxes included. An account is required. The subscription is paid through Stripe and renews automatically every week until it is cancelled.
+A code received in a link may open a free trial (48 hours), once per account; the card is requested at sign-up and the first payment is taken at the end of the trial unless cancelled before. During the trial, the number of downloadable sheets is limited (shown before sign-up). Without a code, the first payment is taken immediately.
+The Buyer may cancel at any time from "My sheets": no further payment is taken, and access stays open until the end of the current week (or trial), with no refund of the period already started. By asking for immediate access to the sheets at sign-up, the Buyer expressly waives the right of withdrawal (article L221-28 13° of the French Consumer Code). Sheets downloaded during the subscription remain subject to the licence in article 8.
 
 ## 8. Licence
 The purchase grants the Buyer a personal, non-exclusive right to use the sheet: view it, print it for their own use, practise and play the piece. Reselling, sharing, distributing, uploading or reproducing the sheet or the PDF file, in whole or in part, for third parties is prohibited.
@@ -361,6 +371,11 @@ En cuanto se confirma el pago, las partituras pueden descargarse desde la págin
 ## 7. Derecho de desistimiento
 Según el artículo L221-28, 13.º del Código de Consumo francés, no puede ejercerse el derecho de desistimiento en el suministro de contenido digital que no se presta en soporte material cuya ejecución ha comenzado con el consentimiento previo y expreso del consumidor y su renuncia expresa a ese derecho. Al marcar la casilla prevista antes del pago, el Comprador pide el suministro inmediato de las partituras y reconoce que pierde su derecho de desistimiento; este consentimiento queda registrado con fecha y hora junto al pedido.
 
+## 7 bis. Suscripción
+A algunos visitantes se les propone una suscripción que da acceso a todas las partituras a la venta en el sitio (PDF y reproductor completo), al precio indicado por semana, impuestos incluidos. Se necesita una cuenta. La suscripción se paga a través de Stripe y se renueva automáticamente cada semana hasta su cancelación.
+Un código recibido en un enlace puede abrir una prueba gratuita (48 horas), una sola vez por cuenta; la tarjeta se pide al suscribirse y el primer cobro se hace al final de la prueba, salvo cancelación antes. Durante la prueba, el número de partituras descargables está limitado (indicado antes de suscribirse). Sin código, el primer cobro se hace de inmediato.
+El Comprador puede cancelar en cualquier momento desde «Mis partituras»: no se realizan más cobros y el acceso sigue abierto hasta el final de la semana (o de la prueba) en curso, sin reembolso del periodo empezado. Al pedir el acceso inmediato a las partituras al suscribirse, el Comprador renuncia expresamente a su derecho de desistimiento (artículo L221-28 13° del Código de consumo francés). Las partituras descargadas durante la suscripción siguen sujetas a la licencia del artículo 8.
+
 ## 8. Licencia de uso
 La compra otorga al Comprador un derecho de uso personal y no exclusivo de la partitura: consultarla, imprimirla para su propio uso, estudiarla y tocar la pieza. Queda prohibido revender, compartir, difundir, publicar en línea o reproducir la partitura o el archivo PDF, total o parcialmente, en beneficio de terceros.
 
@@ -507,6 +522,11 @@ const RU: Docs = {
 
 ## 7. Право на отказ
 Согласно статье L221-28, п. 13 Кодекса потребителя Франции, право на отказ не применяется к предоставлению цифрового контента не на материальном носителе, исполнение которого началось с предварительного явного согласия потребителя и его явного отказа от права на отказ. Отмечая галочку перед оплатой, Покупатель просит немедленно предоставить ноты и признаёт утрату права на отказ; это согласие фиксируется с датой и временем и хранится вместе с заказом.
+
+## 7а. Подписка
+Некоторым посетителям предлагается подписка с доступом ко всем нотам, продающимся на сайте (PDF и полный плеер), по указанной цене за неделю, включая налоги. Нужен аккаунт. Подписка оплачивается через Stripe и автоматически продлевается каждую неделю до отмены.
+Код из ссылки может открыть бесплатный пробный период (48 часов), один раз на аккаунт; карта запрашивается при оформлении, первый платёж списывается в конце пробного периода, если подписка не отменена раньше. В пробный период число скачиваемых нот ограничено (указано до оформления). Без кода первый платёж списывается сразу.
+Покупатель может отменить подписку в любой момент в разделе «Мои ноты»: платежи прекращаются, доступ сохраняется до конца текущей недели (или пробного периода), без возврата за начатый период. Запрашивая немедленный доступ к нотам при оформлении, Покупатель прямо отказывается от права на отказ от договора (ст. L221-28 13° Потребительского кодекса Франции). Ноты, скачанные во время подписки, остаются под лицензией статьи 8.
 
 ## 8. Лицензия
 Покупка даёт Покупателю личное неисключительное право пользования нотами: просматривать их, печатать для собственного использования, разучивать и исполнять произведение. Запрещено перепродавать, передавать, распространять, публиковать в интернете или воспроизводить ноты или PDF-файл, полностью или частично, в интересах третьих лиц.

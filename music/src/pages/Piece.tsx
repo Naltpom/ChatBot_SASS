@@ -8,10 +8,12 @@ import { Center, Icon, Paper, Stars } from '../components/ui'
 import { PlayBar, SheetCursor, useScorePlayer } from '../components/Player'
 import Reviews from '../components/Reviews'
 import { track } from '../track'
+import { PdfButton, SubscriptionCard, useOffer } from '../components/Subscription'
 
 export default function PiecePage() {
   const { slug = '' } = useParams()
   const navigate = useNavigate()
+  const offer = useOffer()
   const [params] = useSearchParams()
   const { t, lang } = useI18n()
   const { eur: euros } = useMoney()
@@ -119,6 +121,8 @@ export default function PiecePage() {
             </a>
           )}
 
+          {offer?.variant === 'sub' && !piece.subscribed && <SubscriptionCard offer={offer} />}
+
           <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
             <legend className="sr">{t.instrument}</legend>
             <div className="ins-list">
@@ -148,7 +152,8 @@ export default function PiecePage() {
             )}
           </fieldset>
 
-          {piece.sheets.some(s => s.owned) && <p className="own-note">✓ {t.youOwn}</p>}
+          {piece.sheets.some(s => s.owned) && <p className="own-note">✓ {piece.subscribed ? t.subActive : t.youOwn}</p>}
+          {shown.owned && shown.pdf && <PdfButton url={shown.pdf} name={`${piece.title} - ${shown.instrument_label}`} />}
           {chosen.length > 0 && <div className="desk-buy">
             <button type="button" className="btn block" onClick={buy}>{chosen.length > 1 ? t.getSheets : t.getSheet} · {euros(total)}</button>
             <button type="button" className="btn ghost block" onClick={addCart}>{added ? t.added : t.addToCart}</button>
