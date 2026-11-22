@@ -12,7 +12,7 @@ interface Overview {
   sheets: { total: number; published: number; private: number }
   orders: { paid: number; paid_30d: number; by_status: Record<string, number> }
   revenue_cents: { total: number; last_30d: number }
-  pricing: { unit_price_cents: number; bundle_price_cents: number | null; sub_weekly_cents?: number; currency: string }
+  pricing: { unit_price_cents: number; bundle_price_cents: number | null; sub_weekly_cents?: number; sub_monthly_cents?: number; sub_yearly_cents?: number; currency: string }
   subscriptions?: Record<string, number>
   ab?: Record<'sheet' | 'sub', { links: number; visited: number; orders: number; orders_cents: number; subscriptions: Record<string, number> }>
   accounts: { using_music: number; signed_up_on_music: number }
@@ -32,7 +32,7 @@ interface Owner {
 }
 interface Promo {
   id: number; code: string; kind: 'percent' | 'amount' | 'trial'; value: number; active: boolean; max_uses: number | null
-  uses: number; expires_at: string | null; note: string | null; usable: boolean
+  uses: number; expires_at: string | null; note: string | null; usable: boolean; trial_days?: number | null
 }
 interface Order {
   id: number; public_id: string; status: string; email: string | null; amount_cents: number
@@ -121,7 +121,7 @@ export default function AdminMusic() {
                 const x = d.ab![v]
                 return (
                   <tr key={v}>
-                    <td>{v === 'sheet' ? 'A · prix par partition (INSTA20)' : 'B · abonnement (ESSAI48)'}</td>
+                    <td>{v === 'sheet' ? 'A · partition seule' : 'B · partition + abonnements'}</td>
                     <td>{x.links}</td>
                     <td>{x.visited}{x.links ? ` (${Math.round((x.visited / x.links) * 100)} %)` : ''}</td>
                     <td>{x.orders ? `${x.orders} · ${eur(x.orders_cents)}` : '—'}</td>
@@ -321,16 +321,20 @@ function Sheets({ onChange, unitPrice }: { onChange: () => void; unitPrice: numb
 function Pricing({ initial, onSaved }: { initial: Overview['pricing']; onSaved: () => void }) {
   const [unit, setUnit] = useState((initial.unit_price_cents / 100).toFixed(2).replace('.', ','))
   const [bundle, setBundle] = useState(initial.bundle_price_cents != null ? (initial.bundle_price_cents / 100).toFixed(2).replace('.', ',') : '')
-  const [weekly, setWeekly] = useState(((initial.sub_weekly_cents ?? 1400) / 100).toFixed(2).replace('.', ','))
+  const fmt = (c: number | undefined, d: number) => ((c ?? d) / 100).toFixed(2).replace('.', ',')
+  const [weekly, setWeekly] = useState(fmt(initial.sub_weekly_cents, 499))
+  const [monthly, setMonthly] = useState(fmt(initial.sub_monthly_cents, 799))
+  const [yearly, setYearly] = useState(fmt(initial.sub_yearly_cents, 4999))
   const [msg, setMsg] = useState<{ tone: 'go' | 'danger'; text: string } | null>(null)
   const save = async () => {
     setMsg(null)
     const u = toCents(unit)
     const b = bundle.trim() === '' ? null : toCents(bundle)
-    const w = toCents(weekly)
-    if (Number.isNaN(u) || Number.isNaN(w) || (b !== null && Number.isNaN(b))) { setMsg({ tone: 'danger', text: 'Montant invalide' }); return }
+    const w = toCents(weekly), m = toCents(monthly), y = toCents(yearly)
+    if ([u, w, m, y].some(Number.isNaN) || (b !== null && Number.isNaN(b))) { setMsg({ tone: 'danger', text: 'Montant invalide' }); return }
     try {
-      await api('/api/admin/music/pricing', { method: 'PUT', body: { unit_price_cents: u, bundle_price_cents: b, sub_weekly_cents: w } })
+      await api('/api/admin/music/pricing', { method: 'PUT', body: { unit_price_cents: u, bundle_price_cents: b,
+        sub_weekly_cents: w, sub_monthly_cents: m, sub_yearly_cents: y } })
       setMsg({ tone: 'go', text: 'Prix enregistrés : ils s’appliquent aux prochaines commandes.' }); onSaved()
     } catch (e: any) { setMsg({ tone: 'danger', text: e.message || 'Erreur' }) }
   }
@@ -346,9 +350,10 @@ function Pricing({ initial, onSaved }: { initial: Overview['pricing']; onSaved: 
         <Field label="Prix du lot d’un morceau (€)" hint="Plusieurs instruments du même morceau dans la commande. Vide = pas de lot.">
           <input type="text" inputMode="decimal" value={bundle} onChange={e => setBundle(e.target.value)} />
         </Field>
-        <Field label="Abonnement, prix par semaine (€)" hint="Proposé au groupe B du test A/B ; s’applique aux nouveaux abonnements.">
-          <input type="text" inputMode="decimal" value={weekly} onChange={e => setWeekly(e.target.value)} />
-        </Field>
+        <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Abonnement « toutes les partitions » (groupe B du test A/B), renouvelé automatiquement ; s’applique aux nouveaux abonnements.</p>
+        <Field label="Abonnement à la semaine (€)"><input type="text" inputMode="decimal" value={weekly} onChange={e => setWeekly(e.target.value)} /></Field>
+        <Field label="Abonnement au mois (€)"><input type="text" inputMode="decimal" value={monthly} onChange={e => setMonthly(e.target.value)} /></Field>
+        <Field label="Abonnement à l’année (€)"><input type="text" inputMode="decimal" value={yearly} onChange={e => setYearly(e.target.value)} /></Field>
         {msg && <InfoBox tone={msg.tone}>{msg.text}</InfoBox>}
         <div><Btn onClick={save}>Enregistrer</Btn></div>
       </div>
@@ -366,6 +371,7 @@ function Promos() {
   const [maxUses, setMaxUses] = useState('')
   const [expires, setExpires] = useState('')
   const [note, setNote] = useState('')
+  const [trialDays, setTrialDays] = useState('')
   const [err, setErr] = useState('')
 
   const create = async () => {
@@ -375,9 +381,10 @@ function Promos() {
     try {
       const p = await api<Promo>('/api/admin/music/promos', { method: 'POST', body: {
         code: code.trim(), kind, value: v, max_uses: maxUses ? parseInt(maxUses, 10) : null,
-        expires_at: expires ? new Date(expires + 'T23:59:59').toISOString() : null, note: note || null } })
+        expires_at: expires ? new Date(expires + 'T23:59:59').toISOString() : null, note: note || null,
+        trial_days: kind !== 'trial' && trialDays ? parseInt(trialDays, 10) : null } })
       setPromos(prev => [p, ...(prev || [])])
-      setCode(''); setValue(''); setMaxUses(''); setExpires(''); setNote('')
+      setCode(''); setValue(''); setMaxUses(''); setExpires(''); setNote(''); setTrialDays('')
     } catch (e: any) { setErr(e.message || 'Erreur') }
   }
   const toggle = async (p: Promo) => {
@@ -397,6 +404,7 @@ function Promos() {
             <Seg small value={kind} onChange={v => setKind(v as 'percent' | 'amount' | 'trial')} options={[{ value: 'percent', label: '%' }, { value: 'amount', label: '€' }, { value: 'trial', label: 'Essai abonnement' }]} />
           </Field>
           <Field label={kind === 'percent' ? 'Réduction (%)' : kind === 'amount' ? 'Réduction (€)' : 'Jours d’essai gratuit (abonnement)'}><input type="text" inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} /></Field>
+          {kind !== 'trial' && <Field label="Essai abonnement (jours)" hint="Facultatif : le même code ouvre aussi un essai gratuit"><input type="text" inputMode="numeric" value={trialDays} onChange={e => setTrialDays(e.target.value)} placeholder="2" /></Field>}
           <Field label="Utilisations max" hint="Vide = illimité"><input type="text" inputMode="numeric" value={maxUses} onChange={e => setMaxUses(e.target.value)} /></Field>
           <Field label="Valable jusqu’au" hint="Vide = sans fin"><input type="date" value={expires} onChange={e => setExpires(e.target.value)} style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid var(--border)' }} /></Field>
           <Field label="Note"><input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="Live du 24/11" /></Field>
@@ -415,7 +423,7 @@ function Promos() {
                 {promos.map(p => (
                   <tr key={p.id}>
                     <td><strong>{p.code}</strong> {!p.usable && <Chip tone="mut">inutilisable</Chip>}</td>
-                    <td>{p.kind === 'percent' ? `${p.value} %` : p.kind === 'trial' ? `essai ${p.value} j` : eur(p.value)}</td>
+                    <td>{p.kind === 'percent' ? `${p.value} %` : p.kind === 'trial' ? `essai ${p.value} j` : eur(p.value)}{p.trial_days ? ` + essai ${p.trial_days} j` : ''}</td>
                     <td>{p.uses}{p.max_uses != null ? ` / ${p.max_uses}` : ''}</td>
                     <td>{day(p.expires_at)}</td>
                     <td>{p.note || '—'}</td>
@@ -579,7 +587,7 @@ function Tracking() {
                 {data.rows.map(r => (<Fragment key={r.code}>
                   <tr>
                     <td>{r.instagram ? `@${r.instagram}` : <span className="muted">inconnu</span>}<div style={{ fontSize: 12 }}>{r.sheet ? <a href={r.sheet.url} target="_blank" rel="noreferrer">{r.sheet.title} ↗</a> : <span className="muted">{r.sheet_ref || ''}</span>}</div></td>
-                    <td>{r.variant === 'sub' ? <Chip tone="acc">B · abonnement</Chip> : r.variant === 'sheet' ? <Chip tone="mut">A · partition</Chip> : '—'}</td>
+                    <td>{r.variant === 'sub' ? <Chip tone="acc">B · partition + abo</Chip> : r.variant === 'sheet' ? <Chip tone="mut">A · partition</Chip> : '—'}</td>
                     <td><code>{r.code}</code></td>
                     <td>{hour(r.sent_at)}</td>
                     <td>{hour(r.last_at)}</td>

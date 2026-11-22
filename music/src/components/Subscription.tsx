@@ -2,7 +2,7 @@
 // pour qui a la partition (achat ou abonnement).
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { ApiError, getOffer, subscribe, type Offer } from '../api'
+import { ApiError, getOffer, subscribe, type Offer, type Plan } from '../api'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { useMoney } from '../money'
@@ -10,7 +10,7 @@ import { savedPromo, track, trackCode, trackingOn } from '../track'
 
 export function useOffer(): Offer | null {
   const [offer, setOffer] = useState<Offer | null>(null)
-  useEffect(() => { getOffer(trackCode()).then(setOffer).catch(() => setOffer(null)) }, [])
+  useEffect(() => { getOffer(trackCode(), savedPromo() || undefined).then(setOffer).catch(() => setOffer(null)) }, [])
   return offer
 }
 
@@ -24,15 +24,18 @@ export function SubscriptionCard({ offer }: { offer: Offer }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const code = savedPromo()
-  const trial = !!code
-  const price = eur(offer.sub_weekly_cents)
+  const trial = offer.trial_days > 0
+  const [plan, setPlan] = useState<Plan>('month')
+  const cents = (p: Plan) => offer.plans.find(x => x.plan === p)?.cents ?? 0
+  const price = `${eur(cents(plan))} ${t.planPer[plan]}`
+  const monthsFree = cents('month') ? Math.floor(12 - cents('year') / cents('month')) : 0  // arrondi vers le bas : jamais plus que la vraie économie
   const go = async () => {
     setErr('')
     if (!consent) { setErr(t.needConsent); return }
     setBusy(true)
-    track('subscribe', { trial, cents: offer.sub_weekly_cents })
+    track('subscribe', { trial, plan, cents: cents(plan) })
     try {
-      const r = await subscribe({ promo_code: code || undefined, consent, lang, track: trackingOn() ? trackCode() || undefined : undefined })
+      const r = await subscribe({ plan, promo_code: code || undefined, consent, lang, track: trackingOn() ? trackCode() || undefined : undefined })
       window.location.href = r.redirect
     } catch (e) {
       const ae = e as ApiError
@@ -42,11 +45,19 @@ export function SubscriptionCard({ offer }: { offer: Offer }) {
   }
   return (
     <section className="sub-card" aria-label={t.subTitle}>
-      <div className="sub-head">
-        <b>{t.subTitle}</b>
-        <span className="sub-price">{t.subPrice(price)}</span>
+      <div className="sub-head"><b>{t.subTitle}</b></div>
+      {trial && <span className="sub-trial">🎁 {t.subTrial(offer.trial_days * 24)}</span>}
+      <div className="plans" role="radiogroup" aria-label={t.subTitle}>
+        {offer.plans.map(p => (
+          <button type="button" key={p.plan} role="radio" aria-checked={plan === p.plan}
+                  className={`plan ${plan === p.plan ? 'on' : ''}`} onClick={() => { setPlan(p.plan); track('plan', { plan: p.plan }) }}>
+            <span className="plan-name">{t.planName[p.plan]}</span>
+            <b>{eur(p.cents)}</b>
+            <small>{t.planPer[p.plan]}</small>
+            {p.plan === 'year' && monthsFree > 0 && <span className="plan-save">{t.planSave(monthsFree)}</span>}
+          </button>
+        ))}
       </div>
-      {trial && <span className="sub-trial">🎁 {t.subTrial}</span>}
       <ul>
         <li>{t.subPoint1}</li>
         <li>{t.subPoint2}</li>

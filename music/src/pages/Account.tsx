@@ -165,7 +165,7 @@ export default function AccountPage() {
           {data.subscription.trial_downloads_left != null && <span>{t.subTrialLeft(data.subscription.trial_downloads_left)}</span>}
           {data.subscription.cancel_at_period_end
             ? <span>{t.subEnds(day(data.subscription.current_period_end))}</span>
-            : <span>{t.subRenews(eur(data.subscription.weekly_cents), day(data.subscription.current_period_end))}</span>}
+            : <span>{t.subRenews(`${eur(data.subscription.price_cents ?? data.subscription.weekly_cents)} ${data.subscription.plan ? t.planPer[data.subscription.plan] : ''}`, day(data.subscription.current_period_end))}</span>}
           {!data.subscription.cancel_at_period_end && (
             <button type="button" className="linkish" onClick={cancel} disabled={cancelling}>{cancelling ? '…' : t.subCancel}</button>
           )}
