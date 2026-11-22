@@ -793,13 +793,28 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         # paiement de l'abonnement contesté : l'abonnement s'arrête tout de suite
         cur = (await pg_session.execute(select(MusicSubscription).where(MusicSubscription.status == "active"))).scalar_one()
         cur.stripe_customer_id = "cus_9"
+        cur.stripe_subscription_id = "sub_9"
         await pg_session.commit()
-        ev = {"type": "charge.dispute.created", "data": {"object": {"id": "dp_s", "payment_intent": "pi_sub", "customer": "cus_9"}}}
+        monkeypatch.setattr(settings, "MOCK_BILLING", False)
+        cancelled = []
+
+        async def fake_stripe2(method, path, data=None, params=None):
+            if method == "GET" and path == "/charges/ch_s":
+                return {"id": "ch_s", "customer": "cus_9"}
+            return {}
+
+        async def fake_cancel_now(sid, prorate=False):
+            cancelled.append(sid)
+        monkeypatch.setattr(stripe_service, "_stripe_request", fake_stripe2)
+        monkeypatch.setattr(stripe_service, "cancel_subscription", fake_cancel_now)
+        # vrai format d'un litige Stripe : pas de « customer », seulement la charge
+        ev = {"type": "charge.dispute.created", "data": {"object": {"id": "dp_s", "object": "dispute", "charge": "ch_s", "payment_intent": "pi_sub"}}}
         raw = json.dumps(ev).encode()
         await c.http.post("/api/music/stripe/webhook", content=raw,
                           headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
         await pg_session.refresh(cur)
-        assert cur.status == "canceled"
+        assert cur.status == "canceled" and cancelled == ["sub_9"]
+        monkeypatch.setattr(settings, "MOCK_BILLING", True)
         # test A/B : un lien déclaré reçoit un groupe ; l'offre suit ce groupe
         auth = {"Authorization": f"Bearer {TOKEN}"}
         v = (await c.http.post("/api/music/ingest/links", json=[{"code": "zz11yy22"}], headers=auth)).json()["variants"]["zz11yy22"]

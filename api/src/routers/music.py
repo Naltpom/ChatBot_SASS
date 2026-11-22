@@ -516,9 +516,19 @@ async def _apply_session(db: AsyncSession, order: MusicOrder, session: dict) -> 
             await ms.deliver(db, order)
             await db.commit()
     elif status == "expired" and order.status == ORDER_PENDING:
-        order.status = ORDER_EXPIRED
+        await _close_order_once(db, order, ORDER_EXPIRED)
+
+
+async def _close_order_once(db: AsyncSession, order: MusicOrder, new_status: str) -> None:
+    """pending -> expired/failed une seule fois (UPDATE conditionnel) : les codes ne sont rendus qu'une fois,
+    même si le webhook et la page de commande arrivent en même temps."""
+    from sqlalchemy import update
+    row = (await db.execute(update(MusicOrder).where(MusicOrder.id == order.id, MusicOrder.status == ORDER_PENDING)
+                            .values(status=new_status).returning(MusicOrder.id))).first()
+    if row is not None:
         await ms.release_promo(db, order)
-        await db.commit()
+    await db.commit()
+    await db.refresh(order)
 
 
 @router.get("/orders/{public_id}")
@@ -606,17 +616,28 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             order.status = new
             await db.commit()
             logger.info("Commande %s : %s (%s)", order.public_id, new, etype)
-        elif order is None and obj.get("customer") and (
-                etype == "charge.dispute.created" or (etype == "charge.refunded" and obj.get("refunded") is True)):
-            # paiement d'abonnement remboursé en entier ou contesté : l'abonnement s'arrête tout de suite
-            for sub in (await db.execute(select(MusicSubscription).where(
-                    MusicSubscription.stripe_customer_id == obj["customer"],
-                    MusicSubscription.status.in_(SUB_ACTIVE_STATES + ("past_due",))))).scalars():
+        elif order is None and (etype == "charge.dispute.created" or (etype == "charge.refunded" and obj.get("refunded") is True)):
+            # paiement d'abonnement remboursé en entier ou contesté : l'abonnement s'arrête tout de suite.
+            # Un litige ne porte pas le client : on le lit sur la charge contestée.
+            customer = obj.get("customer")
+            if not customer and obj.get("charge") and not settings.MOCK_BILLING:
+                try:
+                    ch = await stripe_service._stripe_request("GET", f"/charges/{obj['charge']}")
+                    customer = ch.get("customer")
+                except StripeError as exc:
+                    logger.warning("Charge %s non relue (litige) : %s", obj.get("charge"), exc)
+                    raise HTTPException(503, "retry")  # Stripe renverra l'événement
+            subs = [] if not customer else (await db.execute(select(MusicSubscription).where(
+                    MusicSubscription.stripe_customer_id == customer,
+                    MusicSubscription.status.in_(SUB_ACTIVE_STATES + ("past_due",))))).scalars().all()
+            for sub in subs:
                 if sub.stripe_subscription_id and not settings.MOCK_BILLING:
                     try:
                         await stripe_service.cancel_subscription(sub.stripe_subscription_id)
                     except StripeError as exc:
                         logger.warning("Abonnement %s non résilié chez Stripe : %s", sub.stripe_subscription_id, exc)
+                        await db.rollback()
+                        raise HTTPException(503, "retry")  # Stripe renverra l'événement
                 sub.status = "canceled"
                 logger.info("Abonnement %s coupé (%s)", sub.id, etype)
             await db.commit()
@@ -625,9 +646,13 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if etype == "checkout.session.expired" and (obj.get("metadata") or {}).get("music_sub"):
         sid = str(obj["metadata"]["music_sub"])
         sub = await db.get(MusicSubscription, int(sid)) if sid.isdigit() else None
-        if sub is not None and sub.status == "incomplete" and sub.stripe_session_id == obj.get("id"):
-            sub.status = "expired"
-            await ms.release_promo(db, sub)
+        if sub is not None and sub.stripe_session_id == obj.get("id"):
+            from sqlalchemy import update
+            row = (await db.execute(update(MusicSubscription).where(
+                MusicSubscription.id == sub.id, MusicSubscription.status == "incomplete")
+                .values(status="expired", trial_requested=False).returning(MusicSubscription.id))).first()
+            if row is not None:  # une seule fois ; l'essai demandé mais jamais commencé reste possible
+                await ms.release_promo(db, sub)
             await db.commit()
         return {"received": True}
     if etype.startswith("customer.subscription."):
@@ -643,9 +668,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if etype in ("checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.expired"):
         await _apply_session(db, order, obj)
     elif etype == "checkout.session.async_payment_failed" and order.status == ORDER_PENDING:
-        order.status = ORDER_FAILED
-        await ms.release_promo(db, order)
-        await db.commit()
+        await _close_order_once(db, order, ORDER_FAILED)
     return {"received": True}
 
 
@@ -829,7 +852,7 @@ async def instagram_done(body: InstagramDone, db: AsyncSession = Depends(get_db)
 # --------------------------------------------------------------------------
 
 async def _owns_sheet(db: AsyncSession, sheet_id: int, *, user: Optional[User] = None,
-                      order: Optional[str] = None, key: Optional[str] = None) -> bool:
+                      order: Optional[str] = None, key: Optional[str] = None, include_sub: bool = True) -> bool:
     """Vrai si la commande donnée (clé valide) ou le compte connecté a payé cette partition."""
     stmt = (select(MusicOrderItem.id).join(MusicOrder, MusicOrder.id == MusicOrderItem.order_id)
             .where(MusicOrderItem.sheet_id == sheet_id, MusicOrder.status == ORDER_PAID))
@@ -840,7 +863,7 @@ async def _owns_sheet(db: AsyncSession, sheet_id: int, *, user: Optional[User] =
         if (await db.execute(stmt.where(_mine(user)))).first():
             return True
         # abonné : toutes les partitions en vente ; pendant l'essai, seulement celles qu'il a débloquées (limite de l'essai)
-        sub = await _active_sub(db, user)
+        sub = await _active_sub(db, user) if include_sub else None
         if sub is not None:
             s = await db.get(MusicSheet, sheet_id)
             if s is not None and s.published:
@@ -860,7 +883,7 @@ async def _active_sub(db: AsyncSession, user: Optional[User]) -> Optional[MusicS
         MusicSubscription.user_id == user.id, MusicSubscription.status.in_(SUB_ACTIVE_STATES))
         .order_by(MusicSubscription.id.desc()))).scalars().all()
     for sub in rows:
-        if sub.current_period_end is None or sub.current_period_end > now:
+        if (sub.current_period_end is None and settings.MOCK_BILLING) or (sub.current_period_end and sub.current_period_end > now):
             return sub
     return None
 
@@ -1009,7 +1032,7 @@ class ReviewIn(BaseModel):
 async def post_review(sheet_id: int, body: ReviewIn, db: AsyncSession = Depends(get_db),
                       user: User = Depends(get_current_user)):
     s = await _published_sheet(db, sheet_id)
-    if not await _owns_sheet(db, s.id, user=user):
+    if not await _owns_sheet(db, s.id, user=user, include_sub=False):  # avis : acheteurs seulement
         raise HTTPException(403, {"code": "not_a_buyer", "message": "Only buyers can rate this sheet."})
     r = (await db.execute(select(MusicReview).where(MusicReview.sheet_id == s.id,
                                                     MusicReview.user_id == user.id))).scalar_one_or_none()
@@ -1181,6 +1204,8 @@ async def subscribe(body: SubscribeIn, request: Request, db: AsyncSession = Depe
     await _limit(request)
     if not body.consent:
         raise HTTPException(400, {"code": "consent_required", "message": "Please accept the subscription terms."})
+    # un abonnement à la fois par compte : les demandes simultanées attendent leur tour
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     if await _active_sub(db, user) is not None:
         raise HTTPException(409, {"code": "already_subscribed", "message": "You already have a subscription."})
     # une souscription déjà en cours de paiement (onglet Stripe ouvert) : pas de deuxième en parallèle
@@ -1377,6 +1402,8 @@ async def _sync_subscription(db: AsyncSession, obj: dict) -> None:
                 logger.info("Essai arrêté (carte déjà utilisée) : %s", sub.stripe_subscription_id)
             except StripeError as exc:
                 logger.warning("Essai non arrêté (%s) : %s", sub.stripe_subscription_id, exc)
+                await db.rollback()
+                raise HTTPException(503, "retry")  # Stripe renverra l'événement
     # essai + remise : la remise des codes est posée maintenant, pour le premier vrai paiement
     if sub.first_discount_pct and not sub.first_discount_applied and sub.stripe_subscription_id \
             and sub.status == "trialing" and live:
@@ -1419,28 +1446,25 @@ async def patch_profile(body: ProfileIn, db: AsyncSession = Depends(get_db), use
 AVATAR_MAX = 5 * 1024 * 1024
 
 
-AVATAR_MAX_PIXELS = 40_000_000  # au-delà : refusé avant décodage (bombe de décompression)
+AVATAR_MAX_PIXELS = 16_000_000  # au-delà : refusé avant décodage (bombe de décompression)
 
 
 def _avatar_jpeg(data: bytes) -> bytes:
-    """Décodage borné (taille lue dans l'en-tête avant tout décodage), ré-encodage JPEG 256×256. Hors de la boucle async."""
-    import warnings
+    """Décodage borné (dimensions lues dans l'en-tête avant tout décodage, formats courants seulement), ré-encodage JPEG
+    256×256. Hors de la boucle async."""
     from io import BytesIO
     from PIL import Image, ImageOps
-    Image.MAX_IMAGE_PIXELS = AVATAR_MAX_PIXELS
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", Image.DecompressionBombWarning)
-        with Image.open(BytesIO(data)) as im:
-            w, h = im.size
-            if w * h > AVATAR_MAX_PIXELS or max(w, h) > 12000:
-                raise ValueError("image trop grande")
-            if im.format == "JPEG":
-                im.draft("RGB", (512, 512))  # décodage JPEG réduit
-            im = ImageOps.exif_transpose(im).convert("RGB")
-            im = ImageOps.fit(im, (256, 256), Image.LANCZOS)
-            out = BytesIO()
-            im.save(out, "JPEG", quality=85)
-            return out.getvalue()
+    with Image.open(BytesIO(data), formats=("JPEG", "PNG", "WEBP", "GIF")) as im:
+        w, h = im.size
+        if w * h > AVATAR_MAX_PIXELS or max(w, h) > 8000:
+            raise ValueError("image trop grande")
+        if im.format == "JPEG":
+            im.draft("RGB", (512, 512))  # décodage JPEG réduit
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        im = ImageOps.fit(im, (256, 256), Image.LANCZOS)
+        out = BytesIO()
+        im.save(out, "JPEG", quality=85)
+        return out.getvalue()
 
 
 @router.post("/account/avatar")
