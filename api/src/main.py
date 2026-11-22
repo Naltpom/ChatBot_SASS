@@ -36,6 +36,21 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+# Journal d'accès d'uvicorn : les clés d'accès passées en paramètre (?k= des liens de téléchargement
+# et des commandes de la boutique, session_id de Stripe, jetons) sont masquées avant d'être écrites.
+_SECRET_QS = re.compile(r"([?&](?:k|key|token|access_token|session_id)=)[^&\s]*", re.I)
+
+
+class _MasqueCles(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            record.args = args[:2] + (_SECRET_QS.sub(r"\1***", args[2]),) + args[3:]
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_MasqueCles())
+
 WIDGET_JS = Path("/app/widget/widget.js")
 
 

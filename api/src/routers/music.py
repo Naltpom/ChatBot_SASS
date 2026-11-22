@@ -231,7 +231,7 @@ async def piece(slug: str, db: AsyncSession = Depends(get_db), user: Optional[Us
             owned |= {s.id for s in sheets if s.published}
     visible = [s for s in sheets if s.published or admin or s.id in owned]
     if not visible:
-        raise HTTPException(404, {"code": "private", "message": "This piece is not available."})
+        raise HTTPException(404, {"code": "not_found", "message": "This piece is not available."})
     p = _pieces(visible, st, await _sheet_stats(db, [s.id for s in visible]))[0]
     by_id = {s.id: s for s in visible}
     for x in p["sheets"]:

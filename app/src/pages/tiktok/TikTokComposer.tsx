@@ -81,7 +81,7 @@ export default function TikTokComposer() {
   const [post, setPost] = useState<TikTokPost | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const alive = useRef(true)
-  useEffect(() => () => { alive.current = false }, [])
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])  // remis à true : StrictMode démonte puis remonte
 
   // creator_info à CHAQUE ouverture du composer (exigence TikTok).
   useEffect(() => {

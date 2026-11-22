@@ -610,9 +610,12 @@ async def test_private_piece_only_for_owners_and_admin_grants(pg_session, music,
     await pg_session.commit()
     priv_id, pub_id, solo_id, fan_email = priv.id, pub.id, solo.id, fan.email
     async with Client(pg_session) as c:
-        # visiteur : fiche entièrement privée -> 404 « private » ; fiche mixte -> seulement la partition diffusée
+        # visiteur : fiche entièrement privée -> 404 « not_found », comme une fiche inconnue ; fiche mixte -> seulement la partition diffusée
         r = await c.http.get("/api/music/pieces/secret")
-        assert r.status_code == 404 and r.json()["detail"]["code"] == "private"
+        assert r.status_code == 404 and r.json()["detail"]["code"] == "not_found"
+        # même réponse qu'une fiche qui n'existe pas : rien ne trahit un titre pas encore diffusé
+        r2 = await c.http.get("/api/music/pieces/inexistant-xyz")
+        assert r2.status_code == 404 and r2.json() == r.json()
         assert (await c.http.get("/api/music/pieces/nope")).json()["detail"]["code"] == "not_found"
         p = (await c.http.get("/api/music/pieces/rocky")).json()
         assert [x["id"] for x in p["sheets"]] == [pub_id] and p["private"] is False
