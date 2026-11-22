@@ -42,6 +42,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     name = Column(String, nullable=False)
     avatar_url = Column(String, nullable=True)  # photo de profil (SSO Google, hébergée localement)
+    nickname = Column(String(40), nullable=True)  # pseudo affiché (boutique music), facultatif
     auth_source = Column(String, default="local", nullable=False)  # local | google
     # Vérification SOUPLE de l'email : le compte est actif dès l'inscription, on
     # affiche juste une bannière non bloquante tant que c'est False (jamais un

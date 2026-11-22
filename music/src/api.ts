@@ -82,7 +82,8 @@ export interface OrderView {
 export interface Me { id: number; email: string; name: string; avatar_url?: string | null; twofa_required?: boolean }
 
 export interface AccountView {
-  user: { name: string; email: string; signup_app: string | null; email_verified?: boolean }
+  user: { name: string; email: string; signup_app: string | null; email_verified?: boolean; nickname?: string | null
+          avatar?: string | null; password_login?: boolean; twofa_enabled?: boolean; security_url?: string }
   subscription?: Subscription | null
   sheets: { sheet_id: number; piece_slug: string; piece_title: string; instrument_label: string; pages: number
             has_notes: boolean; bought_at: string | null; download: string | null; my_rating: number | null }[]
@@ -176,7 +177,7 @@ export const getOrder = (order: string, auth: { k?: string; session_id?: string 
 export const getMe = () => call<Me>('/api/auth/me')
 export const getAccount = () => call<AccountView>('/api/music/account')
 export interface Subscription { status: string; plan?: 'week' | 'month' | 'year'; price_cents?: number; weekly_cents: number; trial_end: string | null; current_period_end: string | null
-  cancel_at_period_end: boolean; trial_downloads_left: number | null }
+  cancel_at_period_end: boolean; trial_downloads_left: number | null; retention_applied?: boolean }
 export type Plan = 'week' | 'month' | 'year'
 export interface Offer { variant: 'sheet' | 'sub'; plans: { plan: Plan; cents: number }[]; sub_weekly_cents: number; currency: string
   trial_days: number; trial_downloads: number }
@@ -189,6 +190,20 @@ export const getOffer = (b: string | null, code?: string) => {
 export const subscribe = (body: { plan: Plan; promo_code?: string; consent: boolean; lang: string; track?: string }) =>
   post<{ redirect: string }>('/api/music/subscribe', { ...body, promo_code: body.promo_code || null, track: body.track || null })
 export const cancelSubscription = () => post<{ subscription: Subscription }>('/api/music/subscription/cancel', {})
+export const getRetention = () => call<{ eligible: boolean; percent: number | null; next_cents: number | null }>('/api/music/subscription/retention')
+export const retainSubscription = () => post<{ subscription: Subscription }>('/api/music/subscription/retain', {})
+export const patchProfile = (body: { name?: string; nickname?: string }) =>
+  call<{ name: string; nickname: string | null }>('/api/music/account/profile', { method: 'PATCH', body: JSON.stringify(body) })
+export const changePassword = (current_password: string, new_password: string) => post<{ changed: boolean }>('/api/auth/password', { current_password, new_password })
+export async function uploadAvatar(file: File): Promise<void> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch('/api/music/account/avatar', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Chapote-App': 'music' } })
+  if (!r.ok) {
+    const j = await r.json().catch(() => null)
+    throw new ApiError(r.status, j?.detail?.code || `http_${r.status}`, j?.detail?.message || '')
+  }
+}
 export const login = (email: string, password: string) => post<Me>('/api/auth/login', { email, password })
 export const register = (name: string, email: string, password: string) =>
   post<Me>('/api/auth/register', { name, email, password, account_type: 'perso', invites: [] })

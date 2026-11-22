@@ -922,8 +922,12 @@ async def account(db: AsyncSession = Depends(get_db), user: User = Depends(get_c
         used = (await db.execute(select(func.count(MusicSubDownload.id)).where(
             MusicSubDownload.subscription_id == sub.id, MusicSubDownload.in_trial.is_(True)))).scalar_one()
         sub_out["trial_downloads_left"] = max(0, settings.MUSIC_TRIAL_DOWNLOADS - int(used))
+    from src.core.security import user_has_2fa
     return {"user": {"name": user.name, "email": user.email, "signup_app": user.signup_app,
-                     "email_verified": bool(user.email_verified)}, "sheets": sheets,
+                     "email_verified": bool(user.email_verified), "nickname": user.nickname,
+                     "avatar": "/api/music/account/avatar" if user.avatar_url else None,
+                     "password_login": user.auth_source == "local", "twofa_enabled": await user_has_2fa(db, user),
+                     "security_url": f"{settings.APP_URL.rstrip('/')}/app/profile"}, "sheets": sheets,
             "subscription": sub_out}
 
 
@@ -1090,6 +1094,7 @@ def _sub_out(sub: MusicSubscription) -> dict:
             "trial_end": sub.trial_end.isoformat() + "Z" if sub.trial_end else None,
             "current_period_end": sub.current_period_end.isoformat() + "Z" if sub.current_period_end else None,
             "cancel_at_period_end": sub.cancel_at_period_end,
+            "retention_applied": bool(sub.retention_accepted_at),
             "trial_downloads_left": None}
 
 
@@ -1200,6 +1205,8 @@ async def cancel_subscription(db: AsyncSession = Depends(get_db), user: User = D
             await stripe_service.cancel_at_period_end(sub.stripe_subscription_id)
         except StripeError as exc:
             raise HTTPException(502, {"code": "stripe_error", "message": str(exc)})
+    if await _retention_eligible(db, user, sub):  # l'offre a été montrée et refusée : plus jamais proposée
+        sub.retention_offered_at = utcnow()
     sub.cancel_at_period_end = True
     await db.commit()
     return {"subscription": _sub_out(sub)}
@@ -1261,3 +1268,120 @@ async def _sync_subscription(db: AsyncSession, obj: dict) -> None:
     sub.current_period_end = _dt(end) or sub.current_period_end
     sub.cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
     await db.commit()
+
+
+
+# --------------------------------------------------------------------------
+# Profil (compte partagé avec chapote.fr) : nom, pseudo, photo
+# --------------------------------------------------------------------------
+
+class ProfileIn(BaseModel):
+    name: Optional[str] = Field(None, max_length=120)
+    nickname: Optional[str] = Field(None, max_length=40)
+
+
+@router.patch("/account/profile")
+async def patch_profile(body: ProfileIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    if body.name is not None:
+        name = " ".join(body.name.split())
+        if not name:
+            raise HTTPException(422, {"code": "name_required", "message": "Name required."})
+        user.name = name[:120]
+    if body.nickname is not None:
+        nick = body.nickname.strip().lstrip("@")
+        if nick and not re.fullmatch(r"[A-Za-z0-9._-]{2,40}", nick):
+            raise HTTPException(422, {"code": "nickname_invalid", "message": "Letters, digits, dots, dashes and underscores only."})
+        user.nickname = nick or None
+    await db.commit()
+    return {"name": user.name, "nickname": user.nickname}
+
+
+AVATAR_MAX = 5 * 1024 * 1024
+
+
+@router.post("/account/avatar")
+async def upload_avatar(file: UploadFile = File(...), db: AsyncSession = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Photo de profil : ré-encodée en JPEG 256×256 (rien d'autre n'est gardé du fichier envoyé), partagée avec chapote.fr."""
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    data = await file.read(AVATAR_MAX + 1)
+    if len(data) > AVATAR_MAX:
+        raise HTTPException(413, {"code": "too_large", "message": "Image too large (5 MB max)."})
+    try:
+        with Image.open(BytesIO(data)) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            im = ImageOps.fit(im, (256, 256), Image.LANCZOS)
+            out = BytesIO()
+            im.save(out, "JPEG", quality=85)
+    except Exception:
+        raise HTTPException(415, {"code": "bad_image", "message": "This file is not a picture."})
+    name = f"{secrets.token_urlsafe(16)}.jpg"
+    from pathlib import Path
+    up = Path(settings.UPLOAD_DIR)
+    up.mkdir(parents=True, exist_ok=True)
+    (up / name).write_bytes(out.getvalue())
+    user.avatar_url = f"{settings.API_URL}/uploads/{name}"
+    await db.commit()
+    return {"avatar": "/api/music/account/avatar"}
+
+
+@router.get("/account/avatar")
+async def get_avatar(user: User = Depends(get_current_user)):
+    """La photo du compte, servie sur music.chapote.fr (fichier local, ou redirection vers Google)."""
+    from fastapi.responses import RedirectResponse
+    from pathlib import Path
+    url = user.avatar_url or ""
+    local = f"{settings.API_URL}/uploads/"
+    if url.startswith(local):
+        path = Path(settings.UPLOAD_DIR) / url[len(local):].split("/")[-1]
+        if path.is_file():
+            return FileResponse(path, headers={"Cache-Control": "private, max-age=300"})
+    if url.startswith("https://") and "googleusercontent.com" in url:
+        return RedirectResponse(url)
+    raise HTTPException(404, "Pas de photo")
+
+
+# --------------------------------------------------------------------------
+# Résiliation : à la première demande, une offre de rétention (-50 % sur le prochain paiement, une fois par compte)
+# --------------------------------------------------------------------------
+
+RETENTION_PERCENT = 50
+
+
+async def _retention_eligible(db: AsyncSession, user: User, sub: MusicSubscription) -> bool:
+    if sub.status != "active" or sub.cancel_at_period_end:  # pas pendant l'essai : rien n'a encore été payé
+        return False
+    used = (await db.execute(select(MusicSubscription.id).where(
+        MusicSubscription.user_id == user.id, MusicSubscription.retention_offered_at.is_not(None)))).first()
+    return used is None
+
+
+@router.get("/subscription/retention")
+async def retention_offer(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    sub = await _active_sub(db, user)
+    if sub is None:
+        raise HTTPException(404, {"code": "no_subscription", "message": "No active subscription."})
+    ok = await _retention_eligible(db, user, sub)
+    return {"eligible": ok, "percent": RETENTION_PERCENT if ok else None,
+            "next_cents": sub.weekly_cents * (100 - RETENTION_PERCENT) // 100 if ok else None}
+
+
+@router.post("/subscription/retain")
+async def retain(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """L'abonné garde son abonnement : -50 % sur son prochain paiement (coupon Stripe « once »)."""
+    sub = await _active_sub(db, user)
+    if sub is None or not await _retention_eligible(db, user, sub):
+        raise HTTPException(400, {"code": "not_eligible", "message": "This offer is not available."})
+    if sub.stripe_subscription_id and not settings.MOCK_BILLING:
+        try:
+            coupon = await stripe_service.create_coupon(RETENTION_PERCENT, "once", name="Ghost Hands -50% (rétention)")
+            await stripe_service._stripe_request("POST", f"/subscriptions/{sub.stripe_subscription_id}",
+                                                 data={"discounts[0][coupon]": coupon["id"]})
+        except StripeError as exc:
+            raise HTTPException(502, {"code": "stripe_error", "message": str(exc)})
+    now = utcnow()
+    sub.retention_offered_at = sub.retention_offered_at or now
+    sub.retention_accepted_at = now
+    await db.commit()
+    return {"subscription": _sub_out(sub)}

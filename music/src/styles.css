@@ -401,3 +401,22 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .plan-total { font-size: 11px !important; }
 .plan-free { font-size: 11px !important; color: #1e8e3e !important; font-weight: 600; }
 .plans { margin-top: 6px; }
+
+.modal-back { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); display: flex; align-items: flex-end; justify-content: center; padding: 0; }
+@media (min-width: 600px) { .modal-back { align-items: center; padding: 20px; } }
+.modal { position: relative; width: 100%; max-width: 440px; background: var(--bg); color: var(--ink); border-radius: 20px 20px 0 0; padding: 22px 20px calc(20px + env(safe-area-inset-bottom)); outline: none; display: flex; flex-direction: column; gap: 12px; }
+@media (min-width: 600px) { .modal { border-radius: 20px; } }
+.modal h2 { font-size: 20px; margin: 0 30px 0 0; }
+.modal p { margin: 0; font-size: 15px; color: var(--ink2); line-height: 1.45; }
+.modal-x { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--tile); color: var(--mut); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.modal .actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.acc-tabs { display: flex; gap: 4px; overflow-x: auto; margin: 14px 0 18px; padding: 4px; background: var(--tile); border-radius: 12px; scrollbar-width: none; }
+.acc-tabs button { flex: 1 0 auto; border: 0; background: none; color: var(--mut); font: inherit; font-weight: 600; font-size: 14px; padding: 9px 12px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+.acc-tabs button.on { background: var(--bg); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.acc-panel { display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.acc-card { background: var(--tile); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.acc-card h3 { margin: 0; font-size: 16px; }
+.acc-row { display: flex; align-items: center; gap: 14px; }
+.acc-avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: var(--line2); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 24px; color: var(--mut); flex: none; }
+.acc-card label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--mut); }
+.acc-card .ok-text { color: #1e8e3e; font-weight: 600; font-size: 14px; }
