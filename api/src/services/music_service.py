@@ -39,6 +39,7 @@ from src.models.music import (
     ORDER_PAID,
     PROMO_AMOUNT,
     PROMO_PERCENT,
+    PROMO_TRIAL,
     MusicOrder,
     MusicOrderItem,
     MusicPromoCode,
@@ -219,6 +220,8 @@ async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str
     if (promo_code or "").strip():
         found = await find_promo(db, promo_code)
         promo_error = promo_problem(found)
+        if promo_error is None and found.kind == PROMO_TRIAL:
+            promo_error = "promo_unknown"  # code d'essai de l'abonnement : sans effet sur une partition
         if promo_error is None:
             promo = found
             if promo.kind == PROMO_PERCENT:

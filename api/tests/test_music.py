@@ -683,3 +683,83 @@ async def test_tracked_links_events_orders_and_admin(pg_session, music, monkeypa
         await pg_session.commit()
         q = (await c.http.post("/api/music/quote", json={"sheet_ids": [vid], "promo_code": "insta20"})).json()
         assert q["total_cents"] == 160  # 1,99 € - 20 % (réduction arrondie au centime inférieur)
+
+
+async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_session, music, monkeypatch, tmp_path):
+    """Abonnement « toutes les partitions » : essai avec un code d'essai seulement, accès aux partitions en vente,
+    3 PDF pendant l'essai, résiliation sans remboursement, synchronisation par le webhook."""
+    from src.models.music import MusicPromoCode, MusicSubscription
+    monkeypatch.setattr(settings, "MOCK_BILLING", True)
+    monkeypatch.setattr(settings, "MUSIC_TRIAL_DOWNLOADS", 1)
+    pub = await _sheet(pg_session, "gh/s1")
+    pub2 = await _sheet(pg_session, "gh/s2", piece="Other")
+    priv = await _sheet(pg_session, "gh/s3", piece="Hidden", published=False)
+    fan = await _user(pg_session, "sub@t.dev", email_verified=True)
+    pg_session.add(MusicPromoCode(code="ESSAI48", kind="trial", value=2, active=True))
+    await pg_session.commit()
+    ids = (pub.id, pub2.id, priv.id)
+    for sid in ids:
+        d = ms.sheet_dir(sid); d.mkdir(parents=True, exist_ok=True); (d / "partition.pdf").write_bytes(b"%PDF-1.4 test")
+    async with Client(pg_session) as c:
+        # sans compte : refusé ; code d'essai inutilisable pour une partition
+        assert (await c.http.post("/api/music/subscribe", json={"consent": True})).status_code == 401
+        q = (await c.http.post("/api/music/quote", json={"sheet_ids": [ids[0]], "promo_code": "ESSAI48"})).json()
+        assert q["promo_error"] == "promo_invalid" and q["total_cents"] == 199
+        h = c.as_(fan)
+        assert (await h.get(f"/api/music/sheets/{ids[0]}/pdf")).status_code == 404
+        assert (await h.post("/api/music/subscribe", json={"consent": False})).status_code == 400
+        assert (await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "INSTA20"})).status_code == 400
+        r = await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "essai48", "track": "ab12cd34"})
+        assert r.status_code == 200, r.text
+        acc = (await h.get("/api/music/account")).json()
+        assert acc["subscription"]["status"] == "trialing" and acc["subscription"]["trial_downloads_left"] == 1
+        assert (await h.post("/api/music/subscribe", json={"consent": True})).status_code == 409
+        # toutes les partitions en vente : pages nettes, notes complètes, PDF (1 pendant l'essai ici)
+        piece = (await h.get("/api/music/pieces/swan-lake")).json()
+        assert piece["subscribed"] is True and piece["sheets"][0]["owned"] is True and piece["sheets"][0]["pdf"]
+        assert (await h.get(f"/api/music/sheets/{ids[0]}/pdf")).status_code == 200
+        assert (await h.get(f"/api/music/sheets/{ids[0]}/pdf")).status_code == 200  # même partition : pas recomptée
+        r = await h.get(f"/api/music/sheets/{ids[1]}/pdf")
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "trial_limit"
+        assert (await h.get(f"/api/music/sheets/{ids[2]}/pdf")).status_code == 404  # privée : pas dans l'abonnement
+        # webhook : l'essai devient payé -> plus de limite
+        sub = (await pg_session.execute(select(MusicSubscription))).scalar_one()
+        sub_id = sub.id
+        monkeypatch.setattr(settings, "MOCK_BILLING", False)
+        monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_x")
+        ev = {"type": "customer.subscription.updated", "data": {"object": {
+            "id": "sub_1", "customer": "cus_1", "status": "active", "cancel_at_period_end": False,
+            "current_period_end": int(time.time()) + 7 * 86400, "metadata": {"music_sub": str(sub_id)}}}}
+        raw = json.dumps(ev).encode()
+        r = await c.http.post("/api/music/stripe/webhook", content=raw,
+                              headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
+        assert r.status_code == 200
+        await pg_session.refresh(sub)
+        assert sub.status == "active" and sub.stripe_subscription_id == "sub_1"
+        assert (await h.get(f"/api/music/sheets/{ids[1]}/pdf")).status_code == 200
+        # résiliation : plus de prélèvement, accès jusqu'à la fin de la période
+        called = []
+
+        async def fake_cancel(sid):
+            called.append(sid)
+            return {}
+        monkeypatch.setattr(stripe_service, "cancel_at_period_end", fake_cancel)
+        r = await h.post("/api/music/subscription/cancel")
+        assert r.status_code == 200 and r.json()["subscription"]["cancel_at_period_end"] is True and called == ["sub_1"]
+        assert (await h.get(f"/api/music/sheets/{ids[1]}/pdf")).status_code == 200
+        # fin : Stripe envoie deleted -> plus d'accès, et plus d'essai possible
+        ev = {"type": "customer.subscription.deleted", "data": {"object": {
+            "id": "sub_1", "status": "canceled", "cancel_at_period_end": True, "metadata": {"music_sub": str(sub_id)}}}}
+        raw = json.dumps(ev).encode()
+        await c.http.post("/api/music/stripe/webhook", content=raw,
+                          headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
+        assert (await h.get(f"/api/music/sheets/{ids[1]}/pdf")).status_code == 404
+        monkeypatch.setattr(settings, "MOCK_BILLING", True)
+        r = await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "ESSAI48"})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "trial_used"
+        # test A/B : un lien déclaré reçoit un groupe ; l'offre suit ce groupe
+        auth = {"Authorization": f"Bearer {TOKEN}"}
+        v = (await c.http.post("/api/music/ingest/links", json=[{"code": "zz11yy22"}], headers=auth)).json()["variants"]["zz11yy22"]
+        assert v in ("sheet", "sub")
+        assert (await c.http.get("/api/music/offer?b=zz11yy22")).json()["variant"] == v
+        assert (await c.http.get("/api/music/offer")).json()["variant"] == "sheet"

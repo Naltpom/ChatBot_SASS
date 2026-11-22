@@ -2,7 +2,9 @@
 // Le même compte fonctionne sur chapote.fr (cookie partagé par les sous-domaines).
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { ApiError, getAccount, googleLogin, login, register, requestVerifyEmail, type AccountView } from '../api'
+import { ApiError, cancelSubscription, getAccount, googleLogin, login, register, requestVerifyEmail, type AccountView } from '../api'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useMoney } from '../money'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { Center, Icon, Stars } from '../components/ui'
@@ -113,11 +115,37 @@ export default function AccountPage() {
   const [data, setData] = useState<AccountView | null>(null)
   const [open, setOpen] = useState<number | null>(null)
   const [verifySent, setVerifySent] = useState(false)
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const { eur } = useMoney()
+  const subOk = params.get('sub') === 'ok'
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     if (!me) { setData(null); return }
-    getAccount().then(setData).catch(() => setData({ user: { name: me.name, email: me.email, signup_app: null }, sheets: [] }))
-  }, [me])
+    // connexion demandée par une fiche (« Connecte-toi pour t'abonner ») : retour à la fiche
+    const next = params.get('next')
+    if (next && next.startsWith('/')) { navigate(next, { replace: true }); return }
+    let alive = true, tries = 0
+    const load = () => getAccount().then(d => {
+      if (!alive) return
+      setData(d)
+      // retour de Stripe : l'abonnement arrive par le webhook, quelques secondes après
+      if (subOk && !d.subscription && tries++ < 10) setTimeout(load, 2000)
+    }).catch(() => alive && setData({ user: { name: me.name, email: me.email, signup_app: null }, sheets: [] }))
+    load()
+    return () => { alive = false }
+  }, [me]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '')
+  const cancel = async () => {
+    if (!window.confirm(t.subCancelConfirm)) return
+    setCancelling(true)
+    try {
+      const r = await cancelSubscription()
+      setData(d => (d ? { ...d, subscription: r.subscription } : d))
+    } catch { /* l'état reste affiché */ } finally { setCancelling(false) }
+  }
 
   if (!ready) return <Center>{t.loading}</Center>
   if (!me) return <AuthForm />
@@ -129,6 +157,20 @@ export default function AccountPage() {
         <button type="button" className="linkish" onClick={signOut}>{t.signOut}</button>
       </div>
       <p>{me.name} · {me.email}</p>
+      {subOk && !data?.subscription && <div className="msg ok">{t.subOk}</div>}
+      {data?.subscription && (
+        <div className="sub-status">
+          <b>✓ {t.subActive}</b>
+          {data.subscription.status === 'trialing' && data.subscription.trial_end && <span>{t.subTrialUntil(day(data.subscription.trial_end))}</span>}
+          {data.subscription.trial_downloads_left != null && <span>{t.subTrialLeft(data.subscription.trial_downloads_left)}</span>}
+          {data.subscription.cancel_at_period_end
+            ? <span>{t.subEnds(day(data.subscription.current_period_end))}</span>
+            : <span>{t.subRenews(eur(data.subscription.weekly_cents), day(data.subscription.current_period_end))}</span>}
+          {!data.subscription.cancel_at_period_end && (
+            <button type="button" className="linkish" onClick={cancel} disabled={cancelling}>{cancelling ? '…' : t.subCancel}</button>
+          )}
+        </div>
+      )}
       {data && data.user.email_verified === false && (
         <div className="verify-box">
           <b>{t.verifyTitle}</b>

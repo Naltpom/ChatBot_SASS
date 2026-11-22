@@ -26,11 +26,13 @@ from src.models.music import (
     ORDER_PAID,
     PROMO_AMOUNT,
     PROMO_PERCENT,
+    PROMO_TRIAL,
     MusicOrder,
     MusicOrderItem,
     MusicPromoCode,
     MusicReview,
     MusicSheet,
+    MusicSubscription,
     MusicTrackEvent,
     MusicTrackLink,
 )
@@ -75,6 +77,22 @@ async def overview(db: AsyncSession = Depends(get_db)):
     top_ids = sorted(sales, key=lambda i: -sales[i][0])[:5]
     tops = {s.id: s for s in (await db.execute(select(MusicSheet).where(MusicSheet.id.in_(top_ids)))).scalars()} \
         if top_ids else {}
+    subs = {k: int(v) for k, v in (await db.execute(
+        select(MusicSubscription.status, func.count(MusicSubscription.id)).group_by(MusicSubscription.status))).all()}
+    # test A/B des liens « SHEET » : par groupe, liens envoyés, liens visités, commandes payées, abonnements
+    ab = {}
+    for variant in ("sheet", "sub"):
+        codes = select(MusicTrackLink.code).where(MusicTrackLink.variant == variant)
+        sent = (await db.execute(select(func.count()).select_from(codes.subquery()))).scalar_one()
+        visited = (await db.execute(select(func.count(func.distinct(MusicTrackEvent.code)))
+                                    .where(MusicTrackEvent.code.in_(codes)))).scalar_one()
+        paid_n, paid_c = (await db.execute(select(func.count(MusicOrder.id), func.coalesce(func.sum(MusicOrder.amount_cents), 0))
+                                           .where(MusicOrder.track_code.in_(codes), MusicOrder.status == ORDER_PAID))).one()
+        sub_rows = (await db.execute(select(MusicSubscription.status, func.count(MusicSubscription.id))
+                                     .where(MusicSubscription.track_code.in_(codes))
+                                     .group_by(MusicSubscription.status))).all()
+        ab[variant] = {"links": int(sent), "visited": int(visited), "orders": int(paid_n), "orders_cents": int(paid_c),
+                       "subscriptions": {k: int(v) for k, v in sub_rows}}
     await db.commit()
     return {
         "sheets": {"total": int(total), "published": int(published), "private": int(total) - int(published)},
@@ -83,7 +101,9 @@ async def overview(db: AsyncSession = Depends(get_db)):
         "accounts": {"using_music": int(music_accounts), "signed_up_on_music": int(music_signups)},
         "reviews": int(reviews_n),
         "pricing": {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
-                    "currency": st.currency},
+                    "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency},
+        "subscriptions": subs,
+        "ab": ab,
         "top_sheets": [{"id": i, "title": f"{tops[i].piece_title} — {tops[i].instrument_label}",
                         "sales": sales[i][0], "revenue_cents": sales[i][1]} for i in top_ids if i in tops],
     }
@@ -256,6 +276,7 @@ async def patch_sheet(sheet_id: int, body: SheetPatch, db: AsyncSession = Depend
 class PricingIn(BaseModel):
     unit_price_cents: int = Field(..., ge=0, le=100_000)
     bundle_price_cents: Optional[int] = Field(None, ge=0, le=100_000)
+    sub_weekly_cents: Optional[int] = Field(None, ge=50, le=100_000)
 
 
 @router.get("/pricing")
@@ -263,7 +284,7 @@ async def get_pricing(db: AsyncSession = Depends(get_db)):
     st = await ms.get_settings(db)
     await db.commit()
     return {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
-            "currency": st.currency}
+            "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency}
 
 
 @router.put("/pricing")
@@ -271,9 +292,11 @@ async def put_pricing(body: PricingIn, db: AsyncSession = Depends(get_db)):
     st = await ms.get_settings(db)
     st.unit_price_cents = body.unit_price_cents
     st.bundle_price_cents = body.bundle_price_cents
+    if body.sub_weekly_cents is not None:
+        st.sub_weekly_cents = body.sub_weekly_cents
     await db.commit()
     return {"unit_price_cents": st.unit_price_cents, "bundle_price_cents": st.bundle_price_cents,
-            "currency": st.currency}
+            "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency}
 
 
 # --------------------------------------------------------------------------
@@ -288,7 +311,7 @@ def _promo(p: MusicPromoCode) -> dict:
 
 class PromoIn(BaseModel):
     code: str = Field(..., min_length=2, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
-    kind: str = Field(..., pattern=f"^({PROMO_PERCENT}|{PROMO_AMOUNT})$")
+    kind: str = Field(..., pattern=f"^({PROMO_PERCENT}|{PROMO_AMOUNT}|{PROMO_TRIAL})$")
     value: int = Field(..., ge=1, le=100_000)
     max_uses: Optional[int] = Field(None, ge=1)
     expires_at: Optional[datetime] = None
@@ -319,6 +342,8 @@ async def list_promos(db: AsyncSession = Depends(get_db)):
 
 @router.post("/promos")
 async def create_promo(body: PromoIn, db: AsyncSession = Depends(get_db)):
+    if body.kind == PROMO_TRIAL and body.value > 30:
+        raise HTTPException(422, "Essai : 30 jours au plus")
     if body.kind == PROMO_PERCENT and body.value > 100:
         raise HTTPException(400, "Un pourcentage va de 1 à 100")
     p = MusicPromoCode(code=body.code.upper(), kind=body.kind, value=body.value, max_uses=body.max_uses,
@@ -465,6 +490,8 @@ async def tracking(offset: int = 0, limit: int = 50, db: AsyncSession = Depends(
                 .where(MusicOrder.track_code.in_(codes), MusicOrder.status == ORDER_PAID)
                 .group_by(MusicOrder.track_code))).all():
             orders[code] = (int(n), int(cents))
+    subs_by_code = {s.track_code: s.status for s in (await db.execute(
+        select(MusicSubscription).where(MusicSubscription.track_code.in_(codes)))).scalars()} if codes else {}
     return {
         "links_sent": int(links_total), "links_with_visits": int(clicked),
         "next_offset": offset + limit if offset + limit < clicked else None,
@@ -476,6 +503,7 @@ async def tracking(offset: int = 0, limit: int = 50, db: AsyncSession = Depends(
             "sent_at": _iso(link.created_at) if link else None, "first_at": _iso(first), "last_at": _iso(last),
             "events": int(n), "visits": int(visits), "kinds": kinds.get(code, {}),
             "orders": orders.get(code, (0, 0))[0], "revenue_cents": orders.get(code, (0, 0))[1],
+            "variant": link.variant if link else None, "subscription": subs_by_code.get(code),
         } for code, first, last, n, visits, link in rows],
     }
 

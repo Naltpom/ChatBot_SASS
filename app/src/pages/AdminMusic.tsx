@@ -12,7 +12,9 @@ interface Overview {
   sheets: { total: number; published: number; private: number }
   orders: { paid: number; paid_30d: number; by_status: Record<string, number> }
   revenue_cents: { total: number; last_30d: number }
-  pricing: { unit_price_cents: number; bundle_price_cents: number | null; currency: string }
+  pricing: { unit_price_cents: number; bundle_price_cents: number | null; sub_weekly_cents?: number; currency: string }
+  subscriptions?: Record<string, number>
+  ab?: Record<'sheet' | 'sub', { links: number; visited: number; orders: number; orders_cents: number; subscriptions: Record<string, number> }>
   accounts: { using_music: number; signed_up_on_music: number }
   reviews: number
   top_sheets: { id: number; title: string; sales: number; revenue_cents: number }[]
@@ -29,7 +31,7 @@ interface Owner {
   has_account: boolean; source: 'grant' | 'purchase'; amount_cents: number; at: string | null
 }
 interface Promo {
-  id: number; code: string; kind: 'percent' | 'amount'; value: number; active: boolean; max_uses: number | null
+  id: number; code: string; kind: 'percent' | 'amount' | 'trial'; value: number; active: boolean; max_uses: number | null
   uses: number; expires_at: string | null; note: string | null; usable: boolean
 }
 interface Order {
@@ -106,7 +108,31 @@ export default function AdminMusic() {
         <Stat label="Commandes payées" value={d.orders.paid} sub={`${d.orders.paid_30d} sur 30 jours`} />
         <Stat label="Chiffre" value={eur(d.revenue_cents.total)} sub={`${eur(d.revenue_cents.last_30d)} sur 30 jours`} />
         <Stat label="Comptes music" value={d.accounts.using_music} sub={`${d.accounts.signed_up_on_music} inscrits via music · ${d.reviews} avis`} />
+        <Stat label="Abonnés" value={(d.subscriptions?.active || 0) + (d.subscriptions?.trialing || 0)}
+              sub={`${d.subscriptions?.trialing || 0} en essai · ${d.subscriptions?.canceled || 0} résiliés`} />
       </div>
+      {d.ab && (
+        <Card>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Test A/B des liens « SHEET »</div>
+          <div className="table-scroll"><table className="kc">
+            <thead><tr><th>Groupe</th><th>Liens envoyés</th><th>Liens visités</th><th>Achats</th><th>Abonnements (essai / payés / résiliés)</th></tr></thead>
+            <tbody>
+              {(['sheet', 'sub'] as const).map(v => {
+                const x = d.ab![v]
+                return (
+                  <tr key={v}>
+                    <td>{v === 'sheet' ? 'A · prix par partition (INSTA20)' : 'B · abonnement (ESSAI48)'}</td>
+                    <td>{x.links}</td>
+                    <td>{x.visited}{x.links ? ` (${Math.round((x.visited / x.links) * 100)} %)` : ''}</td>
+                    <td>{x.orders ? `${x.orders} · ${eur(x.orders_cents)}` : '—'}</td>
+                    <td>{(x.subscriptions.trialing || 0)} / {(x.subscriptions.active || 0)} / {(x.subscriptions.canceled || 0)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table></div>
+        </Card>
+      )}
       <Seg value={tab} onChange={setTab} options={[
         { value: 'sheets', label: 'Partitions' }, { value: 'pricing', label: 'Prix' },
         { value: 'promos', label: 'Codes promo' }, { value: 'orders', label: 'Commandes' }, { value: 'reviews', label: 'Avis' }, { value: 'tracking', label: 'Suivi des liens' },
@@ -295,14 +321,16 @@ function Sheets({ onChange, unitPrice }: { onChange: () => void; unitPrice: numb
 function Pricing({ initial, onSaved }: { initial: Overview['pricing']; onSaved: () => void }) {
   const [unit, setUnit] = useState((initial.unit_price_cents / 100).toFixed(2).replace('.', ','))
   const [bundle, setBundle] = useState(initial.bundle_price_cents != null ? (initial.bundle_price_cents / 100).toFixed(2).replace('.', ',') : '')
+  const [weekly, setWeekly] = useState(((initial.sub_weekly_cents ?? 1400) / 100).toFixed(2).replace('.', ','))
   const [msg, setMsg] = useState<{ tone: 'go' | 'danger'; text: string } | null>(null)
   const save = async () => {
     setMsg(null)
     const u = toCents(unit)
     const b = bundle.trim() === '' ? null : toCents(bundle)
-    if (Number.isNaN(u) || (b !== null && Number.isNaN(b))) { setMsg({ tone: 'danger', text: 'Montant invalide' }); return }
+    const w = toCents(weekly)
+    if (Number.isNaN(u) || Number.isNaN(w) || (b !== null && Number.isNaN(b))) { setMsg({ tone: 'danger', text: 'Montant invalide' }); return }
     try {
-      await api('/api/admin/music/pricing', { method: 'PUT', body: { unit_price_cents: u, bundle_price_cents: b } })
+      await api('/api/admin/music/pricing', { method: 'PUT', body: { unit_price_cents: u, bundle_price_cents: b, sub_weekly_cents: w } })
       setMsg({ tone: 'go', text: 'Prix enregistrés : ils s’appliquent aux prochaines commandes.' }); onSaved()
     } catch (e: any) { setMsg({ tone: 'danger', text: e.message || 'Erreur' }) }
   }
@@ -318,6 +346,9 @@ function Pricing({ initial, onSaved }: { initial: Overview['pricing']; onSaved: 
         <Field label="Prix du lot d’un morceau (€)" hint="Plusieurs instruments du même morceau dans la commande. Vide = pas de lot.">
           <input type="text" inputMode="decimal" value={bundle} onChange={e => setBundle(e.target.value)} />
         </Field>
+        <Field label="Abonnement, prix par semaine (€)" hint="Proposé au groupe B du test A/B ; s’applique aux nouveaux abonnements.">
+          <input type="text" inputMode="decimal" value={weekly} onChange={e => setWeekly(e.target.value)} />
+        </Field>
         {msg && <InfoBox tone={msg.tone}>{msg.text}</InfoBox>}
         <div><Btn onClick={save}>Enregistrer</Btn></div>
       </div>
@@ -330,7 +361,7 @@ function Promos() {
   const [promos, setPromos] = useState<Promo[] | null>(null)
   useEffect(() => { if (data) setPromos(data.promos) }, [data])
   const [code, setCode] = useState('')
-  const [kind, setKind] = useState<'percent' | 'amount'>('percent')
+  const [kind, setKind] = useState<'percent' | 'amount' | 'trial'>('percent')
   const [value, setValue] = useState('')
   const [maxUses, setMaxUses] = useState('')
   const [expires, setExpires] = useState('')
@@ -339,7 +370,7 @@ function Promos() {
 
   const create = async () => {
     setErr('')
-    const v = kind === 'percent' ? parseInt(value, 10) : toCents(value)
+    const v = kind === 'amount' ? toCents(value) : parseInt(value, 10)
     if (!code.trim() || !v || Number.isNaN(v)) { setErr('Code et valeur obligatoires'); return }
     try {
       const p = await api<Promo>('/api/admin/music/promos', { method: 'POST', body: {
@@ -363,9 +394,9 @@ function Promos() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, alignItems: 'end' }}>
           <Field label="Code"><input type="text" value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="NOEL20" /></Field>
           <Field label="Type">
-            <Seg small value={kind} onChange={v => setKind(v as 'percent' | 'amount')} options={[{ value: 'percent', label: '%' }, { value: 'amount', label: '€' }]} />
+            <Seg small value={kind} onChange={v => setKind(v as 'percent' | 'amount' | 'trial')} options={[{ value: 'percent', label: '%' }, { value: 'amount', label: '€' }, { value: 'trial', label: 'Essai abonnement' }]} />
           </Field>
-          <Field label={kind === 'percent' ? 'Réduction (%)' : 'Réduction (€)'}><input type="text" inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} /></Field>
+          <Field label={kind === 'percent' ? 'Réduction (%)' : kind === 'amount' ? 'Réduction (€)' : 'Jours d’essai gratuit (abonnement)'}><input type="text" inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} /></Field>
           <Field label="Utilisations max" hint="Vide = illimité"><input type="text" inputMode="numeric" value={maxUses} onChange={e => setMaxUses(e.target.value)} /></Field>
           <Field label="Valable jusqu’au" hint="Vide = sans fin"><input type="date" value={expires} onChange={e => setExpires(e.target.value)} style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid var(--border)' }} /></Field>
           <Field label="Note"><input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="Live du 24/11" /></Field>
@@ -384,7 +415,7 @@ function Promos() {
                 {promos.map(p => (
                   <tr key={p.id}>
                     <td><strong>{p.code}</strong> {!p.usable && <Chip tone="mut">inutilisable</Chip>}</td>
-                    <td>{p.kind === 'percent' ? `${p.value} %` : eur(p.value)}</td>
+                    <td>{p.kind === 'percent' ? `${p.value} %` : p.kind === 'trial' ? `essai ${p.value} j` : eur(p.value)}</td>
                     <td>{p.uses}{p.max_uses != null ? ` / ${p.max_uses}` : ''}</td>
                     <td>{day(p.expires_at)}</td>
                     <td>{p.note || '—'}</td>
@@ -501,7 +532,7 @@ interface TrackRow {
   code: string; instagram: string | null; source: string | null; sheet_ref: string | null; sent_at: string | null
   sheet?: { title: string; url: string } | null
   first_at: string | null; last_at: string | null; events: number; visits: number; kinds: Record<string, number>
-  orders: number; revenue_cents: number
+  orders: number; revenue_cents: number; variant?: string | null; subscription?: string | null
 }
 interface TrackDetail {
   code: string; instagram: string | null; sent_at: string | null
@@ -510,7 +541,7 @@ interface TrackDetail {
 }
 const KIND: Record<string, string> = {
   landing: 'Arrivée par le lien', page: 'Page', play: '▶ Lecture', pause: '⏸ Pause', add_to_cart: 'Ajout au panier',
-  checkout_open: 'Ouvre le paiement', checkout: 'Lance le paiement', purchase: 'Achat ✓', promo: 'Code promo',
+  checkout_open: 'Ouvre le paiement', checkout: 'Lance le paiement', purchase: 'Achat ✓', promo: 'Code promo', subscribe_open: 'Ouvre l’abonnement', subscribe: 'Lance l’abonnement', subscribe_signin: 'Se connecte pour s’abonner', pdf: 'Télécharge le PDF',
   reel_click: 'Clic vers le Reel', lang: 'Change de langue',
 }
 const hour = (iso: string | null) => (iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
@@ -543,11 +574,12 @@ function Tracking() {
         {data.rows.length === 0 ? <p className="muted" style={{ padding: 14, margin: 0 }}>Aucune visite suivie pour l’instant.</p> : (
           <div className="table-scroll">
             <table className="kc">
-              <thead><tr><th>Instagram</th><th>Code</th><th>Envoyé</th><th>Dernière visite</th><th>Visites</th><th>Lectures</th><th>Panier</th><th>Paiement</th><th>Achats</th><th></th></tr></thead>
+              <thead><tr><th>Instagram</th><th>Groupe</th><th>Code</th><th>Envoyé</th><th>Dernière visite</th><th>Visites</th><th>Lectures</th><th>Panier</th><th>Paiement</th><th>Achats</th><th></th></tr></thead>
               <tbody>
                 {data.rows.map(r => (<Fragment key={r.code}>
                   <tr>
                     <td>{r.instagram ? `@${r.instagram}` : <span className="muted">inconnu</span>}<div style={{ fontSize: 12 }}>{r.sheet ? <a href={r.sheet.url} target="_blank" rel="noreferrer">{r.sheet.title} ↗</a> : <span className="muted">{r.sheet_ref || ''}</span>}</div></td>
+                    <td>{r.variant === 'sub' ? <Chip tone="acc">B · abonnement</Chip> : r.variant === 'sheet' ? <Chip tone="mut">A · partition</Chip> : '—'}</td>
                     <td><code>{r.code}</code></td>
                     <td>{hour(r.sent_at)}</td>
                     <td>{hour(r.last_at)}</td>
@@ -555,11 +587,11 @@ function Tracking() {
                     <td>{r.kinds.play || 0}</td>
                     <td>{r.kinds.add_to_cart || 0}</td>
                     <td>{(r.kinds.checkout_open || 0) + (r.kinds.checkout || 0)}</td>
-                    <td>{r.orders ? <Chip tone="go">{r.orders} · {eur(r.revenue_cents)}</Chip> : '—'}</td>
+                    <td>{r.orders ? <Chip tone="go">{r.orders} · {eur(r.revenue_cents)}</Chip> : r.subscription ? <Chip tone="acc">abonnement : {r.subscription}</Chip> : '—'}</td>
                     <td><Btn small kind="ghost" onClick={() => show(r.code)}>{open === r.code ? 'Fermer' : 'Parcours'}</Btn></td>
                   </tr>
                   {open === r.code && (
-                    <tr><td colSpan={10} style={{ padding: '10px 14px' }}>
+                    <tr><td colSpan={11} style={{ padding: '10px 14px' }}>
                       {!detail ? <span className="muted">Chargement…</span> : (
                         <ol style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4, fontSize: 13.5 }}>
                           {detail.events.map((e, i) => (

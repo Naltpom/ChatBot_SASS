@@ -117,3 +117,19 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
 - `/sheets/{id}/notes` donne `audio` : `/preview.mp3` pour tous, `/audio.mp3` (clé de commande ou compte) pour qui a la
   partition. Le lecteur joue ce son et le curseur suit `audio.currentTime` ; sans son, synthèse comme avant.
 - Admin : titres des partitions, lignes de commande et liens suivis ouvrent la fiche de la boutique.
+
+## Abonnement « toutes les partitions » — test A/B (22/11/2026)
+
+- Chaque lien « SHEET » déclaré (`/ingest/links`) est tiré au sort : A `sheet` (prix par partition, code INSTA20) ou
+  B `sub` (abonnement, code ESSAI48), part réglée par `MUSIC_SUB_AB_SHARE` (0,5). `GET /api/music/offer?b=` dit au site
+  quoi montrer ; la production met le bon code dans le lien.
+- `POST /api/music/subscribe` (compte connecté, accord obligatoire) : Stripe Checkout `mode=subscription`, prix
+  `music_settings.sub_weekly_cents` (14 €) par semaine ; essai seulement avec un code `trial` (ESSAI48 = 2 jours), une fois
+  par compte ; sans code, premier prélèvement tout de suite. `customer.subscription.*` (metadata `music_sub`) tient l'état.
+- Abonné (essai ou payé, période en cours) : toutes les partitions **en vente** (pages nettes, notes et son complets,
+  `GET /sheets/{id}/pdf`) ; pendant l'essai, `MUSIC_TRIAL_DOWNLOADS` (3) PDF au plus.
+- Résiliation en un clic dans « Mes partitions » (`POST /api/music/subscription/cancel`) : `cancel_at_period_end`,
+  plus de prélèvement, accès jusqu'à la fin de la période, sans remboursement. CGV article 7 bis (4 langues).
+- **Webhook Stripe de la boutique** : cocher `customer.subscription.created`, `.updated`, `.deleted`.
+- Admin : cartes « Abonnés » et « Test A/B des liens », prix de l'abonnement (onglet Prix), codes « Essai abonnement »,
+  groupe A/B dans « Suivi des liens ».
