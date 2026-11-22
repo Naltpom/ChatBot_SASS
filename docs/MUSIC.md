@@ -141,3 +141,11 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
 - Un code de réduction peut aussi ouvrir un essai (`music_promo_codes.trial_days`) : **INSTA20** = -20 % sur une partition
   et 48 h d'essai sur un abonnement ; c'est le code de tous les liens « SHEET ». Test A/B : A partition seule,
   B partition + les trois formules.
+
+## Mon compte (22/11/2026)
+
+- `/account` en onglets : Mes achats, Abonnement, Profil (photo ré-encodée 256 px partagée avec chapote.fr, nom,
+  pseudo `users.nickname`), Sécurité (e-mail et sa vérification, mot de passe via `/api/auth/password`, double
+  authentification : état + lien vers chapote.fr). Fenêtres modales maison, plus aucun `confirm()`.
+- Résiliation : à la première demande d'un abonnement payé, offre unique « -50 % sur le prochain paiement »
+  (`GET /subscription/retention`, `POST /subscription/retain` : coupon Stripe `once`) ; refusée -> plus jamais proposée.

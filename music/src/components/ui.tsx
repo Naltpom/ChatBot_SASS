@@ -188,3 +188,27 @@ export function TrackBanner() {
     </div>
   )
 }
+
+
+/** Fenêtre modale (jamais d'alert/confirm du navigateur) : fond assombri, Échap ou clic dehors pour fermer. */
+export function Modal({ open, title, children, onClose }: { open: boolean; title: string; children: ReactNode; onClose: () => void }) {
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    box.current?.focus()
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = '' }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!open) return null
+  return (
+    <div className="modal-back" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}>
+        <button type="button" className="modal-x" aria-label="Close" onClick={onClose}>{Icon.close}</button>
+        <h2>{title}</h2>
+        {children}
+      </div>
+    </div>
+  )
+}

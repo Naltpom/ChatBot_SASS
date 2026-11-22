@@ -212,6 +212,9 @@ class MusicSubscription(Base):
     trial_end = Column(DateTime, nullable=True)
     current_period_end = Column(DateTime, nullable=True)
     cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+    # Offre de rétention (-50 % sur le prochain paiement) : proposée une seule fois par compte
+    retention_offered_at = Column(DateTime, nullable=True)
+    retention_accepted_at = Column(DateTime, nullable=True)
     promo_code = Column(String(40), nullable=True)
     track_code = Column(String(16), nullable=True, index=True)
     consent_at = Column(DateTime, nullable=False)

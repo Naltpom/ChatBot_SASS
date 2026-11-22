@@ -778,3 +778,47 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
             code = f"pp00aa2{n}"
             got = (await c.http.post("/api/music/ingest/links", json=[{"code": code, "instagram": "same.person"}], headers=auth)).json()["variants"][code]
             assert got == first
+
+
+
+async def test_profile_avatar_and_retention_offer(pg_session, music, monkeypatch, tmp_path):
+    from io import BytesIO
+    from PIL import Image
+    from src.models.music import MusicSubscription
+    monkeypatch.setattr(settings, "MOCK_BILLING", True)
+    monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path / "up"))
+    fan = await _user(pg_session, "prof@t.dev", email_verified=True)
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(fan)
+        r = await h.patch("/api/music/account/profile", json={"name": "  Jean   Dupont ", "nickname": "@jean.d"})
+        assert r.json() == {"name": "Jean Dupont", "nickname": "jean.d"}
+        assert (await h.patch("/api/music/account/profile", json={"nickname": "bad nick!"})).status_code == 422
+        buf = BytesIO(); Image.new("RGB", (800, 600), "red").save(buf, "PNG")
+        r = await h.post("/api/music/account/avatar", files={"file": ("me.png", buf.getvalue(), "image/png")})
+        assert r.status_code == 200, r.text
+        a = await h.get("/api/music/account/avatar")
+        assert a.status_code == 200 and Image.open(BytesIO(a.content)).size == (256, 256)
+        assert (await h.post("/api/music/account/avatar", files={"file": ("x.png", b"nope", "image/png")})).status_code == 415
+        acc = (await h.get("/api/music/account")).json()["user"]
+        assert acc["nickname"] == "jean.d" and acc["avatar"] and acc["password_login"] is True
+        # abonnement payé : première résiliation -> offre -50 % ; acceptée -> abonnement gardé, plus d'offre
+        assert (await h.post("/api/music/subscribe", json={"consent": True, "plan": "month"})).status_code == 200
+        off = (await h.get("/api/music/subscription/retention")).json()
+        assert off == {"eligible": True, "percent": 50, "next_cents": 399}
+        r = await h.post("/api/music/subscription/retain")
+        assert r.status_code == 200 and r.json()["subscription"]["retention_applied"] is True
+        assert (await h.get("/api/music/subscription/retention")).json()["eligible"] is False
+        r = await h.post("/api/music/subscription/cancel")
+        assert r.json()["subscription"]["cancel_at_period_end"] is True
+    # autre compte : refuse l'offre en résiliant -> plus jamais proposée
+    other = await _user(pg_session, "prof2@t.dev", email_verified=True)
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(other)
+        await h.post("/api/music/subscribe", json={"consent": True, "plan": "week"})
+        assert (await h.get("/api/music/subscription/retention")).json()["eligible"] is True
+        await h.post("/api/music/subscription/cancel")
+        sub = (await pg_session.execute(select(MusicSubscription).where(MusicSubscription.email == "prof2@t.dev"))).scalar_one()
+        await pg_session.refresh(sub)
+        assert sub.retention_offered_at is not None and sub.retention_accepted_at is None
