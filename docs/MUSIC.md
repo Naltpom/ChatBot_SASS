@@ -158,3 +158,15 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
   (coupon Stripe `once`) — sans essai, mise sur la souscription ; avec essai, posée sur l'abonnement juste après sa
   création (`first_discount_pct`), pour viser le premier vrai paiement et non la facture d'essai à 0 €.
   INSTA20 = 48 h d'essai + -20 % sur le premier paiement.
+
+## Studio (BETA, 22/11/2026)
+
+- `/studio` (chargé à part : le reste du site n'en porte pas le poids) : instrument (piano, guitare, violon, voix/flûte),
+  tempo (saisie ou tapé), calibrage (bruit de la pièce, accordage sur la note de référence), décompte d'une mesure et
+  métronome, enregistrement.
+- En direct : une voix suivie (YIN, sans IA) ; deux vues : partition qui s'écrit (abcjs) ou notes qui montent depuis le
+  clavier. À la fin (piano, guitare) : analyse IA de tout l'enregistrement, accords compris — Basic Pitch de Spotify
+  (Apache 2.0, modèle dans `public/basic-pitch/`), TensorFlow.js sur la carte graphique du navigateur (WebGL).
+- Exports : MIDI, ABC, impression/PDF. Le son reste dans le navigateur (rien n'est envoyé au serveur) ; mentionné dans
+  la politique de confidentialité.
+- Compte : menu sur la photo de profil (`/account/achats`, `/abonnement`, `/profil`, `/securite`, studio, déconnexion).
