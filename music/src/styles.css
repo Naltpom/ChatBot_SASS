@@ -420,3 +420,9 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .acc-avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: var(--line2); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 24px; color: var(--mut); flex: none; }
 .acc-card label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--mut); }
 .acc-card .ok-text { color: #1e8e3e; font-weight: 600; font-size: 14px; }
+
+.promo-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.promo-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border-radius: 999px; background: var(--tile); font-size: 13px; font-weight: 600; }
+.promo-chip.ok { background: #e8f5ec; color: #1e7a3a; }
+@media (prefers-color-scheme: dark) { .promo-chip.ok { background: #12301c; color: #7ee2a0; } }
+.promo-chip button { border: 0; background: none; color: inherit; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 6px; }

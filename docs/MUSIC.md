@@ -149,3 +149,12 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
   authentification : état + lien vers chapote.fr). Fenêtres modales maison, plus aucun `confirm()`.
 - Résiliation : à la première demande d'un abonnement payé, offre unique « -50 % sur le prochain paiement »
   (`GET /subscription/retention`, `POST /subscription/retain` : coupon Stripe `once`) ; refusée -> plus jamais proposée.
+
+## Codes cumulés (22/11/2026)
+
+- Deux codes au plus par commande ou abonnement (`promo_codes`), appliqués l'un après l'autre (-20 % puis -10 % = -28 %) ;
+  chacun réservé atomiquement, tous rendus si la commande n'aboutit pas ; `promo_code` de la commande = « A+B ».
+- Abonnement : essai = le plus long des codes (une fois par compte) ; remise en % des codes sur le **premier paiement**
+  (coupon Stripe `once`) — sans essai, mise sur la souscription ; avec essai, posée sur l'abonnement juste après sa
+  création (`first_discount_pct`), pour viser le premier vrai paiement et non la facture d'essai à 0 €.
+  INSTA20 = 48 h d'essai + -20 % sur le premier paiement.
