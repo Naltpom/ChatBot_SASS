@@ -14,6 +14,7 @@ export default function PiecePage() {
   const { slug = '' } = useParams()
   const navigate = useNavigate()
   const offer = useOffer()
+  const [mode, setMode] = useState<'sub' | 'unit'>('sub')  // groupe B : l'abonnement est l'onglet ouvert par défaut
   const [params] = useSearchParams()
   const { t, lang } = useI18n()
   const { eur: euros } = useMoney()
@@ -69,6 +70,8 @@ export default function PiecePage() {
   const total = chosen.length >= 2 && bundle != null && bundle < list ? bundle : list
   const allList = buyable.reduce((a, s) => a + s.price_cents, 0)
   const pages = shown.pages_full || shown.pages_preview
+  const tabs = offer?.variant === 'sub' && !piece.subscribed
+  const showUnit = !tabs || mode === 'unit'
   const full = !!shown.pages_full
   const toLines = () => chosen.map(s => ({ id: s.id, label: `${piece.title} — ${s.instrument_label}` }))
   const toggle = (id: number) => setPicked(p => (p.includes(id) ? (p.length > 1 ? p.filter(x => x !== id) : p) : [...p, id]))
@@ -121,8 +124,17 @@ export default function PiecePage() {
             </a>
           )}
 
-          {offer?.variant === 'sub' && !piece.subscribed && <SubscriptionCard offer={offer} />}
+          {tabs && (
+            <div className="buy-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={mode === 'sub'} className={mode === 'sub' ? 'on' : ''}
+                      onClick={() => { setMode('sub'); track('tab', { to: 'sub' }) }}>{t.tabSub}</button>
+              <button type="button" role="tab" aria-selected={mode === 'unit'} className={mode === 'unit' ? 'on' : ''}
+                      onClick={() => { setMode('unit'); track('tab', { to: 'unit' }) }}>{t.tabUnit}</button>
+            </div>
+          )}
+          {tabs && mode === 'sub' && <SubscriptionCard offer={offer!} />}
 
+          {showUnit && <>
           <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
             <legend className="sr">{t.instrument}</legend>
             <div className="ins-list">
@@ -151,13 +163,14 @@ export default function PiecePage() {
               <p className="bundle-note">{t.bundle(euros(bundle), euros(allList))}</p>
             )}
           </fieldset>
-
-          {piece.sheets.some(s => s.owned) && <p className="own-note">✓ {piece.subscribed ? t.subActive : t.youOwn}</p>}
-          {shown.owned && shown.pdf && <PdfButton url={shown.pdf} name={`${piece.title} - ${shown.instrument_label}`} />}
           {chosen.length > 0 && <div className="desk-buy">
             <button type="button" className="btn block" onClick={buy}>{chosen.length > 1 ? t.getSheets : t.getSheet} · {euros(total)}</button>
             <button type="button" className="btn ghost block" onClick={addCart}>{added ? t.added : t.addToCart}</button>
           </div>}
+          </>}
+
+          {piece.sheets.some(s => s.owned) && <p className="own-note">✓ {piece.subscribed ? t.subActive : t.youOwn}</p>}
+          {shown.owned && shown.pdf && <PdfButton url={shown.pdf} name={`${piece.title} - ${shown.instrument_label}`} />}
 
           <ul className="perks">
             <li>{Icon.dl}{t.instant}</li>
@@ -178,7 +191,7 @@ export default function PiecePage() {
 
       <Reviews piece={piece} />
 
-      {chosen.length > 0 && <div className="buybar">
+      {showUnit && chosen.length > 0 && <div className="buybar">
         <div className="p"><small>{chosen.map(s => s.instrument_label).join(' + ')}</small><b><Price cents={total} /></b></div>
         <button type="button" className="btn" onClick={buy}>{chosen.length > 1 ? t.getSheets : t.getSheet}</button>
       </div>}

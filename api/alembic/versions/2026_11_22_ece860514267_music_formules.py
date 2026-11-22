@@ -1,6 +1,6 @@
 """Boutique : trois formules d'abonnement (semaine, mois, an) et essai porté par un code de réduction
 
-Revision ID: c7d8e9f0a1b2
+Revision ID: ece860514267
 Revises: b6c7d8e9f0a1
 Create Date: 2026-11-22 18:00:00.000000
 
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision: str = 'c7d8e9f0a1b2'
+revision: str = 'ece860514267'
 down_revision: Union[str, None] = 'b6c7d8e9f0a1'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

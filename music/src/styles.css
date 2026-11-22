@@ -392,3 +392,8 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .plan b { font-size: 17px; }
 .plan small { font-size: 12px; color: var(--mut); }
 .plan-save { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #1e8e3e; color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 7px; }
+
+.buy-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 14px 0 4px; padding: 4px; background: var(--tile); border-radius: 12px; }
+.buy-tabs button { border: 0; background: none; color: var(--mut); font: inherit; font-weight: 600; font-size: 15px; padding: 10px; border-radius: 9px; cursor: pointer; }
+.buy-tabs button.on { background: var(--bg); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.buy-tabs + .sub-card { margin-top: 10px; }
