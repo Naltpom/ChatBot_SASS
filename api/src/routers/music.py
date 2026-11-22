@@ -1097,11 +1097,12 @@ def _sub_out(sub: MusicSubscription) -> dict:
 async def offer(b: Optional[str] = None, code: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Ce que voit le visiteur : l'abonnement n'est proposé qu'aux liens du groupe « sub » du test A/B."""
     st = await ms.get_settings(db)
-    variant = "sheet"
+    # tout le monde voit l'abonnement, sauf le groupe A du test (lien « SHEET » tiré « sheet »)
+    variant = "sub"
     if b and TRACK_CODE.match(b):
         link = await db.get(MusicTrackLink, b)
-        if link is not None and link.variant == "sub":
-            variant = "sub"
+        if link is not None and link.variant == "sheet":
+            variant = "sheet"
     trial_days = 0
     if code:
         found = await ms.find_promo(db, code)
