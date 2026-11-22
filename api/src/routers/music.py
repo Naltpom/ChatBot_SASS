@@ -1174,7 +1174,7 @@ async def subscribe(body: SubscribeIn, request: Request, db: AsyncSession = Depe
     base = settings.MUSIC_URL.rstrip("/")
     data = {
         "mode": "subscription",
-        "success_url": f"{base}/account?sub=ok",
+        "success_url": f"{base}/account/abonnement?sub=ok",
         "cancel_url": f"{base}/",
         "locale": body.lang,
         "customer_email": user.email,
