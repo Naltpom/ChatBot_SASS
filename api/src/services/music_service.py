@@ -459,6 +459,14 @@ async def mark_paid(db: AsyncSession, order: MusicOrder, *, email: Optional[str]
     """Passe la commande à « payée » (idempotent). Renvoie True si elle vient de l'être."""
     if order.status == ORDER_PAID:
         return False
+    # passage conditionnel : si le webhook et la page de retour arrivent ensemble, un seul « gagne »
+    # (un seul e-mail de livraison)
+    from sqlalchemy import update
+    won = (await db.execute(update(MusicOrder).where(MusicOrder.id == order.id, MusicOrder.status != ORDER_PAID)
+                            .values(status=ORDER_PAID).returning(MusicOrder.id))).first()
+    if won is None:
+        await db.refresh(order)
+        return False
     order.status = ORDER_PAID
     order.paid_at = utcnow()
     if email:

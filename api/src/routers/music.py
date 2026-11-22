@@ -635,9 +635,15 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     try:
                         await stripe_service.cancel_subscription(sub.stripe_subscription_id)
                     except StripeError as exc:
-                        logger.warning("Abonnement %s non résilié chez Stripe : %s", sub.stripe_subscription_id, exc)
-                        await db.rollback()
-                        raise HTTPException(503, "retry")  # Stripe renverra l'événement
+                        # déjà résilié chez Stripe (ex. à la main dans le tableau de bord) : on le note ici aussi
+                        try:
+                            cur = await stripe_service._stripe_request("GET", f"/subscriptions/{sub.stripe_subscription_id}")
+                        except StripeError:
+                            cur = {}
+                        if cur.get("status") != "canceled":
+                            logger.warning("Abonnement %s non résilié chez Stripe : %s", sub.stripe_subscription_id, exc)
+                            await db.rollback()
+                            raise HTTPException(503, "retry")  # Stripe renverra l'événement
                 sub.status = "canceled"
                 logger.info("Abonnement %s coupé (%s)", sub.id, etype)
             await db.commit()
@@ -1374,7 +1380,8 @@ async def _sync_subscription(db: AsyncSession, obj: dict) -> None:
                 "GET", f"/subscriptions/{obj['id']}", params={"expand[]": "default_payment_method"})
         except StripeError as exc:
             logger.warning("Abonnement %s non relu chez Stripe : %s", obj.get("id"), exc)
-            return  # Stripe renverra l'événement
+            await db.rollback()
+            raise HTTPException(503, "retry")  # réponse non 2xx : Stripe renverra l'événement
     sub.stripe_subscription_id = obj.get("id") or sub.stripe_subscription_id
     sub.stripe_customer_id = obj.get("customer") if isinstance(obj.get("customer"), str) else sub.stripe_customer_id
     sub.status = str(obj.get("status") or sub.status)[:20]
