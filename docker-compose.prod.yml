@@ -87,6 +87,13 @@ services:
       - TIKTOK_MAX_UPLOAD_MB=${TIKTOK_MAX_UPLOAD_MB:-1024}
       - TIKTOK_SERVICE_TOKEN=${TIKTOK_SERVICE_TOKEN:-}
       - TIKTOK_SERVICE_USER_EMAIL=${TIKTOK_SERVICE_USER_EMAIL:-}
+      - YOUTUBE_CLIENT_ID=${YOUTUBE_CLIENT_ID:-}
+      - YOUTUBE_CLIENT_SECRET=${YOUTUBE_CLIENT_SECRET:-}
+      - YOUTUBE_REDIRECT_URI=${YOUTUBE_REDIRECT_URI:-https://chapote.fr/youtube/callback}
+      - YOUTUBE_MAX_UPLOAD_MB=${YOUTUBE_MAX_UPLOAD_MB:-1024}
+      - YOUTUBE_DAILY_POSTS=${YOUTUBE_DAILY_POSTS:-6}
+      - YOUTUBE_SERVICE_TOKEN=${YOUTUBE_SERVICE_TOKEN:-}
+      - YOUTUBE_SERVICE_USER_EMAIL=${YOUTUBE_SERVICE_USER_EMAIL:-}
       # SMTP (envoi des emails : leads, demandes de conseiller, prospection).
       # HOST vide = fallback log, jamais bloquant (les emails ne partent PAS).
       - SMTP_HOST=${SMTP_HOST:-}

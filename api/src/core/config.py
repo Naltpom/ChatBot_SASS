@@ -111,6 +111,28 @@ class Settings(BaseSettings):
     TIKTOK_SERVICE_TOKEN: str | None = None
     TIKTOK_SERVICE_USER_EMAIL: str | None = None
 
+    # --- Module YouTube « Chapote Publisher » (Shorts, Espace client /app/youtube) ---
+    # Client OAuth Google (type « Application Web ») du projet Google Cloud où
+    # l'API YouTube Data v3 est activée. Vide => module désactivé (503). Les
+    # jetons des chaînes connectées vivent chiffrés en base (youtube_accounts).
+    YOUTUBE_CLIENT_ID: str | None = None
+    YOUTUBE_CLIENT_SECRET: str | None = None
+    YOUTUBE_REDIRECT_URI: str = "https://chapote.fr/youtube/callback"
+    YOUTUBE_API_BASE: str = "https://www.googleapis.com"
+    YOUTUBE_OAUTH_BASE: str = "https://oauth2.googleapis.com"
+    YOUTUBE_MAX_UPLOAD_MB: int = 1024
+    # Fichiers vidéo temporaires. JAMAIS sous UPLOAD_DIR (servi publiquement).
+    YOUTUBE_TMP_DIR: str = "/tmp/chapote_youtube"
+    # Envois par tenant et par 24 h. Un envoi coûte 1 600 unités de quota
+    # Google sur 10 000 / jour pour TOUT le projet (≈ 6 envois / jour tant
+    # que Google n'a pas relevé le quota).
+    YOUTUBE_DAILY_POSTS: int = 6
+    # Jeton de service (Bearer) de la chaîne de production (claude-cloud),
+    # au nom de YOUTUBE_SERVICE_USER_EMAIL. Publication seulement (chaînes,
+    # posts) : jamais la connexion ni la déconnexion d'une chaîne.
+    YOUTUBE_SERVICE_TOKEN: str | None = None
+    YOUTUBE_SERVICE_USER_EMAIL: str | None = None
+
     APP_URL: str = "http://localhost:3001"
     API_URL: str = "http://localhost:8001"
 

@@ -39,12 +39,17 @@ import TikTokComposer from './pages/tiktok/TikTokComposer'
 import AdminTikTok from './pages/AdminTikTok'
 import AdminMusic from './pages/AdminMusic'
 import TikTokCallback from './pages/tiktok/TikTokCallback'
+import YouTubePage from './pages/youtube/YouTubePage'
+import YouTubeComposer from './pages/youtube/YouTubeComposer'
+import YouTubeCallback from './pages/youtube/YouTubeCallback'
 import mentionsMd from './legal/MENTIONS_LEGALES.md?raw'
 import cguMd from './legal/CGU.md?raw'
 import cgvMd from './legal/CGV.md?raw'
 import confidMd from './legal/POLITIQUE_CONFIDENTIALITE.md?raw'
 import tiktokConfidMd from './legal/TIKTOK_CONFIDENTIALITE.md?raw'
 import tiktokCguMd from './legal/TIKTOK_CGU.md?raw'
+import youtubeConfidMd from './legal/YOUTUBE_CONFIDENTIALITE.md?raw'
+import youtubeCguMd from './legal/YOUTUBE_CGU.md?raw'
 import Layout from './Layout'
 
 // Éditeurs EMBARQUÉS (/embed/*) ouverts par le plugin WordPress dans une iframe/
@@ -166,6 +171,9 @@ export function AppRoutes() {
           (CGU + confidentialité) référencées par l'app TikTok. */}
       <Route path="/legal/tiktok-confidentialite" element={<LegalPage md={tiktokConfidMd} />} />
       <Route path="/legal/tiktok-cgu" element={<LegalPage md={tiktokCguMd} />} />
+      {/* Module YouTube (Shorts) : pages légales référencées par l'écran de consentement Google. */}
+      <Route path="/legal/youtube-confidentialite" element={<LegalPage md={youtubeConfidMd} />} />
+      <Route path="/legal/youtube-cgu" element={<LegalPage md={youtubeCguMd} />} />
       <Route path="/mentions-legales" element={<Navigate to="/legal/mentions-legales" replace />} />
       <Route path="/cgu" element={<Navigate to="/legal/cgu" replace />} />
       <Route path="/cgv" element={<Navigate to="/legal/cgv" replace />} />
@@ -179,6 +187,9 @@ export function AppRoutes() {
           publique qui finalise la connexion puis renvoie vers /app/tiktok. */}
       <Route path="/tiktok/callback" element={<TikTokCallback />} />
       <Route path="/tiktok" element={<Navigate to="/app/tiktok" replace />} />
+      {/* Redirect OAuth Google du module YouTube (URI déclarée dans le client OAuth). */}
+      <Route path="/youtube/callback" element={<YouTubeCallback />} />
+      <Route path="/youtube" element={<Navigate to="/app/youtube" replace />} />
       {/* Application (clients) */}
       <Route path="/app" element={<Protected><BotList /></Protected>} />
       <Route path="/app/bots/new" element={<Protected><BotWizard /></Protected>} />
@@ -188,6 +199,8 @@ export function AppRoutes() {
       <Route path="/app/integrations" element={<Protected><Integrations /></Protected>} />
       <Route path="/app/tiktok" element={<Protected><TikTokPage /></Protected>} />
       <Route path="/app/tiktok/publish" element={<Protected><TikTokComposer /></Protected>} />
+      <Route path="/app/youtube" element={<Protected><YouTubePage /></Protected>} />
+      <Route path="/app/youtube/publish" element={<Protected><YouTubeComposer /></Protected>} />
       <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
       <Route path="/app/team" element={<Protected><Team /></Protected>} />
       <Route path="/app/orgs" element={<Protected><MyOrgs /></Protected>} />

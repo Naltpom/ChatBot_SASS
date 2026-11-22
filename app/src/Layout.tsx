@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeftRight, BarChart3, Building2, Check, ChevronDown, CircleUser,
-  CreditCard, Clapperboard, Inbox, Music, Layers, LayoutDashboard, LogOut, Menu, Plug, ShieldCheck, Target, Users,
+  CreditCard, Clapperboard, Inbox, MonitorPlay, Music, Layers, LayoutDashboard, LogOut, Menu, Plug, ShieldCheck, Target, Users,
 } from 'lucide-react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Org, useAuth } from './AuthContext'
@@ -210,6 +210,12 @@ export default function Layout({ children }: { children: ReactNode }) {
                       aria-current={path.startsWith('/app/tiktok') ? 'page' : undefined}
                       onClick={() => navigate('/app/tiktok')}>
                 <span className="nav-ico"><Clapperboard size={16} /></span>TikTok
+              </button>
+              {/* Publication YouTube Shorts : chaînes du client + composer. */}
+              <button className={`nav-item ${path.startsWith('/app/youtube') ? 'active' : ''}`}
+                      aria-current={path.startsWith('/app/youtube') ? 'page' : undefined}
+                      onClick={() => navigate('/app/youtube')}>
+                <span className="nav-ico"><MonitorPlay size={16} /></span>YouTube
               </button>
               {/* Facturation : visible uniquement pour un payeur (owner d'org ou
                   compte perso) ; masquée pour un admin non-owner (canSeeBilling).
