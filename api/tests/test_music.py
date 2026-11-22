@@ -449,6 +449,23 @@ async def test_player_notes_preview_and_buyer(pg_session, music, monkeypatch):
         k = ms.download_key(order)
         full = (await c.http.get(f"/api/music/sheets/{sid}/notes?order={order}&k={k}")).json()
         assert full["full"] is True and full["duration"] == 60 and len(full["cursor"]) == 2
+        # son exact du Reel : extrait public, complet pour l'acheteur seulement
+        mp3 = b"ID3" + b"\x00" * 200
+        r = await c.http.post("/api/music/ingest/audio", data={"source_ref": "gh/n"},
+                              files={"audio": ("a.mp3", mp3, "audio/mpeg"), "audio_preview": ("p.mp3", mp3[:100], "audio/mpeg")},
+                              headers={"Authorization": f"Bearer {TOKEN}"})
+        assert r.status_code == 200, r.text
+        assert (await c.http.post("/api/music/ingest/audio", data={"source_ref": "gh/n"},
+                                  files={"audio": ("a.mp3", b"nope", "audio/mpeg"), "audio_preview": ("p.mp3", b"nope", "audio/mpeg")},
+                                  headers={"Authorization": f"Bearer {TOKEN}"})).status_code == 400
+        prev = (await c.http.get(f"/api/music/sheets/{sid}/notes")).json()
+        assert prev["audio"] == f"/api/music/sheets/{sid}/preview.mp3"
+        assert (await c.http.get(prev["audio"])).status_code == 200
+        assert (await c.http.get(f"/api/music/sheets/{sid}/audio.mp3")).status_code == 404
+        full = (await c.http.get(f"/api/music/sheets/{sid}/notes?order={order}&k={k}")).json()
+        assert full["audio"] == f"/api/music/sheets/{sid}/audio.mp3?order={order}&k={k}"
+        a = await c.http.get(full["audio"])
+        assert a.status_code == 200 and a.content == mp3
         ok = await c.http.get(f"/api/music/sheets/{sid}/clear/2.png?order={order}&k={k}")
         assert ok.status_code == 200 and ok.headers["content-type"] == "image/png"
         assert (await c.http.get(f"/api/music/sheets/{sid}/clear/2.png?order={order}&k=faux")).status_code == 404

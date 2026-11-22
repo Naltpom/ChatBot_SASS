@@ -368,17 +368,19 @@ async def list_orders(status: Optional[str] = None, offset: int = 0, limit: int 
     orders = (await db.execute(stmt.order_by(MusicOrder.created_at.desc()).offset(offset).limit(limit))).scalars().all()
     ids = [o.id for o in orders]
     items: dict[int, list[str]] = {}
+    links: dict[int, list[dict]] = {}
     if ids:
-        for it in (await db.execute(select(MusicOrderItem).where(MusicOrderItem.order_id.in_(ids))
-                                    .order_by(MusicOrderItem.id))).scalars():
+        for it, sh in (await db.execute(select(MusicOrderItem, MusicSheet).join(MusicSheet, MusicSheet.id == MusicOrderItem.sheet_id)
+                                        .where(MusicOrderItem.order_id.in_(ids)).order_by(MusicOrderItem.id))).all():
             items.setdefault(it.order_id, []).append(it.label)
+            links.setdefault(it.order_id, []).append({"label": it.label, "url": ms.piece_url(sh.piece_slug, sh.instrument)})
     return {"total": int(total), "next_offset": offset + limit if offset + limit < total else None, "orders": [{
         "id": o.id, "public_id": o.public_id, "status": o.status, "email": o.email,
         "amount_cents": o.amount_cents, "subtotal_cents": o.subtotal_cents, "discount_cents": o.discount_cents,
         "promo_code": o.promo_code, "created_at": _iso(o.created_at), "paid_at": _iso(o.paid_at),
         "emailed_at": _iso(o.emailed_at), "items": items.get(o.id, []),
         "instagram_username": o.instagram_username, "instagram_status": o.instagram_status,
-        "user_id": o.user_id, "granted": bool(o.granted_by_user_id),
+        "user_id": o.user_id, "granted": bool(o.granted_by_user_id), "item_links": links.get(o.id, []),
     } for o in orders]}
 
 
@@ -448,6 +450,9 @@ async def tracking(offset: int = 0, limit: int = 50, db: AsyncSession = Depends(
         .outerjoin(MusicTrackLink, MusicTrackLink.code == ev.c.code)
         .order_by(ev.c.last.desc()).offset(offset).limit(limit))).all()
     codes = [r[0] for r in rows]
+    refs = {link.sheet_ref for *_, link in rows if link is not None and link.sheet_ref}
+    sheet_urls = {sh.source_ref: (sh.piece_title, sh.instrument_label, ms.piece_url(sh.piece_slug, sh.instrument))
+                  for sh in (await db.execute(select(MusicSheet).where(MusicSheet.source_ref.in_(refs)))).scalars()} if refs else {}
     kinds: dict[str, dict[str, int]] = {}
     orders: dict[str, tuple[int, int]] = {}
     if codes:
@@ -466,6 +471,8 @@ async def tracking(offset: int = 0, limit: int = 50, db: AsyncSession = Depends(
         "rows": [{
             "code": code, "instagram": link.instagram_username if link else None,
             "source": link.source if link else None, "sheet_ref": link.sheet_ref if link else None,
+            "sheet": ({"title": f"{sheet_urls[link.sheet_ref][0]} — {sheet_urls[link.sheet_ref][1]}", "url": sheet_urls[link.sheet_ref][2]}
+                      if link is not None and link.sheet_ref in sheet_urls else None),
             "sent_at": _iso(link.created_at) if link else None, "first_at": _iso(first), "last_at": _iso(last),
             "events": int(n), "visits": int(visits), "kinds": kinds.get(code, {}),
             "orders": orders.get(code, (0, 0))[0], "revenue_cents": orders.get(code, (0, 0))[1],

@@ -118,6 +118,7 @@ export function useScorePlayer(sheetId: number, auth?: { order?: string; k?: str
   const master = useRef<GainNode | null>(null)
   const listeners = useRef(new Set<Listener>())
   const dataRef = useRef<NotesData | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)  // son du Reel, s'il existe
 
   const emit = (time: number) => {
     const pos = cursorAt(dataRef.current?.cursor, time)
@@ -126,6 +127,7 @@ export function useScorePlayer(sheetId: number, auth?: { order?: string; k?: str
   const stop = (reset = false) => {
     cancelAnimationFrame(raf.current)
     setPlaying(false)
+    audioRef.current?.pause()
     if (master.current && ctxRef.current) {
       master.current.gain.setTargetAtTime(0, ctxRef.current.currentTime, 0.03)
       master.current = null
@@ -133,8 +135,16 @@ export function useScorePlayer(sheetId: number, auth?: { order?: string; k?: str
     if (reset) { fromRef.current = 0; timeRef.current = 0; setEnded(false); emit(0) }
   }
 
-  useEffect(() => () => { cancelAnimationFrame(raf.current); ctxRef.current?.close() }, [])
-  useEffect(() => { stop(true); setData(null); dataRef.current = null }, [sheetId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { cancelAnimationFrame(raf.current); ctxRef.current?.close(); audioRef.current?.pause() }, [])
+  useEffect(() => {
+    stop(true); setData(null); dataRef.current = null; audioRef.current = null
+    // notes chargées d'avance : sur iPhone, le son ne démarre que s'il part directement du toucher sur Play
+    if (sheetId > 0) {
+      let alive = true
+      getNotes(sheetId, auth).then(d => { if (alive && !dataRef.current) { setData(d); dataRef.current = d } }).catch(() => {})
+      return () => { alive = false }
+    }
+  }, [sheetId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const tick = (d: NotesData) => {
     const ctx = ctxRef.current!
@@ -163,6 +173,28 @@ export function useScorePlayer(sheetId: number, auth?: { order?: string; k?: str
       setLoading(true); setError(false)
       try { d = await getNotes(sheetId, auth); setData(d); dataRef.current = d } catch { setError(true); setLoading(false); return }
       setLoading(false)
+    }
+    if (d!.audio) {
+      // son exact du Reel : l'élément audio donne le temps, le curseur suit
+      if (!audioRef.current) {
+        const a = new Audio(d!.audio)
+        a.preload = 'auto'
+        a.addEventListener('ended', () => { stop(); fromRef.current = 0; setEnded(true) })
+        audioRef.current = a
+      }
+      const a = audioRef.current
+      if (ended) { fromRef.current = 0; setEnded(false) }
+      a.currentTime = fromRef.current
+      try { await a.play() } catch { setError(true); return }
+      setPlaying(true)
+      const loop = () => {
+        timeRef.current = a.currentTime
+        emit(timeRef.current)
+        if (timeRef.current >= d!.duration) { stop(); fromRef.current = 0; setEnded(true); return }
+        raf.current = requestAnimationFrame(loop)
+      }
+      raf.current = requestAnimationFrame(loop)
+      return
     }
     if (!ctxRef.current) ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
     const ctx = ctxRef.current

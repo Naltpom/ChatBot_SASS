@@ -697,6 +697,20 @@ async def ingest(meta: str = Form(...), pdf: Optional[UploadFile] = File(None),
     return {"created": created, **_state(sheet)}
 
 
+@router.post("/ingest/audio", dependencies=[Depends(_require_ingest)])
+async def ingest_audio(source_ref: str = Form(...), audio: UploadFile = File(...), audio_preview: UploadFile = File(...),
+                       db: AsyncSession = Depends(get_db)):
+    """Son exact du Reel (MP3 calé sur les notes) : complet + extrait de 25 s, envoyés par la production."""
+    sheet = (await db.execute(select(MusicSheet).where(MusicSheet.source_ref == source_ref))).scalar_one_or_none()
+    if sheet is None:
+        raise HTTPException(404, "Partition inconnue")
+    try:
+        ms.save_audio(sheet.id, await audio.read(), await audio_preview.read())
+    except ms.MusicError as exc:
+        raise _err(exc)
+    return {"id": sheet.id, "audio": True}
+
+
 @router.get("/ingest/state", dependencies=[Depends(_require_ingest)])
 async def ingest_state(source_ref: str, db: AsyncSession = Depends(get_db)):
     sheet = (await db.execute(select(MusicSheet).where(MusicSheet.source_ref == source_ref))).scalar_one_or_none()
@@ -792,7 +806,39 @@ async def sheet_notes(sheet_id: int, order: Optional[str] = None, k: Optional[st
     full = _is_admin(user) or await _owns_sheet(db, s.id, user=user, order=order, key=k)
     if not full:
         data = ms.preview_notes(data)
-    return {**data, "full": full}
+    # son exact du Reel (si la production l'a envoyé) : le lecteur le joue à la place de la synthèse
+    audio = None
+    if full and ms.audio_path(s.id).exists():
+        q = f"?order={order}&k={k}" if order and k else ""
+        audio = f"/api/music/sheets/{s.id}/audio.mp3{q}"
+    elif ms.audio_path(s.id, True).exists():
+        audio = f"/api/music/sheets/{s.id}/preview.mp3"
+    return {**data, "full": full, "audio": audio}
+
+
+@router.get("/sheets/{sheet_id}/preview.mp3")
+async def sheet_audio_preview(sheet_id: int, db: AsyncSession = Depends(get_db),
+                              user: Optional[User] = Depends(_music_user)):
+    """Extrait du son du Reel (25 s), pour tous ceux qui voient la fiche."""
+    s = await _visible_sheet(db, sheet_id, user)
+    path = ms.audio_path(s.id, True)
+    if not path.exists():
+        raise HTTPException(404, "Introuvable")
+    return FileResponse(path, media_type="audio/mpeg",
+                        headers={"Cache-Control": f"{'public' if s.published else 'private'}, max-age=3600"})
+
+
+@router.get("/sheets/{sheet_id}/audio.mp3")
+async def sheet_audio(sheet_id: int, order: Optional[str] = None, k: Optional[str] = None,
+                      db: AsyncSession = Depends(get_db), user: Optional[User] = Depends(_music_user)):
+    """Son complet du Reel : seulement pour qui a la partition (ou l'admin)."""
+    s = await db.get(MusicSheet, sheet_id)
+    if s is None or not (_is_admin(user) or await _owns_sheet(db, s.id, user=user, order=order, key=k)):
+        raise HTTPException(404, "Introuvable")
+    path = ms.audio_path(s.id)
+    if not path.exists():
+        raise HTTPException(404, "Introuvable")
+    return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/sheets/{sheet_id}/clear/{page}.png")

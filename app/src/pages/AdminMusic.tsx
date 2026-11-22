@@ -36,7 +36,7 @@ interface Order {
   id: number; public_id: string; status: string; email: string | null; amount_cents: number
   discount_cents: number; promo_code: string | null; created_at: string; paid_at: string | null
   emailed_at: string | null; items: string[]; instagram_username: string | null; instagram_status: string | null
-  user_id: number | null; granted?: boolean
+  user_id: number | null; granted?: boolean; item_links?: { label: string; url: string }[]
 }
 interface Review { id: number; rating: number; comment: string | null; hidden: boolean; date: string; user: string; sheet: string }
 interface Page<T> { total: number; next_offset: number | null }
@@ -257,7 +257,7 @@ function Sheets({ onChange, unitPrice }: { onChange: () => void; unitPrice: numb
                     <td><img src={`${API_URL}${s.preview}`} alt="" loading="lazy" width={44} height={58}
                              style={{ objectFit: 'cover', objectPosition: 'top', borderRadius: 4, border: '1px solid var(--border)', background: '#fff' }} /></td>
                     <td>
-                      <div style={{ fontWeight: 600 }}>{s.piece_title}</div>
+                      <a href={s.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600, color: 'inherit' }} title="Ouvrir la fiche de la boutique">{s.piece_title} ↗</a>
                       <div className="muted" style={{ fontSize: 12.5 }}>{s.composer || '—'} · {s.pages} p.{s.has_notes ? ' · lecteur' : ''} · {s.source_ref}</div>
                       <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5 }}>{s.published ? 'Voir la page' : 'Voir la page privée'}</a>
                       {s.reel_url && <> · <a href={s.reel_url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5 }}>Reel</a></>}
@@ -436,7 +436,9 @@ function Orders({ top }: { top: Overview['top_sheets'] }) {
                       <td>{day(o.paid_at || o.created_at)}</td>
                       <td>{o.granted ? <Chip tone="acc">Offerte</Chip> : <Chip tone={(STATUS[o.status] || STATUS.expired).tone}>{(STATUS[o.status] || { label: o.status }).label}</Chip>}</td>
                       <td>{o.email || '—'}{o.user_id ? <span className="muted"> · compte</span> : null}</td>
-                      <td style={{ fontSize: 13 }}>{o.items.join(', ')}</td>
+                      <td style={{ fontSize: 13 }}>{o.item_links?.length
+                        ? o.item_links.map((l, i) => <span key={i}>{i > 0 && ', '}<a href={l.url} target="_blank" rel="noreferrer">{l.label}</a></span>)
+                        : o.items.join(', ')}</td>
                       <td>{eur(o.amount_cents)}{o.discount_cents ? <span className="muted"> (−{eur(o.discount_cents)})</span> : null}</td>
                       <td>{o.promo_code || '—'}</td>
                       <td style={{ fontSize: 13 }}>{o.instagram_username ? <>@{o.instagram_username}<span className="muted"> · {o.instagram_status ? IG[o.instagram_status] || o.instagram_status : 'en attente'}</span></> : '—'}</td>
@@ -497,6 +499,7 @@ function Reviews() {
 
 interface TrackRow {
   code: string; instagram: string | null; source: string | null; sheet_ref: string | null; sent_at: string | null
+  sheet?: { title: string; url: string } | null
   first_at: string | null; last_at: string | null; events: number; visits: number; kinds: Record<string, number>
   orders: number; revenue_cents: number
 }
@@ -544,7 +547,7 @@ function Tracking() {
               <tbody>
                 {data.rows.map(r => (<Fragment key={r.code}>
                   <tr>
-                    <td>{r.instagram ? `@${r.instagram}` : <span className="muted">inconnu</span>}<div className="muted" style={{ fontSize: 12 }}>{r.sheet_ref || ''}</div></td>
+                    <td>{r.instagram ? `@${r.instagram}` : <span className="muted">inconnu</span>}<div style={{ fontSize: 12 }}>{r.sheet ? <a href={r.sheet.url} target="_blank" rel="noreferrer">{r.sheet.title} ↗</a> : <span className="muted">{r.sheet_ref || ''}</span>}</div></td>
                     <td><code>{r.code}</code></td>
                     <td>{hour(r.sent_at)}</td>
                     <td>{hour(r.last_at)}</td>

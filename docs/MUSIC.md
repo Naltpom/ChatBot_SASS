@@ -109,3 +109,11 @@ prix généraux, codes promo, commandes (renvoi de l'e-mail).
   les actions sont envoyées par lots à `POST /api/music/track` (arrivée, pages, lecture, panier, paiement, achat,
   clic vers le Reel, langue) ; la commande garde le code (`track_code`). Conservation 13 mois. Sans accord : rien.
 - Admin, onglet « Suivi des liens » : liens envoyés, liens visités, et pour chacun le parcours et les achats.
+
+## Son exact du Reel (22/11/2026)
+
+- La production envoie la piste audio de la vidéo publiée (reprise sur le PC, calée sur `notes.json` en retirant
+  `video_debut_s`) : `POST /api/music/ingest/audio` (MP3 complet + extrait de 25 s avec fondu).
+- `/sheets/{id}/notes` donne `audio` : `/preview.mp3` pour tous, `/audio.mp3` (clé de commande ou compte) pour qui a la
+  partition. Le lecteur joue ce son et le curseur suit `audio.currentTime` ; sans son, synthèse comme avant.
+- Admin : titres des partitions, lignes de commande et liens suivis ouvrent la fiche de la boutique.
