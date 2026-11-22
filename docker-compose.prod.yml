@@ -85,6 +85,8 @@ services:
       - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
       - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://chapote.fr/tiktok/callback}
       - TIKTOK_MAX_UPLOAD_MB=${TIKTOK_MAX_UPLOAD_MB:-1024}
+      - TIKTOK_SERVICE_TOKEN=${TIKTOK_SERVICE_TOKEN:-}
+      - TIKTOK_SERVICE_USER_EMAIL=${TIKTOK_SERVICE_USER_EMAIL:-}
       # SMTP (envoi des emails : leads, demandes de conseiller, prospection).
       # HOST vide = fallback log, jamais bloquant (les emails ne partent PAS).
       - SMTP_HOST=${SMTP_HOST:-}
