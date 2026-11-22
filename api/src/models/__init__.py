@@ -8,4 +8,5 @@ from src.models.analytics import TreeEvent, InsightsReport  # noqa: F401
 from src.models.demo import DemoGeneration  # noqa: F401
 from src.models.oauth import OAuthAuthorizationCode, OAuthToken  # noqa: F401
 from src.models.tiktok import TikTokAccount, TikTokPost  # noqa: F401
+from src.models.youtube import YouTubeAccount, YouTubePost  # noqa: F401
 from src.models.music import MusicSheet, MusicSettings, MusicPromoCode, MusicOrder, MusicOrderItem, MusicReview  # noqa: F401
