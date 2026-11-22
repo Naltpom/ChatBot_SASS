@@ -757,8 +757,10 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
                           headers={"stripe-signature": sign_stripe(raw, MUSIC_SECRET, int(time.time()))})
         assert (await h.get(f"/api/music/sheets/{ids[1]}/pdf")).status_code == 404
         monkeypatch.setattr(settings, "MOCK_BILLING", True)
+        # essai déjà utilisé : le code ne rouvre pas d'essai, l'abonnement est payé tout de suite
         r = await h.post("/api/music/subscribe", json={"consent": True, "promo_code": "ESSAI48"})
-        assert r.status_code == 400 and r.json()["detail"]["code"] == "trial_used"
+        assert r.status_code == 200
+        assert (await h.get("/api/music/account")).json()["subscription"]["status"] == "active"
         # test A/B : un lien déclaré reçoit un groupe ; l'offre suit ce groupe
         auth = {"Authorization": f"Bearer {TOKEN}"}
         v = (await c.http.post("/api/music/ingest/links", json=[{"code": "zz11yy22"}], headers=auth)).json()["variants"]["zz11yy22"]
@@ -769,7 +771,17 @@ async def test_weekly_subscription_trial_access_limits_cancel_and_webhook(pg_ses
         # un code de réduction peut aussi ouvrir l'essai : -20 % sur une partition, 48 h sur l'abonnement
         pg_session.add(MusicPromoCode(code="INSTA20", kind="percent", value=20, active=True, trial_days=2))
         await pg_session.commit()
-        assert (await c.http.get("/api/music/offer?code=insta20")).json()["trial_days"] == 2
+        o2 = (await c.http.get("/api/music/offer?code=insta20")).json()
+        assert o2["trial_days"] == 2 and o2["first_discount_pct"] == 20
+        # deux codes cumulés au plus, l'un après l'autre : -20 % puis -10 % = -28 %
+        pg_session.add(MusicPromoCode(code="LIVE10", kind="percent", value=10, active=True))
+        pg_session.add(MusicPromoCode(code="X5", kind="percent", value=5, active=True))
+        await pg_session.commit()
+        q2 = (await c.http.post("/api/music/quote", json={"sheet_ids": [ids[0]], "promo_codes": ["INSTA20", "LIVE10"]})).json()
+        assert q2["promo_codes"] == ["INSTA20", "LIVE10"] and q2["promo_code"] == "INSTA20+LIVE10"
+        assert q2["discount_cents"] == 39 + 16 and q2["total_cents"] == 199 - 55
+        q3 = (await c.http.post("/api/music/quote", json={"sheet_ids": [ids[0]], "promo_codes": ["INSTA20", "LIVE10", "X5"]})).json()
+        assert q3["promo_error"] == "promo_too_many" and len(q3["promo_codes"]) == 2
         q = (await c.http.post("/api/music/quote", json={"sheet_ids": [ids[0]], "promo_code": "INSTA20"})).json()
         assert q["total_cents"] == 160
         # même personne, deuxième « SHEET » : même groupe, quel que soit le tirage

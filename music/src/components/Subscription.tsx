@@ -47,6 +47,7 @@ export function SubscriptionCard({ offer }: { offer: Offer }) {
     <section className="sub-card" aria-label={t.subTitle}>
       <div className="sub-head"><b>{t.subTitle}</b></div>
       {trial && <span className="sub-trial">🎁 {t.subTrial(offer.trial_days * 24)}</span>}
+      {!!offer.first_discount_pct && <span className="sub-trial">−{offer.first_discount_pct} % {t.subFirstPay}</span>}
       <div className="plans" role="radiogroup" aria-label={t.subTitle}>
         {offer.plans.map(p => (
           <button type="button" key={p.plan} role="radio" aria-checked={plan === p.plan}

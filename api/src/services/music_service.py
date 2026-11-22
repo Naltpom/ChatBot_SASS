@@ -161,6 +161,7 @@ class Quote:
     bundles: list[str] = field(default_factory=list)   # piece_slug des lots appliqués
     promo: Optional[MusicPromoCode] = None
     promo_error: Optional[str] = None
+    promos: list = field(default_factory=list)       # tous les codes appliqués (2 au plus)
 
     def as_dict(self) -> dict:
         return {
@@ -173,7 +174,8 @@ class Quote:
             "total_cents": self.total_cents,
             "currency": self.currency,
             "bundles": self.bundles,
-            "promo_code": self.promo.code if self.promo else None,
+            "promo_code": "+".join(p.code for p in self.promos) if self.promos else None,
+            "promo_codes": [p.code for p in self.promos],
             "promo_error": self.promo_error,
         }
 
@@ -185,7 +187,11 @@ async def find_promo(db: AsyncSession, code: Optional[str]) -> Optional[MusicPro
     return (await db.execute(select(MusicPromoCode).where(MusicPromoCode.code == code))).scalar_one_or_none()
 
 
-async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str] = None) -> Quote:
+MAX_PROMOS = 2
+
+
+async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str] = None,
+                promo_codes: Optional[list[str]] = None) -> Quote:
     ids = list(dict.fromkeys(int(i) for i in sheet_ids))  # dédoublonné, ordre gardé
     if not ids:
         raise MusicError("empty_cart", "Choose at least one sheet.")
@@ -216,18 +222,31 @@ async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str
     list_total = sum(l.list_cents for l in lines)
     subtotal = sum(l.price_cents for l in lines)
 
-    promo, promo_error, discount = None, None, 0
-    if (promo_code or "").strip():
-        found = await find_promo(db, promo_code)
-        promo_error = promo_problem(found)
-        if promo_error is None and found.kind == PROMO_TRIAL:
-            promo_error = "promo_unknown"  # code d'essai de l'abonnement : sans effet sur une partition
-        if promo_error is None:
-            promo = found
-            if promo.kind == PROMO_PERCENT:
-                discount = subtotal * max(0, min(100, promo.value)) // 100
-            elif promo.kind == PROMO_AMOUNT:
-                discount = max(0, min(promo.value, subtotal))
+    # jusqu'à MAX_PROMOS codes cumulés, appliqués l'un après l'autre (-20 % puis -10 % = -28 %)
+    codes = list(dict.fromkeys(c.strip().upper() for c in ([promo_code] if promo_code else []) + list(promo_codes or [])
+                                if c and c.strip()))
+    promos: list[MusicPromoCode] = []
+    promo_error, discount = None, 0
+    if len(codes) > MAX_PROMOS:
+        promo_error, codes = "promo_too_many", codes[:MAX_PROMOS]
+    rest = subtotal
+    for code in codes:
+        found = await find_promo(db, code)
+        err = promo_problem(found)
+        if err is None and found.kind == PROMO_TRIAL:
+            err = "promo_unknown"  # code d'essai de l'abonnement : sans effet sur une partition
+        if err is not None:
+            promo_error = promo_error or err
+            continue
+        cut = 0
+        if found.kind == PROMO_PERCENT:
+            cut = rest * max(0, min(100, found.value)) // 100
+        elif found.kind == PROMO_AMOUNT:
+            cut = max(0, min(found.value, rest))
+        rest -= cut
+        discount += cut
+        promos.append(found)
+    promo = promos[0] if promos else None
     total = subtotal - discount
     if discount:
         cuts = _split(discount, [l.price_cents for l in lines])
@@ -235,7 +254,7 @@ async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str
             l.price_cents -= cut
     return Quote(lines=lines, list_total_cents=list_total, subtotal_cents=subtotal,
                  discount_cents=discount, total_cents=total, currency=st.currency,
-                 bundles=bundles, promo=promo, promo_error=promo_error)
+                 bundles=bundles, promo=promo, promo_error=promo_error, promos=promos)
 
 
 # --------------------------------------------------------------------------
@@ -469,7 +488,11 @@ async def reserve_promo(db: AsyncSession, promo_id: int) -> bool:
 async def release_promo(db: AsyncSession, order: MusicOrder) -> None:
     """Rend l'utilisation réservée d'une commande qui n'aboutit pas (expirée, refusée)."""
     from sqlalchemy import update
-    if order.promo_code_id:
+    codes = [c for c in (order.promo_code or "").split("+") if c]
+    if codes:
+        await db.execute(update(MusicPromoCode).where(MusicPromoCode.code.in_(codes), MusicPromoCode.uses > 0)
+                         .values(uses=MusicPromoCode.uses - 1))
+    elif order.promo_code_id:
         await db.execute(update(MusicPromoCode).where(MusicPromoCode.id == order.promo_code_id, MusicPromoCode.uses > 0)
                          .values(uses=MusicPromoCode.uses - 1))
 

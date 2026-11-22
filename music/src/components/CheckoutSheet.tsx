@@ -18,8 +18,10 @@ export default function CheckoutSheet() {
   const lines = cart.sheet
   const [quote, setQuote] = useState<Quote | null>(null)
   // code reçu dans le lien (?code=INSTA20) : appliqué tout seul
-  const [promo, setPromo] = useState(savedPromo)
-  const [appliedPromo, setAppliedPromo] = useState(savedPromo)
+  const [promo, setPromo] = useState('')
+  // codes appliqués (2 au plus) ; celui du lien (?code=INSTA20) est déjà là
+  const [codes, setCodes] = useState<string[]>(() => (savedPromo() ? [savedPromo()] : []))
+  const appliedPromo = codes.join('+')
   const { me } = useAuth()
   const [email, setEmail] = useState('')
   const [instagram, setInstagram] = useState('')
@@ -36,7 +38,7 @@ export default function CheckoutSheet() {
     setErr('')
     if (ids.length === 0) { setQuote(null); return }
     let alive = true
-    postQuote(ids, appliedPromo).then(q => { if (alive) setQuote(q) })
+    postQuote(ids, codes).then(q => { if (alive) setQuote(q) })
       .catch((e: ApiError) => { if (alive) { setQuote(null); setErr(e.code === 'network' ? t.errNetwork : t.errGeneric) } })
     return () => { alive = false }
   }, [key, appliedPromo, lines === null]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -64,7 +66,7 @@ export default function CheckoutSheet() {
     setBusy(true)
     try {
       track('checkout', { cents: quote?.total_cents, sheets: ids.length, promo: quote?.promo_code || null })
-      const r = await postCheckout({ sheet_ids: ids, promo_code: quote?.promo_code || undefined, email: email.trim() || undefined,
+      const r = await postCheckout({ sheet_ids: ids, promo_codes: quote?.promo_codes || [], email: email.trim() || undefined,
                                     instagram: instagram.trim() || undefined, consent, lang,
                                     track: trackingOn() ? trackCode() || undefined : undefined })
       // l'achat est parti : on retire ces partitions du panier
@@ -106,12 +108,26 @@ export default function CheckoutSheet() {
 
             <details className="promo" open={!!appliedPromo}>
               <summary>{t.promo}</summary>
-              <div className="promo-row">
-                <label htmlFor="promo" className="sr">{t.code}</label>
-                <input id="promo" className="field" value={promo} placeholder={t.code} autoCapitalize="characters"
-                       onChange={e => setPromo(e.target.value.toUpperCase())} />
-                <button type="button" className="btn dark small" onClick={() => { track('promo', { code: promo.trim().toUpperCase() }); setAppliedPromo(promo.trim()) }}>{t.apply}</button>
-              </div>
+              {codes.length > 0 && (
+                <div className="promo-chips">
+                  {codes.map(c => (
+                    <span key={c} className={`promo-chip ${quote?.promo_codes?.includes(c) ? 'ok' : ''}`}>{c}
+                      <button type="button" aria-label={t.remove} onClick={() => setCodes(cs => cs.filter(x => x !== c))}>×</button></span>
+                  ))}
+                </div>
+              )}
+              {codes.length < 2 && (
+                <div className="promo-row">
+                  <label htmlFor="promo" className="sr">{t.code}</label>
+                  <input id="promo" className="field" value={promo} placeholder={codes.length ? t.codeSecond : t.code} autoCapitalize="characters"
+                         onChange={e => setPromo(e.target.value.toUpperCase())} />
+                  <button type="button" className="btn dark small" onClick={() => {
+                    const c = promo.trim().toUpperCase()
+                    if (!c || codes.includes(c)) return
+                    track('promo', { code: c }); setCodes(cs => [...cs, c].slice(0, 2)); setPromo('')
+                  }}>{t.apply}</button>
+                </div>
+              )}
               {appliedPromo && quote && !quote.promo_error && <div className="msg ok" style={{ marginTop: 8 }}>{t.promoOk(appliedPromo)}</div>}
               {promoError && <div className="msg err" style={{ marginTop: 8 }}>{promoError}</div>}
             </details>

@@ -324,9 +324,10 @@ async def sheet_cover(sheet_id: int, db: AsyncSession = Depends(get_db),
 class QuoteIn(BaseModel):
     sheet_ids: list[int] = Field(..., min_length=1, max_length=50)
     promo_code: Optional[str] = Field(None, max_length=40)
+    promo_codes: list[str] = Field(default_factory=list, max_length=4)  # 2 cumulés au plus
 
 
-PROMO_ERRORS = {"promo_unknown", "promo_inactive", "promo_expired", "promo_used_up"}
+PROMO_ERRORS = {"promo_unknown", "promo_inactive", "promo_expired", "promo_used_up"}  # promo_too_many reste visible
 
 
 async def _limit(request: Request) -> None:
@@ -344,10 +345,10 @@ def _quote_out(q) -> dict:
 
 @router.post("/quote")
 async def post_quote(body: QuoteIn, request: Request, db: AsyncSession = Depends(get_db)):
-    if body.promo_code:
+    if body.promo_code or body.promo_codes:
         await _limit(request)
     try:
-        q = await ms.quote(db, body.sheet_ids, body.promo_code)
+        q = await ms.quote(db, body.sheet_ids, body.promo_code, body.promo_codes)
     except ms.MusicError as exc:
         raise _err(exc)
     return _quote_out(q)
@@ -383,10 +384,10 @@ async def checkout(body: CheckoutIn, request: Request, db: AsyncSession = Depend
         raise HTTPException(400, {"code": "consent_required",
                                   "message": "Please confirm you want immediate access to the PDF."})
     try:
-        q = await ms.quote(db, body.sheet_ids, body.promo_code)
+        q = await ms.quote(db, body.sheet_ids, body.promo_code, body.promo_codes)
     except ms.MusicError as exc:
         raise _err(exc)
-    if body.promo_code and q.promo_error:
+    if (body.promo_code or body.promo_codes) and q.promo_error:
         raise HTTPException(400, {"code": "promo_invalid", "message": "This promo code cannot be used."})
     if 0 < q.total_cents < ms.STRIPE_MIN_CENTS:
         raise HTTPException(400, {"code": "amount_too_low", "message": "The minimum order is 0,50 €."})
@@ -401,14 +402,15 @@ async def checkout(body: CheckoutIn, request: Request, db: AsyncSession = Depend
         user_id=user.id if user else None, instagram_username=instagram, track_code=body.track,
         subtotal_cents=q.subtotal_cents, discount_cents=q.discount_cents, amount_cents=q.total_cents,
         currency=q.currency, promo_code_id=q.promo.id if q.promo else None,
-        promo_code=q.promo.code if q.promo else None, consent_at=utcnow(),
+        promo_code="+".join(p.code for p in q.promos) if q.promos else None, consent_at=utcnow(),
     )
     db.add(order)
     await db.flush()
     # utilisation du code réservée tout de suite, de façon atomique (rendue si la commande expire ou échoue)
-    if q.promo and not await ms.reserve_promo(db, q.promo.id):
-        await db.rollback()
-        raise HTTPException(400, {"code": "promo_invalid", "message": "This promo code cannot be used."})
+    for pr in q.promos:
+        if not await ms.reserve_promo(db, pr.id):
+            await db.rollback()
+            raise HTTPException(400, {"code": "promo_invalid", "message": "This promo code cannot be used."})
     items = []
     for line in q.lines:
         it = MusicOrderItem(order_id=order.id, sheet_id=line.sheet.id, price_cents=line.price_cents,
@@ -1108,20 +1110,22 @@ async def offer(b: Optional[str] = None, code: Optional[str] = None, db: AsyncSe
         link = await db.get(MusicTrackLink, b)
         if link is not None and link.variant == "sheet":
             variant = "sheet"
-    trial_days = 0
+    trial_days, discount_pct = 0, 0
     if code:
         found = await ms.find_promo(db, code)
         if found is not None and not ms.promo_problem(found):
             trial_days = _promo_trial_days(found)
+            discount_pct = max(0, min(100, found.value)) if found.kind == "percent" else 0
     prices = _plan_prices(st)
     return {"variant": variant, "plans": [{"plan": p, "cents": prices[p]} for p in PLANS],
             "sub_weekly_cents": st.sub_weekly_cents, "currency": st.currency,
-            "trial_days": trial_days, "trial_downloads": settings.MUSIC_TRIAL_DOWNLOADS}
+            "trial_days": trial_days, "first_discount_pct": discount_pct, "trial_downloads": settings.MUSIC_TRIAL_DOWNLOADS}
 
 
 class SubscribeIn(BaseModel):
     plan: str = Field("week", pattern="^(week|month|year)$")
     promo_code: Optional[str] = Field(None, max_length=40)
+    promo_codes: list[str] = Field(default_factory=list, max_length=4)
     consent: bool = False
     lang: str = Field("en", pattern="^(en|fr|es|ru)$")
     track: Optional[str] = Field(None, pattern=r"^[a-z0-9]{6,16}$")
@@ -1140,21 +1144,31 @@ async def subscribe(body: SubscribeIn, request: Request, db: AsyncSession = Depe
     if not settings.MOCK_BILLING and not settings.STRIPE_SECRET_KEY:
         raise HTTPException(503, {"code": "payments_off", "message": "Payments are not available right now."})
     st = await ms.get_settings(db)
-    trial_days, promo = 0, None
-    if (body.promo_code or "").strip():
-        found = await ms.find_promo(db, body.promo_code)
+    # jusqu'à 2 codes : essai (le plus long) + remise en % sur le premier paiement (cumulée : -20 % puis -10 % = -28 %)
+    codes = list(dict.fromkeys(c.strip().upper() for c in ([body.promo_code] if body.promo_code else []) + body.promo_codes
+                                if c and c.strip()))
+    if len(codes) > ms.MAX_PROMOS:
+        raise HTTPException(400, {"code": "promo_too_many", "message": "Two promo codes at most."})
+    trial_days, promos, keep = 0, [], 100
+    for code in codes:
+        found = await ms.find_promo(db, code)
         if found is None or ms.promo_problem(found):
             raise HTTPException(400, {"code": "promo_invalid", "message": "This promo code cannot be used."})
-        days = _promo_trial_days(found)
-        if days:  # un code sans essai (simple réduction) ne change rien à l'abonnement
-            had_one = (await db.execute(select(MusicSubscription.id).where(
-                MusicSubscription.user_id == user.id, MusicSubscription.trial_end.is_not(None)))).first()
-            if had_one:
-                raise HTTPException(400, {"code": "trial_used", "message": "You already had a free trial."})
-            trial_days, promo = days, found
+        promos.append(found)
+        trial_days = max(trial_days, _promo_trial_days(found))
+        if found.kind == "percent":
+            keep = keep * (100 - max(0, min(100, found.value))) // 100
+    first_pct = 100 - keep if keep < 100 else None
+    if trial_days:
+        had_one = (await db.execute(select(MusicSubscription.id).where(
+            MusicSubscription.user_id == user.id, MusicSubscription.trial_end.is_not(None)))).first()
+        if had_one:  # un seul essai par compte ; la remise reste valable
+            trial_days = 0
+    promo = promos[0] if promos else None
     price = _plan_prices(st)[body.plan]
     sub = MusicSubscription(user_id=user.id, email=user.email, status="incomplete", weekly_cents=price, plan=body.plan,
-                            promo_code=promo.code if promo else None, track_code=body.track, consent_at=utcnow())
+                            promo_code="+".join(p.code for p in promos) or None, track_code=body.track, consent_at=utcnow(),
+                            first_discount_pct=first_pct)
     db.add(sub)
     await db.flush()
     base = settings.MUSIC_URL.rstrip("/")
@@ -1176,6 +1190,15 @@ async def subscribe(body: SubscribeIn, request: Request, db: AsyncSession = Depe
     if trial_days:
         data["subscription_data[trial_period_days]"] = str(trial_days)
         data["payment_method_collection"] = "always"
+    elif first_pct and not settings.MOCK_BILLING:
+        # sans essai, la remise va sur le paiement de la souscription ; avec un essai, elle est posée après la création
+        try:
+            coupon = await stripe_service.create_coupon(first_pct, "once", name=f"Ghost Hands -{first_pct}% (1er paiement)")
+        except StripeError as exc:
+            await db.rollback()
+            raise HTTPException(502, {"code": "stripe_error", "message": str(exc)})
+        data["discounts[0][coupon]"] = coupon["id"]
+        sub.first_discount_applied = True
     if settings.MOCK_BILLING:
         now = utcnow()
         sub.status = "trialing" if trial_days else "active"
@@ -1267,6 +1290,17 @@ async def _sync_subscription(db: AsyncSession, obj: dict) -> None:
         end = items[0].get("current_period_end") if items else None
     sub.current_period_end = _dt(end) or sub.current_period_end
     sub.cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
+    # essai + remise : la remise des codes est posée maintenant, pour le premier vrai paiement
+    if sub.first_discount_pct and not sub.first_discount_applied and sub.stripe_subscription_id \
+            and sub.status == "trialing" and not settings.MOCK_BILLING:
+        try:
+            coupon = await stripe_service.create_coupon(sub.first_discount_pct, "once",
+                                                        name=f"Ghost Hands -{sub.first_discount_pct}% (1er paiement)")
+            await stripe_service._stripe_request("POST", f"/subscriptions/{sub.stripe_subscription_id}",
+                                                 data={"discounts[0][coupon]": coupon["id"]})
+            sub.first_discount_applied = True
+        except StripeError as exc:
+            logger.warning("Remise du premier paiement non posée (%s) : %s", sub.stripe_subscription_id, exc)
     await db.commit()
 
 

@@ -64,6 +64,7 @@ export interface Quote {
   currency: string
   bundles: string[]
   promo_code: string | null
+  promo_codes?: string[]
   promo_error: string | null
 }
 
@@ -160,11 +161,11 @@ export const getNotes = (sheetId: number, auth?: { order?: string; k?: string })
   if (auth?.k) p.set('k', auth.k)
   return call<NotesData>(`/api/music/sheets/${sheetId}/notes?${p}`)
 }
-export const postQuote = (sheet_ids: number[], promo_code?: string) =>
-  post<Quote>('/api/music/quote', { sheet_ids, promo_code: promo_code || null })
-export const postCheckout = (body: { sheet_ids: number[]; promo_code?: string; email?: string; instagram?: string; consent: boolean; lang: string; track?: string }) =>
+export const postQuote = (sheet_ids: number[], promo_codes: string[] = []) =>
+  post<Quote>('/api/music/quote', { sheet_ids, promo_codes })
+export const postCheckout = (body: { sheet_ids: number[]; promo_codes?: string[]; email?: string; instagram?: string; consent: boolean; lang: string; track?: string }) =>
   post<{ order: string; redirect: string }>('/api/music/checkout', {
-    ...body, promo_code: body.promo_code || null, email: body.email || null, instagram: body.instagram || null,
+    ...body, promo_codes: body.promo_codes || [], email: body.email || null, instagram: body.instagram || null,
   })
 export const getOrder = (order: string, auth: { k?: string; session_id?: string }) => {
   const p = new URLSearchParams()
@@ -180,7 +181,7 @@ export interface Subscription { status: string; plan?: 'week' | 'month' | 'year'
   cancel_at_period_end: boolean; trial_downloads_left: number | null; retention_applied?: boolean }
 export type Plan = 'week' | 'month' | 'year'
 export interface Offer { variant: 'sheet' | 'sub'; plans: { plan: Plan; cents: number }[]; sub_weekly_cents: number; currency: string
-  trial_days: number; trial_downloads: number }
+  trial_days: number; first_discount_pct?: number; trial_downloads: number }
 export const getOffer = (b: string | null, code?: string) => {
   const p = new URLSearchParams()
   if (b) p.set('b', b)

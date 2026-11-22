@@ -215,6 +215,9 @@ class MusicSubscription(Base):
     # Offre de rétention (-50 % sur le prochain paiement) : proposée une seule fois par compte
     retention_offered_at = Column(DateTime, nullable=True)
     retention_accepted_at = Column(DateTime, nullable=True)
+    # Remise (%) des codes sur le premier paiement ; avec un essai, posée chez Stripe après la création
+    first_discount_pct = Column(Integer, nullable=True)
+    first_discount_applied = Column(Boolean, nullable=False, default=False)
     promo_code = Column(String(40), nullable=True)
     track_code = Column(String(16), nullable=True, index=True)
     consent_at = Column(DateTime, nullable=False)
