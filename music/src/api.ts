@@ -99,6 +99,7 @@ export interface NotesData {
   full_duration?: number
   preview_seconds?: number
   cursor?: CursorEvent[]
+  audio?: string | null   // son exact du Reel (MP3) : joué à la place de la synthèse
 }
 
 /** [temps (s), page (0…), x, haut, bas du système] — fractions de la page A4 */

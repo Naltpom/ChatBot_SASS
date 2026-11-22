@@ -609,6 +609,24 @@ def preview_notes(data: dict) -> dict:
     return out
 
 
+MAX_AUDIO_BYTES = 30 * 1024 * 1024
+
+
+def audio_path(sheet_id: int, preview: bool = False) -> Path:
+    """Son exact du Reel (MP3) : complet pour l'acheteur, extrait de PREVIEW_SECONDS pour tous."""
+    return sheet_dir(sheet_id) / ("audio_preview.mp3" if preview else "audio.mp3")
+
+
+def save_audio(sheet_id: int, full: bytes, preview: bytes) -> None:
+    for data in (full, preview):
+        if len(data) > MAX_AUDIO_BYTES or len(data) < 4 or not (data[:3] == b"ID3" or (data[0] == 0xFF and data[1] & 0xE0 == 0xE0)):
+            raise MusicError("bad_audio", "Le son doit être un MP3.")
+    d = sheet_dir(sheet_id)
+    d.mkdir(parents=True, exist_ok=True)
+    audio_path(sheet_id).write_bytes(full)
+    audio_path(sheet_id, True).write_bytes(preview)
+
+
 def cursor_path(sheet_id: int) -> Path:
     return sheet_dir(sheet_id) / "cursor.json"
 
