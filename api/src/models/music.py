@@ -104,6 +104,7 @@ class MusicPromoCode(Base):
     expires_at = Column(DateTime, nullable=True)
     # Un code de réduction peut aussi ouvrir un essai gratuit de l'abonnement (jours) ; NULL = non.
     trial_days = Column(Integer, nullable=True)
+    applies_to = Column(String(10), nullable=False, default="sheet")  # sheet | sub | both
     note = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
@@ -218,6 +219,8 @@ class MusicSubscription(Base):
     # Remise (%) des codes sur le premier paiement ; avec un essai, posée chez Stripe après la création
     first_discount_pct = Column(Integer, nullable=True)
     first_discount_applied = Column(Boolean, nullable=False, default=False)
+    trial_requested = Column(Boolean, nullable=False, default=False)
+    card_fingerprint = Column(String(64), nullable=True, index=True)
     promo_code = Column(String(40), nullable=True)
     track_code = Column(String(16), nullable=True, index=True)
     consent_at = Column(DateTime, nullable=False)

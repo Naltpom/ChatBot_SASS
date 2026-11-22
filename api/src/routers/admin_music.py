@@ -312,7 +312,8 @@ async def put_pricing(body: PricingIn, db: AsyncSession = Depends(get_db)):
 def _promo(p: MusicPromoCode) -> dict:
     return {"id": p.id, "code": p.code, "kind": p.kind, "value": p.value, "active": p.active,
             "max_uses": p.max_uses, "uses": p.uses, "expires_at": _iso(p.expires_at), "note": p.note,
-            "created_at": _iso(p.created_at), "usable": ms.promo_problem(p) is None, "trial_days": p.trial_days}
+            "created_at": _iso(p.created_at), "usable": ms.promo_problem(p) is None, "trial_days": p.trial_days,
+            "applies_to": p.applies_to}
 
 
 class PromoIn(BaseModel):
@@ -324,6 +325,7 @@ class PromoIn(BaseModel):
     note: Optional[str] = Field(None, max_length=200)
     active: bool = True
     trial_days: Optional[int] = Field(None, ge=1, le=30)  # code de réduction qui ouvre aussi un essai d'abonnement
+    applies_to: str = Field("sheet", pattern="^(sheet|sub|both)$")
 
 
 class PromoPatch(BaseModel):
@@ -356,7 +358,8 @@ async def create_promo(body: PromoIn, db: AsyncSession = Depends(get_db)):
         raise HTTPException(400, "Un pourcentage va de 1 à 100")
     p = MusicPromoCode(code=body.code.upper(), kind=body.kind, value=body.value, max_uses=body.max_uses,
                        expires_at=_naive_utc(body.expires_at), note=body.note, active=body.active, uses=0,
-                       trial_days=body.trial_days if body.kind != PROMO_TRIAL else None)
+                       trial_days=body.trial_days if body.kind != PROMO_TRIAL else None,
+                       applies_to="sub" if body.kind == PROMO_TRIAL else body.applies_to)
     db.add(p)
     try:
         await db.commit()

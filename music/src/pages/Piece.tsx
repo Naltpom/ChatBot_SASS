@@ -170,7 +170,9 @@ export default function PiecePage() {
           </>}
 
           {piece.sheets.some(s => s.owned) && <p className="own-note">✓ {piece.subscribed ? t.subActive : t.youOwn}</p>}
-          {shown.owned && shown.pdf && <PdfButton url={shown.pdf} name={`${piece.title} - ${shown.instrument_label}`} />}
+          {shown.pdf && !shown.owned && piece.trial_left != null && <p className="hint">{t.subTrialLeft(piece.trial_left)}</p>}
+          {shown.pdf && <PdfButton url={shown.pdf} name={`${piece.title} - ${shown.instrument_label}`}
+                                   onDone={() => { if (!shown.owned) getPiece(slug).then(setPiece).catch(() => {}) }} />}
 
           <ul className="perks">
             <li>{Icon.dl}{t.instant}</li>
