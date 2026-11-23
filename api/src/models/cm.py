@@ -299,7 +299,7 @@ class CmAsset(Base):
     meta_file_id = Column(String(200), nullable=True)
     meta_modified_at = Column(DateTime, nullable=True)
     origin_ref = Column(String(200), nullable=True, index=True)   # « compte/id » de l'outil
-    kind = Column(String(12), nullable=True)             # published | routine | reserve (jamais « à valider »)
+    kind = Column(String(12), nullable=True)             # published | routine | reserve | waiting (jamais « à valider »)
     moved_published_at = Column(DateTime, nullable=True)
     removed_at = Column(DateTime, nullable=True)         # disparue du dossier
     created_at = Column(DateTime, default=utcnow, nullable=False)

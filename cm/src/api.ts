@@ -286,7 +286,7 @@ export interface Asset {
   id: number; source_id: number; source_name: string | null; group_id: number | null; name: string; title: string
   caption: string | null; caption_from: 'txt' | 'user' | null; folder: string | null; mime_type: string | null
   size: number | null; duration_sec: number | null; width: number | null; height: number | null
-  drive_created_at: string | null; thumbnail: string | null; drive_url: string; removed: boolean; has_cover?: boolean; kind?: 'published' | 'routine' | 'reserve' | null; ref?: string | null; links?: Partial<Record<Platform, string>>; folder_url?: string | null; stream?: string
+  drive_created_at: string | null; thumbnail: string | null; drive_url: string; removed: boolean; has_cover?: boolean; kind?: 'published' | 'routine' | 'reserve' | 'waiting' | null; ref?: string | null; links?: Partial<Record<Platform, string>>; folder_url?: string | null; stream?: string
   moved_published: boolean; scheduled: number; published: number; last_published_at: string | null
 }
 export type AssetState = 'all' | 'new' | 'used'

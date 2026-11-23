@@ -71,23 +71,28 @@ def infos_for(meta: Optional[dict], video_name: str) -> Optional[dict]:
 
 
 def classify(meta: Optional[dict], path: str) -> tuple[Optional[str], Optional[str]]:
-    """(kind, origin_ref). kind : published (déjà en ligne, avec ses liens) | routine (programmée par l'outil,
-    arrive par l'API) | reserve (dossier réserves/) | None (vidéo ordinaire, brouillon possible)."""
+    """(kind, origin_ref). Ordre : published (déjà en ligne, avec ses liens) > routine (statut « prete » :
+    programmée par l'outil, arrive par l'API) > reserve (dossier réserves/) > waiting (décrite par l'outil
+    mais pas encore planifiée : statut vide, version longue… — c'est l'outil qui la programmera) > None
+    (vidéo ordinaire, brouillon possible). Seul None peut devenir « à valider »."""
     segs = {x.strip().lower() for x in (path or "").split("/") if x.strip()}
     ref = None
     kind = "reserve" if segs & RESERVE_DIRS else None
     if isinstance(meta, dict):
-        if meta.get("compte") and meta.get("id"):
+        managed = bool(meta.get("compte") and meta.get("id"))
+        if managed:
             ref = f"{meta['compte']}/{meta['id']}"[:200]
         statut = str(meta.get("statut") or "").strip().lower()
         plats = meta.get("plateformes") if isinstance(meta.get("plateformes"), dict) else {}
         linked = any(isinstance(v, dict) and any(v.get(k) for k in LINK_KEYS) for v in plats.values())
         if statut in PUBLISHED or linked:
             kind = "published"
-        elif meta.get("reserve") is True:
+        elif statut in PLANNED and (meta.get("heure") or not (kind == "reserve" or meta.get("reserve") is True)):
+            kind = "routine"   # une réserve « prete » sans heure reste une réserve
+        elif meta.get("reserve") is True or kind == "reserve":
             kind = "reserve"
-        elif statut in PLANNED and meta.get("heure"):
-            kind = "routine"
+        elif managed:
+            kind = "waiting"
     return kind, ref
 
 
@@ -445,7 +450,8 @@ async def sync_refs(db: AsyncSession, src: CmSource) -> None:
         posts = (await db.execute(select(CmPost).where(tenant, CmPost.ref.in_(list(by_ref)), CmPost.asset_id.is_(None)))).scalars().all()
         for p in posts:
             p.asset_id = by_ref[p.ref].id
-    done = select(CmAsset.id).where(CmAsset.source_id == src.id, CmAsset.kind.in_(("published", "routine", "reserve")))
+    done = select(CmAsset.id).where(CmAsset.source_id == src.id,
+                                    CmAsset.kind.in_(("published", "routine", "reserve", "waiting")))
     await db.execute(update(CmProposal).where(CmProposal.source_id == src.id, CmProposal.status == "open",
                                               CmProposal.asset_id.in_(done)).values(status="archived"))
     has_post = select(CmPost.asset_id).where(CmPost.asset_id.is_not(None))
