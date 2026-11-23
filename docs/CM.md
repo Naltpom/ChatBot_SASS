@@ -128,6 +128,22 @@ Les vidéos restent dans le Drive des utilisateurs ; cm les lit grâce à un **c
   ordinateur ; absente des pages de gestion (Comptes, Bibliothèque, Personnes), qui portent sur tout
   l'espace. Le composeur reprend le filtre choisi. Choix de l'espace (rare) : menu du compte.
 
+## Listes à grande échelle (recherche, tri, pages)
+
+- Recherche et tri **toujours côté API** (jamais en mémoire dans le navigateur) : `q`, `sort`, `order=asc|desc`,
+  `limit`, `cursor` sur `/videos`, `/assets`, `/posts` (+ `status`), `/accounts`, `/stats` (tableau par compte),
+  `/people`. État dans l'URL de la page (`?q=&tri=&ordre=`).
+- Pages « keyset » (`services/cm_paging.py`) : le curseur contient la dernière valeur triée + l'id ; pas d'OFFSET.
+  NULL toujours en fin (COALESCE à constantes écrites en dur, mêmes expressions que les index de la migration
+  `b5e1a7c9d0f2`). Ancien curseur `o:<offset>` encore lu.
+- Index : pg_trgm (ILIKE « contient ») sur titres / noms / légendes / dossiers ; index d'expression par tri.
+  Mesuré : 200 000 vidéos, chaque tri ~10 ms.
+- Relevés des comptes en 3 requêtes (`_latest_stats_bulk`, DISTINCT ON) au lieu d'une par compte ;
+  `/stats` additionné en SQL (GROUP BY).
+- Interface : barre de filtres = Tous + épinglés + 3 derniers choix + « Choisir… » (sélecteur : recherche,
+  onglets Groupes / Comptes, filtre par plateforme, étoiles ; popover sur ordinateur, feuille sur mobile,
+  clavier). Le composeur utilise le même sélecteur en cases à cocher.
+
 ## Dev
 
 `cd cm && npm install && npm run dev` (port 3003, proxy `/api` vers `localhost:8001`). Tests : `api/tests/test_cm.py`.

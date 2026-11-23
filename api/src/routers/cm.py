@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Res
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -70,6 +70,7 @@ from src.models.cm import (
 from src.models.user import Membership, Organization, User
 from src.routers.tiktok import Tenant, _tenant
 from src.services import cm_access
+from src.services import cm_paging as paging
 from src.services import cm_jobs
 from src.services import cm_service as cm
 from src.services import instagram_service as ig
@@ -284,15 +285,64 @@ async def _latest_stats(db: AsyncSession, platform: str, account_id: int, days: 
     return rows[0], previous
 
 
+async def _latest_stats_bulk(db: AsyncSession, accounts, days: int) -> dict:
+    """Comme `_latest_stats`, pour tous les comptes en 3 requêtes (au lieu d'une par compte) :
+    {(plateforme, id): (dernier relevé, relevé de référence il y a `days` jours ou None)}."""
+    if not accounts:
+        return {}
+    since = utcnow().date() - timedelta(days=days)
+    scope = _account_filter(CmAccountStat, accounts)
+
+    async def distinct(*conds, newest: bool):
+        order = CmAccountStat.day.desc() if newest else CmAccountStat.day.asc()
+        rows = (await db.execute(
+            select(CmAccountStat).where(scope, *conds)
+            .distinct(CmAccountStat.platform, CmAccountStat.account_id)
+            .order_by(CmAccountStat.platform, CmAccountStat.account_id, order))).scalars().all()
+        return {(r.platform, r.account_id): r for r in rows}
+
+    latest = await distinct(newest=True)
+    before = await distinct(CmAccountStat.day <= since, newest=True)
+    after = await distinct(CmAccountStat.day > since, newest=False)
+    out = {}
+    for k, stat in latest.items():
+        prev = before.get(k) or after.get(k)
+        out[k] = (stat, prev if prev is not None and prev.id != stat.id else None)
+    return out
+
+
+ACCOUNT_SORTS = ("name", "followers", "views", "connected", "platform")
+
+
+def _sort_rows(rows: list, sort: str, order: str, value) -> list:
+    """Tri stable, valeurs absentes toujours en fin de liste."""
+    present = [r for r in rows if value(r) is not None]
+    missing = [r for r in rows if value(r) is None]
+    present.sort(key=value, reverse=order == "desc")
+    return present + missing
+
+
 @router.get("/accounts")
 async def list_accounts(org_id: Optional[int] = Query(None), days: int = Query(7, ge=1, le=90),
-                        group_id: Optional[int] = Query(None),
+                        group_id: Optional[int] = Query(None), q: Optional[str] = Query(None, max_length=100),
+                        sort: Optional[Literal["name", "followers", "views", "connected", "platform"]] = None,
+                        order: Literal["asc", "desc"] = "asc",
                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Comptes du périmètre. `q` : nom ou pseudo ; `sort` : nom, abonnés, vues, date de connexion."""
     tenant = await _tenant(db, user, org_id)
-    out = []
-    for platform, acc in await _scoped(db, tenant, group_id):
-        stat, previous = await _latest_stats(db, platform, acc.id, days)
-        out.append(cm.account_view(platform, acc, stat, previous if previous is not stat else None))
+    accounts = await _scoped(db, tenant, group_id)
+    stats = await _latest_stats_bulk(db, accounts, days)
+    out = [cm.account_view(p, a, *stats.get((p, a.id), (None, None))) for p, a in accounts]
+    needle = (q or "").strip().lower().lstrip("@")
+    if needle:
+        out = [v for v in out if needle in " ".join(str(v.get(f) or "") for f in ("name", "handle", "username")).lower()]
+    if sort:
+        value = {"name": lambda v: (v.get("name") or "").lower().lstrip("@"),
+                 "followers": lambda v: (v.get("stats") or {}).get("followers"),
+                 "views": lambda v: (v.get("stats") or {}).get("views"),
+                 "connected": lambda v: v.get("connected_at"),
+                 "platform": lambda v: v["platform"]}[sort]
+        out = _sort_rows(out, sort, order, value)
     return out
 
 
@@ -365,35 +415,45 @@ def _account_filter(model, accounts, platform: Optional[str] = None, account_id:
     return or_(*conds) if conds else false()
 
 
+VIDEO_SORTS = {"recent": "dt", "views": "int", "likes": "int", "comments": "int", "shares": "int",
+               "engagement": "int", "title": "str"}
+
+
+def _video_sort_key(sort: str, order: str):
+    engagement = (func.coalesce(CmVideo.likes, 0) + func.coalesce(CmVideo.comments, 0)
+                  + func.coalesce(CmVideo.shares, 0) + func.coalesce(CmVideo.saves, 0))
+    col = {"recent": CmVideo.published_at, "views": CmVideo.views, "likes": CmVideo.likes,
+           "comments": CmVideo.comments, "shares": CmVideo.shares, "engagement": engagement,
+           "title": func.lower(CmVideo.title)}[sort]
+    return paging.nulls_last(col, VIDEO_SORTS[sort], order)
+
+
 @router.get("/videos")
 async def list_videos(org_id: Optional[int] = Query(None), platform: Optional[Literal["tiktok", "youtube", "instagram"]] = None,
                       account_id: Optional[int] = None,
-                      sort: Literal["recent", "views", "likes", "comments", "shares", "engagement"] = "recent",
+                      sort: Literal["recent", "views", "likes", "comments", "shares", "engagement", "title"] = "recent",
+                      order: Literal["asc", "desc"] = Query(None),
+                      q: Optional[str] = Query(None, max_length=100),
                       group_id: Optional[int] = Query(None), days: Optional[int] = Query(None, ge=1, le=365),
-                      limit: int = Query(50, ge=1, le=200), cursor: Optional[str] = Query(None, max_length=64),
+                      limit: int = Query(50, ge=1, le=200), cursor: Optional[str] = Query(None, max_length=300),
                       response: Response = None, db: AsyncSession = Depends(get_db),
                       user: User = Depends(get_cm_user)):
-    """Vidéos relevées, paginées (limit + cursor, page suivante dans X-Next-Cursor)."""
-    offset = _decode_cursor(cursor)
+    """Vidéos relevées : recherche (titre), tri dans les deux sens, pages par curseur (X-Next-Cursor).
+    Tout est fait en SQL (index d'expression par tri) : tient sur des millions de vidéos."""
+    order = order or ("asc" if sort == "title" else "desc")
     tenant = await _tenant(db, user, org_id)
     accounts, names = await _tenant_index(db, tenant, group_id)
-    engagement = (func.coalesce(CmVideo.likes, 0) + func.coalesce(CmVideo.comments, 0)
-                  + func.coalesce(CmVideo.shares, 0) + func.coalesce(CmVideo.saves, 0))
-    order = {
-        "views": (CmVideo.views.desc().nulls_last(),),
-        "likes": (CmVideo.likes.desc().nulls_last(),),
-        "comments": (CmVideo.comments.desc().nulls_last(),),
-        "shares": (CmVideo.shares.desc().nulls_last(),),
-        "engagement": (engagement.desc(),),
-    }.get(sort, (CmVideo.published_at.desc().nulls_last(),))
+    key = _video_sort_key(sort, order).label("_k")
     conds = [_account_filter(CmVideo, accounts, platform, account_id)]
     if days:
         conds.append(CmVideo.published_at >= utcnow() - timedelta(days=days))
-    rows = (await db.execute(
-        select(CmVideo).where(*conds)
-        .order_by(*order, CmVideo.id.desc()).offset(offset).limit(limit + 1)
-    )).scalars().all()
-    return [_video_out(v, names) for v in _page(response, list(rows), offset, limit)]
+    pattern = paging.like(q)
+    if pattern:
+        conds.append(CmVideo.title.ilike(pattern, escape="\\"))
+    stmt = paging.apply(select(CmVideo, key).where(*conds), key, VIDEO_SORTS[sort], CmVideo.id, order, cursor, limit)
+    rows = list((await db.execute(stmt)).all())
+    rows = paging.page(response, rows, limit, lambda r: r[1], lambda r: r[0].id, cursor)
+    return [_video_out(v, names) for v, _ in rows]
 
 
 async def _daily_series(db: AsyncSession, accounts, since, until) -> list[dict]:
@@ -445,8 +505,9 @@ async def overview(org_id: Optional[int] = Query(None), days: int = Query(30, ge
     series = await _daily_series(db, accounts, since, utcnow().date())
 
     account_rows = []
+    bulk = await _latest_stats_bulk(db, accounts, min(days, 90))
     for p, a in accounts:
-        stat, previous = await _latest_stats(db, p, a.id, min(days, 90))
+        stat, previous = bulk.get((p, a.id), (None, None))
         account_rows.append(cm.account_view(p, a, stat, previous if previous is not stat else None))
 
     def total(field):
@@ -707,52 +768,68 @@ def _rates(row: dict) -> dict:
     return row
 
 
+STAT_SORTS = ("views", "posts", "engagement_rate", "followers", "followers_delta", "likes", "name")
+
+
 @router.get("/stats")
 async def detailed_stats(org_id: Optional[int] = Query(None), group_id: Optional[int] = Query(None),
-                         days: int = Query(30, ge=7, le=365), db: AsyncSession = Depends(get_db),
-                         user: User = Depends(get_cm_user)):
+                         days: int = Query(30, ge=7, le=365),
+                         q: Optional[str] = Query(None, max_length=100),
+                         sort: Literal["views", "posts", "engagement_rate", "followers", "followers_delta", "likes", "name"] = "views",
+                         order: Literal["asc", "desc"] = "desc",
+                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Statistiques sur la période : par plateforme, par compte et au total.
-    Vues et interactions = chiffres actuels des vidéos PUBLIÉES dans la période ;
-    abonnés = dernier relevé et évolution sur la période."""
+    Vues et interactions = chiffres actuels des vidéos PUBLIÉES dans la période (sommés en SQL) ;
+    abonnés = dernier relevé et évolution sur la période. `q`/`sort`/`order` : tableau par compte
+    (les totaux portent toujours sur tout le périmètre)."""
     tenant = await _tenant(db, user, org_id)
     accounts, names = await _tenant_index(db, tenant, group_id)
     since = utcnow() - timedelta(days=days)
-    videos = (await db.execute(
-        select(CmVideo).where(_account_filter(CmVideo, accounts), CmVideo.published_at >= since)
-        .order_by(CmVideo.published_at)
-    )).scalars().all()
+    in_period = (_account_filter(CmVideo, accounts), CmVideo.published_at >= since)
+    agg = (await db.execute(
+        select(CmVideo.platform, CmVideo.account_id, func.count(CmVideo.id),
+               *(func.sum(getattr(CmVideo, f)) for f in ("views", "likes", "comments", "shares", "saves")))
+        .where(*in_period).group_by(CmVideo.platform, CmVideo.account_id)
+    )).all()
+    per_account = {(r[0], r[1]): {"posts": r[2], "views": r[3], "likes": r[4], "comments": r[5],
+                                  "shares": r[6], "saves": r[7]} for r in agg}
+    recent = (await db.execute(
+        select(CmVideo.platform, CmVideo.published_at, CmVideo.views, CmVideo.likes, CmVideo.comments,
+               CmVideo.shares, CmVideo.saves)
+        .where(*in_period).order_by(CmVideo.published_at.desc()).limit(1000)
+    )).all()
 
-    per_account: dict = {}
-    for v in videos:
-        _add(per_account.setdefault((v.platform, v.account_id), _blank()), v)
-
+    stats = await _latest_stats_bulk(db, accounts, days)
     account_rows, platforms = [], {}
     total = {**_blank(), "accounts": 0, "followers": None, "followers_delta": None}
     for p, a in accounts:
-        stat, previous = await _latest_stats(db, p, a.id, days)
-        view = cm.account_view(p, a, stat, previous if previous is not stat else None)
-        row = {**per_account.get((p, a.id), _blank()), "platform": p, "id": a.id, "name": view["name"],
+        stat, previous = stats.get((p, a.id), (None, None))
+        view = cm.account_view(p, a, stat, previous)
+        row = {**_blank(), **{k: (int(v) if v is not None else None) for k, v in per_account.get((p, a.id), {}).items()},
+               "platform": p, "id": a.id, "name": view["name"],
                "avatar_url": view["avatar_url"], "stats_available": view["stats_available"],
                "followers": (view["stats"] or {}).get("followers"),
                "followers_delta": (view["stats"] or {}).get("delta_followers")}
         account_rows.append(_rates(row))
         plat = platforms.setdefault(p, {**_blank(), "platform": p, "accounts": 0, "followers": None,
                                         "followers_delta": None, "metrics": METRICS[p]})
-        for agg in (plat, total):
-            agg["accounts"] += 1
-            agg["posts"] += row["posts"]
+        for agg_row in (plat, total):
+            agg_row["accounts"] += 1
+            agg_row["posts"] += row["posts"]
             for f in ("views", "likes", "comments", "shares", "saves", "followers", "followers_delta"):
                 if row[f] is not None:
-                    agg[f] = (agg[f] or 0) + row[f]
+                    agg_row[f] = (agg_row[f] or 0) + row[f]
+    needle = (q or "").strip().lower().lstrip("@")
+    shown = [r for r in account_rows if not needle or needle in (r["name"] or "").lower()]
+    value = (lambda r: (r["name"] or "").lower().lstrip("@")) if sort == "name" else (lambda r: r[sort])
     return {
         "days": days,
         "totals": _rates(total),
         "platforms": [_rates(platforms[p]) for p in PLATFORMS if p in platforms],
-        "accounts": sorted(account_rows, key=lambda r: -(r["views"] or 0)),
+        "accounts": _sort_rows(shown, sort, order, value),
         # Une ligne par vidéo pour la carte « meilleurs moments » (heure locale côté navigateur).
-        "posts": [{"platform": v.platform, "published_at": cm.iso(v.published_at), "views": v.views,
-                   "interactions": sum(getattr(v, f) or 0 for f in ("likes", "comments", "shares", "saves"))}
-                  for v in videos[-1000:]],
+        "posts": [{"platform": r[0], "published_at": cm.iso(r[1]), "views": r[2],
+                   "interactions": sum(x or 0 for x in r[3:7])} for r in reversed(recent)],
         "metrics": METRICS,
     }
 
@@ -1205,32 +1282,46 @@ async def submit_post(post_id: int, db: AsyncSession = Depends(get_db), user: Us
 @router.get("/posts")
 async def list_posts(org_id: Optional[int] = Query(None), start: Optional[datetime] = None,
                      end: Optional[datetime] = None, group_id: Optional[int] = Query(None),
-                     limit: int = Query(200, ge=1, le=500), cursor: Optional[str] = Query(None, max_length=64),
+                     q: Optional[str] = Query(None, max_length=100),
+                     status_: Optional[Literal["upcoming", "published", "failed"]] = Query(None, alias="status"),
+                     order: Literal["asc", "desc"] = "asc",
+                     limit: int = Query(200, ge=1, le=500), cursor: Optional[str] = Query(None, max_length=300),
                      response: Response = None,
                      db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    """Planning : publications dont une cible tombe entre `start` et `end` (défaut : -30 j / +90 j).
-    Avec `group_id`, seules les cibles des comptes du groupe sont renvoyées."""
+    """Planning : publications dont une cible tombe entre `start` et `end` (défaut : -30 j / +90 j),
+    triées par première heure prévue (asc ou desc), recherche dans titre et légende, pages par curseur.
+    Avec un groupe / un compte, seules leurs cibles sont renvoyées. Tout le filtrage est en SQL."""
     tenant = await _tenant(db, user, org_id)
     now = utcnow()
     start = cm.to_utc_naive(start) or now - timedelta(days=30)
     end = cm.to_utc_naive(end) or now + timedelta(days=90)
-    conds = [tenant.where(CmPost), CmTarget.scheduled_at >= start, CmTarget.scheduled_at <= end]
+    conds = [tenant.where(CmPost), CmPost.status != POST_RECEIVING,
+             CmTarget.scheduled_at >= start, CmTarget.scheduled_at <= end]
     accounts, names = await _tenant_index(db, tenant, group_id)
-    if group_id is not None or tenant.allowed is not None or _ACCOUNT_SCOPE.get() is not None:
+    narrowed = group_id is not None or tenant.allowed is not None or _ACCOUNT_SCOPE.get() is not None
+    if narrowed:
         conds.append(_account_filter(CmTarget, accounts))
-    ids = (await db.execute(
-        select(CmTarget.post_id).join(CmPost, CmPost.id == CmTarget.post_id).where(*conds).distinct()
-    )).scalars().all()
-    posts = (await db.execute(select(CmPost).where(CmPost.id.in_(ids)))).scalars().all() if ids else []
-    targets = await _targets_of(db, [p.id for p in posts])
-    if group_id is not None or tenant.allowed is not None or _ACCOUNT_SCOPE.get() is not None:
+    if status_ == "upcoming":
+        conds.append(CmTarget.status.not_in(T_FINAL))
+    elif status_ == "published":
+        conds.append(CmTarget.status == T_PUBLISHED)
+    elif status_ == "failed":
+        conds.append(CmTarget.status == T_FAILED)
+    pattern = paging.like(q)
+    if pattern:
+        conds.append(or_(CmPost.title.ilike(pattern, escape="\\"), CmPost.caption.ilike(pattern, escape="\\")))
+    first = func.min(CmTarget.scheduled_at)
+    sub = (select(CmTarget.post_id.label("pid"), first.label("first_at"))
+           .join(CmPost, CmPost.id == CmTarget.post_id).where(*conds).group_by(CmTarget.post_id).subquery())
+    stmt = paging.apply(select(sub.c.pid, sub.c.first_at), sub.c.first_at, "dt", sub.c.pid, order, cursor, limit)
+    page = paging.page(response, list((await db.execute(stmt)).all()), limit, lambda r: r[1], lambda r: r[0], cursor)
+    ids = [r[0] for r in page]
+    posts = {p.id: p for p in (await db.execute(select(CmPost).where(CmPost.id.in_(ids)))).scalars()} if ids else {}
+    targets = await _targets_of(db, ids)
+    if narrowed:
         keep = {(p, a.id) for p, a in accounts}
         targets = {pid: [t for t in ts if (t.platform, t.account_id) in keep] for pid, ts in targets.items()}
-    out = [_post_out(p, targets.get(p.id, []), names) for p in posts
-           if p.status != POST_RECEIVING and targets.get(p.id)]
-    out.sort(key=lambda p: (min((t["scheduled_at"] for t in p["targets"]), default=""), p["id"]))
-    offset = _decode_cursor(cursor)
-    return _page(response, out[offset:offset + limit + 1], offset, limit)
+    return [_post_out(posts[i], targets.get(i, []), names) for i in ids if i in posts]
 
 
 @router.get("/posts/{post_id}")

@@ -423,7 +423,9 @@ def _scope_out(row: Optional[CmMemberRole], org_admin: bool) -> dict:
 
 
 @router.get("/people")
-async def people(org_id: Optional[int] = None, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+async def people(org_id: Optional[int] = None, q: Optional[str] = None,
+                 sort: Literal["added", "name", "role"] = "added", order: Literal["asc", "desc"] = "asc",
+                 db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Qui a accès à cet espace, avec quel rôle et à quels comptes."""
     if org_id is None:
         return {"org_id": None, "my_role": "admin", "can_manage": True, "people": [
@@ -444,6 +446,15 @@ async def people(org_id: Optional[int] = None, db: AsyncSession = Depends(get_db
         role = "admin" if i.role == "admin" else (r.role if r else "editor")
         out.append({"user_id": None, "invitation_id": i.id, "name": None, "email": i.email, "role": role, "owner": False,
                     "you": False, "pending": True, "scope": _scope_out(r, i.role == "admin")})
+    needle = (q or "").strip().lower() if isinstance(q, str) else ""
+    if needle:
+        out = [p for p in out if needle in f"{p['name'] or ''} {p['email']}".lower()]
+    if sort != "added":
+        rank = {"admin": 0, "editor": 1, "viewer": 2}
+        out.sort(key=(lambda p: (p["name"] or p["email"]).lower()) if sort == "name" else (lambda p: rank[p["role"]]),
+                 reverse=order == "desc")
+    elif order == "desc":
+        out.reverse()
     return {"org_id": org_id, "name": org.name, "my_role": tenant.cm_role, "can_manage": tenant.cm_role == "admin", "people": out}
 
 
@@ -614,7 +625,7 @@ async def account_access(platform: Literal["tiktok", "youtube", "instagram"], ac
     """Qui a accès à ce compte (tout l'espace, ou par partage du compte ou d'un de ses groupes)."""
     tenant = await _tenant(db, user, org_id)
     await cm.get_account(db, tenant, platform, account_id)
-    data = await people(org_id, db, user)
+    data = await people(org_id, None, "added", "asc", db, user)
     from src.models.cm import CmGroupAccount
     groups = set((await db.execute(select(CmGroupAccount.group_id).where(
         CmGroupAccount.platform == platform, CmGroupAccount.account_id == account_id))).scalars())

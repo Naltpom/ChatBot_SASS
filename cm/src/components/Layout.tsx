@@ -5,8 +5,10 @@
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useSession } from '../session'
-import { PLATFORM_LABEL } from '../api'
+import { PLATFORM_LABEL, type Account, type Group } from '../api'
 import { PlatformLogo } from './PlatformLogo'
+import { useDesktop } from '../hooks'
+import { AccountPicker, accKey, usePins, type PinKey } from './AccountPicker'
 import { Avatar, Brand, GroupDot, Icon, Sheet, type IconName } from './ui'
 
 // Pages « suivi » : filtrées par la barre de comptes. Pages « gestion » : tout l'espace.
@@ -22,40 +24,74 @@ const MANAGE: { to: string; label: string; icon: IconName }[] = [
   { to: '/personnes', label: 'Personnes', icon: 'users' },
 ]
 const FILTERED = (path: string) => path === '/' || ['/planning', '/stats', '/videos'].some(p => path.startsWith(p))
-const keyOf = (a: { platform: string; id: number }) => `${a.platform}:${a.id}`
 
-/** Barre de filtres : un geste pour passer de « Tous » à un groupe ou à un compte. Défile
- *  horizontalement (pouce sur mobile, molette ou glisser sur ordinateur). Absente s'il n'y a rien à filtrer. */
+/** Barre de filtres des pages de suivi : « Tous », vos épinglés, vos derniers choix, et
+ *  « Choisir… » qui ouvre le sélecteur (recherche, onglets Groupes / Comptes). Toujours une
+ *  seule ligne, même avec 50 comptes. Ordinateur : sélecteur en popover sous la barre. */
 function ScopeBar() {
-  const { groups, group, setGroup, accounts, account, setAccount } = useSession()
-  const bar = useRef<HTMLDivElement>(null)
-  useEffect(() => {   // le filtre choisi reste visible
-    bar.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [group?.id, account])
+  const { org, groups, group, setGroup, accounts, account, setAccount } = useSession()
+  const desktop = useDesktop()
+  const { pins, recent, togglePin, touch } = usePins(org)
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open || !desktop) return
+    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open, desktop])
   if (accounts.length < 2 && !groups.length) return null
-  const all = !group && !account
+
+  const current: PinKey | null = account ? `a:${account}` : group ? `g:${group.id}` : null
+  type Item = { k: PinKey; g: Group; a?: undefined } | { k: PinKey; a: Account; g?: undefined }
+  const resolve = (k: PinKey): Item | null => {
+    if (k.startsWith('g:')) { const g = groups.find(x => x.id === Number(k.slice(2))); return g ? { k, g } : null }
+    const a = accounts.find(x => accKey(x) === k.slice(2)); return a ? { k, a } : null
+  }
+  const shown: PinKey[] = []
+  for (const k of [...pins, ...recent.filter(r => !pins.includes(r)).slice(0, 3), ...(current ? [current] : [])]) {
+    if (!shown.includes(k) && resolve(k)) shown.push(k)
+  }
+  const pick = (v: { group: number | null; account: string | null }) => {
+    if (v.account) { setAccount(v.account); touch(`a:${v.account}`) }
+    else if (v.group != null) { setGroup(v.group); touch(`g:${v.group}`) }
+    else { setGroup(null); setAccount(null) }
+    setOpen(false)
+  }
+  const picker = (
+    <AccountPicker mode="single" accounts={accounts} groups={groups} pins={pins} onTogglePin={togglePin}
+                   value={{ group: group?.id ?? null, account }} onPick={pick}
+                   initialTab={account || !groups.length ? 'accounts' : 'groups'} />
+  )
   return (
-    <div className="scopebar" role="toolbar" aria-label="Filtrer par compte">
-      <div className="scopebar-in" ref={bar}
+    <div className="scopebar" ref={box} onKeyDown={e => { if (e.key === 'Escape' && open) { setOpen(false) } }}>
+      <div className="scopebar-in" role="toolbar" aria-label="Filtrer par compte"
            onWheel={e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY }}>
-        <button type="button" className="fchip" aria-pressed={all} onClick={() => { setGroup(null); setAccount(null) }}>
+        <button type="button" className="fchip" aria-pressed={!current} onClick={() => pick({ group: null, account: null })}>
           Tous <span className="fchip-n">{accounts.length}</span>
         </button>
-        {groups.map(g => (
-          <button key={g.id} type="button" className="fchip" aria-pressed={!account && group?.id === g.id} onClick={() => setGroup(g.id)}
-                  title={`Groupe : ${g.accounts.length} compte${g.accounts.length > 1 ? 's' : ''}`}>
-            <GroupDot color={g.color} />{g.name}
-          </button>
-        ))}
-        {groups.length > 0 && accounts.length > 0 && <span className="fchip-sep" aria-hidden="true" />}
-        {accounts.map(a => (
-          <button key={keyOf(a)} type="button" className="fchip fchip-acc" aria-pressed={account === keyOf(a)} onClick={() => setAccount(keyOf(a))}
-                  title={PLATFORM_LABEL[a.platform]}>
-            <span className="fchip-av"><Avatar src={a.avatar_url} name={a.name} size="sm" /><PlatformLogo platform={a.platform} size={12} /></span>
-            {a.name || PLATFORM_LABEL[a.platform]}
-          </button>
-        ))}
+        {shown.map(k => {
+          const r = resolve(k)!
+          const on = k === current
+          return r.g ? (
+            <button key={k} type="button" className="fchip" aria-pressed={on} onClick={() => pick({ group: r.g.id, account: null })}
+                    title={`Groupe · ${r.g.accounts.length} compte${r.g.accounts.length > 1 ? 's' : ''}`}>
+              <GroupDot color={r.g.color} />{r.g.name}{pins.includes(k) && <span className="sr-only"> (épinglé)</span>}
+            </button>
+          ) : (
+            <button key={k} type="button" className="fchip fchip-acc" aria-pressed={on} onClick={() => pick({ group: null, account: accKey(r.a) })}
+                    title={PLATFORM_LABEL[r.a.platform]}>
+              <span className="fchip-av"><Avatar src={r.a.avatar_url} name={r.a.name} size="sm" /><PlatformLogo platform={r.a.platform} size={12} /></span>
+              {r.a.name || PLATFORM_LABEL[r.a.platform]}
+            </button>
+          )
+        })}
+        <button type="button" className="fchip fchip-more" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+          <Icon name="search" size={16} />Choisir…
+        </button>
       </div>
+      {open && desktop && <div className="scope-pop" role="dialog" aria-label="Choisir les comptes affichés">{picker}</div>}
+      {open && !desktop && <Sheet title="Comptes affichés" onClose={() => setOpen(false)}>{picker}</Sheet>}
     </div>
   )
 }

@@ -5,6 +5,7 @@
 // Rien n'est envoyé à une plateforme avant l'heure choisie.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { PlatformLogo } from '../components/PlatformLogo'
+import { AccountPicker } from '../components/AccountPicker'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   creatorInfo, createPost, getAccounts, getAsset, getRobot, putPart, submitPost, PLATFORM_LABEL,
@@ -307,31 +308,26 @@ export default function Composer() {
 
         <div className="main col" style={{ gap: 16 }}>
           <Section title="Où publier" aside={chosen.length ? `${chosen.length} compte${chosen.length > 1 ? 's' : ''}` : undefined}>
-            {groups.length > 0 && (
-              <div className="chips" role="group" aria-label="Sélectionner un groupe">
-                {groups.map(g => (
-                  <button key={g.id} type="button" className="chip" aria-pressed={groupFull(g.id)} disabled={busy} onClick={() => toggleGroup(g.id)}>
-                    <GroupDot color={g.color} />{g.name}<span className="tiny" style={{ opacity: .7 }}>{groupAccounts(g.id).length}</span>
-                  </button>
+            {chosen.length > 0 && (
+              <ul className="chosen" aria-label="Comptes choisis">
+                {chosen.map(a => (
+                  <li key={key(a)} className="fchip fchip-acc">
+                    <span className="fchip-av"><Avatar src={a.avatar_url} name={a.name} size="sm" /><PlatformLogo platform={a.platform} size={12} /></span>
+                    <span className="ellipsis" style={{ maxWidth: 160 }}>{a.name}</span>
+                    <button type="button" className="chosen-x" aria-label={`Retirer ${a.name}`} disabled={busy} onClick={() => toggle(a)}><Icon name="close" size={14} /></button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-            <div className="picks">
-              {all.map(a => {
-                const on = picked.includes(key(a))
-                return (
-                  <label key={key(a)} className={`pick${on ? ' on' : ''}${a.can_publish ? '' : ' off'}`}>
-                    <input type="checkbox" checked={on} disabled={!a.can_publish || busy} onChange={() => toggle(a)} />
-                    <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
-                    <span className="grow">
-                      <span className="ellipsis" style={{ display: 'block', fontWeight: 500 }}>{a.name}</span>
-                      <span className="tiny muted row-nw" style={{ gap: 4 }}><PlatformLogo platform={a.platform} size={12} />{PLATFORM_LABEL[a.platform]}{a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}
-                        {!a.can_publish && ' · indisponible'}{a.needs_reconnect && ' (à reconnecter)'}</span>
-                    </span>
-                  </label>
-                )
-              })}
-            </div>
+            <AccountPicker mode="multi" accounts={all} groups={groups} picked={picked}
+                           onChange={keys => {
+                             if (busy) return
+                             const added = all.filter(a => keys.includes(key(a)) && !picked.includes(key(a)))
+                             setPicked(p => p.filter(k => keys.includes(k)))
+                             add(added)
+                           }}
+                           disabled={a => (!a.can_publish ? `Indisponible${a.needs_reconnect ? ' : à reconnecter' : ''}` : null)}
+                           detail={a => `${PLATFORM_LABEL[a.platform]}${a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}`} />
           </Section>
 
           {chosen.map(a => {
