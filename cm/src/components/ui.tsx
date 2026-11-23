@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PLATFORM_LABEL, type GroupColor, type Platform, type TargetStatus } from '../api'
@@ -94,7 +95,9 @@ export function Sheet({ title, onClose, children, labelledBy = 'sheet-title' }: 
     box.current?.focus()
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = overflow; prev?.focus?.() }
   }, [onClose])
-  return (
+  // Rendue dans <body> : un parent avec backdrop-filter / transform (barre du haut) servirait sinon de
+  // repère au position: fixed, et la fenêtre serait coupée dans ce parent.
+  return createPortal(
     <div className="sheet-back" role="presentation" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" aria-labelledby={labelledBy} ref={box} tabIndex={-1} onClick={e => e.stopPropagation()}>
         <div className="sheet-head">
@@ -103,7 +106,8 @@ export function Sheet({ title, onClose, children, labelledBy = 'sheet-title' }: 
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
