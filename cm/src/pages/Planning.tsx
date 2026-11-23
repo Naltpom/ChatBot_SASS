@@ -154,12 +154,12 @@ export default function Planning() {
           <span className="label">{label}</span>
           {(!isCurrent || selected !== dayKey(today)) && <button type="button" className="btn btn-sm" onClick={goToday}><Icon name="calendar" size={14} />Aujourd’hui</button>}
         </div>
+        <div className="cal-search"><SearchBox value={input} onChange={setInput} label="Rechercher une vidéo" placeholder="Rechercher (titre, légende)" /></div>
         <div className="row" style={{ gap: 8 }}>
           <Seg label="Type" value={kind} onChange={setKind} options={[['all', 'Tout'], ['done', 'Publié'], ['planned', 'Programmé']]} />
           <button type="button" className="btn icon-btn btn-sm only-desktop" aria-label="Actualiser" onClick={cal.reload}><Icon name="refresh" /></button>
         </div>
       </div>
-      <SearchBox value={input} onChange={setInput} label="Rechercher une vidéo (titre, légende)" />
       <div className="chips" role="group" aria-label="Plateformes">
         {PLATFORMS.map(p => (
           <button key={p} type="button" className="chip" aria-pressed={platforms.includes(p)} onClick={() => togglePlatform(p)}>
