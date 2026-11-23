@@ -75,6 +75,22 @@ Le brouillon arrive **sans légende** : `targets[].options.title` contient la l�
 - Chaque post : `ref`, `status`, `archive {state: pending|ok|error, folder_url, error}`, `targets[]` avec `status`, `url`
   (lien de la publication), `external_id`, `published_at`, `error_message`.
 
+### Poser une référence sur un post déjà créé : `PATCH /posts/{id}`
+`{ref: "<compte>/<id>", archive?: {dossier, partie, id, titre}}` : pour un post créé sans `ref` (ou pour poser le bloc
+`archive` d'un conte), **quel que soit son statut**, même déjà publié.
+- `ref` déjà portée par une autre publication active → `409 {"code": "duplicate_ref", "post_id": …}` ; format sans `/` → 400.
+- Le post est ensuite rangé dans le Drive comme les autres (section 8), `infos.json` compris (statut et liens actuels).
+- Si sa vidéo n'est plus sur le serveur, l'archivage s'arrête en erreur (`archive.error` le dit) : renvoyer la vidéo.
+
+### Renvoyer la vidéo d'un post : `PUT /posts/{id}/video`
+Pour un post prêt dont la vidéo n'est plus sur le serveur (l'archiver, relancer un brouillon TikTok…). Même découpage
+que la création :
+1. `PUT /posts/{id}/video {video_size}` → `{part_size, part_count}` (409 si la vidéo est encore sur le serveur) ;
+2. `PUT /posts/{id}/video/parts/{n}` (octets bruts, dans l'ordre ; renvoyer un morceau déjà reçu est sans effet) ;
+3. `POST /posts/{id}/video/complete` → vidéo vérifiée et remise au post ; avec une `ref`, archivée au passage suivant
+   (moins d'une minute), et gardée sur le serveur 7 jours au plus en attendant. Ensuite `POST /targets/{id}/resend-draft`
+   ou `/retry` peuvent s'en servir.
+
 ### Fichiers d'un post
 `GET /posts/{id}/video` et `GET /posts/{id}/cover` : la vidéo et la couverture envoyées. Elles restent sur le serveur
 **au moins jusqu'à ce que toutes les cibles soient terminées** (et, en cas d'échec, 48 h de plus) et tant que la vidéo

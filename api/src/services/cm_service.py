@@ -386,6 +386,14 @@ def remove_cover(post: CmPost) -> None:
         post.cover_path = None
 
 
+def unlink_quiet(path: Optional[str]) -> None:
+    if path:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 def remove_media(post: CmPost) -> None:
     remove_cover(post)
     if post.media_path:
