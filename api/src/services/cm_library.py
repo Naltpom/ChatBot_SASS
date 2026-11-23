@@ -423,6 +423,24 @@ async def ensure_media(db: AsyncSession, post_id: int) -> CmPost:
         raise MediaError("invalid_video", f"Vidéo refusée : {e}.")
     os.chmod(path, 0o600)
     post.media_path = path
+    # Couverture du dossier (image à côté de la vidéo), si la publication n'en a pas déjà une.
+    if asset.cover_file_id and not post.cover_path:
+        cover = str(cm.media_dir() / f"{uuid.uuid4().hex}.jpg")
+        try:
+            await gd.download(asset.cover_file_id, cover, cm.COVER_MAX_BYTES)
+            with open(cover, "rb") as f:
+                kind = cm.image_kind(f.read(16))
+            if kind is None:
+                _unlink(cover)
+            else:
+                if kind == "png":
+                    os.replace(cover, cover[:-4] + ".png")
+                    cover = cover[:-4] + ".png"
+                os.chmod(cover, 0o600)
+                post.cover_path = cover
+        except gd.DriveError as e:
+            _unlink(cover)
+            logger.info("cm : couverture %s illisible (%s)", asset.cover_file_id, e.code)
     post.video_size = got
     post.received_bytes = got
     post.mime_type = video.mime_type

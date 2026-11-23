@@ -128,6 +128,12 @@ Les vidéos restent dans le Drive des utilisateurs ; cm les lit grâce à un **c
   ordinateur ; absente des pages de gestion (Comptes, Bibliothèque, Personnes), qui portent sur tout
   l'espace. Le composeur reprend le filtre choisi. Choix de l'espace (rare) : menu du compte.
 
+## Routines (claude-cloud) : voir docs/CM_ROUTINES.md
+
+Couverture personnalisée : `PUT /posts/{id}/cover` (JPEG/PNG ≤ 8 Mo) ou image à côté de la vidéo dans le Drive ;
+envoyée à Instagram en `cover_url` (lien signé `/api/cm/cover/…`), téléchargeable par la routine. Après une erreur
+Instagram, cm cherche le Reel parmi les dernières publications (même légende) avant de conclure à l'échec.
+
 ## Brouillons automatiques (bibliothèque)
 
 - Par dossier : **Bibliothèque → ☰ → Brouillons automatiques**. Analyse du rangement : Gemini 2.5 Flash

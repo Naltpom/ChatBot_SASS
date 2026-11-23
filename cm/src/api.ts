@@ -187,6 +187,19 @@ export const publishNow = (id: number) => send<Target>('POST', `/api/cm/targets/
 export const cancelTarget = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/cancel`)
 export const retryTarget = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/retry`, {})
 
+/** Couverture personnalisée (JPEG ou PNG, 8 Mo max), utilisée pour Instagram. */
+export async function putCover(postId: number, image: File): Promise<void> {
+  const res = await fetch(`/api/cm/posts/${postId}/cover`, {
+    method: 'PUT', body: image, credentials: 'same-origin',
+    headers: { 'Content-Type': image.type || 'application/octet-stream', 'X-Chapote-App': 'cm' },
+  })
+  if (!res.ok) {
+    let msg = `Couverture refusée (${res.status})`
+    try { const b = await res.json(); if (typeof b?.detail === 'string') msg = b.detail } catch { /* corps non JSON */ }
+    throw new ApiError(res.status, msg)
+  }
+}
+
 export async function putPart(postId: number, index: number, bytes: Blob): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     let res: Response
@@ -269,7 +282,7 @@ export interface Asset {
   id: number; source_id: number; source_name: string | null; group_id: number | null; name: string; title: string
   caption: string | null; caption_from: 'txt' | 'user' | null; folder: string | null; mime_type: string | null
   size: number | null; duration_sec: number | null; width: number | null; height: number | null
-  drive_created_at: string | null; thumbnail: string | null; drive_url: string; removed: boolean
+  drive_created_at: string | null; thumbnail: string | null; drive_url: string; removed: boolean; has_cover?: boolean
   moved_published: boolean; scheduled: number; published: number; last_published_at: string | null
 }
 export type AssetState = 'all' | 'new' | 'used'

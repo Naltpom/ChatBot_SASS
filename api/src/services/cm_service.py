@@ -321,7 +321,17 @@ def check_space(size: int) -> None:
                   status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
+def remove_cover(post: CmPost) -> None:
+    if post.cover_path:
+        try:
+            os.unlink(post.cover_path)
+        except OSError:
+            pass
+        post.cover_path = None
+
+
 def remove_media(post: CmPost) -> None:
+    remove_cover(post)
     if post.media_path:
         try:
             os.unlink(post.media_path)
@@ -342,6 +352,35 @@ def media_url(target: CmTarget, mime: Optional[str]) -> str:
     exp = int((utcnow() + MEDIA_LINK_TTL).replace(tzinfo=timezone.utc).timestamp())
     ext = "mov" if mime == "video/quicktime" else "mp4"
     return f"{settings.CM_URL.rstrip('/')}/api/cm/media/{target.id}/{exp}/{_sign(target.id, exp)}.{ext}"
+
+
+def _sign_cover(target_id: int, exp: int) -> str:
+    msg = f"cm-cover:{target_id}:{exp}".encode()
+    return hmac.new(settings.JWT_SECRET_KEY.encode(), msg, hashlib.sha256).hexdigest()[:40]
+
+
+def cover_url(target: CmTarget) -> str:
+    """Lien public et temporaire de la couverture, que Meta télécharge."""
+    exp = int((utcnow() + MEDIA_LINK_TTL).replace(tzinfo=timezone.utc).timestamp())
+    return f"{settings.CM_URL.rstrip('/')}/api/cm/cover/{target.id}/{exp}/{_sign_cover(target.id, exp)}.jpg"
+
+
+def check_cover_link(target_id: int, exp: int, sig: str) -> bool:
+    if exp < utcnow().replace(tzinfo=timezone.utc).timestamp():
+        return False
+    return hmac.compare_digest(sig, _sign_cover(target_id, exp))
+
+
+COVER_MAX_BYTES = 8 * 1024 * 1024
+
+
+def image_kind(data: bytes) -> Optional[str]:
+    """jpeg | png d'après les premiers octets (Instagram accepte JPEG ; PNG converti par Meta)."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    return None
 
 
 def check_media_link(target_id: int, exp: int, sig: str) -> bool:
