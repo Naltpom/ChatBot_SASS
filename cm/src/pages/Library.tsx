@@ -335,6 +335,13 @@ export default function Library() {
         </Empty>
       )}
 
+      {enabled && sources.data && (
+        <details className="card">
+          <summary className="strong" style={{ cursor: 'pointer' }}>Adresses Google reliées automatiquement</summary>
+          <p className="small muted" style={{ margin: '8px 0 10px' }}>Un dossier partagé avec le robot depuis l'une de ces adresses est relié tout seul, dans l'espace indiqué.</p>
+          <GoogleAddresses />
+        </details>
+      )}
       {list.length > 0 && (
         <>
           <div className="grid-3">
@@ -375,13 +382,6 @@ export default function Library() {
           setRefreshKey(k => k + 1)
           setFlash(s.scan?.ok === false || s.last_error ? `Dossier « ${s.name} » relié, mais sa lecture a échoué : ${s.scan?.error || s.last_error}` : `Dossier « ${s.name} » relié : ${s.videos} vidéo${s.videos > 1 ? 's' : ''} trouvée${s.videos > 1 ? 's' : ''}.`)
         }} />
-      )}
-      {enabled && sources.data && (
-        <details className="card">
-          <summary className="strong" style={{ cursor: 'pointer' }}>Adresses Google reliées automatiquement</summary>
-          <p className="small muted" style={{ margin: '8px 0 10px' }}>Un dossier partagé avec le robot depuis l'une de ces adresses est relié tout seul, dans l'espace indiqué.</p>
-          <GoogleAddresses />
-        </details>
       )}
       {open && <AssetSheet a={open} onClose={() => setOpen(null)} onSaved={a => { setOpen(a); setRefreshKey(k => k + 1) }} />}
       <p className="tiny muted" style={{ margin: 0 }}>Les vidéos restent dans votre Drive. Chapote les télécharge seulement à l'heure de la publication, puis efface sa copie. <Link to="/planning">Voir le planning</Link></p>
