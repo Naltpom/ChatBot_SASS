@@ -170,7 +170,7 @@ export const getGroups = (org: number | null) => call<Group[]>(`/api/cm/groups${
 export const createGroup = (org: number | null, body: GroupBody) => send<Group>('POST', '/api/cm/groups', { org_id: org, ...body })
 export const updateGroup = (org: number | null, id: number, body: GroupBody) => send<Group>('PATCH', `/api/cm/groups/${id}${q(org)}`, body)
 export const deleteGroup = (org: number | null, id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/groups/${id}${q(org)}`)
-export const createPost = (body: unknown) => send<{ post_id: number; part_size: number; part_count: number }>('POST', '/api/cm/posts', body)
+export const createPost = (body: unknown) => send<{ post_id: number; part_size?: number; part_count?: number; ready?: boolean }>('POST', '/api/cm/posts', body)
 export const submitPost = (id: number) => send<Post>('POST', `/api/cm/posts/${id}/submit`)
 export const deletePost = (id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/posts/${id}`)
 export const patchTarget = (id: number, body: { scheduled_at?: string; options?: Record<string, unknown> }) =>
@@ -214,3 +214,32 @@ export const disconnect = (org: number | null, a: Account) => {
   return send<{ ok: boolean; warning: string | null }>('DELETE', `/api/${a.platform}/accounts/${a.id}`)
 }
 export const creatorInfo = (accountId: number) => call<CreatorInfo>(`/api/tiktok/accounts/${accountId}/creator-info`)
+
+// Bibliothèque : dossiers Google Drive partagés avec le robot de Chapote
+export interface Source {
+  id: number; provider: 'gdrive'; folder_id: string; name: string | null; url: string
+  role: 'reader' | 'writer' | null; can_organize: boolean; shared_by: string | null; verified: boolean
+  group_id: number | null; move_published: boolean; last_scan_at: string | null; last_error: string | null
+  videos: number; new: number; created_at: string; scan?: { ok: boolean; videos?: number; added?: number; error?: string }
+}
+export interface Asset {
+  id: number; source_id: number; source_name: string | null; group_id: number | null; name: string; title: string
+  caption: string | null; caption_from: 'txt' | 'user' | null; folder: string | null; mime_type: string | null
+  size: number | null; duration_sec: number | null; width: number | null; height: number | null
+  drive_created_at: string | null; thumbnail: string | null; drive_url: string; removed: boolean
+  moved_published: boolean; scheduled: number; published: number; last_published_at: string | null
+}
+export type AssetState = 'all' | 'new' | 'used'
+export const getRobot = () => call<{ enabled: boolean; email: string | null }>('/api/cm/library/robot')
+export const getSources = (org: number | null) => call<Source[]>(`/api/cm/sources${q(org)}`)
+export const addSource = (org: number | null, url: string, group_id: number | null) =>
+  send<Source>('POST', '/api/cm/sources', { org_id: org, url, group_id })
+export const patchSource = (org: number | null, id: number, body: { group_id?: number; clear_group?: boolean; move_published?: boolean }) =>
+  send<Source>('PATCH', `/api/cm/sources/${id}${q(org)}`, body)
+export const scanSource = (org: number | null, id: number) => send<Source>('POST', `/api/cm/sources/${id}/scan${q(org)}`)
+export const removeSource = (org: number | null, id: number) => send<{ ok: boolean; hint: string }>('DELETE', `/api/cm/sources/${id}${q(org)}`)
+export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; limit?: number; cursor?: string | null }) =>
+  callPage<Asset>(`/api/cm/assets${q(org, { ...opts, cursor: opts.cursor || undefined })}`)
+export const getAsset = (org: number | null, id: number) => call<Asset>(`/api/cm/assets/${id}${q(org)}`)
+export const patchAsset = (org: number | null, id: number, body: { title?: string; caption?: string }) =>
+  send<Asset>('PATCH', `/api/cm/assets/${id}${q(org)}`, body)

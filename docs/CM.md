@@ -64,6 +64,25 @@ désautorisation `https://cm.chapote.fr/api/cm/instagram/deauthorize` et suppres
 `https://cm.chapote.fr/api/cm/instagram/data-deletion`. Pages légales : `/legal/instagram-cgu`,
 `/legal/instagram-confidentialite`. Connexion Google : origine JavaScript `https://cm.chapote.fr`.
 
+## Bibliothèque Google Drive (robot)
+
+Les vidéos restent dans le Drive des utilisateurs ; cm les lit grâce à un **compte de service Google**
+(« robot », `GDRIVE_SA_KEY_B64` = base64 de sa clé JSON). Le robot n'a accès qu'aux dossiers qu'on lui partage.
+
+- **Relier un dossier** (cm → Bibliothèque → « Ajouter un dossier Drive ») : partager le dossier avec l'adresse
+  du robot (Lecteur, ou Éditeur pour ranger les vidéos publiées), puis coller son lien. Un dossier n'est relié
+  qu'à un seul espace ; `verified` si celui qui a partagé (ou le propriétaire) est l'utilisateur ou un membre de
+  son équipe. Groupe de comptes par défaut par dossier (pré-coché dans « Programmer »).
+- **Relecture** toutes les `GDRIVE_SCAN_MINUTES` (et « Relire maintenant ») : vidéos du dossier et de ses
+  sous-dossiers (3 niveaux). Un fichier `.txt` du même nom que la vidéo devient sa légende, tant qu'elle n'a pas
+  été modifiée dans cm. Vidéo supprimée du Drive : retirée de la bibliothèque.
+- **Publication** : `POST /api/cm/posts` avec `asset_id` (pas d'envoi). À l'heure de la 1re publication, la vidéo
+  est téléchargée une fois pour tous les comptes, puis la copie locale est effacée quand tout est terminé.
+  Option « Ranger dans Publié » (robot Éditeur) : vidéo déplacée dans un sous-dossier `Publié` du Drive.
+- Un compte de service n'a pas d'espace de stockage : il peut lire et déplacer, mais pas créer de fichier dans
+  « Mon Drive » (seulement dans un Drive partagé Workspace).
+- Routes : `routers/cm_library.py` ; services `gdrive_service.py`, `cm_library.py` ; tests `test_cm_library.py`.
+
 ## Dev
 
 `cd cm && npm install && npm run dev` (port 3003, proxy `/api` vers `localhost:8001`). Tests : `api/tests/test_cm.py`.

@@ -106,7 +106,7 @@ function AccountMenu() {
 export default function Layout({ fallback }: { fallback?: ReactNode }) {
   const { pathname } = useLocation()
   const composing = pathname === '/nouvelle'
-  const title = composing ? 'Nouvelle publication' : NAV.find(n => (n.end ? pathname === n.to : pathname.startsWith(n.to)))?.label
+  const title = composing ? 'Nouvelle publication' : pathname.startsWith('/bibliotheque') ? 'Bibliothèque' : NAV.find(n => (n.end ? pathname === n.to : pathname.startsWith(n.to)))?.label
   useEffect(() => { window.scrollTo(0, 0) }, [pathname])
 
   return (
@@ -117,6 +117,7 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
         <Link to="/nouvelle" className="btn btn-primary btn-block" style={{ margin: '4px 0 10px' }}><Icon name="plus" />Nouvelle publication</Link>
         <nav className="side-nav" aria-label="Navigation principale">
           {NAV.map(n => <NavLink key={n.to} to={n.to} end={n.end}><Icon name={n.icon} />{n.label}</NavLink>)}
+          <NavLink to="/bibliotheque"><Icon name="layers" />Bibliothèque</NavLink>
           <NavLink to="/videos"><Icon name="video" />Vidéos</NavLink>
         </nav>
         <div className="side-label">Périmètre</div>

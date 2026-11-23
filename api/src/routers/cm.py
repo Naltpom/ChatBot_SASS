@@ -57,9 +57,11 @@ from src.models.cm import (
     T_ROUTINE_CLAIMED,
     T_SCHEDULED,
     CmAccountStat,
+    CmAsset,
     CmGroup,
     CmGroupAccount,
     CmPost,
+    CmSource,
     CmTarget,
     CmVideo,
     InstagramAccount,
@@ -902,7 +904,9 @@ class PostIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     caption: str = Field(default="", max_length=5000)
     file_name: str = Field(default="", max_length=255)
-    video_size: int = Field(gt=0)
+    # Vidéo envoyée depuis l'appareil (video_size) OU vidéo de la bibliothèque Drive (asset_id).
+    video_size: int = Field(default=0, ge=0)
+    asset_id: Optional[int] = None
     targets: list[TargetIn] = Field(min_length=1, max_length=MAX_TARGETS)
 
 
@@ -922,7 +926,7 @@ def _post_out(post: CmPost, targets: list[CmTarget], names: dict) -> dict:
     return {
         "id": post.id, "title": post.title, "caption": post.caption, "file_name": post.file_name,
         "video_size": post.video_size, "duration_sec": post.duration_sec, "status": post.status,
-        "has_media": bool(post.media_path), "created_at": cm.iso(post.created_at),
+        "has_media": bool(post.media_path), "asset_id": post.asset_id, "created_at": cm.iso(post.created_at),
         "targets": [_target_out(t, names) for t in sorted(targets, key=lambda x: (x.scheduled_at, x.id))],
     }
 
@@ -955,10 +959,55 @@ async def _targets_of(db: AsyncSession, post_ids: list[int]) -> dict[int, list[C
     return out
 
 
+async def _get_asset(db: AsyncSession, tenant: Tenant, asset_id: int) -> CmAsset:
+    row = (await db.execute(select(CmAsset, CmSource).join(CmSource, CmSource.id == CmAsset.source_id)
+                            .where(CmAsset.id == asset_id))).first()
+    if row is None or row[1].revoked_at is not None or not _same(row[1], tenant):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo introuvable dans la bibliothèque.")
+    return row[0]
+
+
+async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset: CmAsset, title: str,
+                             caption: str, planned: list) -> dict:
+    """Publication d'une vidéo de la bibliothèque : rien à envoyer, prête tout de suite. Le
+    fichier sera téléchargé depuis le Drive à l'heure de la 1re publication."""
+    if not await post_limiter.check(tenant.key):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Limite quotidienne de publications atteinte. Réessayez demain.")
+    post = CmPost(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, user_id=user.id,
+                  title=title, caption=caption or None, file_name=asset.name[:255], video_size=asset.size or 0,
+                  received_bytes=asset.size or 0, mime_type=asset.mime_type, duration_sec=asset.duration_sec,
+                  media_path=None, asset_id=asset.id, status=POST_READY)
+    db.add(post)
+    await db.flush()
+    now = utcnow()
+    targets, due = [], []
+    for t, options, when in planned:
+        row = CmTarget(post_id=post.id, platform=t.platform, account_id=t.account_id, scheduled_at=max(when, now),
+                       options=options, status=T_SCHEDULED)
+        db.add(row)
+        targets.append(row)
+    await db.commit()
+    for row in targets:
+        if row.scheduled_at <= now:
+            due.append(row.id)
+    for target_id in due:
+        cm_jobs.launch(target_id)
+    _, names = await _tenant_index(db, tenant)
+    return {"post_id": post.id, "ready": True, "post": _post_out(post, targets, names)}
+
+
 @router.post("/posts")
 async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, body.org_id)
-    if body.video_size > cm.max_upload_bytes():
+    asset = None
+    if body.asset_id is not None:
+        asset = await _get_asset(db, tenant, body.asset_id)
+        if asset.removed_at is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Cette vidéo n'est plus dans le dossier Drive.")
+    elif body.video_size <= 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choisissez une vidéo.")
+    size = (asset.size or 0) if asset else body.video_size
+    if size > cm.max_upload_bytes():
         raise HTTPException(413, f"Vidéo trop volumineuse ({settings.CM_MAX_UPLOAD_MB} Mo maximum).")
     title = body.title.strip()
     if not title:
@@ -976,7 +1025,13 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
                                 f"{cm.ACCOUNT_LABEL[t.platform]} « {cm.account_name(t.platform, acc)} » : publication "
                                 "impossible pour le moment (compte à reconnecter ou module indisponible).")
         options = cm.normalize_options(t.platform, acc, t.options, title, body.caption)
+        if asset is not None and asset.duration_sec and asset.mime_type:
+            err = cm.check_video_for(t.platform, acc, asset.mime_type, asset.duration_sec, size)
+            if err:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
         planned.append((t, options, cm.check_schedule(t.scheduled_at)))
+    if asset is not None:
+        return await _create_from_asset(db, tenant, user, asset, title, body.caption, planned)
     receiving = (await db.execute(select(func.count()).select_from(CmPost).where(
         tenant.where(CmPost), CmPost.status == POST_RECEIVING))).scalar() or 0
     if receiving >= MAX_RECEIVING:
@@ -1188,7 +1243,7 @@ async def retry_target(target_id: int, body: RetryIn = RetryIn(), db: AsyncSessi
     t, post, tenant = await _get_target(db, user, target_id)
     if t.status != T_FAILED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Seule une publication en échec peut être relancée.")
-    if post.status != POST_READY or not post.media_path:
+    if post.status != POST_READY or not (post.media_path or post.asset_id):
         raise HTTPException(status.HTTP_409_CONFLICT, "La vidéo n'est plus disponible : recréez la publication.")
     acc = await cm.get_account(db, tenant, t.platform, t.account_id)
     if not cm.can_publish(t.platform, acc):

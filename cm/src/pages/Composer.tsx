@@ -4,12 +4,13 @@
 // si coupées chez le créateur, divulgation commerciale, Music Usage Confirmation avant l'envoi.
 // Rien n'est envoyé à une plateforme avant l'heure choisie.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  creatorInfo, createPost, getAccounts, putPart, submitPost, PLATFORM_LABEL,
-  type Account, type CreatorInfo, type Platform,
+  creatorInfo, createPost, getAccounts, getAsset, getRobot, putPart, submitPost, PLATFORM_LABEL,
+  type Account, type Asset, type CreatorInfo, type Platform,
 } from '../api'
-import { Avatar, GroupDot, Icon, Loading, Msg } from '../components/ui'
+import { Avatar, GroupDot, Icon, Loading, Msg, Sheet } from '../components/ui'
+import { AssetGrid } from './Library'
 import { fmtDuration, fmtSize, TIKTOK_BC_URL, TIKTOK_MUSIC_URL, TIKTOK_PRIVACY, toLocalInput } from '../format'
 import { useLoad, useSession } from '../session'
 
@@ -65,6 +66,27 @@ export default function Composer() {
   const [times, setTimes] = useState<Record<string, string>>({})
   const [progress, setProgress] = useState<number | null>(null)
   const [err, setErr] = useState('')
+  // Vidéo de la bibliothèque (dossier Drive) : rien à envoyer, téléchargée à l'heure de publication.
+  const [params] = useSearchParams()
+  const [asset, setAsset] = useState<Asset | null>(null)
+  const [picking, setPicking] = useState(false)
+  const [pickQ, setPickQ] = useState('')
+  const robot = useLoad(() => getRobot(), [])
+  const useAsset = (a: Asset) => {
+    setAsset(a); setPicking(false); setErr('')
+    setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null)
+    setDuration(a.duration_sec)
+    setTitle(a.title.slice(0, 200))
+    setCaption(a.caption || '')
+    if (a.group_id) add(groupAccounts(a.group_id))
+  }
+  useEffect(() => {
+    const id = Number(params.get('video'))
+    if (!id || asset) return
+    getAsset(org, id).then(a => { if (accounts.data) useAsset(a); else setPendingAsset(a) }).catch(e => setErr((e as Error).message))
+  }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [pendingAsset, setPendingAsset] = useState<Asset | null>(null)
+  useEffect(() => { if (pendingAsset && accounts.data) { useAsset(pendingAsset); setPendingAsset(null) } }, [pendingAsset, accounts.data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview) }, [preview])
 
@@ -110,7 +132,7 @@ export default function Composer() {
   const set = <T extends Opts>(k: string, patch: Partial<T>) => setOpts(o => ({ ...o, [k]: { ...(o[k] as T), ...patch } }))
 
   const onFile = (f: File | null) => {
-    setFile(f); setDuration(null); setErr('')
+    setFile(f); setDuration(null); setErr(''); setAsset(null)
     if (preview) URL.revokeObjectURL(preview)
     setPreview(f ? URL.createObjectURL(f) : null)
     if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, '').slice(0, 100))
@@ -119,7 +141,7 @@ export default function Composer() {
   // Problèmes bloquants, par compte et en général.
   const problems = useMemo(() => {
     const out: string[] = []
-    if (!file) out.push('Choisissez une vidéo.')
+    if (!file && !asset) out.push('Choisissez une vidéo.')
     if (!title.trim()) out.push('Donnez un titre à la publication.')
     if (!chosen.length) out.push('Choisissez au moins un compte.')
     if (file && config && file.size > config.max_upload_bytes) out.push(`Vidéo trop volumineuse (${fmtSize(config.max_upload_bytes)} au plus).`)
@@ -148,7 +170,7 @@ export default function Composer() {
       if (when === 'at' && !sameTime && times[k] && new Date(times[k]).getTime() < Date.now() - 60000) out.push(`${n} : l'heure choisie est déjà passée.`)
     }
     return out
-  }, [file, title, chosen, opts, creators, duration, when, at, sameTime, times, config]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [file, asset, title, chosen, opts, creators, duration, when, at, sameTime, times, config]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const buildTarget = (a: Account) => {
     const k = key(a), o = opts[k]
@@ -172,14 +194,21 @@ export default function Composer() {
   }
 
   const publish = async () => {
-    if (!file || problems.length) return
+    if ((!file && !asset) || problems.length) return
     setErr(''); setProgress(0)
     try {
+      if (asset) {
+        await createPost({ org_id: org, title: title.trim(), caption, asset_id: asset.id, targets: chosen.map(buildTarget) })
+        nav('/planning', { state: { flash: when === 'now' ? 'Publication lancée depuis la bibliothèque.' : 'Publication programmée : la vidéo sera récupérée dans le Drive à l’heure prévue.' } })
+        return
+      }
+      if (!file) return
       const plan = await createPost({ org_id: org, title: title.trim(), caption, file_name: file.name, video_size: file.size,
         targets: chosen.map(buildTarget) })
-      for (let i = 0; i < plan.part_count; i++) {
-        await putPart(plan.post_id, i, file.slice(i * plan.part_size, Math.min(file.size, (i + 1) * plan.part_size)))
-        setProgress((i + 1) / plan.part_count)
+      const parts = plan.part_count || 0, partSize = plan.part_size || file.size
+      for (let i = 0; i < parts; i++) {
+        await putPart(plan.post_id, i, file.slice(i * partSize, Math.min(file.size, (i + 1) * partSize)))
+        setProgress((i + 1) / parts)
       }
       await submitPost(plan.post_id)
       nav('/planning', { state: { flash: when === 'now' ? 'Publication lancée.' : 'Publication programmée.' } })
@@ -211,16 +240,38 @@ export default function Composer() {
       <div className="compose">
         <div className="side col" style={{ gap: 16 }}>
           <Section title="Vidéo">
-            <label className="drop">
-              <span className="drop-ico"><Icon name={file ? 'video' : 'upload'} size={22} /></span>
-              <span className="strong ellipsis" style={{ maxWidth: '100%' }}>{file ? file.name : 'Choisir une vidéo'}</span>
-              <span className="tiny muted">{file ? `${fmtSize(file.size)} · ${fmtDuration(duration)}` : `MP4 ou MOV, vertical, ${config ? fmtSize(config.max_upload_bytes) : '1 Go'} au plus`}</span>
-              <input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" disabled={busy} className="sr-only"
-                     onChange={e => onFile(e.target.files?.[0] || null)} />
-            </label>
-            {preview && (
-              <video src={preview} controls muted playsInline preload="metadata" onLoadedMetadata={e => setDuration(e.currentTarget.duration)}
-                     style={{ width: '100%', maxHeight: 420, borderRadius: 12, background: '#000' }} />
+            {asset ? (
+              <div className="row-nw" style={{ gap: 12, alignItems: 'flex-start' }}>
+                {asset.thumbnail ? <img src={asset.thumbnail} alt="" width={72} height={104} style={{ width: 72, height: 104, objectFit: 'cover', borderRadius: 10, flex: 'none', background: 'var(--surface-2)' }} />
+                  : <span style={{ width: 72, height: 104, borderRadius: 10, background: 'var(--surface-2)', flex: 'none' }} />}
+                <div className="col small grow" style={{ gap: 4, minWidth: 0 }}>
+                  <span className="strong ellipsis">{asset.name}</span>
+                  <span className="muted">{fmtDuration(asset.duration_sec)}{asset.size ? ` · ${fmtSize(asset.size)}` : ''}</span>
+                  <span className="muted row-nw" style={{ gap: 6 }}><Icon name="layers" size={14} /><span className="ellipsis">{asset.source_name}{asset.folder ? ` / ${asset.folder}` : ''}</span></span>
+                  <span className="tiny muted">Récupérée dans le Drive à l’heure de la publication.</span>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setPicking(true)}>Changer</button>
+                    <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => { setAsset(null); setDuration(null) }}>Envoyer un fichier à la place</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <label className="drop">
+                  <span className="drop-ico"><Icon name={file ? 'video' : 'upload'} size={22} /></span>
+                  <span className="strong ellipsis" style={{ maxWidth: '100%' }}>{file ? file.name : 'Choisir une vidéo'}</span>
+                  <span className="tiny muted">{file ? `${fmtSize(file.size)} · ${fmtDuration(duration)}` : `MP4 ou MOV, vertical, ${config ? fmtSize(config.max_upload_bytes) : '1 Go'} au plus`}</span>
+                  <input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" disabled={busy} className="sr-only"
+                         onChange={e => onFile(e.target.files?.[0] || null)} />
+                </label>
+                {robot.data?.enabled && (
+                  <button type="button" className="btn" disabled={busy} onClick={() => setPicking(true)}><Icon name="layers" />Choisir dans la bibliothèque</button>
+                )}
+                {preview && (
+                  <video src={preview} controls muted playsInline preload="metadata" onLoadedMetadata={e => setDuration(e.currentTarget.duration)}
+                         style={{ width: '100%', maxHeight: 420, borderRadius: 12, background: '#000' }} />
+                )}
+              </>
             )}
             <label className="field">Titre
               <input className="input" value={title} maxLength={200} disabled={busy} onChange={e => setTitle(e.target.value)} placeholder="Nom de la vidéo (titre YouTube par défaut)" />
@@ -297,7 +348,7 @@ export default function Composer() {
             </p>
           )}
           {err && <Msg kind="err">{err}</Msg>}
-          {problems.length > 0 && chosen.length > 0 && file && (
+          {problems.length > 0 && chosen.length > 0 && (file || asset) && (
             <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{problems.map(p => <li key={p}>{p}</li>)}</ul>
           )}
           <div className="actionbar">
@@ -314,6 +365,16 @@ export default function Composer() {
           </div>
         </div>
       </div>
+      {picking && (
+        <Sheet title="Choisir dans la bibliothèque" onClose={() => setPicking(false)}>
+          <div className="col" style={{ gap: 12 }}>
+            <input className="input" type="search" placeholder="Rechercher (nom, légende, dossier)" aria-label="Rechercher une vidéo"
+                   value={pickQ} onChange={e => setPickQ(e.target.value)} />
+            <AssetGrid state="all" q={pickQ.trim()} onOpen={useAsset} />
+            <Link className="small" to="/bibliotheque">Gérer les dossiers Drive</Link>
+          </div>
+        </Sheet>
+      )}
     </>
   )
 }

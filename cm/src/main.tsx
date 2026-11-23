@@ -18,6 +18,7 @@ const Composer = lazy(() => import('./pages/Composer'))
 const Stats = lazy(() => import('./pages/Stats'))
 const Videos = lazy(() => import('./pages/Videos'))
 const Accounts = lazy(() => import('./pages/Accounts'))
+const Library = lazy(() => import('./pages/Library'))
 const Callback = lazy(() => import('./pages/Callback'))
 
 const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie']
@@ -32,7 +33,7 @@ function PageLoading() {
 }
 
 const TITLES: Record<string, string> = {
-  '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes',
+  '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque',
   '/nouvelle': 'Nouvelle publication', '/connexion': 'Connexion', '/inscription': 'Créer un compte',
   '/mot-de-passe-oublie': 'Mot de passe oublié',
 }
@@ -90,6 +91,7 @@ function Shell() {
         <Route path="/stats" element={<Stats />} />
         <Route path="/videos" element={<Videos />} />
         <Route path="/comptes" element={<Accounts />} />
+        <Route path="/bibliotheque" element={<Library />} />
         <Route path="/tiktok/callback" element={<Callback platform="tiktok" />} />
         <Route path="/youtube/callback" element={<Callback platform="youtube" />} />
         <Route path="/instagram/callback" element={<Callback platform="instagram" />} />
