@@ -657,3 +657,10 @@ video.pub-media { width: min(100%, 220px); cursor: default; }
 .pcard-err { margin: 0; padding: 0 12px 10px; font-size: 13px; color: var(--danger, #B91C1C); }
 .pcard-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 10px; }
 .pdl { grid-template-columns: 120px minmax(0, 1fr); }
+
+/* Pages légales (/privacy, /terms) */
+.legal h1 { font-size: 26px; line-height: 1.25; margin: 16px 0 8px; }
+.legal h2 { font-size: 18px; margin: 28px 0 8px; }
+.legal ul { padding-left: 20px; }
+.legal li { margin: 4px 0; }
+.legal code { font-size: 13px; overflow-wrap: anywhere; }

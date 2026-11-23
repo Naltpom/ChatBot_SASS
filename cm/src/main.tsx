@@ -46,8 +46,9 @@ const Comments = lazyPage(() => import('./pages/Comments'))
 const VideoSheet = lazyPage(() => import('./pages/VideoSheet'))
 const Callback = lazyPage(() => import('./pages/Callback'))
 const DriveCallback = lazyPage(() => import('./pages/DriveCallback'))
+const Legal = lazyPage(() => import('./pages/Legal'))
 
-const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie']
+const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie', '/privacy', '/terms']
 const HINT = 'cm.session'
 const hadSession = () => { try { return localStorage.getItem(HINT) === '1' } catch { return false } }
 
@@ -80,7 +81,7 @@ function Shell() {
   const { me, ready } = useSession()
   const { pathname } = useLocation()
   useEffect(() => {
-    if (pathname === '/' && !me) return            // la landing pose son propre titre
+    if ((pathname === '/' && !me) || pathname === '/privacy' || pathname === '/terms') return   // la landing et les pages légales posent leur titre
     document.title = `${TITLES[pathname] ? TITLES[pathname] + ' · ' : ''}Chapote CM`
   }, [pathname, me])
 
@@ -100,6 +101,8 @@ function Shell() {
         <Route path="/connexion" element={<Login />} />
         <Route path="/inscription" element={<Register />} />
         <Route path="/mot-de-passe-oublie" element={<Forgot />} />
+        <Route path="/privacy" element={<Legal doc="privacy" />} />
+        <Route path="/terms" element={<Legal doc="terms" />} />
         <Route path="*" element={ready ? <ToLogin /> : <Splash />} />
       </Routes>
       </Suspense>
@@ -110,6 +113,8 @@ function Shell() {
       <Route path="/connexion" element={<AfterLogin />} />
       <Route path="/inscription" element={<AfterLogin />} />
       <Route path="/mot-de-passe-oublie" element={<Navigate to="/" replace />} />
+      <Route path="/privacy" element={<Suspense fallback={<Splash />}><Legal doc="privacy" /></Suspense>} />
+      <Route path="/terms" element={<Suspense fallback={<Splash />}><Legal doc="terms" /></Suspense>} />
       <Route element={<Layout fallback={<PageLoading />} />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/planning" element={<Planning />} />

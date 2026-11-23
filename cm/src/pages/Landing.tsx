@@ -186,7 +186,7 @@ export default function Landing() {
         <div className="lp-wrap lp-foot-in">
           <div className="col" style={{ gap: 10 }}><Brand to="/" /><p>Publication programmée et statistiques pour TikTok, YouTube et Instagram.</p></div>
           <div><h2 className="lp-fh">Chapote</h2><ul><li><a href={chapote}>chapote.fr</a></li><li><a href="https://music.chapote.fr">music.chapote.fr</a></li><li><Link to="/connexion">Connexion</Link></li></ul></div>
-          <div><h2 className="lp-fh">Légal</h2><ul><li><a href={`${chapote}/legal/mentions-legales`}>Mentions légales</a></li><li><a href={`${chapote}/legal/cgu`}>Conditions d’utilisation</a></li><li><a href={`${chapote}/legal/confidentialite`}>Confidentialité</a></li></ul></div>
+          <div><h2 className="lp-fh">Légal</h2><ul><li><Link to="/privacy">Confidentialité</Link></li><li><Link to="/terms">Conditions d’utilisation</Link></li><li><a href={`${chapote}/legal/mentions-legales`}>Mentions légales</a></li></ul></div>
           <div><h2 className="lp-fh">Plateformes</h2><ul><li><a href={`${chapote}/legal/tiktok-confidentialite`}>TikTok</a></li><li><a href={`${chapote}/legal/youtube-confidentialite`}>YouTube</a></li><li><a href={`${chapote}/legal/instagram-confidentialite`}>Instagram</a></li></ul></div>
         </div>
       </footer>

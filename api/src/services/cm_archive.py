@@ -70,8 +70,16 @@ class ArchiveError(Exception):
 # Connexion Google de l'utilisateur (drive.file)
 # --------------------------------------------------------------------------
 
+def _client_id() -> Optional[str]:
+    return settings.GOOGLE_DRIVE_CLIENT_ID or settings.GDRIVE_OAUTH_CLIENT_ID
+
+
+def _client_secret() -> Optional[str]:
+    return settings.GOOGLE_DRIVE_CLIENT_SECRET or settings.GDRIVE_OAUTH_CLIENT_SECRET
+
+
 def oauth_enabled() -> bool:
-    return bool(settings.GDRIVE_OAUTH_CLIENT_ID and settings.GDRIVE_OAUTH_CLIENT_SECRET)
+    return bool(_client_id() and _client_secret())
 
 
 def redirect_uri() -> str:
@@ -80,14 +88,14 @@ def redirect_uri() -> str:
 
 def authorize_url(state: str) -> str:
     return f"{AUTHORIZE_URL}?" + urlencode({
-        "client_id": settings.GDRIVE_OAUTH_CLIENT_ID, "redirect_uri": redirect_uri(), "response_type": "code",
+        "client_id": _client_id(), "redirect_uri": redirect_uri(), "response_type": "code",
         "scope": OAUTH_SCOPE, "access_type": "offline", "prompt": "select_account consent", "state": state})
 
 
 async def _token_post(data: dict) -> dict:
     async with gd._client() as c:
         resp = await c.post(settings.GDRIVE_TOKEN_URL, data={
-            "client_id": settings.GDRIVE_OAUTH_CLIENT_ID, "client_secret": settings.GDRIVE_OAUTH_CLIENT_SECRET, **data})
+            "client_id": _client_id(), "client_secret": _client_secret(), **data})
     body = gd._json(resp)
     if resp.status_code >= 400 or not body.get("access_token"):
         code = body.get("error") or f"http_{resp.status_code}"
@@ -105,6 +113,8 @@ async def user_token(link: CmDriveLink) -> str:
     cached = _user_tokens.get(link.id)
     if cached and cached[1] - 120 > time.time():
         return cached[0]
+    if not link.refresh_token_enc:
+        raise ArchiveError("revoked", "Google Drive déconnecté : reconnectez-le.")
     body = await _token_post({"grant_type": "refresh_token", "refresh_token": decrypt_secret(link.refresh_token_enc)})
     _user_tokens[link.id] = (body["access_token"], time.time() + int(body.get("expires_in") or 3600))
     return body["access_token"]
@@ -180,14 +190,20 @@ async def _ensure_source(db: AsyncSession, link: CmDriveLink, user=None) -> None
     await db.commit()
 
 
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+
+
 async def disconnect(db: AsyncSession, link: CmDriveLink) -> None:
-    try:
-        async with gd._client() as c:
-            await c.post("https://oauth2.googleapis.com/revoke", data={"token": decrypt_secret(link.refresh_token_enc)})
-    except httpx.HTTPError:
-        pass
-    link.revoked_at = utcnow()
+    """« Déconnecter Google Drive » : autorisation révoquée chez Google, jeton supprimé de la base.
+    Les fichiers déjà archivés restent dans le Drive de l'utilisateur."""
+    if link.refresh_token_enc:
+        try:
+            async with gd._client() as c:
+                await c.post(REVOKE_URL, data={"token": decrypt_secret(link.refresh_token_enc)})
+        except httpx.HTTPError:
+            logger.info("cm : révocation Google Drive injoignable (jeton supprimé quand même)")
     _user_tokens.pop(link.id, None)
+    await db.delete(link)
     await db.commit()
 
 
@@ -284,6 +300,9 @@ async def _destination(db: AsyncSession, post: CmPost) -> Optional[tuple[str, st
         token = await user_token(link)
     except ArchiveError as e:
         link.error = e.message
+        if e.code == "revoked":          # accès retiré chez Google : déconnecté, jeton effacé
+            link.revoked_at, link.refresh_token_enc = utcnow(), ""
+            _user_tokens.pop(link.id, None)
         await db.commit()
         raise
     if link.error:
