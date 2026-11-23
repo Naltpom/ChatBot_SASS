@@ -71,8 +71,10 @@ from src.models.cm import (
 from src.models.user import Membership, Organization, User
 from src.routers.tiktok import Tenant, _tenant
 from src.services import cm_access
+from src.services import cm_archive
 from src.services import cm_paging as paging
 from src.services import cm_jobs
+from src.services import cm_library
 from src.services import cm_service as cm
 from src.services import instagram_service as ig
 from src.services import tiktok_service as tt
@@ -1119,6 +1121,14 @@ class TargetIn(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class ArchiveIn(BaseModel):
+    """Conte (compte « contes ») : dossier contes/<dossier>/ et partie (« 1 », « 2 »…, « longue »)."""
+    dossier: Optional[str] = Field(None, max_length=150)      # ex. « KHM-040 — Le Voleur »
+    partie: Optional[str] = Field(None, max_length=20)
+    id: Optional[str] = Field(None, max_length=100)           # id du conte (infos.json → id)
+    titre: Optional[str] = Field(None, max_length=200)        # titre du conte
+
+
 class PostIn(BaseModel):
     org_id: Optional[int] = None
     title: str = Field(min_length=1, max_length=200)
@@ -1130,6 +1140,7 @@ class PostIn(BaseModel):
     # Référence de l'outil qui publie (« compte/id », ex. claude-cloud) : relie la publication à sa vidéo
     # du Drive (infos.json) et refuse un doublon tant qu'une publication active porte la même référence.
     ref: Optional[str] = Field(None, max_length=200)
+    archive: Optional[ArchiveIn] = None
     targets: list[TargetIn] = Field(min_length=1, max_length=MAX_TARGETS)
 
 
@@ -1150,6 +1161,7 @@ def _post_out(post: CmPost, targets: list[CmTarget], names: dict) -> dict:
         "id": post.id, "ref": post.ref, "title": post.title, "caption": post.caption, "file_name": post.file_name,
         "video_size": post.video_size, "duration_sec": post.duration_sec, "status": post.status,
         "has_media": bool(post.media_path), "asset_id": post.asset_id, "created_at": cm.iso(post.created_at),
+        "archive": cm_archive.archive_out(post),
         "targets": [_target_out(t, names) for t in sorted(targets, key=lambda x: (x.scheduled_at, x.id))],
     }
 
@@ -1320,7 +1332,10 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
                   title=title, caption=body.caption or None,
                   file_name=os.path.basename(body.file_name)[:255] or None, video_size=body.video_size,
                   received_bytes=0, media_path=str(path), status=POST_RECEIVING, ref=ref,
-                  asset_id=await _asset_by_ref(db, tenant, ref))
+                  asset_id=await _asset_by_ref(db, tenant, ref),
+                  # Publication de l'outil : archivée dans le Drive de l'espace (cm_archive).
+                  archive_state="pending" if ref else None,
+                  archive={"conte": body.archive.model_dump(exclude_none=True)} if ref and body.archive else None)
     db.add(post)
     await db.flush()
     for t, options, when in planned:
@@ -1444,7 +1459,7 @@ async def add_targets(post_id: int, body: TargetsAddIn, db: AsyncSession = Depen
     cm_access.require(tenant, "edit")
     if post.status == POST_CANCELLED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication est annulée : recréez-la.")
-    if post.status == POST_READY and not (post.media_path or post.asset_id):
+    if post.status == POST_READY and not (post.media_path or post.asset_id or (post.archive or {}).get("video_id")):
         raise HTTPException(status.HTTP_409_CONFLICT, "La vidéo n'est plus disponible : recréez la publication.")
     existing = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
     active = {t.platform: t for t in existing if t.status != T_CANCELLED}
@@ -1484,6 +1499,8 @@ async def add_targets(post_id: int, body: TargetsAddIn, db: AsyncSession = Depen
 async def list_posts(org_id: Optional[int] = Query(None), start: Optional[datetime] = None,
                      end: Optional[datetime] = None, group_id: Optional[int] = Query(None),
                      q: Optional[str] = Query(None, max_length=100),
+                     ref: Optional[str] = Query(None, max_length=200),
+                     ref_prefix: Optional[str] = Query(None, min_length=1, max_length=200),
                      status_: Optional[Literal["upcoming", "published", "failed"]] = Query(None, alias="status"),
                      order: Literal["asc", "desc"] = "asc",
                      limit: int = Query(200, ge=1, le=500), cursor: Optional[str] = Query(None, max_length=300),
@@ -1491,13 +1508,21 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
                      db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Planning : publications dont une cible tombe entre `start` et `end` (défaut : -30 j / +90 j),
     triées par première heure prévue (asc ou desc), recherche dans titre et légende, pages par curseur.
-    Avec un groupe / un compte, seules leurs cibles sont renvoyées. Tout le filtrage est en SQL."""
+    Avec un groupe / un compte, seules leurs cibles sont renvoyées. Tout le filtrage est en SQL.
+    `ref` (exacte) / `ref_prefix` (ex. « kiwi/ ») : publications de l'outil, sans fenêtre de dates par défaut."""
     tenant = await _tenant(db, user, org_id)
     now = utcnow()
-    start = cm.to_utc_naive(start) or now - timedelta(days=30)
-    end = cm.to_utc_naive(end) or now + timedelta(days=90)
-    conds = [tenant.where(CmPost), CmPost.status != POST_RECEIVING,
-             CmTarget.scheduled_at >= start, CmTarget.scheduled_at <= end]
+    by_ref = bool(ref or ref_prefix)
+    conds = [tenant.where(CmPost), CmPost.status != POST_RECEIVING]
+    # Par référence de l'outil (« compte/ » : toutes les publications d'un compte) : sans fenêtre de dates par défaut.
+    if ref:
+        conds.append(CmPost.ref == ref.strip())
+    if ref_prefix:
+        conds.append(CmPost.ref.like(paging.escape_like(ref_prefix.strip()) + "%", escape="\\"))
+    if start or not by_ref:
+        conds.append(CmTarget.scheduled_at >= (cm.to_utc_naive(start) or now - timedelta(days=30)))
+    if end or not by_ref:
+        conds.append(CmTarget.scheduled_at <= (cm.to_utc_naive(end) or now + timedelta(days=90)))
     accounts, names = await _tenant_index(db, tenant, group_id)
     narrowed = group_id is not None or tenant.allowed is not None or _ACCOUNT_SCOPE.get() is not None
     if narrowed:
@@ -1523,6 +1548,30 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
         keep = {(p, a.id) for p, a in accounts}
         targets = {pid: [t for t in ts if (t.platform, t.account_id) in keep] for pid, ts in targets.items()}
     return [_post_out(posts[i], targets.get(i, []), names) for i in ids if i in posts]
+
+
+@router.get("/posts/{post_id}/video")
+async def post_video(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Fichier vidéo de la publication (relu depuis le Drive / l'archive s'il n'est plus sur le serveur)."""
+    post, tenant = await _get_post(db, user, post_id)
+    if post.status != POST_READY:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo indisponible")
+    if not post.media_path or not os.path.exists(post.media_path):
+        try:
+            post = await cm_library.ensure_media(db, post.id)
+        except cm_library.MediaError as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, e.message)
+    return FileResponse(post.media_path, media_type=post.mime_type or "video/mp4",
+                        filename=f"cm-{post.id}.{'mov' if post.mime_type == 'video/quicktime' else 'mp4'}")
+
+
+@router.get("/posts/{post_id}/cover")
+async def post_cover(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    post, tenant = await _get_post(db, user, post_id)
+    if not post.cover_path or not os.path.exists(post.cover_path):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pas de couverture")
+    return FileResponse(post.cover_path, media_type="image/png" if post.cover_path.endswith(".png") else "image/jpeg",
+                        filename=f"cm-{post.id}-couverture.{post.cover_path.rsplit('.', 1)[-1]}")
 
 
 @router.get("/posts/{post_id}")
@@ -1616,7 +1665,7 @@ async def retry_target(target_id: int, body: RetryIn = RetryIn(), db: AsyncSessi
     cm_access.require(tenant, "edit")
     if t.status != T_FAILED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Seule une publication en échec peut être relancée.")
-    if post.status != POST_READY or not (post.media_path or post.asset_id):
+    if post.status != POST_READY or not (post.media_path or post.asset_id or (post.archive or {}).get("video_id")):
         raise HTTPException(status.HTTP_409_CONFLICT, "La vidéo n'est plus disponible : recréez la publication.")
     acc = await cm.get_account(db, tenant, t.platform, t.account_id)
     if not cm.can_publish(t.platform, acc):

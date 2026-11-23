@@ -131,3 +131,8 @@ def like(q: Optional[str]) -> Optional[str]:
     if not q:
         return None
     return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def escape_like(s: str) -> str:
+    """Texte pris au pied de la lettre dans un LIKE (avec escape « \\ »)."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
