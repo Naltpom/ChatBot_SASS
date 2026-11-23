@@ -146,6 +146,12 @@ async def health():
     return {"ok": True, "tiktok": tt.is_enabled(), "youtube": yt.is_enabled(), "instagram_api": ig.is_enabled()}
 
 
+@router.get("/public-config")
+async def public_config():
+    """Avant connexion : bouton Google (Client ID public) et lien vers chapote.fr."""
+    return {"google_client_id": settings.GOOGLE_CLIENT_ID or None, "app_url": settings.APP_URL}
+
+
 @router.get("/config")
 async def config(user: User = Depends(get_cm_user)):
     return {

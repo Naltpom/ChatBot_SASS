@@ -1,7 +1,14 @@
-# Site cm.chapote.fr : page statique servie par nginx, qui relaie aussi /api/cm/,
+# Site cm.chapote.fr : bundle statique servi par nginx, qui relaie aussi /api/cm/,
 # /api/tiktok/, /api/youtube/ et l'authentification vers le service `api` (même origine).
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json ./
+RUN npm install --no-audit --no-fund
+COPY . .
+RUN npm run build
+
 FROM nginx:1.27-alpine
 # modèle : ${CM_PROXY_KEY} remplacé au démarrage (entrypoint de l'image nginx)
 COPY nginx.conf /etc/nginx/templates/default.conf.template
-COPY index.html /usr/share/nginx/html/index.html
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
