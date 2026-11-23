@@ -10,6 +10,8 @@
   (une seule fois pour tous les comptes), puis la copie locale est supprimée quand tout est
   terminé. Avec le rôle Éditeur et l'option activée, la vidéo est rangée dans « Publié ».
 """
+import json
+import re
 import logging
 from collections import Counter
 import os
@@ -47,6 +49,46 @@ VIDEO_MIME_PREFIX = "video/"
 SIDECAR_EXT = (".txt",)
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp")
 COVER_NAMES = {"couverture", "cover", "miniature", "thumbnail", "vignette"}
+INFOS_NAME = "infos.json"
+RESERVE_DIRS = {"réserves", "reserves", "réserve", "reserve"}
+LINK_KEYS = ("lien", "permalink", "url", "media_id", "video_id")
+PUBLISHED = {"publiee", "publiée", "published", "publie", "publié"}
+PLANNED = {"prete", "prête", "programmee", "programmée", "planifiee", "planifiée", "scheduled", "ready"}
+PART_RE = re.compile(r"partie\s*(\d+)", re.I)
+
+
+def infos_for(meta: Optional[dict], video_name: str) -> Optional[dict]:
+    """infos.json d'un dossier ; s'il décrit plusieurs vidéos (« parties » d'un conte), celle-ci."""
+    if not isinstance(meta, dict):
+        return None
+    parts = meta.get("parties")
+    if isinstance(parts, dict) and parts:
+        m = PART_RE.search(video_name or "")
+        key = m.group(1) if m else ("longue" if "longue" in (video_name or "").lower() else None)
+        sub = parts.get(key) if key else None
+        return {**{k: v for k, v in meta.items() if k != "parties"}, **sub} if isinstance(sub, dict) else meta
+    return meta
+
+
+def classify(meta: Optional[dict], path: str) -> tuple[Optional[str], Optional[str]]:
+    """(kind, origin_ref). kind : published (déjà en ligne, avec ses liens) | routine (programmée par l'outil,
+    arrive par l'API) | reserve (dossier réserves/) | None (vidéo ordinaire, brouillon possible)."""
+    segs = {x.strip().lower() for x in (path or "").split("/") if x.strip()}
+    ref = None
+    kind = "reserve" if segs & RESERVE_DIRS else None
+    if isinstance(meta, dict):
+        if meta.get("compte") and meta.get("id"):
+            ref = f"{meta['compte']}/{meta['id']}"[:200]
+        statut = str(meta.get("statut") or "").strip().lower()
+        plats = meta.get("plateformes") if isinstance(meta.get("plateformes"), dict) else {}
+        linked = any(isinstance(v, dict) and any(v.get(k) for k in LINK_KEYS) for v in plats.values())
+        if statut in PUBLISHED or linked:
+            kind = "published"
+        elif meta.get("reserve") is True:
+            kind = "reserve"
+        elif statut in PLANNED and meta.get("heure"):
+            kind = "routine"
+    return kind, ref
 
 
 def _stem(name: str) -> str:
@@ -77,6 +119,20 @@ def source_out(s: CmSource, counts: Optional[dict] = None) -> dict:
     }
 
 
+def _links(a: CmAsset) -> dict:
+    """Liens de publication lus dans infos.json : {plateforme: url}."""
+    inf = infos_for(a.meta, a.name) or {}
+    out = {}
+    for p, v in (inf.get("plateformes") or {}).items():
+        if isinstance(v, dict):
+            url = v.get("lien") or v.get("permalink") or v.get("url")
+            if not url and p == "youtube" and v.get("video_id"):
+                url = f"https://youtube.com/shorts/{v['video_id']}"
+            if url and str(url).startswith("https://"):
+                out[p] = url
+    return out
+
+
 def asset_out(a: CmAsset, source: Optional[CmSource], usage: Optional[dict] = None) -> dict:
     u = usage or {}
     return {
@@ -88,6 +144,7 @@ def asset_out(a: CmAsset, source: Optional[CmSource], usage: Optional[dict] = No
         "drive_created_at": cm.iso(a.drive_created_at),
         "thumbnail": f"/api/cm/assets/{a.id}/thumbnail" if a.thumbnail_link else None,
         "drive_url": f"https://drive.google.com/file/d/{a.file_id}/view", "has_cover": bool(a.cover_file_id),
+        "kind": a.kind, "ref": a.origin_ref, "links": _links(a),
         "folder_url": f"https://drive.google.com/drive/folders/{a.parent_id}" if a.parent_id else None,
         "stream": f"/api/cm/assets/{a.id}/stream",
         "removed": a.removed_at is not None, "moved_published": a.moved_published_at is not None,
@@ -286,11 +343,14 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
 
     by_folder_stem: dict[tuple[str, str], dict] = {}
     images: dict[str, list[dict]] = {}             # dossier -> images (couvertures possibles)
+    infos_files: dict[str, dict] = {}              # dossier -> infos.json
     videos: list[tuple[str, dict]] = []
     for path, f in files:
         name = f.get("name") or ""
         if (f.get("mimeType") or "").startswith(VIDEO_MIME_PREFIX):
             videos.append((path, f))
+        elif name.lower() == INFOS_NAME:
+            infos_files[path] = f
         elif name.lower().endswith(SIDECAR_EXT):
             by_folder_stem[(path, _stem(name))] = f
         elif name.lower().endswith(IMAGE_EXT) or (f.get("mimeType") or "").startswith("image/"):
@@ -321,6 +381,20 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
         a.drive_created_at = gd.parse_time(f.get("createdTime")) or a.drive_created_at
         a.drive_modified_at = gd.parse_time(f.get("modifiedTime")) or a.drive_modified_at
         a.removed_at = None
+        # infos.json du dossier : déjà publiée (liens), programmée par l'outil, réserve.
+        inf = infos_files.get(path)
+        if inf is None:
+            a.meta = a.meta_file_id = a.meta_modified_at = None
+        else:
+            modified = gd.parse_time(inf.get("modifiedTime"))
+            if a.meta_file_id != inf["id"] or a.meta_modified_at != modified:
+                try:
+                    raw = json.loads(await gd.read_text(inf["id"], max_bytes=200_000))
+                    a.meta = raw if isinstance(raw, dict) else None
+                    a.meta_file_id, a.meta_modified_at = inf["id"], modified
+                except (gd.DriveError, ValueError) as e:
+                    logger.info("cm : infos.json %s illisible (%s)", inf["id"], getattr(e, "code", type(e).__name__))
+        a.kind, a.origin_ref = classify(infos_for(a.meta, a.name), path)
         # Couverture : image du même nom, sinon la seule image d'un dossier à une seule vidéo.
         imgs = images.get(path, [])
         same = next((i for i in imgs if _stem(i.get("name") or "") == _stem(a.name)), None)
@@ -346,6 +420,7 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
     src.last_scan_at = now
     src.last_error = None
     await db.commit()
+    await sync_refs(db, src)
     proposed = 0
     try:
         from src.services import cm_recipe
@@ -354,6 +429,29 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
         logger.exception("cm : brouillons automatiques du dossier %s en échec", src.id)
         await db.rollback()
     return {"ok": True, "videos": len(videos), "added": added, "proposed": proposed}
+
+
+async def sync_refs(db: AsyncSession, src: CmSource) -> None:
+    """Vidéos du dossier décrites par infos.json : (1) une publication arrivée par l'API avec la même
+    référence (« compte/id ») est rattachée à la vidéo ; (2) les brouillons « à valider » d'une vidéo
+    publiée, programmée par l'outil ou en réserve sont rangés en archive (jamais publiés)."""
+    from src.models.cm import CmProposal
+    tenant = (CmPost.organization_id == src.organization_id) if src.organization_id else (
+        (CmPost.owner_user_id == src.owner_user_id) & CmPost.organization_id.is_(None))
+    rows = (await db.execute(select(CmAsset).where(CmAsset.source_id == src.id, CmAsset.origin_ref.is_not(None),
+                                                   CmAsset.removed_at.is_(None)))).scalars().all()
+    by_ref = {a.origin_ref: a for a in rows}
+    if by_ref:
+        posts = (await db.execute(select(CmPost).where(tenant, CmPost.ref.in_(list(by_ref)), CmPost.asset_id.is_(None)))).scalars().all()
+        for p in posts:
+            p.asset_id = by_ref[p.ref].id
+    done = select(CmAsset.id).where(CmAsset.source_id == src.id, CmAsset.kind.in_(("published", "routine", "reserve")))
+    await db.execute(update(CmProposal).where(CmProposal.source_id == src.id, CmProposal.status == "open",
+                                              CmProposal.asset_id.in_(done)).values(status="archived"))
+    has_post = select(CmPost.asset_id).where(CmPost.asset_id.is_not(None))
+    await db.execute(update(CmProposal).where(CmProposal.source_id == src.id, CmProposal.status == "open",
+                                              CmProposal.asset_id.in_(has_post)).values(status="used"))
+    await db.commit()
 
 
 async def scan_due(db: AsyncSession, batch: int = 10) -> None:

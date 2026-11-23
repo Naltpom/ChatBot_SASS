@@ -207,8 +207,29 @@ def _bool(v, default=False) -> bool:
     return bool(v) if v is not None else default
 
 
+IG_USERNAME = re.compile(r"^[A-Za-z0-9._]{1,30}$")
+LANG = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
+
+
+def _with_hashtags(text: str, tags) -> str:
+    """Ajoute les hashtags (liste, avec ou sans #) absents du texte, à la fin."""
+    if not tags:
+        return text
+    if not isinstance(tags, list):
+        raise bad("hashtags : une liste est attendue.")
+    have = {w.lower() for w in re.findall(r"#[^\s#]+", text or "")}
+    add = []
+    for t in tags:
+        t = "#" + str(t).strip().lstrip("#").replace(" ", "")
+        if len(t) > 1 and t.lower() not in have:
+            have.add(t.lower())
+            add.append(t)
+    return f"{text.rstrip()}\n\n{' '.join(add)}".strip() if add else text
+
+
 def normalize_options(platform: str, acc, options: dict, post_title: str, post_caption: str) -> dict:
-    """Options validées d'une cible (lève HTTPException 400 en français)."""
+    """Options validées d'une cible (lève HTTPException 400 en français). Champ propre absent : la
+    légende commune du post (`caption`), sinon son titre."""
     o = options or {}
     if platform == "tiktok":
         mode = o.get("mode") or "direct"
@@ -217,8 +238,9 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
         scopes = (acc.scopes or "").split(",")
         if (mode == "direct" and "video.publish" not in scopes) or (mode == "draft" and "video.upload" not in scopes):
             raise bad(tt.ERROR_MESSAGES["scope_not_authorized"])
-        title = o.get("title")
+        title = o.get("title") if o.get("title") is not None else o.get("caption")
         title = (post_caption or post_title or "") if title is None else str(title)
+        title = _with_hashtags(title, o.get("hashtags"))
         out = {"mode": mode, "title": title if mode == "direct" else None,
                "privacy_level": o.get("privacy_level") if mode == "direct" else None,
                "allow_comment": _bool(o.get("allow_comment")), "allow_duet": _bool(o.get("allow_duet")),
@@ -254,6 +276,9 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
         cat = str(o.get("category_id") or yt.DEFAULT_CATEGORY)
         if not cat.isdigit() or len(cat) > 3:
             raise bad(yt.ERROR_MESSAGES["invalidCategoryId"])
+        lang = o.get("default_language") or None
+        if lang is not None and not LANG.match(str(lang)):
+            raise bad("YouTube : langue invalide (code comme « fr », « en » ou « pt-BR »).")
         return {"title": title, "description": desc, "tags": tags, "category_id": cat,
                 "privacy_status": privacy, "made_for_kids": bool(o.get("made_for_kids")),
                 "synthetic_media": _bool(o.get("synthetic_media")),
@@ -262,6 +287,10 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
 
     # Instagram (Reel)
     caption = str(o.get("caption") if o.get("caption") is not None else (post_caption or ""))
+    caption = _with_hashtags(caption, o.get("hashtags"))
+    collab = [str(u).strip().lstrip("@") for u in (o.get("collaborators") or []) if str(u).strip()]
+    if len(collab) > 3 or any(not IG_USERNAME.match(u) for u in collab):
+        raise bad("Instagram : 3 collaborateurs au plus, nom d'utilisateur Instagram sans espace.")
     if len(caption) > ig.CAPTION_MAX:
         raise bad(f"Instagram : légende trop longue ({ig.CAPTION_MAX} caractères maximum).")
     if caption.count("#") > 30:
@@ -272,7 +301,8 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
             thumb = max(0, int(thumb))
         except (TypeError, ValueError):
             raise bad("Instagram : position de la couverture invalide.")
-    return {"caption": caption, "share_to_feed": _bool(o.get("share_to_feed"), True), "thumb_offset_ms": thumb}
+    return {"caption": caption, "share_to_feed": _bool(o.get("share_to_feed"), True), "thumb_offset_ms": thumb,
+            "collaborators": collab}
 
 
 def check_schedule(when: Optional[datetime]) -> datetime:

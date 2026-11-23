@@ -112,7 +112,8 @@ class CmPost(Base):
     media_path = Column(String, nullable=True)           # supprimé quand tout est terminé
     # Vidéo de la bibliothèque (dossier Drive) : téléchargée à l'heure de la 1re publication.
     asset_id = Column(Integer, ForeignKey("cm_assets.id", ondelete="SET NULL"), nullable=True, index=True)
-    cover_path = Column(String(500), nullable=True)      # couverture (image) : envoyée ou lue dans le Drive
+    cover_path = Column(String(500), nullable=True)
+    ref = Column(String(200), nullable=True, index=True)  # référence de l'outil (« compte/id »), dédoublonnage      # couverture (image) : envoyée ou lue dans le Drive
     status = Column(String, nullable=False, default=POST_RECEIVING, index=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
@@ -293,6 +294,12 @@ class CmAsset(Base):
     sidecar_file_id = Column(String(200), nullable=True)
     sidecar_modified_at = Column(DateTime, nullable=True)
     cover_file_id = Column(String(200), nullable=True)   # image du même dossier (couverture)
+    # infos.json posé à côté par l'outil de l'équipe (ex. claude-cloud) : compte, id, statut, liens.
+    meta = Column(JSON, nullable=True)
+    meta_file_id = Column(String(200), nullable=True)
+    meta_modified_at = Column(DateTime, nullable=True)
+    origin_ref = Column(String(200), nullable=True, index=True)   # « compte/id » de l'outil
+    kind = Column(String(12), nullable=True)             # published | routine | reserve (jamais « à valider »)
     moved_published_at = Column(DateTime, nullable=True)
     removed_at = Column(DateTime, nullable=True)         # disparue du dossier
     created_at = Column(DateTime, default=utcnow, nullable=False)

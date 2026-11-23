@@ -285,7 +285,9 @@ async def propose(db: AsyncSession, src: CmSource) -> int:
     source_group = groups.get(src.group_id, []) if src.group_id else []
     used = select(CmPost.id).where(CmPost.asset_id == CmAsset.id).exists()
     known = select(CmProposal.id).where(CmProposal.asset_id == CmAsset.id).exists()
-    stmt = select(CmAsset).where(CmAsset.source_id == src.id, CmAsset.removed_at.is_(None), ~used, ~known)
+    by_api = select(CmPost.id).where(CmPost.ref == CmAsset.origin_ref).exists()
+    stmt = select(CmAsset).where(CmAsset.source_id == src.id, CmAsset.removed_at.is_(None), ~used, ~known, ~by_api,
+                                 CmAsset.kind.is_(None))
     if src.drafts_since:
         stmt = stmt.where(CmAsset.created_at >= src.drafts_since)
     assets = (await db.execute(stmt.order_by(CmAsset.id).limit(MAX_PROPOSALS_PER_SCAN))).scalars().all()

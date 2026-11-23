@@ -9,11 +9,12 @@ import {
 } from '../api'
 import GoogleButton from '../components/GoogleButton'
 import { RecipeSheet } from '../components/RecipeSheet'
+import { PlatformLogo } from '../components/PlatformLogo'
 import { Empty, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDate, fmtDateTime, fmtDuration, fmtSize } from '../format'
 import { useLoad, useRole, useSession } from '../session'
 import { LiveCount, SearchBox, SortControl, useListState, useMorePages } from '../components/list'
-import type { Order } from '../api'
+import { PLATFORM_LABEL, type Order, type Platform } from '../api'
 
 function CopyField({ value }: { value: string }) {
   const [done, setDone] = useState(false)
@@ -242,6 +243,14 @@ function AssetSheet({ a, onClose, onSaved }: { a: Asset; onClose: () => void; on
         <p className="small muted" style={{ margin: 0, textAlign: 'center' }}>
           {a.published ? `Publiée ${a.published} fois${a.last_published_at ? `, dernière le ${fmtDate(a.last_published_at)}` : ''}` : 'Jamais publiée'}{a.scheduled ? ` · ${a.scheduled} à venir` : ''}
         </p>
+        {a.links && Object.keys(a.links).length > 0 && (
+          <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
+            {(Object.entries(a.links) as [Platform, string][]).map(([p, url]) => (
+              <a key={p} className="btn btn-sm" href={url} target="_blank" rel="noreferrer"><PlatformLogo platform={p} size={14} />Voir sur {PLATFORM_LABEL[p]}</a>
+            ))}
+          </div>
+        )}
+        {a.kind === 'routine' && <p className="small muted" style={{ margin: 0, textAlign: 'center' }}>Programmée par votre outil de publication : elle arrive dans le planning toute seule.</p>}
         <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
           {a.folder_url && <a className="btn btn-sm" href={a.folder_url} target="_blank" rel="noreferrer"><Icon name="layers" size={14} />Dossier Drive</a>}
           <span className="small muted ellipsis" style={{ alignSelf: 'center', maxWidth: 220 }}>{a.source_name}{a.folder ? ` / ${a.folder}` : ''}</span>
@@ -265,8 +274,11 @@ export function AssetCard({ a, onOpen }: { a: Asset; onOpen: (a: Asset) => void 
   return (
     <button type="button" className="vcard" onClick={() => onOpen(a)} style={{ border: 0, padding: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit' }}>
       {a.thumbnail ? <img className="vthumb" src={a.thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="vthumb" />}
-      {(a.published > 0 || a.scheduled > 0) && <span className="vrank">{a.published > 0 ? 'Publiée' : 'Programmée'}</span>}
-      {a.published === 0 && a.scheduled === 0 && <span className="vrank" style={{ background: 'var(--accent)' }}>Nouvelle</span>}
+      {(() => {
+        const label = a.published > 0 || a.kind === 'published' ? 'Publiée' : a.scheduled > 0 || a.kind === 'routine' ? 'Programmée'
+          : a.kind === 'reserve' ? 'Réserve' : null
+        return label ? <span className="vrank">{label}</span> : <span className="vrank" style={{ background: 'var(--accent)' }}>Nouvelle</span>
+      })()}
       <div className="vcard-body">
         <span className="small strong clamp2">{a.title}</span>
         <span className="tiny muted ellipsis">{fmtDuration(a.duration_sec)}{a.folder ? ` · ${a.folder}` : ''}</span>

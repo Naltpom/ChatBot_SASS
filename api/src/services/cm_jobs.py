@@ -244,7 +244,7 @@ async def _dispatch_instagram(db: AsyncSession, t: CmTarget, post: CmPost) -> No
         cover = cm.cover_url(t) if post.cover_path and os.path.exists(post.cover_path) else None
         container = await ig.create_reel_container(
             token, acc.ig_user_id, cm.media_url(t, post.mime_type), o.get("caption") or "",
-            bool(o.get("share_to_feed", True)), o.get("thumb_offset_ms"), cover)
+            bool(o.get("share_to_feed", True)), o.get("thumb_offset_ms"), cover, o.get("collaborators") or None)
     except ig.ReconnectRequired:
         raise _Fail("reconnect_required", ig.ERROR_MESSAGES["invalid_token"])
     except ig.InstagramError as e:

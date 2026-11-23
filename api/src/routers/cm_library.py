@@ -251,10 +251,11 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
     key = paging.nulls_last(col, ASSET_SORTS[sort], order).label("_k")
     stmt = select(CmAsset, key).where(CmAsset.source_id.in_(ids), CmAsset.removed_at.is_(None))
     used = select(CmPost.id).where(CmPost.asset_id == CmAsset.id).exists()
+    elsewhere = CmAsset.kind.in_(("published", "routine"))
     if state == "new":
-        stmt = stmt.where(~used)
+        stmt = stmt.where(~used, ~elsewhere | CmAsset.kind.is_(None))
     elif state == "used":
-        stmt = stmt.where(used)
+        stmt = stmt.where(used | elsewhere)
     pattern = paging.like(q)
     if pattern:
         stmt = stmt.where(or_(*(c.ilike(pattern, escape="\\") for c in
@@ -500,6 +501,31 @@ async def get_proposal(proposal_id: int, org_id: Optional[int] = Query(None),
     tenant = await _tenant(db, user, org_id)
     accounts, _ = await _names(db, tenant)
     return await _proposal_out(db, await _proposal(db, tenant, proposal_id), accounts)
+
+
+class ArchiveIn(BaseModel):
+    source_id: Optional[int] = None
+
+
+@router.post("/proposals/archive")
+async def archive_proposals(body: ArchiveIn, org_id: Optional[int] = Query(None), group_id: Optional[int] = Query(None),
+                            db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Range en archive tous les brouillons « à valider » (de la sélection, ou d'un dossier) : rien n'est publié,
+    les vidéos restent dans la bibliothèque et ne sont plus proposées."""
+    from sqlalchemy import update as sa_update
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "edit")
+    conds = [tenant.where(CmProposal), CmProposal.status == "open"]
+    if body.source_id is not None:
+        await _source(db, tenant, body.source_id)
+        conds.append(CmProposal.source_id == body.source_id)
+    scope = await _proposal_scope(db, tenant, group_id)
+    if scope is not None:
+        conds.append(scope)
+    res = await db.execute(sa_update(CmProposal).where(*conds).values(status="archived", updated_at=utcnow())
+                           .execution_options(synchronize_session=False))
+    await db.commit()
+    return {"archived": res.rowcount or 0}
 
 
 @router.post("/proposals/{proposal_id}/dismiss")

@@ -3,7 +3,7 @@
 // plateforme (dont les choix TikTok), on programme. « Écarter » : la vidéo ne sera plus proposée.
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { dismissProposal, getProposalsPage, type Proposal } from '../api'
+import { archiveProposals, dismissProposal, getProposalsPage, getProposalCount, type Proposal } from '../api'
 import { LiveCount, useMorePages } from '../components/list'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { Empty, Icon, Msg, Skeleton } from '../components/ui'
@@ -50,6 +50,15 @@ export default function Drafts() {
   const first = useLoad(s => getProposalsPage(s))
   const pages = useMorePages(first.data, c => getProposalsPage(scope, c), [scope])
   const items = (pages.items || []).filter(p => !hidden.includes(p.id))
+  const count = useLoad(s => getProposalCount(s))
+  const [note, setNote] = useState('')
+  const archiveAll = async () => {
+    const n = count.data?.open ?? items.length
+    if (!window.confirm(`Ranger les ${n} brouillons affichés en archive ? Rien n’est publié ; les vidéos restent dans la bibliothèque et ne seront plus proposées.`)) return
+    setErr('')
+    try { const r = await archiveProposals(scope); setNote(`${r.archived} brouillon${r.archived > 1 ? 's' : ''} rangé${r.archived > 1 ? 's' : ''} en archive.`); first.reload(); count.reload() }
+    catch (e) { setErr((e as Error).message) }
+  }
   const dismiss = async (p: Proposal) => {
     setErr('')
     try { await dismissProposal(org, p.id); setHidden(h => [...h, p.id]) } catch (e) { setErr((e as Error).message) }
@@ -58,7 +67,11 @@ export default function Drafts() {
     <>
       <div className="page-head">
         <div><h1>À valider</h1><p>Brouillons préparés depuis vos dossiers Drive. Rien ne part sans vous.</p></div>
+        {canEdit && (count.data?.open || 0) > 0 && (
+          <button type="button" className="btn btn-sm" onClick={archiveAll}>Tout ranger en archive ({count.data!.open})</button>
+        )}
       </div>
+      {note && <Msg kind="ok">{note}</Msg>}
       {err && <Msg kind="err">{err}</Msg>}
       {first.error && <Msg kind="err">{first.error}</Msg>}
       {!first.data && first.loading && <Skeleton h={120} n={3} />}
