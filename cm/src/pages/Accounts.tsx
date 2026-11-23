@@ -1,7 +1,7 @@
 // Comptes connectés (TikTok, YouTube, Instagram) et groupes de comptes de l'espace courant.
 // Un groupe réunit plusieurs comptes, toutes plateformes ; un compte peut être dans plusieurs groupes.
 import { useEffect, useState, type FormEvent } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import {
   addRoutineAccount, createGroup, deleteGroup, disconnect, getAccounts, startOAuth, syncAccount, updateGroup,
   GROUP_COLORS, PLATFORM_LABEL, PLATFORMS, type Account, type Group, type GroupColor, type Platform,
@@ -125,6 +125,7 @@ export default function Accounts() {
           <h1>Comptes</h1>
           <p>Les comptes et les groupes de cet espace ne sont visibles que dans cet espace.</p>
         </div>
+        <Link to="/bibliotheque" className="btn"><Icon name="layers" />Bibliothèque Google Drive</Link>
       </div>
       {msg && <Msg kind={msg.kind}>{msg.text}</Msg>}
       {accounts.error && <Msg kind="err">{accounts.error}</Msg>}

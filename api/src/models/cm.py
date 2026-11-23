@@ -110,6 +110,8 @@ class CmPost(Base):
     received_bytes = Column(BigInteger, nullable=False, default=0)
     duration_sec = Column(Float, nullable=True)
     media_path = Column(String, nullable=True)           # supprimé quand tout est terminé
+    # Vidéo de la bibliothèque (dossier Drive) : téléchargée à l'heure de la 1re publication.
+    asset_id = Column(Integer, ForeignKey("cm_assets.id", ondelete="SET NULL"), nullable=True, index=True)
     status = Column(String, nullable=False, default=POST_RECEIVING, index=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
@@ -219,3 +221,69 @@ class CmGroupAccount(Base):
     platform = Column(String(20), nullable=False)
     account_id = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CmSource(Base):
+    """Dossier Google Drive relié à un tenant (bibliothèque de vidéos).
+
+    Le dossier est partagé par l'utilisateur avec le robot de Chapote (compte de service) :
+    `role` = rôle du robot sur le dossier (reader | writer). Un dossier n'est relié qu'à un
+    seul tenant à la fois. `verified` : la personne qui a partagé (ou le propriétaire) est
+    l'utilisateur qui relie, ou un membre de son équipe.
+    """
+    __tablename__ = "cm_sources"
+    __table_args__ = (_tenant_check("cm_sources"),)
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    provider = Column(String(20), nullable=False, default="gdrive")
+    folder_id = Column(String(200), nullable=False, index=True)
+    name = Column(String(255), nullable=True)
+    drive_id = Column(String(200), nullable=True)        # Drive partagé (Workspace)
+    role = Column(String(20), nullable=True)             # reader | writer
+    shared_by = Column(String(255), nullable=True)       # e-mail de qui a partagé (ou propriétaire)
+    verified = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    group_id = Column(Integer, ForeignKey("cm_groups.id", ondelete="SET NULL"), nullable=True)
+    move_published = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    published_folder_id = Column(String(200), nullable=True)
+    last_scan_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmAsset(Base):
+    """Vidéo d'un dossier relié. Le fichier reste dans le Drive ; cm garde ses informations,
+    son titre et sa légende (fichier .txt du même nom, ou saisie dans cm)."""
+    __tablename__ = "cm_assets"
+    __table_args__ = (
+        Index("uq_cm_assets_source_file", "source_id", "file_id", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True)
+    source_id = Column(Integer, ForeignKey("cm_sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_id = Column(String(200), nullable=False)
+    name = Column(String(500), nullable=False)
+    mime_type = Column(String(100), nullable=True)
+    size = Column(BigInteger, nullable=True)
+    md5 = Column(String(64), nullable=True)
+    duration_sec = Column(Float, nullable=True)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    folder_path = Column(String(500), nullable=True)     # sous-dossier dans le dossier relié
+    parent_id = Column(String(200), nullable=True)
+    thumbnail_link = Column(Text, nullable=True)
+    drive_created_at = Column(DateTime, nullable=True)
+    drive_modified_at = Column(DateTime, nullable=True)
+    title = Column(String(200), nullable=True)
+    caption = Column(Text, nullable=True)
+    caption_from = Column(String(10), nullable=True)     # txt | user
+    sidecar_file_id = Column(String(200), nullable=True)
+    sidecar_modified_at = Column(DateTime, nullable=True)
+    moved_published_at = Column(DateTime, nullable=True)
+    removed_at = Column(DateTime, nullable=True)         # disparue du dossier
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

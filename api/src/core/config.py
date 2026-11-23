@@ -160,6 +160,15 @@ class Settings(BaseSettings):
     TIKTOK_CM_REDIRECT_URI: str = ""
     YOUTUBE_CM_REDIRECT_URI: str = ""
 
+    # --- Bibliothèque Google Drive de cm (robot = compte de service Google) ---
+    # Clé JSON du compte de service, encodée en base64 (base64 -w0 cle.json). Vide = bibliothèque
+    # désactivée. Le robot ne voit que les dossiers que les utilisateurs lui partagent.
+    GDRIVE_SA_KEY_B64: str | None = None
+    # Relecture des dossiers reliés (minutes).
+    GDRIVE_SCAN_MINUTES: int = 5
+    GDRIVE_API_BASE: str = "https://www.googleapis.com"
+    GDRIVE_TOKEN_URL: str = "https://oauth2.googleapis.com/token"
+
     # --- Instagram (API Instagram avec connexion Instagram, Meta) ---
     # Vides = connexion officielle désactivée (comptes « gérés par la routine » seulement).
     INSTAGRAM_CLIENT_ID: str | None = None

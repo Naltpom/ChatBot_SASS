@@ -16,6 +16,7 @@
 Aucun jeton ni lien signé n'est jamais loggé.
 """
 import asyncio
+import os
 import logging
 import shutil
 import time
@@ -55,6 +56,7 @@ from src.models.cm import (
 )
 from src.models.tiktok import TikTokAccount, TikTokPost
 from src.models.youtube import YouTubeAccount, YouTubePost
+from src.services import cm_library
 from src.services import cm_service as cm
 from src.services import instagram_service as ig
 from src.services import tiktok_jobs
@@ -262,8 +264,18 @@ async def dispatch_target(db: AsyncSession, target_id: int) -> None:
     await db.refresh(t)
     post = await db.get(CmPost, t.post_id)
     try:
-        if post is None or post.status != POST_READY or not post.media_path:
+        if post is None or post.status != POST_READY:
             raise _Fail("media_missing", "La vidéo n'est plus disponible : recréez la publication.")
+        if not post.media_path or not os.path.exists(post.media_path):
+            # Vidéo de la bibliothèque : téléchargée depuis le Drive maintenant (une fois par publication).
+            try:
+                post = await cm_library.ensure_media(db, post.id)
+            except cm_library.MediaError as e:
+                raise _Fail(e.code, e.message)
+            t = await db.get(CmTarget, target_id)
+            err = cm.check_video_for(t.platform, None, post.mime_type, post.duration_sec or 0, post.video_size)
+            if err:
+                raise _Fail("invalid_video", err)
         await _DISPATCH[t.platform](db, t, post)
     except _Later:
         await db.rollback()
@@ -522,7 +534,8 @@ async def cleanup(db: AsyncSession) -> None:
 
 
 async def tick(db: AsyncSession) -> None:
-    for step in (dispatch_due, follow_pending, refresh_instagram_tokens, sync_due, cleanup):
+    for step in (dispatch_due, follow_pending, refresh_instagram_tokens, sync_due, cleanup,
+                 cm_library.scan_due, cm_library.organize_published):
         try:
             await step(db)
         except Exception:
