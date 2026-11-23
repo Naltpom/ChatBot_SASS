@@ -300,6 +300,10 @@ export function AssetGrid({ sourceId, state, q, sort = 'recent', order, onOpen, 
 export type AssetSort = 'recent' | 'name' | 'duration' | 'size'
 const ASSET_SORTS: [AssetSort, string][] = [['recent', 'Date d’ajout'], ['name', 'Nom'], ['duration', 'Durée'], ['size', 'Taille']]
 
+/** Colonnes selon le nombre de cartes : 1, 2, 3, 4 → 2×2, sinon 3 (jamais de rangée presque vide). */
+const gridCols = (n: number) => (n <= 1 ? 1 : n === 2 || n === 4 ? 2 : 3)
+const autogrid = (n: number) => ({ ['--cols' as string]: String(gridCols(n)), ['--cols-md' as string]: String(Math.min(gridCols(n), 2)) })
+
 export default function Library() {
   const { org } = useSession()
   const robot = useLoad(() => getRobot(), [])
@@ -344,7 +348,7 @@ export default function Library() {
       )}
       {list.length > 0 && (
         <>
-          <div className="grid-3">
+          <div className="autogrid" style={autogrid(Math.min(list.length, allFolders ? list.length : 6))}>
             {(allFolders ? list : list.slice(0, 6)).map(s => (
               <SourceCard key={s.id} s={s}
                 onChanged={n => { sources.setData(list.map(x => (x.id === n.id ? { ...x, ...n } : x))); setRefreshKey(k => k + 1) }}

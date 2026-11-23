@@ -43,12 +43,12 @@ function Card({ p, onDismiss, canEdit }: { p: Proposal; onDismiss: () => void; c
 }
 
 export default function Drafts() {
-  const { org } = useSession()
+  const { org, scope } = useSession()
   const { canEdit } = useRole()
   const [hidden, setHidden] = useState<number[]>([])
   const [err, setErr] = useState('')
-  const first = useLoad(() => getProposalsPage(org), [org])
-  const pages = useMorePages(first.data, c => getProposalsPage(org, c), [org])
+  const first = useLoad(s => getProposalsPage(s))
+  const pages = useMorePages(first.data, c => getProposalsPage(scope, c), [scope])
   const items = (pages.items || []).filter(p => !hidden.includes(p.id))
   const dismiss = async (p: Proposal) => {
     setErr('')

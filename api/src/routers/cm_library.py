@@ -439,14 +439,30 @@ async def _proposal_out(db: AsyncSession, p: CmProposal, names: dict[str, str]) 
             "asset": lib.asset_out(a, src) if a else None, "created_at": cm.iso(p.created_at)}
 
 
+async def _proposal_scope(db: AsyncSession, tenant: Tenant, group_id: Optional[int]):
+    """Filtre SQL des brouillons qui visent au moins un compte du groupe / du compte choisi (ou None)."""
+    from sqlalchemy import cast
+    from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+    from sqlalchemy import String as _S, literal
+    from src.routers.cm import _ACCOUNT_SCOPE, _tenant_index
+    if group_id is None and _ACCOUNT_SCOPE.get() is None:
+        return None
+    accounts, _ = await _tenant_index(db, tenant, group_id)
+    keys = [f"{p}:{a.id}" for p, a in accounts] or ["-"]
+    return cast(CmProposal.accounts, JSONB).has_any(literal(keys, ARRAY(_S)))
+
+
 @router.get("/proposals")
-async def list_proposals(response: Response, org_id: Optional[int] = Query(None),
+async def list_proposals(response: Response, org_id: Optional[int] = Query(None), group_id: Optional[int] = Query(None),
                          limit: int = Query(30, ge=1, le=100), cursor: Optional[str] = Query(None, max_length=300),
                          db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    """Brouillons à valider, du plus ancien au plus récent (heure proposée d'abord)."""
+    """Brouillons à valider (heure proposée d'abord) ; filtrés par groupe / compte s'il y en a un."""
     tenant = await _tenant(db, user, org_id)
     key = paging.nulls_last(CmProposal.scheduled_at, "dt", "asc").label("_k")
     stmt = select(CmProposal, key).where(tenant.where(CmProposal), CmProposal.status == "open")
+    scope = await _proposal_scope(db, tenant, group_id)
+    if scope is not None:
+        stmt = stmt.where(scope)
     stmt = paging.apply(stmt, key, "dt", CmProposal.id, "asc", cursor, limit)
     rows = paging.page(response, list((await db.execute(stmt)).all()), limit, lambda r: r[1], lambda r: r[0].id, cursor)
     accounts, _ = await _names(db, tenant)
@@ -463,17 +479,12 @@ async def list_proposals(response: Response, org_id: Optional[int] = Query(None)
 async def count_proposals(org_id: Optional[int] = Query(None), group_id: Optional[int] = Query(None),
                           db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Brouillons à valider ; avec un groupe ou un compte (barre de filtres), seulement ceux qui le visent."""
-    from src.routers.cm import _ACCOUNT_SCOPE, _tenant_index
     tenant = await _tenant(db, user, org_id)
-    if group_id is None and _ACCOUNT_SCOPE.get() is None:
-        n = (await db.execute(select(func.count()).select_from(CmProposal).where(
-            tenant.where(CmProposal), CmProposal.status == "open"))).scalar() or 0
-        return {"open": n}
-    accounts, _ = await _tenant_index(db, tenant, group_id)
-    keys = {f"{p}:{a.id}" for p, a in accounts}
-    rows = (await db.execute(select(CmProposal.accounts).where(
-        tenant.where(CmProposal), CmProposal.status == "open"))).scalars().all()
-    return {"open": sum(1 for ks in rows if set(ks or []) & keys)}
+    conds = [tenant.where(CmProposal), CmProposal.status == "open"]
+    scope = await _proposal_scope(db, tenant, group_id)
+    if scope is not None:
+        conds.append(scope)
+    return {"open": (await db.execute(select(func.count()).select_from(CmProposal).where(*conds))).scalar() or 0}
 
 
 async def _proposal(db: AsyncSession, tenant: Tenant, proposal_id: int) -> CmProposal:

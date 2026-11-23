@@ -185,3 +185,5 @@ async def test_proposal_count_follows_the_filter(pg_session, cmenv, drive, tikto
         assert (await h.get("/api/cm/proposals/count")).json() == {"open": 2}
         assert (await h.get(f"/api/cm/proposals/count?group_id={g.id}")).json() == {"open": 1}
         assert (await h.get(f"/api/cm/proposals/count?account=tiktok:{a2.id}")).json() == {"open": 1}
+        assert len((await h.get(f"/api/cm/proposals?group_id={g.id}")).json()) == 1
+        assert len((await h.get("/api/cm/proposals")).json()) == 2

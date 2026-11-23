@@ -273,8 +273,8 @@ export const previewRecipe = (org: number | null, id: number, recipe: Recipe) =>
   send<{ recipe: Recipe; examples: RecipeExample[] }>('POST', `/api/cm/sources/${id}/recipe/preview${q(org)}`, { recipe })
 export const saveRecipe = (org: number | null, id: number, recipe: Recipe, auto_drafts: boolean, backlog: boolean) =>
   send<{ source: Source; proposed: number }>('PUT', `/api/cm/sources/${id}/recipe${q(org)}`, { recipe, auto_drafts, backlog })
-export const getProposalsPage = (org: number | null, cursor?: string | null) =>
-  callPage<Proposal>(`/api/cm/proposals${q(org, { limit: 30, cursor: cursor || undefined })}`)
+export const getProposalsPage = (s: ScopeArg, cursor?: string | null) =>
+  callPage<Proposal>(`/api/cm/proposals${q(s, { limit: 30, cursor: cursor || undefined })}`)
 export const getProposalCount = (s: ScopeArg) => call<{ open: number }>(`/api/cm/proposals/count${q(s)}`)
 export const getProposal = (org: number | null, id: number) => call<Proposal>(`/api/cm/proposals/${id}${q(org)}`)
 export const dismissProposal = (org: number | null, id: number) => send<{ ok: boolean }>('POST', `/api/cm/proposals/${id}/dismiss${q(org)}`)
