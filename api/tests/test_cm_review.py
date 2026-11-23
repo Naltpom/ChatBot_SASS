@@ -178,3 +178,27 @@ async def test_tiktok_inbox_published_by_hand_and_resend(pg_session, cmenv, tikt
         assert r.json()["status"] == "PUBLISHED" and r.json()["external_id"] == "7312345678901234567" and r.json()["published_at"]
         # Sans lien aussi (lien facultatif), une seule fois.
         assert (await h.post(f"/api/cm/targets/{t.id}/published", json={})).status_code == 409
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_tiktok_short_link_is_resolved(pg_session, cmenv, tiktok, monkeypatch):
+    from src.routers import cm as cm_router
+    u = await _user(pg_session, "a@t.dev")
+    tk = await _account(pg_session, owner=u, open_id="ib2")
+    await pg_session.commit()
+
+    async def fake(url):
+        assert url == "https://vm.tiktok.com/ZGdXTpbyA/"
+        return "https://www.tiktok.com/@ghosthands.music/video/7711132447085317408"
+    monkeypatch.setattr(cm_router, "resolve_tiktok_link", fake)
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        pid = await _ready(h, [_tt_target(tk.id, scheduled_at=(utcnow() + timedelta(days=1)).isoformat() + "Z")])
+        t = (await pg_session.execute(select(CmTarget).where(CmTarget.post_id == pid))).scalar_one()
+        t.status = "INBOX"
+        await pg_session.commit()
+        r = await h.post(f"/api/cm/targets/{t.id}/published", json={"url": "https://vm.tiktok.com/ZGdXTpbyA/"})
+        assert r.status_code == 200, r.text
+        assert r.json()["url"] == "https://www.tiktok.com/@ghosthands.music/video/7711132447085317408"
+        assert r.json()["external_id"] == "7711132447085317408"
