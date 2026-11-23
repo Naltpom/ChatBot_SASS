@@ -43,7 +43,7 @@ function EventCard({ item, onOpen, compact }: { item: CalendarItem; onOpen: (i: 
       {!compact && <Thumb item={item} />}
       <span className="event-body">
         <span className="event-time">
-          <span aria-hidden="true" className={`dot dot-${item.platform}`} />{fmtTime(item.at)}
+          <PlatformLogo platform={item.platform} size={14} />{fmtTime(item.at)}
           <span className="grow" />
           {item.kind === 'target' ? <StatusText status={item.status} /> : item.via_chapote ? <span className="tiny faint">via Chapote</span> : null}
         </span>
@@ -61,6 +61,77 @@ function EventCard({ item, onOpen, compact }: { item: CalendarItem; onOpen: (i: 
   )
 }
 
+/** Une vidéo au même moment sur plusieurs plateformes = un seul groupe. */
+interface Group { key: string; items: CalendarItem[]; at: string; title: string | null }
+function groupItems(list: CalendarItem[]): Group[] {
+  const out: Group[] = []
+  const at = new Map<string, number>()
+  for (const i of [...list].sort((a, b) => a.at.localeCompare(b.at))) {
+    const base = i.group || itemKey(i)
+    let k = base, n = at.get(k), round = 0
+    // Jamais deux vidéos du même compte dans un groupe ; regroupement par titre : 6 h d'écart au plus.
+    while (n !== undefined && (out[n].items.some(x => x.platform === i.platform && x.account_id === i.account_id)
+           || (base.startsWith('t') && Math.abs(new Date(i.at).getTime() - new Date(out[n].at).getTime()) > 6 * 3600e3))) {
+      k = `${base}#${++round}`; n = at.get(k)
+    }
+    if (n === undefined) { at.set(k, out.length); out.push({ key: k, items: [i], at: i.at, title: i.title || null }) }
+    else { const g = out[n]; g.items.push(i); if (!g.title && i.title) g.title = i.title }
+  }
+  return out.sort((a, b) => a.at.localeCompare(b.at))
+}
+const stateOf = (i: CalendarItem) => (i.kind === 'video' ? 'done' : i.status === 'FAILED' ? 'failed' : isPlanned(i) ? 'planned' : 'done')
+const STATE_LABEL = { done: 'publiée', planned: 'programmée', failed: 'échec' }
+
+function GroupCard({ g, onOpen }: { g: Group; onOpen: (g: Group) => void }) {
+  if (g.items.length === 1) return null
+  const planned = g.items.every(i => stateOf(i) === 'planned')
+  const failed = g.items.some(i => stateOf(i) === 'failed')
+  const thumb = g.items.find(i => i.kind === 'video' && i.thumbnail_url) as (CalendarItem & { thumbnail_url?: string }) | undefined
+  const vids = g.items.filter(i => i.kind === 'video') as Extract<CalendarItem, { kind: 'video' }>[]
+  const views = vids.reduce((s, v) => s + (v.views || 0), 0)
+  const likes = vids.reduce((s, v) => s + (v.likes || 0), 0)
+  const times = [...new Set(g.items.map(i => fmtTime(i.at)))]
+  return (
+    <button type="button" className={`event${planned ? ' planned' : ''}${failed ? ' failed' : ''}`} onClick={() => onOpen(g)}
+            aria-label={`${g.title || 'Sans titre'} : ${g.items.map(i => `${PLATFORM_LABEL[i.platform]} ${STATE_LABEL[stateOf(i)]}`).join(', ')}`}>
+      {thumb?.thumbnail_url ? <img className="event-thumb" src={thumb.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" />
+        : <span className="event-thumb"><Icon name={planned ? 'clock' : 'video'} /></span>}
+      <span className="event-body">
+        <span className="event-time">{times.length > 1 ? `${times[0]} – ${times[times.length - 1]}` : times[0]}<span className="grow" />
+          {failed ? <span className="tiny status-err">échec</span> : planned ? <span className="tiny muted">programmée</span> : null}
+        </span>
+        <span className="small strong clamp2" style={{ wordBreak: 'break-word' }}>{g.title || 'Sans titre'}</span>
+        <span className="plat-row">
+          {g.items.map(i => (
+            <span key={itemKey(i)} className={`plat-pill ${stateOf(i)}`} title={`${PLATFORM_LABEL[i.platform]} · ${i.account_name || ''} · ${STATE_LABEL[stateOf(i)]}`}>
+              <PlatformLogo platform={i.platform} size={14} />
+            </span>
+          ))}
+        </span>
+        {vids.length > 0 && (
+          <span className="metrics"><span><b>{short(views)}</b> vues</span>{likes > 0 && <span><b>{short(likes)}</b> j’aime</span>}</span>
+        )}
+      </span>
+    </button>
+  )
+}
+
+function GroupSheet({ g, onClose, onPick }: { g: Group; onClose: () => void; onPick: (i: CalendarItem) => void }) {
+  return (
+    <Sheet title={g.title || 'Publication'} onClose={onClose}>
+      <p className="small muted" style={{ margin: '0 0 10px' }}>Même vidéo sur {g.items.length} comptes : chacun a son heure et son statut.</p>
+      <div className="col" style={{ gap: 8 }}>
+        {g.items.map(i => <EventCard key={itemKey(i)} item={i} onOpen={onPick} compact />)}
+      </div>
+    </Sheet>
+  )
+}
+
+const renderGroups = (list: CalendarItem[], onItem: (i: CalendarItem) => void, onGroup: (g: Group) => void) =>
+  groupItems(list).map(g => (g.items.length === 1
+    ? <EventCard key={g.key} item={g.items[0]} onOpen={onItem} />
+    : <GroupCard key={g.key} g={g} onOpen={onGroup} />))
+
 function DayStats({ d }: { d: CalendarDay | undefined }) {
   if (!d || d.followers_delta == null || d.followers_delta === 0) return null
   return <span className="tiny strong"><Delta value={d.followers_delta} /> abonnés</span>
@@ -76,6 +147,7 @@ export default function Planning() {
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [kind, setKind] = useState<Kind>('all')
   const [open, setOpen] = useState<CalendarItem | null>(null)
+  const [openGroup, setOpenGroup] = useState<Group | null>(null)
   useEffect(() => { setView(v => (desktop && v === 'agenda' ? 'week' : !desktop && v === 'week' ? 'agenda' : v)) }, [desktop])
 
   const [start, end] = useMemo(() => range(view, anchor), [view, anchor])
@@ -124,7 +196,7 @@ export default function Planning() {
         </div>
         {list.length === 0
           ? <p className="tiny muted" style={{ padding: '2px 2px 4px' }}>{date < today && !sameDay(date, today) ? 'Aucune publication' : 'Rien de prévu'}</p>
-          : list.map(i => <EventCard key={itemKey(i)} item={i} onOpen={setOpen} />)}
+          : renderGroups(list, setOpen, setOpenGroup)}
       </section>
     )
   }
@@ -207,7 +279,7 @@ export default function Planning() {
                   <DayStats d={stats.get(k)} />
                 </div>
                 {list.length === 0 ? <p className="tiny faint">{past ? 'Aucune publication' : 'Rien de prévu'}</p>
-                  : list.map(i => <EventCard key={itemKey(i)} item={i} onOpen={setOpen} />)}
+                  : renderGroups(list, setOpen, setOpenGroup)}
                 {!past && <Link to="/nouvelle" className="btn btn-sm btn-ghost" style={{ marginTop: 'auto', color: 'var(--muted)' }}><Icon name="plus" size={16} />Programmer</Link>}
               </section>
             )
@@ -232,7 +304,7 @@ export default function Planning() {
                           className={`month-cell${d.getMonth() !== anchor.getMonth() ? ' out' : ''}${sameDay(d, today) ? ' today' : ''}`}
                           onClick={() => setSelected(k)} aria-label={`${d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} : ${list.length} élément(s)`}>
                     <span className="d">{d.getDate()}</span>
-                    <span className="marks">{list.slice(0, desktop ? 12 : 6).map(x => <span key={itemKey(x)} className={`dot dot-${x.platform}`} style={isPlanned(x) ? { opacity: .45 } : undefined} />)}</span>
+                    <span className="marks">{groupItems(list).slice(0, desktop ? 12 : 6).map(gx => <span key={gx.key} className="dot" style={{ background: 'var(--primary)', ...(gx.items.every(isPlanned) ? { opacity: .45 } : {}) }} />)}</span>
                     {desktop && views > 0 && <span className="mini">{short(views)} vues</span>}
                     {desktop && dl != null && dl !== 0 && <span className="mini"><Delta value={dl} /></span>}
                   </button>
@@ -253,8 +325,9 @@ export default function Planning() {
         </Empty>
       )}
 
-      <p className="tiny muted">Heures dans votre fuseau ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Chaque compte a sa propre heure et son propre statut.</p>
-      {open && <ItemSheet item={open} onClose={() => setOpen(null)} onChanged={() => { setOpen(null); cal.reload() }} />}
+      <p className="tiny muted">Heures dans votre fuseau ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Une ligne par vidéo : ses plateformes sont en logos ; touchez-la pour le détail de chaque compte.</p>
+      {openGroup && !open && <GroupSheet g={openGroup} onClose={() => setOpenGroup(null)} onPick={setOpen} />}
+      {open && <ItemSheet item={open} onClose={() => setOpen(null)} onChanged={() => { setOpen(null); setOpenGroup(null); cal.reload() }} />}
     </>
   )
 }

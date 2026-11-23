@@ -25,6 +25,7 @@ from contextvars import ContextVar
 import logging
 import os
 import secrets
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
@@ -784,7 +785,18 @@ async def calendar(org_id: Optional[int] = Query(None), group_id: Optional[int] 
         .order_by(CmVideo.published_at).limit(1000)
     )).scalars().all()
     seen = {(v.platform, v.account_id, v.external_id) for v in videos}
-    items: list[dict] = [{"kind": "video", "at": cm.iso(v.published_at), **_video_out(v, names)} for v in videos]
+    # Regroupement : la même vidéo sur plusieurs plateformes = une ligne (même publication cm, sinon
+    # même titre le même jour pour les vidéos publiées ailleurs).
+    tids = [v.target_id for v in videos if v.target_id]
+    post_of = dict((await db.execute(select(CmTarget.id, CmTarget.post_id).where(CmTarget.id.in_(tids)))).all()) if tids else {}
+
+    def video_group(v: CmVideo) -> str:
+        if v.target_id and post_of.get(v.target_id):
+            return f"p{post_of[v.target_id]}"
+        title = re.sub(r"\s+", " ", re.split(r"[#\n]", (v.title or ""))[0]).strip().lower()[:80]
+        return f"t{title}|{v.published_at.date() if v.published_at else ''}" if title else f"v{v.id}"
+    items: list[dict] = [{"kind": "video", "at": cm.iso(v.published_at), "group": video_group(v), **_video_out(v, names)}
+                         for v in videos]
 
     rows = (await db.execute(
         select(CmTarget, CmPost).join(CmPost, CmPost.id == CmTarget.post_id)
@@ -798,7 +810,7 @@ async def calendar(org_id: Optional[int] = Query(None), group_id: Optional[int] 
         if t.external_id and (t.platform, t.account_id, t.external_id) in seen:
             continue      # déjà là avec ses chiffres (vidéo relevée)
         items.append({"kind": "target", "at": cm.iso(t.published_at or t.scheduled_at), "title": post.title,
-                      **_target_out(t, names)})
+                      "group": f"p{post.id}", **_target_out(t, names)})
     items.sort(key=lambda i: i["at"] or "")
 
     first, last = start.date(), min(end, now).date()

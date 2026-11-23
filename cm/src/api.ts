@@ -53,8 +53,8 @@ export interface Group { id: number; name: string; color: GroupColor | null; acc
 export interface Scope { org: number | null; group: number | null; account?: string | null }
 
 export type CalendarItem =
-  | (Video & { kind: 'video'; at: string })
-  | (Target & { kind: 'target'; at: string; title: string })
+  | (Video & { kind: 'video'; at: string; group?: string })
+  | (Target & { kind: 'target'; at: string; title: string; group?: string })
 export interface CalendarDay { day: string; followers: number | null; views: number | null; followers_delta: number | null; views_delta: number | null }
 export interface Calendar { start: string; end: string; items: CalendarItem[]; days: CalendarDay[] }
 

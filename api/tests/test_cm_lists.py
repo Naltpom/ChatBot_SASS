@@ -244,3 +244,25 @@ async def test_instagram_all_reels_get_views_in_rounds(pg_session, cmenv, monkey
     missing = (await pg_session.execute(_select(_func.count()).select_from(CmVideo).where(
         CmVideo.account_id == acc.id, CmVideo.views.is_(None)))).scalar()
     assert missing == 0
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_calendar_groups_same_video_across_platforms(pg_session, cmenv, tiktok):
+    from test_cm import _ig_routine
+    me = await _user(pg_session, "cal@t.dev")
+    tk = await _account(pg_session, owner=me, open_id="cg1")
+    ig_acc = await _ig_routine(pg_session, owner=me)
+    t0 = utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(hours=2)
+    pg_session.add_all([
+        CmVideo(platform="tiktok", account_id=tk.id, external_id="a", title="Clair de lune #shorts", published_at=t0),
+        CmVideo(platform="instagram", account_id=ig_acc.id, external_id="b", title="Clair de lune\nlégende", published_at=t0 + timedelta(minutes=5)),
+        CmVideo(platform="tiktok", account_id=tk.id, external_id="c", title="Autre", published_at=t0),
+    ])
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(me)
+        s, e = (t0 - timedelta(days=1)).isoformat() + "Z", (t0 + timedelta(days=1)).isoformat() + "Z"
+        items = (await h.get(f"/api/cm/calendar?start={s}&end={e}")).json()["items"]
+        g = {i["external_id"]: i["group"] for i in items}
+        assert g["a"] == g["b"] and g["a"] != g["c"]
