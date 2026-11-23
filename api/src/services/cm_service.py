@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import shutil
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -76,6 +77,29 @@ def account_name(platform: str, acc) -> Optional[str]:
     return f"@{acc.username}" if acc.username else acc.name
 
 
+def _slugify(text: str) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9._-]+", "-", t).strip("-") or "compte"
+
+
+def account_slug(platform: str, acc) -> str:
+    """Nom lisible et stable d'un compte : « instagram:@ghosthands.music », « tiktok:@pseudo »,
+    « youtube:@chaine ». À défaut de pseudo connu : le nom, simplifié."""
+    if platform == "instagram":
+        handle = acc.username or _slugify(acc.name or "")
+    elif platform == "tiktok":
+        handle = acc.username or _slugify(acc.display_name or "")
+    else:
+        handle = (acc.handle or "").lstrip("@") or _slugify(acc.title or "")
+    return f"{platform}:@{handle.lower()}"
+
+
+def same_slug(slug: str, platform: str, acc) -> bool:
+    p, _, h = (slug or "").strip().lower().partition(":")
+    return p == platform and h.lstrip("@") == account_slug(platform, acc).split(":@", 1)[1]
+
+
 def account_avatar(platform: str, acc) -> Optional[str]:
     if platform == "tiktok":
         return acc.avatar_url
@@ -111,7 +135,7 @@ def account_view(platform: str, acc, stat: Optional[CmAccountStat] = None,
     out: dict[str, Any] = {
         "platform": platform,
         "id": acc.id,
-        "name": account_name(platform, acc),
+        "name": account_name(platform, acc), "slug": account_slug(platform, acc),
         "avatar_url": account_avatar(platform, acc),
         "needs_reconnect": bool(acc.needs_reconnect),
         "can_publish": can_publish(platform, acc),
@@ -200,7 +224,8 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
                "allow_comment": _bool(o.get("allow_comment")), "allow_duet": _bool(o.get("allow_duet")),
                "allow_stitch": _bool(o.get("allow_stitch")),
                "brand_organic": mode == "direct" and _bool(o.get("brand_organic")),
-               "brand_content": mode == "direct" and _bool(o.get("brand_content"))}
+               "brand_content": mode == "direct" and _bool(o.get("brand_content")),
+               "fallback_draft": mode == "direct" and _bool(o.get("fallback_draft"))}
         if mode == "direct":
             if not out["privacy_level"]:
                 raise bad("TikTok : choisissez qui peut voir cette vidéo.")
@@ -457,15 +482,16 @@ def _sum(values) -> Optional[int]:
     return sum(vals) if vals else None
 
 
-async def sync_account(db: AsyncSession, platform: str, acc) -> CmAccountStat:
+async def sync_account(db: AsyncSession, platform: str, acc, full: bool = False) -> CmAccountStat:
     """Relève les chiffres d'un compte et ses vidéos récentes. Ne lève pas :
-    l'échec est noté sur le relevé du jour."""
+    l'échec est noté sur le relevé du jour. `full` (bouton Actualiser) : Instagram relit les vues de
+    TOUS les Reels d'un coup (sinon par tournées de INSIGHTS_PER_SYNC)."""
     try:
         if platform == "youtube":
             return await _sync_youtube(db, acc)
         if platform == "tiktok":
             return await _sync_tiktok(db, acc)
-        return await _sync_instagram(db, acc)
+        return await _sync_instagram(db, acc, full)
     except (tt.ReconnectRequired, yt.ReconnectRequired, ig.ReconnectRequired):
         await db.rollback()
         row = await save_snapshot(db, platform, acc.id, error="Compte à reconnecter.")
@@ -524,10 +550,10 @@ async def _sync_tiktok(db: AsyncSession, acc: TikTokAccount) -> CmAccountStat:
     return row
 
 
-INSIGHTS_PER_SYNC = 25
+INSIGHTS_PER_SYNC = 60
 
 
-async def _sync_instagram(db: AsyncSession, acc: InstagramAccount) -> CmAccountStat:
+async def _sync_instagram(db: AsyncSession, acc: InstagramAccount, full: bool = False) -> CmAccountStat:
     if acc.mode != IG_MODE_API:     # chiffres envoyés par la routine
         row = (await db.execute(select(CmAccountStat).where(
             CmAccountStat.platform == "instagram", CmAccountStat.account_id == acc.id)
@@ -535,20 +561,31 @@ async def _sync_instagram(db: AsyncSession, acc: InstagramAccount) -> CmAccountS
         return row or await save_snapshot(db, "instagram", acc.id, error="En attente des chiffres de la routine.")
     token = await ig.valid_token(db, acc)
     prof = await ig.profile(token)
-    media = await ig.recent_media(token, acc.ig_user_id)
+    media = await ig.all_media(token, acc.ig_user_id)
+    # Vues (insights) : une requête par Reel, donc par tournées. D'abord ceux qui n'ont encore aucun
+    # chiffre, puis les 15 plus récents, puis ceux dont le relevé est le plus ancien.
+    reels = [m for m in media if m.get("media_type") == "VIDEO" or m.get("media_product_type") == "REELS"]
+    known = {v.external_id: v for v in (await db.execute(select(CmVideo).where(
+        CmVideo.platform == "instagram", CmVideo.account_id == acc.id))).scalars()}
+    never = [m["id"] for m in reels if not known.get(str(m["id"])) or known[str(m["id"])].views is None]
+    newest = [m["id"] for m in reels[:15]]
+    stale = sorted((m["id"] for m in reels), key=lambda i: (known[str(i)].stats_updated_at or datetime.min) if str(i) in known else datetime.min)
+    pick: list = []
+    for i in never + newest + stale:
+        if i not in pick:
+            pick.append(i)
+    pick = set(pick if full else pick[:INSIGHTS_PER_SYNC])
     views_total = []
-    for i, m in enumerate(media):
-        if m.get("media_type") != "VIDEO" and m.get("media_product_type") != "REELS":
-            continue
+    for m in reels:
         insights = {}
-        if i < INSIGHTS_PER_SYNC:
+        if m["id"] in pick:
             try:
                 insights = await ig.media_insights(token, m["id"])
             except ig.InstagramError as e:
                 if e.code == "invalid_token":
                     raise
         v = _num(insights.get("views"))
-        views_total.append(v)
+        views_total.append(v if v is not None else (known[str(m["id"])].views if str(m["id"]) in known else None))
         await upsert_video(db, "instagram", acc.id, str(m["id"]), title=m.get("caption"), url=m.get("permalink"),
                            thumbnail_url=m.get("thumbnail_url"), published_at=_parse_time(m.get("timestamp")),
                            views=v, likes=_num(m.get("like_count")), comments=_num(m.get("comments_count")),

@@ -199,6 +199,10 @@ async def act(db: AsyncSession, c: CmComment, acc, kind: str, text: Optional[str
         raise pending("tiktok")
     if kind == "private_reply" and c.platform != "instagram":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Réponse privée : Instagram seulement.")
+    # Instagram officiel sans la permission : un commentaire présent ici a été remonté par la
+    # routine, qui a les accès -> l'action lui est confiée (comme pour un compte « routine »).
+    if c.platform == "instagram" and caps["source"] == "api" and not caps["reply" if kind != "private_reply" else "private_reply"]:
+        caps = {**caps, "source": "routine", "reply": True, "hide": True, "private_reply": True}
     if not caps["reply" if kind == "reply" else "hide" if kind == "hide" else "private_reply"]:
         raise pending("reply_yt" if c.platform == "youtube" else ("messages_ig" if kind == "private_reply" else "comments_ig"))
     if kind == "private_reply" and c.published_at and utcnow() - c.published_at > timedelta(days=PRIVATE_REPLY_DAYS):

@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { Link } from 'react-router-dom'
-import { getStats, getVideos, PLATFORM_LABEL, type DetailedStats, type Metric, type Platform } from '../api'
+import { getAccounts, getStats, getVideos, syncAccount, PLATFORM_LABEL, type DetailedStats, type Metric, type Platform } from '../api'
 import { Avatar, Delta, Empty, Icon, Msg, Seg, Skeleton } from '../components/ui'
 import { METRIC_LABEL, num, pct, short } from '../format'
 import { useLoad, useSession } from '../session'
@@ -78,6 +78,22 @@ export default function Stats() {
   const st = useLoad(s => getStats(s, days, { q: acc.q || undefined, sort: acc.sort, order: acc.order }), [days, acc.q, acc.sort, acc.order])
   const top = useLoad(s => getVideos(s, { sort, days, limit: 12 }), [sort, days])
   const d = st.data
+  const { scope } = useSession()
+  const [syncing, setSyncing] = useState<string | null>(null)
+  const [syncMsg, setSyncMsg] = useState('')
+  // Relit chaque compte affiché (Instagram : tous les Reels, une fois par heure et par compte).
+  const syncAll = async () => {
+    setSyncMsg('')
+    const list = await getAccounts(scope)
+    let ok = 0, later = 0
+    for (let i = 0; i < list.length; i++) {
+      setSyncing(`${i + 1}/${list.length}`)
+      try { await syncAccount(scope.org, list[i]); ok++ } catch { later++ }
+    }
+    setSyncing(null)
+    setSyncMsg(`${ok} compte${ok > 1 ? 's' : ''} actualisé${ok > 1 ? 's' : ''}${later ? ` · ${later} déjà actualisé${later > 1 ? 's' : ''} il y a peu` : ''}.`)
+    st.reload(); top.reload()
+  }
 
   return (
     <>
@@ -86,8 +102,14 @@ export default function Stats() {
           <h1>Statistiques</h1>
           <p>Vidéos publiées sur la période, chiffres à jour.</p>
         </div>
-        <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 j'], [30, '30 j'], [90, '90 j'], [365, '1 an']]} />
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn btn-sm" disabled={syncing !== null} onClick={syncAll}>
+            <Icon name="refresh" size={16} />{syncing ? `Actualisation… ${syncing}` : 'Actualiser les chiffres'}
+          </button>
+          <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 j'], [30, '30 j'], [90, '90 j'], [365, '1 an']]} />
+        </div>
       </div>
+      {syncMsg && <Msg>{syncMsg}</Msg>}
       {st.error && <Msg kind="err">{st.error}</Msg>}
       {!d && st.loading && <div className="kpis k6"><Skeleton h={104} n={6} /></div>}
       {d && d.totals.accounts === 0 && (

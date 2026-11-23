@@ -26,6 +26,7 @@ from src.models.user import User
 from src.routers.cm import _account_filter, _capture_account_scope, _tenant_index, get_cm_user, get_routine_user
 from src.routers.tiktok import Tenant, _tenant
 from src.services import cm_access
+from src.services import cm_service as cm
 from src.services import cm_inbox as inbox
 from src.services import cm_paging as paging
 from src.services import instagram_service as ig
@@ -305,9 +306,9 @@ async def routine_actions(org_id: Optional[int] = Query(None), db: AsyncSession 
     tenant = await _tenant(db, user, org_id)
     rows = (await db.execute(select(CmComment, InstagramAccount).join(
         InstagramAccount, InstagramAccount.id == CmComment.account_id).where(
-        CmComment.platform == "instagram", tenant.where(CmComment), CmComment.pending_action.is_not(None),
-        InstagramAccount.mode == IG_MODE_ROUTINE).order_by(CmComment.updated_at).limit(100))).all()
-    return [{"id": c.id, "username": a.username, "comment_id": c.external_id, "media_id": c.media_id,
+        CmComment.platform == "instagram", tenant.where(CmComment), CmComment.pending_action.is_not(None)
+    ).order_by(CmComment.updated_at).limit(100))).all()
+    return [{"id": c.id, "username": a.username, "account": cm.account_slug("instagram", a), "comment_id": c.external_id, "media_id": c.media_id,
              "author": c.author, "type": (c.pending_action or {}).get("type"), "text": (c.pending_action or {}).get("text")}
             for c, a in rows]
 

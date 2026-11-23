@@ -150,7 +150,7 @@ class Settings(BaseSettings):
     CM_MEDIA_MAX_GB: int = 50
     CM_MAX_UPLOAD_MB: int = 1024
     # Relevé des statistiques de chaque compte (heures).
-    CM_STATS_EVERY_HOURS: int = 6
+    CM_STATS_EVERY_HOURS: int = 1
     # Autorisations TikTok supplémentaires, à poser SEULEMENT une fois validées par
     # TikTok (sinon la connexion échoue) : « user.info.stats,video.list ».
     TIKTOK_EXTRA_SCOPES: str = ""

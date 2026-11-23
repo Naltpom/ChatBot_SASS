@@ -47,7 +47,7 @@ async def test_routine_account_comments_actions_and_sheet(pg_session, cmenv):
         assert r.status_code == 200 and r.json()["pending"] == "reply"
         s = _service(c.http)
         todo = (await s.get("/api/cm/routine/actions")).json()
-        assert todo == [{"id": cid, "username": "ghosthands.music", "comment_id": "c2", "media_id": "m1", "author": "tom",
+        assert todo == [{"id": cid, "username": "ghosthands.music", "account": "instagram:@ghosthands.music", "comment_id": "c2", "media_id": "m1", "author": "tom",
                          "type": "reply", "text": "Merci Tom !"}]
         assert (await s.post(f"/api/cm/routine/actions/{cid}/done", json={"ok": True})).status_code == 200
         h = c.as_(u)
@@ -99,9 +99,11 @@ async def test_official_instagram_waits_for_permission_then_works(pg_session, cm
         caps = (await h.get("/api/cm/inbox/accounts")).json()[0]
         assert caps["read"] is False and "Meta" in caps["notice"]
         cid = (await h.get("/api/cm/inbox/comments")).json()[0]["id"]
+        # Sans la permission : le commentaire vient de la routine, la réponse lui est confiée.
         r = await h.post(f"/api/cm/comments/{cid}/reply", json={"text": "Merci"})
-        assert r.status_code == 403 and r.json()["detail"]["code"] == "permission_pending" and "Meta" in r.json()["detail"]["message"]
-        assert sent == []
+        assert r.status_code == 200 and r.json()["pending"] == "reply" and sent == []
+        assert [a["comment_id"] for a in (await _service(c.http).get("/api/cm/routine/actions")).json()] == ["x1"]
+        h = c.as_(u)
         # Permissions accordées (compte reconnecté avec les nouvelles autorisations).
         acc.scopes = ",".join([ig.SCOPES, ig.SCOPE_COMMENTS, ig.SCOPE_MESSAGES])
         await pg_session.commit()

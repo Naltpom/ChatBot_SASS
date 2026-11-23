@@ -103,7 +103,7 @@ services:
       - CM_MEDIA_DIR=/app/cm_media
       - CM_MEDIA_MAX_GB=${CM_MEDIA_MAX_GB:-50}
       - CM_MAX_UPLOAD_MB=${CM_MAX_UPLOAD_MB:-1024}
-      - CM_STATS_EVERY_HOURS=${CM_STATS_EVERY_HOURS:-6}
+      - CM_STATS_EVERY_HOURS=${CM_STATS_EVERY_HOURS:-1}
       # Statistiques TikTok : vide tant que TikTok n'a pas validé user.info.stats,video.list.
       - TIKTOK_EXTRA_SCOPES=${TIKTOK_EXTRA_SCOPES:-}
       # Instagram (connexion officielle, app Meta). Vides = comptes « gérés par la routine » seulement.

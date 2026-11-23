@@ -294,13 +294,23 @@ async def propose(db: AsyncSession, src: CmSource) -> int:
     for a in assets:
         got = apply(recipe, a, groups, source_group)
         when = got["scheduled_at"]
-        if when is not None and when < now:
-            when = None                              # date passée : heure à choisir
+        # Date du nom déjà passée : la vidéo a déjà été publiée (ou son créneau est passé) -> pas de
+        # brouillon ; notée « past » pour ne plus la reconsidérer.
+        past = when is not None and when < now
         db.add(CmProposal(organization_id=src.organization_id, owner_user_id=src.owner_user_id, source_id=src.id,
-                          asset_id=a.id, title=got["title"], caption=got["caption"], scheduled_at=when,
-                          when_from=got["when_from"] if when else None, accounts=got["accounts"]))
-        made += 1
-    if made:
+                          asset_id=a.id, title=got["title"], caption=got["caption"], scheduled_at=None if past else when,
+                          when_from=None if past else got["when_from"], accounts=got["accounts"],
+                          status="past" if past else "open"))
+        made += 0 if past else 1
+    # Brouillons déjà proposés « heure à choisir » dont le nom porte une date passée : retirés.
+    stale = (await db.execute(select(CmProposal, CmAsset).join(CmAsset, CmAsset.id == CmProposal.asset_id).where(
+        CmProposal.source_id == src.id, CmProposal.status == "open", CmProposal.scheduled_at.is_(None)))).all()
+    for p, a in stale:
+        when = apply(recipe, a, groups, source_group)["scheduled_at"]
+        if when is not None and when < now:
+            p.status = "past"
+    if assets or stale:
         await db.commit()
+    if made:
         logger.info("cm : %s brouillon(s) proposé(s) pour le dossier %s", made, src.id)
     return made

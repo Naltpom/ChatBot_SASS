@@ -279,6 +279,20 @@ async def recent_media(token: str, ig_user_id: str, limit: int = 50) -> list[dic
     return [m for m in (body.get("data") or []) if isinstance(m, dict)]
 
 
+async def all_media(token: str, ig_user_id: str, max_items: int = 500) -> list[dict]:
+    """Toutes les publications du compte (pages de 100), jusqu'à `max_items`."""
+    out: list[dict] = []
+    params = {"fields": MEDIA_FIELDS, "limit": "100"}
+    while len(out) < max_items:
+        body = await _request("GET", _graph(f"/{ig_user_id}/media"), token=token, params=params)
+        out += [m for m in (body.get("data") or []) if isinstance(m, dict)]
+        after = ((body.get("paging") or {}).get("cursors") or {}).get("after")
+        if not after or not (body.get("paging") or {}).get("next"):
+            break
+        params = {**params, "after": after}
+    return out[:max_items]
+
+
 async def media_insights(token: str, media_id: str) -> dict:
     """{views, shares, saved, reach…} d'une publication (valeurs à vie)."""
     body = await _request("GET", _graph(f"/{media_id}/insights"), token=token,

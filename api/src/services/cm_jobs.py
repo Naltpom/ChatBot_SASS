@@ -75,6 +75,10 @@ DISPATCH_BATCH = 20
 SYNC_BATCH = 10
 MAX_ATTEMPTS = 3
 DISPATCHING_TIMEOUT = timedelta(minutes=30)
+# Repli TikTok (option fallback_draft) : visibilité refusée tant que l'app n'est pas auditée -> brouillon.
+DRAFT_FALLBACK_REASONS = ("unaudited_client_can_only_post_to_private_accounts", "privacy_level_option_mismatch")
+DRAFT_FALLBACK_NOTICE = ("TikTok n'a pas accepté la publication directe (application pas encore validée) : "
+                         "la vidéo est partie en brouillon dans l'app TikTok, à publier depuis le téléphone.")
 CONTAINER_TIMEOUT = timedelta(hours=1)
 ROUTINE_CLAIM_TIMEOUT = timedelta(hours=6)
 RECEIVING_TIMEOUT = timedelta(hours=2)
@@ -146,13 +150,19 @@ async def _dispatch_tiktok(db: AsyncSession, t: CmTarget, post: CmPost) -> None:
         raise _Fail("reconnect_required", tt.ERROR_MESSAGES["access_token_invalid"])
     except tt.TikTokError as e:
         raise _Fail(e.code, e.describe())
+    if info.get("creator_username") and acc.username != info["creator_username"]:
+        acc.username = info["creator_username"]
     max_dur = min(info.get("max_video_post_duration_sec") or tt.MAX_DURATION_SEC, tt.MAX_DURATION_SEC)
     if (post.duration_sec or 0) > max_dur:
         raise _Fail("duration_check_failed",
                     f"Vidéo trop longue : {int(post.duration_sec)} s pour {max_dur} s maximum sur ce compte.")
     direct = o.get("mode") == "direct"
     if direct and o.get("privacy_level") not in (info.get("privacy_level_options") or []):
-        raise _Fail("privacy_level_option_mismatch", tt.ERROR_MESSAGES["privacy_level_option_mismatch"])
+        if not o.get("fallback_draft"):
+            raise _Fail("privacy_level_option_mismatch", tt.ERROR_MESSAGES["privacy_level_option_mismatch"])
+        # Repli demandé : TikTok ne propose pas cette visibilité (app pas encore auditée) -> brouillon.
+        direct = False
+        t.notice = DRAFT_FALLBACK_NOTICE
     if not await tiktok_router.post_limiter.check(tenant.key):
         raise _Fail("daily_limit", "Limite quotidienne de publications TikTok atteinte pour votre espace.")
     path = await _copy_media(post, tiktok_jobs.tmp_dir())
@@ -352,6 +362,14 @@ async def follow_target(db: AsyncSession, t: CmTarget) -> None:
         elif tp.status == tk_models.POST_INBOX:
             t.status = T_INBOX
             t.notice = "Vidéo envoyée dans la boîte de réception TikTok : terminez la publication dans l'app."
+        elif tp.status == tk_models.POST_FAILED and tp.mode == "direct" and (t.options or {}).get("fallback_draft") \
+                and tp.fail_reason in DRAFT_FALLBACK_REASONS:
+            # Publication directe refusée : nouvel envoi en brouillon (boîte de réception TikTok).
+            t.options = {**(t.options or {}), "mode": "draft"}
+            t.tiktok_post_id = None
+            t.status = T_SCHEDULED
+            t.scheduled_at = now
+            t.notice = DRAFT_FALLBACK_NOTICE
         elif tp.status == tk_models.POST_FAILED:
             fail_target(t, tp.fail_reason or "failed", tp.error_message or "Publication refusée par TikTok.")
     elif t.platform == "tiktok":
