@@ -141,3 +141,40 @@ async def test_archive_edge_cases(pg_session, cmenv, wdrive, tiktok):
         await cm_archive.sync_due(pg_session)
         await pg_session.refresh(p2)
         assert p2.archive["base"] == before["base"] and p2.archive["video_id"] == before["video_id"] and p2.archive_state == "ok"
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_tiktok_inbox_published_by_hand_and_resend(pg_session, cmenv, tiktok):
+    u = await _user(pg_session, "a@t.dev")
+    tk = await _account(pg_session, owner=u, open_id="ib1")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        tt = _tt_target(tk.id, scheduled_at=(utcnow() + timedelta(days=1)).isoformat() + "Z")
+        tt["options"].update({"mode": "draft", "caption": "Clair de lune", "hashtags": ["piano"]})
+        pid = await _ready(h, [tt])
+        t = (await pg_session.execute(select(CmTarget).where(CmTarget.post_id == pid))).scalar_one()
+        # Pas encore un brouillon dans l'app : refusé.
+        assert (await h.post(f"/api/cm/targets/{t.id}/published", json={})).status_code == 409
+        assert (await h.post(f"/api/cm/targets/{t.id}/resend-draft")).status_code == 409
+        t.status = "INBOX"
+        await pg_session.commit()
+        out = (await h.get(f"/api/cm/posts/{pid}")).json()["targets"][0]
+        assert out["is_draft"] is True and out["options"]["title"] == "Clair de lune\n\n#piano"
+        # Brouillon supprimé dans l'app : renvoyé tout de suite, en brouillon.
+        cmenv.clear()
+        r = await h.post(f"/api/cm/targets/{t.id}/resend-draft")
+        assert r.status_code == 200 and r.json()["status"] == "SCHEDULED" and r.json()["options"]["mode"] == "draft"
+        assert cmenv == [t.id]
+        # Publié à la main : lien vérifié, cible publiée.
+        t.status = "INBOX"
+        await pg_session.commit()
+        bad = await h.post(f"/api/cm/targets/{t.id}/published", json={"url": "https://exemple.com/x"})
+        assert bad.status_code == 400
+        r = await h.post(f"/api/cm/targets/{t.id}/published",
+                         json={"url": "https://www.tiktok.com/@ghosthands.music/video/7312345678901234567"})
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "PUBLISHED" and r.json()["external_id"] == "7312345678901234567" and r.json()["published_at"]
+        # Sans lien aussi (lien facultatif), une seule fois.
+        assert (await h.post(f"/api/cm/targets/{t.id}/published", json={})).status_code == 409

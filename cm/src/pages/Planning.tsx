@@ -18,7 +18,7 @@ import { useLoad, useSession } from '../session'
 type View = 'agenda' | 'week' | 'month'
 type Kind = 'all' | 'done' | 'planned'
 
-const isPlanned = (i: CalendarItem) => i.kind === 'target' && i.status !== 'PUBLISHED' && i.status !== 'INBOX'
+const isPlanned = (i: CalendarItem) => i.kind === 'target' && i.status !== 'PUBLISHED'   // brouillon TikTok : encore à publier
 const itemKey = (i: CalendarItem) => `${i.kind}-${i.id}`
 
 function range(view: View, anchor: Date): [Date, Date] {
