@@ -123,8 +123,10 @@ Les vidéos restent dans le Drive des utilisateurs ; cm les lit grâce à un **c
   qui ont des comptes (un seul la plupart du temps) et ouvre d'elle-même l'espace partagé quand le
   perso est vide.
 - Filtre d'affichage : `?account=tiktok:12` sur toutes les routes `/api/cm` (un seul compte), en plus
-  de `?group_id=`. Sélecteur « Comptes affichés » (onglets Groupes / Comptes) au-dessus de
-  « Nouvelle publication » ; dans l'en-tête sur mobile.
+  de `?group_id=`. Interface : barre de filtres (Tous · groupes · comptes, un geste) en haut des seules
+  pages de suivi (Accueil, Planning, Stats, Vidéos) ; défile au pouce sur mobile, va à la ligne sur
+  ordinateur ; absente des pages de gestion (Comptes, Bibliothèque, Personnes), qui portent sur tout
+  l'espace. Le composeur reprend le filtre choisi. Choix de l'espace (rare) : menu du compte.
 
 ## Dev
 

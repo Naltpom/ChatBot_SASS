@@ -50,7 +50,7 @@ function Check({ label, checked, onChange, disabled, hint }: { label: ReactNode;
 }
 
 export default function Composer() {
-  const { org, config, groups, group: currentGroup } = useSession()
+  const { org, config, groups, group: currentGroup, account: currentAccount } = useSession()
   const nav = useNavigate()
   const { canEdit } = useRole()
   const accounts = useLoad(s => getAccounts(s.org))
@@ -124,13 +124,13 @@ export default function Composer() {
     if (groupFull(gid)) setPicked(p => p.filter(k => !l.some(a => key(a) === k)))
     else add(l)
   }
-  // Groupe affiché en haut de l'écran : ses comptes sont proposés d'office (une fois).
+  // Filtre choisi sur l'accueil / le planning (un compte ou un groupe) : proposé d'office (une fois).
   const [preset, setPreset] = useState(false)
   useEffect(() => {
-    if (preset || !accounts.data || !currentGroup) return
+    if (preset || !accounts.data || (!currentGroup && !currentAccount)) return
     setPreset(true)
-    add(groupAccounts(currentGroup.id))
-  }, [accounts.data, currentGroup]) // eslint-disable-line react-hooks/exhaustive-deps
+    add(currentAccount ? accounts.data.filter(a => key(a) === currentAccount) : groupAccounts(currentGroup!.id))
+  }, [accounts.data, currentGroup, currentAccount]) // eslint-disable-line react-hooks/exhaustive-deps
   const set = <T extends Opts>(k: string, patch: Partial<T>) => setOpts(o => ({ ...o, [k]: { ...(o[k] as T), ...patch } }))
 
   const onFile = (f: File | null) => {

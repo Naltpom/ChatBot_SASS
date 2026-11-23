@@ -78,7 +78,7 @@ export default function Stats() {
       <div className="page-head">
         <div>
           <h1>Statistiques</h1>
-          <p>{group ? <>Groupe <strong>{group.name}</strong> · </> : null}Vidéos publiées sur la période, chiffres à jour.</p>
+          <p>Vidéos publiées sur la période, chiffres à jour.</p>
         </div>
         <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 j'], [30, '30 j'], [90, '90 j'], [365, '1 an']]} />
       </div>
