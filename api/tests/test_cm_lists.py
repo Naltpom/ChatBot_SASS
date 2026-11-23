@@ -266,3 +266,19 @@ async def test_calendar_groups_same_video_across_platforms(pg_session, cmenv, ti
         items = (await h.get(f"/api/cm/calendar?start={s}&end={e}")).json()["items"]
         g = {i["external_id"]: i["group"] for i in items}
         assert g["a"] == g["b"] and g["a"] != g["c"]
+
+
+@pytest.mark.asyncio
+async def test_instagram_insights_fall_back_metric_by_metric(monkeypatch):
+    from src.services import instagram_service as ig
+    asked = []
+
+    async def fake(method, url, token=None, params=None, data=None):
+        asked.append(params["metric"])
+        if "," in params["metric"] or params["metric"] == "views":
+            raise ig.InstagramError("ig_100", "metric not supported", 400)
+        return {"data": [{"name": params["metric"], "values": [{"value": {"shares": 7, "saved": 3, "plays": 4200}[params["metric"]]}]}]}
+    monkeypatch.setattr(ig, "_request", fake)
+    got = await ig.media_insights("tok", "m1")
+    assert got["views"] == 4200 and got["shares"] == 7 and got["saved"] == 3
+    assert asked[0] == "views,shares,saved,reach"
