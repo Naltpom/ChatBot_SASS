@@ -37,6 +37,9 @@ class WriteDrive:
         self.robot_quota = False
         self.perms: list[dict] = []
         self.pending: dict[str, dict] = {}
+        self.grant_ok = True
+        self.refreshes = 0
+        self.revoked: list[str] = []
 
     def _id(self):
         self.n += 1
@@ -73,11 +76,18 @@ class WriteDrive:
         body = await req.aread()
         if req.url.host == "oauth2.googleapis.com":
             if req.url.path == "/revoke":
+                self.revoked.append(parse_qs(body.decode())["token"][0])
                 return httpx.Response(200)
             form = parse_qs(body.decode())
             g = form["grant_type"][0]
             if g.endswith("jwt-bearer"):
                 return httpx.Response(200, json={"access_token": "ya29.robot", "expires_in": 3600})
+            if g == "refresh_token" and not self.grant_ok:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            if g == "authorization_code" and form["code"][0] == "bad":
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            if g == "refresh_token":
+                self.refreshes += 1
             if g == "authorization_code":
                 return httpx.Response(200, json={"access_token": "ya29.user", "refresh_token": "1//refresh",
                                                  "expires_in": 3600, "scope": cm_archive.OAUTH_SCOPE})
@@ -318,5 +328,39 @@ async def test_connect_drive(pg_session, cmenv, wdrive, tiktok, monkeypatch):
         assert wdrive.perms and wdrive.perms[0]["emailAddress"] == ROBOT and wdrive.perms[0]["role"] == "reader"
         link = (await pg_session.execute(select(CmDriveLink))).scalar_one()
         assert link.source_id is not None and "1//refresh" not in link.refresh_token_enc
+        # State déjà utilisé, ou faux : refusé.
         assert (await h.post("/api/cm/drive/oauth/exchange", json={"code": "4/abc", "state": state})).status_code == 400
+        assert (await h.post("/api/cm/drive/oauth/exchange", json={"code": "4/abc", "state": "faux"})).status_code == 400
+        # Code refusé par Google (accès refusé, code expiré) : 400, rien n'est relié de plus.
+        start2 = (await h.post("/api/cm/drive/oauth/start", json={})).json()["authorize_url"]
+        state2 = parse_qs(start2.split("?", 1)[1])["state"][0]
+        assert (await h.post("/api/cm/drive/oauth/exchange", json={"code": "bad", "state": state2})).status_code == 400
+        # Déconnexion : révocation chez Google et jeton supprimé de la base.
         assert (await h.delete("/api/cm/drive/archive")).json()["connected"] is False
+        assert wdrive.revoked == ["1//refresh"]
+        assert (await pg_session.execute(select(CmDriveLink))).scalars().all() == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_drive_token_refresh_and_revoked_access(pg_session, cmenv, wdrive, tiktok):
+    u = await _user(pg_session, "a@t.dev")
+    ig = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    link = await _linked(pg_session, u, wdrive)
+    # Jeton d'accès expiré : rafraîchi tout seul avec le jeton d'actualisation.
+    assert await cm_archive.user_token(link) == "ya29.user" and wdrive.refreshes == 1
+    cm_archive._user_tokens[link.id] = ("ya29.vieux", 0)
+    assert await cm_archive.user_token(link) == "ya29.user" and wdrive.refreshes == 2
+    # Accès retiré depuis le compte Google (invalid_grant) : Drive marqué déconnecté, jeton effacé.
+    cm_archive._user_tokens.clear()
+    wdrive.grant_ok = False
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        pid = await _post(h, ig, mp4_bytes(42_000), "kiwi/k9")
+        await cm_archive.sync_due(pg_session)
+        post = await pg_session.get(CmPost, pid)
+        assert post.archive_state == "error" and "reconnectez" in post.archive["error"]
+        await pg_session.refresh(link)
+        assert link.revoked_at is not None and link.refresh_token_enc == ""
+        assert (await h.get("/api/cm/drive/archive")).json()["connected"] is False

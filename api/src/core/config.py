@@ -170,10 +170,12 @@ class Settings(BaseSettings):
     GDRIVE_TOKEN_URL: str = "https://oauth2.googleapis.com/token"
     # Archivage des publications (cm_archive) quand le robot ne peut pas déposer de fichiers : connexion
     # Google de l'utilisateur, droit « drive.file » seulement, client OAuth d'un projet séparé de YouTube.
-    GDRIVE_OAUTH_CLIENT_ID: str | None = None
+    GOOGLE_DRIVE_CLIENT_ID: str | None = None       # noms recommandés
+    GOOGLE_DRIVE_CLIENT_SECRET: str | None = None
+    GDRIVE_OAUTH_CLIENT_ID: str | None = None       # anciens noms, toujours lus
     GDRIVE_OAUTH_CLIENT_SECRET: str | None = None
     GDRIVE_OAUTH_REDIRECT_URI: str = ""            # défaut : {CM_URL}/drive/callback
-    GDRIVE_ARCHIVE_ROOT_NAME: str = "cm.chapote.fr (archives)"
+    GDRIVE_ARCHIVE_ROOT_NAME: str = "cm.chapote.fr archives"
 
     # --- Instagram (API Instagram avec connexion Instagram, Meta) ---
     # Vides = connexion officielle désactivée (comptes « gérés par la routine » seulement).
