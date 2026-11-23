@@ -295,10 +295,7 @@ async def all_media(token: str, ig_user_id: str, max_items: int = 500) -> list[d
     return out[:max_items]
 
 
-async def media_insights(token: str, media_id: str) -> dict:
-    """{views, shares, saved, reach…} d'une publication (valeurs à vie)."""
-    body = await _request("GET", _graph(f"/{media_id}/insights"), token=token,
-                          params={"metric": "views,shares,saved,reach"})
+def _insight_values(body: dict) -> dict:
     out: dict[str, Any] = {}
     for item in body.get("data") or []:
         vals = item.get("values") or []
@@ -306,6 +303,31 @@ async def media_insights(token: str, media_id: str) -> dict:
             out[item["name"]] = vals[0].get("value")
         elif item.get("name") and "total_value" in item:
             out[item["name"]] = (item["total_value"] or {}).get("value")
+    return out
+
+
+async def media_insights(token: str, media_id: str) -> dict:
+    """{views, shares, saved, reach…} d'une publication (valeurs à vie). Instagram refuse toute la
+    requête si UN des chiffres n'existe pas pour ce média (anciens Reels, certaines musiques) : on
+    redemande alors chaque chiffre seul, avec « plays » (ancien compteur) en secours des vues."""
+    try:
+        return _insight_values(await _request("GET", _graph(f"/{media_id}/insights"), token=token,
+                                              params={"metric": "views,shares,saved,reach"}))
+    except InstagramError as e:
+        if e.code == "invalid_token":
+            raise
+    out: dict[str, Any] = {}
+    for metric in ("views", "shares", "saved", "plays"):
+        if metric == "plays" and out.get("views") is not None:
+            continue
+        try:
+            out.update(_insight_values(await _request("GET", _graph(f"/{media_id}/insights"), token=token,
+                                                      params={"metric": metric})))
+        except InstagramError as e:
+            if e.code == "invalid_token":
+                raise
+    if out.get("views") is None and out.get("plays") is not None:
+        out["views"] = out["plays"]
     return out
 
 
