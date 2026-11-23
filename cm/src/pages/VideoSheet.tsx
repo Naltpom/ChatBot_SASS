@@ -55,11 +55,12 @@ export default function VideoSheet() {
                 ))}
               </div>
             )}
-            {player ? (
+            {d.asset?.stream ? (
+              // La vidéo d'origine, lue depuis le Drive ; les plateformes ont leurs liens en dessous.
+              <video className="player" src={d.asset.stream} poster={d.asset.thumbnail || undefined} controls preload="metadata" playsInline />
+            ) : player ? (
               <iframe className="player" src={player.embed!} title={`Lecteur ${PLATFORM_LABEL[player.platform]}`}
                       allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen loading="lazy" />
-            ) : d.asset?.stream ? (
-              <video className="player" src={d.asset.stream} poster={d.asset.thumbnail || undefined} controls preload="metadata" playsInline />
             ) : (
               <div className="player player-empty">Lecteur indisponible pour cette plateforme</div>
             )}
