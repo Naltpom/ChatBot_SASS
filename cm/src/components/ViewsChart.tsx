@@ -5,7 +5,7 @@ import { PLATFORM_LABEL, type Platform, type SeriesPoint } from '../api'
 import { num, short } from '../format'
 
 const COLORS: Record<Platform, string> = { tiktok: 'var(--tiktok)', youtube: 'var(--youtube)', instagram: 'var(--instagram)' }
-const H = 240, PAD_L = 52, PAD_R = 12, PAD_T = 12, PAD_B = 28
+const PAD_L = 44, PAD_R = 8, PAD_T = 12, PAD_B = 26
 
 export default function ViewsChart({ series: all, metric = 'views' }: { series: SeriesPoint[]; metric?: 'views' | 'followers' }) {
   // La courbe commence au premier jour relevé (pas de faux départ à zéro).
@@ -15,6 +15,7 @@ export default function ViewsChart({ series: all, metric = 'views' }: { series: 
   const [w, setW] = useState(720)
   const [hover, setHover] = useState<number | null>(null)
   const [asTable, setAsTable] = useState(false)
+  const H = w < 520 ? 200 : 260
 
   useEffect(() => {
     if (!box.current) return
@@ -36,7 +37,7 @@ export default function ViewsChart({ series: all, metric = 'views' }: { series: 
 
   if (!platforms.length) {
     return (
-      <div className="muted small" style={{ height: H, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+      <div className="muted small" style={{ height: 200, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
         La courbe apparaîtra après le premier relevé des chiffres de vos comptes.
       </div>
     )
@@ -68,7 +69,7 @@ export default function ViewsChart({ series: all, metric = 'views' }: { series: 
         <div className="legend">
           {platforms.map(p => <span key={p}><span className="swatch" style={{ background: COLORS[p] }} />{PLATFORM_LABEL[p]}</span>)}
         </div>
-        <button type="button" className="btn btn-sm" onClick={() => setAsTable(t => !t)}>{asTable ? 'Voir la courbe' : 'Voir en tableau'}</button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAsTable(t => !t)}>{asTable ? 'Courbe' : 'Tableau'}</button>
       </div>
       {asTable ? (
         <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
@@ -84,7 +85,7 @@ export default function ViewsChart({ series: all, metric = 'views' }: { series: 
       ) : (
         <div className="chart" ref={box}>
           <svg role="img" aria-label={`${label} par jour, par plateforme`} width={w} height={H}
-               onPointerMove={onMove} onPointerLeave={() => setHover(null)} style={{ width: w }}>
+               onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={() => setHover(null)} style={{ width: w, height: H }}>
             {ticks.map(t => (
               <g key={t}>
                 <line x1={PAD_L} x2={w - PAD_R} y1={y(t)} y2={y(t)} stroke="var(--surface-2)" strokeWidth={1} />

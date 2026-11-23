@@ -56,3 +56,24 @@ export const TIKTOK_PRIVACY: Record<string, string> = {
 }
 export const TIKTOK_MUSIC_URL = 'https://www.tiktok.com/legal/page/global/music-usage-confirmation/en'
 export const TIKTOK_BC_URL = 'https://www.tiktok.com/legal/page/global/bc-policy/en'
+
+export const pct = (v: number | null | undefined, digits = 1) =>
+  v == null ? '—' : `${(v * 100).toLocaleString('fr-FR', { maximumFractionDigits: digits, minimumFractionDigits: v < 0.1 ? digits : 0 })} %`
+
+export const METRIC_LABEL: Record<string, string> = {
+  followers: 'Abonnés', views: 'Vues', likes: "J'aime", comments: 'Commentaires', shares: 'Partages', saves: 'Enregistrements',
+}
+
+/** Jour local (AAAA-MM-JJ) d'une date. */
+export function dayKey(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+export function startOfWeek(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7))
+  return x
+}
+export const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
+export const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString()
+export const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Bonsoir' : h < 18 ? 'Bonjour' : 'Bonsoir' }

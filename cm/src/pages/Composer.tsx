@@ -9,7 +9,7 @@ import {
   creatorInfo, createPost, getAccounts, putPart, submitPost, PLATFORM_LABEL,
   type Account, type CreatorInfo, type Platform,
 } from '../api'
-import { Avatar, Icon, Loading, Msg } from '../components/ui'
+import { Avatar, GroupDot, Icon, Loading, Msg } from '../components/ui'
 import { fmtDuration, fmtSize, TIKTOK_BC_URL, TIKTOK_MUSIC_URL, TIKTOK_PRIVACY, toLocalInput } from '../format'
 import { useLoad, useSession } from '../session'
 
@@ -32,7 +32,7 @@ function defaults(a: Account): Opts {
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
     <section className="card col" style={{ gap: 14 }}>
-      <div className="card-head"><h2>{title}</h2>{aside && <span className="muted small">{aside}</span>}</div>
+      <div className="card-head"><h2>{title}</h2>{aside && <span className="muted small row-nw" style={{ gap: 8 }}>{aside}</span>}</div>
       {children}
     </section>
   )
@@ -48,9 +48,9 @@ function Check({ label, checked, onChange, disabled, hint }: { label: ReactNode;
 }
 
 export default function Composer() {
-  const { org, config } = useSession()
+  const { org, config, groups, group: currentGroup } = useSession()
   const nav = useNavigate()
-  const accounts = useLoad(getAccounts)
+  const accounts = useLoad(s => getAccounts(s.org))
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [duration, setDuration] = useState<number | null>(null)
@@ -72,17 +72,41 @@ export default function Composer() {
   const chosen = all.filter(a => picked.includes(key(a)))
   const busy = progress != null
 
-  const toggle = (a: Account) => {
-    const k = key(a)
-    if (picked.includes(k)) { setPicked(p => p.filter(x => x !== k)); return }
-    setPicked(p => [...p, k])
-    setOpts(o => (o[k] ? o : { ...o, [k]: defaults(a) }))
-    if (a.platform === 'tiktok') {
+  const add = (list: Account[]) => {
+    const fresh = list.filter(a => a.can_publish && !picked.includes(key(a)))
+    if (!fresh.length) return
+    setPicked(p => [...p, ...fresh.map(key)])
+    setOpts(o => { const n = { ...o }; for (const a of fresh) if (!n[key(a)]) n[key(a)] = defaults(a); return n })
+    for (const a of fresh) {
+      if (a.platform !== 'tiktok') continue
+      const k = key(a)
       setCreators(c => ({ ...c, [k]: 'loading' }))
       creatorInfo(a.id).then(ci => setCreators(c => ({ ...c, [k]: ci })))
         .catch(e => setCreators(c => ({ ...c, [k]: { error: (e as Error).message } })))
     }
   }
+  const toggle = (a: Account) => {
+    const k = key(a)
+    if (picked.includes(k)) setPicked(p => p.filter(x => x !== k))
+    else add([a])
+  }
+  const groupAccounts = (gid: number) => {
+    const g = groups.find(x => x.id === gid)
+    return g ? all.filter(a => g.accounts.some(x => x.platform === a.platform && x.id === a.id)) : []
+  }
+  const groupFull = (gid: number) => { const l = groupAccounts(gid).filter(a => a.can_publish); return l.length > 0 && l.every(a => picked.includes(key(a))) }
+  const toggleGroup = (gid: number) => {
+    const l = groupAccounts(gid)
+    if (groupFull(gid)) setPicked(p => p.filter(k => !l.some(a => key(a) === k)))
+    else add(l)
+  }
+  // Groupe affiché en haut de l'écran : ses comptes sont proposés d'office (une fois).
+  const [preset, setPreset] = useState(false)
+  useEffect(() => {
+    if (preset || !accounts.data || !currentGroup) return
+    setPreset(true)
+    add(groupAccounts(currentGroup.id))
+  }, [accounts.data, currentGroup]) // eslint-disable-line react-hooks/exhaustive-deps
   const set = <T extends Opts>(k: string, patch: Partial<T>) => setOpts(o => ({ ...o, [k]: { ...(o[k] as T), ...patch } }))
 
   const onFile = (f: File | null) => {
@@ -174,27 +198,29 @@ export default function Composer() {
 
   return (
     <>
-      <div>
-        <Link className="small" to="/planning">← Planning</Link>
-        <h1 style={{ marginTop: 6 }}>Nouvelle publication</h1>
+      <div className="page-head only-desktop">
+        <div>
+          <h1>Nouvelle publication</h1>
+          <p>Une vidéo, un ou plusieurs comptes, maintenant ou à l’heure choisie.</p>
+        </div>
       </div>
       {accounts.loading && !accounts.data && <Loading />}
       {accounts.data && all.length === 0 && (
         <Msg>Aucun compte connecté. <Link to="/comptes">Connectez TikTok, YouTube ou Instagram</Link> pour publier.</Msg>
       )}
-      <div className="split">
+      <div className="compose">
         <div className="side col" style={{ gap: 16 }}>
           <Section title="Vidéo">
             <label className="drop">
-              <Icon name="upload" />
-              <span style={{ fontWeight: 500 }}>{file ? file.name : 'Choisir une vidéo'}</span>
+              <span className="drop-ico"><Icon name={file ? 'video' : 'upload'} size={22} /></span>
+              <span className="strong ellipsis" style={{ maxWidth: '100%' }}>{file ? file.name : 'Choisir une vidéo'}</span>
               <span className="tiny muted">{file ? `${fmtSize(file.size)} · ${fmtDuration(duration)}` : `MP4 ou MOV, vertical, ${config ? fmtSize(config.max_upload_bytes) : '1 Go'} au plus`}</span>
               <input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" disabled={busy} className="sr-only"
                      onChange={e => onFile(e.target.files?.[0] || null)} />
             </label>
             {preview && (
               <video src={preview} controls muted playsInline preload="metadata" onLoadedMetadata={e => setDuration(e.currentTarget.duration)}
-                     style={{ width: '100%', maxHeight: 360, borderRadius: 8, background: '#000' }} />
+                     style={{ width: '100%', maxHeight: 420, borderRadius: 12, background: '#000' }} />
             )}
             <label className="field">Titre
               <input className="input" value={title} maxLength={200} disabled={busy} onChange={e => setTitle(e.target.value)} placeholder="Nom de la vidéo (titre YouTube par défaut)" />
@@ -226,14 +252,23 @@ export default function Composer() {
         </div>
 
         <div className="main col" style={{ gap: 16 }}>
-          <Section title="Où publier">
+          <Section title="Où publier" aside={chosen.length ? `${chosen.length} compte${chosen.length > 1 ? 's' : ''}` : undefined}>
+            {groups.length > 0 && (
+              <div className="chips" role="group" aria-label="Sélectionner un groupe">
+                {groups.map(g => (
+                  <button key={g.id} type="button" className="chip" aria-pressed={groupFull(g.id)} disabled={busy} onClick={() => toggleGroup(g.id)}>
+                    <GroupDot color={g.color} />{g.name}<span className="tiny" style={{ opacity: .7 }}>{groupAccounts(g.id).length}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="picks">
               {all.map(a => {
                 const on = picked.includes(key(a))
                 return (
                   <label key={key(a)} className={`pick${on ? ' on' : ''}${a.can_publish ? '' : ' off'}`}>
                     <input type="checkbox" checked={on} disabled={!a.can_publish || busy} onChange={() => toggle(a)} />
-                    <Avatar src={a.avatar_url} name={a.name} />
+                    <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
                     <span className="grow">
                       <span className="ellipsis" style={{ display: 'block', fontWeight: 500 }}>{a.name}</span>
                       <span className="tiny muted">{PLATFORM_LABEL[a.platform]}{a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}
@@ -265,13 +300,15 @@ export default function Composer() {
           {problems.length > 0 && chosen.length > 0 && file && (
             <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{problems.map(p => <li key={p}>{p}</li>)}</ul>
           )}
-          <div className="sticky-bar">
-            <span className="muted small">{busy ? `Envoi de la vidéo… ${Math.round((progress || 0) * 100)} %` : summary}</span>
-            {busy && <div className="progress grow" style={{ maxWidth: 240 }}><span style={{ width: `${Math.round((progress || 0) * 100)}%` }} /></div>}
-            <div className="row" style={{ gap: 8 }}>
-              <Link className="btn" to="/planning">Annuler</Link>
-              <button type="button" className="btn btn-primary" disabled={busy || problems.length > 0} onClick={publish}>
-                {when === 'now' ? 'Publier' : 'Programmer'}
+          <div className="actionbar">
+            <div className="col" style={{ gap: 6, flex: 1, minWidth: 0 }}>
+              <span className="small muted ellipsis">{busy ? `Envoi de la vidéo… ${Math.round((progress || 0) * 100)} %` : problems.length && file && chosen.length ? problems[0] : summary}</span>
+              {busy && <div className="progress"><span style={{ width: `${Math.round((progress || 0) * 100)}%` }} /></div>}
+            </div>
+            <div className="row-nw" style={{ gap: 8 }}>
+              <Link className="btn only-desktop" to="/planning">Annuler</Link>
+              <button type="button" className="btn btn-primary btn-lg" disabled={busy || problems.length > 0} onClick={publish}>
+                <Icon name={when === 'now' ? 'bolt' : 'clock'} />{when === 'now' ? 'Publier' : 'Programmer'}
               </button>
             </div>
           </div>
