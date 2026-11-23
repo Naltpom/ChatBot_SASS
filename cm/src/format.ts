@@ -77,3 +77,13 @@ export function startOfWeek(d: Date): Date {
 export const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
 export const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString()
 export const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Bonsoir' : h < 18 ? 'Bonjour' : 'Bonsoir' }
+/** « à l'instant », « il y a 2 h », « hier », puis la date. */
+export const fmtAgo = (iso: string | null | undefined) => {
+  if (!iso) return ''
+  const s = (Date.now() - new Date(iso).getTime()) / 1000
+  if (s < 60) return 'à l’instant'
+  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`
+  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`
+  if (s < 172800) return 'hier'
+  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+}

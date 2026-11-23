@@ -282,7 +282,7 @@ export interface Asset {
   id: number; source_id: number; source_name: string | null; group_id: number | null; name: string; title: string
   caption: string | null; caption_from: 'txt' | 'user' | null; folder: string | null; mime_type: string | null
   size: number | null; duration_sec: number | null; width: number | null; height: number | null
-  drive_created_at: string | null; thumbnail: string | null; drive_url: string; removed: boolean; has_cover?: boolean
+  drive_created_at: string | null; thumbnail: string | null; drive_url: string; removed: boolean; has_cover?: boolean; folder_url?: string | null; stream?: string
   moved_published: boolean; scheduled: number; published: number; last_published_at: string | null
 }
 export type AssetState = 'all' | 'new' | 'used'
@@ -355,12 +355,12 @@ export interface Comment {
   author: string | null; text: string | null; like_count: number | null; published_at: string | null
   status: CommentStatus; reply_text: string | null; replied_at: string | null; private_replied_at: string | null
   pending: 'reply' | 'hide' | 'private_reply' | null; error: string | null; profile_url: string | null; dm_url: string | null
-  count?: number; can_private_reply?: boolean
+  count?: number; can_private_reply?: boolean; video_id?: number | null; video_thumb?: string | null
 }
 export interface Conversation { id: string; with: string | null; with_id: string | null; updated_at: string | null; last: string | null; last_from_me: boolean }
 export interface DmMessage { id: string; text: string | null; at: string | null; from_me: boolean; from: string | null }
 export const getInboxAccounts = (s: ScopeArg) => call<InboxAccount[]>(`/api/cm/inbox/accounts${q(s)}`)
-export const getCommentsPage = (s: ScopeArg, opts: { status?: string; q?: string; sort?: string; order?: Order; cursor?: string | null }) =>
+export const getCommentsPage = (s: ScopeArg, opts: { status?: string; q?: string; sort?: string; order?: Order; cursor?: string | null; videos?: string }) =>
   callPage<Comment>(`/api/cm/inbox/comments${q(s, { ...opts, limit: 30, cursor: opts.cursor || undefined })}`)
 export const syncInbox = (org: number | null) => send<{ comments: number; notices: string[] }>('POST', `/api/cm/inbox/sync${q(org)}`)
 export const commentAction = (org: number | null, id: number, action: 'reply' | 'hide' | 'private-reply' | 'ignore' | 'contacted' | 'reopen', text?: string) =>
@@ -371,3 +371,12 @@ export const getConversation = (org: number | null, accountId: number, id: strin
   call<{ messages: DmMessage[]; can_write: boolean }>(`/api/cm/inbox/conversations/${encodeURIComponent(id)}${q(org, { account_id: accountId })}`)
 export const sendDm = (org: number | null, accountId: number, id: string, recipient_id: string, text: string) =>
   send<{ ok: boolean }>('POST', `/api/cm/inbox/conversations/${encodeURIComponent(id)}/send${q(org, { account_id: accountId })}`, { recipient_id, text })
+
+// Fiche vidéo (la même vidéo sur chaque plateforme)
+export interface SheetVideo extends Video { embed: string | null; comments_stored: number }
+export interface VideoSheet {
+  id: number; title: string | null; caption: string | null; post_id: number | null; videos: SheetVideo[]
+  totals: { views: number | null; likes: number | null; comments: number | null; shares: number | null; saves: number | null }
+  asset: Asset | null
+}
+export const getVideoSheet = (org: number | null, id: number) => call<VideoSheet>(`/api/cm/videos/${id}/sheet${q(org)}`)

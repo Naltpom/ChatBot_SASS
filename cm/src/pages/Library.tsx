@@ -167,7 +167,7 @@ function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: (s: Sou
             {s.last_scan_at && ` · relu ${fmtDateTime(s.last_scan_at)}`}
           </div>
           {group && <div className="tiny muted row-nw" style={{ gap: 6, marginTop: 2 }}><GroupDot color={group.color} />{group.name}</div>}
-          {s.auto_drafts && <div className="tiny row-nw" style={{ gap: 6, marginTop: 2, color: 'var(--primary)' }}><Icon name="bolt" size={14} />Brouillons automatiques</div>}
+          {s.auto_drafts && <div className="tiny row-nw" style={{ gap: 6, marginTop: 2, color: 'var(--primary)' }}><Icon name="bolt" size={14} />Publications préparées toutes seules</div>}
         </div>
         <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label="Réglages du dossier" aria-expanded={open} onClick={() => setOpen(o => !o)}><Icon name="menu" /></button>
       </div>
@@ -190,7 +190,7 @@ function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: (s: Sou
           </label>
           {canAdmin && (
             <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setRecipe(true)}>
-              <Icon name="bolt" />{s.auto_drafts ? 'Brouillons automatiques : réglages' : 'Brouillons automatiques…'}
+              <Icon name="bolt" />{s.auto_drafts ? 'Préparation automatique : réglages' : 'Préparer les publications toutes seules…'}
             </button>
           )}
           <div className="row" style={{ gap: 8 }}>
@@ -206,7 +206,7 @@ function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: (s: Sou
       {note && <Msg kind="ok">{note}</Msg>}
       {recipe && <RecipeSheet s={s} onClose={() => setRecipe(false)} onSaved={(n, proposed) => {
         setRecipe(false); onChanged({ ...s, ...n })
-        setNote(n.auto_drafts ? `Brouillons automatiques activés${proposed ? ` : ${proposed} brouillon${proposed > 1 ? 's' : ''} à valider` : ''}.` : 'Réglages enregistrés.')
+        setNote(n.auto_drafts ? `C’est activé${proposed ? ` : ${proposed} publication${proposed > 1 ? 's' : ''} à valider` : ''}.` : 'Préparation automatique désactivée.')
       }} />}
     </div>
   )
@@ -232,17 +232,19 @@ function AssetSheet({ a, onClose, onSaved }: { a: Asset; onClose: () => void; on
   return (
     <Sheet title={a.title} onClose={onClose}>
       <div className="col" style={{ gap: 14 }}>
-        <div className="row-nw" style={{ gap: 14, alignItems: 'flex-start' }}>
-          {a.thumbnail ? <img src={a.thumbnail} alt="" width={90} height={130} style={{ width: 90, height: 130, objectFit: 'cover', borderRadius: 12, flex: 'none', background: 'var(--surface-2)' }} />
-            : <span style={{ width: 90, height: 130, borderRadius: 12, background: 'var(--surface-2)', flex: 'none' }} />}
-          <div className="col small" style={{ gap: 4, minWidth: 0 }}>
-            <span className="ellipsis strong">{a.name}</span>
-            <span className="muted">{fmtDuration(a.duration_sec)}{a.size ? ` · ${fmtSize(a.size)}` : ''}{a.height && a.width ? ` · ${a.width}×${a.height}` : ''}</span>
-            <span className="muted">{a.source_name}{a.folder ? ` / ${a.folder}` : ''}</span>
-            {a.drive_created_at && <span className="muted">Déposée le {fmtDate(a.drive_created_at)}</span>}
-            <span className="muted">{a.published ? `Publiée ${a.published} fois${a.last_published_at ? `, dernière le ${fmtDate(a.last_published_at)}` : ''}` : 'Jamais publiée'}{a.scheduled ? ` · ${a.scheduled} à venir` : ''}</span>
-            <a href={a.drive_url} target="_blank" rel="noreferrer" className="row-nw" style={{ gap: 4 }}>Ouvrir dans Drive <Icon name="external" size={14} /></a>
-          </div>
+        <video className="player" src={a.stream || `/api/cm/assets/${a.id}/stream`} poster={a.thumbnail || undefined}
+               controls preload="metadata" playsInline style={{ alignSelf: 'center', width: 'min(100%, 260px)' }}
+               aria-label={`Lecture de ${a.title}`} />
+        <p className="small muted" style={{ margin: 0, textAlign: 'center' }}>
+          {fmtDuration(a.duration_sec)}{a.height && a.width ? ` · ${a.width}×${a.height}` : ''}{a.size ? ` · ${fmtSize(a.size)}` : ''}
+          {a.drive_created_at ? ` · déposée le ${fmtDate(a.drive_created_at)}` : ''}
+        </p>
+        <p className="small muted" style={{ margin: 0, textAlign: 'center' }}>
+          {a.published ? `Publiée ${a.published} fois${a.last_published_at ? `, dernière le ${fmtDate(a.last_published_at)}` : ''}` : 'Jamais publiée'}{a.scheduled ? ` · ${a.scheduled} à venir` : ''}
+        </p>
+        <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
+          {a.folder_url && <a className="btn btn-sm" href={a.folder_url} target="_blank" rel="noreferrer"><Icon name="layers" size={14} />Dossier Drive</a>}
+          <span className="small muted ellipsis" style={{ alignSelf: 'center', maxWidth: 220 }}>{a.source_name}{a.folder ? ` / ${a.folder}` : ''}</span>
         </div>
         <label className="field">Titre<input className="input" value={title} maxLength={200} onChange={e => setTitle(e.target.value)} /></label>
         <label className="field">Légende et hashtags

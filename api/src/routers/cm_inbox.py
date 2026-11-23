@@ -36,6 +36,25 @@ reply_limiter = RateLimiter("rl:cmreply:", 300, 3600)
 sync_limiter = RateLimiter("rl:cminboxsync:", 12, 3600)
 
 
+async def _with_videos(db: AsyncSession, items: list[dict]) -> list[dict]:
+    """Ajoute à chaque commentaire l'id (fiche vidéo) et la miniature de sa vidéo."""
+    from sqlalchemy import and_, or_
+    from src.models.cm import CmVideo
+    keys = {(c["platform"], c["account_id"], c["media_id"]) for c in items if c.get("media_id")}
+    found = {}
+    if keys:
+        rows = (await db.execute(select(CmVideo.platform, CmVideo.account_id, CmVideo.external_id, CmVideo.id,
+                                        CmVideo.thumbnail_url, CmVideo.title).where(or_(*[
+            and_(CmVideo.platform == p, CmVideo.account_id == a, CmVideo.external_id == m) for p, a, m in keys])))).all()
+        found = {(r[0], r[1], r[2]): r for r in rows}
+    for c in items:
+        r = found.get((c["platform"], c["account_id"], c.get("media_id")))
+        c["video_id"], c["video_thumb"] = (r[3], r[4]) if r else (None, None)
+        if r and not c.get("video_title"):
+            c["video_title"] = r[5]
+    return items
+
+
 @router.get("/inbox/accounts")
 async def inbox_accounts(org_id: Optional[int] = Query(None), group_id: Optional[int] = Query(None),
                          db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
@@ -84,7 +103,7 @@ async def list_comments(response: Response, org_id: Optional[int] = Query(None),
     key = paging.nulls_last(col, kind, order).label("_k")
     stmt = paging.apply(select(CmComment, key).where(*conds), key, kind, CmComment.id, order, cursor, limit)
     rows = paging.page(response, list((await db.execute(stmt)).all()), limit, lambda r: r[1], lambda r: r[0].id, cursor)
-    return [inbox.comment_out(c, names) for c, _ in rows]
+    return await _with_videos(db, [inbox.comment_out(c, names) for c, _ in rows])
 
 
 @router.post("/inbox/sync")
@@ -177,7 +196,7 @@ async def keyword(word: str = Query("SHEET", min_length=2, max_length=40), org_i
                      "can_private_reply": bool(caps.get("private_reply")) and within and not c.private_replied_at}
         if len(people) >= limit:
             break
-    return list(people.values())
+    return await _with_videos(db, list(people.values()))
 
 
 # --------------------------------------------------------------------------

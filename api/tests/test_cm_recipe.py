@@ -32,6 +32,9 @@ def test_apply_reads_dates_titles_and_accounts():
     got = cm_recipe.apply(r, CmAsset(name="clip.mp4", folder_path="kiwi/2026-07-01"), {}, [])
     assert got["scheduled_at"] == datetime(2026, 7, 1, 16, 0) and got["when_from"] == "date"
     assert cm_recipe.clean({"when": {"pattern": "(a+)+$"}}, set())["when"]["pattern"] == "none"
+    # Toujours les mêmes comptes, choisis dans la fenêtre.
+    same = cm_recipe.clean({"account": {"from": "source", "map": {"*": ["group:9", "tiktok:1"]}}}, {"tiktok:1", "group:9"})
+    assert cm_recipe.apply(same, CmAsset(name="x.mp4", folder_path="a/b"), {9: ["instagram:4"]}, ["youtube:7"])["accounts"] == ["instagram:4", "tiktok:1"]
 
 
 def test_heuristic_understands_a_typical_layout():
