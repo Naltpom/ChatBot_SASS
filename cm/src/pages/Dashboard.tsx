@@ -20,7 +20,7 @@ export default function Dashboard() {
   const [days, setDays] = useState(30)
   const [metric, setMetric] = useState<'views' | 'followers'>('views')
   const ov = useLoad(s => getOverview(s, days), [days])
-  const drafts = useLoad(s => getProposalCount(s.org))
+  const drafts = useLoad(s => getProposalCount(s))
   const upcoming = useLoad(s => getPosts(s, new Date(), new Date(Date.now() + 14 * 86400000), { status: 'upcoming', limit: 12 }))
 
   const next: (Target & { title: string })[] = (upcoming.data || [])
