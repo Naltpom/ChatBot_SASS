@@ -24,23 +24,21 @@ export default function AuthLayout({ children, aside }: { children: ReactNode; a
         </p>
       </div>
       <aside className="auth-aside" aria-hidden="true">
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 12.5, letterSpacing: '.08em', color: '#9fb7c9', display: 'flex', gap: 14, alignItems: 'center' }}>
-          <span style={{ width: 32, height: 2, background: '#2F9E79' }} />TIKTOK · YOUTUBE · INSTAGRAM
-        </div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: '#a1a1a6' }}>TikTok · YouTube Shorts · Instagram Reels</div>
         {aside ?? (
-          <h2>Une vidéo.<br />Tous vos comptes.<br /><span className="em">Au bon moment.</span></h2>
+          <h2>Publiez partout.<br /><span className="em">Voyez tout.</span></h2>
         )}
-        <div style={{ background: '#0c1d2b', borderRadius: 20, padding: 18, border: '1px solid rgba(255,255,255,.08)', maxWidth: 460 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#9fb7c9', marginBottom: 12 }}>
+        <div style={{ background: '#1c1c1e', borderRadius: 24, padding: 18, maxWidth: 460 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#a1a1a6', marginBottom: 12 }}>
             <span style={{ fontWeight: 600, color: '#fff' }}>Jeudi 26</span><span>+148 abonnés hier</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {PREVIEW.map((x, i) => (
-              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', background: '#13293b', borderRadius: 12, padding: '10px 12px' }}>
+              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', background: '#2c2c2e', borderRadius: 14, padding: '10px 12px' }}>
                 <span style={{ fontWeight: 700, fontSize: 14, color: '#fff', width: 44 }}>{x.t}</span>
                 <span className={`dot dot-${x.p}`} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: '#dbe6ee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.title}</span>
-                <span style={{ fontSize: 12, color: '#6fd3ae' }}>{x.s}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: '#f5f5f7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.title}</span>
+                <span style={{ fontSize: 12, color: '#2997ff' }}>{x.s}</span>
               </div>
             ))}
           </div>

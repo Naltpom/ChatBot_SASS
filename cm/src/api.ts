@@ -86,6 +86,10 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await callRaw<T>(path, init)).body
+}
+
+async function callRaw<T>(path: string, init?: RequestInit): Promise<{ body: T; res: Response }> {
   let res: Response
   try {
     res = await fetch(path, {
@@ -108,7 +112,14 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     } catch { /* corps non JSON */ }
     throw new ApiError(res.status, message)
   }
-  return res.json() as Promise<T>
+  return { body: await res.json() as T, res }
+}
+
+/** Une page de résultats et le curseur de la suivante (en-tête X-Next-Cursor). */
+export interface Page<T> { items: T[]; next: string | null }
+async function callPage<T>(path: string): Promise<Page<T>> {
+  const { body, res } = await callRaw<T[]>(path)
+  return { items: body, next: res.headers.get('X-Next-Cursor') }
 }
 
 type ScopeArg = Scope | number | null
@@ -147,6 +158,8 @@ export const getVideos = (s: ScopeArg, opts: { platform?: string; sort?: string;
   call<Video[]>(`/api/cm/videos${q(s, opts)}`)
 export const getPosts = (s: ScopeArg, start: Date, end: Date) =>
   call<Post[]>(`/api/cm/posts${q(s, { start: start.toISOString(), end: end.toISOString() })}`)
+export const getVideosPage = (s: ScopeArg, opts: { platform?: string; sort?: string; limit?: number; cursor?: string | null }) =>
+  callPage<Video>(`/api/cm/videos${q(s, { ...opts, cursor: opts.cursor || undefined })}`)
 export const getCalendar = (s: ScopeArg, start: Date, end: Date) =>
   call<Calendar>(`/api/cm/calendar${q(s, { start: start.toISOString(), end: end.toISOString() })}`)
 export const getStats = (s: ScopeArg, days: number) => call<DetailedStats>(`/api/cm/stats${q(s, { days })}`)

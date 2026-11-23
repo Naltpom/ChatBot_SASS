@@ -147,6 +147,8 @@ class CmVideo(Base):
     __tablename__ = "cm_videos"
     __table_args__ = (
         Index("uq_cm_videos_account_external", "platform", "account_id", "external_id", unique=True),
+        # Calendrier, statistiques, liste des vidéos : filtre par compte, tri / bornes par date.
+        Index("ix_cm_videos_account_published", "platform", "account_id", "published_at"),
     )
 
     id = Column(Integer, primary_key=True)

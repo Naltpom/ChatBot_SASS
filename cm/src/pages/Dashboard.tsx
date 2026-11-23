@@ -121,7 +121,7 @@ export default function Dashboard() {
               <div className="hscroll">
                 {d.top_videos.map(v => (
                   <a key={v.id} className="vcard" href={v.url || undefined} target="_blank" rel="noreferrer">
-                    {v.thumbnail_url ? <img className="vthumb" src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" /> : <div className="vthumb" />}
+                    {v.thumbnail_url && <img className="vthumb" src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" />}
                     <div className="vcard-body">
                       <div className="ellipsis small strong">{v.title || 'Sans titre'}</div>
                       <div className="tiny muted row" style={{ gap: 6 }}><span aria-hidden="true" className={`dot dot-${v.platform}`} />{short(v.views)} vues · {short(v.likes)} j’aime</div>

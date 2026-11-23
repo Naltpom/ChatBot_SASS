@@ -1,17 +1,37 @@
 // Toutes les vidéos relevées sur les comptes du périmètre, avec leurs chiffres.
 // Mobile : liste de cartes. Ordinateur : tableau complet triable.
-import { useState } from 'react'
-import { getVideos, PLATFORM_LABEL, PLATFORMS, type Platform } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import { getVideosPage, PLATFORM_LABEL, PLATFORMS, type Platform, type Video } from '../api'
 import { Empty, Icon, Msg, PlatformTag, Skeleton } from '../components/ui'
 import { fmtDate, fmtDuration, num, pct, short } from '../format'
-import { useLoad } from '../session'
+import { useLoad, useSession } from '../session'
 
 type Sort = 'recent' | 'views' | 'likes' | 'comments' | 'shares' | 'engagement'
 
 export default function Videos() {
   const [platform, setPlatform] = useState<'' | Platform>('')
   const [sort, setSort] = useState<Sort>('recent')
-  const videos = useLoad(s => getVideos(s, { platform, sort, limit: 200 }), [platform, sort])
+  const { scope } = useSession()
+  // Première page via le cache partagé, pages suivantes au défilement (curseur X-Next-Cursor).
+  const first = useLoad(s => getVideosPage(s, { platform, sort, limit: 30 }), [platform, sort])
+  const [more, setMore] = useState<Video[]>([])
+  const [next, setNext] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const sentinel = useRef<HTMLDivElement>(null)
+  useEffect(() => { setMore([]); setNext(first.data?.next ?? null) }, [first.data])
+  useEffect(() => {
+    const el = sentinel.current
+    if (!el || !next || !('IntersectionObserver' in window)) return
+    const io = new IntersectionObserver(async ([e]) => {
+      if (!e.isIntersecting || busy || !next) return
+      setBusy(true)
+      try { const p = await getVideosPage(scope, { platform, sort, limit: 30, cursor: next }); setMore(m => [...m, ...p.items]); setNext(p.next) }
+      catch { setNext(null) } finally { setBusy(false) }
+    }, { rootMargin: '600px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [next, busy, scope, platform, sort])
+  const videos = { ...first, data: first.data ? [...first.data.items, ...more] : null }
   const eng = (v: { views: number | null; likes: number | null; comments: number | null; shares: number | null; saves: number | null }) =>
     v.views ? ((v.likes || 0) + (v.comments || 0) + (v.shares || 0) + (v.saves || 0)) / v.views : null
   return (
@@ -41,7 +61,7 @@ export default function Videos() {
           <ul className="list card card-flush list-pad only-mobile">
             {videos.data.map(v => (
               <li key={v.id} style={{ alignItems: 'flex-start' }}>
-                {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: 56, height: 76, objectFit: 'cover', borderRadius: 10, flex: 'none' }} />
+                {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" width={56} height={76} style={{ width: 56, height: 76, objectFit: 'cover', borderRadius: 10, flex: 'none' }} />
                   : <span style={{ width: 56, height: 76, borderRadius: 10, background: 'var(--surface-2)', flex: 'none' }} />}
                 <div className="grow col" style={{ gap: 4 }}>
                   {v.url ? <a className="strong clamp2" style={{ color: 'var(--text)' }} href={v.url} target="_blank" rel="noreferrer">{v.title || 'Sans titre'}</a>
@@ -71,7 +91,7 @@ export default function Videos() {
                     <tr key={v.id}>
                       <td style={{ maxWidth: 420 }}>
                         <div className="row-nw" style={{ gap: 12 }}>
-                          {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: 38, height: 52, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
+                          {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" width={56} height={76} style={{ width: 38, height: 52, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
                             : <span style={{ width: 38, height: 52, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
                           <div className="grow">
                             {v.url ? <a className="ellipsis strong" style={{ display: 'block' }} href={v.url} target="_blank" rel="noreferrer">{v.title || 'Sans titre'}</a>
@@ -91,6 +111,9 @@ export default function Videos() {
               </table>
             </div>
           </section>
+          <div ref={sentinel} aria-hidden="true" style={{ height: 1 }} />
+          {busy && <Skeleton h={72} n={2} />}
+          {!next && videos.data.length > 30 && <p className="tiny muted" style={{ textAlign: 'center' }}>{videos.data.length} vidéos · fin de la liste</p>}
         </>
       )}
     </>

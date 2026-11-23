@@ -28,7 +28,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
@@ -138,6 +138,41 @@ async def _tenant_for_row(db: AsyncSession, user: User, row) -> Optional[Tenant]
     from src.routers.tiktok import _tenant_of
     return await _tenant_of(db, user, row)
 
+
+
+# --------------------------------------------------------------------------
+# Pagination : `limit` + `cursor` (opaque). Le corps reste une liste (compatible avec les
+# clients existants) ; la page suivante est annoncée par l'en-tête X-Next-Cursor.
+# --------------------------------------------------------------------------
+
+def _decode_cursor(cursor: Optional[str]) -> int:
+    if not cursor:
+        return 0
+    import base64
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+        kind, _, value = raw.partition(":")
+        if kind != "o":
+            raise ValueError
+        offset = int(value)
+        if offset < 0 or offset > 100_000:
+            raise ValueError
+        return offset
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Curseur de pagination invalide.")
+
+
+def _encode_cursor(offset: int) -> str:
+    import base64
+    return base64.urlsafe_b64encode(f"o:{offset}".encode()).decode().rstrip("=")
+
+
+def _page(response: Response, rows: list, offset: int, limit: int) -> list:
+    """`rows` lus avec limit + 1 : coupe à `limit` et pose X-Next-Cursor s'il en reste."""
+    if len(rows) > limit:
+        response.headers["X-Next-Cursor"] = _encode_cursor(offset + limit)
+        return rows[:limit]
+    return rows
 
 # --------------------------------------------------------------------------
 # Santé, configuration, espaces
@@ -286,8 +321,11 @@ async def list_videos(org_id: Optional[int] = Query(None), platform: Optional[Li
                       account_id: Optional[int] = None,
                       sort: Literal["recent", "views", "likes", "comments", "shares", "engagement"] = "recent",
                       group_id: Optional[int] = Query(None), days: Optional[int] = Query(None, ge=1, le=365),
-                      limit: int = Query(50, ge=1, le=200), db: AsyncSession = Depends(get_db),
+                      limit: int = Query(50, ge=1, le=200), cursor: Optional[str] = Query(None, max_length=64),
+                      response: Response = None, db: AsyncSession = Depends(get_db),
                       user: User = Depends(get_cm_user)):
+    """Vidéos relevées, paginées (limit + cursor, page suivante dans X-Next-Cursor)."""
+    offset = _decode_cursor(cursor)
     tenant = await _tenant(db, user, org_id)
     accounts, names = await _tenant_index(db, tenant, group_id)
     engagement = (func.coalesce(CmVideo.likes, 0) + func.coalesce(CmVideo.comments, 0)
@@ -304,9 +342,9 @@ async def list_videos(org_id: Optional[int] = Query(None), platform: Optional[Li
         conds.append(CmVideo.published_at >= utcnow() - timedelta(days=days))
     rows = (await db.execute(
         select(CmVideo).where(*conds)
-        .order_by(*order, CmVideo.id.desc()).limit(limit)
+        .order_by(*order, CmVideo.id.desc()).offset(offset).limit(limit + 1)
     )).scalars().all()
-    return [_video_out(v, names) for v in rows]
+    return [_video_out(v, names) for v in _page(response, list(rows), offset, limit)]
 
 
 async def _daily_series(db: AsyncSession, accounts, since, until) -> list[dict]:
@@ -1042,6 +1080,8 @@ async def submit_post(post_id: int, db: AsyncSession = Depends(get_db), user: Us
 @router.get("/posts")
 async def list_posts(org_id: Optional[int] = Query(None), start: Optional[datetime] = None,
                      end: Optional[datetime] = None, group_id: Optional[int] = Query(None),
+                     limit: int = Query(200, ge=1, le=500), cursor: Optional[str] = Query(None, max_length=64),
+                     response: Response = None,
                      db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Planning : publications dont une cible tombe entre `start` et `end` (défaut : -30 j / +90 j).
     Avec `group_id`, seules les cibles des comptes du groupe sont renvoyées."""
@@ -1063,8 +1103,9 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
         targets = {pid: [t for t in ts if (t.platform, t.account_id) in keep] for pid, ts in targets.items()}
     out = [_post_out(p, targets.get(p.id, []), names) for p in posts
            if p.status != POST_RECEIVING and targets.get(p.id)]
-    out.sort(key=lambda p: min((t["scheduled_at"] for t in p["targets"]), default=""))
-    return out
+    out.sort(key=lambda p: (min((t["scheduled_at"] for t in p["targets"]), default=""), p["id"]))
+    offset = _decode_cursor(cursor)
+    return _page(response, out[offset:offset + limit + 1], offset, limit)
 
 
 @router.get("/posts/{post_id}")

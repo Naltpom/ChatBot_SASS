@@ -166,10 +166,8 @@ export default function Stats() {
             <div className="vgrid">
               {(top.data || []).map((v, i) => (
                 <a key={v.id} className="vcard" href={v.url || undefined} target="_blank" rel="noreferrer">
-                  <div style={{ position: 'relative' }}>
-                    {v.thumbnail_url ? <img className="vthumb" src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" /> : <div className="vthumb" />}
-                    <span style={{ position: 'absolute', left: 8, top: 8, background: 'rgb(0 0 0 / 60%)', color: '#fff', borderRadius: 8, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>#{i + 1}</span>
-                  </div>
+                  {v.thumbnail_url && <img className="vthumb" src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" />}
+                  <span className="vrank">#{i + 1}</span>
                   <div className="vcard-body">
                     <div className="ellipsis small strong">{v.title || 'Sans titre'}</div>
                     <div className="tiny muted row-nw" style={{ gap: 6 }}><span aria-hidden="true" className={`dot dot-${v.platform}`} /><span className="ellipsis">{v.account_name}</span></div>
