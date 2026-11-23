@@ -612,3 +612,8 @@ a.cgroup-head:hover { background: var(--surface-2); color: var(--text); }
 .autogrid { display: grid; gap: 14px; grid-template-columns: 1fr; }
 @media (min-width: 640px) { .autogrid { grid-template-columns: repeat(var(--cols-md, 2), minmax(0, 1fr)); } }
 @media (min-width: 1024px) { .autogrid { grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); } }
+/* Planning : une ligne par vidéo, ses plateformes en logos */
+.plat-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.plat-pill { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: var(--surface-2); position: relative; }
+.plat-pill.planned { opacity: .55; }
+.plat-pill.failed::after { content: ""; position: absolute; right: -2px; top: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger, #B91C1C); border: 2px solid var(--surface); }
