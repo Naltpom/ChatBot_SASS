@@ -49,13 +49,20 @@ Un compte « routine » connecté ensuite officiellement garde sa ligne (histori
 | `CM_SERVICE_TOKEN`, `CM_SERVICE_USER_EMAIL` | routine Claude |
 | `CM_MEDIA_MAX_GB`, `CM_MAX_UPLOAD_MB`, `CM_STATS_EVERY_HOURS` | plafonds et fréquence des relevés |
 | `TIKTOK_EXTRA_SCOPES` | vide tant que TikTok n'a pas validé les statistiques |
+| `TIKTOK_CM_REDIRECT_URI`, `YOUTUBE_CM_REDIRECT_URI` | vides par défaut (voir ci-dessous) |
 | `INSTAGRAM_CLIENT_ID`, `INSTAGRAM_CLIENT_SECRET`, `INSTAGRAM_REDIRECT_URI` | app Meta (vides = comptes « routine » seulement) |
 
-À déclarer côté plateformes : URI de retour `https://cm.chapote.fr/tiktok/callback` (TikTok),
-`https://cm.chapote.fr/youtube/callback` (client OAuth Google) et `https://cm.chapote.fr/instagram/callback` (Meta) ;
-origine JavaScript `https://cm.chapote.fr` (connexion Google). Rappels Meta :
-désautorisation `https://cm.chapote.fr/api/cm/instagram/deauthorize`, suppression des données
-`https://cm.chapote.fr/api/cm/instagram/data-deletion`. Pages légales : `/legal/instagram-cgu`, `/legal/instagram-confidentialite`.
+**Retours OAuth TikTok et YouTube.** Par défaut, une connexion lancée depuis cm revient par l'URI déjà déclarée
+(`https://chapote.fr/tiktok/callback`, `https://chapote.fr/youtube/callback`). Le `state` signé porte `app: "cm"` ;
+la page de chapote.fr (`app/src/utils/cmBounce.ts`) renvoie alors code et state vers la même page de
+cm.chapote.fr, qui fait l'échange. La destination est fixe (sous-domaine `cm.`), jamais lue dans le state.
+Rien à modifier chez TikTok (une app publiée repasserait en validation). Si l'URI de cm est un jour déclarée
+chez la plateforme, poser `TIKTOK_CM_REDIRECT_URI` / `YOUTUBE_CM_REDIRECT_URI` pour un retour direct.
+
+Instagram : URI de retour `https://cm.chapote.fr/instagram/callback` (Meta) ; rappels
+désautorisation `https://cm.chapote.fr/api/cm/instagram/deauthorize` et suppression des données
+`https://cm.chapote.fr/api/cm/instagram/data-deletion`. Pages légales : `/legal/instagram-cgu`,
+`/legal/instagram-confidentialite`. Connexion Google : origine JavaScript `https://cm.chapote.fr`.
 
 ## Dev
 

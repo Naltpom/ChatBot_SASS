@@ -152,9 +152,10 @@ def _client(**kw) -> httpx.AsyncClient:
 
 
 def redirect_uri(app: str = "chapote") -> str:
-    """URI de retour : chapote.fr (Espace client) ou cm.chapote.fr."""
-    if app == "cm":
-        return f"{settings.CM_URL.rstrip('/')}/youtube/callback"
+    """URI de retour. Depuis cm.chapote.fr : YOUTUBE_CM_REDIRECT_URI si elle est déclarée chez la
+    plateforme, sinon l'URI de chapote.fr (sa page de retour renvoie vers cm.chapote.fr)."""
+    if app == "cm" and settings.YOUTUBE_CM_REDIRECT_URI:
+        return settings.YOUTUBE_CM_REDIRECT_URI
     return settings.YOUTUBE_REDIRECT_URI
 
 

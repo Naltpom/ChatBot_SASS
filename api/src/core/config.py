@@ -154,6 +154,11 @@ class Settings(BaseSettings):
     # Autorisations TikTok supplémentaires, à poser SEULEMENT une fois validées par
     # TikTok (sinon la connexion échoue) : « user.info.stats,video.list ».
     TIKTOK_EXTRA_SCOPES: str = ""
+    # Retour OAuth DIRECT sur cm.chapote.fr (ex. https://cm.chapote.fr/tiktok/callback), à poser
+    # seulement si l'URI est déclarée chez TikTok / Google. Vide = la connexion lancée depuis cm
+    # revient par l'URI déjà déclarée (chapote.fr/…/callback), dont la page renvoie vers cm.
+    TIKTOK_CM_REDIRECT_URI: str = ""
+    YOUTUBE_CM_REDIRECT_URI: str = ""
 
     # --- Instagram (API Instagram avec connexion Instagram, Meta) ---
     # Vides = connexion officielle désactivée (comptes « gérés par la routine » seulement).
