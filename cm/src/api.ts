@@ -169,8 +169,8 @@ export const getPosts = (s: ScopeArg, start: Date, end: Date, opts: { q?: string
   call<Post[]>(`/api/cm/posts${q(s, { start: start.toISOString(), end: end.toISOString(), ...opts })}`)
 export const getVideosPage = (s: ScopeArg, opts: { platform?: string; sort?: string; order?: Order; q?: string; limit?: number; cursor?: string | null }) =>
   callPage<Video>(`/api/cm/videos${q(s, { ...opts, cursor: opts.cursor || undefined })}`)
-export const getCalendar = (s: ScopeArg, start: Date, end: Date) =>
-  call<Calendar>(`/api/cm/calendar${q(s, { start: start.toISOString(), end: end.toISOString() })}`)
+export const getCalendar = (s: ScopeArg, start: Date, end: Date, search?: string) =>
+  call<Calendar>(`/api/cm/calendar${q(s, { start: start.toISOString(), end: end.toISOString(), ...(search ? { q: search } : {}) })}`)
 export const getStats = (s: ScopeArg, days: number, opts: ListOpts = {}) => call<DetailedStats>(`/api/cm/stats${q(s, { days, ...opts })}`)
 
 // Groupes de comptes

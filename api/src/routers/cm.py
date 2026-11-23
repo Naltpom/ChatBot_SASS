@@ -758,6 +758,7 @@ async def delete_group(group_id: int, org_id: Optional[int] = Query(None), db: A
 # --------------------------------------------------------------------------
 
 CALENDAR_MAX_DAYS = 120
+CALENDAR_SEARCH_DAYS = 550             # recherche : environ un an en arrière et quelques mois devant
 # Chiffres que chaque plateforme fournit réellement par vidéo (API officielles).
 METRICS = {
     "tiktok": ["followers", "views", "likes", "comments", "shares"],
@@ -769,23 +770,27 @@ METRICS = {
 @router.get("/calendar")
 async def calendar(org_id: Optional[int] = Query(None), group_id: Optional[int] = Query(None),
                    start: Optional[datetime] = None, end: Optional[datetime] = None,
+                   q: Optional[str] = Query(None, max_length=100),
                    db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Calendrier : vidéos réellement publiées sur les comptes (relevées chez TikTok,
     YouTube et Instagram, publiées ou non depuis Chapote, avec leurs chiffres),
-    publications Chapote programmées, et évolution des abonnés jour par jour."""
+    publications Chapote programmées, et évolution des abonnés jour par jour.
+    `q` : recherche dans les titres et légendes (en SQL), sur une période jusqu'à CALENDAR_SEARCH_DAYS."""
     tenant = await _tenant(db, user, org_id)
     now = utcnow()
     start = cm.to_utc_naive(start) or now - timedelta(days=30)
     end = cm.to_utc_naive(end) or now + timedelta(days=30)
+    pattern = paging.like(q)
     if end <= start:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Période invalide.")
-    if end - start > timedelta(days=CALENDAR_MAX_DAYS):
+    if end - start > timedelta(days=CALENDAR_SEARCH_DAYS if pattern else CALENDAR_MAX_DAYS):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Période de {CALENDAR_MAX_DAYS} jours au plus.")
     accounts, names = await _tenant_index(db, tenant, group_id)
 
     videos = (await db.execute(
         select(CmVideo).where(_account_filter(CmVideo, accounts), CmVideo.published_at >= start,
-                              CmVideo.published_at < end)
+                              CmVideo.published_at < end,
+                              *([CmVideo.title.ilike(pattern, escape="\\")] if pattern else []))
         .order_by(CmVideo.published_at).limit(1000)
     )).scalars().all()
     seen = {(v.platform, v.account_id, v.external_id) for v in videos}
@@ -807,7 +812,9 @@ async def calendar(org_id: Optional[int] = Query(None), group_id: Optional[int] 
         .where(tenant.where(CmPost), _account_filter(CmTarget, accounts), CmPost.status != POST_RECEIVING,
                CmTarget.status != T_CANCELLED,
                func.coalesce(CmTarget.published_at, CmTarget.scheduled_at) >= start,
-               func.coalesce(CmTarget.published_at, CmTarget.scheduled_at) < end)
+               func.coalesce(CmTarget.published_at, CmTarget.scheduled_at) < end,
+               *([or_(CmPost.title.ilike(pattern, escape="\\"), CmPost.caption.ilike(pattern, escape="\\"))]
+                 if pattern else []))
         .limit(1000)
     )).all()
     for t, post in rows:
@@ -819,7 +826,7 @@ async def calendar(org_id: Optional[int] = Query(None), group_id: Optional[int] 
 
     first, last = start.date(), min(end, now).date()
     days = []
-    if first <= last:
+    if first <= last and not pattern:      # recherche : pas de série d'abonnés
         series = await _daily_series(db, accounts, first - timedelta(days=1), last)
         for prev, pt in zip(series, series[1:]):
             days.append({
