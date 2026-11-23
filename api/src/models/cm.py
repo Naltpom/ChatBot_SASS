@@ -327,6 +327,9 @@ class CmMemberRole(Base):
     email = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default="editor")
     group_ids = Column(JSON, nullable=True)
+    # Comptes partagés un par un (« tiktok:12 »). Accès restreint dès que group_ids ou account_keys
+    # n'est pas NULL (listes vides = rien) ; NULL partout = tous les comptes de l'espace.
+    account_keys = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 

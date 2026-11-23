@@ -4,6 +4,7 @@
 // si coupées chez le créateur, divulgation commerciale, Music Usage Confirmation avant l'envoi.
 // Rien n'est envoyé à une plateforme avant l'heure choisie.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { PlatformLogo } from '../components/PlatformLogo'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   creatorInfo, createPost, getAccounts, getAsset, getRobot, putPart, submitPost, PLATFORM_LABEL,
@@ -324,7 +325,7 @@ export default function Composer() {
                     <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
                     <span className="grow">
                       <span className="ellipsis" style={{ display: 'block', fontWeight: 500 }}>{a.name}</span>
-                      <span className="tiny muted">{PLATFORM_LABEL[a.platform]}{a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}
+                      <span className="tiny muted row-nw" style={{ gap: 4 }}><PlatformLogo platform={a.platform} size={12} />{PLATFORM_LABEL[a.platform]}{a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}
                         {!a.can_publish && ' · indisponible'}{a.needs_reconnect && ' (à reconnecter)'}</span>
                     </span>
                   </label>

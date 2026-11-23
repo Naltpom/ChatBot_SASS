@@ -108,6 +108,24 @@ Les vidéos restent dans le Drive des utilisateurs ; cm les lit grâce à un **c
   qui vient de s'authentifier chez la plateforme reçoit un jeton signé (15 min, usage unique, nouveaux jetons
   chiffrés dedans) et peut reprendre le compte. Sans les identifiants du compte, impossible.
 
+### Partage simple (par compte, par groupe ou tout l'espace)
+
+- **Comptes → Partager** (sur un compte ou un groupe) ou **Personnes → Partager l'espace** : une adresse
+  e-mail et un accès : *Admin* (tout l'espace), *Peut publier* (editor), *Lecture seule* (viewer).
+  Compte Chapote existant : accès immédiat ; sinon invitation.
+- Partager depuis l'espace perso le rend partageable une fois pour toutes : une équipe chapote.fr
+  « Espace de … » est créée, l'utilisateur en est propriétaire et admin, et comptes, publications,
+  groupes, dossiers Drive et adresses Google y passent tels quels (`ensure_shareable`).
+- Portée : `cm_member_roles.group_ids` + `account_keys` (`"tiktok:12"`) ; les deux NULL = tous les
+  comptes. Partages successifs = union. `POST /api/cm/shares`, `GET/PATCH /api/cm/people`,
+  `POST /api/cm/people/remove`, `GET /api/cm/shares/{platform}/{id}` (qui a accès à ce compte).
+- `/api/cm/spaces` renvoie `accounts`, `owner`, `owner_name` : l'interface n'affiche que les espaces
+  qui ont des comptes (un seul la plupart du temps) et ouvre d'elle-même l'espace partagé quand le
+  perso est vide.
+- Filtre d'affichage : `?account=tiktok:12` sur toutes les routes `/api/cm` (un seul compte), en plus
+  de `?group_id=`. Sélecteur « Comptes affichés » (onglets Groupes / Comptes) au-dessus de
+  « Nouvelle publication » ; dans l'en-tête sur mobile.
+
 ## Dev
 
 `cd cm && npm install && npm run dev` (port 3003, proxy `/api` vers `localhost:8001`). Tests : `api/tests/test_cm.py`.

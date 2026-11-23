@@ -209,3 +209,99 @@ async def test_routine_instagram_username_unique(pg_session, cmenv):
     async with Client(pg_session) as c:
         r = await c.as_(b).post("/api/cm/instagram/routine-accounts", json={"username": "@GhostHands.music"})
         assert r.status_code == 409 and r.json()["detail"]["code"] == "account_taken"
+
+
+# --------------------------------------------------------------------------
+# Partage par compte / par groupe, page Personnes
+# --------------------------------------------------------------------------
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_share_account_from_personal_space(pg_session, cmenv, tiktok):
+    me = await _user(pg_session, "moi@t.dev")
+    friend = await _user(pg_session, "ami@t.dev")
+    a1 = await _account(pg_session, owner=me, open_id="p1")
+    a2 = await _account(pg_session, owner=me, open_id="p2")
+    await pg_session.commit()
+    later = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        hm = c.as_(me)
+        await _plan(c.as_(me), [_tt_target(a1.id, scheduled_at=later)])
+        sp = (await c.as_(me).get("/api/cm/spaces")).json()
+        assert sp[0]["org_id"] is None and sp[0]["accounts"] == 2
+        # Partager un compte : l'espace perso devient partageable, tout y passe.
+        r = await c.as_(me).post("/api/cm/shares", json={"email": "ami@t.dev", "role": "editor", "platform": "tiktok", "account_id": a1.id})
+        assert r.status_code == 200, r.text
+        org_id = r.json()["org_id"]
+        assert org_id
+        await pg_session.refresh(a2)
+        assert a2.organization_id == org_id and a2.owner_user_id is None
+        assert len((await c.as_(me).get(f"/api/cm/posts?org_id={org_id}")).json()) == 1
+        sp = {s["org_id"]: s for s in (await c.as_(me).get("/api/cm/spaces")).json()}
+        assert sp[None]["accounts"] == 0 and sp[org_id]["accounts"] == 2 and sp[org_id]["owner"] is True
+
+        # L'ami ne voit que le compte partagé.
+        hf = c.as_(friend)
+        assert [a["id"] for a in (await c.as_(friend).get(f"/api/cm/accounts?org_id={org_id}")).json()] == [a1.id]
+        sf = {s["org_id"]: s for s in (await c.as_(friend).get("/api/cm/spaces")).json()}
+        assert sf[org_id]["owner_name"] and sf[org_id]["cm_role"] == "editor"
+        assert (await c.as_(friend).post("/api/cm/shares", json={"org_id": org_id, "email": "x@t.dev", "platform": "tiktok", "account_id": a1.id})).status_code == 403
+
+        # Deuxième partage : union.
+        r = await c.as_(me).post("/api/cm/shares", json={"org_id": org_id, "email": "ami@t.dev", "role": "editor", "platform": "tiktok", "account_id": a2.id})
+        assert r.status_code == 200, r.text
+        assert len((await c.as_(friend).get(f"/api/cm/accounts?org_id={org_id}")).json()) == 2
+        acc = await c.as_(me).get(f"/api/cm/shares/tiktok/{a2.id}?org_id={org_id}")
+        assert {p["email"] for p in acc.json()} == {"moi@t.dev", "ami@t.dev"}
+
+        # Filtre compte unique.
+        assert len((await c.as_(me).get(f"/api/cm/accounts?org_id={org_id}&account=tiktok:{a2.id}")).json()) == 1
+        assert (await c.as_(me).get(f"/api/cm/accounts?org_id={org_id}&account=tiktok:x")).status_code == 400
+
+        # Personnes : restreindre, passer lecteur, retirer.
+        ppl = (await c.as_(me).get(f"/api/cm/people?org_id={org_id}")).json()
+        assert ppl["can_manage"] and {p["email"]: p["role"] for p in ppl["people"]} == {"moi@t.dev": "admin", "ami@t.dev": "editor"}
+        r = await c.as_(me).patch("/api/cm/people", json={"org_id": org_id, "email": "ami@t.dev", "role": "viewer", "all": False, "accounts": [f"tiktok:{a2.id}"]})
+        assert r.status_code == 200, r.text
+        assert [a["id"] for a in (await c.as_(friend).get(f"/api/cm/accounts?org_id={org_id}")).json()] == [a2.id]
+        assert (await c.as_(me).patch("/api/cm/people", json={"org_id": org_id, "email": "moi@t.dev", "role": "viewer"})).status_code == 400
+        assert (await c.as_(me).post("/api/cm/people/remove", json={"org_id": org_id, "email": "moi@t.dev"})).status_code == 400
+        assert (await c.as_(me).post("/api/cm/people/remove", json={"org_id": org_id, "email": "ami@t.dev"})).status_code == 200
+        assert (await c.as_(friend).get(f"/api/cm/accounts?org_id={org_id}")).status_code in (403, 404)
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_share_group_and_admin_invite(pg_session, cmenv, tiktok):
+    boss = await _user(pg_session, "chef@t.dev")
+    org = await _org(pg_session, boss)
+    a1 = await _account(pg_session, org=org, by=boss, open_id="g1")
+    await _account(pg_session, org=org, by=boss, open_id="g2")
+    g = CmGroup(organization_id=org.id, name="Musique")
+    pg_session.add(g)
+    await pg_session.flush()
+    pg_session.add(CmGroupAccount(group_id=g.id, platform="tiktok", account_id=a1.id))
+    await pg_session.commit()
+    mate = await _user(pg_session, "monteur@t.dev")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        hb = c.as_(boss)
+        r = await c.as_(boss).post("/api/cm/shares", json={"org_id": org.id, "email": "monteur@t.dev", "role": "viewer", "group_id": g.id})
+        assert r.status_code == 200 and r.json()["org_id"] == org.id
+        hm = c.as_(mate)
+        assert [a["id"] for a in (await c.as_(mate).get(f"/api/cm/accounts?org_id={org.id}")).json()] == [a1.id]
+        # Invitation (pas encore de compte) en admin : accès à tout.
+        r = await c.as_(boss).post("/api/cm/shares", json={"org_id": org.id, "email": "Nouveau@t.dev", "role": "admin", "all": True})
+        assert r.status_code == 200 and r.json()["invited"] is True
+        inv = (await pg_session.execute(select(Invitation).where(Invitation.email == "nouveau@t.dev"))).scalar_one()
+        assert inv.role == "admin"
+        ppl = {p["email"]: p for p in (await c.as_(boss).get(f"/api/cm/people?org_id={org.id}")).json()["people"]}
+        assert ppl["nouveau@t.dev"]["pending"] and ppl["nouveau@t.dev"]["role"] == "admin"
+        assert ppl["monteur@t.dev"]["scope"] == {"all": False, "groups": [g.id], "accounts": []}
+        # Le monteur passe admin : accès à tout, membre admin de l'équipe.
+        r = await c.as_(boss).patch("/api/cm/people", json={"org_id": org.id, "email": "monteur@t.dev", "role": "admin"})
+        assert r.status_code == 200
+        assert len((await c.as_(mate).get(f"/api/cm/accounts?org_id={org.id}")).json()) == 2
+        m = (await pg_session.execute(select(Membership).where(Membership.user_id == mate.id))).scalar_one()
+        await pg_session.refresh(m)
+        assert m.role == "admin"

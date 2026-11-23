@@ -3,6 +3,7 @@
 // abonnés jour par jour ; le futur montre les publications programmées.
 // Mobile : vue Agenda (bande des 7 jours + liste). Ordinateur : vue Semaine en 7 colonnes. Mois partout.
 import { useEffect, useMemo, useState } from 'react'
+import { PlatformLogo } from '../components/PlatformLogo'
 import { Link, useLocation } from 'react-router-dom'
 import {
   cancelTarget, getCalendar, patchTarget, publishNow, retryTarget, PLATFORM_LABEL, PLATFORMS,
@@ -156,7 +157,7 @@ export default function Planning() {
       <div className="chips" role="group" aria-label="Plateformes">
         {PLATFORMS.map(p => (
           <button key={p} type="button" className="chip" aria-pressed={platforms.includes(p)} onClick={() => togglePlatform(p)}>
-            <span aria-hidden="true" className={`dot dot-${p}`} />{PLATFORM_LABEL[p]}
+            <PlatformLogo platform={p} size={14} />{PLATFORM_LABEL[p]}
           </button>
         ))}
       </div>

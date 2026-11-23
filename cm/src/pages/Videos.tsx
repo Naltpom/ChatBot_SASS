@@ -1,6 +1,7 @@
 // Toutes les vidéos relevées sur les comptes du périmètre, avec leurs chiffres.
 // Mobile : liste de cartes. Ordinateur : tableau complet triable.
 import { useEffect, useRef, useState } from 'react'
+import { PlatformLogo } from '../components/PlatformLogo'
 import { getVideosPage, PLATFORM_LABEL, PLATFORMS, type Platform, type Video } from '../api'
 import { Empty, Icon, Msg, PlatformTag, Skeleton } from '../components/ui'
 import { fmtDate, fmtDuration, num, pct, short } from '../format'
@@ -47,7 +48,7 @@ export default function Videos() {
         <button type="button" className="chip" aria-pressed={platform === ''} onClick={() => setPlatform('')}>Toutes</button>
         {PLATFORMS.map(p => (
           <button key={p} type="button" className="chip" aria-pressed={platform === p} onClick={() => setPlatform(p)}>
-            <span aria-hidden="true" className={`dot dot-${p}`} />{PLATFORM_LABEL[p]}
+            <PlatformLogo platform={p} size={14} />{PLATFORM_LABEL[p]}
           </button>
         ))}
       </div>
