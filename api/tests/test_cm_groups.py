@@ -12,7 +12,7 @@ from datetime import timedelta
 import pytest
 
 from src.core.time import utcnow
-from src.models.cm import CmAccountStat, CmGroupAccount, CmVideo
+from src.models.cm import CmAccountStat, CmGroupAccount, CmVideo, CmMemberRole
 from src.services import cm_service as cm
 
 from test_cm import SERVICE, _ig_routine, _publish, _tt_target, cmenv  # noqa: F401  (fixture)
@@ -98,6 +98,9 @@ async def test_groups_are_isolated_between_tenants(pg_session, cmenv):
         r = await hb.post("/api/cm/groups", json={"name": "x", "accounts": [{"platform": "tiktok", "account_id": tt1.id}]})
         assert r.status_code == 404
         # Groupe d'équipe : comptes de l'équipe seulement ; invisible depuis l'espace perso.
+        # Gérer les groupes d'une équipe demande le rôle admin dans cm.
+        pg_session.add(CmMemberRole(organization_id=org.id, email=member.email, role="admin"))
+        await pg_session.commit()
         hm = c.as_(member)
         r = await hm.post("/api/cm/groups", json={"org_id": org.id, "name": "Équipe", "accounts": [
             {"platform": "tiktok", "account_id": org_acc.id}]})

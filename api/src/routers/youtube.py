@@ -52,6 +52,7 @@ from src.routers.tiktok import Tenant, _tenant, _tenant_of
 from src.services import youtube_jobs
 from src.services import youtube_service as yt
 from src.services.crypto import decrypt_secret
+from src.services import cm_access
 from src.services.rate_limit import RateLimiter, SingleUseTokens
 from src.services.video_probe import ProbeError, probe
 
@@ -105,7 +106,7 @@ async def get_youtube_user(request: Request, db: AsyncSession = Depends(get_db))
 async def _get_account(db: AsyncSession, user: User, account_id: int) -> tuple[YouTubeAccount, Tenant]:
     acc = await db.get(YouTubeAccount, account_id)
     tenant = await _tenant_of(db, user, acc) if acc is not None and acc.revoked_at is None else None
-    if tenant is None:
+    if tenant is None or not cm_access.account_allowed(tenant, "youtube", acc.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Chaîne YouTube introuvable")
     return acc, tenant
 
@@ -134,8 +135,8 @@ def _http_error(e: yt.YouTubeError) -> HTTPException:
 
 
 def _can_disconnect(acc: YouTubeAccount, tenant: Tenant, user: User) -> bool:
-    return (acc.owner_user_id == user.id or acc.connected_by_user_id == user.id
-            or tenant.role == "admin")
+    return (acc.owner_user_id == user.id or tenant.role == "admin" or tenant.cm_role == "admin"
+            or (acc.connected_by_user_id == user.id and tenant.cm_role != "viewer"))
 
 
 def _account_out(acc: YouTubeAccount, tenant: Tenant, user: User) -> dict:
@@ -207,6 +208,7 @@ async def oauth_start(body: StartIn, db: AsyncSession = Depends(get_db),
                       user: User = Depends(get_current_user)):
     _require_enabled()
     tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin", explicit_only=True)
     if not await oauth_limiter.check(f"{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de tentatives de connexion YouTube. Réessayez dans une heure.")
@@ -235,6 +237,7 @@ async def oauth_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db),
     if claims.get("scope") != STATE_SCOPE or claims.get("sub") != str(user.id) or not claims.get("jti"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_STATE)
     tenant = await _tenant(db, user, claims.get("org"))
+    cm_access.require(tenant, "admin", explicit_only=True)
     if not await state_store.claim(claims["jti"]):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_STATE)
 
@@ -252,6 +255,9 @@ async def oauth_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db),
     except yt.YouTubeError as e:
         raise _http_error(e)
 
+    taken = await cm_access.taken_elsewhere(db, "youtube", ch["id"], tenant)
+    if taken is not None:
+        await cm_access.refuse_taken(db, "youtube", taken, user, claim_tokens={**tok, "_channel": ch})
     acc = (await db.execute(
         select(YouTubeAccount).where(tenant.where(YouTubeAccount), YouTubeAccount.channel_id == ch["id"])
     )).scalar_one_or_none()
@@ -283,7 +289,7 @@ async def list_accounts(org_id: Optional[int] = Query(None), db: AsyncSession = 
         select(YouTubeAccount).where(tenant.where(YouTubeAccount), YouTubeAccount.revoked_at.is_(None))
         .order_by(YouTubeAccount.created_at)
     )).scalars().all()
-    return [_account_out(a, tenant, user) for a in accounts]
+    return [_account_out(a, tenant, user) for a in accounts if cm_access.account_allowed(tenant, "youtube", a.id)]
 
 
 @router.delete("/accounts/{account_id}")
@@ -342,6 +348,7 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db),
     """Clic « Publier » : valide la demande et prépare la réception de la vidéo."""
     _require_enabled()
     acc, tenant = await _get_account(db, user, body.account_id)
+    cm_access.require(tenant, "edit", explicit_only=True)
     if acc.needs_reconnect:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette chaîne YouTube doit être reconnectée.")
     if not yt.can_upload(acc):

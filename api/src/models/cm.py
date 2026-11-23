@@ -308,3 +308,43 @@ class CmGoogleIdentity(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+CM_ROLES = ("admin", "editor", "viewer")
+
+
+class CmMemberRole(Base):
+    """Rôle cm d'un membre d'équipe (par adresse e-mail : vaut aussi pour une invitation en
+    attente). Sans ligne : « editor ». Un admin de l'équipe (Membership.role = admin) est
+    toujours admin dans cm. `group_ids` : limité à ces groupes de comptes (vide = tous)."""
+    __tablename__ = "cm_member_roles"
+    __table_args__ = (
+        Index("uq_cm_member_roles_org_email", "organization_id", "email", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False)
+    role = Column(String(20), nullable=False, default="editor")
+    group_ids = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmTransfer(Base):
+    """Transfert d'un compte (TikTok, YouTube, Instagram) vers une autre personne : en attente
+    jusqu'à ce qu'elle l'accepte dans un de ses espaces (14 jours)."""
+    __tablename__ = "cm_transfers"
+
+    id = Column(Integer, primary_key=True)
+    platform = Column(String(20), nullable=False)
+    account_id = Column(Integer, nullable=False)
+    from_organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
+    from_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    to_email = Column(String(255), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending")   # pending | accepted | declined | cancelled
+    expires_at = Column(DateTime, nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)

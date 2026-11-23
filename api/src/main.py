@@ -23,7 +23,7 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.core.errors import install_error_handlers
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
-from src.routers import admin, admin_billing, admin_music, admin_prospecting, admin_tiktok, auth, billing, bots, cm, cm_library, embed, inbox, kb, music, orgs, public, stats, tiktok, tree, twofa, uploads, widget, youtube
+from src.routers import admin, admin_billing, admin_music, admin_prospecting, admin_tiktok, auth, billing, bots, cm, cm_library, cm_team, embed, inbox, kb, music, orgs, public, stats, tiktok, tree, twofa, uploads, widget, youtube
 from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
 from src.routers.external import onboarding as ext_onboarding
@@ -304,6 +304,7 @@ app.include_router(admin_tiktok.router)
 app.include_router(youtube.router)
 app.include_router(cm.router)
 app.include_router(cm_library.router)
+app.include_router(cm_team.router)
 app.include_router(music.router)
 app.include_router(admin_music.router)
 app.include_router(uploads.router)

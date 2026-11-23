@@ -12,7 +12,7 @@ import {
 import { Avatar, GroupDot, Icon, Loading, Msg, Sheet } from '../components/ui'
 import { AssetGrid } from './Library'
 import { fmtDuration, fmtSize, TIKTOK_BC_URL, TIKTOK_MUSIC_URL, TIKTOK_PRIVACY, toLocalInput } from '../format'
-import { useLoad, useSession } from '../session'
+import { useLoad, useRole, useSession } from '../session'
 
 interface TikTokOpts { mode: 'direct' | 'draft'; privacy: string; comment: boolean; duet: boolean; stitch: boolean
   commercial: boolean; yourBrand: boolean; branded: boolean; text: string }
@@ -51,6 +51,7 @@ function Check({ label, checked, onChange, disabled, hint }: { label: ReactNode;
 export default function Composer() {
   const { org, config, groups, group: currentGroup } = useSession()
   const nav = useNavigate()
+  const { canEdit } = useRole()
   const accounts = useLoad(s => getAccounts(s.org))
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
@@ -233,6 +234,7 @@ export default function Composer() {
           <p>Une vidéo, un ou plusieurs comptes, maintenant ou à l’heure choisie.</p>
         </div>
       </div>
+      {!canEdit && <Msg kind="err">Votre rôle dans cette équipe (lecteur) ne permet pas de publier. Demandez à un administrateur de l’équipe.</Msg>}
       {accounts.loading && !accounts.data && <Loading />}
       {accounts.data && all.length === 0 && (
         <Msg>Aucun compte connecté. <Link to="/comptes">Connectez TikTok, YouTube ou Instagram</Link> pour publier.</Msg>

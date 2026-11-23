@@ -29,6 +29,7 @@ from src.models.cm import CmAsset, CmGoogleIdentity, CmGroup, CmPost, CmSource
 from src.models.user import User
 from src.routers.cm import _decode_cursor, _page, _same, get_cm_user
 from src.routers.tiktok import Tenant, _tenant, _tenant_of
+from src.services import cm_access
 from src.services import cm_library as lib
 from src.services import gdrive_service as gd
 from src.services.google_oauth import GoogleAuthError, verify_google_id_token
@@ -43,7 +44,7 @@ ident_limiter = RateLimiter("rl:cmgident:", 20, 3600)
 
 async def _source(db: AsyncSession, tenant: Tenant, source_id: int) -> CmSource:
     s = await db.get(CmSource, source_id)
-    if s is None or s.revoked_at is not None or not _same(s, tenant):
+    if s is None or s.revoked_at is not None or not _same(s, tenant) or not cm_access.group_allowed(tenant, s.group_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier introuvable")
     return s
 
@@ -93,7 +94,7 @@ async def add_identity(body: IdentityIn, db: AsyncSession = Depends(get_db), use
     if not await ident_limiter.check(f"{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop d'essais : réessayez dans une heure.")
     if body.org_id is not None:
-        await _tenant(db, user, body.org_id)          # membre de l'équipe, sinon 404
+        cm_access.require(await _tenant(db, user, body.org_id), "admin")   # admin de l'équipe
     try:
         claims = await verify_google_id_token(body.credential)
     except GoogleAuthError as e:
@@ -123,7 +124,7 @@ async def update_identity(identity_id: int, body: IdentityPatch, db: AsyncSessio
     if row is None or row.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Adresse introuvable")
     if body.org_id is not None:
-        await _tenant(db, user, body.org_id)
+        cm_access.require(await _tenant(db, user, body.org_id), "admin")
     row.organization_id = body.org_id
     await db.commit()
     return await _identities_out(db, user)
@@ -145,6 +146,7 @@ async def list_sources(org_id: Optional[int] = Query(None), db: AsyncSession = D
     tenant = await _tenant(db, user, org_id)
     rows = (await db.execute(select(CmSource).where(tenant.where(CmSource), CmSource.revoked_at.is_(None))
                              .order_by(CmSource.created_at))).scalars().all()
+    rows = [r for r in rows if cm_access.group_allowed(tenant, r.group_id)]
     counts = await lib.source_counts(db, [s.id for s in rows])
     return [lib.source_out(s, counts.get(s.id)) for s in rows]
 
@@ -158,6 +160,7 @@ class SourceIn(BaseModel):
 @router.post("/sources")
 async def add_source(body: SourceIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin")
     if not await link_limiter.check(f"{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop d'essais : réessayez dans une heure.")
     group_id = await _check_group(db, tenant, body.group_id)
@@ -177,6 +180,7 @@ class SourcePatch(BaseModel):
 async def update_source(source_id: int, body: SourcePatch, org_id: Optional[int] = Query(None),
                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
     src = await _source(db, tenant, source_id)
     if body.clear_group:
         src.group_id = None
@@ -196,6 +200,7 @@ async def update_source(source_id: int, body: SourcePatch, org_id: Optional[int]
 async def scan_now(source_id: int, org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
                    user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "edit")
     src = await _source(db, tenant, source_id)
     if not await scan_limiter.check(f"{src.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Dossier relu il y a peu : réessayez dans quelques minutes.")
@@ -208,6 +213,7 @@ async def scan_now(source_id: int, org_id: Optional[int] = Query(None), db: Asyn
 async def remove_source(source_id: int, org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
                         user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
     src = await _source(db, tenant, source_id)
     src.revoked_at = utcnow()
     await lib.cancel_pending_of_source(db, src.id)
@@ -222,7 +228,7 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
                       db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, org_id)
     sources = {s.id: s for s in (await db.execute(select(CmSource).where(
-        tenant.where(CmSource), CmSource.revoked_at.is_(None)))).scalars().all()}
+        tenant.where(CmSource), CmSource.revoked_at.is_(None)))).scalars().all() if cm_access.group_allowed(tenant, s.group_id)}
     if source_id is not None and source_id not in sources:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier introuvable")
     ids = [source_id] if source_id is not None else list(sources)
@@ -249,7 +255,8 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
 async def _asset(db: AsyncSession, tenant: Tenant, asset_id: int) -> tuple[CmAsset, CmSource]:
     row = (await db.execute(select(CmAsset, CmSource).join(CmSource, CmSource.id == CmAsset.source_id)
                             .where(CmAsset.id == asset_id))).first()
-    if row is None or row[1].revoked_at is not None or not _same(row[1], tenant):
+    if row is None or row[1].revoked_at is not None or not _same(row[1], tenant) \
+            or not cm_access.group_allowed(tenant, row[1].group_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo introuvable")
     return row[0], row[1]
 
@@ -272,6 +279,7 @@ class AssetPatch(BaseModel):
 async def update_asset(asset_id: int, body: AssetPatch, org_id: Optional[int] = Query(None),
                        db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "edit")
     a, src = await _asset(db, tenant, asset_id)
     if body.title is not None:
         a.title = body.title.strip() or None
@@ -288,7 +296,8 @@ async def asset_thumbnail(asset_id: int, db: AsyncSession = Depends(get_db), use
     """Sans org_id (utilisée dans <img>) : l'accès se déduit du dossier (membre de son espace)."""
     row = (await db.execute(select(CmAsset, CmSource).join(CmSource, CmSource.id == CmAsset.source_id)
                             .where(CmAsset.id == asset_id))).first()
-    if row is None or row[1].revoked_at is not None or await _tenant_of(db, user, row[1]) is None:
+    t = await _tenant_of(db, user, row[1]) if row is not None and row[1].revoked_at is None else None
+    if t is None or not cm_access.group_allowed(t, row[1].group_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo introuvable")
     a = row[0]
     if not a.thumbnail_link:

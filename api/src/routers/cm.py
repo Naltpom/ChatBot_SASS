@@ -68,6 +68,7 @@ from src.models.cm import (
 )
 from src.models.user import Membership, Organization, User
 from src.routers.tiktok import Tenant, _tenant
+from src.services import cm_access
 from src.services import cm_jobs
 from src.services import cm_service as cm
 from src.services import instagram_service as ig
@@ -218,8 +219,11 @@ async def spaces(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm
         select(Organization, Membership).join(Membership, Membership.organization_id == Organization.id)
         .where(Membership.user_id == user.id, Organization.is_active.is_(True)).order_by(Organization.name)
     )).all()
-    return [{"org_id": None, "name": "Espace perso", "role": None}] + [
-        {"org_id": o.id, "name": o.name, "role": m.role} for o, m in rows]
+    out = [{"org_id": None, "name": "Espace perso", "role": None, "cm_role": "admin", "group_ids": None}]
+    for o, m in rows:
+        t = await cm_access.enrich(db, Tenant(o.id, None, m.role), user, m.role)
+        out.append({"org_id": o.id, "name": o.name, "role": m.role, "cm_role": t.cm_role, "group_ids": t.group_ids})
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -256,6 +260,7 @@ async def sync_account(platform: Literal["tiktok", "youtube", "instagram"], acco
                        user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, org_id)
     acc = await cm.get_account(db, tenant, platform, account_id)
+    cm_access.require(tenant, "edit")
     if not await sync_limiter.check(f"{platform}:{acc.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Chiffres déjà actualisés récemment : réessayez plus tard.")
     stat = await cm.sync_account(db, platform, acc)
@@ -521,12 +526,14 @@ async def list_groups(org_id: Optional[int] = Query(None), db: AsyncSession = De
     groups = (await db.execute(
         select(CmGroup).where(tenant.where(CmGroup)).order_by(func.lower(CmGroup.name), CmGroup.id)
     )).scalars().all()
+    groups = [g for g in groups if cm_access.group_allowed(tenant, g.id)]
     return await _groups_out(db, tenant, list(groups))
 
 
 @router.post("/groups")
 async def create_group(body: GroupIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin")
     count = (await db.execute(select(func.count()).select_from(CmGroup).where(tenant.where(CmGroup)))).scalar() or 0
     if count >= MAX_GROUPS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{MAX_GROUPS} groupes au plus par espace.")
@@ -545,6 +552,7 @@ async def create_group(body: GroupIn, db: AsyncSession = Depends(get_db), user: 
 async def update_group(group_id: int, body: GroupPatch, org_id: Optional[int] = Query(None),
                        db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
     group = await _get_group(db, tenant, group_id, lock=True)
     name = _group_name(body.name) if body.name is not None else None
     wanted = await _validate_members(db, tenant, body.accounts) if body.accounts is not None else None
@@ -564,6 +572,7 @@ async def delete_group(group_id: int, org_id: Optional[int] = Query(None), db: A
                        user: User = Depends(get_cm_user)):
     """Supprime le groupe seulement : les comptes et leurs publications restent."""
     tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
     group = await _get_group(db, tenant, group_id, lock=True)
     await db.delete(group)
     await db.commit()
@@ -724,6 +733,7 @@ class StartIn(BaseModel):
 async def instagram_start(body: StartIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     _require_ig()
     tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin")
     if not await oauth_limiter.check(f"{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de tentatives de connexion Instagram. Réessayez dans une heure.")
@@ -760,6 +770,7 @@ async def instagram_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db
     if claims.get("scope") != STATE_SCOPE or claims.get("sub") != str(user.id) or not claims.get("jti"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_STATE)
     tenant = await _tenant(db, user, claims.get("org"))
+    cm_access.require(tenant, "admin")
     if not await state_store.claim(claims["jti"]):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_STATE)
     try:
@@ -778,6 +789,12 @@ async def instagram_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Réponse Instagram incomplète : réessayez.")
     username = prof.get("username") or ""
     model = InstagramAccount
+    taken = (await cm_access.taken_elsewhere(db, "instagram", ig_id, tenant)
+             or (await cm_access.taken_elsewhere(db, "instagram", None, tenant, username=username) if username else None))
+    if taken is not None:
+        await cm_access.refuse_taken(db, "instagram", taken, user, claim_tokens={
+            **long, "_profile": {k: prof.get(k) for k in ("user_id", "username", "name", "account_type", "profile_picture_url")},
+            "_ig_id": ig_id, "_scopes": short.get("permissions") or ig.SCOPES})
     acc = (await db.execute(select(model).where(
         tenant.where(model), model.revoked_at.is_(None),
         (model.ig_user_id == ig_id) | (func.lower(model.username) == username.lower()))
@@ -818,11 +835,15 @@ async def add_routine_account(body: RoutineAccountIn, db: AsyncSession = Depends
                               user: User = Depends(get_cm_user)):
     """Compte Instagram géré par la routine Claude (sans connexion officielle)."""
     tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin")
     username = _clean_username(body.username)
     acc = (await db.execute(select(InstagramAccount).where(
         tenant.where(InstagramAccount), InstagramAccount.revoked_at.is_(None),
         func.lower(InstagramAccount.username) == username.lower()))).scalars().first()
     if acc is None:
+        taken = await cm_access.taken_elsewhere(db, "instagram", None, tenant, username=username)
+        if taken is not None:
+            await cm_access.refuse_taken(db, "instagram", taken, user)
         acc = InstagramAccount(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id,
                                mode=IG_MODE_ROUTINE, username=username, connected_by_user_id=user.id)
         db.add(acc)
@@ -835,6 +856,7 @@ async def remove_instagram(account_id: int, org_id: Optional[int] = Query(None),
                            user: User = Depends(get_current_user)):
     tenant = await _tenant(db, user, org_id)
     acc = await cm.get_account(db, tenant, "instagram", account_id)
+    cm_access.require(tenant, "admin")
     if tenant.org_id and tenant.role != "admin" and acc.connected_by_user_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             "Seul le membre qui a connecté ce compte ou un administrateur de l'équipe peut le retirer.")
@@ -947,6 +969,8 @@ async def _get_target(db: AsyncSession, user: User, target_id: int) -> tuple[CmT
     if t is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
     post, tenant = await _get_post(db, user, t.post_id)
+    if not cm_access.account_allowed(tenant, t.platform, t.account_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
     return t, post, tenant
 
 
@@ -962,7 +986,8 @@ async def _targets_of(db: AsyncSession, post_ids: list[int]) -> dict[int, list[C
 async def _get_asset(db: AsyncSession, tenant: Tenant, asset_id: int) -> CmAsset:
     row = (await db.execute(select(CmAsset, CmSource).join(CmSource, CmSource.id == CmAsset.source_id)
                             .where(CmAsset.id == asset_id))).first()
-    if row is None or row[1].revoked_at is not None or not _same(row[1], tenant):
+    if row is None or row[1].revoked_at is not None or not _same(row[1], tenant) \
+            or not cm_access.group_allowed(tenant, row[1].group_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo introuvable dans la bibliothèque.")
     return row[0]
 
@@ -999,6 +1024,7 @@ async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset
 @router.post("/posts")
 async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "edit")
     asset = None
     if body.asset_id is not None:
         asset = await _get_asset(db, tenant, body.asset_id)
@@ -1060,7 +1086,8 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
 @router.put("/posts/{post_id}/parts/{index}")
 async def upload_part(post_id: int, index: int, request: Request, db: AsyncSession = Depends(get_db),
                       user: User = Depends(get_cm_user)):
-    post, _ = await _get_post(db, user, post_id, lock=True)
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
     if post.status != POST_RECEIVING or not post.media_path:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication n'attend plus de vidéo.")
     start = index * cm.PART_SIZE
@@ -1096,6 +1123,7 @@ async def _reject(db: AsyncSession, post: CmPost, message: str, http: int = 400)
 async def submit_post(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Vidéo reçue : format et durée vérifiés pour chaque compte, puis programmation."""
     post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
     if post.status != POST_RECEIVING:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication a déjà été validée.")
     if post.received_bytes != post.video_size or not post.media_path:
@@ -1146,14 +1174,14 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
     end = cm.to_utc_naive(end) or now + timedelta(days=90)
     conds = [tenant.where(CmPost), CmTarget.scheduled_at >= start, CmTarget.scheduled_at <= end]
     accounts, names = await _tenant_index(db, tenant, group_id)
-    if group_id is not None:
+    if group_id is not None or tenant.allowed is not None:
         conds.append(_account_filter(CmTarget, accounts))
     ids = (await db.execute(
         select(CmTarget.post_id).join(CmPost, CmPost.id == CmTarget.post_id).where(*conds).distinct()
     )).scalars().all()
     posts = (await db.execute(select(CmPost).where(CmPost.id.in_(ids)))).scalars().all() if ids else []
     targets = await _targets_of(db, [p.id for p in posts])
-    if group_id is not None:
+    if group_id is not None or tenant.allowed is not None:
         keep = {(p, a.id) for p, a in accounts}
         targets = {pid: [t for t in ts if (t.platform, t.account_id) in keep] for pid, ts in targets.items()}
     out = [_post_out(p, targets.get(p.id, []), names) for p in posts
@@ -1166,7 +1194,10 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
 @router.get("/posts/{post_id}")
 async def get_post(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     post, tenant = await _get_post(db, user, post_id)
-    targets = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
+    targets = [t for t in (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
+               if cm_access.account_allowed(tenant, t.platform, t.account_id)]
+    if not targets:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
     _, names = await _tenant_index(db, tenant)
     return _post_out(post, targets, names)
 
@@ -1174,10 +1205,11 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db), user: User 
 @router.delete("/posts/{post_id}")
 async def delete_post(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Annule toutes les publications pas encore parties de cette vidéo."""
-    post, _ = await _get_post(db, user, post_id, lock=True)
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
     targets = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id).with_for_update())).scalars().all()
     for t in targets:
-        if t.status in T_EDITABLE:
+        if t.status in T_EDITABLE and cm_access.account_allowed(tenant, t.platform, t.account_id):
             t.status = T_CANCELLED
     if all(t.status in T_FINAL for t in targets):
         cm.remove_media(post)
@@ -1196,6 +1228,7 @@ class TargetPatch(BaseModel):
 async def update_target(target_id: int, body: TargetPatch, db: AsyncSession = Depends(get_db),
                         user: User = Depends(get_cm_user)):
     t, post, tenant = await _get_target(db, user, target_id)
+    cm_access.require(tenant, "edit")
     if t.status not in (T_DRAFT, T_SCHEDULED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication est déjà partie : elle ne peut plus être modifiée.")
     acc = await cm.get_account(db, tenant, t.platform, t.account_id)
@@ -1213,6 +1246,7 @@ async def update_target(target_id: int, body: TargetPatch, db: AsyncSession = De
 @router.post("/targets/{target_id}/publish-now")
 async def publish_now(target_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     t, post, tenant = await _get_target(db, user, target_id)
+    cm_access.require(tenant, "edit")
     if t.status != T_SCHEDULED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication n'est pas en attente.")
     t.scheduled_at = utcnow()
@@ -1225,6 +1259,7 @@ async def publish_now(target_id: int, db: AsyncSession = Depends(get_db), user: 
 @router.post("/targets/{target_id}/cancel")
 async def cancel_target(target_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     t, post, tenant = await _get_target(db, user, target_id)
+    cm_access.require(tenant, "edit")
     if t.status not in T_EDITABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication est déjà partie : elle ne peut plus être annulée.")
     t.status = T_CANCELLED
@@ -1241,6 +1276,7 @@ class RetryIn(BaseModel):
 async def retry_target(target_id: int, body: RetryIn = RetryIn(), db: AsyncSession = Depends(get_db),
                        user: User = Depends(get_cm_user)):
     t, post, tenant = await _get_target(db, user, target_id)
+    cm_access.require(tenant, "edit")
     if t.status != T_FAILED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Seule une publication en échec peut être relancée.")
     if post.status != POST_READY or not (post.media_path or post.asset_id):
@@ -1285,6 +1321,7 @@ async def media(target_id: int, exp: int, sig: str, db: AsyncSession = Depends(g
 
 async def _routine_target(db: AsyncSession, user: User, target_id: int) -> tuple[CmTarget, CmPost, InstagramAccount]:
     t, post, tenant = await _get_target(db, user, target_id)
+    cm_access.require(tenant, "edit")
     acc = await db.get(InstagramAccount, t.account_id) if t.platform == "instagram" else None
     if acc is None or acc.mode != IG_MODE_ROUTINE:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
@@ -1437,6 +1474,9 @@ async def routine_stats(body: RoutineStatsIn, db: AsyncSession = Depends(get_db)
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "Ce compte est connecté à l'API Instagram : ses chiffres sont relevés directement.")
     if acc is None:
+        taken = await cm_access.taken_elsewhere(db, "instagram", None, tenant, username=username)
+        if taken is not None:
+            await cm_access.refuse_taken(db, "instagram", taken, user)
         acc = InstagramAccount(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id,
                                mode=IG_MODE_ROUTINE, username=username, connected_by_user_id=user.id)
         db.add(acc)

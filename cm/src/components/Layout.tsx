@@ -106,7 +106,7 @@ function AccountMenu() {
 export default function Layout({ fallback }: { fallback?: ReactNode }) {
   const { pathname } = useLocation()
   const composing = pathname === '/nouvelle'
-  const title = composing ? 'Nouvelle publication' : pathname.startsWith('/bibliotheque') ? 'Bibliothèque' : NAV.find(n => (n.end ? pathname === n.to : pathname.startsWith(n.to)))?.label
+  const title = composing ? 'Nouvelle publication' : pathname.startsWith('/bibliotheque') ? 'Bibliothèque' : pathname.startsWith('/equipe') ? 'Équipe' : NAV.find(n => (n.end ? pathname === n.to : pathname.startsWith(n.to)))?.label
   useEffect(() => { window.scrollTo(0, 0) }, [pathname])
 
   return (
@@ -119,6 +119,7 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
           {NAV.map(n => <NavLink key={n.to} to={n.to} end={n.end}><Icon name={n.icon} />{n.label}</NavLink>)}
           <NavLink to="/bibliotheque"><Icon name="layers" />Bibliothèque</NavLink>
           <NavLink to="/videos"><Icon name="video" />Vidéos</NavLink>
+          <NavLink to="/equipe"><Icon name="users" />Équipe</NavLink>
         </nav>
         <div className="side-label">Périmètre</div>
         <ScopeList />
