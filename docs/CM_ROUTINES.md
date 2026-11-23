@@ -69,15 +69,26 @@ l'heure : la routine la publie elle-même (`GET /routine/due`, `GET /routine/tar
 ## 6. Vidéos rangées dans le Drive (`infos.json`)
 Un dossier de vidéo peut contenir `infos.json` (`compte`, `id`, `titre`, `heure`, `statut`, `reserve`, `publie_le`,
 `plateformes: {instagram|tiktok|youtube: {lien|permalink|url|media_id|video_id, …}}`). À chaque relecture du dossier :
-- `statut` = `publiee`, ou un lien / id de publication présent → **Publiée (archive)** avec ses liens ; jamais « à valider » ;
-- `statut` = `prete` (ou `programmee`) avec `heure` → **Programmée par l'outil** : rien n'est créé, la publication arrive par
-  l'API (`ref` = `compte/id`) et est rattachée à la vidéo ;
-- dossier `réserves/` (ou `reserve: true`) → **Réserve** : reste dans la bibliothèque (« À publier »), jamais « à valider » ;
-- un conte (plusieurs vidéos dans un dossier) : `infos.json` peut décrire chaque vidéo dans `parties: {"1": {…}, "2": {…},
-  "longue": {…}}` (repéré par « partie N » / « version longue » dans le nom du fichier) ;
-- brouillons « à valider » déjà créés pour ces vidéos : rangés en archive automatiquement ; sinon
-  `POST /proposals/archive {source_id?}` (avec `?group_id=` / `?account=` pour la sélection) range tout en archive,
-  sans rien publier.
+À chaque relecture du dossier (toutes les 5 min, ou « Relire maintenant »), chaque vidéo est classée :
+
+| `statut` (de la vidéo ou de sa partie) | dans cm | « à valider » ? |
+|---|---|---|
+| `publiee`, ou un lien / id de publication présent | **Publiée** (archive, avec ses liens) | jamais |
+| `prete` (ou `programmee`), avec ou sans `heure` | **Programmée par l'outil** : rien n'est créé, la publication arrive par l'API (`ref` = `compte/id`, pour une partie l'`id` de la partie, ex. `contes/khm-040-p2`) et est rattachée à la vidéo ; une 2ᵉ publication avec la même `ref` → 409 `duplicate_ref` | jamais |
+| `null`, absent ou inconnu, avec `compte` + `id` | **En attente** de planification par l'outil (bibliothèque, ex. partie pas encore planifiée, version longue jamais publiée) | jamais |
+| dossier `réserves/` ou `reserve: true` | **Réserve** (bibliothèque, « À publier ») | jamais |
+| pas d'`infos.json` | vidéo ordinaire | oui, si les brouillons automatiques sont activés |
+
+Ordre quand plusieurs règles jouent : Publiée > Programmée > Réserve > En attente.
+
+Un conte (plusieurs vidéos dans un dossier `contes/<KHM-NNN — Titre>/`) : `infos.json` décrit chaque vidéo dans
+`parties: {"1": {statut, heure, publie_le, plateformes, id}, "2": {…}, "longue": {…}}`. La vidéo est reliée à sa partie
+par son nom de fichier (« partie N » → `"N"`, « version longue » → `"longue"`) ; les champs de la partie remplacent ceux
+du conte. Quand l'outil met à jour `infos.json`, cm relit le fichier et reclasse la vidéo.
+
+Brouillons « à valider » déjà créés pour une vidéo qui passe Publiée, Programmée, Réserve ou En attente : rangés en
+archive automatiquement à la relecture, rien n'est publié. Sinon `POST /proposals/archive {source_id?}` (avec
+`?group_id=` / `?account=` pour la sélection) range tout en archive, sans rien publier.
 
 ## 7. Mode validation
 Si une vidéo ne doit plus partir (validation, retour en réserve), annuler ses cibles : `POST /targets/{id}/cancel`.

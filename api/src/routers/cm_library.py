@@ -251,7 +251,7 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
     key = paging.nulls_last(col, ASSET_SORTS[sort], order).label("_k")
     stmt = select(CmAsset, key).where(CmAsset.source_id.in_(ids), CmAsset.removed_at.is_(None))
     used = select(CmPost.id).where(CmPost.asset_id == CmAsset.id).exists()
-    elsewhere = CmAsset.kind.in_(("published", "routine"))
+    elsewhere = CmAsset.kind.in_(("published", "routine", "waiting"))   # gérées par l'outil de publication
     if state == "new":
         stmt = stmt.where(~used, ~elsewhere | CmAsset.kind.is_(None))
     elif state == "used":

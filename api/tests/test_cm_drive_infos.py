@@ -26,6 +26,13 @@ def test_classify():
     conte = {"compte": "contes", "id": "khm-40", "parties": {"1": {"statut": "publiee"}, "2": {"statut": "prete", "heure": "x"}}}
     assert lib.classify(lib.infos_for(conte, "Le Voleur — partie 1.mp4"), "contes/KHM-040")[0] == "published"
     assert lib.classify(lib.infos_for(conte, "Le Voleur — partie 2.mp4"), "contes/KHM-040")[0] == "routine"
+    contes = {"compte": "contes", "id": "khm-040", "parties": {
+        "1": {"statut": "publiee", "id": "khm-040-p1"}, "2": {"statut": "prete", "heure": None, "id": "khm-040-p2"},
+        "3": {"statut": None, "heure": None, "id": "khm-040-p3"}, "longue": {"statut": None, "id": "khm-040-longue"}}}
+    assert lib.classify(lib.infos_for(contes, "Le Voleur — partie 2.mp4"), "contes/KHM-040") == ("routine", "contes/khm-040-p2")
+    assert lib.classify(lib.infos_for(contes, "Le Voleur — partie 3.mp4"), "contes/KHM-040") == ("waiting", "contes/khm-040-p3")
+    assert lib.classify(lib.infos_for(contes, "Le Voleur — version longue.mp4"), "contes/KHM-040") == ("waiting", "contes/khm-040-longue")
+    assert lib.classify({"compte": "contes", "id": "x"}, "contes/KHM-1") == ("waiting", "contes/x")
 
 
 def _video(drive, fid, folder, name, infos=None):
@@ -132,3 +139,54 @@ async def test_platform_fields_and_fallbacks(pg_session, cmenv, tiktok):
         bad = {**body, "targets": [{"platform": "instagram", "account_id": ig.id, "scheduled_at": at,
                                     "options": {"collaborators": ["a", "b", "c", "d"]}}]}
         assert (await h.post("/api/cm/posts", json=bad)).status_code == 400
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_conte_parts_are_never_to_validate(pg_session, cmenv, drive, tiktok):
+    u = await _user(pg_session, "a@t.dev")
+    ig = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    drive.folders["khm"] = {"name": "KHM-040 — Le Voleur", "parent": SUB}
+    names = {"p1": "Le Voleur — partie 1.mp4", "p2": "Le Voleur — partie 2.mp4",
+             "p3": "Le Voleur — partie 3.mp4", "lg": "Le Voleur — version longue.mp4"}
+    for fid, name in names.items():
+        _video(drive, fid, "khm", name)
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        src = (await h.post("/api/cm/sources", json={"url": _link()})).json()
+        # Avant l'infos.json : vidéos ordinaires, proposées en brouillons (l'arriéré).
+        recipe = {**cm_recipe.default_recipe(), "account": {"from": "source", "level": 1, "map": {"*": [f"instagram:{ig.id}"]}}}
+        await h.put(f"/api/cm/sources/{src['id']}/recipe", json={"recipe": recipe, "auto_drafts": True, "backlog": True})
+        async def conte_drafts():
+            return {p["asset"]["name"] for p in (await h.get("/api/cm/proposals")).json()} & set(names.values())
+        assert await conte_drafts() == set(names.values())
+        # L'outil ajoute l'infos.json du conte : tout est reclassé, plus rien « à valider », rien publié.
+        drive.files["khm-infos"] = {"name": "infos.json", "mimeType": "application/json", "parent": "khm",
+                                    "modifiedTime": "2026-11-23T10:00:00Z", "content": json.dumps({
+                                        "compte": "contes", "id": "khm-040", "parties": {
+                                            "1": {"statut": "publiee", "id": "khm-040-p1", "plateformes": {"instagram": {"lien": "https://www.instagram.com/reel/B/"}}},
+                                            "2": {"statut": "prete", "heure": None, "id": "khm-040-p2"},
+                                            "3": {"statut": None, "id": "khm-040-p3"},
+                                            "longue": {"statut": None, "id": "khm-040-longue"}}}).encode()}
+        await lib.scan_source(pg_session, await pg_session.get(CmSource, src["id"]))
+        kinds = {a.file_id: (a.kind, a.origin_ref) for a in (await pg_session.execute(select(CmAsset))).scalars()}
+        assert kinds["p1"] == ("published", "contes/khm-040-p1") and kinds["p2"] == ("routine", "contes/khm-040-p2")
+        assert kinds["p3"] == ("waiting", "contes/khm-040-p3") and kinds["lg"] == ("waiting", "contes/khm-040-longue")
+        assert await conte_drafts() == set()
+        assert (await pg_session.execute(select(CmPost))).scalars().all() == []
+        new = [a["name"] for a in (await h.get("/api/cm/assets?state=new")).json()]
+        assert not set(names.values()) & set(new)
+        lg = next(a for a in (await h.get("/api/cm/assets")).json() if a["name"] == names["lg"])
+        assert lg["kind"] == "waiting"
+        # Une nouvelle relecture ne recrée aucun brouillon.
+        await lib.scan_source(pg_session, await pg_session.get(CmSource, src["id"]))
+        assert await conte_drafts() == set()
+        # La partie 2 arrive par l'API avec sa ref : rattachée, doublon refusé.
+        body = {"title": "Le Voleur 2", "video_size": 1000, "file_name": "p2.mp4", "ref": "contes/khm-040-p2",
+                "targets": [{"platform": "instagram", "account": f"instagram:@{ig.username}", "options": {},
+                             "scheduled_at": (utcnow() + timedelta(days=1)).isoformat() + "Z"}]}
+        r = await h.post("/api/cm/posts", json=body)
+        assert r.status_code == 200, r.text
+        assert (await pg_session.get(CmPost, r.json()["post_id"])).asset_id is not None
+        assert (await h.post("/api/cm/posts", json=body)).status_code == 409

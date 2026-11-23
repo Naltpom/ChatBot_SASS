@@ -250,6 +250,7 @@ function AssetSheet({ a, onClose, onSaved }: { a: Asset; onClose: () => void; on
             ))}
           </div>
         )}
+        {a.kind === 'waiting' && <p className="small muted" style={{ margin: 0, textAlign: 'center' }}>En attente : planifiée par votre outil de publication, une histoire à la fois. Rien à valider ici.</p>}
         {a.kind === 'routine' && <p className="small muted" style={{ margin: 0, textAlign: 'center' }}>Programmée par votre outil de publication : elle arrive dans le planning toute seule.</p>}
         <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
           {a.folder_url && <a className="btn btn-sm" href={a.folder_url} target="_blank" rel="noreferrer"><Icon name="layers" size={14} />Dossier Drive</a>}
@@ -276,7 +277,7 @@ export function AssetCard({ a, onOpen }: { a: Asset; onOpen: (a: Asset) => void 
       {a.thumbnail ? <img className="vthumb" src={a.thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="vthumb" />}
       {(() => {
         const label = a.published > 0 || a.kind === 'published' ? 'Publiée' : a.scheduled > 0 || a.kind === 'routine' ? 'Programmée'
-          : a.kind === 'reserve' ? 'Réserve' : null
+          : a.kind === 'reserve' ? 'Réserve' : a.kind === 'waiting' ? 'En attente' : null
         return label ? <span className="vrank">{label}</span> : <span className="vrank" style={{ background: 'var(--accent)' }}>Nouvelle</span>
       })()}
       <div className="vcard-body">
