@@ -308,6 +308,10 @@ table.data tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 5
 /* ---------- Calendrier ---------- */
 .cal-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
 .cal-nav { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* Recherche du planning : ligne entière sur téléphone, au milieu de la barre sur ordinateur. */
+.cal-search { order: 3; flex: 1 1 100%; display: flex; }
+.cal-search .searchbox { flex: 1 1 auto; max-width: none; }
+@media (min-width: 900px) { .cal-search { order: 0; flex: 0 1 340px; } }
 .cal-nav .label { font-family: var(--display); font-weight: 600; font-size: 17px; text-transform: capitalize; white-space: nowrap; }
 .daystrip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .daystrip button { border: 0; background: transparent; border-radius: 14px; padding: 6px 0 8px; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: var(--muted); font-size: 11.5px; font-weight: 500; text-transform: capitalize; }
@@ -559,6 +563,7 @@ th.r .th-sort { flex-direction: row-reverse; }
 .chosen-x { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; }
 .chosen-x:hover { background: var(--surface-2); color: var(--text); }
 .picker .searchbox { flex: none; max-width: none; }
+.col > .searchbox, .page > .searchbox, main > .searchbox { flex: none; }
 .draft { display: flex; gap: 14px; align-items: flex-start; }
 .draft-thumb { width: 72px; height: 128px; border-radius: 12px; object-fit: cover; background: var(--surface-2); flex: none; display: block; }
 @media (min-width: 1024px) { .draft-thumb { width: 90px; height: 160px; } }
