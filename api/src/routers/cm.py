@@ -1316,12 +1316,7 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Donnez un titre à la publication.")
     ref = (body.ref or "").strip() or None
     if ref:
-        dup = (await db.execute(select(CmPost.id).join(CmTarget, CmTarget.post_id == CmPost.id).where(
-            tenant.where(CmPost), CmPost.ref == ref, CmPost.status != POST_CANCELLED,
-            CmTarget.status != T_CANCELLED).limit(1))).scalar_one_or_none()
-        if dup:
-            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "duplicate_ref", "post_id": dup,
-                                                           "message": f"Une publication active porte déjà la référence « {ref} »."})
+        await _check_ref_free(db, tenant, ref)
     planned = await _plan_targets(db, tenant, body.targets, title, body.caption,
                                   asset.mime_type if asset else None, asset.duration_sec if asset else None, size)
     if asset is not None:
@@ -1380,6 +1375,145 @@ async def upload_part(post_id: int, index: int, request: Request, db: AsyncSessi
     post.received_bytes = start + expected
     await db.commit()
     return {"ok": True, "received_bytes": post.received_bytes}
+
+
+async def _check_ref_free(db: AsyncSession, tenant: Tenant, ref: str, post_id: Optional[int] = None) -> None:
+    """409 duplicate_ref si une autre publication active (non annulée) porte déjà cette référence."""
+    stmt = (select(CmPost.id).join(CmTarget, CmTarget.post_id == CmPost.id).where(
+        tenant.where(CmPost), CmPost.ref == ref, CmPost.status != POST_CANCELLED, CmTarget.status != T_CANCELLED))
+    if post_id is not None:
+        stmt = stmt.where(CmPost.id != post_id)
+    dup = (await db.execute(stmt.limit(1))).scalar_one_or_none()
+    if dup:
+        raise HTTPException(status.HTTP_409_CONFLICT, {"code": "duplicate_ref", "post_id": dup,
+                                                       "message": f"Une publication active porte déjà la référence « {ref} »."})
+
+
+class PostPatch(BaseModel):
+    ref: Optional[str] = Field(None, min_length=1, max_length=200)
+    archive: Optional[ArchiveIn] = None
+
+
+@router.patch("/posts/{post_id}")
+async def update_post(post_id: int, body: PostPatch, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Pose une référence (« compte/id ») et, pour un conte, le bloc archive sur une publication déjà créée,
+    quel que soit son statut (même publiée). Elle est alors rangée dans le Drive comme les autres."""
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
+    targets = await _visible_targets(db, tenant, post)
+    if body.ref is None and body.archive is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Rien à modifier : donnez « ref » et/ou « archive ».")
+    if body.ref is not None:
+        ref = body.ref.strip()
+        if "/" not in ref:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Référence attendue sous la forme « compte/id ».")
+        await _check_ref_free(db, tenant, ref, post.id)
+        post.ref = ref
+    if post.ref:
+        a = dict(post.archive or {})
+        if body.archive is not None:
+            a["conte"] = body.archive.model_dump(exclude_none=True)
+        post.archive = a
+        if post.status != POST_RECEIVING and post.archive_state in (None, "error"):
+            post.archive_state, post.archive_synced_at = "pending", None    # rangé au prochain passage
+    await db.commit()
+    _, names = await _tenant_index(db, tenant)
+    return _post_out(post, targets, names)
+
+
+class VideoIn(BaseModel):
+    video_size: int = Field(gt=0)
+
+
+@router.put("/posts/{post_id}/video")
+async def reupload_start(post_id: int, body: VideoIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Renvoyer la vidéo d'une publication qui n'est plus sur le serveur (pour l'archiver, relancer un brouillon
+    TikTok…). Même découpage que la création : PUT …/video/parts/{n}, puis POST …/video/complete."""
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
+    await _visible_targets(db, tenant, post)
+    if post.status != POST_READY:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication n'est pas prête : envoyez la vidéo par la création.")
+    if post.media_path and os.path.exists(post.media_path):
+        raise HTTPException(status.HTTP_409_CONFLICT, "La vidéo est encore sur le serveur : rien à renvoyer.")
+    if body.video_size > cm.max_upload_bytes():
+        raise HTTPException(413, f"Vidéo trop volumineuse ({settings.CM_MAX_UPLOAD_MB} Mo maximum).")
+    cm.check_space(body.video_size)
+    a = dict(post.archive or {})
+    old = (a.get("upload") or {}).get("path")
+    if old:
+        cm.unlink_quiet(old)
+    path = cm.media_dir() / f"{uuid.uuid4().hex}.part"
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    os.close(fd)
+    a["upload"] = {"path": str(path), "size": body.video_size, "received": 0}
+    post.archive = a
+    await db.commit()
+    return {"post_id": post.id, "part_size": cm.PART_SIZE, "part_count": -(-body.video_size // cm.PART_SIZE)}
+
+
+def _upload_of(post: CmPost) -> dict:
+    up = (post.archive or {}).get("upload")
+    if not up or not os.path.exists(up.get("path") or ""):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Aucun renvoi de vidéo en cours : commencez par PUT /posts/{id}/video.")
+    return up
+
+
+@router.put("/posts/{post_id}/video/parts/{index}")
+async def reupload_part(post_id: int, index: int, request: Request, db: AsyncSession = Depends(get_db),
+                        user: User = Depends(get_cm_user)):
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
+    up = _upload_of(post)
+    start, size = index * cm.PART_SIZE, up["size"]
+    if index < 0 or start >= size:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Morceau hors limites.")
+    expected = min(cm.PART_SIZE, size - start)
+    content = await request.body()
+    if len(content) != expected:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Taille du morceau {index} incorrecte ({len(content)} octets, {expected} attendus).")
+    if start + expected <= up["received"]:
+        return {"ok": True, "received_bytes": up["received"]}
+    if start != up["received"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Morceaux reçus dans le désordre : recommencez le renvoi.")
+    with open(up["path"], "r+b") as f:
+        f.seek(start)
+        f.write(content)
+    post.archive = {**post.archive, "upload": {**up, "received": start + expected}}
+    await db.commit()
+    return {"ok": True, "received_bytes": start + expected}
+
+
+@router.post("/posts/{post_id}/video/complete")
+async def reupload_complete(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Vidéo renvoyée complète : vérifiée, remise à la publication ; archivée au prochain passage si elle a une ref."""
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
+    up = _upload_of(post)
+    a = {k: v for k, v in post.archive.items() if k != "upload"}
+    if up["received"] != up["size"] or os.path.getsize(up["path"]) != up["size"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, "La vidéo n'a pas été entièrement reçue.")
+    try:
+        video = probe(up["path"])
+    except ProbeError as e:
+        cm.unlink_quiet(up["path"])
+        post.archive = a
+        await db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Vidéo refusée : {e}.")
+    final = up["path"][:-5] + ".mp4"
+    os.replace(up["path"], final)
+    post.media_path = final
+    post.video_size = post.received_bytes = up["size"]
+    post.mime_type, post.duration_sec = video.mime_type, round(video.duration_sec, 2)
+    if post.ref and not a.get("video_id"):
+        post.archive_state, post.archive_synced_at = "pending", None
+        a["kept_since"] = cm.iso(utcnow())         # gardée 7 j au plus en attendant l'archivage
+    post.archive = a
+    await db.commit()
+    targets = await _visible_targets(db, tenant, post)
+    _, names = await _tenant_index(db, tenant)
+    return _post_out(post, targets, names)
 
 
 @router.put("/posts/{post_id}/cover")

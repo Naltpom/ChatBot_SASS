@@ -19,7 +19,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -472,7 +472,8 @@ async def sync_post(db: AsyncSession, post: CmPost, now=None) -> None:
         elif post.media_path:
             post.archive_state = "pending"
         else:
-            post.archive_state, a["error"] = "error", "La vidéo n'est plus sur le serveur : elle n'a pas pu être archivée."
+            post.archive_state, a["error"] = "error", ("La vidéo n'est plus sur le serveur : renvoyez-la "
+                                                       "(PUT /posts/{id}/video) pour l'archiver.")
     except (httpx.HTTPError, OSError) as e:      # réseau coupé, vidéo effacée pendant l'envoi : réessayé plus tard
         a["error"] = "Google Drive injoignable pendant l'archivage : nouvel essai dans 30 min."
         post.archive_state = "error"
@@ -558,9 +559,13 @@ async def probe_sources(db: AsyncSession, batch: int = 3) -> None:
 
 def keep_media(post: CmPost) -> bool:
     """Vidéo encore à archiver : gardée sur le serveur (7 j au plus)."""
-    if post.archive_state not in ("pending", "error") or (post.archive or {}).get("video_id"):
+    a = post.archive or {}
+    if post.archive_state not in ("pending", "error") or a.get("video_id"):
         return False
-    return utcnow() - post.created_at < KEEP_UNARCHIVED_MEDIA
+    since = post.created_at
+    if a.get("kept_since"):                    # vidéo renvoyée plus tard (PUT /posts/{id}/video)
+        since = max(since, datetime.fromisoformat(a["kept_since"].rstrip("Z")))
+    return utcnow() - since < KEEP_UNARCHIVED_MEDIA
 
 
 def archive_out(post: CmPost) -> Optional[dict]:

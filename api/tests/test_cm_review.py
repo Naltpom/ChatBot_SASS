@@ -222,3 +222,57 @@ async def test_calendar_search(pg_session, cmenv, tiktok):
         assert [i["title"] for i in r.json()["items"]] == ["Bumblebee (Piano)"] and r.json()["days"] == []
         # Sans recherche, la période reste limitée.
         assert (await h.get("/api/cm/calendar", params={"start": start, "end": end})).status_code == 400
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_ref_set_later_and_video_resent(pg_session, cmenv, wdrive, tiktok):
+    """Post créé sans ref et déjà publié : ref posée après coup (doublon refusé), vidéo plus sur le serveur
+    renvoyée en morceaux, puis archivée dans le Drive comme les autres."""
+    u = await _user(pg_session, "a@t.dev")
+    ig = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    await _linked(pg_session, u, wdrive)
+    data = mp4_bytes(42_000)
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        taken = await _post(h, ig, data, "kiwi/k5", title="Déjà là")
+        pid = await _post(h, ig, data, None, title="Ancienne")
+        post = await pg_session.get(CmPost, pid)
+        assert post.archive_state is None
+        t = (await pg_session.execute(select(CmTarget).where(CmTarget.post_id == pid))).scalar_one()
+        t.status, t.url, t.published_at = "PUBLISHED", "https://www.instagram.com/reel/OLD/", utcnow()
+        await pg_session.commit()
+        await cm_jobs.cleanup(pg_session)          # tout est parti : vidéo effacée du serveur
+        await pg_session.refresh(post)
+        assert post.media_path is None
+        # Ref déjà prise par un autre post : refusée ; format invalide : refusé.
+        r = await h.patch(f"/api/cm/posts/{pid}", json={"ref": "kiwi/k5"})
+        assert r.status_code == 409 and r.json()["detail"]["post_id"] == taken
+        assert (await h.patch(f"/api/cm/posts/{pid}", json={"ref": "sans-compte"})).status_code == 400
+        r = await h.patch(f"/api/cm/posts/{pid}", json={"ref": "kiwi/k6"})
+        assert r.status_code == 200 and r.json()["ref"] == "kiwi/k6" and r.json()["archive"]["state"] == "pending"
+        # Sans la vidéo : archivage impossible, l'erreur dit quoi faire.
+        await cm_archive.sync_due(pg_session)
+        await pg_session.refresh(post)
+        assert post.archive_state == "error" and "PUT /posts/{id}/video" in post.archive["error"]
+        # Renvoi de la vidéo, même découpage que la création.
+        assert (await h.post(f"/api/cm/posts/{pid}/video/complete")).status_code == 409
+        r = await h.put(f"/api/cm/posts/{pid}/video", json={"video_size": len(data)})
+        assert r.status_code == 200, r.text
+        await _send_video(h, pid, data, r.json()["part_size"])
+        r = await h.post(f"/api/cm/posts/{pid}/video/complete")
+        assert r.status_code == 200 and r.json()["has_media"] is True
+        await cm_archive.sync_due(pg_session)
+        await pg_session.refresh(post)
+        assert post.archive_state == "ok" and post.archive["video_id"]
+        infos = wdrive.json_at(next(x for x in wdrive.tree() if "Ancienne" in x and x.endswith("infos.json")))
+        assert infos["id"] == "k6" and infos["statut"] == "publiee" and infos["plateformes"]["instagram"]["url"].endswith("/OLD/")
+        # Vidéo encore là : pas de renvoi.
+        assert (await h.put(f"/api/cm/posts/{pid}/video", json={"video_size": len(data)})).status_code == 409
+
+
+async def _send_video(h, post_id, data, part):
+    for i in range(0, len(data), part):
+        r = await h.put(f"/api/cm/posts/{post_id}/video/parts/{i // part}", content=data[i:i + part])
+        assert r.status_code == 200, r.text
