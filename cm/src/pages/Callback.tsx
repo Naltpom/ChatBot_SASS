@@ -28,7 +28,7 @@ export default function Callback({ platform }: { platform: Platform }) {
       .catch(e => setErr((e as Error).message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="col" style={{ maxWidth: 520 }}>
+    <div className="col" style={{ maxWidth: 520, margin: '24px auto', width: '100%' }}>
       <h1>Connexion {PLATFORM_LABEL[platform]}</h1>
       {err ? <><Msg kind="err">{err}</Msg><Link to="/comptes">Retour aux comptes</Link></> : <Loading label="Connexion du compte…" />}
     </div>

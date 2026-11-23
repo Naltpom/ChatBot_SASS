@@ -184,3 +184,36 @@ class CmAccountStat(Base):
     videos = Column(Integer, nullable=True)
     error = Column(Text, nullable=True)                  # dernier relevé en échec
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmGroup(Base):
+    """Groupe de comptes d'un tenant (ex. « Ghost Hands », « Clients musique »).
+
+    Un groupe contient plusieurs comptes, toutes plateformes confondues, et un
+    compte peut appartenir à plusieurs groupes (cm_group_accounts). Les groupes
+    servent de filtre (tableau de bord, planning, statistiques) et de sélection
+    rapide dans la nouvelle publication.
+    """
+    __tablename__ = "cm_groups"
+    __table_args__ = (_tenant_check("cm_groups"),)
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    name = Column(String(60), nullable=False)
+    color = Column(String(20), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmGroupAccount(Base):
+    __tablename__ = "cm_group_accounts"
+    __table_args__ = (
+        Index("uq_cm_group_accounts", "group_id", "platform", "account_id", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("cm_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    platform = Column(String(20), nullable=False)
+    account_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)

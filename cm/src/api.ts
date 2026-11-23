@@ -45,6 +45,31 @@ export interface Post {
   duration_sec: number | null; status: string; has_media: boolean; created_at: string; targets: Target[]
 }
 export interface Space { org_id: number | null; name: string; role: string | null }
+export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
+export const GROUP_COLORS: GroupColor[] = ['blue', 'orange', 'green', 'purple', 'pink', 'teal', 'amber', 'slate']
+export interface Group { id: number; name: string; color: GroupColor | null; accounts: { platform: Platform; id: number }[] }
+/** Périmètre affiché : un espace (perso ou équipe) et, éventuellement, un groupe de comptes. */
+export interface Scope { org: number | null; group: number | null }
+
+export type CalendarItem =
+  | (Video & { kind: 'video'; at: string })
+  | (Target & { kind: 'target'; at: string; title: string })
+export interface CalendarDay { day: string; followers: number | null; views: number | null; followers_delta: number | null; views_delta: number | null }
+export interface Calendar { start: string; end: string; items: CalendarItem[]; days: CalendarDay[] }
+
+export type Metric = 'followers' | 'views' | 'likes' | 'comments' | 'shares' | 'saves'
+export interface StatRow {
+  posts: number; views: number | null; likes: number | null; comments: number | null; shares: number | null
+  saves: number | null; interactions: number | null; engagement_rate: number | null; avg_views: number | null
+  followers: number | null; followers_delta: number | null
+}
+export interface PlatformStats extends StatRow { platform: Platform; accounts: number; metrics: Metric[] }
+export interface AccountStats extends StatRow { platform: Platform; id: number; name: string | null; avatar_url: string | null; stats_available: boolean }
+export interface DetailedStats {
+  days: number; totals: StatRow & { accounts: number }; platforms: PlatformStats[]; accounts: AccountStats[]
+  posts: { platform: Platform; published_at: string; views: number | null; interactions: number }[]
+  metrics: Record<Platform, Metric[]>
+}
 export interface Config {
   tiktok: boolean; youtube: boolean; instagram_api: boolean; max_upload_bytes: number; part_size: number
   tiktok_title_max: number; youtube_title_max: number; youtube_max_duration_sec: number; youtube_daily_posts: number
@@ -86,9 +111,13 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-const q = (org: number | null, extra: Record<string, string | number | undefined> = {}) => {
+type ScopeArg = Scope | number | null
+const q = (scope: ScopeArg, extra: Record<string, string | number | undefined> = {}) => {
   const p = new URLSearchParams()
+  const org = typeof scope === 'object' && scope !== null ? scope.org : scope
+  const group = typeof scope === 'object' && scope !== null ? scope.group : null
   if (org != null) p.set('org_id', String(org))
+  if (group != null) p.set('group_id', String(group))
   for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== '') p.set(k, String(v))
   const s = p.toString()
   return s ? `?${s}` : ''
@@ -104,19 +133,30 @@ export const register = (name: string, email: string, password: string) =>
 export const googleLogin = (credential: string) => send<Me | TwoFAChallenge>('POST', '/api/auth/google', { credential })
 export const totpLogin = (challenge: string, code: string, recovery = false) =>
   send<Me>('POST', recovery ? '/api/auth/2fa/login/recovery' : '/api/auth/2fa/login/totp', { challenge, code })
+export const forgotPassword = (email: string) => send<unknown>('POST', '/api/auth/password/forgot', { email })
 export const logout = () => send<{ ok: boolean }>('POST', '/api/auth/logout', {})
 export const publicConfig = () => call<{ google_client_id: string | null; app_url: string }>('/api/cm/public-config')
 
 // cm
 export const getConfig = () => call<Config>('/api/cm/config')
 export const getSpaces = () => call<Space[]>('/api/cm/spaces')
-export const getAccounts = (org: number | null) => call<Account[]>(`/api/cm/accounts${q(org)}`)
+export const getAccounts = (s: ScopeArg) => call<Account[]>(`/api/cm/accounts${q(s)}`)
 export const syncAccount = (org: number | null, a: Account) => send<Account>('POST', `/api/cm/accounts/${a.platform}/${a.id}/sync${q(org)}`)
-export const getOverview = (org: number | null, days: number) => call<Overview>(`/api/cm/overview${q(org, { days })}`)
-export const getVideos = (org: number | null, opts: { platform?: string; sort?: string; limit?: number }) =>
-  call<Video[]>(`/api/cm/videos${q(org, opts)}`)
-export const getPosts = (org: number | null, start: Date, end: Date) =>
-  call<Post[]>(`/api/cm/posts${q(org, { start: start.toISOString(), end: end.toISOString() })}`)
+export const getOverview = (s: ScopeArg, days: number) => call<Overview>(`/api/cm/overview${q(s, { days })}`)
+export const getVideos = (s: ScopeArg, opts: { platform?: string; sort?: string; limit?: number; days?: number }) =>
+  call<Video[]>(`/api/cm/videos${q(s, opts)}`)
+export const getPosts = (s: ScopeArg, start: Date, end: Date) =>
+  call<Post[]>(`/api/cm/posts${q(s, { start: start.toISOString(), end: end.toISOString() })}`)
+export const getCalendar = (s: ScopeArg, start: Date, end: Date) =>
+  call<Calendar>(`/api/cm/calendar${q(s, { start: start.toISOString(), end: end.toISOString() })}`)
+export const getStats = (s: ScopeArg, days: number) => call<DetailedStats>(`/api/cm/stats${q(s, { days })}`)
+
+// Groupes de comptes
+type GroupBody = { name?: string; color?: GroupColor; accounts?: { platform: Platform; account_id: number }[] }
+export const getGroups = (org: number | null) => call<Group[]>(`/api/cm/groups${q(org)}`)
+export const createGroup = (org: number | null, body: GroupBody) => send<Group>('POST', '/api/cm/groups', { org_id: org, ...body })
+export const updateGroup = (org: number | null, id: number, body: GroupBody) => send<Group>('PATCH', `/api/cm/groups/${id}${q(org)}`, body)
+export const deleteGroup = (org: number | null, id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/groups/${id}${q(org)}`)
 export const createPost = (body: unknown) => send<{ post_id: number; part_size: number; part_count: number }>('POST', '/api/cm/posts', body)
 export const submitPost = (id: number) => send<Post>('POST', `/api/cm/posts/${id}/submit`)
 export const deletePost = (id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/posts/${id}`)

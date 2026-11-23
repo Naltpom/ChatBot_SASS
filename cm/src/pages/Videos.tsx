@@ -1,64 +1,97 @@
+// Toutes les vidéos relevées sur les comptes du périmètre, avec leurs chiffres.
+// Mobile : liste de cartes. Ordinateur : tableau complet triable.
 import { useState } from 'react'
-import { getVideos, PLATFORM_LABEL } from '../api'
-import { Empty, Loading, Msg, PlatformTag, Seg } from '../components/ui'
-import { fmtDate, fmtDuration, num } from '../format'
+import { getVideos, PLATFORM_LABEL, PLATFORMS, type Platform } from '../api'
+import { Empty, Icon, Msg, PlatformTag, Skeleton } from '../components/ui'
+import { fmtDate, fmtDuration, num, pct, short } from '../format'
 import { useLoad } from '../session'
 
+type Sort = 'recent' | 'views' | 'likes' | 'comments' | 'shares' | 'engagement'
+
 export default function Videos() {
-  const [platform, setPlatform] = useState('')
-  const [sort, setSort] = useState<'recent' | 'views'>('recent')
-  const videos = useLoad(org => getVideos(org, { platform, sort, limit: 200 }), [platform, sort])
+  const [platform, setPlatform] = useState<'' | Platform>('')
+  const [sort, setSort] = useState<Sort>('recent')
+  const videos = useLoad(s => getVideos(s, { platform, sort, limit: 200 }), [platform, sort])
+  const eng = (v: { views: number | null; likes: number | null; comments: number | null; shares: number | null; saves: number | null }) =>
+    v.views ? ((v.likes || 0) + (v.comments || 0) + (v.shares || 0) + (v.saves || 0)) / v.views : null
   return (
     <>
-      <div className="row between">
-        <h1>Vidéos</h1>
-        <div className="row" style={{ gap: 8 }}>
-          <label className="row muted small" style={{ gap: 8 }}>Plateforme
-            <select className="select" style={{ width: 'auto' }} value={platform} onChange={e => setPlatform(e.target.value)}>
-              <option value="">Toutes</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option><option value="instagram">Instagram</option>
-            </select>
-          </label>
-          <Seg label="Tri" value={sort} onChange={setSort} options={[['recent', 'Récentes'], ['views', 'Plus vues']]} />
-        </div>
+      <div className="page-head">
+        <div><h1>Vidéos</h1><p>Relevées chez les plateformes, publiées ou non depuis Chapote.</p></div>
+        <select className="select select-sm" aria-label="Classer par" value={sort} onChange={e => setSort(e.target.value as Sort)}>
+          <option value="recent">Plus récentes</option><option value="views">Plus vues</option><option value="engagement">Plus d’interactions</option>
+          <option value="likes">Plus de j’aime</option><option value="comments">Plus commentées</option><option value="shares">Plus partagées</option>
+        </select>
+      </div>
+      <div className="chips" role="group" aria-label="Plateforme">
+        <button type="button" className="chip" aria-pressed={platform === ''} onClick={() => setPlatform('')}>Toutes</button>
+        {PLATFORMS.map(p => (
+          <button key={p} type="button" className="chip" aria-pressed={platform === p} onClick={() => setPlatform(p)}>
+            <span aria-hidden="true" className={`dot dot-${p}`} />{PLATFORM_LABEL[p]}
+          </button>
+        ))}
       </div>
       {videos.error && <Msg kind="err">{videos.error}</Msg>}
-      {!videos.data && videos.loading && <Loading />}
+      {!videos.data && videos.loading && <Skeleton h={86} n={5} />}
       {videos.data && videos.data.length === 0 && (
-        <Empty title="Aucune vidéo pour l'instant">Les vidéos récentes de vos comptes apparaissent ici après le premier relevé des chiffres.</Empty>
+        <Empty title="Aucune vidéo pour l'instant" icon="video">Les vidéos de vos comptes apparaissent ici après le premier relevé des chiffres.</Empty>
       )}
       {videos.data && videos.data.length > 0 && (
-        <section className="card card-flush">
-          <div className="table-wrap">
-            <table className="data" style={{ minWidth: 760 }}>
-              <thead><tr>
-                <th scope="col">Vidéo</th><th scope="col">Compte</th><th scope="col">Publiée</th>
-                <th scope="col" className="r">Vues</th><th scope="col" className="r">J'aime</th><th scope="col" className="r">Commentaires</th>
-                <th scope="col" className="r">Partages</th>
-              </tr></thead>
-              <tbody>
-                {videos.data.map(v => (
-                  <tr key={v.id}>
-                    <td style={{ maxWidth: 340 }}>
-                      <div className="row" style={{ gap: 10, flexWrap: 'nowrap' }}>
-                        {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: 36, height: 48, objectFit: 'cover', borderRadius: 6, flex: 'none' }} />
-                          : <span style={{ width: 36, height: 48, borderRadius: 6, background: 'var(--surface-2)', flex: 'none' }} />}
-                        <div className="grow">
-                          {v.url ? <a className="ellipsis" style={{ display: 'block', fontWeight: 500 }} href={v.url} target="_blank" rel="noreferrer">{v.title || 'Sans titre'}</a>
-                            : <span className="ellipsis" style={{ display: 'block', fontWeight: 500 }}>{v.title || 'Sans titre'}</span>}
-                          <span className="tiny muted">{fmtDuration(v.duration_sec)}{v.via_chapote && ' · publiée depuis Chapote'}</span>
+        <>
+          <ul className="list card card-flush list-pad only-mobile">
+            {videos.data.map(v => (
+              <li key={v.id} style={{ alignItems: 'flex-start' }}>
+                {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: 56, height: 76, objectFit: 'cover', borderRadius: 10, flex: 'none' }} />
+                  : <span style={{ width: 56, height: 76, borderRadius: 10, background: 'var(--surface-2)', flex: 'none' }} />}
+                <div className="grow col" style={{ gap: 4 }}>
+                  {v.url ? <a className="strong clamp2" style={{ color: 'var(--text)' }} href={v.url} target="_blank" rel="noreferrer">{v.title || 'Sans titre'}</a>
+                    : <span className="strong clamp2">{v.title || 'Sans titre'}</span>}
+                  <span className="tiny muted row-nw" style={{ gap: 6 }}><span aria-hidden="true" className={`dot dot-${v.platform}`} /><span className="ellipsis">{v.account_name}</span>· {v.published_at ? fmtDate(v.published_at) : '—'}</span>
+                  <span className="metrics">
+                    <span><Icon name="eye" size={13} /> <b>{short(v.views)}</b></span>
+                    <span><Icon name="heart" size={13} /> <b>{short(v.likes)}</b></span>
+                    {v.comments != null && <span><Icon name="comment" size={13} /> <b>{short(v.comments)}</b></span>}
+                    {v.shares != null && <span><Icon name="share" size={13} /> <b>{short(v.shares)}</b></span>}
+                    {v.saves != null && <span><Icon name="bookmark" size={13} /> <b>{short(v.saves)}</b></span>}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <section className="card card-flush only-desktop">
+            <div className="table-wrap">
+              <table className="data">
+                <thead><tr>
+                  <th scope="col">Vidéo</th><th scope="col">Compte</th><th scope="col">Publiée</th>
+                  <th scope="col" className="r">Vues</th><th scope="col" className="r">J'aime</th><th scope="col" className="r">Commentaires</th>
+                  <th scope="col" className="r">Partages</th><th scope="col" className="r">Enreg.</th><th scope="col" className="r">Engagement</th>
+                </tr></thead>
+                <tbody>
+                  {videos.data.map(v => (
+                    <tr key={v.id}>
+                      <td style={{ maxWidth: 420 }}>
+                        <div className="row-nw" style={{ gap: 12 }}>
+                          {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: 38, height: 52, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
+                            : <span style={{ width: 38, height: 52, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
+                          <div className="grow">
+                            {v.url ? <a className="ellipsis strong" style={{ display: 'block' }} href={v.url} target="_blank" rel="noreferrer">{v.title || 'Sans titre'}</a>
+                              : <span className="ellipsis strong" style={{ display: 'block' }}>{v.title || 'Sans titre'}</span>}
+                            <span className="tiny muted">{fmtDuration(v.duration_sec)}{v.via_chapote && ' · publiée depuis Chapote'}</span>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td><PlatformTag platform={v.platform} label={v.account_name || PLATFORM_LABEL[v.platform]} /></td>
-                    <td className="small muted">{v.published_at ? fmtDate(v.published_at) : '—'}</td>
-                    <td className="r">{num(v.views)}</td><td className="r">{num(v.likes)}</td>
-                    <td className="r">{num(v.comments)}</td><td className="r">{num(v.shares)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                      </td>
+                      <td><PlatformTag platform={v.platform} label={v.account_name || PLATFORM_LABEL[v.platform]} /></td>
+                      <td className="small muted" style={{ whiteSpace: 'nowrap' }}>{v.published_at ? fmtDate(v.published_at) : '—'}</td>
+                      <td className="r strong">{num(v.views)}</td><td className="r">{num(v.likes)}</td>
+                      <td className="r">{num(v.comments)}</td><td className="r">{num(v.shares)}</td><td className="r">{num(v.saves)}</td>
+                      <td className="r">{pct(eng(v))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
       )}
     </>
   )

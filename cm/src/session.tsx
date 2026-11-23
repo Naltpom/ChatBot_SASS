@@ -1,7 +1,10 @@
-// Session (compte partagé avec chapote.fr : cookie httpOnly posé par l'API) et espace
-// de travail choisi (espace perso ou une équipe), gardé dans le navigateur.
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { getConfig, getMe, getSpaces, logout as apiLogout, publicConfig, type Config, type Me, type Space } from './api'
+// Session (compte partagé avec chapote.fr : cookie httpOnly posé par l'API) et périmètre affiché :
+// un espace (perso ou une équipe) et, éventuellement, un groupe de comptes. Gardés dans le navigateur.
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  getConfig, getGroups, getMe, getSpaces, logout as apiLogout, publicConfig,
+  type Config, type Group, type Me, type Scope, type Space,
+} from './api'
 
 interface SessionCtx {
   me: Me | null
@@ -12,18 +15,27 @@ interface SessionCtx {
   spaces: Space[]
   org: number | null
   setOrg: (org: number | null) => void
+  groups: Group[]
+  group: Group | null
+  setGroup: (id: number | null) => void
+  reloadGroups: () => Promise<void>
+  scope: Scope
   refresh: () => Promise<void>
   signOut: () => Promise<void>
 }
 
 const Ctx = createContext<SessionCtx | null>(null)
 const ORG_KEY = 'cm.org'
+const groupKey = (org: number | null) => `cm.group.${org ?? 'perso'}`
 
-function readOrg(): number | null {
+function read(key: string): number | null {
   try {
-    const v = localStorage.getItem(ORG_KEY)
+    const v = localStorage.getItem(key)
     return v ? Number(v) || null : null
   } catch { return null }
+}
+function write(key: string, v: number | null) {
+  try { v == null ? localStorage.removeItem(key) : localStorage.setItem(key, String(v)) } catch { /* stockage indisponible */ }
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -33,7 +45,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [appUrl, setAppUrl] = useState('https://chapote.fr')
   const [config, setConfig] = useState<Config | null>(null)
   const [spaces, setSpaces] = useState<Space[]>([])
-  const [org, setOrgState] = useState<number | null>(readOrg)
+  const [org, setOrgState] = useState<number | null>(() => read(ORG_KEY))
+  const [groups, setGroups] = useState<Group[]>([])
+  const [groupId, setGroupId] = useState<number | null>(() => read(groupKey(read(ORG_KEY))))
 
   const refresh = useCallback(async () => {
     try {
@@ -50,19 +64,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const reloadGroups = useCallback(async () => {
+    if (!me) { setGroups([]); return }
+    try {
+      const g = await getGroups(org)
+      setGroups(g)
+      setGroupId(cur => (cur != null && !g.some(x => x.id === cur) ? null : cur))
+    } catch { setGroups([]) }
+  }, [me, org])
+
   useEffect(() => {
     refresh()
     publicConfig().then(c => { setGoogle(c.google_client_id); setAppUrl(c.app_url) }).catch(() => {})
   }, [refresh])
+  useEffect(() => { reloadGroups() }, [reloadGroups])
 
   const setOrg = (v: number | null) => {
     setOrgState(v)
-    try { v == null ? localStorage.removeItem(ORG_KEY) : localStorage.setItem(ORG_KEY, String(v)) } catch { /* */ }
+    write(ORG_KEY, v)
+    setGroupId(read(groupKey(v)))
   }
+  const setGroup = (id: number | null) => { setGroupId(id); write(groupKey(org), id) }
   const signOut = async () => { try { await apiLogout() } finally { setMe(null) } }
 
+  const group = groups.find(g => g.id === groupId) || null
+  const scope = useMemo<Scope>(() => ({ org, group: group?.id ?? null }), [org, group?.id])
+
   return (
-    <Ctx.Provider value={{ me, ready, googleClientId, appUrl, config, spaces, org, setOrg, refresh, signOut }}>
+    <Ctx.Provider value={{ me, ready, googleClientId, appUrl, config, spaces, org, setOrg, groups, group, setGroup,
+      reloadGroups, scope, refresh, signOut }}>
       {children}
     </Ctx.Provider>
   )
@@ -74,9 +104,9 @@ export function useSession(): SessionCtx {
   return c
 }
 
-/** Charge une ressource liée à l'espace courant ; `reload()` la relit. */
-export function useLoad<T>(fn: (org: number | null) => Promise<T>, deps: unknown[] = []) {
-  const { org } = useSession()
+/** Charge une ressource liée au périmètre courant (espace + groupe) ; `reload()` la relit. */
+export function useLoad<T>(fn: (scope: Scope) => Promise<T>, deps: unknown[] = []) {
+  const { scope } = useSession()
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -84,10 +114,10 @@ export function useLoad<T>(fn: (org: number | null) => Promise<T>, deps: unknown
   useEffect(() => {
     let alive = true
     setLoading(true)
-    fn(org).then(d => { if (alive) { setData(d); setError(null) } })
+    fn(scope).then(d => { if (alive) { setData(d); setError(null) } })
       .catch(e => { if (alive) setError(e?.message || 'Erreur') })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [org, tick, ...deps]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scope, tick, ...deps]) // eslint-disable-line react-hooks/exhaustive-deps
   return { data, error, loading, reload: () => setTick(t => t + 1), setData }
 }

@@ -1,95 +1,112 @@
+// Accueil : chiffres clés du périmètre (espace + groupe), courbe, prochaines publications, comptes et
+// vidéos phares. Mobile : tout en une colonne, vidéos en carrousel. Ordinateur : deux colonnes.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getOverview, getPosts, type Account, type Target } from '../api'
-import { Avatar, Empty, Loading, Msg, PlatformTag, Seg } from '../components/ui'
+import { Avatar, Delta, Empty, Icon, Msg, PlatformTag, Seg, Skeleton } from '../components/ui'
 import ViewsChart from '../components/ViewsChart'
-import { fmtTime, num, relDay, short, signed } from '../format'
-import { useLoad } from '../session'
+import { fmtTime, greeting, num, relDay, short, signed } from '../format'
+import { useLoad, useSession } from '../session'
 
-function accountState(a: Account): { label: string; tone: string } {
+export function accountState(a: Account): { label: string; tone: string } {
   if (a.needs_reconnect) return { label: 'À reconnecter', tone: 'danger' }
-  if (a.mode === 'routine') return { label: 'Géré par la routine', tone: 'muted' }
-  if (!a.stats_available) return { label: 'Connecté', tone: 'ok' }
+  if (a.mode === 'routine') return { label: 'Routine', tone: 'muted' }
   if (a.stats?.error) return { label: 'Relevé en échec', tone: 'warn' }
   return { label: 'Connecté', tone: 'ok' }
 }
 
 export default function Dashboard() {
+  const { me, group } = useSession()
   const [days, setDays] = useState(30)
   const [metric, setMetric] = useState<'views' | 'followers'>('views')
-  const ov = useLoad(org => getOverview(org, days), [days])
-  const upcoming = useLoad(org => getPosts(org, new Date(), new Date(Date.now() + 14 * 86400000)))
+  const ov = useLoad(s => getOverview(s, days), [days])
+  const upcoming = useLoad(s => getPosts(s, new Date(), new Date(Date.now() + 14 * 86400000)))
 
   const next: (Target & { title: string })[] = (upcoming.data || [])
     .flatMap(p => p.targets.filter(t => t.status === 'SCHEDULED' || t.status === 'AWAITING_ROUTINE').map(t => ({ ...t, title: p.title })))
     .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
-  // Regroupe les cibles d'une même vidéo à la même heure.
-  const groups: { key: string; at: string; title: string; platforms: string[] }[] = []
+  // Une ligne par vidéo et par heure, avec les comptes concernés.
+  const groups: { key: string; at: string; title: string; targets: Target[] }[] = []
   for (const t of next) {
     const key = `${t.post_id}|${t.scheduled_at.slice(0, 16)}`
     const g = groups.find(x => x.key === key)
-    const lbl = t.account_name || t.platform
-    if (g) g.platforms.push(lbl)
-    else groups.push({ key, at: t.scheduled_at, title: t.title, platforms: [lbl] })
+    if (g) g.targets.push(t)
+    else groups.push({ key, at: t.scheduled_at, title: t.title, targets: [t] })
   }
 
   const d = ov.data
+  const first = (me?.name || '').split(' ')[0]
   return (
     <>
-      <div className="row between" style={{ alignItems: 'flex-end' }}>
+      <div className="page-head">
         <div>
-          <h1>Tableau de bord</h1>
-          <p className="muted" style={{ margin: '4px 0 0' }}>Tous vos comptes. Chiffres relevés toutes les quelques heures.</p>
+          <h1>{greeting()}{first ? `, ${first}` : ''}</h1>
+          <p>{group ? <>Groupe <strong>{group.name}</strong> · </> : null}Chiffres relevés plusieurs fois par jour.</p>
         </div>
-        <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 jours'], [30, '30 jours'], [90, '90 jours']]} />
+        <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 j'], [30, '30 j'], [90, '90 j']]} />
       </div>
 
       {ov.error && <Msg kind="err">{ov.error}</Msg>}
-      {!d && ov.loading && <Loading />}
+      {!d && ov.loading && <div className="kpis"><Skeleton h={104} n={4} /></div>}
       {d && d.totals.accounts === 0 && (
-        <Empty title="Aucun compte connecté">
-          <p style={{ margin: '0 0 14px' }}>Connectez TikTok, YouTube ou Instagram pour suivre vos chiffres et programmer vos vidéos.</p>
-          <Link className="btn btn-primary" to="/comptes">Connecter un compte</Link>
+        <Empty title={group ? 'Aucun compte dans ce groupe' : 'Connectez votre premier compte'} icon="users">
+          <p style={{ marginBottom: 16 }}>{group ? 'Ajoutez des comptes à ce groupe depuis la page Comptes.' : 'TikTok, YouTube ou Instagram : vos chiffres et votre planning apparaîtront ici.'}</p>
+          <Link className="btn btn-primary" to="/comptes">{group ? 'Gérer les groupes' : 'Connecter un compte'}</Link>
         </Empty>
       )}
       {d && d.totals.accounts > 0 && (
         <>
-          <section aria-label="Chiffres clés" className="tiles">
-            <div className="card"><div className="tile-label">Vues totales</div><div className="tile-value">{short(d.totals.views)}</div>
-              <div className="tile-sub">{d.totals.views_gained != null ? `${signed(d.totals.views_gained)} sur ${days} jours` : 'cumul des comptes'}</div></div>
-            <div className="card"><div className="tile-label">Abonnés</div><div className="tile-value">{short(d.totals.followers)}</div>
-              <div className="tile-sub">{d.totals.accounts} compte{d.totals.accounts > 1 ? 's' : ''}</div></div>
-            <div className="card"><div className="tile-label">Vidéos publiées</div><div className="tile-value">{num(d.totals.published)}</div>
-              <div className="tile-sub">depuis Chapote, {days} jours</div></div>
-            <div className="card"><div className="tile-label">Programmées</div><div className="tile-value">{num(d.totals.upcoming)}</div>
-              <Link className="tile-sub" to="/planning" style={{ color: 'var(--accent)' }}>Voir le planning</Link></div>
+          <section aria-label="Chiffres clés" className="kpis">
+            <Link to="/stats" className="kpi">
+              <div className="kpi-label"><Icon name="eye" size={15} />Vues</div>
+              <div className="kpi-value">{short(d.totals.views)}</div>
+              <div className="kpi-sub">{d.totals.views_gained != null ? <><Delta value={d.totals.views_gained} /> en {days} j</> : 'cumul des comptes'}</div>
+            </Link>
+            <Link to="/stats" className="kpi">
+              <div className="kpi-label"><Icon name="users" size={15} />Abonnés</div>
+              <div className="kpi-value">{short(d.totals.followers)}</div>
+              <div className="kpi-sub">{d.totals.accounts} compte{d.totals.accounts > 1 ? 's' : ''}</div>
+            </Link>
+            <Link to="/planning" className="kpi">
+              <div className="kpi-label"><Icon name="check" size={15} />Publiées</div>
+              <div className="kpi-value">{num(d.totals.published)}</div>
+              <div className="kpi-sub">depuis Chapote, {days} j</div>
+            </Link>
+            <Link to="/planning" className="kpi">
+              <div className="kpi-label"><Icon name="clock" size={15} />Programmées</div>
+              <div className="kpi-value">{num(d.totals.upcoming)}</div>
+              <div className="kpi-sub" style={{ color: 'var(--accent)' }}>Voir le planning</div>
+            </Link>
           </section>
           {d.totals.failed_recent > 0 && (
             <Msg kind="err">{d.totals.failed_recent} publication{d.totals.failed_recent > 1 ? 's' : ''} en échec ces 7 derniers jours. <Link to="/planning">Voir le planning</Link></Msg>
           )}
 
-          <div className="split">
-            <section className="card main col" aria-labelledby="t-courbe">
+          <div className="grid-2">
+            <section className="card col" aria-labelledby="t-courbe">
               <div className="card-head">
                 <h2 id="t-courbe">{metric === 'views' ? 'Vues cumulées' : 'Abonnés'}</h2>
                 <Seg label="Mesure" value={metric} onChange={setMetric} options={[['views', 'Vues'], ['followers', 'Abonnés']]} />
               </div>
               <ViewsChart series={d.series} metric={metric} />
             </section>
-            <section className="card side" aria-labelledby="t-avenir">
-              <div className="card-head"><h2 id="t-avenir">À venir</h2><Link className="small" to="/planning">Planning</Link></div>
+            <section className="card col" aria-labelledby="t-avenir">
+              <div className="card-head"><h2 id="t-avenir">À venir</h2><Link to="/planning">Planning</Link></div>
               {groups.length === 0 ? (
-                <p className="muted small" style={{ margin: '12px 0 0' }}>Rien de programmé. <Link to="/nouvelle">Nouvelle publication</Link></p>
+                <div className="col" style={{ gap: 10, alignItems: 'flex-start' }}>
+                  <p className="muted small">Rien de programmé ces deux prochaines semaines.</p>
+                  <Link to="/nouvelle" className="btn btn-sm"><Icon name="plus" size={16} />Programmer une vidéo</Link>
+                </div>
               ) : (
-                <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
+                <ul className="list">
                   {groups.slice(0, 6).map(g => (
-                    <li key={g.key} className="row" style={{ gap: 12, padding: '10px 0', borderTop: '1px solid var(--surface-2)', flexWrap: 'nowrap' }}>
-                      <div style={{ width: 64, flex: 'none', textAlign: 'center', lineHeight: 1.3 }} className="tiny muted">
-                        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>{fmtTime(g.at)}</div>{relDay(g.at)}
+                    <li key={g.key}>
+                      <div style={{ width: 58, flex: 'none', lineHeight: 1.25 }} className="tiny muted">
+                        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{fmtTime(g.at)}</div>{relDay(g.at)}
                       </div>
-                      <div className="grow">
-                        <div className="ellipsis" style={{ fontWeight: 500 }}>{g.title}</div>
-                        <div className="muted small ellipsis">{g.platforms.join(' · ')}</div>
+                      <div className="grow col" style={{ gap: 4 }}>
+                        <div className="ellipsis strong">{g.title}</div>
+                        <div className="row" style={{ gap: 4 }}>{g.targets.map(t => <PlatformTag key={t.id} platform={t.platform} label={t.account_name} />)}</div>
                       </div>
                     </li>
                   ))}
@@ -98,57 +115,52 @@ export default function Dashboard() {
             </section>
           </div>
 
-          <section className="card card-flush" aria-labelledby="t-comptes">
-            <div className="card-head" style={{ padding: '18px 20px' }}>
-              <h2 id="t-comptes">Comptes</h2><Link className="small" to="/comptes">Gérer les comptes</Link>
-            </div>
-            <div className="table-wrap">
-              <table className="data" style={{ minWidth: 640 }}>
-                <thead><tr>
-                  <th scope="col">Compte</th><th scope="col">Plateforme</th><th scope="col" className="r">Abonnés</th>
-                  <th scope="col" className="r">Vues</th><th scope="col" className="r">Vues sur {days} j</th><th scope="col">État</th>
-                </tr></thead>
-                <tbody>
-                  {d.accounts.map(a => {
-                    const st = accountState(a)
-                    return (
-                      <tr key={`${a.platform}-${a.id}`}>
-                        <td><span className="row" style={{ gap: 10, flexWrap: 'nowrap' }}><Avatar src={a.avatar_url} name={a.name} /><span style={{ fontWeight: 500 }}>{a.name}</span></span></td>
-                        <td><PlatformTag platform={a.platform} /></td>
-                        {a.stats_available ? (
-                          <>
-                            <td className="r">{num(a.stats?.followers)}</td>
-                            <td className="r">{num(a.stats?.views)}</td>
-                            <td className="r muted">{signed(a.stats?.delta_views)}</td>
-                          </>
-                        ) : (
-                          <td colSpan={3} className="r muted small">Chiffres après la validation {a.platform === 'tiktok' ? 'TikTok' : ''}</td>
-                        )}
-                        <td><span className={`status status-${st.tone}`}>{st.label}</span></td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
           {d.top_videos.length > 0 && (
             <section aria-labelledby="t-top" className="col">
-              <div className="card-head"><h2 id="t-top">Vidéos les plus vues ({days} jours)</h2><Link className="small" to="/videos">Toutes les vidéos</Link></div>
-              <div className="vgrid">
+              <div className="card-head"><h2 id="t-top">Vidéos phares · {days} j</h2><Link to="/videos">Toutes les vidéos</Link></div>
+              <div className="hscroll">
                 {d.top_videos.map(v => (
                   <a key={v.id} className="vcard" href={v.url || undefined} target="_blank" rel="noreferrer">
                     {v.thumbnail_url ? <img className="vthumb" src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" /> : <div className="vthumb" />}
-                    <div style={{ padding: '10px 12px' }}>
-                      <div className="ellipsis small" style={{ fontWeight: 500 }}>{v.title || 'Sans titre'}</div>
-                      <div className="tiny muted row" style={{ gap: 6 }}><span aria-hidden="true" className={`dot dot-${v.platform}`} />{short(v.views)} vues</div>
+                    <div className="vcard-body">
+                      <div className="ellipsis small strong">{v.title || 'Sans titre'}</div>
+                      <div className="tiny muted row" style={{ gap: 6 }}><span aria-hidden="true" className={`dot dot-${v.platform}`} />{short(v.views)} vues · {short(v.likes)} j’aime</div>
                     </div>
                   </a>
                 ))}
               </div>
             </section>
           )}
+
+          <section className="card card-flush" aria-labelledby="t-comptes">
+            <div className="card-head" style={{ padding: '16px 16px 4px' }}>
+              <h2 id="t-comptes">Comptes</h2><Link to="/comptes">Gérer</Link>
+            </div>
+            <ul className="list list-pad">
+              {d.accounts.map(a => {
+                const st = accountState(a)
+                return (
+                  <li key={`${a.platform}-${a.id}`}>
+                    <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
+                    <div className="grow">
+                      <div className="ellipsis strong">{a.name}</div>
+                      <div className={`tiny status-${st.tone}`}>{st.label}</div>
+                    </div>
+                    {a.stats_available && a.stats ? (
+                      <div className="num" style={{ textAlign: 'right' }}>
+                        <div className="strong">{short(a.stats.followers)}</div>
+                        <div className="tiny muted">{a.stats.delta_followers != null ? `${signed(a.stats.delta_followers)} abonnés` : 'abonnés'}</div>
+                      </div>
+                    ) : <span className="tiny muted" style={{ textAlign: 'right', maxWidth: 140 }}>Chiffres bientôt</span>}
+                    <div className="num only-desktop" style={{ textAlign: 'right', minWidth: 110 }}>
+                      <div className="strong">{short(a.stats?.views)}</div>
+                      <div className="tiny muted">{a.stats?.delta_views != null ? `${signed(a.stats.delta_views)} vues` : 'vues'}</div>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
         </>
       )}
     </>
