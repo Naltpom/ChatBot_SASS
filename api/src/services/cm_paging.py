@@ -130,7 +130,7 @@ def like(q: Optional[str]) -> Optional[str]:
     q = (q or "").strip()
     if not q:
         return None
-    return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    return "%" + escape_like(q) + "%"
 
 
 def escape_like(s: str) -> str:

@@ -20,15 +20,20 @@ routine ; `org_id` absent = espace perso ; ressource d'un autre tenant = 404).
 
 Publier une vidéo de la bibliothèque : POST /api/cm/posts avec `asset_id` (routers/cm.py).
 """
+import uuid
+from datetime import timedelta
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
+from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.database import get_db
+from src.core.security import _encode
 from src.core.time import utcnow
 from src.models.cm import CmAsset, CmGoogleIdentity, CmGroup, CmPost, CmProposal, CmSource
 from src.models.user import User
@@ -41,7 +46,7 @@ from src.services import cm_paging as paging
 from src.services import cm_library as lib
 from src.services import gdrive_service as gd
 from src.services.google_oauth import GoogleAuthError, verify_google_id_token
-from src.services.rate_limit import RateLimiter
+from src.services.rate_limit import RateLimiter, SingleUseTokens
 
 router = APIRouter(prefix="/api/cm", tags=["cm-library"], dependencies=[Depends(_capture_account_scope)])
 
@@ -549,15 +554,6 @@ async def dismiss_proposal(proposal_id: int, org_id: Optional[int] = Query(None)
 # Drive d'archivage (publications de l'outil rangées par cm, cm_archive)
 # --------------------------------------------------------------------------
 
-import uuid as _uuid
-from datetime import timedelta as _td
-
-from jose import JWTError, jwt
-
-from src.core.config import settings
-from src.core.security import _encode
-from src.services.rate_limit import SingleUseTokens
-
 DRIVE_STATE_SCOPE = "cm_drive_oauth"
 drive_state_store = SingleUseTokens("rl:cmdrivestate:", 600)
 drive_oauth_limiter = RateLimiter("rl:cmdriveoauth:", 20, 3600)
@@ -568,6 +564,7 @@ _BAD_DRIVE_STATE = "Lien de connexion Google Drive invalide ou expiré : relance
 async def drive_archive(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
                         user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")     # l'adresse Google reliée n'est montrée qu'aux administrateurs
     return cm_archive.link_out(await cm_archive.active_link(db, tenant.org_id, tenant.owner_user_id))
 
 
@@ -583,8 +580,8 @@ async def drive_oauth_start(body: DriveStartIn, db: AsyncSession = Depends(get_d
     cm_access.require(tenant, "admin")
     if not await drive_oauth_limiter.check(f"{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives : réessayez dans une heure.")
-    state = _encode({"sub": str(user.id), "scope": DRIVE_STATE_SCOPE, "org": tenant.org_id, "jti": _uuid.uuid4().hex},
-                    _td(seconds=600))
+    state = _encode({"sub": str(user.id), "scope": DRIVE_STATE_SCOPE, "org": tenant.org_id, "jti": uuid.uuid4().hex},
+                    timedelta(seconds=600))
     return {"authorize_url": cm_archive.authorize_url(state)}
 
 
@@ -611,7 +608,7 @@ async def drive_oauth_exchange(body: DriveExchangeIn, db: AsyncSession = Depends
         tok = await cm_archive.exchange_code(body.code)
         link = await cm_archive.connect(db, tenant, user, tok)
     except cm_archive.ArchiveError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST if e.code != "drive_error" else 502, e.message)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST if e.code != "drive_error" else status.HTTP_502_BAD_GATEWAY, e.message)
     return {**cm_archive.link_out(link), "org_id": tenant.org_id}
 
 

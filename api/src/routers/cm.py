@@ -1462,6 +1462,9 @@ async def add_targets(post_id: int, body: TargetsAddIn, db: AsyncSession = Depen
     if post.status == POST_READY and not (post.media_path or post.asset_id or (post.archive or {}).get("video_id")):
         raise HTTPException(status.HTTP_409_CONFLICT, "La vidéo n'est plus disponible : recréez la publication.")
     existing = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
+    visible = [t for t in existing if cm_access.account_allowed(tenant, t.platform, t.account_id)]
+    if not visible:                    # publication d'un groupe auquel ce membre n'a pas accès
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
     active = {t.platform: t for t in existing if t.status != T_CANCELLED}
     wanted, skipped = [], []
     for t in body.targets:
@@ -1474,8 +1477,10 @@ async def add_targets(post_id: int, body: TargetsAddIn, db: AsyncSession = Depen
             wanted.append(t)
     if len(active) + len(wanted) > MAX_TARGETS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{MAX_TARGETS} comptes au plus par publication.")
-    planned = await _plan_targets(db, tenant, wanted, post.title, post.caption or "", post.mime_type,
-                                  post.duration_sec, post.video_size or 0)
+    asset = await db.get(CmAsset, post.asset_id) if post.asset_id and not post.mime_type else None
+    planned = await _plan_targets(db, tenant, wanted, post.title, post.caption or "",
+                                  post.mime_type or (asset.mime_type if asset else None),
+                                  post.duration_sec or (asset.duration_sec if asset else None), post.video_size or 0)
     now = utcnow()
     ready = post.status == POST_READY
     added = []
@@ -1492,7 +1497,7 @@ async def add_targets(post_id: int, body: TargetsAddIn, db: AsyncSession = Depen
                 cm_jobs.launch(row.id)
     _, names = await _tenant_index(db, tenant)
     return {"added": [_target_out(r, names) for r in added], "skipped": skipped,
-            "post": _post_out(post, list(existing) + added, names)}
+            "post": _post_out(post, visible + added, names)}
 
 
 @router.get("/posts")
@@ -1550,10 +1555,20 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
     return [_post_out(posts[i], targets.get(i, []), names) for i in ids if i in posts]
 
 
+async def _visible_targets(db: AsyncSession, tenant: Tenant, post: CmPost) -> list[CmTarget]:
+    """Cibles de la publication visibles par ce membre (comptes permis) ; aucune = publication introuvable."""
+    targets = [t for t in (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
+               if cm_access.account_allowed(tenant, t.platform, t.account_id)]
+    if not targets:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
+    return targets
+
+
 @router.get("/posts/{post_id}/video")
 async def post_video(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Fichier vidéo de la publication (relu depuis le Drive / l'archive s'il n'est plus sur le serveur)."""
     post, tenant = await _get_post(db, user, post_id)
+    await _visible_targets(db, tenant, post)
     if post.status != POST_READY:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo indisponible")
     if not post.media_path or not os.path.exists(post.media_path):
@@ -1568,6 +1583,7 @@ async def post_video(post_id: int, db: AsyncSession = Depends(get_db), user: Use
 @router.get("/posts/{post_id}/cover")
 async def post_cover(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     post, tenant = await _get_post(db, user, post_id)
+    await _visible_targets(db, tenant, post)
     if not post.cover_path or not os.path.exists(post.cover_path):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Pas de couverture")
     return FileResponse(post.cover_path, media_type="image/png" if post.cover_path.endswith(".png") else "image/jpeg",
@@ -1577,10 +1593,7 @@ async def post_cover(post_id: int, db: AsyncSession = Depends(get_db), user: Use
 @router.get("/posts/{post_id}")
 async def get_post(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     post, tenant = await _get_post(db, user, post_id)
-    targets = [t for t in (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
-               if cm_access.account_allowed(tenant, t.platform, t.account_id)]
-    if not targets:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
+    targets = await _visible_targets(db, tenant, post)
     _, names = await _tenant_index(db, tenant)
     return _post_out(post, targets, names)
 

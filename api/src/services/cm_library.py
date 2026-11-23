@@ -502,7 +502,9 @@ async def ensure_media(db: AsyncSession, post_id: int) -> CmPost:
     archived = (post.archive or {}).get("video_id")
     if not post.asset_id and archived:
         # Vidéo archivée par cm dans le Drive de l'espace (le robot y a accès en lecture).
-        return await _media_from_drive(db, post, archived, post.video_size or 0)
+        _set_media(post, *await _download_video(db, archived, post.video_size or 0))
+        await db.commit()
+        return post
     if not post.asset_id:
         await db.commit()
         raise MediaError("media_missing", "La vidéo n'est plus disponible : recréez la publication.")
@@ -514,29 +516,7 @@ async def ensure_media(db: AsyncSession, post_id: int) -> CmPost:
     if asset.removed_at is not None:
         await db.commit()
         raise MediaError("asset_removed", "La vidéo n'est plus dans le dossier Drive.")
-    size = asset.size or 0
-    try:
-        cm.check_space(size)
-    except HTTPException as e:
-        await db.commit()
-        raise MediaError("no_space", str(e.detail))
-    path = str(cm.media_dir() / f"{uuid.uuid4().hex}.mp4")
-    try:
-        got = await gd.download(asset.file_id, path, cm.max_upload_bytes())
-        video = probe(path)
-    except gd.DriveError as e:
-        _unlink(path)
-        await db.commit()
-        if e.code == "not_shared":
-            raise MediaError("drive_access", "Le robot n'a plus accès à cette vidéo : vérifiez le partage du dossier Drive.")
-        if e.code == "too_large":
-            raise MediaError("too_large", f"Vidéo trop volumineuse ({settings.CM_MAX_UPLOAD_MB} Mo maximum).")
-        raise MediaError("drive_error", e.describe())
-    except ProbeError as e:
-        _unlink(path)
-        await db.commit()
-        raise MediaError("invalid_video", f"Vidéo refusée : {e}.")
-    os.chmod(path, 0o600)
+    path, got, video = await _download_video(db, asset.file_id, asset.size or 0)
     post.media_path = path
     # Couverture du dossier (image à côté de la vidéo), si la publication n'en a pas déjà une.
     if asset.cover_file_id and not post.cover_path:
@@ -556,15 +536,21 @@ async def ensure_media(db: AsyncSession, post_id: int) -> CmPost:
         except gd.DriveError as e:
             _unlink(cover)
             logger.info("cm : couverture %s illisible (%s)", asset.cover_file_id, e.code)
-    post.video_size = got
-    post.received_bytes = got
-    post.mime_type = video.mime_type
-    post.duration_sec = round(video.duration_sec, 2)
+    _set_media(post, path, got, video)
     await db.commit()
     return post
 
 
-async def _media_from_drive(db: AsyncSession, post: CmPost, file_id: str, size: int) -> CmPost:
+def _set_media(post: CmPost, path: str, size: int, video) -> None:
+    post.media_path = path
+    post.video_size = post.received_bytes = size
+    post.mime_type = video.mime_type
+    post.duration_sec = round(video.duration_sec, 2)
+
+
+async def _download_video(db: AsyncSession, file_id: str, size: int):
+    """Vidéo du Drive copiée sur le serveur (place vérifiée, format vérifié) : (chemin, taille, vidéo).
+    Sur erreur : MediaError (la transaction en cours est close)."""
     try:
         cm.check_space(size)
     except HTTPException as e:
@@ -572,16 +558,22 @@ async def _media_from_drive(db: AsyncSession, post: CmPost, file_id: str, size: 
         raise MediaError("no_space", str(e.detail))
     path = str(cm.media_dir() / f"{uuid.uuid4().hex}.mp4")
     try:
-        await gd.download(file_id, path, cm.max_upload_bytes())
-        probe(path)
-    except (gd.DriveError, ProbeError) as e:
+        got = await gd.download(file_id, path, cm.max_upload_bytes())
+        video = probe(path)
+    except gd.DriveError as e:
         _unlink(path)
         await db.commit()
-        raise MediaError("drive_error", e.describe() if isinstance(e, gd.DriveError) else f"Vidéo refusée : {e}.")
+        if e.code == "not_shared":
+            raise MediaError("drive_access", "Le robot n'a plus accès à cette vidéo : vérifiez le partage du dossier Drive.")
+        if e.code == "too_large":
+            raise MediaError("too_large", f"Vidéo trop volumineuse ({settings.CM_MAX_UPLOAD_MB} Mo maximum).")
+        raise MediaError("drive_error", e.describe())
+    except ProbeError as e:
+        _unlink(path)
+        await db.commit()
+        raise MediaError("invalid_video", f"Vidéo refusée : {e}.")
     os.chmod(path, 0o600)
-    post.media_path = path
-    await db.commit()
-    return post
+    return path, got, video
 
 
 def _unlink(path: str) -> None:

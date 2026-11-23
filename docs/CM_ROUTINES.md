@@ -170,7 +170,7 @@ contes/<KHM-NNN — Titre>/                        Titre — partie N.mp4 (et .t
 "titre": …, "parties": {"2": {statut, heure, publie_le, plateformes, id: "khm-040-p2", titre}}}`.
 
 Où cm écrit :
-1. dans le dossier du compte déjà relié à la bibliothèque (son nom = `<compte>`), **si Google laisse le robot y déposer
+1. dans le dossier du compte déjà relié à la bibliothèque (son nom = `<compte>`, partagé par l'espace lui-même), **si Google laisse le robot y déposer
    des fichiers** : cm l'essaie une fois par dossier Éditeur (carte du dossier : « archivage direct » ou « dépôt de
    fichiers refusé par Google ») ; un compte de service n'a pas d'espace de stockage hors Drive partagé ;
 2. sinon dans le Drive connecté dans la Bibliothèque (« Connecter Google Drive », droit `drive.file` : cm ne voit que les
