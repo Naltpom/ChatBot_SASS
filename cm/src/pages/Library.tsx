@@ -10,7 +10,7 @@ import {
 import GoogleButton from '../components/GoogleButton'
 import { Empty, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDate, fmtDateTime, fmtDuration, fmtSize } from '../format'
-import { useLoad, useSession } from '../session'
+import { useLoad, useRole, useSession } from '../session'
 
 function CopyField({ value }: { value: string }) {
   const [done, setDone] = useState(false)
@@ -303,7 +303,8 @@ export default function Library() {
   const [open, setOpen] = useState<Asset | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const list = sources.data || []
-  const enabled = robot.data?.enabled
+  const { canAdmin } = useRole()
+  const enabled = robot.data?.enabled && canAdmin
 
   return (
     <>
@@ -312,7 +313,8 @@ export default function Library() {
         {enabled && <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}><Icon name="plus" />Ajouter un dossier Drive</button>}
       </div>
       {flash && <Msg kind="ok">{flash}</Msg>}
-      {robot.data && !enabled && <Msg>La bibliothèque Google Drive n'est pas encore activée sur Chapote.</Msg>}
+      {robot.data && !robot.data.enabled && <Msg>La bibliothèque Google Drive n'est pas encore activée sur Chapote.</Msg>}
+      {robot.data?.enabled && !canAdmin && sources.data && list.length === 0 && <Msg>Aucun dossier Drive relié à cet espace pour l'instant : un administrateur de l'équipe peut en ajouter.</Msg>}
       {sources.error && <Msg kind="err">{sources.error}</Msg>}
       {!sources.data && sources.loading && <Skeleton h={90} n={2} />}
 

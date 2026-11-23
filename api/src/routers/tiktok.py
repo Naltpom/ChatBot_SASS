@@ -53,6 +53,7 @@ from src.models.tiktok import (
 from src.models.user import User
 from src.services import tiktok_jobs
 from src.services import tiktok_service as tt
+from src.services import cm_access
 from src.services.rate_limit import RateLimiter, SingleUseTokens
 from src.services.video_probe import ProbeError, probe
 
@@ -112,6 +113,11 @@ class Tenant:
         self.org_id = org_id
         self.owner_user_id = owner_user_id
         self.role = role   # rôle dans l'org (None = espace perso)
+        # Droits cm (services/cm_access.enrich) : admin | editor | viewer, périmètre de comptes.
+        self.user_id: Optional[int] = owner_user_id
+        self.cm_role = "admin"
+        self.group_ids: Optional[list[int]] = None
+        self.allowed: Optional[set] = None
 
     @property
     def key(self) -> str:
@@ -124,26 +130,30 @@ class Tenant:
 
 
 async def _tenant(db: AsyncSession, user: User, org_id: Optional[int]) -> Tenant:
+    from src.services import cm_access
     if org_id is None:
-        return Tenant(None, user.id, None)
+        return await cm_access.enrich(db, Tenant(None, user.id, None), user, None)
     membership = await get_membership(org_id, user, db)
     if membership is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organisation introuvable")
-    return Tenant(org_id, None, membership.role)
+    return await cm_access.enrich(db, Tenant(org_id, None, membership.role), user, membership.role)
 
 
 async def _tenant_of(db: AsyncSession, user: User, row) -> Optional[Tenant]:
     """Tenant d'une ligne (compte/post) si l'utilisateur y a accès, sinon None."""
+    from src.services import cm_access
     if row.owner_user_id is not None:
-        return Tenant(None, user.id, None) if row.owner_user_id == user.id else None
+        return await cm_access.enrich(db, Tenant(None, user.id, None), user, None) if row.owner_user_id == user.id else None
     membership = await get_membership(row.organization_id, user, db)
-    return Tenant(row.organization_id, None, membership.role) if membership else None
+    if not membership:
+        return None
+    return await cm_access.enrich(db, Tenant(row.organization_id, None, membership.role), user, membership.role)
 
 
 async def _get_account(db: AsyncSession, user: User, account_id: int) -> tuple[TikTokAccount, Tenant]:
     acc = await db.get(TikTokAccount, account_id)
     tenant = await _tenant_of(db, user, acc) if acc is not None and acc.revoked_at is None else None
-    if tenant is None:
+    if tenant is None or not cm_access.account_allowed(tenant, "tiktok", acc.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Compte TikTok introuvable")
     return acc, tenant
 
@@ -186,8 +196,8 @@ def _scopes(acc: TikTokAccount) -> set[str]:
 
 
 def _can_disconnect(acc: TikTokAccount, tenant: Tenant, user: User) -> bool:
-    return (acc.owner_user_id == user.id or acc.connected_by_user_id == user.id
-            or tenant.role == "admin")
+    return (acc.owner_user_id == user.id or tenant.role == "admin" or tenant.cm_role == "admin"
+            or (acc.connected_by_user_id == user.id and tenant.cm_role != "viewer"))
 
 
 def _account_out(acc: TikTokAccount, tenant: Tenant, user: User) -> dict:
@@ -254,6 +264,7 @@ async def oauth_start(body: StartIn, db: AsyncSession = Depends(get_db),
     + jti), valable 10 min et consommé une seule fois au retour."""
     _require_enabled()
     tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin", explicit_only=True)
     if not await oauth_limiter.check(f"{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de tentatives de connexion TikTok. Réessayez dans une heure.")
@@ -284,6 +295,7 @@ async def oauth_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db),
     if claims.get("scope") != STATE_SCOPE or claims.get("sub") != str(user.id) or not claims.get("jti"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_STATE)
     tenant = await _tenant(db, user, claims.get("org"))
+    cm_access.require(tenant, "admin", explicit_only=True)
     if not await state_store.claim(claims["jti"]):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_STATE)
 
@@ -296,6 +308,9 @@ async def oauth_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db),
     if not open_id or not tok.get("access_token") or not tok.get("refresh_token"):
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Réponse TikTok incomplète : réessayez.")
 
+    taken = await cm_access.taken_elsewhere(db, "tiktok", open_id, tenant)
+    if taken is not None:
+        await cm_access.refuse_taken(db, "tiktok", taken, user, claim_tokens=tok)
     acc = (await db.execute(
         select(TikTokAccount).where(tenant.where(TikTokAccount), TikTokAccount.open_id == open_id)
     )).scalar_one_or_none()
@@ -328,7 +343,7 @@ async def list_accounts(org_id: Optional[int] = Query(None), db: AsyncSession = 
         select(TikTokAccount).where(tenant.where(TikTokAccount), TikTokAccount.revoked_at.is_(None))
         .order_by(TikTokAccount.created_at)
     )).scalars().all()
-    return [_account_out(a, tenant, user) for a in accounts]
+    return [_account_out(a, tenant, user) for a in accounts if cm_access.account_allowed(tenant, "tiktok", a.id)]
 
 
 @router.delete("/accounts/{account_id}")
@@ -416,6 +431,7 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db),
     """Clic « Publier » : valide la demande et prépare la réception de la vidéo."""
     _require_enabled()
     acc, tenant = await _get_account(db, user, body.account_id)
+    cm_access.require(tenant, "edit", explicit_only=True)
     if acc.needs_reconnect:
         raise HTTPException(status.HTTP_409_CONFLICT, "Ce compte TikTok doit être reconnecté.")
     needed = "video.publish" if body.mode == "direct" else "video.upload"

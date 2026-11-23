@@ -89,6 +89,25 @@ Les vidéos restent dans le Drive des utilisateurs ; cm les lit grâce à un **c
   « Mon Drive » (seulement dans un Drive partagé Workspace).
 - Routes : `routers/cm_library.py` ; services `gdrive_service.py`, `cm_library.py` ; tests `test_cm_library.py`.
 
+## Équipe, rôles et comptes uniques
+
+- **Rôles cm** dans une équipe (`cm_member_roles`, par e-mail, vaut pour les invitations) : `admin` (comptes,
+  dossiers, groupes, membres ; un admin de l'équipe chapote.fr l'est toujours), `editor` (programme, modifie,
+  annule, édite la bibliothèque ; défaut d'un membre), `viewer` (consulte). Un editor / viewer peut être limité à
+  des groupes de comptes : il ne voit que leurs comptes, leurs publications et les dossiers Drive de ces groupes.
+  Contrôle central : `services/cm_access.py` (`enrich` sur chaque espace, `require`, `account_allowed`).
+  Modules TikTok / YouTube de l'Espace client : rôles appliqués seulement aux membres ayant un rôle cm explicite.
+- **Page Équipe** (`/equipe`, `routers/cm_team.py`) : créer une équipe, inviter (rôle + groupes), changer les
+  rôles, retirer.
+- **Un compte = un seul espace** : connecter un compte TikTok / YouTube / Instagram déjà relié ailleurs est
+  refusé (409 `account_taken`, « rapprochez-vous de la personne en charge »).
+- **Transfert** (Comptes → Transférer, admin) : vers un autre de ses espaces (immédiat) ou une autre personne
+  (`cm_transfers`, à accepter sous 14 jours). Le compte part avec son planning à venir (publication commune à
+  plusieurs comptes coupée en deux, fichier lié), ses chiffres et ses vidéos ; l'historique reste.
+- **Reprise par preuve** (personne partie, compte resté dans son espace) : en reconnectant le compte, la personne
+  qui vient de s'authentifier chez la plateforme reçoit un jeton signé (15 min, usage unique, nouveaux jetons
+  chiffrés dedans) et peut reprendre le compte. Sans les identifiants du compte, impossible.
+
 ## Dev
 
 `cd cm && npm install && npm run dev` (port 3003, proxy `/api` vers `localhost:8001`). Tests : `api/tests/test_cm.py`.

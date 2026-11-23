@@ -44,7 +44,8 @@ export interface Post {
   id: number; title: string; caption: string | null; file_name: string | null; video_size: number
   duration_sec: number | null; status: string; has_media: boolean; created_at: string; targets: Target[]
 }
-export interface Space { org_id: number | null; name: string; role: string | null }
+export type CmRole = 'admin' | 'editor' | 'viewer'
+export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null }
 export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
 export const GROUP_COLORS: GroupColor[] = ['blue', 'orange', 'green', 'purple', 'pink', 'teal', 'amber', 'slate']
 export interface Group { id: number; name: string; color: GroupColor | null; accounts: { platform: Platform; id: number }[] }
@@ -82,7 +83,8 @@ export interface Creator {
 export interface CreatorInfo { can_post: boolean; reason_code?: string; message?: string; creator: Creator | null }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  /** `data` : détail structuré renvoyé par l'API (ex. { code: 'account_taken', claim_token }). */
+  constructor(public status: number, message: string, public data?: Record<string, any>) { super(message) }
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -102,15 +104,16 @@ async function callRaw<T>(path: string, init?: RequestInit): Promise<{ body: T; 
   }
   if (!res.ok) {
     let message = `Erreur ${res.status}`
+    let data: Record<string, any> | undefined
     try {
       const body = await res.json()
       const d = body?.detail
       if (typeof d === 'string') message = d
-      else if (d && typeof d === 'object' && d.message) message = d.message
+      else if (d && typeof d === 'object' && !Array.isArray(d) && d.message) { message = d.message; data = d }
       else if (Array.isArray(d) && d[0]?.msg) message = 'Champ invalide : ' + d[0].msg
       else if (body?.message) message = body.message
     } catch { /* corps non JSON */ }
-    throw new ApiError(res.status, message)
+    throw new ApiError(res.status, message, data)
   }
   return { body: await res.json() as T, res }
 }
@@ -248,3 +251,24 @@ export const getIdentities = () => call<Identities>('/api/cm/google-identities')
 export const addIdentity = (credential: string, org_id: number | null) => send<Identities>('POST', '/api/cm/google-identities', { credential, org_id })
 export const patchIdentity = (id: number, org_id: number | null) => send<Identities>('PATCH', `/api/cm/google-identities/${id}`, { org_id })
 export const removeIdentity = (id: number) => send<Identities>('DELETE', `/api/cm/google-identities/${id}`)
+
+// Équipe et transferts
+export interface TeamMember { user_id: number; name: string; email: string; org_role: string; cm_role: CmRole; group_ids: number[] | null; is_owner: boolean; you: boolean }
+export interface TeamInvite { id: number; email: string; org_role: string; cm_role: CmRole; group_ids: number[] | null }
+export interface Team { org_id: number; name: string; my_role: CmRole; my_group_ids: number[] | null; can_manage_members: boolean; can_manage_roles: boolean; members: TeamMember[]; invitations: TeamInvite[] }
+export interface Transfer { id: number; platform: Platform; account_id: number; account_name: string | null; to_email: string; from: string | null; status: string; expires_at: string; created_at: string }
+export const getTeam = (org: number) => call<Team>(`/api/cm/team?org_id=${org}`)
+export const createTeam = (name: string) => send<{ org_id: number; name: string }>('POST', '/api/cm/team', { name })
+export const inviteMember = (org: number, email: string, role: CmRole, group_ids: number[] | null) =>
+  send<{ joined: boolean }>('POST', `/api/cm/team/${org}/members`, { email, role, group_ids })
+export const setMemberRole = (org: number, email: string, role: CmRole, group_ids: number[] | null) =>
+  send<{ ok: boolean }>('PATCH', `/api/cm/team/${org}/members/${encodeURIComponent(email)}`, { role, group_ids })
+export const removeMember = (org: number, userId: number) => send<{ ok: boolean }>('DELETE', `/api/cm/team/${org}/members/${userId}`)
+export const cancelInvite = (org: number, id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/team/${org}/invitations/${id}`)
+export const transferAccount = (org: number | null, a: Account, body: { to_org_id?: number; to_perso?: boolean; to_email?: string }) =>
+  send<{ moved?: boolean; pending?: boolean; message?: string; moved_targets?: number }>('POST', `/api/cm/accounts/${a.platform}/${a.id}/transfer`, { org_id: org, ...body })
+export const getTransfers = () => call<{ incoming: Transfer[]; outgoing: Transfer[] }>('/api/cm/transfers')
+export const acceptTransfer = (id: number, org_id: number | null) => send<{ moved: boolean; moved_targets: number }>('POST', `/api/cm/transfers/${id}/accept`, { org_id })
+export const declineTransfer = (id: number) => send<{ ok: boolean }>('POST', `/api/cm/transfers/${id}/decline`)
+export const cancelTransfer = (id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/transfers/${id}`)
+export const claimAccount = (claim_token: string, org_id: number | null) => send<{ moved: boolean; moved_targets: number }>('POST', '/api/cm/accounts/claim', { claim_token, org_id })

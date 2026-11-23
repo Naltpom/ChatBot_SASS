@@ -148,7 +148,8 @@ async def tenant_accounts(db: AsyncSession, tenant) -> list[tuple[str, Any]]:
         rows = (await db.execute(
             select(model).where(tenant.where(model), model.revoked_at.is_(None)).order_by(model.created_at)
         )).scalars().all()
-        out += [(platform, r) for r in rows]
+        allowed = getattr(tenant, "allowed", None)     # membre limité à des groupes de comptes
+        out += [(platform, r) for r in rows if allowed is None or (platform, r.id) in allowed]
     return out
 
 
@@ -157,7 +158,9 @@ async def get_account(db: AsyncSession, tenant, platform: str, account_id: int):
     if model is None:
         raise bad("Plateforme inconnue.")
     acc = await db.get(model, account_id)
-    if acc is None or acc.revoked_at is not None or not _same_tenant(acc, tenant):
+    allowed = getattr(tenant, "allowed", None)
+    if acc is None or acc.revoked_at is not None or not _same_tenant(acc, tenant) \
+            or (allowed is not None and (platform, acc.id) not in allowed):
         raise bad(f"{ACCOUNT_LABEL[platform]} introuvable.", status.HTTP_404_NOT_FOUND)
     return acc
 

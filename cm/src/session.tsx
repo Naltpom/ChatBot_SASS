@@ -130,3 +130,10 @@ export function useLoad<T>(fn: (scope: Scope) => Promise<T>, deps: unknown[] = [
 
 /** Vide le cache (déconnexion). */
 export const clearCache = () => cache.clear()
+
+/** Rôle cm dans l'espace courant (perso = admin) et ce qu'il permet. */
+export function useRole() {
+  const { spaces, org } = useSession()
+  const role = spaces.find(s => s.org_id === org)?.cm_role || 'admin'
+  return { role, canEdit: role !== 'viewer', canAdmin: role === 'admin' }
+}
