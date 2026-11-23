@@ -204,6 +204,16 @@ async def list_children(folder_id: str) -> list[dict]:
             return out
 
 
+async def shared_folders(limit: int = 200) -> list[dict]:
+    """Dossiers partagés avec le robot (les plus récents d'abord), avec qui les a partagés."""
+    body = await _api("GET", "/files", params={
+        "q": f"sharedWithMe = true and mimeType = '{FOLDER_MIME}' and trashed = false",
+        "fields": "files(id,name,driveId,owners(emailAddress),sharingUser(emailAddress),capabilities(canEdit))",
+        "pageSize": str(limit), "orderBy": "sharedWithMeTime desc", "includeItemsFromAllDrives": "true",
+    })
+    return [f for f in body.get("files") or [] if isinstance(f, dict)]
+
+
 async def walk(folder_id: str) -> list[tuple[str, dict]]:
     """(chemin du sous-dossier, fichier) de tout le dossier, sous-dossiers compris (3 niveaux)."""
     out: list[tuple[str, dict]] = []

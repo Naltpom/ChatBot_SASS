@@ -4,9 +4,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  addSource, getAssetsPage, getRobot, getSources, patchAsset, patchSource, removeSource, scanSource,
-  type Asset, type AssetState, type Source,
+  addIdentity, addSource, getAssetsPage, getIdentities, getRobot, getSources, patchAsset, patchIdentity, patchSource,
+  removeIdentity, removeSource, scanSource, type Asset, type AssetState, type Identities, type Source,
 } from '../api'
+import GoogleButton from '../components/GoogleButton'
 import { Empty, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDate, fmtDateTime, fmtDuration, fmtSize } from '../format'
 import { useLoad, useSession } from '../session'
@@ -24,13 +25,70 @@ function CopyField({ value }: { value: string }) {
   )
 }
 
-/** Assistant « Ajouter un dossier Drive » : 1. partager au robot  2. coller le lien. */
-function AddFolder({ robot, onClose, onAdded }: { robot: string; onClose: () => void; onAdded: (s: Source) => void }) {
+/** Adresses Google d'où les dossiers partagés au robot sont reliés automatiquement. */
+function GoogleAddresses({ compact = false }: { compact?: boolean }) {
+  const { googleClientId, spaces, org } = useSession()
+  const ids = useLoad(() => getIdentities(), [])
+  const [err, setErr] = useState('')
+  const [adding, setAdding] = useState(false)
+  const spaceName = (o: number | null) => spaces.find(x => x.org_id === o)?.name || 'Espace perso'
+  const run = async (fn: () => Promise<Identities>) => {
+    setErr('')
+    try { ids.setData(await fn()); setAdding(false) } catch (e) { setErr((e as Error).message) }
+  }
+  const d = ids.data
+  return (
+    <div className="col" style={{ gap: 8 }}>
+      {d && (
+        <ul className="small" style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
+          <li className="row-nw" style={{ gap: 8 }}><Icon name="check" size={16} /><span className="ellipsis">{d.account_email}</span><span className="tiny muted">(compte Chapote)</span></li>
+          {d.identities.map(i => (
+            <li key={i.id} className="row-nw" style={{ gap: 8 }}>
+              <Icon name="check" size={16} /><span className="ellipsis grow">{i.email}</span>
+              {spaces.length > 1 && !compact ? (
+                <select className="input select-sm" style={{ width: 'auto' }} aria-label={`Espace des dossiers de ${i.email}`} value={i.org_id ?? ''}
+                        onChange={e => run(() => patchIdentity(i.id, e.target.value ? Number(e.target.value) : null))}>
+                  {spaces.map(sp => <option key={sp.org_id ?? 'perso'} value={sp.org_id ?? ''}>{sp.name}</option>)}
+                </select>
+              ) : <span className="tiny muted">→ {spaceName(i.org_id)}</span>}
+              {!compact && <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Retirer ${i.email}`} onClick={() => run(() => removeIdentity(i.id))}><Icon name="close" /></button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {googleClientId && (adding ? (
+        <div className="col" style={{ gap: 6 }}>
+          <span className="tiny muted">Connectez-vous avec le compte Google qui partage les dossiers (pour prouver que l'adresse est à vous). Ses dossiers iront dans « {spaceName(org)} ».</span>
+          <GoogleButton clientId={googleClientId} text="continue_with" onCredential={cred => run(() => addIdentity(cred, org))} />
+        </div>
+      ) : (
+        <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setAdding(true)}>
+          <Icon name="plus" />Associer un autre compte Google
+        </button>
+      ))}
+      {err && <Msg kind="err">{err}</Msg>}
+    </div>
+  )
+}
+
+/** Assistant « Ajouter un dossier Drive » : partager au robot, et le dossier apparaît tout seul. */
+function AddFolder({ robot, known, onClose, onAdded }: { robot: string; known: number[]; onClose: () => void; onAdded: (s: Source) => void }) {
   const { org, groups } = useSession()
   const [url, setUrl] = useState('')
   const [group, setGroup] = useState<number | ''>('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  // Le robot relève les nouveaux partages toutes les minutes : on guette l'arrivée du dossier.
+  useEffect(() => {
+    const t = setInterval(async () => {
+      try {
+        const list = await getSources(org)
+        const fresh = list.find(x => !known.includes(x.id))
+        if (fresh) onAdded(fresh)
+      } catch { /* réessai au prochain passage */ }
+    }, 8000)
+    return () => clearInterval(t)
+  }, [org, known.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErr(''); setBusy(true)
@@ -39,36 +97,45 @@ function AddFolder({ robot, onClose, onAdded }: { robot: string; onClose: () => 
   }
   return (
     <Sheet title="Ajouter un dossier Google Drive" onClose={onClose}>
-      <form className="col" style={{ gap: 18 }} onSubmit={submit}>
+      <div className="col" style={{ gap: 18 }}>
         <div className="col" style={{ gap: 8 }}>
           <div className="strong">1. Partagez le dossier avec le robot de Chapote</div>
           <CopyField value={robot} />
           <ol className="small muted" style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
-            <li>Dans Google Drive, clic droit sur le dossier (celui où les monteurs déposent) → <b>Partager</b>.</li>
-            <li>Collez l'adresse ci-dessus, choisissez <b>Lecteur</b> (ou <b>Éditeur</b> pour que cm range les vidéos publiées), décochez « Envoyer une notification », puis <b>Partager</b>.</li>
+            <li>Dans Google Drive, clic droit sur le <b>dossier</b> des vidéos → <b>Partager</b>.</li>
+            <li>Collez l'adresse ci-dessus, choisissez <b>Lecteur</b> (ou <b>Éditeur</b> pour que cm range les vidéos publiées), puis <b>Envoyer</b>. Notification cochée ou non : peu importe.</li>
           </ol>
           <p className="tiny muted" style={{ margin: 0 }}>Le robot ne voit que ce dossier, rien d'autre de votre Drive. Retirez-le du partage pour couper l'accès.</p>
         </div>
-        <div className="col" style={{ gap: 10 }}>
-          <div className="strong">2. Collez le lien du dossier</div>
-          <label className="field">Lien du dossier
-            <input className="input" value={url} onChange={e => setUrl(e.target.value)} required autoFocus
-                   placeholder="https://drive.google.com/drive/folders/…" inputMode="url" />
-            <span className="field-hint">Ouvrez le dossier dans Google Drive et copiez l'adresse de la page.</span>
-          </label>
-          {groups.length > 0 && (
-            <label className="field">Comptes proposés par défaut (facultatif)
-              <select className="input" value={group} onChange={e => setGroup(e.target.value ? Number(e.target.value) : '')}>
-                <option value="">Aucun groupe</option>
-                {groups.map(g => <option key={g.id} value={g.id}>{g.name} ({g.accounts.length} comptes)</option>)}
-              </select>
-              <span className="field-hint">« Programmer » cochera d'office les comptes de ce groupe.</span>
-            </label>
-          )}
+        <div className="col" style={{ gap: 8 }}>
+          <div className="strong">2. C'est tout</div>
+          <div className="msg msg-info row-nw" style={{ gap: 10 }} role="status">
+            <span className="spinner" aria-hidden="true" />
+            <span>Le dossier apparaîtra ici tout seul, en général en moins d'une minute, s'il est partagé depuis l'une de ces adresses :</span>
+          </div>
+          <GoogleAddresses compact />
         </div>
-        {err && <Msg kind="err">{err}</Msg>}
-        <button className="btn btn-primary btn-lg" disabled={busy || !url.trim()}>{busy ? 'Vérification…' : 'Vérifier et relier'}</button>
-      </form>
+        <details>
+          <summary className="small" style={{ cursor: 'pointer', color: 'var(--accent)' }}>Partagé depuis une autre adresse (un monteur…) ? Collez le lien du dossier</summary>
+          <form className="col" style={{ gap: 10, marginTop: 10 }} onSubmit={submit}>
+            <label className="field">Lien du dossier
+              <input className="input" value={url} onChange={e => setUrl(e.target.value)} required
+                     placeholder="https://drive.google.com/drive/folders/…" inputMode="url" />
+              <span className="field-hint">Ouvrez le dossier dans Google Drive et copiez l'adresse de la page.</span>
+            </label>
+            {groups.length > 0 && (
+              <label className="field">Comptes proposés par défaut (facultatif)
+                <select className="input" value={group} onChange={e => setGroup(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">Aucun groupe</option>
+                  {groups.map(g => <option key={g.id} value={g.id}>{g.name} ({g.accounts.length} comptes)</option>)}
+                </select>
+              </label>
+            )}
+            {err && <Msg kind="err">{err}</Msg>}
+            <button className="btn btn-primary" disabled={busy || !url.trim()}>{busy ? 'Vérification…' : 'Vérifier et relier'}</button>
+          </form>
+        </details>
+      </div>
     </Sheet>
   )
 }
@@ -284,12 +351,19 @@ export default function Library() {
       )}
 
       {adding && robot.data?.email && (
-        <AddFolder robot={robot.data.email} onClose={() => setAdding(false)} onAdded={s => {
+        <AddFolder robot={robot.data.email} known={list.map(x => x.id)} onClose={() => setAdding(false)} onAdded={s => {
           setAdding(false)
           sources.setData([...list.filter(x => x.id !== s.id), s])
           setRefreshKey(k => k + 1)
-          setFlash(s.scan?.ok === false ? `Dossier « ${s.name} » relié, mais sa lecture a échoué : ${s.scan.error}` : `Dossier « ${s.name} » relié : ${s.videos} vidéo${s.videos > 1 ? 's' : ''} trouvée${s.videos > 1 ? 's' : ''}.`)
+          setFlash(s.scan?.ok === false || s.last_error ? `Dossier « ${s.name} » relié, mais sa lecture a échoué : ${s.scan?.error || s.last_error}` : `Dossier « ${s.name} » relié : ${s.videos} vidéo${s.videos > 1 ? 's' : ''} trouvée${s.videos > 1 ? 's' : ''}.`)
         }} />
+      )}
+      {enabled && sources.data && (
+        <details className="card">
+          <summary className="strong" style={{ cursor: 'pointer' }}>Adresses Google reliées automatiquement</summary>
+          <p className="small muted" style={{ margin: '8px 0 10px' }}>Un dossier partagé avec le robot depuis l'une de ces adresses est relié tout seul, dans l'espace indiqué.</p>
+          <GoogleAddresses />
+        </details>
       )}
       {open && <AssetSheet a={open} onClose={() => setOpen(null)} onSaved={a => { setOpen(a); setRefreshKey(k => k + 1) }} />}
       <p className="tiny muted" style={{ margin: 0 }}>Les vidéos restent dans votre Drive. Chapote les télécharge seulement à l'heure de la publication, puis efface sa copie. <Link to="/planning">Voir le planning</Link></p>

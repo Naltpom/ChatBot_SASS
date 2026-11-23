@@ -25,18 +25,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.time import utcnow
-from src.models.cm import CmAsset, CmGroup, CmPost, CmSource
+from src.models.cm import CmAsset, CmGoogleIdentity, CmGroup, CmPost, CmSource
 from src.models.user import User
 from src.routers.cm import _decode_cursor, _page, _same, get_cm_user
 from src.routers.tiktok import Tenant, _tenant, _tenant_of
 from src.services import cm_library as lib
 from src.services import gdrive_service as gd
+from src.services.google_oauth import GoogleAuthError, verify_google_id_token
 from src.services.rate_limit import RateLimiter
 
 router = APIRouter(prefix="/api/cm", tags=["cm-library"])
 
 link_limiter = RateLimiter("rl:cmsrclink:", 30, 3600)
 scan_limiter = RateLimiter("rl:cmsrcscan:", 20, 3600)
+ident_limiter = RateLimiter("rl:cmgident:", 20, 3600)
 
 
 async def _source(db: AsyncSession, tenant: Tenant, source_id: int) -> CmSource:
@@ -58,6 +60,83 @@ async def _check_group(db: AsyncSession, tenant: Tenant, group_id: Optional[int]
 @router.get("/library/robot")
 async def robot(user: User = Depends(get_cm_user)):
     return {"enabled": gd.is_enabled(), "email": gd.robot_email()}
+
+
+# --------------------------------------------------------------------------
+# Adresses Google associées (relier automatiquement les dossiers partagés)
+# --------------------------------------------------------------------------
+
+async def _identities_out(db: AsyncSession, user: User) -> dict:
+    rows = (await db.execute(select(CmGoogleIdentity).where(CmGoogleIdentity.user_id == user.id)
+                             .order_by(CmGoogleIdentity.created_at))).scalars().all()
+    return {
+        "account_email": user.email,
+        "identities": [{"id": i.id, "email": i.email, "org_id": i.organization_id, "created_at": i.created_at.isoformat() + "Z"}
+                       for i in rows],
+    }
+
+
+@router.get("/google-identities")
+async def list_identities(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    return await _identities_out(db, user)
+
+
+class IdentityIn(BaseModel):
+    credential: str = Field(min_length=20, max_length=8000)   # ID token Google (Google Identity Services)
+    org_id: Optional[int] = None                               # espace où relier les dossiers (vide = perso)
+
+
+@router.post("/google-identities")
+async def add_identity(body: IdentityIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Associe une adresse Google PROUVÉE par Google (ID token vérifié : signature, audience,
+    adresse vérifiée) : les dossiers partagés au robot depuis cette adresse sont reliés tout seuls."""
+    if not await ident_limiter.check(f"{user.id}"):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop d'essais : réessayez dans une heure.")
+    if body.org_id is not None:
+        await _tenant(db, user, body.org_id)          # membre de l'équipe, sinon 404
+    try:
+        claims = await verify_google_id_token(body.credential)
+    except GoogleAuthError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Connexion Google refusée : {e}")
+    email = claims["email"].strip().lower()
+    row = (await db.execute(select(CmGoogleIdentity).where(CmGoogleIdentity.email == email))).scalar_one_or_none()
+    if row is not None and row.user_id != user.id:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Cette adresse Google est déjà associée à un autre compte Chapote.")
+    if row is None:
+        row = CmGoogleIdentity(user_id=user.id, email=email)
+        db.add(row)
+    row.google_sub = claims.get("sub")
+    row.organization_id = body.org_id
+    await db.commit()
+    return await _identities_out(db, user)
+
+
+class IdentityPatch(BaseModel):
+    org_id: Optional[int] = None
+
+
+@router.patch("/google-identities/{identity_id}")
+async def update_identity(identity_id: int, body: IdentityPatch, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(get_cm_user)):
+    row = await db.get(CmGoogleIdentity, identity_id)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Adresse introuvable")
+    if body.org_id is not None:
+        await _tenant(db, user, body.org_id)
+    row.organization_id = body.org_id
+    await db.commit()
+    return await _identities_out(db, user)
+
+
+@router.delete("/google-identities/{identity_id}")
+async def remove_identity(identity_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    row = await db.get(CmGoogleIdentity, identity_id)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Adresse introuvable")
+    await db.delete(row)
+    await db.commit()
+    return await _identities_out(db, user)
 
 
 @router.get("/sources")

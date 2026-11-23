@@ -73,6 +73,12 @@ Les vidéos restent dans le Drive des utilisateurs ; cm les lit grâce à un **c
   du robot (Lecteur, ou Éditeur pour ranger les vidéos publiées), puis coller son lien. Un dossier n'est relié
   qu'à un seul espace ; `verified` si celui qui a partagé (ou le propriétaire) est l'utilisateur ou un membre de
   son équipe. Groupe de comptes par défaut par dossier (pré-coché dans « Programmer »).
+- **Détection automatique** (chaque minute) : le robot liste les dossiers qu'on lui a partagés
+  (`sharedWithMe`) et relie tout seul chaque nouveau dossier à l'espace de la personne qui l'a partagé :
+  adresse du compte Chapote, ou **adresse Google associée** (cm → Bibliothèque → « Associer un compte Google »,
+  prouvée par une connexion Google : ID token vérifié, une adresse = un seul compte Chapote), avec l'espace
+  choisi pour cette adresse (équipe quittée = espace perso). Un dossier déjà relié une fois (même retiré) n'est
+  jamais relié de nouveau automatiquement. Partage depuis une autre adresse : coller le lien.
 - **Relecture** toutes les `GDRIVE_SCAN_MINUTES` (et « Relire maintenant ») : vidéos du dossier et de ses
   sous-dossiers (3 niveaux). Un fichier `.txt` du même nom que la vidéo devient sa légende, tant qu'elle n'a pas
   été modifiée dans cm. Vidéo supprimée du Drive : retirée de la bibliothèque.

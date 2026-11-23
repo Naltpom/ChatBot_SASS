@@ -287,3 +287,24 @@ class CmAsset(Base):
     removed_at = Column(DateTime, nullable=True)         # disparue du dossier
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmGoogleIdentity(Base):
+    """Adresse Google associée à un compte Chapote, PROUVÉE par une connexion Google (ID token).
+
+    Sert à relier automatiquement les dossiers Drive partagés avec le robot : un dossier
+    partagé depuis cette adresse va dans l'espace choisi (`organization_id`, vide = espace
+    perso). Une adresse n'est associée qu'à un seul compte Chapote.
+    """
+    __tablename__ = "cm_google_identities"
+    __table_args__ = (
+        Index("uq_cm_google_identities_email", "email", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False)
+    google_sub = Column(String(100), nullable=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

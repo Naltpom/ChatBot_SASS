@@ -535,7 +535,7 @@ async def cleanup(db: AsyncSession) -> None:
 
 async def tick(db: AsyncSession) -> None:
     for step in (dispatch_due, follow_pending, refresh_instagram_tokens, sync_due, cleanup,
-                 cm_library.scan_due, cm_library.organize_published):
+                 cm_library.detect_shared, cm_library.scan_due, cm_library.organize_published):
         try:
             await step(db)
         except Exception:

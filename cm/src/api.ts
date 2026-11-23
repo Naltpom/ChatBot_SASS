@@ -243,3 +243,8 @@ export const getAssetsPage = (org: number | null, opts: { source_id?: number; st
 export const getAsset = (org: number | null, id: number) => call<Asset>(`/api/cm/assets/${id}${q(org)}`)
 export const patchAsset = (org: number | null, id: number, body: { title?: string; caption?: string }) =>
   send<Asset>('PATCH', `/api/cm/assets/${id}${q(org)}`, body)
+export interface Identities { account_email: string; identities: { id: number; email: string; org_id: number | null; created_at: string }[] }
+export const getIdentities = () => call<Identities>('/api/cm/google-identities')
+export const addIdentity = (credential: string, org_id: number | null) => send<Identities>('POST', '/api/cm/google-identities', { credential, org_id })
+export const patchIdentity = (id: number, org_id: number | null) => send<Identities>('PATCH', `/api/cm/google-identities/${id}`, { org_id })
+export const removeIdentity = (id: number) => send<Identities>('DELETE', `/api/cm/google-identities/${id}`)
