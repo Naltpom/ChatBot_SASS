@@ -11,16 +11,36 @@ et stable du compte : `instagram:@ghosthands.music`, `tiktok:@ghosthands.music`,
 `compte.json` (`diffusion.comptes_cm`), jamais l'`id`. Espaces : `GET /spaces`.
 
 ## 2. Programmer une vidéo (au dépôt, pas à l'heure)
-1. `POST /posts` `{org_id, title, caption, file_name, video_size, targets: [...]}` → `{post_id, part_count, part_size}`
+1. `POST /posts` `{org_id, title, caption, file_name, video_size, ref, targets: [...]}` → `{post_id, part_count, part_size}`
+   - `ref` (recommandé) : « compte/id » de la vidéo (le même que `infos.json` → `compte` + `id`). Relie la publication à
+     sa vidéo du Drive (bibliothèque : « Programmée », fiche vidéo : lien Drive) et **refuse un doublon** : tant qu'une
+     publication non annulée porte cette référence, `409 {"code": "duplicate_ref", "post_id": …}` (réutiliser ce post).
    - cible : `{platform, account: "tiktok:@pseudo", scheduled_at: "2026-12-24T17:30:00Z", options}` (UTC ; `null` =
      tout de suite). `account_id` reste accepté.
    - options TikTok : `{mode: "direct"|"draft", privacy_level: "PUBLIC_TO_EVERYONE"|…, allow_comment, allow_duet,
-     allow_stitch, brand_organic, brand_content, title?, fallback_draft?}` — `fallback_draft: true` = le repli de
+     allow_stitch, brand_organic, brand_content, caption? (= title), hashtags?: [], fallback_draft?}` — `fallback_draft: true` = le repli de
      `tiktok.py` : si TikTok refuse la visibilité (application pas encore auditée), la vidéo repart en brouillon
      dans l'app TikTok (`notice` de la cible l'indique) au lieu d'échouer.
    - options YouTube : `{title?, description?, tags: [], privacy_status: "public"|"unlisted"|"private",
-     made_for_kids: false, synthetic_media: false, category_id: "10", notify_subscribers: true}`
-   - options Instagram : `{caption?, share_to_feed: true}`
+     made_for_kids: false, synthetic_media: false, category_id: "10", notify_subscribers: true, default_language?: "fr"}`
+   - options Instagram : `{caption?, hashtags?: [], collaborators?: ["pseudo"], share_to_feed: true}`
+   - Champs propres à chaque plateforme, limites et replis (champ absent = repli) :
+
+     | Plateforme | Champ | Limite | Si absent |
+     |---|---|---|---|
+     | TikTok | `caption` (ou `title`) | 2 200 caractères (UTF-16), hashtags compris | `caption` commune du post, sinon `title` du post |
+     | TikTok | `hashtags` | ajoutés à la fin s'ils manquent | aucun |
+     | YouTube | `title` | 100 caractères, sans `<` `>` | `title` du post |
+     | YouTube | `description` | 5 000 octets, sans `<` `>` | `caption` commune |
+     | YouTube | `tags` | 500 caractères au total, sans `,` | aucun |
+     | YouTube | `category_id` | nombre (`"10"` = Musique) | `"22"` |
+     | YouTube | `default_language` | code langue (`fr`, `en`, `pt-BR`) | non précisée |
+     | YouTube | `made_for_kids` | obligatoire (règle YouTube) | — refusé (400) |
+     | YouTube | `synthetic_media`, `notify_subscribers` | booléens | `false`, `true` |
+     | Instagram | `caption` | 2 200 caractères, 30 hashtags au plus | `caption` commune |
+     | Instagram | `hashtags` | ajoutés à la fin s'ils manquent (compte dans les 30) | aucun |
+     | Instagram | `collaborators` | 3 pseudos au plus (invitation de collaboration) | aucun |
+     | Instagram | `share_to_feed` | booléen | `true` |
 2. `PUT /posts/{id}/parts/{n}` (octets bruts, morceaux de `part_size`, dans l'ordre ; renvoyer un morceau déjà reçu est sans effet)
 3. `PUT /posts/{id}/cover` (facultatif ; JPEG/PNG ≤ 8 Mo) → couverture Instagram (`cover_url`)
 4. `POST /posts/{id}/submit` → vérifie la vidéo pour chaque compte, puis programme.
@@ -46,7 +66,20 @@ l'heure : la routine la publie elle-même (`GET /routine/due`, `GET /routine/tar
 - Tant que la permission « commentaires » n'est pas accordée à cm par Meta, les actions sur les commentaires
   remontés par la routine lui reviennent, même pour un compte connecté officiellement (mode api).
 
-## 6. Mode validation
+## 6. Vidéos rangées dans le Drive (`infos.json`)
+Un dossier de vidéo peut contenir `infos.json` (`compte`, `id`, `titre`, `heure`, `statut`, `reserve`, `publie_le`,
+`plateformes: {instagram|tiktok|youtube: {lien|permalink|url|media_id|video_id, …}}`). À chaque relecture du dossier :
+- `statut` = `publiee`, ou un lien / id de publication présent → **Publiée (archive)** avec ses liens ; jamais « à valider » ;
+- `statut` = `prete` (ou `programmee`) avec `heure` → **Programmée par l'outil** : rien n'est créé, la publication arrive par
+  l'API (`ref` = `compte/id`) et est rattachée à la vidéo ;
+- dossier `réserves/` (ou `reserve: true`) → **Réserve** : reste dans la bibliothèque (« À publier »), jamais « à valider » ;
+- un conte (plusieurs vidéos dans un dossier) : `infos.json` peut décrire chaque vidéo dans `parties: {"1": {…}, "2": {…},
+  "longue": {…}}` (repéré par « partie N » / « version longue » dans le nom du fichier) ;
+- brouillons « à valider » déjà créés pour ces vidéos : rangés en archive automatiquement ; sinon
+  `POST /proposals/archive {source_id?}` (avec `?group_id=` / `?account=` pour la sélection) range tout en archive,
+  sans rien publier.
+
+## 7. Mode validation
 Si une vidéo ne doit plus partir (validation, retour en réserve), annuler ses cibles : `POST /targets/{id}/cancel`.
 cm publie tout ce qui est programmé.
 

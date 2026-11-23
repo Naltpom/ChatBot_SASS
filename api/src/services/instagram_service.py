@@ -237,9 +237,11 @@ async def profile(token: str) -> dict:
 
 async def create_reel_container(token: str, ig_user_id: str, video_url: str, caption: str,
                                 share_to_feed: bool = True, thumb_offset_ms: Optional[int] = None,
-                                cover_url: Optional[str] = None) -> str:
+                                cover_url: Optional[str] = None, collaborators: Optional[list] = None) -> str:
     data = {"media_type": "REELS", "video_url": video_url, "caption": caption or "",
             "share_to_feed": "true" if share_to_feed else "false"}
+    if collaborators:
+        data["collaborators"] = json.dumps(list(collaborators)[:3])
     if cover_url:
         data["cover_url"] = cover_url              # image personnalisée (prioritaire sur thumb_offset)
     elif thumb_offset_ms is not None:

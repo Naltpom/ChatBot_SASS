@@ -1115,6 +1115,9 @@ class PostIn(BaseModel):
     # Vidéo envoyée depuis l'appareil (video_size) OU vidéo de la bibliothèque Drive (asset_id).
     video_size: int = Field(default=0, ge=0)
     asset_id: Optional[int] = None
+    # Référence de l'outil qui publie (« compte/id », ex. claude-cloud) : relie la publication à sa vidéo
+    # du Drive (infos.json) et refuse un doublon tant qu'une publication active porte la même référence.
+    ref: Optional[str] = Field(None, max_length=200)
     targets: list[TargetIn] = Field(min_length=1, max_length=MAX_TARGETS)
 
 
@@ -1132,7 +1135,7 @@ def _target_out(t: CmTarget, names: dict) -> dict:
 
 def _post_out(post: CmPost, targets: list[CmTarget], names: dict) -> dict:
     return {
-        "id": post.id, "title": post.title, "caption": post.caption, "file_name": post.file_name,
+        "id": post.id, "ref": post.ref, "title": post.title, "caption": post.caption, "file_name": post.file_name,
         "video_size": post.video_size, "duration_sec": post.duration_sec, "status": post.status,
         "has_media": bool(post.media_path), "asset_id": post.asset_id, "created_at": cm.iso(post.created_at),
         "targets": [_target_out(t, names) for t in sorted(targets, key=lambda x: (x.scheduled_at, x.id))],
@@ -1179,7 +1182,7 @@ async def _get_asset(db: AsyncSession, tenant: Tenant, asset_id: int) -> CmAsset
 
 
 async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset: CmAsset, title: str,
-                             caption: str, planned: list) -> dict:
+                             caption: str, planned: list, ref: Optional[str] = None) -> dict:
     """Publication d'une vidéo de la bibliothèque : rien à envoyer, prête tout de suite. Le
     fichier sera téléchargé depuis le Drive à l'heure de la 1re publication."""
     if not await post_limiter.check(tenant.key):
@@ -1187,7 +1190,7 @@ async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset
     post = CmPost(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, user_id=user.id,
                   title=title, caption=caption or None, file_name=asset.name[:255], video_size=asset.size or 0,
                   received_bytes=asset.size or 0, mime_type=asset.mime_type, duration_sec=asset.duration_sec,
-                  media_path=None, asset_id=asset.id, status=POST_READY)
+                  media_path=None, asset_id=asset.id, status=POST_READY, ref=ref)
     db.add(post)
     await db.flush()
     now = utcnow()
@@ -1210,6 +1213,16 @@ async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset
         cm_jobs.launch(target_id)
     _, names = await _tenant_index(db, tenant)
     return {"post_id": post.id, "ready": True, "post": _post_out(post, targets, names)}
+
+
+async def _asset_by_ref(db: AsyncSession, tenant: Tenant, ref: Optional[str]) -> Optional[int]:
+    """Vidéo du Drive (infos.json) qui porte cette référence, dans l'espace (ou None)."""
+    if not ref:
+        return None
+    from src.models.cm import CmSource
+    return (await db.execute(select(CmAsset.id).join(CmSource, CmSource.id == CmAsset.source_id).where(
+        CmAsset.origin_ref == ref, CmAsset.removed_at.is_(None), CmSource.revoked_at.is_(None),
+        tenant.where(CmSource)).limit(1))).scalar_one_or_none()
 
 
 async def _account_by_slug(db: AsyncSession, tenant: Tenant, platform: str, slug: Optional[str]) -> int:
@@ -1240,6 +1253,14 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
     title = body.title.strip()
     if not title:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Donnez un titre à la publication.")
+    ref = (body.ref or "").strip() or None
+    if ref:
+        dup = (await db.execute(select(CmPost.id).join(CmTarget, CmTarget.post_id == CmPost.id).where(
+            tenant.where(CmPost), CmPost.ref == ref, CmPost.status != POST_CANCELLED,
+            CmTarget.status != T_CANCELLED).limit(1))).scalar_one_or_none()
+        if dup:
+            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "duplicate_ref", "post_id": dup,
+                                                           "message": f"Une publication active porte déjà la référence « {ref} »."})
     seen = set()
     planned = []
     for t in body.targets:
@@ -1261,7 +1282,7 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
         planned.append((t, options, cm.check_schedule(t.scheduled_at)))
     if asset is not None:
-        return await _create_from_asset(db, tenant, user, asset, title, body.caption, planned)
+        return await _create_from_asset(db, tenant, user, asset, title, body.caption, planned, ref)
     receiving = (await db.execute(select(func.count()).select_from(CmPost).where(
         tenant.where(CmPost), CmPost.status == POST_RECEIVING))).scalar() or 0
     if receiving >= MAX_RECEIVING:
@@ -1277,7 +1298,8 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
     post = CmPost(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, user_id=user.id,
                   title=title, caption=body.caption or None,
                   file_name=os.path.basename(body.file_name)[:255] or None, video_size=body.video_size,
-                  received_bytes=0, media_path=str(path), status=POST_RECEIVING)
+                  received_bytes=0, media_path=str(path), status=POST_RECEIVING, ref=ref,
+                  asset_id=await _asset_by_ref(db, tenant, ref))
     db.add(post)
     await db.flush()
     for t, options, when in planned:
@@ -1590,6 +1612,7 @@ def _routine_out(t: CmTarget, post: CmPost, acc: InstagramAccount) -> dict:
         "id": t.id, "status": t.status, "username": acc.username, "account_id": acc.id,
         "scheduled_at": cm.iso(t.scheduled_at), "title": post.title, "caption": o.get("caption") or "",
         "share_to_feed": o.get("share_to_feed", True), "thumb_offset_ms": o.get("thumb_offset_ms"),
+        "collaborators": o.get("collaborators") or [],
         "duration_sec": post.duration_sec, "video_size": post.video_size, "mime_type": post.mime_type,
         "video_url": f"/api/cm/routine/targets/{t.id}/video" if post.media_path else None,
     }
