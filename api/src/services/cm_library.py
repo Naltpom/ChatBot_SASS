@@ -335,7 +335,12 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
     now = utcnow()
     try:
         meta = await gd.get_folder(src.folder_id)
-        files = await gd.walk(src.folder_id)
+        # Un dossier de compte rangé dans un autre dossier relié (ex. kiwi/ dans le dossier d'archives) : lu une fois.
+        others = set((await db.execute(select(CmSource.folder_id).where(
+            CmSource.revoked_at.is_(None), CmSource.id != src.id,
+            (CmSource.organization_id == src.organization_id) if src.organization_id
+            else ((CmSource.owner_user_id == src.owner_user_id) & CmSource.organization_id.is_(None))))).scalars())
+        files = await gd.walk(src.folder_id, others)
     except gd.DriveError as e:
         src.last_scan_at = now
         src.last_error = e.describe()

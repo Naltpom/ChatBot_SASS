@@ -212,7 +212,7 @@ def link_out(link: Optional[CmDriveLink]) -> dict:
         "oauth_enabled": oauth_enabled(), "connected": link is not None,
         "email": link.email if link else None, "error": link.error if link else None,
         "folder_url": f"https://drive.google.com/drive/folders/{link.root_folder_id}" if link and link.root_folder_id else None,
-        "folder_name": settings.GDRIVE_ARCHIVE_ROOT_NAME,
+        "folder_name": "Dossier d'archives",
     }
 
 
@@ -284,15 +284,37 @@ def _layout(post: CmPost, targets: list[CmTarget]) -> tuple[list[str], str, Opti
     return [when.strftime("%Y-%m"), f"{when.strftime('%Y-%m-%d %Hh%M')} — {titre}"], titre, None
 
 
-async def _destination(db: AsyncSession, post: CmPost) -> Optional[tuple[str, str, str, list[str]]]:
-    """(via, jeton, dossier de base, préfixe) ; None si l'espace n'a aucun Drive où écrire."""
+class _Dest:
+    """Où et comment écrire. `via` :
+    - robot  : le robot dépose tout lui-même dans le dossier du compte (Drive partagé) ;
+    - mixte  : dossier du compte relié à cm (le robot y est Éditeur) mais le robot ne peut pas déposer de fichier :
+               le robot crée les dossiers, les fichiers sont déposés avec la connexion Drive de l'utilisateur dans
+               un dossier d'envoi, puis le robot les range à leur place ;
+    - oauth  : pas de dossier du compte : tout dans le dossier d'archives créé par cm (<racine>/<compte>/…)."""
+    def __init__(self, via, base, prefix, user=None, robot=None, staging_parent=None):
+        self.via, self.base, self.prefix = via, base, prefix
+        self.user, self.robot, self.staging_parent = user, robot, staging_parent
+
+    @property
+    def folders(self) -> str:          # jeton qui crée et voit les dossiers
+        return self.robot if self.via in ("robot", "mixte") else self.user
+
+    @property
+    def files(self) -> str:            # jeton qui crée les fichiers
+        return self.robot if self.via == "robot" else self.user
+
+
+_robot_writer: set[int] = set()
+
+
+async def _destination(db: AsyncSession, post: CmPost) -> Optional[_Dest]:
+    """None si l'espace n'a aucun Drive où écrire."""
     compte, _ = _split_ref(post.ref)
     srcs = (await db.execute(select(CmSource).where(_tenant_cond(CmSource, post.organization_id, post.owner_user_id),
-                                                    CmSource.revoked_at.is_(None), CmSource.can_upload.is_(True))
-                             )).scalars().all()
-    src = next((s for s in srcs if (s.name or "").strip().lower() == compte.lower()), None)
-    if src is not None:
-        return "robot", await gd.access_token(), src.folder_id, []
+                                                    CmSource.revoked_at.is_(None)))).scalars().all()
+    src = next((s for s in srcs if (s.name or "").strip().lower() == compte.lower() and s.role == "writer"), None)
+    if src is not None and src.can_upload is True:
+        return _Dest("robot", src.folder_id, [], robot=await gd.access_token())
     link = await active_link(db, post.organization_id, post.owner_user_id)
     if link is None or not link.root_folder_id:
         return None
@@ -307,7 +329,17 @@ async def _destination(db: AsyncSession, post: CmPost) -> Optional[tuple[str, st
         raise
     if link.error:
         link.error = None
-    return "oauth", token, link.root_folder_id, [clean_name(compte)]
+    if src is not None and gd.is_enabled():
+        if link.id not in _robot_writer and gd.robot_email():
+            # Le robot range les fichiers déposés par cm : il lui faut le rôle Éditeur sur le dossier d'archives.
+            await gd.share_with(token, link.root_folder_id, gd.robot_email(), "writer")
+            _robot_writer.add(link.id)
+        return _Dest("mixte", src.folder_id, [], user=token, robot=await gd.access_token(),
+                     staging_parent=link.root_folder_id)
+    return _Dest("oauth", link.root_folder_id, [clean_name(compte)], user=token)
+
+
+STAGING = "envoi en cours (cm)"
 
 
 def _sha(b: bytes) -> str:
@@ -330,21 +362,48 @@ async def sync_post(db: AsyncSession, post: CmPost) -> None:
         post.archive = {**a, "error": "Aucun Drive d'archivage : connectez Google Drive dans la Bibliothèque."}
         await db.commit()
         return
-    via, token, base, prefix = dest
+    via, base = dest.via, dest.base
     if a.get("base") != base:          # nouvelle destination : tout est réécrit là-bas
         a = {"conte": a.get("conte"), "base": base, "via": via}
+
+    async def new_file(name: str, data: Optional[bytes] = None, path: Optional[str] = None, mime: str = "") -> str:
+        """Fichier créé à sa place (robot, oauth) ou dans le dossier d'envoi puis rangé par le robot (mixte)."""
+        parent = folder
+        if via == "mixte":
+            if not a.get("staging"):
+                a["staging"] = await gd.ensure_folder(dest.user, dest.staging_parent, STAGING)
+            parent = a["staging"]
+        fid = (await gd.put_file(dest.files, parent, name, path, mime) if path
+               else await gd.put_bytes(dest.files, parent, name, data, mime))
+        if via == "mixte":
+            await gd.move(fid, folder, parent)
+        return fid
+
+    async def write(key: str, name: str, data: bytes, mime: str) -> None:
+        if not a.get(f"{key}_id"):     # même nom déjà là : remplacé, pas doublé
+            found = await gd.find_child(dest.folders, folder, name, False)
+            if found:
+                a[f"{key}_id"], a[f"{key}_by"] = found, ("robot" if via == "mixte" else None)
+        fid = a.get(f"{key}_id")
+        if fid:                        # remplacer le contenu (fichier créé par cm, ou existant lu par le robot)
+            tok = dest.robot if a.get(f"{key}_by") == "robot" else dest.files
+            await gd.put_bytes(tok, folder, name, data, mime, fid)
+        else:
+            a[f"{key}_id"] = await new_file(name, data=data, mime=mime)
+
     try:
         names, stem, partie = _layout(post, targets)
         if not a.get("folder_id"):
-            a["folder_id"] = await gd.ensure_path(token, base, prefix + names)
+            a["folder_id"] = await gd.ensure_path(dest.folders, base, dest.prefix + names)
         folder = a["folder_id"]
+        ext = "mov" if post.mime_type == "video/quicktime" else "mp4"
+        if not a.get("video_id"):      # déjà rangée là (par le PC, ou un essai précédent) : pas de doublon
+            a["video_id"] = await gd.find_child(dest.folders, folder, f"{stem}.{ext}", False)
         if not a.get("video_id") and post.media_path:
-            ext = "mov" if post.mime_type == "video/quicktime" else "mp4"
-            a["video_id"] = await gd.put_file(token, folder, f"{stem}.{ext}", post.media_path, post.mime_type or "video/mp4")
+            a["video_id"] = await new_file(f"{stem}.{ext}", path=post.media_path, mime=post.mime_type or "video/mp4")
         cap = (post.caption or "").encode()
         if a.get("caption_sha") != _sha(cap):
-            a["caption_id"] = await gd.put_bytes(token, folder, f"{stem}.txt", cap, "text/plain; charset=utf-8",
-                                                 a.get("caption_id"))
+            await write("caption", f"{stem}.txt", cap, "text/plain; charset=utf-8")
             a["caption_sha"] = _sha(cap)
         if not a.get("cover_id") and post.cover_path:
             try:
@@ -352,17 +411,21 @@ async def sync_post(db: AsyncSession, post: CmPost) -> None:
                     img = f.read()
                 ext = "png" if post.cover_path.endswith(".png") else "jpg"
                 cover = "couverture" if partie is None else f"couverture — partie {partie}"
-                a["cover_id"] = await gd.put_bytes(token, folder, f"{cover}.{ext}", img,
-                                                   "image/png" if ext == "png" else "image/jpeg")
+                a["cover_id"] = await new_file(f"{cover}.{ext}", data=img, mime="image/png" if ext == "png" else "image/jpeg")
             except OSError:
                 pass
         mine = entry(post, targets)
+        if not a.get("infos_id"):
+            # infos.json déjà là (autre partie du conte, ou rangé par le PC) : lu et réécrit, jamais en double.
+            found = await gd.find_child(dest.folders, folder, lib_infos_name(), False)
+            if found:
+                a["infos_id"], a["infos_by"] = found, ("robot" if via == "mixte" else None)
         if partie is None:
             infos = mine
         else:
-            infos_id = a.get("infos_id") or await gd.find_child(token, folder, lib_infos_name(), False)
+            tok = dest.robot if a.get("infos_by") == "robot" else dest.files
             try:
-                infos = json.loads(await gd.get_bytes(token, infos_id)) if infos_id else {}
+                infos = json.loads(await gd.get_bytes(tok, a["infos_id"])) if a.get("infos_id") else {}
             except (gd.DriveError, ValueError):
                 infos = {}
             infos = infos if isinstance(infos, dict) else {}
@@ -372,10 +435,9 @@ async def sync_post(db: AsyncSession, post: CmPost) -> None:
             parts[partie] = {k: mine[k] for k in ("statut", "heure", "publie_le", "plateformes")} | {"id": rid, "titre": post.title}
             infos = {**infos, "compte": compte, "id": conte.get("id") or infos.get("id") or rid,
                      "titre": conte.get("titre") or infos.get("titre") or post.title, "parties": parts}
-            a["infos_id"] = infos_id
         raw = json.dumps(infos, ensure_ascii=False, indent=2).encode()
         if a.get("infos_sha") != _sha(raw) or not a.get("infos_id"):
-            a["infos_id"] = await gd.put_bytes(token, folder, lib_infos_name(), raw, "application/json", a.get("infos_id"))
+            await write("infos", lib_infos_name(), raw, "application/json")
             a["infos_sha"] = _sha(raw)
         a.pop("error", None)
         post.archive_state = "ok" if (a.get("video_id") or not post.media_path) else "pending"
