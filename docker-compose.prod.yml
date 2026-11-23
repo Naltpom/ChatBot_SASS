@@ -110,6 +110,9 @@ services:
       - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID:-}
       - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET:-}
       - INSTAGRAM_REDIRECT_URI=${INSTAGRAM_REDIRECT_URI:-https://cm.chapote.fr/instagram/callback}
+      - INSTAGRAM_EXTRA_SCOPES=${INSTAGRAM_EXTRA_SCOPES:-}
+      - YOUTUBE_EXTRA_SCOPES=${YOUTUBE_EXTRA_SCOPES:-}
+      - YOUTUBE_COMMENTS_ENABLED=${YOUTUBE_COMMENTS_ENABLED:-false}
       # Bibliothèque Google Drive : clé du robot (compte de service), base64 du JSON. Vide = désactivée.
       - GDRIVE_SA_KEY_B64=${GDRIVE_SA_KEY_B64:-}
       - GDRIVE_SCAN_MINUTES=${GDRIVE_SCAN_MINUTES:-5}

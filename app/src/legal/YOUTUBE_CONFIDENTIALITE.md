@@ -27,7 +27,9 @@ Chapote Publisher est un module de l'Espace client de Chapote. Il permet aux cli
 
 - **Chiffres** (Chapote CM) : vues, abonnés et nombre de vidéos de la chaîne, relevés au plus toutes les quelques heures ; pour les 50 vidéos les plus récentes, titre, date, durée, miniature, vues, j'aime et nombre de commentaires.
 
-Aucune autre donnée n'est collectée : pas de lecture de la liste des abonnés, des statistiques privées de YouTube Analytics, des messages ni du texte des commentaires, ni d'accès à d'autres services Google (Gmail, Drive…).
+Aucune autre donnée n'est collectée : pas de lecture de la liste des abonnés, des statistiques privées de YouTube Analytics ni des messages, ni d'accès à d'autres services Google (Gmail, Drive…). Le texte des commentaires n'est lu que dans le cadre de la boîte de réception décrite ci-dessous, **fonction facultative activée seulement après la vérification de Google**.
+
+- **Boîte de réception (Chapote CM, facultative)** : commentaires des vidéos récentes de la chaîne (30 jours) — identifiant, texte, nom et identifiant de chaîne de l'auteur, date, nombre de j'aime — pour que le client les lise et y réponde depuis un seul écran. Répondre ou masquer un commentaire demande l'autorisation `https://www.googleapis.com/auth/youtube.force-ssl`, accordée par le titulaire de la chaîne. Ces données sont supprimées à la déconnexion de la chaîne et au plus tard 12 mois après leur relevé.
 
 ## 4. Utilisation limitée (Google API Services User Data Policy)
 

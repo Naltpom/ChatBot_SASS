@@ -557,3 +557,11 @@ th.r .th-sort { flex-direction: row-reverse; }
 .draft-thumb { width: 72px; height: 128px; border-radius: 12px; object-fit: cover; background: var(--surface-2); flex: none; display: block; }
 @media (min-width: 1024px) { .draft-thumb { width: 90px; height: 160px; } }
 .nav-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; }
+/* Commentaires */
+.cmt { flex-direction: column; align-items: stretch !important; gap: 6px; }
+.cmt-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cmt-reply { margin: 0; padding: 6px 10px; border-left: 3px solid var(--primary); background: var(--surface-2); border-radius: 0 8px 8px 0; font-size: 14px; }
+.notice summary { cursor: pointer; }
+.dm { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.dm-msg { margin: 0; max-width: 80%; padding: 8px 12px; border-radius: 14px; background: var(--surface-2); align-self: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dm-msg.me { align-self: flex-end; background: var(--primary); color: #fff; }

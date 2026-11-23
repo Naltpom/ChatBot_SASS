@@ -27,7 +27,17 @@ Chapote CM permet aux clients de Chapote de connecter leurs propres comptes Inst
 - **Métadonnées et historique des publications** : compte utilisé, membre de l'équipe à l'origine de la publication, légende, heure programmée, réglages choisis, identifiant et lien de la publication renvoyés par Instagram, dates.
 - **Chiffres** : nombre d'abonnés et de publications du compte ; pour les publications récentes, vues, j'aime, commentaires, partages et enregistrements. Un relevé est fait au plus toutes les quelques heures.
 
-Aucune autre donnée n'est collectée : pas de lecture des messages privés, ni des données des abonnés, ni d'accès à Facebook ou à d'autres services Meta.
+Aucune autre donnée n'est collectée : pas de données des abonnés, ni d'accès à Facebook ou à d'autres services Meta. Les commentaires et messages privés ne sont traités que dans le cadre de la boîte de réception décrite ci-dessous, **seulement si le titulaire du compte accorde les autorisations correspondantes**.
+
+## 3 bis. Boîte de réception (commentaires et messages) — fonction facultative
+
+Quand le client l'active en accordant les autorisations `instagram_business_manage_comments` et/ou `instagram_business_manage_messages` (ou en transmettant lui-même les commentaires de ses comptes depuis son propre outil de publication), Chapote CM permet de répondre aux commentaires de ses propres publications et aux messages reçus par son compte, depuis un seul écran :
+
+- **Commentaires** de ses publications récentes (30 jours) : identifiant, texte, nom d'utilisateur et identifiant de l'auteur, date, nombre de j'aime, réponses ; et les actions du client (réponse publique, masquage, réponse privée à un commentaire).
+- **Messages privés** : lus à la demande dans Instagram pour être affichés au client, **non conservés** par Chapote ; un message n'est envoyé qu'à l'initiative du client, dans la fenêtre de 24 heures prévue par Instagram.
+- Chapote ne lit pas la liste des personnes qui aiment un commentaire (Instagram ne la fournit pas) et n'envoie **aucun message automatique** à des personnes qui n'ont pas écrit au compte.
+
+Ces données servent uniquement à afficher et traiter ces échanges pour le client ; elles sont supprimées à la déconnexion du compte et au plus tard **12 mois** après leur relevé.
 
 ## 4. Finalités et base légale
 
@@ -51,6 +61,7 @@ La base légale est **l'exécution du contrat** conclu entre Chapote et son clie
 - **Jeton** : tant que le compte est connecté ; supprimé **immédiatement** à la déconnexion.
 - **Vidéos** : supprimées dès que leurs publications sont terminées ; après un échec, gardées au plus **48 heures** pour permettre un nouvel essai ; un envoi abandonné est supprimé sous 2 heures.
 - **Chiffres et liste des vidéos** : supprimés dès que le compte est déconnecté.
+- **Commentaires** (boîte de réception) : supprimés dès que le compte est déconnecté, et au plus tard 12 mois après leur relevé ; **messages privés** : non conservés.
 - **Historique des publications** : **12 mois**, puis supprimé.
 - La suppression du compte Chapote ou de l'équipe entraîne la suppression des comptes connectés et des données associées.
 

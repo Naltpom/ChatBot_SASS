@@ -34,6 +34,7 @@ from src.models import tiktok as tk_models
 from src.models import youtube as yt_models
 from src.models.cm import (
     IG_MODE_API,
+    CmComment,
     POST_CANCELLED,
     POST_READY,
     POST_RECEIVING,
@@ -56,6 +57,7 @@ from src.models.cm import (
 )
 from src.models.tiktok import TikTokAccount, TikTokPost
 from src.models.youtube import YouTubeAccount, YouTubePost
+from src.services import cm_inbox
 from src.services import cm_library
 from src.services import cm_service as cm
 from src.services import instagram_service as ig
@@ -550,12 +552,16 @@ async def cleanup(db: AsyncSession) -> None:
     for platform, model in cm.MODELS.items():
         gone = select(model.id).where(model.revoked_at.is_not(None))
         await db.execute(delete(CmVideo).where(CmVideo.platform == platform, CmVideo.account_id.in_(gone)))
+        await db.execute(delete(CmComment).where(CmComment.platform == platform, CmComment.account_id.in_(gone)))
         await db.execute(delete(CmAccountStat).where(CmAccountStat.platform == platform,
                                                      CmAccountStat.account_id.in_(gone)))
         alive = select(model.id)
         await db.execute(delete(CmVideo).where(CmVideo.platform == platform, CmVideo.account_id.not_in(alive)))
+        await db.execute(delete(CmComment).where(CmComment.platform == platform, CmComment.account_id.not_in(alive)))
         await db.execute(delete(CmAccountStat).where(CmAccountStat.platform == platform,
                                                      CmAccountStat.account_id.not_in(alive)))
+    # Commentaires relevés il y a plus de 12 mois (pages de confidentialité).
+    await db.execute(delete(CmComment).where(CmComment.created_at < now - timedelta(days=365)))
     # Historique ancien.
     await db.execute(delete(CmPost).where(CmPost.created_at < now - HISTORY_RETENTION,
                                           CmPost.media_path.is_(None)))
@@ -564,7 +570,7 @@ async def cleanup(db: AsyncSession) -> None:
 
 async def tick(db: AsyncSession) -> None:
     for step in (dispatch_due, follow_pending, refresh_instagram_tokens, sync_due, cleanup,
-                 cm_library.detect_shared, cm_library.scan_due, cm_library.organize_published):
+                 cm_library.detect_shared, cm_library.scan_due, cm_library.organize_published, cm_inbox.sync_due):
         try:
             await step(db)
         except Exception:
