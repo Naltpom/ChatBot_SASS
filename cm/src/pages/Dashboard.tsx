@@ -41,7 +41,7 @@ export default function Dashboard() {
       <div className="page-head">
         <div>
           <h1>{greeting()}{first ? `, ${first}` : ''}</h1>
-          <p>{group ? <>Groupe <strong>{group.name}</strong> · </> : null}Chiffres relevés plusieurs fois par jour.</p>
+          <p>Chiffres relevés plusieurs fois par jour.</p>
         </div>
         <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 j'], [30, '30 j'], [90, '90 j']]} />
       </div>

@@ -134,7 +134,7 @@ export default function Planning() {
       <div className="page-head">
         <div>
           <h1>Planning</h1>
-          <p>{group ? <>Groupe <strong>{group.name}</strong> · </> : null}Ce qui est parti, avec ses chiffres, et ce qui va partir.</p>
+          <p>Ce qui est parti, avec ses chiffres, et ce qui va partir.</p>
         </div>
         <Seg label="Affichage" value={view} onChange={setView}
              options={desktop ? [['week', 'Semaine'], ['month', 'Mois']] : [['agenda', 'Agenda'], ['month', 'Mois']]} />
