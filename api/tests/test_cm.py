@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from jose import jwt
 from sqlalchemy import select
 
 from src.core.config import settings
@@ -201,25 +202,39 @@ async def test_health_and_session_required(pg_session, cmenv):
 
 @pytest.mark.real_db
 @pytest.mark.asyncio
-async def test_oauth_redirects_to_cm_when_started_from_cm(pg_session, tiktok, google, monkeypatch):
-    monkeypatch.setattr(settings, "CM_URL", "https://cm.chapote.test")
+async def test_oauth_from_cm_uses_declared_redirects(pg_session, tiktok, google, monkeypatch):
+    """Depuis cm.chapote.fr : par défaut, l'URI déjà déclarée chez TikTok / Google (chapote.fr),
+    dont la page renvoie vers cm ; l'URI directe de cm seulement si elle est configurée."""
     u = await _user(pg_session, "a@t.dev")
     await pg_session.commit()
     async with Client(pg_session) as c:
         h = c.as_(u)
         q = parse_qs(urlparse((await h.post("/api/tiktok/oauth/start", json={"app": "cm"})).json()["authorize_url"]).query)
-        assert q["redirect_uri"] == ["https://cm.chapote.test/tiktok/callback"]
+        assert q["redirect_uri"] == [settings.TIKTOK_REDIRECT_URI]
         assert q["scope"] == [tt.SCOPES]        # rien de plus tant que TikTok n'a pas validé les statistiques
-        state = q["state"][0]
-        r = await h.post("/api/tiktok/oauth/exchange", json={"code": "ok", "state": state})
+        claims = jwt.get_unverified_claims(q["state"][0])
+        assert claims["app"] == "cm"             # lu par la page de chapote.fr pour renvoyer vers cm
+        r = await h.post("/api/tiktok/oauth/exchange", json={"code": "ok", "state": q["state"][0]})
+        assert r.status_code == 200, r.text
+        form = parse_qs(tiktok.last("/v2/oauth/token/").content.decode())
+        assert form["redirect_uri"] == [settings.TIKTOK_REDIRECT_URI]
+        q = parse_qs(urlparse((await h.post("/api/youtube/oauth/start", json={"app": "cm"})).json()["authorize_url"]).query)
+        assert q["redirect_uri"] == [settings.YOUTUBE_REDIRECT_URI]
+
+        # URI de cm déclarée chez la plateforme : retour direct, et le même à l'échange.
+        monkeypatch.setattr(settings, "TIKTOK_CM_REDIRECT_URI", "https://cm.chapote.test/tiktok/callback")
+        monkeypatch.setattr(settings, "YOUTUBE_CM_REDIRECT_URI", "https://cm.chapote.test/youtube/callback")
+        q = parse_qs(urlparse((await h.post("/api/tiktok/oauth/start", json={"app": "cm"})).json()["authorize_url"]).query)
+        assert q["redirect_uri"] == ["https://cm.chapote.test/tiktok/callback"]
+        r = await h.post("/api/tiktok/oauth/exchange", json={"code": "ok", "state": q["state"][0]})
         assert r.status_code == 200, r.text
         form = parse_qs(tiktok.last("/v2/oauth/token/").content.decode())
         assert form["redirect_uri"] == ["https://cm.chapote.test/tiktok/callback"]
-        # Depuis l'Espace client : retour inchangé sur chapote.fr.
-        q = parse_qs(urlparse((await h.post("/api/tiktok/oauth/start", json={})).json()["authorize_url"]).query)
-        assert q["redirect_uri"] == [settings.TIKTOK_REDIRECT_URI]
         q = parse_qs(urlparse((await h.post("/api/youtube/oauth/start", json={"app": "cm"})).json()["authorize_url"]).query)
         assert q["redirect_uri"] == ["https://cm.chapote.test/youtube/callback"]
+        # Depuis l'Espace client : inchangé.
+        q = parse_qs(urlparse((await h.post("/api/tiktok/oauth/start", json={})).json()["authorize_url"]).query)
+        assert q["redirect_uri"] == [settings.TIKTOK_REDIRECT_URI] and "app" in jwt.get_unverified_claims(q["state"][0])
     monkeypatch.setattr(settings, "TIKTOK_EXTRA_SCOPES", "user.info.stats, video.list")
     assert tt.scopes() == f"{tt.SCOPES},user.info.stats,video.list"
 

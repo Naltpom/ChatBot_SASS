@@ -10,6 +10,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { useAuth } from '../../AuthContext'
 import { errMsg } from '../../utils/errors'
+import { bounceToCm } from '../../utils/cmBounce'
 import { TikTokAccount } from './common'
 
 function readParams() {
@@ -23,6 +24,8 @@ function readParams() {
 }
 
 export default function TikTokCallback() {
+  // Connexion lancée depuis cm.chapote.fr : l'échange se fait là-bas.
+  const [toCm] = useState(bounceToCm)
   const [{ code, state, error, errorDescription }] = useState(readParams)
 
   // Jamais indexée (complète l'en-tête X-Robots-Tag de nginx).
@@ -34,6 +37,7 @@ export default function TikTokCallback() {
     return () => { meta.remove() }
   }, [])
 
+  if (toCm) return <p style={{ padding: 24 }}>Retour vers Chapote CM…</p>
   return (
     <div style={{ background: '#fff', minHeight: '100vh' }}>
       <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 24px 90px', color: '#1f2937', fontSize: 15, lineHeight: 1.65 }}>

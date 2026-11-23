@@ -147,9 +147,10 @@ def scopes() -> str:
 
 
 def redirect_uri(app: str = "chapote") -> str:
-    """URI de retour : chapote.fr (Espace client) ou cm.chapote.fr."""
-    if app == "cm":
-        return f"{settings.CM_URL.rstrip('/')}/tiktok/callback"
+    """URI de retour. Depuis cm.chapote.fr : TIKTOK_CM_REDIRECT_URI si elle est déclarée chez la
+    plateforme, sinon l'URI de chapote.fr (sa page de retour renvoie vers cm.chapote.fr)."""
+    if app == "cm" and settings.TIKTOK_CM_REDIRECT_URI:
+        return settings.TIKTOK_CM_REDIRECT_URI
     return settings.TIKTOK_REDIRECT_URI
 
 
