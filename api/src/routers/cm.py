@@ -1234,6 +1234,30 @@ async def upload_part(post_id: int, index: int, request: Request, db: AsyncSessi
     return {"ok": True, "received_bytes": post.received_bytes}
 
 
+@router.put("/posts/{post_id}/cover")
+async def upload_cover(post_id: int, request: Request, db: AsyncSession = Depends(get_db),
+                       user: User = Depends(get_cm_user)):
+    """Couverture personnalisée (JPEG ou PNG, 8 Mo max), utilisée par Instagram (`cover_url`)."""
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
+    if post.status == POST_CANCELLED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Publication annulée.")
+    data = await request.body()
+    if not data or len(data) > cm.COVER_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Couverture : image JPEG ou PNG de 8 Mo au plus.")
+    kind = cm.image_kind(data)
+    if kind is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Couverture : seules les images JPEG ou PNG sont acceptées.")
+    cm.remove_cover(post)
+    path = str(cm.media_dir() / f"{uuid.uuid4().hex}.{'jpg' if kind == 'jpeg' else 'png'}")
+    with open(path, "wb") as f:
+        f.write(data)
+    os.chmod(path, 0o600)
+    post.cover_path = path
+    await db.commit()
+    return {"ok": True, "size": len(data)}
+
+
 async def _reject(db: AsyncSession, post: CmPost, message: str, http: int = 400):
     post.status = POST_CANCELLED
     cm.remove_media(post)
@@ -1453,6 +1477,20 @@ async def media(target_id: int, exp: int, sig: str, db: AsyncSession = Depends(g
                         headers={"Cache-Control": "private, no-store"})
 
 
+@router.get("/cover/{target_id}/{exp}/{sig}")
+async def cover(target_id: int, exp: int, sig: str, db: AsyncSession = Depends(get_db)):
+    sig = sig.rsplit(".", 1)[0]
+    if not cm.check_cover_link(target_id, exp, sig):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Introuvable")
+    t = await db.get(CmTarget, target_id)
+    post = await db.get(CmPost, t.post_id) if t is not None else None
+    if t is None or t.platform != "instagram" or t.status != T_PUBLISHING or post is None \
+            or not post.cover_path or not os.path.exists(post.cover_path):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Introuvable")
+    return FileResponse(post.cover_path, media_type="image/png" if post.cover_path.endswith(".png") else "image/jpeg",
+                        headers={"Cache-Control": "private, no-store"})
+
+
 # --------------------------------------------------------------------------
 # Routine Claude (jeton de service) : Instagram géré par la routine
 # --------------------------------------------------------------------------
@@ -1517,6 +1555,16 @@ async def routine_video(target_id: int, db: AsyncSession = Depends(get_db), user
     await db.commit()
     return FileResponse(post.media_path, media_type=post.mime_type or "video/mp4",
                         filename=f"cm-{t.id}.{'mov' if post.mime_type == 'video/quicktime' else 'mp4'}")
+
+
+@router.get("/routine/targets/{target_id}/cover")
+async def routine_cover(target_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_routine_user)):
+    t, post, acc = await _routine_target(db, user, target_id)
+    if not post.cover_path or not os.path.exists(post.cover_path):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pas de couverture")
+    await db.commit()
+    return FileResponse(post.cover_path, media_type="image/png" if post.cover_path.endswith(".png") else "image/jpeg",
+                        filename=f"cm-{t.id}-couverture.{post.cover_path.rsplit('.', 1)[-1]}")
 
 
 @router.post("/routine/targets/{target_id}/claim")

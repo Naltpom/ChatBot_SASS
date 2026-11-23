@@ -112,6 +112,7 @@ class CmPost(Base):
     media_path = Column(String, nullable=True)           # supprimé quand tout est terminé
     # Vidéo de la bibliothèque (dossier Drive) : téléchargée à l'heure de la 1re publication.
     asset_id = Column(Integer, ForeignKey("cm_assets.id", ondelete="SET NULL"), nullable=True, index=True)
+    cover_path = Column(String(500), nullable=True)      # couverture (image) : envoyée ou lue dans le Drive
     status = Column(String, nullable=False, default=POST_RECEIVING, index=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

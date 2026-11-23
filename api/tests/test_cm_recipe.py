@@ -125,3 +125,30 @@ async def test_analyze_without_gemini_uses_rules_and_needs_admin(pg_session, cme
         r = await h.post(f"/api/cm/sources/{src['id']}/recipe/preview", json={"recipe": {"title": {"from": "file"}}})
         assert r.status_code == 200 and r.json()["recipe"]["title"]["from"] == "file"
     assert (await pg_session.execute(select(CmProposal))).scalars().all() == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_library_cover_downloaded_with_video(pg_session, cmenv, drive, tiktok):
+    from test_cm_library import SUB
+    from src.models.cm import CmPost
+    from src.services import cm_library as lib
+    u = await _user(pg_session, "a@t.dev")
+    ig = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    drive.files["vid5"] = {"name": "Nocturne.mp4", "mimeType": "video/mp4", "parent": SUB, "content": drive.video,
+                           "durationMillis": "30000", "modifiedTime": "2026-11-22T10:00:00Z"}
+    drive.files["jpg5"] = {"name": "Nocturne.jpg", "mimeType": "image/jpeg", "parent": SUB,
+                           "content": b"\xff\xd8\xff\xe0" + b"\x00" * 64, "modifiedTime": "2026-11-22T10:00:00Z"}
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        await h.post("/api/cm/sources", json={"url": _link()})
+        a = (await pg_session.execute(select(CmAsset).where(CmAsset.file_id == "vid5"))).scalar_one()
+        assert a.cover_file_id == "jpg5"
+        at = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+        r = await h.post("/api/cm/posts", json={"title": "Nocturne", "asset_id": a.id, "targets": [
+            {"platform": "instagram", "account_id": ig.id, "scheduled_at": at, "options": {}}]})
+        assert r.status_code == 200, r.text
+    post = await lib.ensure_media(pg_session, r.json()["post_id"])
+    assert post.cover_path and post.cover_path.endswith(".jpg")
+    assert open(post.cover_path, "rb").read() == drive.files["jpg5"]["content"]

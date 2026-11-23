@@ -8,7 +8,7 @@ import { PlatformLogo } from '../components/PlatformLogo'
 import { AccountPicker } from '../components/AccountPicker'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  creatorInfo, createPost, getAccounts, getAsset, getProposal, getRobot, putPart, submitPost, PLATFORM_LABEL,
+  creatorInfo, createPost, getAccounts, getAsset, getProposal, getRobot, putCover, putPart, submitPost, PLATFORM_LABEL,
   type Account, type Asset, type CreatorInfo, type Platform,
   type Proposal,
 } from '../api'
@@ -69,6 +69,9 @@ export default function Composer() {
   const [sameTime, setSameTime] = useState(true)
   const [times, setTimes] = useState<Record<string, string>>({})
   const [progress, setProgress] = useState<number | null>(null)
+  const [cover, setCover] = useState<File | null>(null)
+  const [coverUrl, setCoverUrl] = useState<string | null>(null)
+  useEffect(() => () => { if (coverUrl) URL.revokeObjectURL(coverUrl) }, [coverUrl])
   const [err, setErr] = useState('')
   // Vidéo de la bibliothèque (dossier Drive) : rien à envoyer, téléchargée à l'heure de publication.
   const [params] = useSearchParams()
@@ -218,7 +221,8 @@ export default function Composer() {
     setErr(''); setProgress(0)
     try {
       if (asset) {
-        await createPost({ org_id: org, title: title.trim(), caption, asset_id: asset.id, targets: chosen.map(buildTarget) })
+        const made = await createPost({ org_id: org, title: title.trim(), caption, asset_id: asset.id, targets: chosen.map(buildTarget) })
+        if (cover) await putCover(made.post_id, cover)
         nav('/planning', { state: { flash: when === 'now' ? 'Publication lancée depuis la bibliothèque.' : 'Publication programmée : la vidéo sera récupérée dans le Drive à l’heure prévue.' } })
         return
       }
@@ -230,6 +234,7 @@ export default function Composer() {
         await putPart(plan.post_id, i, file.slice(i * partSize, Math.min(file.size, (i + 1) * partSize)))
         setProgress((i + 1) / parts)
       }
+      if (cover) await putCover(plan.post_id, cover)
       await submitPost(plan.post_id)
       nav('/planning', { state: { flash: when === 'now' ? 'Publication lancée.' : 'Publication programmée.' } })
     } catch (e) {
@@ -346,6 +351,24 @@ export default function Composer() {
                            disabled={a => (!a.can_publish ? `Indisponible${a.needs_reconnect ? ' : à reconnecter' : ''}` : null)}
                            detail={a => `${PLATFORM_LABEL[a.platform]}${a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}`} />
           </Section>
+
+          {chosen.some(a => a.platform === 'instagram') && (
+            <Section title="Couverture" aside="Instagram">
+              <div className="row-nw" style={{ gap: 12, alignItems: 'center' }}>
+                {coverUrl ? <img src={coverUrl} alt="Couverture choisie" style={{ width: 54, height: 96, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
+                  : <span aria-hidden="true" style={{ width: 54, height: 96, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
+                <div className="col grow" style={{ gap: 6 }}>
+                  <label className="btn btn-sm" style={{ alignSelf: 'flex-start' }}>
+                    {cover ? 'Changer l’image' : 'Choisir une image'}
+                    <input type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy}
+                           onChange={e => { const f = e.target.files?.[0] || null; if (coverUrl) URL.revokeObjectURL(coverUrl); setCover(f); setCoverUrl(f ? URL.createObjectURL(f) : null) }} />
+                  </label>
+                  {cover && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => { setCover(null); if (coverUrl) URL.revokeObjectURL(coverUrl); setCoverUrl(null) }}>Retirer</button>}
+                  <span className="field-hint">JPEG ou PNG, 8 Mo max. Sinon : l’image à côté de la vidéo dans le Drive{asset?.has_cover ? ' (trouvée)' : ''}, ou celle choisie par Instagram.</span>
+                </div>
+              </div>
+            </Section>
+          )}
 
           {chosen.map(a => {
             const k = key(a), o = opts[k]

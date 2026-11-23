@@ -221,10 +221,13 @@ async def profile(token: str) -> dict:
 # --------------------------------------------------------------------------
 
 async def create_reel_container(token: str, ig_user_id: str, video_url: str, caption: str,
-                                share_to_feed: bool = True, thumb_offset_ms: Optional[int] = None) -> str:
+                                share_to_feed: bool = True, thumb_offset_ms: Optional[int] = None,
+                                cover_url: Optional[str] = None) -> str:
     data = {"media_type": "REELS", "video_url": video_url, "caption": caption or "",
             "share_to_feed": "true" if share_to_feed else "false"}
-    if thumb_offset_ms is not None:
+    if cover_url:
+        data["cover_url"] = cover_url              # image personnalisée (prioritaire sur thumb_offset)
+    elif thumb_offset_ms is not None:
         data["thumb_offset"] = str(int(thumb_offset_ms))
     body = await _request("POST", _graph(f"/{ig_user_id}/media"), token=token, data=data)
     if not body.get("id"):

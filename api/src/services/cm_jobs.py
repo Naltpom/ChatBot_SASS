@@ -229,9 +229,10 @@ async def _dispatch_instagram(db: AsyncSession, t: CmTarget, post: CmPost) -> No
         # Le conteneur est créé avec le lien signé : Meta télécharge la vidéo.
         t.status = T_PUBLISHING
         await db.commit()
+        cover = cm.cover_url(t) if post.cover_path and os.path.exists(post.cover_path) else None
         container = await ig.create_reel_container(
             token, acc.ig_user_id, cm.media_url(t, post.mime_type), o.get("caption") or "",
-            bool(o.get("share_to_feed", True)), o.get("thumb_offset_ms"))
+            bool(o.get("share_to_feed", True)), o.get("thumb_offset_ms"), cover)
     except ig.ReconnectRequired:
         raise _Fail("reconnect_required", ig.ERROR_MESSAGES["invalid_token"])
     except ig.InstagramError as e:
@@ -372,6 +373,25 @@ async def follow_target(db: AsyncSession, t: CmTarget) -> None:
     await db.commit()
 
 
+async def _already_online(token: str, acc, t: CmTarget) -> bool:
+    """Instagram a répondu par une erreur mais le Reel est peut-être en ligne quand même (cas
+    connu) : on le cherche parmi les dernières publications (même légende, publiée depuis l'envoi)."""
+    caption = ((t.options or {}).get("caption") or "").strip()
+    since = (t.updated_at or utcnow()) - timedelta(minutes=30)
+    try:
+        items = await ig.recent_media(token, acc.ig_user_id, limit=10)
+    except ig.InstagramError:
+        return False
+    for m in items:
+        when = cm._parse_time(m.get("timestamp"))
+        if (m.get("caption") or "").strip() == caption and when and when >= since \
+                and (m.get("media_product_type") in (None, "REELS") or m.get("media_type") == "VIDEO"):
+            t.external_id = m.get("id")
+            t.url = m.get("permalink")
+            return True
+    return False
+
+
 async def _follow_instagram(db: AsyncSession, t: CmTarget, post: Optional[CmPost], now) -> None:
     if not t.ig_container_id:
         if now - t.updated_at > DISPATCHING_TIMEOUT:
@@ -396,6 +416,9 @@ async def _follow_instagram(db: AsyncSession, t: CmTarget, post: Optional[CmPost
         elif code == "PUBLISHED":
             await _record_published(db, t, post)
         elif code == "ERROR":
+            if await _already_online(token, acc, t):
+                await _record_published(db, t, post)
+                return
             fail_target(t, "container_error", ig.ERROR_MESSAGES["container_error"]
                         + (f" ({st.get('status')})" if st.get("status") else ""))
         elif code == "EXPIRED":
@@ -409,8 +432,14 @@ async def _follow_instagram(db: AsyncSession, t: CmTarget, post: Optional[CmPost
             acc.needs_reconnect = True
             fail_target(t, e.code, e.describe())
         elif e.code in ("publish_limit",):
+            if await _already_online(token, acc, t):
+                await _record_published(db, t, post)
+                return
             fail_target(t, e.code, e.describe())
         else:
+            if await _already_online(token, acc, t):
+                await _record_published(db, t, post)
+                return
             logger.info("cm : suivi Instagram de la cible %s en attente (%s)", t.id, e.code)
 
 
