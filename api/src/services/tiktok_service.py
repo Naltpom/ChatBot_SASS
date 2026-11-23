@@ -135,12 +135,30 @@ def _client(**kw) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=kw.pop("timeout", 30), transport=_transport, **kw)
 
 
-def authorize_url(state: str) -> str:
+def scopes() -> str:
+    """Autorisations demandées : celles de publication + TIKTOK_EXTRA_SCOPES
+    (statistiques, à poser seulement une fois validées par TikTok)."""
+    out = SCOPES.split(",")
+    for extra in (settings.TIKTOK_EXTRA_SCOPES or "").split(","):
+        extra = extra.strip()
+        if extra and extra not in out:
+            out.append(extra)
+    return ",".join(out)
+
+
+def redirect_uri(app: str = "chapote") -> str:
+    """URI de retour : chapote.fr (Espace client) ou cm.chapote.fr."""
+    if app == "cm":
+        return f"{settings.CM_URL.rstrip('/')}/tiktok/callback"
+    return settings.TIKTOK_REDIRECT_URI
+
+
+def authorize_url(state: str, app: str = "chapote") -> str:
     params = {
         "client_key": settings.TIKTOK_CLIENT_KEY,
-        "scope": SCOPES,
+        "scope": scopes(),
         "response_type": "code",
-        "redirect_uri": settings.TIKTOK_REDIRECT_URI,
+        "redirect_uri": redirect_uri(app),
         "state": state,
         # Toujours afficher l'écran d'autorisation (utile pour connecter un 2e compte).
         "disable_auto_auth": "1",
@@ -203,11 +221,11 @@ async def _api(method: str, path: str, access_token: str, *,
     return body.get("data") or {}
 
 
-async def exchange_code(code: str) -> dict:
+async def exchange_code(code: str, app: str = "chapote") -> dict:
     return await _oauth_post("/v2/oauth/token/", {
         "code": code,
         "grant_type": "authorization_code",
-        "redirect_uri": settings.TIKTOK_REDIRECT_URI,
+        "redirect_uri": redirect_uri(app),
     })
 
 
@@ -411,3 +429,43 @@ async def valid_access_token(db: AsyncSession, account: TikTokAccount, *,
     await db.commit()
     logger.info("TikTok : access token rafraîchi pour le compte %s", locked.id)
     return tok["access_token"]
+
+
+# --------------------------------------------------------------------------
+# Statistiques (cm.chapote.fr) : user.info.stats et video.list, demandés
+# seulement si TIKTOK_EXTRA_SCOPES les contient (validation TikTok requise).
+# --------------------------------------------------------------------------
+
+SCOPE_STATS = "user.info.stats"
+SCOPE_VIDEO_LIST = "video.list"
+VIDEO_LIST_FIELDS = ("id,title,video_description,create_time,cover_image_url,share_url,"
+                     "view_count,like_count,comment_count,share_count,duration")
+VIDEO_LIST_PAGES = 3      # 3 x 20 vidéos les plus récentes
+
+
+def has_scope(account: TikTokAccount, scope: str) -> bool:
+    return scope in set((account.scopes or "").split(","))
+
+
+async def user_stats(access_token: str) -> dict:
+    """{follower_count, following_count, likes_count, video_count} (user.info.stats)."""
+    data = await _api("GET", "/v2/user/info/", access_token,
+                      params={"fields": "open_id,follower_count,following_count,likes_count,video_count"})
+    return data.get("user") or {}
+
+
+async def list_videos(access_token: str) -> list[dict]:
+    """Vidéos publiques les plus récentes du compte avec leurs chiffres (video.list)."""
+    out: list[dict] = []
+    cursor = None
+    for _ in range(VIDEO_LIST_PAGES):
+        body: dict = {"max_count": 20}
+        if cursor is not None:
+            body["cursor"] = cursor
+        data = await _api("POST", "/v2/video/list/", access_token, json=body,
+                          params={"fields": VIDEO_LIST_FIELDS})
+        out.extend(v for v in (data.get("videos") or []) if isinstance(v, dict))
+        if not data.get("has_more"):
+            break
+        cursor = data.get("cursor")
+    return out

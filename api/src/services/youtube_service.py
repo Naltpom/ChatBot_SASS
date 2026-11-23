@@ -151,10 +151,17 @@ def _client(**kw) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=kw.pop("timeout", 30), transport=_transport, **kw)
 
 
-def authorize_url(state: str) -> str:
+def redirect_uri(app: str = "chapote") -> str:
+    """URI de retour : chapote.fr (Espace client) ou cm.chapote.fr."""
+    if app == "cm":
+        return f"{settings.CM_URL.rstrip('/')}/youtube/callback"
+    return settings.YOUTUBE_REDIRECT_URI
+
+
+def authorize_url(state: str, app: str = "chapote") -> str:
     params = {
         "client_id": settings.YOUTUBE_CLIENT_ID,
-        "redirect_uri": settings.YOUTUBE_REDIRECT_URI,
+        "redirect_uri": redirect_uri(app),
         "response_type": "code",
         "scope": SCOPES,
         "access_type": "offline",
@@ -222,11 +229,11 @@ async def _api(method: str, path: str, access_token: str, *,
     return body
 
 
-async def exchange_code(code: str) -> dict:
+async def exchange_code(code: str, app: str = "chapote") -> dict:
     return await _oauth_post("/token", {
         "code": code,
         "grant_type": "authorization_code",
-        "redirect_uri": settings.YOUTUBE_REDIRECT_URI,
+        "redirect_uri": redirect_uri(app),
     })
 
 
@@ -447,3 +454,72 @@ async def valid_access_token(db: AsyncSession, account: YouTubeAccount, *,
     apply_tokens(locked, tok, now)
     await db.commit()
     return tok["access_token"]
+
+
+# --------------------------------------------------------------------------
+# Statistiques (cm.chapote.fr) : youtube.readonly suffit (chiffres publics de la
+# chaîne et des vidéos). Coût : 1 unité par appel (≈ 3 unités par relevé).
+# --------------------------------------------------------------------------
+
+def _int(v) -> Optional[int]:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def iso_duration(value: Optional[str]) -> Optional[float]:
+    """Durée ISO 8601 de YouTube (PT1M5S) en secondes."""
+    import re
+    m = re.fullmatch(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?", value or "")
+    if not m or not value:
+        return None
+    d, h, mi, se = m.groups()
+    return int(d or 0) * 86400 + int(h or 0) * 3600 + int(mi or 0) * 60 + float(se or 0)
+
+
+async def channel_stats(access_token: str) -> dict:
+    """{views, subscribers, videos, uploads_playlist} de la chaîne autorisée."""
+    body = await _api("GET", "/youtube/v3/channels", access_token,
+                      params={"part": "statistics,contentDetails", "mine": "true"})
+    items = body.get("items") or []
+    if not items:
+        raise YouTubeError("no_channel", "Aucune chaîne pour ce compte Google", 400)
+    st = items[0].get("statistics") or {}
+    uploads = ((items[0].get("contentDetails") or {}).get("relatedPlaylists") or {}).get("uploads")
+    return {
+        "views": _int(st.get("viewCount")),
+        "subscribers": None if st.get("hiddenSubscriberCount") else _int(st.get("subscriberCount")),
+        "videos": _int(st.get("videoCount")),
+        "uploads_playlist": uploads,
+    }
+
+
+async def recent_videos(access_token: str, uploads_playlist: str, limit: int = 50) -> list[dict]:
+    """Dernières vidéos de la chaîne avec leurs chiffres publics."""
+    if not uploads_playlist:
+        return []
+    pl = await _api("GET", "/youtube/v3/playlistItems", access_token,
+                    params={"part": "contentDetails", "playlistId": uploads_playlist,
+                            "maxResults": str(min(limit, 50))})
+    ids = [((i.get("contentDetails") or {}).get("videoId")) for i in (pl.get("items") or [])]
+    ids = [i for i in ids if i]
+    if not ids:
+        return []
+    body = await _api("GET", "/youtube/v3/videos", access_token,
+                      params={"part": "snippet,statistics,contentDetails", "id": ",".join(ids)})
+    out = []
+    for v in body.get("items") or []:
+        sn, st = v.get("snippet") or {}, v.get("statistics") or {}
+        dur = iso_duration((v.get("contentDetails") or {}).get("duration"))
+        thumbs = sn.get("thumbnails") or {}
+        thumb = (thumbs.get("medium") or thumbs.get("default") or {}).get("url")
+        short = dur is not None and dur <= MAX_DURATION_SEC
+        out.append({
+            "id": v.get("id"), "title": sn.get("title"), "published_at": sn.get("publishedAt"),
+            "thumbnail_url": thumb, "duration_sec": dur,
+            "url": f"https://youtube.com/shorts/{v.get('id')}" if short else f"https://www.youtube.com/watch?v={v.get('id')}",
+            "views": _int(st.get("viewCount")), "likes": _int(st.get("likeCount")),
+            "comments": _int(st.get("commentCount")),
+        })
+    return out
