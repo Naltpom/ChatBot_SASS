@@ -17,7 +17,7 @@ from src.core.config import settings
 from src.core.time import utcnow
 from src.models.user import User, UserApp
 
-APPS = ("chapote", "music", "cm")
+APPS = ("chapote", "music")
 DEFAULT_APP = "chapote"
 
 
@@ -49,17 +49,12 @@ async def apps_of(db: AsyncSession, user_id: int) -> list[dict]:
 
 
 def client_ip(request: Request) -> str:
-    """IP du visiteur pour les limiteurs. Derrière le nginx de music.chapote.fr ou de
-    cm.chapote.fr, toutes les requêtes arrivent du même conteneur : il transmet la vraie IP
-    signée par une clé partagée (music : X-Music-Client-IP + X-Music-Proxy-Key =
-    MUSIC_INGEST_TOKEN ; cm : X-Cm-Client-IP + X-Cm-Proxy-Key = CM_PROXY_KEY).
-    Sans clé valable, l'IP vue par uvicorn."""
-    for key, ip_header, key_header in (
-        (settings.MUSIC_INGEST_TOKEN, "x-music-client-ip", "x-music-proxy-key"),
-        (settings.CM_PROXY_KEY, "x-cm-client-ip", "x-cm-proxy-key"),
-    ):
-        given = request.headers.get(key_header) or ""
-        forwarded = (request.headers.get(ip_header) or "").strip()
-        if key and forwarded and given and hmac.compare_digest(given, key):
-            return forwarded[:64]
+    """IP du visiteur pour les limiteurs. Derrière le nginx de music.chapote.fr, toutes les
+    requêtes arrivent du même conteneur : il transmet la vraie IP (X-Music-Client-IP) signée par
+    la clé partagée (X-Music-Proxy-Key = MUSIC_INGEST_TOKEN). Sans clé valable, l'IP vue par uvicorn."""
+    key = settings.MUSIC_INGEST_TOKEN
+    given = request.headers.get("x-music-proxy-key") or ""
+    forwarded = (request.headers.get("x-music-client-ip") or "").strip()
+    if key and forwarded and hmac.compare_digest(given, key):
+        return forwarded[:64]
     return request.client.host if request.client else "unknown"

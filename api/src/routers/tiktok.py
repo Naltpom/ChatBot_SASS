@@ -243,8 +243,6 @@ async def tiktok_config(user: User = Depends(get_tiktok_user)):
 
 class StartIn(BaseModel):
     org_id: Optional[int] = None
-    # Site d'où part la connexion (retour sur chapote.fr ou cm.chapote.fr).
-    app: Literal["chapote", "cm"] = "chapote"
 
 
 @router.post("/oauth/start")
@@ -258,9 +256,8 @@ async def oauth_start(body: StartIn, db: AsyncSession = Depends(get_db),
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Trop de tentatives de connexion TikTok. Réessayez dans une heure.")
     state = _encode({"sub": str(user.id), "scope": STATE_SCOPE, "org": tenant.org_id,
-                     "jti": uuid.uuid4().hex, "app": body.app},
-                    timedelta(seconds=STATE_TTL_SECONDS))
-    return {"authorize_url": tt.authorize_url(state, body.app)}
+                     "jti": uuid.uuid4().hex}, timedelta(seconds=STATE_TTL_SECONDS))
+    return {"authorize_url": tt.authorize_url(state)}
 
 
 class ExchangeIn(BaseModel):
@@ -288,7 +285,7 @@ async def oauth_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_STATE)
 
     try:
-        tok = await tt.exchange_code(body.code, "cm" if claims.get("app") == "cm" else "chapote")
+        tok = await tt.exchange_code(body.code)
     except tt.TikTokError as e:
         logger.info("TikTok : échange du code refusé (%s, log_id %s)", e.code, e.log_id)
         raise _http_error(e)

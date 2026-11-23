@@ -133,38 +133,6 @@ class Settings(BaseSettings):
     YOUTUBE_SERVICE_TOKEN: str | None = None
     YOUTUBE_SERVICE_USER_EMAIL: str | None = None
 
-    # --- Gestion des réseaux sociaux (cm.chapote.fr) ---
-    # URL publique du site (retours OAuth TikTok/YouTube/Instagram, liens des vidéos
-    # envoyées à Instagram). Même compte que chapote.fr : le cookie de session est
-    # posé sur le domaine parent commun d'APP_URL et MUSIC_URL (chapote.fr).
-    CM_URL: str = "http://localhost:3003"
-    # Jeton Bearer de la routine Claude (claude-cloud), au nom de CM_SERVICE_USER_EMAIL :
-    # publications, planning, publications Instagram « gérées par la routine », statistiques.
-    CM_SERVICE_TOKEN: str | None = None
-    CM_SERVICE_USER_EMAIL: str | None = None
-    # Clé partagée nginx de cm <-> API : vraie IP du visiteur (X-Cm-Client-IP).
-    CM_PROXY_KEY: str | None = None
-    # Vidéos programmées : gardées jusqu'à leur publication. PRIVÉ (volume Docker),
-    # servi seulement à Instagram par un lien signé et temporaire.
-    CM_MEDIA_DIR: str = "/app/cm_media"
-    CM_MEDIA_MAX_GB: int = 50
-    CM_MAX_UPLOAD_MB: int = 1024
-    # Relevé des statistiques de chaque compte (heures).
-    CM_STATS_EVERY_HOURS: int = 6
-    # Autorisations TikTok supplémentaires, à poser SEULEMENT une fois validées par
-    # TikTok (sinon la connexion échoue) : « user.info.stats,video.list ».
-    TIKTOK_EXTRA_SCOPES: str = ""
-
-    # --- Instagram (API Instagram avec connexion Instagram, Meta) ---
-    # Vides = connexion officielle désactivée (comptes « gérés par la routine » seulement).
-    INSTAGRAM_CLIENT_ID: str | None = None
-    INSTAGRAM_CLIENT_SECRET: str | None = None
-    INSTAGRAM_REDIRECT_URI: str = "https://cm.chapote.fr/instagram/callback"
-    INSTAGRAM_AUTHORIZE_URL: str = "https://www.instagram.com/oauth/authorize"
-    INSTAGRAM_OAUTH_BASE: str = "https://api.instagram.com"
-    INSTAGRAM_GRAPH_BASE: str = "https://graph.instagram.com"
-    INSTAGRAM_API_VERSION: str = "v23.0"
-
     APP_URL: str = "http://localhost:3001"
     API_URL: str = "http://localhost:8001"
 
