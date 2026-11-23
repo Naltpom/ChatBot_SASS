@@ -608,3 +608,7 @@ a.cgroup-head:hover { background: var(--surface-2); color: var(--text); }
 .daystrip .today[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--primary), 0 0 0 2px var(--surface); }
 .week-col.today { box-shadow: inset 0 0 0 2px var(--primary); background: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
 .month-cell.today { border: 2px solid var(--primary); }
+/* Grille qui s'adapte au nombre de cartes (--cols), une colonne sur mobile, deux au plus sur tablette */
+.autogrid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 640px) { .autogrid { grid-template-columns: repeat(var(--cols-md, 2), minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .autogrid { grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); } }

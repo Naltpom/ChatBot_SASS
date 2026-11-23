@@ -2,7 +2,7 @@
 // Vidéos) : une barre de filtres qui défile (Tous, groupes, comptes), un geste pour changer. Les
 // pages de gestion (Comptes, Bibliothèque, Personnes) portent sur tout l'espace et n'ont pas la barre.
 // Choix de l'espace (rare) : menu du compte. Mobile : onglets en bas, « Publier » au centre.
-import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useSession } from '../session'
 import { getProposalCount, PLATFORM_LABEL, type Account, type Group } from '../api'
@@ -145,6 +145,23 @@ function AccountMenu() {
   )
 }
 
+/** Une page qui ne charge pas (ex. ancienne version après une mise en ligne) : message clair, pas d'écran blanc. */
+class PageBoundary extends Component<{ children: ReactNode; path: string }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidUpdate(prev: { path: string }) { if (prev.path !== this.props.path && this.state.failed) this.setState({ failed: false }) }
+  render() {
+    if (!this.state.failed) return this.props.children
+    return (
+      <div className="card col" role="alert" style={{ gap: 10, alignItems: 'flex-start' }}>
+        <h2 style={{ margin: 0 }}>Nouvelle version disponible</h2>
+        <p className="small muted" style={{ margin: 0 }}>Chapote CM vient d’être mis à jour. Rechargez la page pour continuer.</p>
+        <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>Recharger</button>
+      </div>
+    )
+  }
+}
+
 export default function Layout({ fallback }: { fallback?: ReactNode }) {
   const { pathname } = useLocation()
   const { visibleSpaces, org } = useSession()
@@ -192,7 +209,7 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
         </header>
         {filtered && <ScopeBar />}
         <main id="contenu" className={`content${composing ? ' no-tabbar' : ''}`}>
-          <Suspense fallback={fallback ?? null}><Outlet /></Suspense>
+          <PageBoundary path={pathname}><Suspense fallback={fallback ?? null}><Outlet /></Suspense></PageBoundary>
         </main>
       </div>
 

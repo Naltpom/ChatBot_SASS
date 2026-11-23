@@ -1,4 +1,4 @@
-import { lazy, StrictMode, Suspense, useEffect } from 'react'
+import { lazy, StrictMode, Suspense, useEffect , type ComponentType } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
@@ -8,22 +8,43 @@ import './styles.css'
 
 // Une page = un morceau de JavaScript chargé à la demande : la landing ne charge pas l'app,
 // l'app ne charge pas la landing.
-const Landing = lazy(() => import('./pages/Landing'))
-const Login = lazy(() => import('./pages/auth/Login'))
-const Register = lazy(() => import('./pages/auth/Register'))
-const Forgot = lazy(() => import('./pages/auth/Forgot'))
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Planning = lazy(() => import('./pages/Planning'))
-const Composer = lazy(() => import('./pages/Composer'))
-const Stats = lazy(() => import('./pages/Stats'))
-const Videos = lazy(() => import('./pages/Videos'))
-const Accounts = lazy(() => import('./pages/Accounts'))
-const Library = lazy(() => import('./pages/Library'))
-const People = lazy(() => import('./pages/People'))
-const Drafts = lazy(() => import('./pages/Drafts'))
-const Comments = lazy(() => import('./pages/Comments'))
-const VideoSheet = lazy(() => import('./pages/VideoSheet'))
-const Callback = lazy(() => import('./pages/Callback'))
+// Après une mise en ligne, les anciens morceaux de l'appli n'existent plus : une page ouverte avant
+// ne peut plus charger un écran (écran blanc). On recharge alors la page, une fois, sur la nouvelle version.
+const RELOAD_KEY = 'cm.reloaded-for-update'
+function lazyPage<T extends ComponentType<any>>(load: () => Promise<{ default: T }>) {
+  return lazy(async () => {
+    try {
+      const mod = await load()
+      try { sessionStorage.removeItem(RELOAD_KEY) } catch { /* stockage indisponible */ }
+      return mod
+    } catch (e) {
+      let already = false
+      try { already = sessionStorage.getItem(RELOAD_KEY) === '1'; sessionStorage.setItem(RELOAD_KEY, '1') } catch { /* idem */ }
+      if (!already) {
+        window.location.reload()
+        return new Promise<{ default: T }>(() => {})   // la page se recharge
+      }
+      throw e
+    }
+  })
+}
+
+const Landing = lazyPage(() => import('./pages/Landing'))
+const Login = lazyPage(() => import('./pages/auth/Login'))
+const Register = lazyPage(() => import('./pages/auth/Register'))
+const Forgot = lazyPage(() => import('./pages/auth/Forgot'))
+const Dashboard = lazyPage(() => import('./pages/Dashboard'))
+const Planning = lazyPage(() => import('./pages/Planning'))
+const Composer = lazyPage(() => import('./pages/Composer'))
+const Stats = lazyPage(() => import('./pages/Stats'))
+const Videos = lazyPage(() => import('./pages/Videos'))
+const Accounts = lazyPage(() => import('./pages/Accounts'))
+const Library = lazyPage(() => import('./pages/Library'))
+const People = lazyPage(() => import('./pages/People'))
+const Drafts = lazyPage(() => import('./pages/Drafts'))
+const Comments = lazyPage(() => import('./pages/Comments'))
+const VideoSheet = lazyPage(() => import('./pages/VideoSheet'))
+const Callback = lazyPage(() => import('./pages/Callback'))
 
 const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie']
 const HINT = 'cm.session'
