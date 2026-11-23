@@ -85,7 +85,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setGroupId(read(groupKey(v)))
   }
   const setGroup = (id: number | null) => { setGroupId(id); write(groupKey(org), id) }
-  const signOut = async () => { try { await apiLogout() } finally { setMe(null) } }
+  const signOut = async () => { try { await apiLogout() } finally { cache.clear(); setMe(null) } }
 
   const group = groups.find(g => g.id === groupId) || null
   const scope = useMemo<Scope>(() => ({ org, group: group?.id ?? null }), [org, group?.id])
@@ -104,20 +104,29 @@ export function useSession(): SessionCtx {
   return c
 }
 
+// Cache mémoire des lectures : une page revisitée s'affiche aussitôt avec ses dernières données,
+// puis se met à jour en arrière-plan (« stale-while-revalidate »).
+const cache = new Map<string, unknown>()
+
 /** Charge une ressource liée au périmètre courant (espace + groupe) ; `reload()` la relit. */
 export function useLoad<T>(fn: (scope: Scope) => Promise<T>, deps: unknown[] = []) {
   const { scope } = useSession()
-  const [data, setData] = useState<T | null>(null)
+  const key = `${fn.toString()}|${JSON.stringify(scope)}|${JSON.stringify(deps)}`
+  const [data, setData] = useState<T | null>(() => (cache.get(key) as T) ?? null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [tick, setTick] = useState(0)
   useEffect(() => {
     let alive = true
     setLoading(true)
-    fn(scope).then(d => { if (alive) { setData(d); setError(null) } })
+    if (cache.has(key)) setData(cache.get(key) as T)
+    fn(scope).then(d => { cache.set(key, d); if (alive) { setData(d); setError(null) } })
       .catch(e => { if (alive) setError(e?.message || 'Erreur') })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [scope, tick, ...deps]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, tick]) // eslint-disable-line react-hooks/exhaustive-deps
   return { data, error, loading, reload: () => setTick(t => t + 1), setData }
 }
+
+/** Vide le cache (déconnexion). */
+export const clearCache = () => cache.clear()

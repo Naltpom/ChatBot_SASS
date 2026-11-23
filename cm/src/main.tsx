@@ -1,21 +1,35 @@
-import { StrictMode, useEffect } from 'react'
+import { lazy, StrictMode, Suspense, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
-import { BrandMark } from './components/ui'
-import Accounts from './pages/Accounts'
-import Forgot from './pages/auth/Forgot'
-import Login from './pages/auth/Login'
-import Register from './pages/auth/Register'
-import Callback from './pages/Callback'
-import Composer from './pages/Composer'
-import Dashboard from './pages/Dashboard'
-import Landing from './pages/Landing'
-import Planning from './pages/Planning'
-import Stats from './pages/Stats'
-import Videos from './pages/Videos'
+import { BrandMark, Skeleton } from './components/ui'
 import { SessionProvider, useSession } from './session'
 import './styles.css'
+
+// Une page = un morceau de JavaScript chargé à la demande : la landing ne charge pas l'app,
+// l'app ne charge pas la landing.
+const Landing = lazy(() => import('./pages/Landing'))
+const Login = lazy(() => import('./pages/auth/Login'))
+const Register = lazy(() => import('./pages/auth/Register'))
+const Forgot = lazy(() => import('./pages/auth/Forgot'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Planning = lazy(() => import('./pages/Planning'))
+const Composer = lazy(() => import('./pages/Composer'))
+const Stats = lazy(() => import('./pages/Stats'))
+const Videos = lazy(() => import('./pages/Videos'))
+const Accounts = lazy(() => import('./pages/Accounts'))
+const Callback = lazy(() => import('./pages/Callback'))
+
+const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie']
+const HINT = 'cm.session'
+const hadSession = () => { try { return localStorage.getItem(HINT) === '1' } catch { return false } }
+
+function Splash() {
+  return <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }} role="status" aria-label="Chargement"><BrandMark size={40} /></div>
+}
+function PageLoading() {
+  return <div className="col" aria-busy="true"><Skeleton h={40} style={{ maxWidth: 260 }} /><div className="kpis"><Skeleton h={104} n={4} /></div><Skeleton h={220} /></div>
+}
 
 const TITLES: Record<string, string> = {
   '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes',
@@ -43,18 +57,25 @@ function Shell() {
     document.title = `${TITLES[pathname] ? TITLES[pathname] + ' · ' : ''}Chapote CM`
   }, [pathname, me])
 
-  if (!ready) {
-    return <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }} role="status" aria-label="Chargement"><BrandMark size={44} /></div>
-  }
+  useEffect(() => {
+    if (!ready) return
+    try { me ? localStorage.setItem(HINT, '1') : localStorage.removeItem(HINT) } catch { /* stockage indisponible */ }
+  }, [ready, me])
+
+  // Visiteur sans session connue : la landing et la connexion s'affichent tout de suite,
+  // sans attendre la réponse de l'API (elle bascule vers l'app si une session existe).
+  if (!ready && (hadSession() || !PUBLIC.includes(pathname))) return <Splash />
   if (!me) {
     return (
+      <Suspense fallback={<Splash />}>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/connexion" element={<Login />} />
         <Route path="/inscription" element={<Register />} />
         <Route path="/mot-de-passe-oublie" element={<Forgot />} />
-        <Route path="*" element={<ToLogin />} />
+        <Route path="*" element={ready ? <ToLogin /> : <Splash />} />
       </Routes>
+      </Suspense>
     )
   }
   return (
@@ -62,7 +83,7 @@ function Shell() {
       <Route path="/connexion" element={<AfterLogin />} />
       <Route path="/inscription" element={<AfterLogin />} />
       <Route path="/mot-de-passe-oublie" element={<Navigate to="/" replace />} />
-      <Route element={<Layout />}>
+      <Route element={<Layout fallback={<PageLoading />} />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/planning" element={<Planning />} />
         <Route path="/nouvelle" element={<Composer />} />

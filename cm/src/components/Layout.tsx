@@ -1,7 +1,7 @@
 // Coque de l'application. Mobile : barre du haut (périmètre + compte) et onglets en bas avec le
 // bouton « Publier » au centre. Ordinateur : barre latérale (navigation, groupes) et contenu en
 // pleine largeur.
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useSession } from '../session'
 import { Avatar, Brand, GroupDot, Icon, Sheet, type IconName } from './ui'
@@ -103,7 +103,7 @@ function AccountMenu() {
   )
 }
 
-export default function Layout() {
+export default function Layout({ fallback }: { fallback?: ReactNode }) {
   const { pathname } = useLocation()
   const composing = pathname === '/nouvelle'
   const title = composing ? 'Nouvelle publication' : NAV.find(n => (n.end ? pathname === n.to : pathname.startsWith(n.to)))?.label
@@ -130,15 +130,15 @@ export default function Layout() {
         <header className="appbar">
           {composing
             ? <Link to="/planning" className="btn btn-ghost icon-btn only-mobile" aria-label="Retour au planning"><Icon name="left" /></Link>
-            : <span className="only-mobile"><Brand to="/" /></span>}
-          {composing && <span className="appbar-title only-mobile">Publier</span>}
+            : <span className="only-mobile" style={{ minWidth: 0 }}><ScopeButton /></span>}
+          {composing && <span className="appbar-title only-mobile">Nouvelle publication</span>}
           <span className="appbar-title only-desktop">{title}</span>
           <span className="grow" />
-          {!composing && <ScopeButton />}
+          {!composing && <span className="only-desktop"><ScopeButton /></span>}
           <AccountMenu />
         </header>
         <main id="contenu" className={`content${composing ? ' no-tabbar' : ''}`}>
-          <Outlet />
+          <Suspense fallback={fallback ?? null}><Outlet /></Suspense>
         </main>
       </div>
 

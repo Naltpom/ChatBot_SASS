@@ -7,18 +7,17 @@ import { STATUS, signed } from '../format'
 export function BrandMark({ size = 32 }: { size?: number }) {
   return (
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ width: size, height: size }}>
-      <rect width="24" height="24" rx="5.4" fill="#1C3F5C" />
+      <rect width="24" height="24" rx="6.5" fill="#1d1d1f" />
       <g stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none">
         <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" />
         <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" />
       </g>
-      <circle cx="18.6" cy="6" r="2.2" fill="#2F9E79" />
     </svg>
   )
 }
 
 export function Brand({ to }: { to?: string }) {
-  const inner = <><BrandMark /><span>Chapote</span><small>CM</small></>
+  const inner = <><BrandMark size={28} /><span>Chapote CM</span></>
   return to !== undefined ? <Link to={to} className="brand" aria-label="Chapote CM, accueil">{inner}</Link> : <span className="brand">{inner}</span>
 }
 

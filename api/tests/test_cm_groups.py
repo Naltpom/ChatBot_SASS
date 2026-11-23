@@ -249,3 +249,40 @@ async def test_disconnected_account_leaves_groups_silently(pg_session, cmenv):
         # Le lien reste en base (retrouvé si le compte revient) mais n'est jamais exposé.
         from sqlalchemy import select
         assert len((await pg_session.execute(select(CmGroupAccount))).scalars().all()) == 2
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_videos_and_posts_are_paginated(pg_session, cmenv, tiktok):
+    a, tt1, *_ = await _setup(pg_session)
+    now = utcnow()
+    for i in range(7):
+        pg_session.add(CmVideo(platform="tiktok", account_id=tt1.id, external_id=f"p{i}", title=f"v{i}",
+                               published_at=now - timedelta(hours=i), views=i))
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(a)
+        seen, cursor, pages = [], None, 0
+        while True:
+            r = await h.get("/api/cm/videos", params={"limit": 3, **({"cursor": cursor} if cursor else {})})
+            assert r.status_code == 200, r.text
+            seen += [v["title"] for v in r.json()]
+            pages += 1
+            cursor = r.headers.get("x-next-cursor")
+            if not cursor:
+                break
+        assert pages == 3 and seen == [f"v{i}" for i in range(7)]
+        # Sans limite explicite : comportement inchangé (une liste, pas d'en-tête s'il n'y a pas de suite).
+        r = await h.get("/api/cm/videos")
+        assert len(r.json()) == 7 and "x-next-cursor" not in r.headers
+        assert (await h.get("/api/cm/videos", params={"cursor": "n'importe quoi"})).status_code == 400
+
+        when = (now + timedelta(days=1)).isoformat() + "Z"
+        for _ in range(3):
+            _, r = await _publish(h, [_tt_target(tt1.id, scheduled_at=when)], mp4_bytes(3_000))
+            assert r.status_code == 200, r.text
+        r = await h.get("/api/cm/posts", params={"limit": 2})
+        assert len(r.json()) == 2 and r.headers.get("x-next-cursor")
+        r2 = await h.get("/api/cm/posts", params={"limit": 2, "cursor": r.headers["x-next-cursor"]})
+        assert len(r2.json()) == 1 and "x-next-cursor" not in r2.headers
+        assert {p["id"] for p in r.json()}.isdisjoint({p["id"] for p in r2.json()})
