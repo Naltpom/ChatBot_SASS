@@ -209,6 +209,24 @@ services:
       api:
         condition: service_healthy
 
+  # Site cm.chapote.fr (gestion des réseaux sociaux) : bundle statique + relais
+  # /api/cm/, /api/tiktok/, /api/youtube/ et de l'authentification vers `api`
+  # (même origine). Le reverse proxy de l'hôte termine le TLS de cm.chapote.fr.
+  cm:
+    build:
+      context: ./cm
+      dockerfile: Dockerfile
+    container_name: chatbot-cm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CM_PORT:-3003}:80"
+    # Clé partagée avec l'API : vraie IP du visiteur (X-Cm-Client-IP) signée par cette clé.
+    environment:
+      - CM_PROXY_KEY=${CM_PROXY_KEY:-}
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
