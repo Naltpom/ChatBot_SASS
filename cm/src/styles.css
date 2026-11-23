@@ -504,8 +504,52 @@ table.data tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 5
 .fchip-av { position: relative; display: inline-flex; line-height: 0; }
 .fchip-av .avatar-sm { width: 28px; height: 28px; font-size: 12px; }
 .fchip-av .plogo { position: absolute; right: -3px; bottom: -3px; border-radius: 4px; background: var(--surface); }
+.fchip-more { color: var(--primary); }
+.scopebar { position: sticky; }
 .fchip-sep { flex: none; width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
 @media (min-width: 1024px) {
   .scopebar { top: 64px; }
-  .scopebar-in { padding: 12px 32px; flex-wrap: wrap; overflow: visible; mask-image: none; }
+  .scopebar-in { padding: 12px 32px; scroll-padding-inline: 32px; }
 }
+
+/* Listes : recherche, tri */
+.searchbox { position: relative; display: flex; align-items: center; min-width: 0; flex: 1 1 220px; max-width: 420px; }
+.searchbox > svg { position: absolute; left: 12px; color: var(--muted); pointer-events: none; }
+.searchbox .input { padding-left: 36px; padding-right: 40px; min-height: 44px; width: 100%; }
+.searchbox .input::-webkit-search-cancel-button { display: none; }
+.searchbox-clear { position: absolute; right: 4px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; background: transparent; color: var(--muted); border-radius: 8px; cursor: pointer; }
+.searchbox-clear:hover { background: var(--surface-2); color: var(--text); }
+.listbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.listbar .sortctl { margin-left: auto; }
+.th-sort { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font: inherit; color: inherit; white-space: nowrap; }
+th.r .th-sort { flex-direction: row-reverse; }
+.th-sort:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+.th-arrow { font-size: 12px; opacity: .35; }
+.th-sort.on .th-arrow { opacity: 1; color: var(--primary); }
+.th-sort:hover .th-arrow { opacity: .8; }
+
+/* Sélecteur de comptes (recherche, onglets, épingles) */
+.picker { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.picker-tabs { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--surface-2); }
+.picker-tabs > button { flex: 1; border: 0; background: transparent; min-height: 40px; border-radius: 8px; font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.picker-tabs > button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.picker-plat { display: flex; gap: 6px; flex-wrap: wrap; }
+.picker-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: min(52vh, 440px); overscroll-behavior: contain; }
+.picker-row { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 8px; border-radius: 10px; cursor: pointer; }
+.picker-row.active { background: var(--surface-2); }
+.picker-row[aria-selected="true"] .strong { color: var(--primary); }
+.picker-row.off { opacity: .5; cursor: not-allowed; }
+.picker-ico { width: 28px; display: grid; place-items: center; flex: none; }
+.picker-empty { padding: 16px 8px; }
+.pcheck { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--border-strong, var(--border)); display: grid; place-items: center; flex: none; font-weight: 700; color: #fff; }
+.pcheck.on, .pcheck.mixed { background: var(--primary); border-color: var(--primary); }
+.pin { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border: 0; background: transparent; color: var(--faint); border-radius: 8px; cursor: pointer; }
+.pin:hover { background: var(--surface); color: var(--text); }
+.pin.on { color: #f5a623; }
+.pin.on svg path { fill: currentColor; }
+.scope-pop { position: absolute; left: 32px; top: calc(100% + 6px); width: min(440px, calc(100vw - 48px)); z-index: 40; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px; box-shadow: 0 18px 48px rgba(0,0,0,.18); }
+.chosen { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chosen .fchip { cursor: default; padding-right: 4px; }
+.chosen-x { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; }
+.chosen-x:hover { background: var(--surface-2); color: var(--text); }
+.picker .searchbox { flex: none; max-width: none; }

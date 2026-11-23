@@ -563,3 +563,23 @@ async def test_shared_folder_linked_once_even_when_detected_twice(pg_session, cm
         r = await c.as_(owner).post("/api/cm/sources", json={"url": _link()})
         assert r.status_code == 200, r.text
     assert len((await pg_session.execute(select(CmSource).where(CmSource.revoked_at.is_(None)))).scalars().all()) == 1
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_assets_sort_both_ways_and_pages(pg_session, cmenv, drive):
+    u = await _user(pg_session, "tri@t.dev")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        await h.post("/api/cm/sources", json={"url": _link()})
+        names = lambda r: [a["name"] for a in r.json()]  # noqa: E731
+        asc = names(await h.get("/api/cm/assets?sort=name"))
+        assert len(asc) == 2 and asc == sorted(asc, key=str.lower)
+        assert names(await h.get("/api/cm/assets?sort=name&order=desc")) == asc[::-1]
+        r = await h.get("/api/cm/assets?sort=size&limit=1")
+        nxt = r.headers["X-Next-Cursor"]
+        r2 = await h.get(f"/api/cm/assets?sort=size&limit=1&cursor={nxt}")
+        assert len(r.json()) == 1 and len(r2.json()) == 1 and r.json()[0]["id"] != r2.json()[0]["id"]
+        assert "X-Next-Cursor" not in r2.headers
+        assert names(await h.get("/api/cm/assets?q=CLIP")) == ["clip-42.mp4"]

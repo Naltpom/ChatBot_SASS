@@ -156,18 +156,21 @@ export const publicConfig = () => call<{ google_client_id: string | null; app_ur
 // cm
 export const getConfig = () => call<Config>('/api/cm/config')
 export const getSpaces = () => call<Space[]>('/api/cm/spaces')
-export const getAccounts = (s: ScopeArg) => call<Account[]>(`/api/cm/accounts${q(s)}`)
+export type Order = 'asc' | 'desc'
+/** Recherche et tri faits par l'API (jamais en mémoire côté navigateur). */
+export interface ListOpts { q?: string; sort?: string; order?: Order }
+export const getAccounts = (s: ScopeArg, opts: ListOpts = {}) => call<Account[]>(`/api/cm/accounts${q(s, { ...opts })}`)
 export const syncAccount = (org: number | null, a: Account) => send<Account>('POST', `/api/cm/accounts/${a.platform}/${a.id}/sync${q(org)}`)
 export const getOverview = (s: ScopeArg, days: number) => call<Overview>(`/api/cm/overview${q(s, { days })}`)
-export const getVideos = (s: ScopeArg, opts: { platform?: string; sort?: string; limit?: number; days?: number }) =>
+export const getVideos = (s: ScopeArg, opts: { platform?: string; sort?: string; order?: Order; limit?: number; days?: number }) =>
   call<Video[]>(`/api/cm/videos${q(s, opts)}`)
-export const getPosts = (s: ScopeArg, start: Date, end: Date) =>
-  call<Post[]>(`/api/cm/posts${q(s, { start: start.toISOString(), end: end.toISOString() })}`)
-export const getVideosPage = (s: ScopeArg, opts: { platform?: string; sort?: string; limit?: number; cursor?: string | null }) =>
+export const getPosts = (s: ScopeArg, start: Date, end: Date, opts: { q?: string; status?: 'upcoming' | 'published' | 'failed'; order?: Order; limit?: number } = {}) =>
+  call<Post[]>(`/api/cm/posts${q(s, { start: start.toISOString(), end: end.toISOString(), ...opts })}`)
+export const getVideosPage = (s: ScopeArg, opts: { platform?: string; sort?: string; order?: Order; q?: string; limit?: number; cursor?: string | null }) =>
   callPage<Video>(`/api/cm/videos${q(s, { ...opts, cursor: opts.cursor || undefined })}`)
 export const getCalendar = (s: ScopeArg, start: Date, end: Date) =>
   call<Calendar>(`/api/cm/calendar${q(s, { start: start.toISOString(), end: end.toISOString() })}`)
-export const getStats = (s: ScopeArg, days: number) => call<DetailedStats>(`/api/cm/stats${q(s, { days })}`)
+export const getStats = (s: ScopeArg, days: number, opts: ListOpts = {}) => call<DetailedStats>(`/api/cm/stats${q(s, { days, ...opts })}`)
 
 // Groupes de comptes
 type GroupBody = { name?: string; color?: GroupColor; accounts?: { platform: Platform; account_id: number }[] }
@@ -243,7 +246,7 @@ export const patchSource = (org: number | null, id: number, body: { group_id?: n
   send<Source>('PATCH', `/api/cm/sources/${id}${q(org)}`, body)
 export const scanSource = (org: number | null, id: number) => send<Source>('POST', `/api/cm/sources/${id}/scan${q(org)}`)
 export const removeSource = (org: number | null, id: number) => send<{ ok: boolean; hint: string }>('DELETE', `/api/cm/sources/${id}${q(org)}`)
-export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; limit?: number; cursor?: string | null }) =>
+export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; sort?: string; order?: Order; limit?: number; cursor?: string | null }) =>
   callPage<Asset>(`/api/cm/assets${q(org, { ...opts, cursor: opts.cursor || undefined })}`)
 export const getAsset = (org: number | null, id: number) => call<Asset>(`/api/cm/assets/${id}${q(org)}`)
 export const patchAsset = (org: number | null, id: number, body: { title?: string; caption?: string }) =>
@@ -283,7 +286,7 @@ export interface Person {
 }
 export interface People { org_id: number | null; name?: string; my_role: CmRole; can_manage: boolean; people: Person[] }
 export type ShareWhat = { platform: Platform; account_id: number } | { group_id: number } | { all: true }
-export const getPeople = (org: number | null) => call<People>(`/api/cm/people${org != null ? `?org_id=${org}` : ''}`)
+export const getPeople = (org: number | null, opts: ListOpts = {}) => call<People>(`/api/cm/people${q(org, { ...opts })}`)
 export const share = (org: number | null, email: string, role: CmRole, what: ShareWhat) =>
   send<{ org_id: number; ok: boolean; invited?: boolean; message?: string }>('POST', '/api/cm/shares', { org_id: org, email, role, ...what })
 export const updatePerson = (org: number, email: string, role: CmRole, scope: PersonScope) =>

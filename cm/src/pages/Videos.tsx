@@ -1,49 +1,40 @@
 // Toutes les vidéos relevées sur les comptes du périmètre, avec leurs chiffres.
-// Mobile : liste de cartes. Ordinateur : tableau complet triable.
-import { useEffect, useRef, useState } from 'react'
+// Recherche et tri (dans les deux sens) faits par l'API, pages au défilement.
+// Mobile : liste de cartes + tri. Ordinateur : tableau aux en-têtes triables.
+import { useState } from 'react'
+import { LiveCount, SearchBox, SortControl, SortTh, useListState, useMorePages } from '../components/list'
 import { PlatformLogo } from '../components/PlatformLogo'
-import { getVideosPage, PLATFORM_LABEL, PLATFORMS, type Platform, type Video } from '../api'
+import { getVideosPage, PLATFORM_LABEL, PLATFORMS, type Platform } from '../api'
 import { Empty, Icon, Msg, PlatformTag, Skeleton } from '../components/ui'
 import { fmtDate, fmtDuration, num, pct, short } from '../format'
 import { useLoad, useSession } from '../session'
 
-type Sort = 'recent' | 'views' | 'likes' | 'comments' | 'shares' | 'engagement'
+type Sort = 'recent' | 'views' | 'likes' | 'comments' | 'shares' | 'engagement' | 'title'
+const SORTS: [Sort, string][] = [['recent', 'Date de publication'], ['views', 'Vues'], ['engagement', 'Interactions'],
+  ['likes', 'J’aime'], ['comments', 'Commentaires'], ['shares', 'Partages'], ['title', 'Titre']]
 
 export default function Videos() {
   const [platform, setPlatform] = useState<'' | Platform>('')
-  const [sort, setSort] = useState<Sort>('recent')
+  const list = useListState<Sort>('recent', s => (s === 'title' ? 'asc' : 'desc'))
   const { scope } = useSession()
+  const opts = { platform, sort: list.sort, order: list.order, q: list.q || undefined, limit: 30 }
   // Première page via le cache partagé, pages suivantes au défilement (curseur X-Next-Cursor).
-  const first = useLoad(s => getVideosPage(s, { platform, sort, limit: 30 }), [platform, sort])
-  const [more, setMore] = useState<Video[]>([])
-  const [next, setNext] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const sentinel = useRef<HTMLDivElement>(null)
-  useEffect(() => { setMore([]); setNext(first.data?.next ?? null) }, [first.data])
-  useEffect(() => {
-    const el = sentinel.current
-    if (!el || !next || !('IntersectionObserver' in window)) return
-    const io = new IntersectionObserver(async ([e]) => {
-      if (!e.isIntersecting || busy || !next) return
-      setBusy(true)
-      try { const p = await getVideosPage(scope, { platform, sort, limit: 30, cursor: next }); setMore(m => [...m, ...p.items]); setNext(p.next) }
-      catch { setNext(null) } finally { setBusy(false) }
-    }, { rootMargin: '600px 0px' })
-    io.observe(el)
-    return () => io.disconnect()
-  }, [next, busy, scope, platform, sort])
-  const videos = { ...first, data: first.data ? [...first.data.items, ...more] : null }
+  const first = useLoad(s => getVideosPage(s, opts), [platform, list.sort, list.order, list.q])
+  const pages = useMorePages(first.data, cursor => getVideosPage(scope, { ...opts, cursor }), [scope, platform, list.sort, list.order, list.q])
+  const { next, busy, sentinel } = pages
+  const videos = { ...first, data: pages.items }
   const eng = (v: { views: number | null; likes: number | null; comments: number | null; shares: number | null; saves: number | null }) =>
     v.views ? ((v.likes || 0) + (v.comments || 0) + (v.shares || 0) + (v.saves || 0)) / v.views : null
   return (
     <>
       <div className="page-head">
         <div><h1>Vidéos</h1><p>Relevées chez les plateformes, publiées ou non depuis Chapote.</p></div>
-        <select className="select select-sm" aria-label="Classer par" value={sort} onChange={e => setSort(e.target.value as Sort)}>
-          <option value="recent">Plus récentes</option><option value="views">Plus vues</option><option value="engagement">Plus d’interactions</option>
-          <option value="likes">Plus de j’aime</option><option value="comments">Plus commentées</option><option value="shares">Plus partagées</option>
-        </select>
       </div>
+      <div className="listbar">
+        <SearchBox value={list.input} onChange={list.setInput} label="Rechercher une vidéo (titre)" />
+        <span className="only-mobile sortctl"><SortControl list={list} options={SORTS} /></span>
+      </div>
+      <LiveCount n={videos.data?.length ?? null} more={!!next} what="vidéos" />
       <div className="chips" role="group" aria-label="Plateforme">
         <button type="button" className="chip" aria-pressed={platform === ''} onClick={() => setPlatform('')}>Toutes</button>
         {PLATFORMS.map(p => (
@@ -55,7 +46,8 @@ export default function Videos() {
       {videos.error && <Msg kind="err">{videos.error}</Msg>}
       {!videos.data && videos.loading && <Skeleton h={86} n={5} />}
       {videos.data && videos.data.length === 0 && (
-        <Empty title="Aucune vidéo pour l'instant" icon="video">Les vidéos de vos comptes apparaissent ici après le premier relevé des chiffres.</Empty>
+        list.q ? <Empty title="Aucune vidéo trouvée" icon="search">Aucun titre ne contient « {list.q} ».</Empty>
+          : <Empty title="Aucune vidéo pour l'instant" icon="video">Les vidéos de vos comptes apparaissent ici après le premier relevé des chiffres.</Empty>
       )}
       {videos.data && videos.data.length > 0 && (
         <>
@@ -83,9 +75,9 @@ export default function Videos() {
             <div className="table-wrap">
               <table className="data">
                 <thead><tr>
-                  <th scope="col">Vidéo</th><th scope="col">Compte</th><th scope="col">Publiée</th>
-                  <th scope="col" className="r">Vues</th><th scope="col" className="r">J'aime</th><th scope="col" className="r">Commentaires</th>
-                  <th scope="col" className="r">Partages</th><th scope="col" className="r">Enreg.</th><th scope="col" className="r">Engagement</th>
+                  <SortTh col="title" list={list}>Vidéo</SortTh><th scope="col">Compte</th><SortTh col="recent" list={list}>Publiée</SortTh>
+                  <SortTh col="views" list={list} right>Vues</SortTh><SortTh col="likes" list={list} right>J'aime</SortTh><SortTh col="comments" list={list} right>Commentaires</SortTh>
+                  <SortTh col="shares" list={list} right>Partages</SortTh><th scope="col" className="r">Enreg.</th><SortTh col="engagement" list={list} right>Interactions</SortTh>
                 </tr></thead>
                 <tbody>
                   {videos.data.map(v => (
@@ -105,7 +97,7 @@ export default function Videos() {
                       <td className="small muted" style={{ whiteSpace: 'nowrap' }}>{v.published_at ? fmtDate(v.published_at) : '—'}</td>
                       <td className="r strong">{num(v.views)}</td><td className="r">{num(v.likes)}</td>
                       <td className="r">{num(v.comments)}</td><td className="r">{num(v.shares)}</td><td className="r">{num(v.saves)}</td>
-                      <td className="r">{pct(eng(v))}</td>
+                      <td className="r" title={eng(v) != null ? `Taux d’engagement ${pct(eng(v))}` : undefined}>{num((v.likes || 0) + (v.comments || 0) + (v.shares || 0) + (v.saves || 0))}</td>
                     </tr>
                   ))}
                 </tbody>

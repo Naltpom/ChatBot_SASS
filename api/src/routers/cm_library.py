@@ -20,16 +20,17 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.time import utcnow
 from src.models.cm import CmAsset, CmGoogleIdentity, CmGroup, CmPost, CmSource
 from src.models.user import User
-from src.routers.cm import _decode_cursor, _page, _same, get_cm_user
+from src.routers.cm import _same, get_cm_user
 from src.routers.tiktok import Tenant, _tenant, _tenant_of
 from src.services import cm_access
+from src.services import cm_paging as paging
 from src.services import cm_library as lib
 from src.services import gdrive_service as gd
 from src.services.google_oauth import GoogleAuthError, verify_google_id_token
@@ -221,11 +222,18 @@ async def remove_source(source_id: int, org_id: Optional[int] = Query(None), db:
     return {"ok": True, "hint": "Vous pouvez aussi retirer le robot du partage du dossier dans Google Drive."}
 
 
+ASSET_SORTS = {"recent": "dt", "name": "str", "duration": "float", "size": "int"}
+
+
 @router.get("/assets")
 async def list_assets(response: Response, org_id: Optional[int] = Query(None), source_id: Optional[int] = None,
                       state: Literal["all", "new", "used"] = "all", q: Optional[str] = Query(None, max_length=100),
-                      limit: int = Query(40, ge=1, le=100), cursor: Optional[str] = None,
+                      sort: Literal["recent", "name", "duration", "size"] = "recent",
+                      order: Optional[Literal["asc", "desc"]] = None,
+                      limit: int = Query(40, ge=1, le=100), cursor: Optional[str] = Query(None, max_length=300),
                       db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Vidéos de la bibliothèque : recherche (nom, titre, légende, dossier), tri dans les deux sens,
+    pages par curseur. En SQL (index d'expression) pour tenir sur de très gros dossiers."""
     tenant = await _tenant(db, user, org_id)
     sources = {s.id: s for s in (await db.execute(select(CmSource).where(
         tenant.where(CmSource), CmSource.revoked_at.is_(None)))).scalars().all() if cm_access.group_allowed(tenant, s.group_id)}
@@ -234,20 +242,23 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
     ids = [source_id] if source_id is not None else list(sources)
     if not ids:
         return []
-    stmt = select(CmAsset).where(CmAsset.source_id.in_(ids), CmAsset.removed_at.is_(None))
-    used = select(CmPost.asset_id).where(CmPost.asset_id.is_not(None))
+    order = order or ("asc" if sort == "name" else "desc")
+    col = {"recent": CmAsset.drive_created_at, "name": func.lower(func.coalesce(CmAsset.title, CmAsset.name)),
+           "duration": CmAsset.duration_sec, "size": CmAsset.size}[sort]
+    key = paging.nulls_last(col, ASSET_SORTS[sort], order).label("_k")
+    stmt = select(CmAsset, key).where(CmAsset.source_id.in_(ids), CmAsset.removed_at.is_(None))
+    used = select(CmPost.id).where(CmPost.asset_id == CmAsset.id).exists()
     if state == "new":
-        stmt = stmt.where(CmAsset.id.not_in(used))
+        stmt = stmt.where(~used)
     elif state == "used":
-        stmt = stmt.where(CmAsset.id.in_(used))
-    if q and q.strip():
-        like = f"%{q.strip()}%"
-        stmt = stmt.where(or_(CmAsset.name.ilike(like), CmAsset.title.ilike(like), CmAsset.caption.ilike(like),
-                              CmAsset.folder_path.ilike(like)))
-    offset = _decode_cursor(cursor)
-    rows = (await db.execute(stmt.order_by(CmAsset.drive_created_at.desc().nulls_last(), CmAsset.id.desc())
-                             .offset(offset).limit(limit + 1))).scalars().all()
-    rows = _page(response, rows, offset, limit)
+        stmt = stmt.where(used)
+    pattern = paging.like(q)
+    if pattern:
+        stmt = stmt.where(or_(*(c.ilike(pattern, escape="\\") for c in
+                                (CmAsset.name, CmAsset.title, CmAsset.caption, CmAsset.folder_path))))
+    stmt = paging.apply(stmt, key, ASSET_SORTS[sort], CmAsset.id, order, cursor, limit)
+    rows = paging.page(response, list((await db.execute(stmt)).all()), limit, lambda r: r[1], lambda r: r[0].id, cursor)
+    rows = [a for a, _ in rows]
     usage = await lib.usage_of(db, [a.id for a in rows])
     return [lib.asset_out(a, sources.get(a.source_id), usage.get(a.id)) for a in rows]
 

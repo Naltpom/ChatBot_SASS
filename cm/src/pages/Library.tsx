@@ -11,6 +11,8 @@ import GoogleButton from '../components/GoogleButton'
 import { Empty, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDate, fmtDateTime, fmtDuration, fmtSize } from '../format'
 import { useLoad, useRole, useSession } from '../session'
+import { LiveCount, SearchBox, SortControl, useListState, useMorePages } from '../components/list'
+import type { Order } from '../api'
 
 function CopyField({ value }: { value: string }) {
   const [done, setDone] = useState(false)
@@ -256,40 +258,30 @@ export function AssetCard({ a, onOpen }: { a: Asset; onOpen: (a: Asset) => void 
   )
 }
 
-/** Grille de vidéos de la bibliothèque, chargée au défilement. Réutilisée par le composeur. */
-export function AssetGrid({ sourceId, state, q, onOpen, refreshKey = 0 }:
-  { sourceId?: number; state: AssetState; q: string; onOpen: (a: Asset) => void; refreshKey?: number }) {
+/** Grille de vidéos de la bibliothèque, chargée au défilement. Recherche et tri par l'API.
+ *  Réutilisée par le composeur. */
+export function AssetGrid({ sourceId, state, q, sort = 'recent', order, onOpen, refreshKey = 0 }:
+  { sourceId?: number; state: AssetState; q: string; sort?: AssetSort; order?: Order; onOpen: (a: Asset) => void; refreshKey?: number }) {
   const { org } = useSession()
-  const first = useLoad(() => getAssetsPage(org, { source_id: sourceId, state, q, limit: 40 }), [sourceId, state, q, org, refreshKey])
-  const [more, setMore] = useState<Asset[]>([])
-  const [next, setNext] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const sentinel = useRef<HTMLDivElement>(null)
-  useEffect(() => { setMore([]); setNext(first.data?.next ?? null) }, [first.data])
-  useEffect(() => {
-    const el = sentinel.current
-    if (!el || !next || !('IntersectionObserver' in window)) return
-    const io = new IntersectionObserver(async ([e]) => {
-      if (!e.isIntersecting || busy || !next) return
-      setBusy(true)
-      try { const p = await getAssetsPage(org, { source_id: sourceId, state, q, limit: 40, cursor: next }); setMore(m => [...m, ...p.items]); setNext(p.next) }
-      catch { setNext(null) } finally { setBusy(false) }
-    }, { rootMargin: '600px 0px' })
-    io.observe(el)
-    return () => io.disconnect()
-  }, [next, busy, org, sourceId, state, q])
-  const items = first.data ? [...first.data.items, ...more] : null
+  const opts = { source_id: sourceId, state, q: q || undefined, sort, order, limit: 40 }
+  const first = useLoad(() => getAssetsPage(org, opts), [sourceId, state, q, sort, order, org, refreshKey])
+  const pages = useMorePages(first.data, cursor => getAssetsPage(org, { ...opts, cursor }), [org, sourceId, state, q, sort, order])
+  const items = pages.items
   if (first.error) return <Msg kind="err">{first.error}</Msg>
   if (!items) return <div className="vgrid"><Skeleton h={240} n={6} /></div>
-  if (!items.length) return <p className="muted small" style={{ margin: 0 }}>{q ? 'Aucune vidéo ne correspond.' : state === 'new' ? 'Toutes les vidéos ont déjà été programmées.' : 'Aucune vidéo pour le moment.'}</p>
+  if (!items.length) return <p className="muted small" style={{ margin: 0 }}>{q ? `Aucune vidéo ne correspond à « ${q} ».` : state === 'new' ? 'Toutes les vidéos ont déjà été programmées.' : 'Aucune vidéo pour le moment.'}</p>
   return (
     <>
+      <LiveCount n={items.length} more={!!pages.next} what="vidéos" />
       <div className="vgrid">{items.map(a => <AssetCard key={a.id} a={a} onOpen={onOpen} />)}</div>
-      <div ref={sentinel} />
-      {busy && <Skeleton h={60} />}
+      <div ref={pages.sentinel} />
+      {pages.busy && <Skeleton h={60} />}
     </>
   )
 }
+
+export type AssetSort = 'recent' | 'name' | 'duration' | 'size'
+const ASSET_SORTS: [AssetSort, string][] = [['recent', 'Date d’ajout'], ['name', 'Nom'], ['duration', 'Durée'], ['size', 'Taille']]
 
 export default function Library() {
   const { org } = useSession()
@@ -298,8 +290,9 @@ export default function Library() {
   const [adding, setAdding] = useState(false)
   const [flash, setFlash] = useState('')
   const [state, setState] = useState<AssetState>('new')
-  const [q, setQ] = useState('')
+  const lst = useListState<AssetSort>('recent', v => (v === 'name' ? 'asc' : 'desc'))
   const [source, setSource] = useState<number | undefined>(undefined)
+  const [allFolders, setAllFolders] = useState(false)
   const [open, setOpen] = useState<Asset | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const list = sources.data || []
@@ -328,27 +321,33 @@ export default function Library() {
       {list.length > 0 && (
         <>
           <div className="grid-3">
-            {list.map(s => (
+            {(allFolders ? list : list.slice(0, 6)).map(s => (
               <SourceCard key={s.id} s={s}
                 onChanged={n => { sources.setData(list.map(x => (x.id === n.id ? { ...x, ...n } : x))); setRefreshKey(k => k + 1) }}
                 onRemoved={() => { sources.setData(list.filter(x => x.id !== s.id)); setRefreshKey(k => k + 1); if (source === s.id) setSource(undefined) }} />
             ))}
           </div>
-          <div className="row between" style={{ gap: 10 }}>
-            <div className="chips" role="group" aria-label="Afficher">
-              {([['new', 'À publier'], ['used', 'Déjà programmées'], ['all', 'Toutes']] as [AssetState, string][]).map(([v, l]) => (
-                <button key={v} type="button" className="chip" aria-pressed={state === v} onClick={() => setState(v)}>{l}</button>
-              ))}
-              {list.length > 1 && list.map(s => (
-                <button key={s.id} type="button" className="chip" aria-pressed={source === s.id} onClick={() => setSource(source === s.id ? undefined : s.id)}>
-                  <Icon name="layers" size={14} />{s.name}
-                </button>
-              ))}
-            </div>
-            <input className="input" style={{ maxWidth: 260 }} type="search" placeholder="Rechercher (nom, légende, dossier)" aria-label="Rechercher une vidéo"
-                   value={q} onChange={e => setQ(e.target.value)} />
+          {list.length > 6 && (
+            <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} aria-expanded={allFolders} onClick={() => setAllFolders(v => !v)}>
+              {allFolders ? 'Moins de dossiers' : `Voir les ${list.length} dossiers`}
+            </button>
+          )}
+          <div className="chips" role="group" aria-label="Afficher">
+            {([['new', 'À publier'], ['used', 'Déjà programmées'], ['all', 'Toutes']] as [AssetState, string][]).map(([v, l]) => (
+              <button key={v} type="button" className="chip" aria-pressed={state === v} onClick={() => setState(v)}>{l}</button>
+            ))}
           </div>
-          <AssetGrid sourceId={source} state={state} q={q.trim()} onOpen={setOpen} refreshKey={refreshKey} />
+          <div className="listbar">
+            <SearchBox value={lst.input} onChange={lst.setInput} label="Rechercher une vidéo (nom, légende, dossier)" />
+            {list.length > 1 && (
+              <select className="select select-sm" aria-label="Dossier" value={source ?? ''} onChange={e => setSource(e.target.value ? Number(e.target.value) : undefined)}>
+                <option value="">Tous les dossiers</option>
+                {list.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+            <span className="sortctl"><SortControl list={lst} options={ASSET_SORTS} /></span>
+          </div>
+          <AssetGrid sourceId={source} state={state} q={lst.q} sort={lst.sort} order={lst.order} onOpen={setOpen} refreshKey={refreshKey} />
         </>
       )}
 

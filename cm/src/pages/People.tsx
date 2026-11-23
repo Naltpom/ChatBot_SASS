@@ -7,6 +7,7 @@ import { ROLE_CHOICES, ROLE_NAME, ShareSheet } from '../components/ShareSheet'
 import { Avatar, Empty, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { getPeople } from '../api'
 import { useLoad, useSession } from '../session'
+import { SearchBox, SortControl, useListState } from '../components/list'
 
 function scopeText(p: Person, groupName: (id: number) => string | undefined, accountName: (k: string) => string | undefined) {
   if (p.role === 'admin' || p.scope.all) return 'Tous les comptes'
@@ -86,7 +87,8 @@ function EditPerson({ p, org, onClose, onSaved }: { p: Person; org: number; onCl
 
 export default function People() {
   const { org, groups, accounts, visibleSpaces } = useSession()
-  const data = useLoad(() => getPeople(org), [org])
+  const lst = useListState<'added' | 'name' | 'role'>('added', () => 'asc')
+  const data = useLoad(() => getPeople(org, { q: lst.q || undefined, sort: lst.sort, order: lst.order }), [org, lst.q, lst.sort, lst.order])
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [sharing, setSharing] = useState(false)
   const [editing, setEditing] = useState<Person | null>(null)
@@ -94,7 +96,7 @@ export default function People() {
   const groupName = (id: number) => groups.find(g => g.id === id)?.name
   const accountName = (k: string) => accounts.find(a => `${a.platform}:${a.id}` === k)?.name || undefined
   const space = visibleSpaces.find(s => s.org_id === org)
-  const shared = d && d.people.length > 1
+  const shared = d && (d.people.length > 1 || !!lst.q)
 
   return (
     <>
@@ -115,6 +117,13 @@ export default function People() {
         </Empty>
       )}
       {d && shared && (
+        <div className="listbar">
+          <SearchBox value={lst.input} onChange={lst.setInput} label="Rechercher une personne (nom, e-mail)" />
+          <span className="sortctl"><SortControl list={lst} options={[['added', 'Ajout'], ['name', 'Nom'], ['role', 'Accès']]} /></span>
+        </div>
+      )}
+      {d && shared && d.people.length === 0 && <p className="muted small" style={{ margin: 0 }}>Personne ne correspond à « {lst.q} ».</p>}
+      {d && shared && d.people.length > 0 && (
         <section className="card col" style={{ gap: 4 }}>
           <ul className="list">
             {d.people.map(p => {

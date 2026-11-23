@@ -114,9 +114,11 @@ export function Sheet({ title, onClose, children, labelledBy = 'sheet-title' }: 
 
 export type IconName = 'left' | 'right' | 'down' | 'upload' | 'refresh' | 'external' | 'home' | 'calendar' | 'chart'
   | 'users' | 'plus' | 'close' | 'video' | 'eye' | 'eye-off' | 'heart' | 'comment' | 'share' | 'bookmark' | 'check'
-  | 'layers' | 'clock' | 'logout' | 'grid' | 'list' | 'trend' | 'edit' | 'trash' | 'bolt' | 'shield' | 'link' | 'menu'
+  | 'layers' | 'clock' | 'logout' | 'grid' | 'list' | 'trend' | 'edit' | 'trash' | 'bolt' | 'shield' | 'link' | 'menu' | 'search' | 'star'
 
 const PATHS: Record<IconName, string> = {
+  search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',
+  star: 'M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.9 6.75 19.6l1-5.8L3.5 9.7l5.9-.9z',
   left: 'M15 18l-6-6 6-6',
   right: 'M9 18l6-6-6-6',
   down: 'M6 9l6 6 6-6',

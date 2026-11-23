@@ -20,7 +20,7 @@ export default function Dashboard() {
   const [days, setDays] = useState(30)
   const [metric, setMetric] = useState<'views' | 'followers'>('views')
   const ov = useLoad(s => getOverview(s, days), [days])
-  const upcoming = useLoad(s => getPosts(s, new Date(), new Date(Date.now() + 14 * 86400000)))
+  const upcoming = useLoad(s => getPosts(s, new Date(), new Date(Date.now() + 14 * 86400000), { status: 'upcoming', limit: 12 }))
 
   const next: (Target & { title: string })[] = (upcoming.data || [])
     .flatMap(p => p.targets.filter(t => t.status === 'SCHEDULED' || t.status === 'AWAITING_ROUTINE').map(t => ({ ...t, title: p.title })))
@@ -106,7 +106,10 @@ export default function Dashboard() {
                       </div>
                       <div className="grow col" style={{ gap: 4 }}>
                         <div className="ellipsis strong">{g.title}</div>
-                        <div className="row" style={{ gap: 4 }}>{g.targets.map(t => <PlatformTag key={t.id} platform={t.platform} label={t.account_name} />)}</div>
+                        <div className="row" style={{ gap: 4 }}>
+                          {g.targets.slice(0, 3).map(t => <PlatformTag key={t.id} platform={t.platform} label={t.account_name} />)}
+                          {g.targets.length > 3 && <span className="ptag" title={g.targets.slice(3).map(t => t.account_name).join(', ')}>+{g.targets.length - 3} comptes</span>}
+                        </div>
                       </div>
                     </li>
                   ))}
@@ -137,7 +140,9 @@ export default function Dashboard() {
               <h2 id="t-comptes">Comptes</h2><Link to="/comptes">Gérer</Link>
             </div>
             <ul className="list list-pad">
-              {d.accounts.map(a => {
+              {/* À reconnecter d'abord, puis les plus suivis ; 8 au plus (le détail est dans Stats). */}
+              {[...d.accounts].sort((x, y) => Number(y.needs_reconnect) - Number(x.needs_reconnect)
+                || (y.stats?.followers ?? -1) - (x.stats?.followers ?? -1)).slice(0, 8).map(a => {
                 const st = accountState(a)
                 return (
                   <li key={`${a.platform}-${a.id}`}>
@@ -160,6 +165,7 @@ export default function Dashboard() {
                 )
               })}
             </ul>
+            {d.accounts.length > 8 && <div style={{ padding: '0 16px 14px' }}><Link to="/stats" className="small">Voir les {d.accounts.length} comptes</Link></div>}
           </section>
         </>
       )}

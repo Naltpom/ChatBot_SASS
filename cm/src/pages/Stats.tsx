@@ -8,6 +8,7 @@ import { getStats, getVideos, PLATFORM_LABEL, type DetailedStats, type Metric, t
 import { Avatar, Delta, Empty, Icon, Msg, Seg, Skeleton } from '../components/ui'
 import { METRIC_LABEL, num, pct, short } from '../format'
 import { useLoad, useSession } from '../session'
+import { LiveCount, SearchBox, SortControl, useListState } from '../components/list'
 
 const ALL: Metric[] = ['followers', 'views', 'likes', 'comments', 'shares', 'saves']
 const SLOTS = ['0h', '3h', '6h', '9h', '12h', '15h', '18h', '21h']
@@ -65,11 +66,16 @@ function MetricCell({ m, row, available }: { m: Metric; row: Record<string, any>
   )
 }
 
+type AccSort = 'views' | 'posts' | 'engagement_rate' | 'followers' | 'followers_delta' | 'likes' | 'name'
+const ACC_SORTS: [AccSort, string][] = [['views', 'Vues'], ['followers', 'Abonnés'], ['followers_delta', 'Abonnés gagnés'],
+  ['engagement_rate', 'Engagement'], ['posts', 'Vidéos'], ['likes', 'J’aime'], ['name', 'Nom']]
+
 export default function Stats() {
   const { group } = useSession()
   const [days, setDays] = useState(30)
   const [sort, setSort] = useState<'views' | 'engagement' | 'likes' | 'comments' | 'shares'>('views')
-  const st = useLoad(s => getStats(s, days), [days])
+  const acc = useListState<AccSort>('views', s => (s === 'name' ? 'asc' : 'desc'), 'c')
+  const st = useLoad(s => getStats(s, days, { q: acc.q || undefined, sort: acc.sort, order: acc.order }), [days, acc.q, acc.sort, acc.order])
   const top = useLoad(s => getVideos(s, { sort, days, limit: 12 }), [sort, days])
   const d = st.data
 
@@ -130,6 +136,12 @@ export default function Stats() {
             </section>
             <section className="card card-flush" aria-labelledby="t-acc">
               <div className="card-head" style={{ padding: '16px 16px 4px' }}><h2 id="t-acc">Par compte</h2></div>
+              <div className="listbar" style={{ padding: '8px 16px 0' }}>
+                <SearchBox value={acc.input} onChange={acc.setInput} label="Rechercher un compte" />
+                <SortControl list={acc} options={ACC_SORTS} />
+              </div>
+              <LiveCount n={d.accounts.length} what="comptes" />
+              {d.accounts.length === 0 && <p className="muted small" style={{ padding: '8px 16px' }}>Aucun compte ne correspond à « {acc.q} ».</p>}
               <ul className="list list-pad">
                 {d.accounts.map(a => (
                   <li key={`${a.platform}-${a.id}`}>

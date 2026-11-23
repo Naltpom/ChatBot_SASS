@@ -13,6 +13,7 @@ import { ShareSheet } from '../components/ShareSheet'
 import { Avatar, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDateTime, short } from '../format'
 import { useLoad, useRole, useSession } from '../session'
+import { SearchBox, SortControl, useListState } from '../components/list'
 import { accountState } from './Dashboard'
 
 const HINT: Record<Platform, string> = {
@@ -167,6 +168,11 @@ export default function Accounts() {
   const { org, config, groups, reloadGroups, group: current, setGroup } = useSession()
   const loc = useLocation()
   const accounts = useLoad(s => getAccounts(s.org))
+  type ASort = 'name' | 'followers' | 'views' | 'connected'
+  const lst = useListState<ASort>('connected', v => (v === 'name' || v === 'connected' ? 'asc' : 'desc'))
+  const filtered = lst.q || lst.sort !== 'connected' || lst.order !== 'asc'
+  const shown = useLoad(s => (filtered ? getAccounts(s.org, { q: lst.q || undefined, sort: lst.sort, order: lst.order }) : Promise.resolve(null)),
+                        [lst.q, lst.sort, lst.order])
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok' | 'info'; text: string } | null>(
     (loc.state as { flash?: string } | null)?.flash ? { kind: 'ok', text: (loc.state as { flash: string }).flash } : null)
   const [routineName, setRoutineName] = useState('')
@@ -270,9 +276,16 @@ export default function Accounts() {
         )}
       </section>
 
+      {all.length > 4 && (
+        <div className="listbar">
+          <SearchBox value={lst.input} onChange={lst.setInput} label="Rechercher un compte" />
+          <span className="sortctl"><SortControl list={lst} options={[['connected', 'Date de connexion'], ['name', 'Nom'], ['followers', 'Abonnés'], ['views', 'Vues']]} /></span>
+        </div>
+      )}
       {!accounts.data && accounts.loading && <Skeleton h={120} n={3} />}
       {accounts.data && PLATFORMS.map(p => {
-        const list = all.filter(a => a.platform === p)
+        const list = ((filtered && shown.data) || all).filter(a => a.platform === p)
+        if (filtered && lst.q && !list.length) return null
         return (
           <section key={p} className="card col" aria-labelledby={`t-${p}`}>
             <div className="card-head">
