@@ -147,7 +147,7 @@ export default function Planning() {
           <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? 'Mois précédent' : 'Semaine précédente'} onClick={() => shift(-1)}><Icon name="left" /></button>
           <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? 'Mois suivant' : 'Semaine suivante'} onClick={() => shift(1)}><Icon name="right" /></button>
           <span className="label">{label}</span>
-          {!isCurrent && <button type="button" className="btn btn-sm btn-ghost" onClick={goToday}>Aujourd’hui</button>}
+          {(!isCurrent || selected !== dayKey(today)) && <button type="button" className="btn btn-sm" onClick={goToday}><Icon name="calendar" size={14} />Aujourd’hui</button>}
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Seg label="Type" value={kind} onChange={setKind} options={[['all', 'Tout'], ['done', 'Publié'], ['planned', 'Programmé']]} />

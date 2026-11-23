@@ -28,7 +28,7 @@ from src.core.database import get_db
 from src.core.time import utcnow
 from src.models.cm import CmAsset, CmGoogleIdentity, CmGroup, CmPost, CmProposal, CmSource
 from src.models.user import User
-from src.routers.cm import _same, get_cm_user
+from src.routers.cm import _capture_account_scope, _same, get_cm_user
 from src.routers.tiktok import Tenant, _tenant, _tenant_of
 from src.services import cm_access
 from src.services import cm_service as cm
@@ -38,7 +38,7 @@ from src.services import gdrive_service as gd
 from src.services.google_oauth import GoogleAuthError, verify_google_id_token
 from src.services.rate_limit import RateLimiter
 
-router = APIRouter(prefix="/api/cm", tags=["cm-library"])
+router = APIRouter(prefix="/api/cm", tags=["cm-library"], dependencies=[Depends(_capture_account_scope)])
 
 link_limiter = RateLimiter("rl:cmsrclink:", 30, 3600)
 scan_limiter = RateLimiter("rl:cmsrcscan:", 20, 3600)
@@ -460,12 +460,20 @@ async def list_proposals(response: Response, org_id: Optional[int] = Query(None)
 
 
 @router.get("/proposals/count")
-async def count_proposals(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
-                          user: User = Depends(get_cm_user)):
+async def count_proposals(org_id: Optional[int] = Query(None), group_id: Optional[int] = Query(None),
+                          db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Brouillons à valider ; avec un groupe ou un compte (barre de filtres), seulement ceux qui le visent."""
+    from src.routers.cm import _ACCOUNT_SCOPE, _tenant_index
     tenant = await _tenant(db, user, org_id)
-    n = (await db.execute(select(func.count()).select_from(CmProposal).where(
-        tenant.where(CmProposal), CmProposal.status == "open"))).scalar() or 0
-    return {"open": n}
+    if group_id is None and _ACCOUNT_SCOPE.get() is None:
+        n = (await db.execute(select(func.count()).select_from(CmProposal).where(
+            tenant.where(CmProposal), CmProposal.status == "open"))).scalar() or 0
+        return {"open": n}
+    accounts, _ = await _tenant_index(db, tenant, group_id)
+    keys = {f"{p}:{a.id}" for p, a in accounts}
+    rows = (await db.execute(select(CmProposal.accounts).where(
+        tenant.where(CmProposal), CmProposal.status == "open"))).scalars().all()
+    return {"open": sum(1 for ks in rows if set(ks or []) & keys)}
 
 
 async def _proposal(db: AsyncSession, tenant: Tenant, proposal_id: int) -> CmProposal:

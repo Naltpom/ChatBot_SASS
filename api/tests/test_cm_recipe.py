@@ -160,3 +160,28 @@ async def test_library_cover_downloaded_with_video(pg_session, cmenv, drive, tik
     post = await lib.ensure_media(pg_session, r.json()["post_id"])
     assert post.cover_path and post.cover_path.endswith(".jpg")
     assert open(post.cover_path, "rb").read() == drive.files["jpg5"]["content"]
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_proposal_count_follows_the_filter(pg_session, cmenv, drive, tiktok):
+    from src.models.cm import CmGroup, CmGroupAccount
+    u = await _user(pg_session, "a@t.dev")
+    a1 = await _account(pg_session, owner=u, open_id="c1")
+    a2 = await _account(pg_session, owner=u, open_id="c2")
+    g = CmGroup(owner_user_id=u.id, name="Neuron")
+    pg_session.add(g)
+    await pg_session.flush()
+    pg_session.add(CmGroupAccount(group_id=g.id, platform="tiktok", account_id=a1.id))
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        await h.post("/api/cm/sources", json={"url": _link()})
+        assets = (await pg_session.execute(select(CmAsset))).scalars().all()
+        src = (await pg_session.execute(select(CmSource))).scalar_one()
+        pg_session.add_all([CmProposal(owner_user_id=u.id, source_id=src.id, asset_id=assets[0].id, accounts=[f"tiktok:{a1.id}"]),
+                            CmProposal(owner_user_id=u.id, source_id=src.id, asset_id=assets[1].id, accounts=[f"tiktok:{a2.id}"])])
+        await pg_session.commit()
+        assert (await h.get("/api/cm/proposals/count")).json() == {"open": 2}
+        assert (await h.get(f"/api/cm/proposals/count?group_id={g.id}")).json() == {"open": 1}
+        assert (await h.get(f"/api/cm/proposals/count?account=tiktok:{a2.id}")).json() == {"open": 1}

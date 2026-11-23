@@ -275,7 +275,7 @@ export const saveRecipe = (org: number | null, id: number, recipe: Recipe, auto_
   send<{ source: Source; proposed: number }>('PUT', `/api/cm/sources/${id}/recipe${q(org)}`, { recipe, auto_drafts, backlog })
 export const getProposalsPage = (org: number | null, cursor?: string | null) =>
   callPage<Proposal>(`/api/cm/proposals${q(org, { limit: 30, cursor: cursor || undefined })}`)
-export const getProposalCount = (org: number | null) => call<{ open: number }>(`/api/cm/proposals/count${q(org)}`)
+export const getProposalCount = (s: ScopeArg) => call<{ open: number }>(`/api/cm/proposals/count${q(s)}`)
 export const getProposal = (org: number | null, id: number) => call<Proposal>(`/api/cm/proposals/${id}${q(org)}`)
 export const dismissProposal = (org: number | null, id: number) => send<{ ok: boolean }>('POST', `/api/cm/proposals/${id}/dismiss${q(org)}`)
 export interface Asset {

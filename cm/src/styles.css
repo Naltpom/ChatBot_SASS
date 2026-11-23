@@ -602,3 +602,9 @@ a.cgroup-head:hover { background: var(--surface-2); color: var(--text); }
 .rx-qs { border: 1px solid var(--border); border-radius: 14px; }
 .rx-q { padding: 12px 14px; }
 .rx-q + .rx-q { border-top: 1px solid var(--border); }
+
+/* Planning : aujourd'hui bien visible */
+.daystrip .today { box-shadow: inset 0 0 0 2px var(--primary); border-radius: 12px; }
+.daystrip .today[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--primary), 0 0 0 2px var(--surface); }
+.week-col.today { box-shadow: inset 0 0 0 2px var(--primary); background: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
+.month-cell.today { border: 2px solid var(--primary); }
