@@ -241,7 +241,8 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
         title = o.get("title") if o.get("title") is not None else o.get("caption")
         title = (post_caption or post_title or "") if title is None else str(title)
         title = _with_hashtags(title, o.get("hashtags"))
-        out = {"mode": mode, "title": title if mode == "direct" else None,
+        # Brouillon : TikTok n'accepte pas de légende, elle est gardée pour être copiée dans l'app.
+        out = {"mode": mode, "title": title,
                "privacy_level": o.get("privacy_level") if mode == "direct" else None,
                "allow_comment": _bool(o.get("allow_comment")), "allow_duet": _bool(o.get("allow_duet")),
                "allow_stitch": _bool(o.get("allow_stitch")),

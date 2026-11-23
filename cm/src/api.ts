@@ -38,7 +38,7 @@ export interface Target {
   id: number; post_id: number; platform: Platform; account_id: number; account_name: string | null
   scheduled_at: string; options: Record<string, any>; status: TargetStatus; external_id: string | null
   url: string | null; fail_reason: string | null; error_message: string | null; notice: string | null
-  published_at: string | null; can_edit: boolean; can_retry: boolean
+  published_at: string | null; can_edit: boolean; can_retry: boolean; is_draft?: boolean
 }
 export interface Post {
   id: number; title: string; caption: string | null; file_name: string | null; video_size: number
@@ -188,6 +188,10 @@ export const publishNow = (id: number) => send<Target>('POST', `/api/cm/targets/
 export const cancelTarget = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/cancel`)
 export const getPost = (id: number) => call<Post>(`/api/cm/posts/${id}`)
 export const retryTarget = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/retry`, {})
+/** Brouillon TikTok publié à la main dans l'app (lien facultatif). */
+export const markPublished = (id: number, url?: string) => send<Target>('POST', `/api/cm/targets/${id}/published`, url ? { url } : {})
+/** Brouillon TikTok supprimé dans l'app : renvoyé (même vidéo, même légende). */
+export const resendDraft = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/resend-draft`)
 
 /** Couverture personnalisée (JPEG ou PNG, 8 Mo max), utilisée pour Instagram. */
 export async function putCover(postId: number, image: File): Promise<void> {

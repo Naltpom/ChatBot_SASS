@@ -53,6 +53,7 @@ from src.models.cm import (
     T_DRAFT,
     T_EDITABLE,
     T_FAILED,
+    T_INBOX,
     T_FINAL,
     T_PUBLISHED,
     T_PUBLISHING,
@@ -1153,6 +1154,7 @@ def _target_out(t: CmTarget, names: dict) -> dict:
         "fail_reason": t.fail_reason, "error_message": t.error_message, "notice": t.notice,
         "published_at": cm.iso(t.published_at), "updated_at": cm.iso(t.updated_at),
         "can_edit": t.status in T_EDITABLE, "can_retry": t.status == T_FAILED,
+        "is_draft": t.status == T_INBOX,      # brouillon TikTok : à publier dans l'app (légende à copier)
     }
 
 
@@ -1692,6 +1694,59 @@ async def retry_target(target_id: int, body: RetryIn = RetryIn(), db: AsyncSessi
     await db.commit()
     if t.scheduled_at <= utcnow() + timedelta(seconds=5):
         cm_jobs.launch(t.id)
+    _, names = await _tenant_index(db, tenant)
+    return _target_out(t, names)
+
+
+class PublishedIn(BaseModel):
+    url: Optional[str] = Field(default=None, max_length=500)
+    published_at: Optional[datetime] = None
+
+
+TIKTOK_VIDEO_RE = re.compile(r"^https://(?:www\.|m\.|vm\.|vt\.)?tiktok\.com/[^\s]*$")
+
+
+@router.post("/targets/{target_id}/published")
+async def mark_published(target_id: int, body: PublishedIn = PublishedIn(), db: AsyncSession = Depends(get_db),
+                         user: User = Depends(get_cm_user)):
+    """Brouillon TikTok (INBOX) publié à la main dans l'app : TikTok ne le signale pas, on le note ici
+    (lien facultatif, heure = maintenant par défaut)."""
+    t, post, tenant = await _get_target(db, user, target_id)
+    cm_access.require(tenant, "edit")
+    if t.status != T_INBOX:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Seul un brouillon envoyé dans l'app TikTok peut être marqué publié.")
+    url = (body.url or "").strip() or None
+    if url and not TIKTOK_VIDEO_RE.match(url):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Lien TikTok non reconnu (https://www.tiktok.com/@compte/video/…).")
+    m = re.search(r"/video/(\d+)", url or "")
+    t.url = url or t.url
+    t.external_id = m.group(1) if m else t.external_id
+    t.published_at = cm.to_utc_naive(body.published_at) or utcnow()
+    t.notice = None
+    await cm_jobs._record_published(db, t, post)
+    await db.commit()
+    _, names = await _tenant_index(db, tenant)
+    return _target_out(t, names)
+
+
+@router.post("/targets/{target_id}/resend-draft")
+async def resend_draft(target_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Brouillon TikTok supprimé dans l'app : renvoyé tout de suite (même vidéo, même légende, en brouillon)."""
+    t, post, tenant = await _get_target(db, user, target_id)
+    cm_access.require(tenant, "edit")
+    if t.status != T_INBOX:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Seul un brouillon envoyé dans l'app TikTok peut être renvoyé.")
+    if post.status != POST_READY or not (post.media_path or post.asset_id or (post.archive or {}).get("video_id")):
+        raise HTTPException(status.HTTP_409_CONFLICT, "La vidéo n'est plus disponible : recréez la publication.")
+    acc = await cm.get_account(db, tenant, t.platform, t.account_id)
+    if not cm.can_publish(t.platform, acc):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce compte doit d'abord être reconnecté.")
+    t.options = {**(t.options or {}), "mode": "draft"}
+    t.status, t.scheduled_at = T_SCHEDULED, utcnow()
+    t.fail_reason = t.error_message = t.notice = None
+    t.tiktok_post_id, t.attempts = None, 0
+    await db.commit()
+    cm_jobs.launch(t.id)
     _, names = await _tenant_index(db, tenant)
     return _target_out(t, names)
 

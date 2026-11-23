@@ -54,6 +54,18 @@ cm vérifie lui-même si le Reel est en ligne quand même (même légende) avant
 Annuler : `POST /targets/{id}/cancel` ; relancer un échec : `POST /targets/{id}/retry` (la vidéo est relue depuis
 l'archive Drive si elle n'est plus sur le serveur).
 
+### Brouillon TikTok (`INBOX`)
+Tant que l'application TikTok n'est pas validée, une vidéo peut arriver en **brouillon** dans l'app TikTok (`mode: "draft"`,
+ou repli `fallback_draft`) : la cible passe `INBOX` et **y reste**, TikTok ne signale pas la publication faite depuis l'app.
+Le brouillon arrive **sans légende** : `targets[].options.title` contient la légende complète (texte + hashtags) à coller.
+- `POST /targets/{id}/published {url?, published_at?}` : publiée à la main dans l'app → `PUBLISHED` (`url` facultatif,
+  `https://www.tiktok.com/@compte/video/<id>` : `external_id` en est tiré ; `published_at` = maintenant par défaut).
+  Cible `INBOX` seulement (sinon 409) ; lien qui n'est pas un lien TikTok → 400.
+- `POST /targets/{id}/resend-draft` : brouillon supprimé dans l'app → renvoyé tout de suite, même vidéo, même légende
+  (relue depuis l'archive Drive si elle n'est plus sur le serveur). Cible `INBOX` seulement (sinon 409).
+- Dans cm (Planning → la vidéo → carte TikTok) : légende avec « Copier la légende », « Publié dans l'app » (lien facultatif),
+  « Renvoyer le brouillon ».
+
 ### Retrouver ses publications : `GET /posts?ref_prefix=<compte>/`
 - `ref_prefix=kiwi/` : toutes les publications du compte kiwi ; `ref=kiwi/k12` : une seule. Sans `start`/`end`, **pas de
   fenêtre de dates** (avec : filtre sur l'heure des cibles).

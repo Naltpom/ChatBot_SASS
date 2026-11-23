@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  cancelTarget, getAsset, getPost, patchTarget, publishNow, retryTarget, PLATFORM_LABEL,
+  cancelTarget, getAsset, getPost, markPublished, patchTarget, publishNow, resendDraft, retryTarget, PLATFORM_LABEL,
   type Asset, type CalendarItem, type Group, type Post,
 } from '../api'
 import { PlatformLogo } from '../components/PlatformLogo'
@@ -16,7 +16,8 @@ import { useSession } from '../session'
 
 export interface Group_ { key: string; items: CalendarItem[]; at: string; title: string | null }
 type State = 'done' | 'planned' | 'failed'
-const isPlanned = (i: CalendarItem) => i.kind === 'target' && i.status !== 'PUBLISHED' && i.status !== 'INBOX'
+// Brouillon TikTok (INBOX) : reste « à faire » tant qu'il n'est pas publié dans l'app.
+const isPlanned = (i: CalendarItem) => i.kind === 'target' && i.status !== 'PUBLISHED'
 export const stateOf = (i: CalendarItem): State => (i.kind === 'video' ? 'done' : i.status === 'FAILED' ? 'failed' : isPlanned(i) ? 'planned' : 'done')
 const STATE_LABEL: Record<State, string> = { done: 'Publiée', planned: 'Programmée', failed: 'Échec' }
 
@@ -64,6 +65,7 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
   item: CalendarItem; common: string; open: boolean; onToggle: () => void; onChanged: () => void
 }) {
   const st = stateOf(item)
+  const inbox = item.kind === 'target' && item.status === 'INBOX'
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -77,11 +79,11 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
   const diffs: [string, string][] = []
   if (item.kind === 'target') {
     const own = item.platform === 'instagram' ? o.caption : item.platform === 'tiktok' ? o.title : o.description
-    if (own && String(own).trim() !== common.trim()) diffs.push([item.platform === 'youtube' ? 'Description' : 'Légende', String(own)])
+    if (own && item.status !== 'INBOX' && String(own).trim() !== common.trim()) diffs.push([item.platform === 'youtube' ? 'Description' : 'Légende', String(own)])
     if (item.platform === 'youtube' && o.title) diffs.push(['Titre YouTube', String(o.title)])
     if (item.platform === 'youtube' && Array.isArray(o.tags) && o.tags.length) diffs.push(['Tags', o.tags.join(', ')])
     if (item.platform === 'youtube' && o.privacy_status) diffs.push(['Visibilité', `${o.privacy_status === 'public' ? 'Publique' : o.privacy_status === 'unlisted' ? 'Non répertoriée' : 'Privée'}${o.made_for_kids ? ' · pour enfants' : ''}`])
-    if (item.platform === 'tiktok' && o.mode === 'draft') diffs.push(['Envoi', 'Brouillon dans l’app TikTok'])
+    if (item.platform === 'tiktok' && o.mode === 'draft' && item.status !== 'INBOX') diffs.push(['Envoi', 'Brouillon dans l’app TikTok'])
     if (item.platform === 'instagram' && Array.isArray(o.collaborators) && o.collaborators.length) diffs.push(['Collaborateurs', o.collaborators.map((c: string) => `@${c}`).join(', ')])
   }
   const url = item.kind === 'video' ? item.url : item.url
@@ -92,9 +94,9 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
         <PlatformLogo platform={item.platform} size={22} />
         <span className="grow col" style={{ minWidth: 0, gap: 0, textAlign: 'left' }}>
           <span className="strong">{PLATFORM_LABEL[item.platform]}</span>
-          <span className="small muted ellipsis">{item.account_name} · {st === 'planned' ? 'prévue' : 'publiée'} {fmtDateTime(when)}</span>
+          <span className="small muted ellipsis">{item.account_name} · {inbox ? 'brouillon envoyé' : st === 'planned' ? 'prévue' : 'publiée'} {fmtDateTime(when)}</span>
         </span>
-        <span className={`small strong pstate ${st}`}>{STATE_LABEL[st]}</span>
+        <span className={`small strong pstate ${st}`}>{inbox ? 'À publier dans l’app' : STATE_LABEL[st]}</span>
         <Icon name="down" size={16} />
       </button>
       {item.kind === 'target' && item.status === 'FAILED' && item.error_message && <p className="pcard-err">{item.error_message}</p>}
@@ -115,7 +117,8 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
           )}
           {err && <Msg kind="err">{err}</Msg>}
           {item.kind === 'target' && editing && <EditInline item={item} onDone={() => { setEditing(false); onChanged() }} onCancel={() => setEditing(false)} />}
-          {item.kind === 'target' && !editing && (
+          {inbox && <DraftBox item={item as Extract<CalendarItem, { kind: 'target' }>} busy={busy} act={act} />}
+          {item.kind === 'target' && !editing && !inbox && (
             <div className="row" style={{ gap: 8 }}>
               {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setEditing(true)}>Changer l’heure ou le texte</button>}
               {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => publishNow(item.id), `Publier maintenant sur ${PLATFORM_LABEL[item.platform]} ?`)}>Publier maintenant</button>}
@@ -123,6 +126,52 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
               {item.can_edit && <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy} onClick={() => act(() => cancelTarget(item.id), `Annuler la publication sur ${PLATFORM_LABEL[item.platform]} ?`)}>Annuler</button>}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Brouillon TikTok (l'app n'étant pas encore validée, la vidéo arrive sans légende) : légende à copier,
+ *  « Publié dans l'app » (lien facultatif) et « Renvoyer le brouillon » s'il a été supprimé. */
+function DraftBox({ item, busy, act }: {
+  item: Extract<CalendarItem, { kind: 'target' }>; busy: boolean
+  act: (fn: () => Promise<unknown>, confirmText?: string) => Promise<void>
+}) {
+  const caption = String(item.options?.title || '')
+  const [copied, setCopied] = useState(false)
+  const [asking, setAsking] = useState(false)
+  const [link, setLink] = useState('')
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(caption); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* presse-papiers refusé */ }
+  }
+  return (
+    <div className="col" style={{ gap: 10 }}>
+      <p className="small" style={{ margin: 0 }}>La vidéo est dans vos brouillons TikTok, <b>sans légende</b> : ouvrez l’app, collez la légende, publiez, puis revenez ici.</p>
+      {caption && (
+        <div className="col" style={{ gap: 6 }}>
+          <span className="tiny muted">Légende TikTok</span>
+          <p className="small" style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: 'var(--bg)', borderRadius: 10, padding: '10px 12px' }}>{caption}</p>
+          <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={copy} aria-live="polite">
+            <Icon name="check" size={14} />{copied ? 'Copiée' : 'Copier la légende'}
+          </button>
+        </div>
+      )}
+      {asking ? (
+        <form className="col" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); act(() => markPublished(item.id, link.trim() || undefined)) }}>
+          <label className="col" style={{ gap: 4 }}>
+            <span className="small">Lien de la vidéo TikTok <span className="muted">(facultatif)</span></span>
+            <input className="input" type="url" inputMode="url" placeholder="https://www.tiktok.com/@compte/video/…" value={link} onChange={e => setLink(e.target.value)} />
+          </label>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="submit" className="btn btn-sm btn-primary" disabled={busy}>Marquer publiée</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAsking(false)}>Annuler</button>
+          </div>
+        </form>
+      ) : (
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => setAsking(true)}>Publié dans l’app</button>
+          <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => resendDraft(item.id), 'Renvoyer la vidéo dans vos brouillons TikTok ? (à faire seulement si le brouillon a été supprimé)')}>Renvoyer le brouillon</button>
         </div>
       )}
     </div>
