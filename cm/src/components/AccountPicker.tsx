@@ -44,6 +44,8 @@ interface Common {
   onTogglePin?: (k: PinKey) => void
   /** Onglet ouvert au départ. */
   initialTab?: 'groups' | 'accounts'
+  /** Comptes seulement (pas d'onglet Groupes), ex. composer un groupe. */
+  accountsOnly?: boolean
   footer?: ReactNode
 }
 interface Single extends Common {
@@ -65,7 +67,7 @@ export function AccountPicker(props: Single | Multi) {
   const { accounts, groups, pins = [], onTogglePin } = props
   const desktop = useDesktop()
   const [query, setQuery] = useState('')
-  const [tab, setTab] = useState<'groups' | 'accounts'>(props.initialTab || (groups.length ? 'groups' : 'accounts'))
+  const [tab, setTab] = useState<'groups' | 'accounts'>(props.accountsOnly ? 'accounts' : props.initialTab || (groups.length ? 'groups' : 'accounts'))
   const [platform, setPlatform] = useState<'' | Platform>('')
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLUListElement>(null)
@@ -138,13 +140,13 @@ export function AccountPicker(props: Single | Multi) {
                placeholder={tab === 'groups' ? 'Rechercher un groupe' : 'Rechercher un compte'} aria-label="Rechercher" autoComplete="off" />
         {query && <button type="button" className="searchbox-clear" aria-label="Effacer la recherche" onClick={() => setQuery('')}><Icon name="close" size={16} /></button>}
       </div>
-      <div className="picker-tabs" role="tablist" aria-label="Choisir parmi">
+      {!props.accountsOnly && <div className="picker-tabs" role="tablist" aria-label="Choisir parmi">
         {(['groups', 'accounts'] as const).map(t => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
             {t === 'groups' ? 'Groupes' : 'Comptes'} <span className="fchip-n">{counts[t]}</span>
           </button>
         ))}
-      </div>
+      </div>}
       {tab === 'accounts' && (
         <div className="picker-plat" role="group" aria-label="Plateforme">
           <button type="button" className="chip chip-sm" aria-pressed={platform === ''} onClick={() => setPlatform('')}>Toutes</button>

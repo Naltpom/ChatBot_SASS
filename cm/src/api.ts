@@ -47,7 +47,8 @@ export interface Post {
 export type CmRole = 'admin' | 'editor' | 'viewer'
 export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null; owner?: boolean; owner_name?: string | null; accounts?: number }
 export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
-export const GROUP_COLORS: GroupColor[] = ['blue', 'orange', 'green', 'purple', 'pink', 'teal', 'amber', 'slate']
+  | 'red' | 'indigo' | 'cyan' | 'lime' | 'rose' | 'sky' | 'emerald' | 'brown'
+export const GROUP_COLORS: GroupColor[] = ['blue', 'sky', 'cyan', 'teal', 'emerald', 'green', 'lime', 'amber', 'orange', 'brown', 'red', 'rose', 'pink', 'purple', 'indigo', 'slate']
 export interface Group { id: number; name: string; color: GroupColor | null; accounts: { platform: Platform; id: number }[] }
 /** Périmètre affiché : un espace et, éventuellement, un groupe de comptes OU un seul compte ("tiktok:12"). */
 export interface Scope { org: number | null; group: number | null; account?: string | null }
@@ -185,6 +186,7 @@ export const patchTarget = (id: number, body: { scheduled_at?: string; options?:
   send<Target>('PATCH', `/api/cm/targets/${id}`, body)
 export const publishNow = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/publish-now`)
 export const cancelTarget = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/cancel`)
+export const getPost = (id: number) => call<Post>(`/api/cm/posts/${id}`)
 export const retryTarget = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/retry`, {})
 
 /** Couverture personnalisée (JPEG ou PNG, 8 Mo max), utilisée pour Instagram. */

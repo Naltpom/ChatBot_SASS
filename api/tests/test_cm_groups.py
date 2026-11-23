@@ -64,7 +64,7 @@ async def test_group_crud_and_account_in_several_groups(pg_session, cmenv):
         r = await h.patch(f"/api/cm/groups/{g1['id']}", json={"accounts": [{"platform": "youtube", "account_id": 99999}]})
         assert r.status_code == 404
         assert (await h.post("/api/cm/groups", json={"name": "   "})).status_code == 400
-        assert (await h.post("/api/cm/groups", json={"name": "x", "color": "red"})).status_code == 422
+        assert (await h.post("/api/cm/groups", json={"name": "x", "color": "fuchsia-neon"})).status_code == 422
 
         # Filtre des comptes par groupe.
         accs = (await h.get(f"/api/cm/accounts?group_id={g2['id']}")).json()
