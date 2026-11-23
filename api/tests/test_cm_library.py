@@ -145,6 +145,9 @@ def test_folder_links_are_understood():
     assert gd.folder_id_from_link(FOLDER) == FOLDER
     with pytest.raises(gd.DriveError):
         gd.folder_id_from_link("https://exemple.com/pas-un-dossier")
+    with pytest.raises(gd.DriveError) as e:
+        gd.folder_id_from_link("https://drive.google.com/drive/project/17xF8OD0H58as2o_hjsU2npoXIVJQ3Nk6")
+    assert e.value.code == "is_project" and "Nouveau dossier" in e.value.describe()
 
 
 @pytest.mark.real_db
