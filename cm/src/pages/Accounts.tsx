@@ -10,6 +10,7 @@ import {
   GROUP_COLORS, PLATFORM_LABEL, PLATFORMS, type Account, type Group, type GroupColor, type Platform,
 } from '../api'
 import { ShareSheet } from '../components/ShareSheet'
+import { AccountPicker } from '../components/AccountPicker'
 import { Avatar, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDateTime, short } from '../format'
 import { useLoad, useRole, useSession } from '../session'
@@ -21,7 +22,8 @@ const HINT: Record<Platform, string> = {
   youtube: "Pour une chaîne de marque, choisissez-la sur l'écran Google qui s'ouvre.",
   instagram: 'Compte professionnel (Créateur ou Entreprise) seulement.',
 }
-const COLOR_LABEL: Record<GroupColor, string> = { blue: 'Bleu', orange: 'Orange', green: 'Vert', purple: 'Violet', pink: 'Rose', teal: 'Turquoise', amber: 'Ambre', slate: 'Gris' }
+const COLOR_LABEL: Record<GroupColor, string> = { blue: 'Bleu', orange: 'Orange', green: 'Vert', purple: 'Violet', pink: 'Rose', teal: 'Turquoise', amber: 'Ambre', slate: 'Gris',
+  red: 'Rouge', indigo: 'Indigo', cyan: 'Cyan', lime: 'Citron vert', rose: 'Framboise', sky: 'Ciel', emerald: 'Émeraude', brown: 'Marron' }
 const akey = (p: Platform, id: number) => `${p}:${id}`
 
 function GroupEditor({ group, accounts, onClose, onSaved }: { group: Group | null; accounts: Account[]; onClose: () => void; onSaved: (g: Group) => void }) {
@@ -46,7 +48,7 @@ function GroupEditor({ group, accounts, onClose, onSaved }: { group: Group | nul
         </label>
         <fieldset>
           <legend>Couleur</legend>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 6 }}>
             {GROUP_COLORS.map(c => (
               <button key={c} type="button" className="chip" aria-pressed={c === color} aria-label={COLOR_LABEL[c]} onClick={() => setColor(c)}
                       style={{ width: 40, padding: 0, justifyContent: 'center' }}><GroupDot color={c} /></button>
@@ -56,18 +58,7 @@ function GroupEditor({ group, accounts, onClose, onSaved }: { group: Group | nul
         <fieldset>
           <legend>Comptes du groupe <span className="muted" style={{ fontWeight: 400 }}>· {picked.length} choisi{picked.length > 1 ? 's' : ''}</span></legend>
           {accounts.length === 0 ? <p className="muted small">Connectez d’abord des comptes.</p> : (
-            <div className="picks" style={{ gridTemplateColumns: '1fr' }}>
-              {accounts.map(a => {
-                const k = akey(a.platform, a.id), on = picked.includes(k)
-                return (
-                  <label key={k} className={`pick${on ? ' on' : ''}`}>
-                    <input type="checkbox" checked={on} onChange={() => toggle(k)} />
-                    <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
-                    <span className="grow"><span className="ellipsis strong" style={{ display: 'block' }}>{a.name}</span><span className="tiny muted row-nw" style={{ gap: 4 }}><PlatformLogo platform={a.platform} size={12} />{PLATFORM_LABEL[a.platform]}</span></span>
-                  </label>
-                )
-              })}
-            </div>
+            <AccountPicker mode="multi" accountsOnly accounts={accounts} groups={[]} picked={picked} onChange={setPicked} />
           )}
           <p className="field-hint" style={{ marginTop: 8 }}>Un compte peut appartenir à plusieurs groupes.</p>
         </fieldset>

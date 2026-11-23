@@ -4,6 +4,7 @@
 // Mobile : vue Agenda (bande des 7 jours + liste). Ordinateur : vue Semaine en 7 colonnes. Mois partout.
 import { useEffect, useMemo, useState } from 'react'
 import { PlatformLogo } from '../components/PlatformLogo'
+import { PlanRow, PublicationSheet, useGroupOf, type Group_ } from './PlanningParts'
 import { Link, useLocation } from 'react-router-dom'
 import {
   cancelTarget, getCalendar, patchTarget, publishNow, retryTarget, PLATFORM_LABEL, PLATFORMS,
@@ -30,39 +31,8 @@ function range(view: View, anchor: Date): [Date, Date] {
   return [s, addDays(s, 7)]
 }
 
-function Thumb({ item }: { item: CalendarItem }) {
-  if (item.kind === 'video' && item.thumbnail_url) return <img className="event-thumb" src={item.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" />
-  return <span className="event-thumb"><Icon name={item.kind === 'video' ? 'video' : 'clock'} /></span>
-}
-
-function EventCard({ item, onOpen, compact }: { item: CalendarItem; onOpen: (i: CalendarItem) => void; compact?: boolean }) {
-  const planned = isPlanned(item)
-  const failed = item.kind === 'target' && item.status === 'FAILED'
-  return (
-    <button type="button" className={`event${planned ? ' planned' : ''}${failed ? ' failed' : ''}`} onClick={() => onOpen(item)}>
-      {!compact && <Thumb item={item} />}
-      <span className="event-body">
-        <span className="event-time">
-          <PlatformLogo platform={item.platform} size={14} />{fmtTime(item.at)}
-          <span className="grow" />
-          {item.kind === 'target' ? <StatusText status={item.status} /> : item.via_chapote ? <span className="tiny faint">via Chapote</span> : null}
-        </span>
-        <span className="small strong clamp2" style={{ wordBreak: 'break-word' }}>{item.title || 'Sans titre'}</span>
-        <span className="tiny muted ellipsis">{item.account_name || PLATFORM_LABEL[item.platform]}</span>
-        {item.kind === 'video' && (
-          <span className="metrics">
-            <span><b>{short(item.views)}</b> vues</span>
-            {item.likes != null && <span><b>{short(item.likes)}</b> j’aime</span>}
-            {!compact && item.comments != null && <span><b>{short(item.comments)}</b> com.</span>}
-          </span>
-        )}
-      </span>
-    </button>
-  )
-}
-
 /** Une vidéo au même moment sur plusieurs plateformes = un seul groupe. */
-interface Group { key: string; items: CalendarItem[]; at: string; title: string | null }
+type Group = Group_ & { key: string; items: CalendarItem[]; at: string; title: string | null }
 function groupItems(list: CalendarItem[]): Group[] {
   const out: Group[] = []
   const at = new Map<string, number>()
@@ -79,59 +49,6 @@ function groupItems(list: CalendarItem[]): Group[] {
   }
   return out.sort((a, b) => a.at.localeCompare(b.at))
 }
-const stateOf = (i: CalendarItem) => (i.kind === 'video' ? 'done' : i.status === 'FAILED' ? 'failed' : isPlanned(i) ? 'planned' : 'done')
-const STATE_LABEL = { done: 'publiée', planned: 'programmée', failed: 'échec' }
-
-function GroupCard({ g, onOpen }: { g: Group; onOpen: (g: Group) => void }) {
-  if (g.items.length === 1) return null
-  const planned = g.items.every(i => stateOf(i) === 'planned')
-  const failed = g.items.some(i => stateOf(i) === 'failed')
-  const thumb = g.items.find(i => i.kind === 'video' && i.thumbnail_url) as (CalendarItem & { thumbnail_url?: string }) | undefined
-  const vids = g.items.filter(i => i.kind === 'video') as Extract<CalendarItem, { kind: 'video' }>[]
-  const views = vids.reduce((s, v) => s + (v.views || 0), 0)
-  const likes = vids.reduce((s, v) => s + (v.likes || 0), 0)
-  const times = [...new Set(g.items.map(i => fmtTime(i.at)))]
-  return (
-    <button type="button" className={`event${planned ? ' planned' : ''}${failed ? ' failed' : ''}`} onClick={() => onOpen(g)}
-            aria-label={`${g.title || 'Sans titre'} : ${g.items.map(i => `${PLATFORM_LABEL[i.platform]} ${STATE_LABEL[stateOf(i)]}`).join(', ')}`}>
-      {thumb?.thumbnail_url ? <img className="event-thumb" src={thumb.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" />
-        : <span className="event-thumb"><Icon name={planned ? 'clock' : 'video'} /></span>}
-      <span className="event-body">
-        <span className="event-time">{times.length > 1 ? `${times[0]} – ${times[times.length - 1]}` : times[0]}<span className="grow" />
-          {failed ? <span className="tiny status-err">échec</span> : planned ? <span className="tiny muted">programmée</span> : null}
-        </span>
-        <span className="small strong clamp2" style={{ wordBreak: 'break-word' }}>{g.title || 'Sans titre'}</span>
-        <span className="plat-row">
-          {g.items.map(i => (
-            <span key={itemKey(i)} className={`plat-pill ${stateOf(i)}`} title={`${PLATFORM_LABEL[i.platform]} · ${i.account_name || ''} · ${STATE_LABEL[stateOf(i)]}`}>
-              <PlatformLogo platform={i.platform} size={14} />
-            </span>
-          ))}
-        </span>
-        {vids.length > 0 && (
-          <span className="metrics"><span><b>{short(views)}</b> vues</span>{likes > 0 && <span><b>{short(likes)}</b> j’aime</span>}</span>
-        )}
-      </span>
-    </button>
-  )
-}
-
-function GroupSheet({ g, onClose, onPick }: { g: Group; onClose: () => void; onPick: (i: CalendarItem) => void }) {
-  return (
-    <Sheet title={g.title || 'Publication'} onClose={onClose}>
-      <p className="small muted" style={{ margin: '0 0 10px' }}>Même vidéo sur {g.items.length} comptes : chacun a son heure et son statut.</p>
-      <div className="col" style={{ gap: 8 }}>
-        {g.items.map(i => <EventCard key={itemKey(i)} item={i} onOpen={onPick} compact />)}
-      </div>
-    </Sheet>
-  )
-}
-
-const renderGroups = (list: CalendarItem[], onItem: (i: CalendarItem) => void, onGroup: (g: Group) => void) =>
-  groupItems(list).map(g => (g.items.length === 1
-    ? <EventCard key={g.key} item={g.items[0]} onOpen={onItem} />
-    : <GroupCard key={g.key} g={g} onOpen={onGroup} />))
-
 function DayStats({ d }: { d: CalendarDay | undefined }) {
   if (!d || d.followers_delta == null || d.followers_delta === 0) return null
   return <span className="tiny strong"><Delta value={d.followers_delta} /> abonnés</span>
@@ -146,8 +63,8 @@ export default function Planning() {
   const [selected, setSelected] = useState(() => dayKey(new Date()))
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [kind, setKind] = useState<Kind>('all')
-  const [open, setOpen] = useState<CalendarItem | null>(null)
   const [openGroup, setOpenGroup] = useState<Group | null>(null)
+  const groupOf = useGroupOf()
   useEffect(() => { setView(v => (desktop && v === 'agenda' ? 'week' : !desktop && v === 'week' ? 'agenda' : v)) }, [desktop])
 
   const [start, end] = useMemo(() => range(view, anchor), [view, anchor])
@@ -196,7 +113,7 @@ export default function Planning() {
         </div>
         {list.length === 0
           ? <p className="tiny muted" style={{ padding: '2px 2px 4px' }}>{date < today && !sameDay(date, today) ? 'Aucune publication' : 'Rien de prévu'}</p>
-          : renderGroups(list, setOpen, setOpenGroup)}
+          : groupItems(list).map(gx => <PlanRow key={gx.key} g={gx} group={groupOf(gx.items)} onOpen={setOpenGroup} />)}
       </section>
     )
   }
@@ -279,7 +196,7 @@ export default function Planning() {
                   <DayStats d={stats.get(k)} />
                 </div>
                 {list.length === 0 ? <p className="tiny faint">{past ? 'Aucune publication' : 'Rien de prévu'}</p>
-                  : renderGroups(list, setOpen, setOpenGroup)}
+                  : groupItems(list).map(gx => <PlanRow key={gx.key} g={gx} group={groupOf(gx.items)} onOpen={setOpenGroup} />)}
                 {!past && <Link to="/nouvelle" className="btn btn-sm btn-ghost" style={{ marginTop: 'auto', color: 'var(--muted)' }}><Icon name="plus" size={16} />Programmer</Link>}
               </section>
             )
@@ -326,99 +243,8 @@ export default function Planning() {
       )}
 
       <p className="tiny muted">Heures dans votre fuseau ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Une ligne par vidéo : ses plateformes sont en logos ; touchez-la pour le détail de chaque compte.</p>
-      {openGroup && !open && <GroupSheet g={openGroup} onClose={() => setOpenGroup(null)} onPick={setOpen} />}
-      {open && <ItemSheet item={open} onClose={() => setOpen(null)} onChanged={() => { setOpen(null); setOpenGroup(null); cal.reload() }} />}
+      {openGroup && <PublicationSheet g={openGroup} group={groupOf(openGroup.items)} onClose={() => setOpenGroup(null)}
+                                      onChanged={() => { setOpenGroup(null); cal.reload() }} />}
     </>
-  )
-}
-
-function ItemSheet({ item, onClose, onChanged }: { item: CalendarItem; onClose: () => void; onChanged: () => void }) {
-  const [editing, setEditing] = useState(false)
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-  const act = async (fn: () => Promise<unknown>, confirmText?: string) => {
-    if (confirmText && !window.confirm(confirmText)) return
-    setErr(''); setBusy(true)
-    try { await fn(); onChanged() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
-  }
-
-  if (item.kind === 'video') {
-    const cells: [string, number | null][] = [['Vues', item.views], ['J’aime', item.likes], ['Commentaires', item.comments], ['Partages', item.shares], ['Enregistrements', item.saves]]
-    return (
-      <Sheet title={item.title || 'Sans titre'} onClose={onClose}>
-        <div className="row-nw" style={{ alignItems: 'flex-start' }}>
-          {item.thumbnail_url && <img src={item.thumbnail_url} alt="" referrerPolicy="no-referrer" style={{ width: 84, borderRadius: 12, aspectRatio: '9/13', objectFit: 'cover', flex: 'none' }} />}
-          <div className="col" style={{ gap: 6 }}>
-            <PlatformTag platform={item.platform} label={item.account_name} />
-            <span className="small muted">Publiée {fmtDateTime(item.at)}{item.via_chapote ? ' · depuis Chapote' : ''}</span>
-          </div>
-        </div>
-        <div className="mgrid">
-          {cells.filter(([, v]) => v != null).map(([l, v]) => (
-            <div key={l}><div className="m-label">{l}</div><div className="m-value">{num(v)}</div></div>
-          ))}
-        </div>
-        {item.views ? (
-          <p className="small muted">Engagement : {(((item.likes || 0) + (item.comments || 0) + (item.shares || 0) + (item.saves || 0)) / item.views * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} % des vues.</p>
-        ) : null}
-        {item.url && <a className="btn btn-block" href={item.url} target="_blank" rel="noreferrer">Voir sur {PLATFORM_LABEL[item.platform]} <Icon name="external" /></a>}
-      </Sheet>
-    )
-  }
-
-  const t = item
-  if (editing) return <EditTarget item={t} onClose={() => setEditing(false)} onSaved={onChanged} />
-  return (
-    <Sheet title={t.title} onClose={onClose}>
-      <div className="row" style={{ gap: 8 }}><PlatformTag platform={t.platform} label={t.account_name} /><StatusText status={t.status} /></div>
-      <div className="small"><span className="muted">{t.status === 'PUBLISHED' ? 'Publiée' : 'Prévue'} </span><strong>{fmtDateTime(t.published_at || t.scheduled_at)}</strong></div>
-      {t.error_message && <Msg kind="err">{t.error_message}</Msg>}
-      {t.notice && <Msg>{t.notice}</Msg>}
-      {err && <Msg kind="err">{err}</Msg>}
-      <div className="col" style={{ gap: 8 }}>
-        {t.status === 'SCHEDULED' && <>
-          <button type="button" className="btn btn-block" disabled={busy} onClick={() => setEditing(true)}><Icon name="edit" />Modifier l’heure ou le texte</button>
-          <button type="button" className="btn btn-block" disabled={busy} onClick={() => act(() => publishNow(t.id), 'Publier maintenant sur ce compte ?')}><Icon name="bolt" />Publier maintenant</button>
-        </>}
-        {t.can_retry && <button type="button" className="btn btn-primary btn-block" disabled={busy} onClick={() => act(() => retryTarget(t.id))}><Icon name="refresh" />Réessayer</button>}
-        {t.url && <a className="btn btn-block" href={t.url} target="_blank" rel="noreferrer">Voir sur {PLATFORM_LABEL[t.platform]} <Icon name="external" /></a>}
-        {t.can_edit && <button type="button" className="btn btn-block btn-danger" disabled={busy} onClick={() => act(() => cancelTarget(t.id), 'Annuler cette publication sur ce compte ?')}><Icon name="trash" />Annuler la publication</button>}
-      </div>
-    </Sheet>
-  )
-}
-
-function EditTarget({ item, onClose, onSaved }: { item: Extract<CalendarItem, { kind: 'target' }>; onClose: () => void; onSaved: () => void }) {
-  const [when, setWhen] = useState(toLocalInput(new Date(item.scheduled_at)))
-  const textKey = item.platform === 'instagram' ? 'caption' : 'title'
-  const [text, setText] = useState<string>(item.options[textKey] ?? '')
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-  const editText = !(item.platform === 'tiktok' && item.options.mode === 'draft')
-  const save = async () => {
-    setBusy(true); setErr('')
-    try {
-      await patchTarget(item.id, { scheduled_at: new Date(when).toISOString(), ...(editText ? { options: { [textKey]: text } } : {}) })
-      onSaved()
-    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
-  }
-  return (
-    <Sheet title={`Modifier · ${item.account_name || PLATFORM_LABEL[item.platform]}`} onClose={onClose}>
-      <label className="field">Date et heure
-        <input className="input" type="datetime-local" value={when} onChange={e => setWhen(e.target.value)} />
-      </label>
-      {editText && (
-        <label className="field">{item.platform === 'youtube' ? 'Titre YouTube' : 'Légende'}
-          {item.platform === 'youtube'
-            ? <input className="input" value={text} maxLength={100} onChange={e => setText(e.target.value)} />
-            : <textarea className="textarea" value={text} onChange={e => setText(e.target.value)} />}
-        </label>
-      )}
-      {err && <Msg kind="err">{err}</Msg>}
-      <div className="row-nw">
-        <button type="button" className="btn grow" onClick={onClose}>Retour</button>
-        <button type="button" className="btn btn-primary grow" onClick={save} disabled={busy}>Enregistrer</button>
-      </div>
-    </Sheet>
   )
 }

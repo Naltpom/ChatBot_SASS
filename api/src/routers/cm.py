@@ -622,7 +622,7 @@ async def overview(org_id: Optional[int] = Query(None), days: int = Query(30, ge
 
 MAX_GROUPS = 50
 MAX_GROUP_ACCOUNTS = 200
-GROUP_COLORS = ("blue", "orange", "green", "purple", "pink", "teal", "amber", "slate")
+GROUP_COLORS = ("blue", "orange", "green", "purple", "pink", "teal", "amber", "slate", "red", "indigo", "cyan", "lime", "rose", "sky", "emerald", "brown")
 
 
 class GroupAccountIn(BaseModel):
@@ -633,13 +633,13 @@ class GroupAccountIn(BaseModel):
 class GroupIn(BaseModel):
     org_id: Optional[int] = None
     name: str = Field(min_length=1, max_length=60)
-    color: Optional[Literal["blue", "orange", "green", "purple", "pink", "teal", "amber", "slate"]] = None
+    color: Optional[Literal["blue", "orange", "green", "purple", "pink", "teal", "amber", "slate", "red", "indigo", "cyan", "lime", "rose", "sky", "emerald", "brown"]] = None
     accounts: list[GroupAccountIn] = Field(default_factory=list, max_length=MAX_GROUP_ACCOUNTS)
 
 
 class GroupPatch(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=60)
-    color: Optional[Literal["blue", "orange", "green", "purple", "pink", "teal", "amber", "slate"]] = None
+    color: Optional[Literal["blue", "orange", "green", "purple", "pink", "teal", "amber", "slate", "red", "indigo", "cyan", "lime", "rose", "sky", "emerald", "brown"]] = None
     accounts: Optional[list[GroupAccountIn]] = Field(default=None, max_length=MAX_GROUP_ACCOUNTS)
 
 
