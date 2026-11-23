@@ -19,7 +19,9 @@ import base64
 import json
 import logging
 import re
+import os
 import time
+import uuid
 from datetime import datetime
 from typing import Any, Optional
 
@@ -37,7 +39,7 @@ FILE_FIELDS = ("id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,paren
                "thumbnailLink,videoMediaMetadata(width,height,durationMillis)")
 FOLDER_FIELDS = "id,name,mimeType,driveId,trashed,capabilities(canEdit,canAddChildren,canListChildren),owners(emailAddress),sharingUser(emailAddress)"
 MAX_FILES = 3000
-MAX_DEPTH = 3
+MAX_DEPTH = 4                        # <archives>/<compte>/<AAAA-MM>/<jour — titre>/
 PUBLISHED_FOLDER = "Publié"
 
 _transport: Optional[httpx.AsyncBaseTransport] = None
@@ -215,7 +217,7 @@ async def shared_folders(limit: int = 200) -> list[dict]:
 
 
 async def walk(folder_id: str) -> list[tuple[str, dict]]:
-    """(chemin du sous-dossier, fichier) de tout le dossier, sous-dossiers compris (3 niveaux)."""
+    """(chemin du sous-dossier, fichier) de tout le dossier, sous-dossiers compris (4 niveaux)."""
     out: list[tuple[str, dict]] = []
     todo = [(folder_id, "", 0)]
     while todo and len(out) < MAX_FILES:
@@ -334,3 +336,123 @@ def parse_time(v: Optional[str]) -> Optional[datetime]:
         return datetime.fromisoformat(v.replace("Z", "+00:00")).replace(tzinfo=None)
     except ValueError:
         return None
+
+
+# --------------------------------------------------------------------------
+# Écriture (archivage cm) : avec le jeton du robot (dossier où il peut déposer) ou celui
+# d'une connexion utilisateur « drive.file » (fichiers créés par cm seulement).
+# --------------------------------------------------------------------------
+
+async def _call(token: str, method: str, url: str, *, params: Optional[dict] = None, json_body: Any = None,
+                content: Any = None, headers: Optional[dict] = None, timeout: float = 60) -> httpx.Response:
+    async with _client(timeout=timeout) as c:
+        resp = await c.request(method, url, params={"supportsAllDrives": "true", **(params or {})}, json=json_body,
+                               content=content, headers={"Authorization": f"Bearer {token}", **(headers or {})})
+    if resp.status_code >= 400:
+        raise _error(resp)
+    return resp
+
+
+def _q(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("'", "\\'")
+
+
+async def find_child(token: str, parent_id: str, name: str, folder: bool) -> Optional[str]:
+    mime = f"mimeType {'=' if folder else '!='} '{FOLDER_MIME}'"
+    resp = await _call(token, "GET", f"{settings.GDRIVE_API_BASE}/drive/v3/files", params={
+        "q": f"'{parent_id}' in parents and name = '{_q(name)}' and {mime} and trashed = false",
+        "fields": "files(id)", "pageSize": "1", "includeItemsFromAllDrives": "true"})
+    files = _json(resp).get("files") or []
+    return files[0]["id"] if files else None
+
+
+async def ensure_folder(token: str, parent_id: str, name: str) -> str:
+    found = await find_child(token, parent_id, name, True)
+    if found:
+        return found
+    resp = await _call(token, "POST", f"{settings.GDRIVE_API_BASE}/drive/v3/files", params={"fields": "id"},
+                       json_body={"name": name, "mimeType": FOLDER_MIME, "parents": [parent_id]})
+    return _json(resp)["id"]
+
+
+async def ensure_path(token: str, base_id: str, names: list[str]) -> str:
+    fid = base_id
+    for n in names:
+        fid = await ensure_folder(token, fid, n)
+    return fid
+
+
+async def put_bytes(token: str, parent_id: str, name: str, data: bytes, mime: str,
+                    file_id: Optional[str] = None) -> str:
+    """Crée (ou remplace le contenu de) un petit fichier. Renvoie son id."""
+    if file_id:
+        await _call(token, "PATCH", f"{settings.GDRIVE_API_BASE}/upload/drive/v3/files/{file_id}",
+                    params={"uploadType": "media", "fields": "id"}, content=data, headers={"Content-Type": mime})
+        return file_id
+    boundary = "cm" + uuid.uuid4().hex
+    meta = json.dumps({"name": name, "parents": [parent_id]}).encode()
+    body = (f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".encode() + meta
+            + f"\r\n--{boundary}\r\nContent-Type: {mime}\r\n\r\n".encode() + data + f"\r\n--{boundary}--".encode())
+    resp = await _call(token, "POST", f"{settings.GDRIVE_API_BASE}/upload/drive/v3/files",
+                       params={"uploadType": "multipart", "fields": "id"}, content=body,
+                       headers={"Content-Type": f"multipart/related; boundary={boundary}"})
+    return _json(resp)["id"]
+
+
+async def put_file(token: str, parent_id: str, name: str, path: str, mime: str) -> str:
+    """Envoi d'une vidéo (envoi « resumable » en une passe, lu sur le disque par morceaux)."""
+    size = os.path.getsize(path)
+    init = await _call(token, "POST", f"{settings.GDRIVE_API_BASE}/upload/drive/v3/files",
+                       params={"uploadType": "resumable", "fields": "id"},
+                       json_body={"name": name, "parents": [parent_id]},
+                       headers={"X-Upload-Content-Type": mime, "X-Upload-Content-Length": str(size)})
+    location = init.headers.get("location")
+    if not location:
+        raise DriveError("upload_failed", "pas d'adresse d'envoi")
+
+    async def chunks():
+        with open(path, "rb") as f:
+            while True:
+                b = await asyncio.to_thread(f.read, 4 * 1024 * 1024)
+                if not b:
+                    return
+                yield b
+
+    async with _client(timeout=1800) as c:
+        resp = await c.put(location, content=chunks(), headers={"Authorization": f"Bearer {token}",
+                                                               "Content-Length": str(size), "Content-Type": mime})
+    if resp.status_code >= 400:
+        raise _error(resp)
+    return _json(resp)["id"]
+
+
+async def get_bytes(token: str, file_id: str, max_bytes: int = 2_000_000) -> bytes:
+    resp = await _call(token, "GET", f"{settings.GDRIVE_API_BASE}/drive/v3/files/{file_id}", params={"alt": "media"})
+    return resp.content[:max_bytes]
+
+
+async def delete_file(token: str, file_id: str) -> None:
+    await _call(token, "DELETE", f"{settings.GDRIVE_API_BASE}/drive/v3/files/{file_id}")
+
+
+async def share_with(token: str, file_id: str, email: str, role: str = "reader") -> None:
+    await _call(token, "POST", f"{settings.GDRIVE_API_BASE}/drive/v3/files/{file_id}/permissions",
+                params={"sendNotificationEmail": "false"}, json_body={"role": role, "type": "user", "emailAddress": email})
+
+
+async def probe_upload(folder_id: str) -> Optional[bool]:
+    """Le robot peut-il déposer un fichier dans ce dossier ? Essai réel (fichier effacé aussitôt).
+    False : Google refuse (pas d'espace de stockage) ; None : autre erreur, on ne sait pas."""
+    token = await access_token()
+    try:
+        fid = await put_bytes(token, folder_id, "cm-essai-ecriture.txt", b"cm.chapote.fr : essai, peut etre efface", "text/plain")
+    except DriveError as e:
+        if e.code == "no_space":
+            return False
+        logger.info("Drive : essai d'écriture du robot sans réponse claire (%s)", e.code)
+        return None
+    try:
+        await delete_file(token, fid)
+    except DriveError:
+        pass
+    return True

@@ -116,7 +116,7 @@ def source_out(s: CmSource, counts: Optional[dict] = None) -> dict:
     return {
         "id": s.id, "provider": s.provider, "folder_id": s.folder_id, "name": s.name,
         "url": f"https://drive.google.com/drive/folders/{s.folder_id}",
-        "role": s.role, "can_organize": s.role == "writer", "shared_by": _mask(s.shared_by), "verified": s.verified,
+        "role": s.role, "can_organize": s.role == "writer", "can_upload": s.can_upload, "shared_by": _mask(s.shared_by), "verified": s.verified,
         "group_id": s.group_id, "move_published": s.move_published,
         "auto_drafts": s.auto_drafts, "recipe": s.recipe,
         "last_scan_at": cm.iso(s.last_scan_at), "last_error": s.last_error,
@@ -494,6 +494,10 @@ async def ensure_media(db: AsyncSession, post_id: int) -> CmPost:
     if post.media_path and os.path.exists(post.media_path):
         await db.commit()
         return post
+    archived = (post.archive or {}).get("video_id")
+    if not post.asset_id and archived:
+        # Vidéo archivée par cm dans le Drive de l'espace (le robot y a accès en lecture).
+        return await _media_from_drive(db, post, archived, post.video_size or 0)
     if not post.asset_id:
         await db.commit()
         raise MediaError("media_missing", "La vidéo n'est plus disponible : recréez la publication.")
@@ -551,6 +555,26 @@ async def ensure_media(db: AsyncSession, post_id: int) -> CmPost:
     post.received_bytes = got
     post.mime_type = video.mime_type
     post.duration_sec = round(video.duration_sec, 2)
+    await db.commit()
+    return post
+
+
+async def _media_from_drive(db: AsyncSession, post: CmPost, file_id: str, size: int) -> CmPost:
+    try:
+        cm.check_space(size)
+    except HTTPException as e:
+        await db.commit()
+        raise MediaError("no_space", str(e.detail))
+    path = str(cm.media_dir() / f"{uuid.uuid4().hex}.mp4")
+    try:
+        await gd.download(file_id, path, cm.max_upload_bytes())
+        probe(path)
+    except (gd.DriveError, ProbeError) as e:
+        _unlink(path)
+        await db.commit()
+        raise MediaError("drive_error", e.describe() if isinstance(e, gd.DriveError) else f"Vidéo refusée : {e}.")
+    os.chmod(path, 0o600)
+    post.media_path = path
     await db.commit()
     return post
 

@@ -241,7 +241,7 @@ export const creatorInfo = (accountId: number) => call<CreatorInfo>(`/api/tiktok
 // Bibliothèque : dossiers Google Drive partagés avec le robot de Chapote
 export interface Source {
   id: number; provider: 'gdrive'; folder_id: string; name: string | null; url: string
-  role: 'reader' | 'writer' | null; can_organize: boolean; shared_by: string | null; verified: boolean
+  role: 'reader' | 'writer' | null; can_organize: boolean; can_upload?: boolean | null; shared_by: string | null; verified: boolean
   group_id: number | null; move_published: boolean; last_scan_at: string | null; last_error: string | null
   videos: number; new: number; created_at: string; scan?: { ok: boolean; videos?: number; added?: number; error?: string }
   auto_drafts?: boolean; recipe?: Recipe | null
@@ -290,6 +290,13 @@ export interface Asset {
   moved_published: boolean; scheduled: number; published: number; last_published_at: string | null
 }
 export type AssetState = 'all' | 'new' | 'used'
+// Drive d'archivage des publications de l'outil (connexion Google « drive.file »)
+export type DriveArchive = { oauth_enabled: boolean; connected: boolean; email: string | null; error: string | null; folder_url: string | null; folder_name: string }
+export const getDriveArchive = (org: number | null) => call<DriveArchive>(`/api/cm/drive/archive${q(org)}`)
+export const startDriveOAuth = (org: number | null) => send<{ authorize_url: string }>('POST', '/api/cm/drive/oauth/start', { org_id: org })
+export const exchangeDriveOAuth = (code: string, state: string) =>
+  send<DriveArchive & { org_id: number | null }>('POST', '/api/cm/drive/oauth/exchange', { code, state })
+export const disconnectDriveArchive = (org: number | null) => send<DriveArchive>('DELETE', `/api/cm/drive/archive${q(org)}`)
 export const getRobot = () => call<{ enabled: boolean; email: string | null }>('/api/cm/library/robot')
 export const getSources = (org: number | null) => call<Source[]>(`/api/cm/sources${q(org)}`)
 export const addSource = (org: number | null, url: string, group_id: number | null) =>

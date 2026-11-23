@@ -57,6 +57,7 @@ from src.models.cm import (
 )
 from src.models.tiktok import TikTokAccount, TikTokPost
 from src.models.youtube import YouTubeAccount, YouTubePost
+from src.services import cm_archive
 from src.services import cm_inbox
 from src.services import cm_library
 from src.services import cm_service as cm
@@ -558,6 +559,8 @@ async def cleanup(db: AsyncSession) -> None:
         last = max([t.updated_at for t in targets] + [post.updated_at])
         if failed and now - last < FAILED_MEDIA_GRACE:
             continue
+        if cm_archive.keep_media(post):       # pas encore archivée dans le Drive
+            continue
         cm.remove_media(post)
     await db.commit()
 
@@ -589,7 +592,8 @@ async def cleanup(db: AsyncSession) -> None:
 
 async def tick(db: AsyncSession) -> None:
     for step in (dispatch_due, follow_pending, refresh_instagram_tokens, sync_due, cleanup,
-                 cm_library.detect_shared, cm_library.scan_due, cm_library.organize_published, cm_inbox.sync_due):
+                 cm_library.detect_shared, cm_library.scan_due, cm_library.organize_published, cm_inbox.sync_due,
+                 cm_archive.sync_due, cm_archive.probe_sources):
         try:
             await step(db)
         except Exception:

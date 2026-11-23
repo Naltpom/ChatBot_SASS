@@ -116,6 +116,10 @@ services:
       # Bibliothèque Google Drive : clé du robot (compte de service), base64 du JSON. Vide = désactivée.
       - GDRIVE_SA_KEY_B64=${GDRIVE_SA_KEY_B64:-}
       - GDRIVE_SCAN_MINUTES=${GDRIVE_SCAN_MINUTES:-5}
+      # Archivage des publications dans le Drive de l'utilisateur (droit drive.file, projet Google séparé de YouTube).
+      - GDRIVE_OAUTH_CLIENT_ID=${GDRIVE_OAUTH_CLIENT_ID:-}
+      - GDRIVE_OAUTH_CLIENT_SECRET=${GDRIVE_OAUTH_CLIENT_SECRET:-}
+      - GDRIVE_OAUTH_REDIRECT_URI=${GDRIVE_OAUTH_REDIRECT_URI:-https://cm.chapote.fr/drive/callback}
       # SMTP (envoi des emails : leads, demandes de conseiller, prospection).
       # HOST vide = fallback log, jamais bloquant (les emails ne partent PAS).
       - SMTP_HOST=${SMTP_HOST:-}

@@ -14,6 +14,10 @@ routine ; `org_id` absent = espace perso ; ressource d'un autre tenant = 404).
   PATCH  /api/cm/assets/{id}               titre, légende
   GET    /api/cm/assets/{id}/thumbnail     miniature (relayée depuis Drive)
 
+  GET    /api/cm/drive/archive         Drive d'archivage de l'espace (connexion drive.file)
+  POST   /api/cm/drive/oauth/start     -> adresse Google ; POST /api/cm/drive/oauth/exchange {code, state}
+  DELETE /api/cm/drive/archive         déconnecter (les fichiers déjà archivés restent dans le Drive)
+
 Publier une vidéo de la bibliothèque : POST /api/cm/posts avec `asset_id` (routers/cm.py).
 """
 from typing import Literal, Optional
@@ -31,6 +35,7 @@ from src.models.user import User
 from src.routers.cm import _capture_account_scope, _same, get_cm_user
 from src.routers.tiktok import Tenant, _tenant, _tenant_of
 from src.services import cm_access
+from src.services import cm_archive
 from src.services import cm_service as cm
 from src.services import cm_paging as paging
 from src.services import cm_library as lib
@@ -538,3 +543,84 @@ async def dismiss_proposal(proposal_id: int, org_id: Optional[int] = Query(None)
     p.status = "dismissed"
     await db.commit()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Drive d'archivage (publications de l'outil rangées par cm, cm_archive)
+# --------------------------------------------------------------------------
+
+import uuid as _uuid
+from datetime import timedelta as _td
+
+from jose import JWTError, jwt
+
+from src.core.config import settings
+from src.core.security import _encode
+from src.services.rate_limit import SingleUseTokens
+
+DRIVE_STATE_SCOPE = "cm_drive_oauth"
+drive_state_store = SingleUseTokens("rl:cmdrivestate:", 600)
+drive_oauth_limiter = RateLimiter("rl:cmdriveoauth:", 20, 3600)
+_BAD_DRIVE_STATE = "Lien de connexion Google Drive invalide ou expiré : relancez « Connecter Google Drive »."
+
+
+@router.get("/drive/archive")
+async def drive_archive(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                        user: User = Depends(get_cm_user)):
+    tenant = await _tenant(db, user, org_id)
+    return cm_archive.link_out(await cm_archive.active_link(db, tenant.org_id, tenant.owner_user_id))
+
+
+class DriveStartIn(BaseModel):
+    org_id: Optional[int] = None
+
+
+@router.post("/drive/oauth/start")
+async def drive_oauth_start(body: DriveStartIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    if not cm_archive.oauth_enabled():
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "La connexion Google Drive n'est pas encore configurée sur Chapote.")
+    tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin")
+    if not await drive_oauth_limiter.check(f"{user.id}"):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives : réessayez dans une heure.")
+    state = _encode({"sub": str(user.id), "scope": DRIVE_STATE_SCOPE, "org": tenant.org_id, "jti": _uuid.uuid4().hex},
+                    _td(seconds=600))
+    return {"authorize_url": cm_archive.authorize_url(state)}
+
+
+class DriveExchangeIn(BaseModel):
+    code: str = Field(min_length=1, max_length=2048)
+    state: str = Field(min_length=1, max_length=2048)
+
+
+@router.post("/drive/oauth/exchange")
+async def drive_oauth_exchange(body: DriveExchangeIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    if not cm_archive.oauth_enabled():
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "La connexion Google Drive n'est pas encore configurée sur Chapote.")
+    try:
+        claims = jwt.decode(body.state, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_DRIVE_STATE)
+    if claims.get("scope") != DRIVE_STATE_SCOPE or claims.get("sub") != str(user.id) or not claims.get("jti"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_DRIVE_STATE)
+    tenant = await _tenant(db, user, claims.get("org"))
+    cm_access.require(tenant, "admin")
+    if not await drive_state_store.claim(claims["jti"]):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_DRIVE_STATE)
+    try:
+        tok = await cm_archive.exchange_code(body.code)
+        link = await cm_archive.connect(db, tenant, user, tok)
+    except cm_archive.ArchiveError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST if e.code != "drive_error" else 502, e.message)
+    return {**cm_archive.link_out(link), "org_id": tenant.org_id}
+
+
+@router.delete("/drive/archive")
+async def drive_disconnect(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                           user: User = Depends(get_cm_user)):
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
+    link = await cm_archive.active_link(db, tenant.org_id, tenant.owner_user_id)
+    if link is not None:
+        await cm_archive.disconnect(db, link)
+    return cm_archive.link_out(None)

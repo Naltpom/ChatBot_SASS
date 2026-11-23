@@ -45,6 +45,7 @@ const Drafts = lazyPage(() => import('./pages/Drafts'))
 const Comments = lazyPage(() => import('./pages/Comments'))
 const VideoSheet = lazyPage(() => import('./pages/VideoSheet'))
 const Callback = lazyPage(() => import('./pages/Callback'))
+const DriveCallback = lazyPage(() => import('./pages/DriveCallback'))
 
 const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie']
 const HINT = 'cm.session'
@@ -125,6 +126,7 @@ function Shell() {
         <Route path="/tiktok/callback" element={<Callback platform="tiktok" />} />
         <Route path="/youtube/callback" element={<Callback platform="youtube" />} />
         <Route path="/instagram/callback" element={<Callback platform="instagram" />} />
+        <Route path="/drive/callback" element={<DriveCallback />} />
         <Route path="*" element={<div className="col"><h1>Page introuvable</h1><Link to="/">Retour à l’accueil</Link></div>} />
       </Route>
     </Routes>

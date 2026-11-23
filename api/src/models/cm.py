@@ -113,7 +113,11 @@ class CmPost(Base):
     # Vidéo de la bibliothèque (dossier Drive) : téléchargée à l'heure de la 1re publication.
     asset_id = Column(Integer, ForeignKey("cm_assets.id", ondelete="SET NULL"), nullable=True, index=True)
     cover_path = Column(String(500), nullable=True)
-    ref = Column(String(200), nullable=True, index=True)  # référence de l'outil (« compte/id »), dédoublonnage      # couverture (image) : envoyée ou lue dans le Drive
+    ref = Column(String(200), nullable=True, index=True)  # référence de l'outil (« compte/id »), dédoublonnage
+    # Archivage dans le Drive de l'espace (cm_archive) : pending | ok | error ; null = pas d'archive.
+    archive_state = Column(String(12), nullable=True, index=True)
+    archive = Column(JSON, nullable=True)                 # ids Drive (dossier, vidéo, légende, couverture, infos), conte
+    archive_synced_at = Column(DateTime, nullable=True)
     status = Column(String, nullable=False, default=POST_RECEIVING, index=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
@@ -254,6 +258,9 @@ class CmSource(Base):
     group_id = Column(Integer, ForeignKey("cm_groups.id", ondelete="SET NULL"), nullable=True)
     move_published = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     published_folder_id = Column(String(200), nullable=True)
+    # Le robot peut-il déposer des fichiers ici ? (essai réel une fois : null = pas essayé ; Google refuse
+    # en général à un compte de service hors Drive partagé, même Éditeur). Archivage direct si vrai.
+    can_upload = Column(Boolean, nullable=True)
     # Brouillons automatiques : « recette » qui lit le rangement du dossier (voir cm_recipe).
     recipe = Column(JSON, nullable=True)
     auto_drafts = Column(Boolean, nullable=False, default=False, server_default=text("false"))
@@ -435,3 +442,29 @@ class CmTransfer(Base):
     resolved_at = Column(DateTime, nullable=True)
     resolved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CmDriveLink(Base):
+    """Drive de l'espace pour l'archivage (connexion Google au nom de l'utilisateur, droit « drive.file » :
+    cm ne voit que les fichiers qu'il a créés). Un seul lien actif par espace."""
+    __tablename__ = "cm_drive_links"
+    __table_args__ = (
+        _tenant_check("cm_drive_links"),
+        Index("uq_cm_drive_links_org", "organization_id", unique=True,
+              postgresql_where=text("revoked_at IS NULL AND organization_id IS NOT NULL")),
+        Index("uq_cm_drive_links_user", "owner_user_id", unique=True,
+              postgresql_where=text("revoked_at IS NULL AND organization_id IS NULL")),
+    )
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    connected_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    email = Column(String(255), nullable=True)
+    refresh_token_enc = Column(Text, nullable=False)
+    root_folder_id = Column(String(200), nullable=True)
+    source_id = Column(Integer, ForeignKey("cm_sources.id", ondelete="SET NULL"), nullable=True)
+    error = Column(Text, nullable=True)                   # dernière erreur (ex. accès retiré chez Google)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)

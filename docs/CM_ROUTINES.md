@@ -15,6 +15,8 @@ et stable du compte : `instagram:@ghosthands.music`, `tiktok:@ghosthands.music`,
    - `ref` (recommandé) : « compte/id » de la vidéo (le même que `infos.json` → `compte` + `id`). Relie la publication à
      sa vidéo du Drive (bibliothèque : « Programmée », fiche vidéo : lien Drive) et **refuse un doublon** : tant qu'une
      publication non annulée porte cette référence, `409 {"code": "duplicate_ref", "post_id": …}` (réutiliser ce post).
+   - `archive` (contes seulement) : `{dossier: "KHM-040 — Le Voleur", partie: "2"|"longue", id: "khm-040", titre: "Le Voleur"}`
+     → rangé dans `contes/<dossier>/` (voir section 8). Pour les autres comptes, rien à donner.
    - cible : `{platform, account: "tiktok:@pseudo", scheduled_at: "2026-12-24T17:30:00Z", options}` (UTC ; `null` =
      tout de suite). `account_id` reste accepté.
    - options TikTok : `{mode: "direct"|"draft", privacy_level: "PUBLIC_TO_EVERYONE"|…, allow_comment, allow_duet,
@@ -49,7 +51,22 @@ et stable du compte : `instagram:@ghosthands.music`, `tiktok:@ghosthands.music`,
 `GET /posts/{id}` → `targets[]` : `status` (`SCHEDULED`, `DISPATCHING`, `PUBLISHING`, `AWAITING_ROUTINE`,
 `PUBLISHED`, `INBOX`, `FAILED`, `CANCELLED`), `url`, `external_id`, `error_message`. Après une erreur Instagram,
 cm vérifie lui-même si le Reel est en ligne quand même (même légende) avant de conclure à l'échec.
-Annuler : `POST /targets/{id}/cancel` ; relancer un échec : `POST /targets/{id}/retry`.
+Annuler : `POST /targets/{id}/cancel` ; relancer un échec : `POST /targets/{id}/retry` (la vidéo est relue depuis
+l'archive Drive si elle n'est plus sur le serveur).
+
+### Retrouver ses publications : `GET /posts?ref_prefix=<compte>/`
+- `ref_prefix=kiwi/` : toutes les publications du compte kiwi ; `ref=kiwi/k12` : une seule. Sans `start`/`end`, **pas de
+  fenêtre de dates** (avec : filtre sur l'heure des cibles).
+- `status=upcoming|published|failed` (cibles pas encore parties / publiées / en échec), `q`, `order=asc|desc`,
+  `limit` (≤ 500) et pages par curseur (en-tête `X-Next-Cursor`, paramètre `cursor`), comme le planning.
+- Chaque post : `ref`, `status`, `archive {state: pending|ok|error, folder_url, error}`, `targets[]` avec `status`, `url`
+  (lien de la publication), `external_id`, `published_at`, `error_message`.
+
+### Fichiers d'un post
+`GET /posts/{id}/video` et `GET /posts/{id}/cover` : la vidéo et la couverture envoyées. Elles restent sur le serveur
+**au moins jusqu'à ce que toutes les cibles soient terminées** (et, en cas d'échec, 48 h de plus) et tant que la vidéo
+n'est pas archivée dans le Drive (7 jours au plus). Ensuite, la vidéo est relue depuis l'archive Drive quand on la
+demande ou qu'on relance une cible.
 
 ### Compléter un post déjà soumis : `POST /posts/{id}/targets`
 Ajoute des plateformes à une publication existante, sans la recréer (une 2ᵉ `POST /posts` avec la même `ref` serait
@@ -131,6 +148,37 @@ archive automatiquement à la relecture, rien n'est publié. Sinon `POST /propos
 ## 7. Mode validation
 Si une vidéo ne doit plus partir (validation, retour en réserve), annuler ses cibles : `POST /targets/{id}/cancel`.
 cm publie tout ce qui est programmé.
+
+## 8. Archivage dans le Drive par cm
+Chaque publication créée par l'API avec une `ref` est rangée par cm dans le Drive de l'espace, avec l'arborescence
+qu'utilisait le PC :
+
+```
+<compte>/<AAAA-MM>/<AAAA-MM-JJ HHhMM — Titre>/   Titre.mp4, Titre.txt (légende), couverture.jpg, infos.json
+contes/<KHM-NNN — Titre>/                        Titre — partie N.mp4 (et .txt, couverture — partie N.jpg), infos.json
+```
+(heure de Paris de la 1ʳᵉ cible ; caractères `/ \ : * ? " < > |` retirés des noms.)
+
+`infos.json` (réécrit à chaque changement de statut d'une cible, liens compris, en moins d'une minute) :
+```json
+{"compte": "kiwi", "id": "k12", "titre": "…", "heure": "2026-12-02T18:30:00+01:00", "statut": "prete",
+ "publie_le": null, "plateformes": {"instagram": {"statut": "publiee", "url": "https://www.instagram.com/reel/…", "publie_le": "…"},
+                                   "tiktok": {"statut": "prete", "url": null, "publie_le": null}}}
+```
+`statut` : `prete` (au moins une cible à venir), `en_cours` (par plateforme), `publiee` (toutes publiées), `ratee`
+(échec, plus rien à venir), `annulee`. Contes : un seul `infos.json` par conte, `{"compte": "contes", "id": "khm-040",
+"titre": …, "parties": {"2": {statut, heure, publie_le, plateformes, id: "khm-040-p2", titre}}}`.
+
+Où cm écrit :
+1. dans le dossier du compte déjà relié à la bibliothèque (son nom = `<compte>`), **si Google laisse le robot y déposer
+   des fichiers** : cm l'essaie une fois par dossier Éditeur (carte du dossier : « archivage direct » ou « dépôt de
+   fichiers refusé par Google ») ; un compte de service n'a pas d'espace de stockage hors Drive partagé ;
+2. sinon dans le Drive connecté dans la Bibliothèque (« Connecter Google Drive », droit `drive.file` : cm ne voit que les
+   fichiers qu'il crée), sous « cm.chapote.fr (archives) » / `<compte>` / … Ce dossier est partagé en lecture avec le
+   robot et relié à la bibliothèque.
+
+Ces dossiers ne donnent **jamais** de brouillon « à valider » (infos.json avec `compte` + `id`, section 6). Sans Drive
+d'archivage, le post l'indique (`archive.error`) et cm réessaie toutes les 30 min ; rien n'empêche la publication.
 
 Limites : `CM_MAX_UPLOAD_MB` par vidéo, nombre de publications par jour et par espace (`post_limiter`), quota
 YouTube (~6 envois/jour pour tout chapote).
