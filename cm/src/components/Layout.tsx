@@ -5,7 +5,7 @@
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useSession } from '../session'
-import { PLATFORM_LABEL, type Account, type Group } from '../api'
+import { getProposalCount, PLATFORM_LABEL, type Account, type Group } from '../api'
 import { PlatformLogo } from './PlatformLogo'
 import { useDesktop } from '../hooks'
 import { AccountPicker, accKey, usePins, type PinKey } from './AccountPicker'
@@ -19,6 +19,7 @@ const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
   { to: '/videos', label: 'Vidéos', icon: 'video' },
 ]
 const MANAGE: { to: string; label: string; icon: IconName }[] = [
+  { to: '/a-valider', label: 'À valider', icon: 'check' },
   { to: '/comptes', label: 'Comptes', icon: 'users' },
   { to: '/bibliotheque', label: 'Bibliothèque', icon: 'layers' },
   { to: '/personnes', label: 'Personnes', icon: 'users' },
@@ -151,6 +152,9 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
   const title = composing ? 'Nouvelle publication' : [...NAV, ...MANAGE].find(n => ('end' in n && n.end ? pathname === n.to : pathname.startsWith(n.to)))?.label
   const space = visibleSpaces.length > 1 ? visibleSpaces.find(s => s.org_id === org) : null
   useEffect(() => { window.scrollTo(0, 0) }, [pathname])
+  // Brouillons à valider (pastille) : relu à chaque changement de page.
+  const [drafts, setDrafts] = useState(0)
+  useEffect(() => { getProposalCount(org).then(r => setDrafts(r.open)).catch(() => setDrafts(0)) }, [org, pathname])
 
   return (
     <div className="app">
@@ -163,7 +167,11 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
           <div className="side-label">Suivi · filtrable</div>
           {NAV.map(n => <NavLink key={n.to} to={n.to} end={n.end}><Icon name={n.icon} />{n.label}</NavLink>)}
           <div className="side-label">Gestion · tout l’espace</div>
-          {MANAGE.map(n => <NavLink key={n.to} to={n.to}><Icon name={n.icon} />{n.label}</NavLink>)}
+          {MANAGE.map(n => (
+            <NavLink key={n.to} to={n.to}><Icon name={n.icon} />{n.label}
+              {n.to === '/a-valider' && drafts > 0 && <span className="nav-badge" aria-label={`${drafts} à valider`}>{drafts > 99 ? '99+' : drafts}</span>}
+            </NavLink>
+          ))}
         </nav>
         <div className="side-foot small muted" style={{ padding: '12px 12px 0' }}>
           Même compte que chapote.fr
@@ -177,7 +185,7 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
             : <span className="only-mobile row-nw" style={{ gap: 8, minWidth: 0 }}><Brand to="/" />{space && <span className="small strong ellipsis">{space.name}</span>}</span>}
           <span className={`appbar-title${composing ? '' : ' only-desktop'}`}>{title}</span>
           <span className="grow" />
-          {!composing && <MobileMore />}
+          {!composing && <MobileMore drafts={drafts} />}
           <AccountMenu />
         </header>
         {filtered && <ScopeBar />}
@@ -199,14 +207,17 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
 }
 
 /** Mobile : les pages hors de la barre du bas (Vidéos, Bibliothèque, Personnes). */
-function MobileMore() {
+function MobileMore({ drafts }: { drafts: number }) {
   const [open, setOpen] = useState(false)
   return (
     <span className="only-mobile">
-      <button type="button" className="btn btn-ghost icon-btn" aria-label="Plus de pages" onClick={() => setOpen(true)}><Icon name="menu" /></button>
+      <button type="button" className="btn btn-ghost icon-btn" aria-label={drafts ? `Plus de pages (${drafts} à valider)` : 'Plus de pages'} onClick={() => setOpen(true)} style={{ position: 'relative' }}>
+        <Icon name="menu" />{drafts > 0 && <span className="nav-badge" style={{ position: 'absolute', top: 2, right: 0, transform: 'scale(.8)' }} aria-hidden="true">{drafts > 99 ? '99+' : drafts}</span>}
+      </button>
       {open && (
         <Sheet title="Pages" onClose={() => setOpen(false)}>
           <div className="col" style={{ gap: 2 }}>
+            <NavLink className="menu-item" to="/a-valider" onClick={() => setOpen(false)}><Icon name="check" />À valider{drafts > 0 && <span className="nav-badge">{drafts}</span>}</NavLink>
             <NavLink className="menu-item" to="/videos" onClick={() => setOpen(false)}><Icon name="video" />Vidéos</NavLink>
             <NavLink className="menu-item" to="/bibliotheque" onClick={() => setOpen(false)}><Icon name="layers" />Bibliothèque</NavLink>
             <NavLink className="menu-item" to="/personnes" onClick={() => setOpen(false)}><Icon name="users" />Personnes</NavLink>

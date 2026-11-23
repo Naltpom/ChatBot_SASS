@@ -229,7 +229,42 @@ export interface Source {
   role: 'reader' | 'writer' | null; can_organize: boolean; shared_by: string | null; verified: boolean
   group_id: number | null; move_published: boolean; last_scan_at: string | null; last_error: string | null
   videos: number; new: number; created_at: string; scan?: { ok: boolean; videos?: number; added?: number; error?: string }
+  auto_drafts?: boolean; recipe?: Recipe | null
 }
+
+// Brouillons automatiques (recette par dossier)
+export type DatePattern = 'ymd_hm' | 'ymd' | 'dmy_hm' | 'dmy' | 'compact' | 'none'
+export interface Recipe {
+  version: 1
+  account: { from: 'source' | 'folder'; level: number; map: Record<string, string[]> }
+  when: { pattern: DatePattern; default_time: string; timezone: string }
+  title: { from: 'folder' | 'file' | 'txt_first_line' }
+  caption: { from: 'txt' | 'none' }
+  cover: { from: 'image' | 'none' }
+}
+export interface RecipeExample {
+  asset_id: number; path: string; accounts: string[]; folder: string | null; scheduled_at: string | null
+  when_from: 'path' | 'date' | null; title: string; caption: string | null; cover: boolean
+}
+export interface Analysis {
+  engine: 'gemini' | 'regles'; recipe: Recipe; explanation: string | null; examples: RecipeExample[]; folders: Record<'1' | '2' | '3', string[]>
+  accounts: { key: string; name: string }[]; groups: { key: string; name: string }[]; patterns: Record<DatePattern, string>; videos: number
+}
+export interface Proposal {
+  id: number; status: 'open' | 'used' | 'dismissed'; title: string | null; caption: string | null
+  scheduled_at: string | null; when_from: 'path' | 'date' | null
+  accounts: { key: string; name: string | null; platform: Platform }[]; asset: Asset | null; created_at: string
+}
+export const analyzeSource = (org: number | null, id: number) => send<Analysis>('POST', `/api/cm/sources/${id}/analyze${q(org)}`)
+export const previewRecipe = (org: number | null, id: number, recipe: Recipe) =>
+  send<{ recipe: Recipe; examples: RecipeExample[] }>('POST', `/api/cm/sources/${id}/recipe/preview${q(org)}`, { recipe })
+export const saveRecipe = (org: number | null, id: number, recipe: Recipe, auto_drafts: boolean, backlog: boolean) =>
+  send<{ source: Source; proposed: number }>('PUT', `/api/cm/sources/${id}/recipe${q(org)}`, { recipe, auto_drafts, backlog })
+export const getProposalsPage = (org: number | null, cursor?: string | null) =>
+  callPage<Proposal>(`/api/cm/proposals${q(org, { limit: 30, cursor: cursor || undefined })}`)
+export const getProposalCount = (org: number | null) => call<{ open: number }>(`/api/cm/proposals/count${q(org)}`)
+export const getProposal = (org: number | null, id: number) => call<Proposal>(`/api/cm/proposals/${id}${q(org)}`)
+export const dismissProposal = (org: number | null, id: number) => send<{ ok: boolean }>('POST', `/api/cm/proposals/${id}/dismiss${q(org)}`)
 export interface Asset {
   id: number; source_id: number; source_name: string | null; group_id: number | null; name: string; title: string
   caption: string | null; caption_from: 'txt' | 'user' | null; folder: string | null; mime_type: string | null

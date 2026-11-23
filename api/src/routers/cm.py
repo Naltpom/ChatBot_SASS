@@ -1130,6 +1130,11 @@ async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset
                        options=options, status=T_SCHEDULED)
         db.add(row)
         targets.append(row)
+    # Brouillon automatique de cette vidéo : utilisé.
+    from sqlalchemy import update as sa_update
+    from src.models.cm import CmProposal
+    await db.execute(sa_update(CmProposal).where(CmProposal.asset_id == asset.id, CmProposal.status == "open")
+                     .values(status="used"))
     await db.commit()
     for row in targets:
         if row.scheduled_at <= now:

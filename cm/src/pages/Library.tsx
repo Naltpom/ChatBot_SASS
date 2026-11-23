@@ -8,6 +8,7 @@ import {
   removeIdentity, removeSource, scanSource, type Asset, type AssetState, type Identities, type Source,
 } from '../api'
 import GoogleButton from '../components/GoogleButton'
+import { RecipeSheet } from '../components/RecipeSheet'
 import { Empty, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDate, fmtDateTime, fmtDuration, fmtSize } from '../format'
 import { useLoad, useRole, useSession } from '../session'
@@ -145,7 +146,10 @@ function AddFolder({ robot, known, onClose, onAdded }: { robot: string; known: n
 function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: (s: Source) => void; onRemoved: () => void }) {
   const { org, groups } = useSession()
   const [open, setOpen] = useState(false)
+  const [recipe, setRecipe] = useState(false)
+  const [note, setNote] = useState('')
   const [err, setErr] = useState('')
+  const { canAdmin } = useRole()
   const group = groups.find(g => g.id === s.group_id)
   const run = async (fn: () => Promise<Source | unknown>) => {
     setErr('')
@@ -163,6 +167,7 @@ function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: (s: Sou
             {s.last_scan_at && ` · relu ${fmtDateTime(s.last_scan_at)}`}
           </div>
           {group && <div className="tiny muted row-nw" style={{ gap: 6, marginTop: 2 }}><GroupDot color={group.color} />{group.name}</div>}
+          {s.auto_drafts && <div className="tiny row-nw" style={{ gap: 6, marginTop: 2, color: 'var(--primary)' }}><Icon name="bolt" size={14} />Brouillons automatiques</div>}
         </div>
         <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label="Réglages du dossier" aria-expanded={open} onClick={() => setOpen(o => !o)}><Icon name="menu" /></button>
       </div>
@@ -183,6 +188,11 @@ function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: (s: Sou
             <span>Ranger les vidéos publiées dans un sous-dossier « Publié »
               <br /><span className="field-hint">{s.can_organize ? 'Une fois publiée sur tous ses comptes, la vidéo est déplacée dans le Drive.' : 'Partagez le dossier avec le robot en Éditeur pour activer cette option.'}</span></span>
           </label>
+          {canAdmin && (
+            <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setRecipe(true)}>
+              <Icon name="bolt" />{s.auto_drafts ? 'Brouillons automatiques : réglages' : 'Brouillons automatiques…'}
+            </button>
+          )}
           <div className="row" style={{ gap: 8 }}>
             <button type="button" className="btn btn-sm" onClick={() => run(() => scanSource(org, s.id))}><Icon name="refresh" />Relire maintenant</button>
             <button type="button" className="btn btn-sm btn-danger" onClick={async () => {
@@ -193,6 +203,11 @@ function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: (s: Sou
         </div>
       )}
       {err && <Msg kind="err">{err}</Msg>}
+      {note && <Msg kind="ok">{note}</Msg>}
+      {recipe && <RecipeSheet s={s} onClose={() => setRecipe(false)} onSaved={(n, proposed) => {
+        setRecipe(false); onChanged({ ...s, ...n })
+        setNote(n.auto_drafts ? `Brouillons automatiques activés${proposed ? ` : ${proposed} brouillon${proposed > 1 ? 's' : ''} à valider` : ''}.` : 'Réglages enregistrés.')
+      }} />}
     </div>
   )
 }

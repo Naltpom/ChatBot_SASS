@@ -252,6 +252,10 @@ class CmSource(Base):
     group_id = Column(Integer, ForeignKey("cm_groups.id", ondelete="SET NULL"), nullable=True)
     move_published = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     published_folder_id = Column(String(200), nullable=True)
+    # Brouillons automatiques : « recette » qui lit le rangement du dossier (voir cm_recipe).
+    recipe = Column(JSON, nullable=True)
+    auto_drafts = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    drafts_since = Column(DateTime, nullable=True)       # vidéos ajoutées après (NULL = toutes)
     last_scan_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
@@ -287,8 +291,36 @@ class CmAsset(Base):
     caption_from = Column(String(10), nullable=True)     # txt | user
     sidecar_file_id = Column(String(200), nullable=True)
     sidecar_modified_at = Column(DateTime, nullable=True)
+    cover_file_id = Column(String(200), nullable=True)   # image du même dossier (couverture)
     moved_published_at = Column(DateTime, nullable=True)
     removed_at = Column(DateTime, nullable=True)         # disparue du dossier
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmProposal(Base):
+    """Brouillon proposé automatiquement pour une vidéo de la bibliothèque, à valider.
+
+    Rien ne part sans validation : « Valider » ouvre le composeur pré-rempli (mêmes règles qu'une
+    publication à la main, dont les choix TikTok faits par l'utilisateur). `accounts` : clés
+    "plateforme:id" ; `when_from` : path (date lue dans le nom) | auto (heure par défaut)."""
+    __tablename__ = "cm_proposals"
+    __table_args__ = (
+        _tenant_check("cm_proposals"),
+        Index("uq_cm_proposals_asset", "asset_id", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    source_id = Column(Integer, ForeignKey("cm_sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    asset_id = Column(Integer, ForeignKey("cm_assets.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(200), nullable=True)
+    caption = Column(Text, nullable=True)
+    scheduled_at = Column(DateTime, nullable=True)        # UTC
+    when_from = Column(String(10), nullable=True)
+    accounts = Column(JSON, nullable=False, default=list)
+    status = Column(String(12), nullable=False, default="open", index=True)   # open | used | dismissed
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 

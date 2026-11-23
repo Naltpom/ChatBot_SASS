@@ -2,7 +2,7 @@
 // vidéos phares. Mobile : tout en une colonne, vidéos en carrousel. Ordinateur : deux colonnes.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getOverview, getPosts, type Account, type Target } from '../api'
+import { getOverview, getPosts, getProposalCount, type Account, type Target } from '../api'
 import { Avatar, Delta, Empty, Icon, Msg, PlatformTag, Seg, Skeleton } from '../components/ui'
 import ViewsChart from '../components/ViewsChart'
 import { fmtTime, greeting, num, relDay, short, signed } from '../format'
@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [days, setDays] = useState(30)
   const [metric, setMetric] = useState<'views' | 'followers'>('views')
   const ov = useLoad(s => getOverview(s, days), [days])
+  const drafts = useLoad(s => getProposalCount(s.org))
   const upcoming = useLoad(s => getPosts(s, new Date(), new Date(Date.now() + 14 * 86400000), { status: 'upcoming', limit: 12 }))
 
   const next: (Target & { title: string })[] = (upcoming.data || [])
@@ -48,6 +49,13 @@ export default function Dashboard() {
 
       {ov.error && <Msg kind="err">{ov.error}</Msg>}
       {!d && ov.loading && <div className="kpis"><Skeleton h={104} n={4} /></div>}
+      {(drafts.data?.open || 0) > 0 && (
+        <Link to="/a-valider" className="card row-nw draft-banner" style={{ gap: 12, textDecoration: 'none', color: 'var(--text)' }}>
+          <span className="nav-badge" style={{ marginLeft: 0 }}>{drafts.data!.open}</span>
+          <span className="grow strong">Brouillon{drafts.data!.open > 1 ? 's' : ''} à valider depuis vos dossiers Drive</span>
+          <Icon name="right" />
+        </Link>
+      )}
       {d && d.totals.accounts === 0 && (
         <Empty title={group ? 'Aucun compte dans ce groupe' : 'Connectez votre premier compte'} icon="users">
           <p style={{ marginBottom: 16 }}>{group ? 'Ajoutez des comptes à ce groupe depuis la page Comptes.' : 'TikTok, YouTube ou Instagram : vos chiffres et votre planning apparaîtront ici.'}</p>
