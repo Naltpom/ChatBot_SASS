@@ -155,6 +155,13 @@ services:
       - MUSIC_INGEST_TOKEN=${MUSIC_INGEST_TOKEN:-}
       - MUSIC_URL=${MUSIC_URL:-http://localhost:3002}
       - MUSIC_DIR=/app/music_files
+      # cm.chapote.fr en dev (cd cm && npm run dev : port 3003).
+      - CM_URL=${CM_URL:-http://localhost:3003}
+      - CM_SERVICE_TOKEN=${CM_SERVICE_TOKEN:-}
+      - CM_SERVICE_USER_EMAIL=${CM_SERVICE_USER_EMAIL:-}
+      - CM_MEDIA_DIR=/tmp/cm_media
+      - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID:-}
+      - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET:-}
       # Embeddings locaux (RAG) : cache du modele fastembed hors de /app
       # (zéro interaction avec le watcher --reload). Changer de modele peut
       # changer la dimension (la base attend vector(384)).
