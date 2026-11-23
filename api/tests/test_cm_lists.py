@@ -152,3 +152,95 @@ async def test_video_sheet_groups_platforms_and_filters_comments(pg_session, cme
         got = (await h.get(f"/api/cm/inbox/comments?status=all&videos={tt.id},{ig_v.id}")).json()
         assert [x["external_id"] for x in got] == ["k9"]
         assert (await c.as_(other).get(f"/api/cm/videos/{tt.id}/sheet")).status_code == 404
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_accounts_have_readable_slugs_usable_as_targets(pg_session, cmenv, tiktok):
+    from test_cm import _ig_routine
+    me = await _user(pg_session, "slug@t.dev")
+    tk = await _account(pg_session, owner=me, open_id="s9", display_name="Ghost Hands Music", username="ghosthands.music")
+    ig_acc = await _ig_routine(pg_session, owner=me, username="GhostHands.Music")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(me)
+        slugs = {a["slug"] for a in (await h.get("/api/cm/accounts")).json()}
+        assert slugs == {"tiktok:@ghosthands.music", "instagram:@ghosthands.music"}
+        at = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+        r = await h.post("/api/cm/posts", json={"title": "x", "video_size": 1000, "file_name": "a.mp4", "targets": [
+            {"platform": "instagram", "account": "@ghosthands.music", "scheduled_at": at, "options": {}},
+            {"platform": "tiktok", "account": "tiktok:@GhostHands.Music", "scheduled_at": at,
+             "options": {"mode": "direct", "privacy_level": "PUBLIC_TO_EVERYONE", "fallback_draft": True}}]})
+        assert r.status_code == 200, r.text
+        from sqlalchemy import select as _select
+        from src.models.cm import CmTarget
+        rows = (await pg_session.execute(_select(CmTarget).where(CmTarget.post_id == r.json()["post_id"]))).scalars().all()
+        assert {(t.platform, t.account_id) for t in rows} == {("instagram", ig_acc.id), ("tiktok", tk.id)}
+        assert next(t for t in rows if t.platform == "tiktok").options["fallback_draft"] is True
+        bad = await h.post("/api/cm/posts", json={"title": "x", "video_size": 1000, "file_name": "a.mp4", "targets": [
+            {"platform": "tiktok", "account": "tiktok:@inconnu", "options": {}}]})
+        assert bad.status_code == 404 and "slug" in bad.json()["detail"]
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_tiktok_falls_back_to_draft_when_visibility_refused(pg_session, cmenv, tiktok):
+    from sqlalchemy import select as _select
+    from src.models.cm import CmTarget
+    from src.models.tiktok import TikTokPost
+    from src.services import cm_jobs
+    from test_cm import _tt_target
+    from test_cm_team import _plan
+    me = await _user(pg_session, "repli@t.dev")
+    acc = await _account(pg_session, owner=me, open_id="r9")
+    await pg_session.commit()
+    tiktok.creator["privacy_level_options"] = ["SELF_ONLY"]          # app pas encore auditée
+    async with Client(pg_session) as c:
+        h = c.as_(me)
+        at = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+        t = _tt_target(acc.id, scheduled_at=at)
+        t["options"]["fallback_draft"] = True
+        await _plan(h, [t])
+    target = (await pg_session.execute(_select(CmTarget))).scalar_one()
+    target.scheduled_at = utcnow() - timedelta(minutes=1)
+    await pg_session.commit()
+    await cm_jobs.dispatch_target(pg_session, target.id)
+    await pg_session.refresh(target)
+    tp = await pg_session.get(TikTokPost, target.tiktok_post_id)
+    assert target.status == "PUBLISHING" and tp.mode == "draft" and "brouillon" in target.notice
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_instagram_all_reels_get_views_in_rounds(pg_session, cmenv, monkeypatch):
+    from sqlalchemy import func as _func, select as _select
+    from src.services import cm_service as cm
+    from src.services import instagram_service as ig
+    from test_cm import _ig_api
+    me = await _user(pg_session, "reels@t.dev")
+    acc = await _ig_api(pg_session, me)
+    await pg_session.commit()
+    reels = [{"id": f"r{i}", "media_type": "VIDEO", "media_product_type": "REELS", "caption": f"Reel {i}",
+              "timestamp": "2026-10-01T10:00:00+0000", "like_count": i} for i in range(80)]
+    asked = []
+
+    async def profile(token):
+        return {"username": "ghosthands.music", "followers_count": 10, "media_count": 80}
+
+    async def all_media(token, uid, max_items=500):
+        return reels
+
+    async def insights(token, mid):
+        asked.append(mid)
+        return {"views": 1000 + int(mid[1:])}
+    monkeypatch.setattr(ig, "profile", profile)
+    monkeypatch.setattr(ig, "all_media", all_media)
+    monkeypatch.setattr(ig, "media_insights", insights)
+    await cm.sync_account(pg_session, "instagram", acc)
+    assert len(asked) == cm.INSIGHTS_PER_SYNC
+    asked.clear()
+    await cm.sync_account(pg_session, "instagram", acc)
+    assert {f"r{i}" for i in range(80)} - set(asked) <= {f"r{i}" for i in range(cm.INSIGHTS_PER_SYNC)}   # les 20 restants d'abord
+    missing = (await pg_session.execute(_select(_func.count()).select_from(CmVideo).where(
+        CmVideo.account_id == acc.id, CmVideo.views.is_(None)))).scalar()
+    assert missing == 0

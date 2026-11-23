@@ -62,6 +62,10 @@ async def test_analyze_save_propose_then_use_or_dismiss(pg_session, cmenv, drive
                            "modifiedTime": "2026-11-22T10:00:00Z"}
     drive.files["jpg3"] = {"name": "couverture.jpg", "mimeType": "image/jpeg", "parent": "day1", "content": b"\xff\xd8",
                            "modifiedTime": "2026-11-22T10:00:00Z"}
+    # Vidéo d'un créneau déjà passé (déjà publiée) : jamais proposée.
+    drive.folders["day0"] = {"name": "2026-01-05 18h30 — Ancienne", "parent": SUB}
+    drive.files["vid0"] = {"name": "Ancienne.mp4", "mimeType": "video/mp4", "parent": "day0", "content": drive.video,
+                           "durationMillis": "30000", "modifiedTime": "2026-01-05T10:00:00Z"}
     seen = {}
 
     async def fake_gemini(listing, accounts, groups):
@@ -106,6 +110,7 @@ async def test_analyze_save_propose_then_use_or_dismiss(pg_session, cmenv, drive
         r = await h.put(f"/api/cm/sources/{src['id']}/recipe", json={"recipe": d["recipe"], "auto_drafts": False})
         r = await h.put(f"/api/cm/sources/{src['id']}/recipe", json={"recipe": d["recipe"], "auto_drafts": True, "backlog": True})
         assert r.json()["proposed"] >= 1
+        assert "Ancienne" not in [p["title"] for p in (await h.get("/api/cm/proposals")).json()]
         first = (await h.get("/api/cm/proposals")).json()[0]
         assert (await h.post(f"/api/cm/proposals/{first['id']}/dismiss")).status_code == 200
         await lib.scan_source(pg_session, source)

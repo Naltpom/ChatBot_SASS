@@ -61,6 +61,7 @@ class TikTokAccount(Base):
     connected_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     open_id = Column(String, nullable=False)
     display_name = Column(String, nullable=True)
+    username = Column(String, nullable=True)          # @pseudo (creator_info), pour le nom lisible du compte
     avatar_url = Column(Text, nullable=True)
     scopes = Column(String, nullable=True)
     access_token_enc = Column(Text, nullable=True)

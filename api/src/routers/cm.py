@@ -117,6 +117,8 @@ state_store = SingleUseTokens("rl:igstate:", STATE_TTL_SECONDS)
 oauth_limiter = RateLimiter("rl:igoauth:", 20, 3600)
 post_limiter = RateLimiter("rl:cmpost:", 60, 86400)
 sync_limiter = RateLimiter("rl:cmsync:", 6, 3600)
+# Relecture complète (tous les Reels d'un coup) : une fois par heure et par compte, sinon par tournées.
+full_sync_limiter = RateLimiter("rl:cmsyncfull:", 1, 3600)
 
 
 # --------------------------------------------------------------------------
@@ -311,6 +313,20 @@ async def _latest_stats_bulk(db: AsyncSession, accounts, days: int) -> dict:
     return out
 
 
+async def _fill_tiktok_usernames(db: AsyncSession, accounts, limit: int = 5) -> None:
+    """Pseudo TikTok (pour « tiktok:@pseudo ») : lu une fois auprès de TikTok, sans permission en plus."""
+    todo = [a for p, a in accounts if p == "tiktok" and not a.username and not a.needs_reconnect][:limit]
+    for a in todo:
+        try:
+            info = await tt.creator_info(await tt.valid_access_token(db, a))
+            if info.get("creator_username"):
+                a.username = info["creator_username"]
+        except Exception:                       # jeton, réseau : on réessaiera plus tard
+            continue
+    if todo:
+        await db.commit()
+
+
 ACCOUNT_SORTS = ("name", "followers", "views", "connected", "platform")
 
 
@@ -331,6 +347,7 @@ async def list_accounts(org_id: Optional[int] = Query(None), days: int = Query(7
     """Comptes du périmètre. `q` : nom ou pseudo ; `sort` : nom, abonnés, vues, date de connexion."""
     tenant = await _tenant(db, user, org_id)
     accounts = await _scoped(db, tenant, group_id)
+    await _fill_tiktok_usernames(db, accounts)
     stats = await _latest_stats_bulk(db, accounts, days)
     out = [cm.account_view(p, a, *stats.get((p, a.id), (None, None))) for p, a in accounts]
     needle = (q or "").strip().lower().lstrip("@")
@@ -355,7 +372,8 @@ async def sync_account(platform: Literal["tiktok", "youtube", "instagram"], acco
     cm_access.require(tenant, "edit")
     if not await sync_limiter.check(f"{platform}:{acc.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Chiffres déjà actualisés récemment : réessayez plus tard.")
-    stat = await cm.sync_account(db, platform, acc)
+    full = platform == "instagram" and await full_sync_limiter.check(f"{platform}:{acc.id}")
+    stat = await cm.sync_account(db, platform, acc, full=full)
     return cm.account_view(platform, acc, stat)
 
 
@@ -1083,7 +1101,8 @@ async def instagram_data_deletion(signed_request: str = Form(...), db: AsyncSess
 
 class TargetIn(BaseModel):
     platform: Literal["tiktok", "youtube", "instagram"]
-    account_id: int
+    account_id: Optional[int] = None
+    account: Optional[str] = Field(None, max_length=120)   # nom lisible : « tiktok:@pseudo » (au lieu de l'id)
     scheduled_at: Optional[datetime] = None      # vide = dès que la vidéo est reçue
     options: dict[str, Any] = Field(default_factory=dict)
 
@@ -1193,6 +1212,17 @@ async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset
     return {"post_id": post.id, "ready": True, "post": _post_out(post, targets, names)}
 
 
+async def _account_by_slug(db: AsyncSession, tenant: Tenant, platform: str, slug: Optional[str]) -> int:
+    if not slug:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cible sans compte : donnez « account » (ex. tiktok:@pseudo) ou « account_id ».")
+    if not slug.lower().startswith(f"{platform}:"):
+        slug = f"{platform}:{slug}"
+    for p, a in await cm.tenant_accounts(db, tenant):
+        if p == platform and cm.same_slug(slug, p, a):
+            return a.id
+    raise HTTPException(status.HTTP_404_NOT_FOUND, f"Compte « {slug} » introuvable dans cet espace (voir GET /api/cm/accounts → slug).")
+
+
 @router.post("/posts")
 async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, body.org_id)
@@ -1213,6 +1243,8 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
     seen = set()
     planned = []
     for t in body.targets:
+        if t.account_id is None:
+            t.account_id = await _account_by_slug(db, tenant, t.platform, t.account)
         key = (t.platform, t.account_id)
         if key in seen:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Un même compte est choisi deux fois.")
