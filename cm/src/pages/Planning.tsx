@@ -3,6 +3,7 @@
 // abonnés jour par jour ; le futur montre les publications programmées.
 // Mobile : vue Agenda (bande des 7 jours + liste). Ordinateur : vue Semaine en 7 colonnes. Mois partout.
 import { useEffect, useMemo, useState } from 'react'
+import { SearchBox } from '../components/list'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { PlanRow, PublicationSheet, useGroupOf, type Group_ } from './PlanningParts'
 import { Link, useLocation } from 'react-router-dom'
@@ -69,6 +70,21 @@ export default function Planning() {
 
   const [start, end] = useMemo(() => range(view, anchor), [view, anchor])
   const cal = useLoad(s => getCalendar(s, start, end), [start.getTime(), end.getTime()])
+  // Recherche (titre, légende) faite par le serveur, sur environ un an en arrière et six mois devant.
+  const [input, setInput] = useState('')
+  const [search, setSearch] = useState('')
+  useEffect(() => { const t = setTimeout(() => setSearch(input.trim()), 300); return () => clearTimeout(t) }, [input])
+  const found = useLoad(s => (search ? getCalendar(s, addDays(new Date(), -365), addDays(new Date(), 180), search) : Promise.resolve(null)), [search])
+  const filters = (list: CalendarItem[]) => list
+    .filter(i => !(i.kind === 'target' && i.status === 'CANCELLED'))
+    .filter(i => !platforms.length || platforms.includes(i.platform))
+    .filter(i => kind === 'all' || (kind === 'planned' ? isPlanned(i) : !isPlanned(i)))
+  const results = useMemo(() => {
+    if (!search || !found.data) return []
+    const m = new Map<string, CalendarItem[]>()
+    for (const i of filters(found.data.items)) { const k = dayKey(new Date(i.at)); m.set(k, [...(m.get(k) || []), i]) }
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]))   // la plus récente d'abord
+  }, [search, found.data, platforms, kind]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const items = (cal.data?.items || [])
     .filter(i => !(i.kind === 'target' && i.status === 'CANCELLED'))
@@ -143,6 +159,7 @@ export default function Planning() {
           <button type="button" className="btn icon-btn btn-sm only-desktop" aria-label="Actualiser" onClick={cal.reload}><Icon name="refresh" /></button>
         </div>
       </div>
+      <SearchBox value={input} onChange={setInput} label="Rechercher une vidéo (titre, légende)" />
       <div className="chips" role="group" aria-label="Plateformes">
         {PLATFORMS.map(p => (
           <button key={p} type="button" className="chip" aria-pressed={platforms.includes(p)} onClick={() => togglePlatform(p)}>
@@ -150,7 +167,24 @@ export default function Planning() {
           </button>
         ))}
       </div>
-      {cal.data && (
+      {search && (
+        <section className="col" style={{ gap: 12 }} aria-label="Résultats de la recherche" aria-busy={found.loading}>
+          {found.error && <Msg kind="err">{found.error}</Msg>}
+          {!found.data && found.loading && <Skeleton h={84} n={3} />}
+          {found.data && (
+            <p className="tiny muted" role="status" style={{ margin: 0 }}>
+              {results.length ? `${results.reduce((n, [, l]) => n + groupItems(l).length, 0)} vidéo(s) pour « ${search} »` : `Aucune vidéo pour « ${search} »`}
+            </p>
+          )}
+          {results.map(([k, list]) => (
+            <section key={k} className="agenda-day" aria-label={new Date(`${k}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}>
+              <div className="agenda-day-head"><h2>{new Date(`${k}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}</h2></div>
+              {groupItems(list).map(gx => <PlanRow key={gx.key} g={gx} group={groupOf(gx.items)} onOpen={setOpenGroup} />)}
+            </section>
+          ))}
+        </section>
+      )}
+      {!search && cal.data && (
           <span className="tiny muted row" style={{ gap: '4px 14px' }}>
             <span><b className="num" style={{ color: 'var(--text)' }}>{done.length}</b> publiée{done.length > 1 ? 's' : ''}</span>
             {periodViews > 0 && <span><b className="num" style={{ color: 'var(--text)' }}>{short(periodViews)}</b> vues</span>}
@@ -162,7 +196,7 @@ export default function Planning() {
       {cal.error && <Msg kind="err">{cal.error}</Msg>}
       {!cal.data && cal.loading && <div className="col"><Skeleton h={56} /><Skeleton h={84} n={3} /></div>}
 
-      {cal.data && view === 'agenda' && (
+      {!search && cal.data && view === 'agenda' && (
         <>
           <div className="daystrip" role="group" aria-label="Jours de la semaine">
             {week.map(d => {
@@ -182,7 +216,7 @@ export default function Planning() {
         </>
       )}
 
-      {cal.data && view === 'week' && (
+      {!search && cal.data && view === 'week' && (
         <div className="week">
           {week.map(d => {
             const k = dayKey(d)
@@ -204,7 +238,7 @@ export default function Planning() {
         </div>
       )}
 
-      {cal.data && view === 'month' && (
+      {!search && cal.data && view === 'month' && (
         <div className="grid-2">
           <div className="col" style={{ gap: 6 }}>
             <div className="month" aria-hidden="true">
@@ -235,7 +269,7 @@ export default function Planning() {
         </div>
       )}
 
-      {cal.data && items.length === 0 && view !== 'month' && (
+      {!search && cal.data && items.length === 0 && view !== 'month' && (
         <Empty title="Rien sur cette période" icon="calendar">
           <p style={{ marginBottom: 14 }}>Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres ; programmez la suite depuis Chapote.</p>
           <Link className="btn btn-primary" to="/nouvelle"><Icon name="plus" size={16} />Nouvelle publication</Link>

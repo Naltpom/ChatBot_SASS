@@ -202,3 +202,23 @@ async def test_tiktok_short_link_is_resolved(pg_session, cmenv, tiktok, monkeypa
         assert r.status_code == 200, r.text
         assert r.json()["url"] == "https://www.tiktok.com/@ghosthands.music/video/7711132447085317408"
         assert r.json()["external_id"] == "7711132447085317408"
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_calendar_search(pg_session, cmenv, tiktok):
+    u = await _user(pg_session, "a@t.dev")
+    tk = await _account(pg_session, owner=u, open_id="cs1")
+    await pg_session.commit()
+    later = (utcnow() + timedelta(days=60)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        await _ready(h, [_tt_target(tk.id, scheduled_at=later)], title="Bumblebee (Piano)")
+        await _ready(h, [_tt_target(tk.id, scheduled_at=later)], title="Clair de lune")
+        start = (utcnow() - timedelta(days=365)).isoformat() + "Z"
+        end = (utcnow() + timedelta(days=180)).isoformat() + "Z"
+        r = await h.get("/api/cm/calendar", params={"start": start, "end": end, "q": "bumble"})
+        assert r.status_code == 200, r.text
+        assert [i["title"] for i in r.json()["items"]] == ["Bumblebee (Piano)"] and r.json()["days"] == []
+        # Sans recherche, la période reste limitée.
+        assert (await h.get("/api/cm/calendar", params={"start": start, "end": end})).status_code == 400
