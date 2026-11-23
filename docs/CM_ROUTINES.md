@@ -59,7 +59,8 @@ Tant que l'application TikTok n'est pas validée, une vidéo peut arriver en **b
 ou repli `fallback_draft`) : la cible passe `INBOX` et **y reste**, TikTok ne signale pas la publication faite depuis l'app.
 Le brouillon arrive **sans légende** : `targets[].options.title` contient la légende complète (texte + hashtags) à coller.
 - `POST /targets/{id}/published {url?, published_at?}` : publiée à la main dans l'app → `PUBLISHED` (`url` facultatif,
-  `https://www.tiktok.com/@compte/video/<id>` : `external_id` en est tiré ; `published_at` = maintenant par défaut).
+  `https://www.tiktok.com/@compte/video/<id>`, ou lien court de partage `https://vm.tiktok.com/…`, résolu par cm : `external_id`
+  en est tiré ; `published_at` = maintenant par défaut).
   Cible `INBOX` seulement (sinon 409) ; lien qui n'est pas un lien TikTok → 400.
 - `POST /targets/{id}/resend-draft` : brouillon supprimé dans l'app → renvoyé tout de suite, même vidéo, même légende
   (relue depuis l'archive Drive si elle n'est plus sur le serveur). Cible `INBOX` seulement (sinon 409).

@@ -30,6 +30,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
@@ -1706,6 +1707,21 @@ class PublishedIn(BaseModel):
 TIKTOK_VIDEO_RE = re.compile(r"^https://(?:www\.|m\.|vm\.|vt\.)?tiktok\.com/[^\s]*$")
 
 
+TIKTOK_FULL_RE = re.compile(r"^https://(?:www\.)?tiktok\.com/@[\w.]+/video/\d+")
+
+
+async def resolve_tiktok_link(url: str) -> Optional[str]:
+    """Lien court de partage TikTok (vm.tiktok.com/…) → https://www.tiktok.com/@compte/video/<id>, d'après sa
+    redirection (une seule, sans la suivre). None si TikTok ne répond pas comme prévu."""
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as c:
+            resp = await c.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    except httpx.HTTPError:
+        return None
+    m = TIKTOK_FULL_RE.match(resp.headers.get("location") or "")
+    return m.group(0) if m else None
+
+
 @router.post("/targets/{target_id}/published")
 async def mark_published(target_id: int, body: PublishedIn = PublishedIn(), db: AsyncSession = Depends(get_db),
                          user: User = Depends(get_cm_user)):
@@ -1718,6 +1734,8 @@ async def mark_published(target_id: int, body: PublishedIn = PublishedIn(), db: 
     url = (body.url or "").strip() or None
     if url and not TIKTOK_VIDEO_RE.match(url):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Lien TikTok non reconnu (https://www.tiktok.com/@compte/video/…).")
+    if url and "/video/" not in url:
+        url = await resolve_tiktok_link(url) or url   # lien court de partage (vm.tiktok.com/…) : lien complet
     m = re.search(r"/video/(\d+)", url or "")
     t.url = url or t.url
     t.external_id = m.group(1) if m else t.external_id
