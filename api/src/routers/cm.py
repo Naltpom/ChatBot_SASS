@@ -1248,6 +1248,33 @@ async def _account_by_slug(db: AsyncSession, tenant: Tenant, platform: str, slug
     raise HTTPException(status.HTTP_404_NOT_FOUND, f"Compte « {slug} » introuvable dans cet espace (voir GET /api/cm/accounts → slug).")
 
 
+async def _plan_targets(db: AsyncSession, tenant: Tenant, targets: list, title: str, caption: str,
+                        mime: Optional[str], duration: Optional[float], size: int) -> list:
+    """Règles communes des cibles (POST /posts et POST /posts/{id}/targets) : compte (slug ou id), publication
+    possible, options normalisées, vidéo compatible si connue, heure. Tout est vérifié avant d'écrire."""
+    seen = set()
+    planned = []
+    for t in targets:
+        if t.account_id is None:
+            t.account_id = await _account_by_slug(db, tenant, t.platform, t.account)
+        key = (t.platform, t.account_id)
+        if key in seen:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Un même compte est choisi deux fois.")
+        seen.add(key)
+        acc = await cm.get_account(db, tenant, t.platform, t.account_id)
+        if not cm.can_publish(t.platform, acc):
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                f"{cm.ACCOUNT_LABEL[t.platform]} « {cm.account_name(t.platform, acc)} » : publication "
+                                "impossible pour le moment (compte à reconnecter ou module indisponible).")
+        options = cm.normalize_options(t.platform, acc, t.options, title, caption or "")
+        if duration and mime:
+            err = cm.check_video_for(t.platform, acc, mime, duration, size)
+            if err:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
+        planned.append((t, options, cm.check_schedule(t.scheduled_at)))
+    return planned
+
+
 @router.post("/posts")
 async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     tenant = await _tenant(db, user, body.org_id)
@@ -1273,26 +1300,8 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
         if dup:
             raise HTTPException(status.HTTP_409_CONFLICT, {"code": "duplicate_ref", "post_id": dup,
                                                            "message": f"Une publication active porte déjà la référence « {ref} »."})
-    seen = set()
-    planned = []
-    for t in body.targets:
-        if t.account_id is None:
-            t.account_id = await _account_by_slug(db, tenant, t.platform, t.account)
-        key = (t.platform, t.account_id)
-        if key in seen:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Un même compte est choisi deux fois.")
-        seen.add(key)
-        acc = await cm.get_account(db, tenant, t.platform, t.account_id)
-        if not cm.can_publish(t.platform, acc):
-            raise HTTPException(status.HTTP_409_CONFLICT,
-                                f"{cm.ACCOUNT_LABEL[t.platform]} « {cm.account_name(t.platform, acc)} » : publication "
-                                "impossible pour le moment (compte à reconnecter ou module indisponible).")
-        options = cm.normalize_options(t.platform, acc, t.options, title, body.caption)
-        if asset is not None and asset.duration_sec and asset.mime_type:
-            err = cm.check_video_for(t.platform, acc, asset.mime_type, asset.duration_sec, size)
-            if err:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
-        planned.append((t, options, cm.check_schedule(t.scheduled_at)))
+    planned = await _plan_targets(db, tenant, body.targets, title, body.caption,
+                                  asset.mime_type if asset else None, asset.duration_sec if asset else None, size)
     if asset is not None:
         return await _create_from_asset(db, tenant, user, asset, title, body.caption, planned, ref)
     receiving = (await db.execute(select(func.count()).select_from(CmPost).where(
@@ -1422,6 +1431,55 @@ async def submit_post(post_id: int, db: AsyncSession = Depends(get_db), user: Us
     return _post_out(post, targets, names)
 
 
+class TargetsAddIn(BaseModel):
+    targets: list[TargetIn] = Field(min_length=1, max_length=MAX_TARGETS)
+
+
+@router.post("/posts/{post_id}/targets")
+async def add_targets(post_id: int, body: TargetsAddIn, db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_cm_user)):
+    """Complète un post déjà créé (ex. TikTok / YouTube ajoutés à un Reel programmé). Mêmes règles que les cibles
+    de POST /posts ; une plateforme déjà présente (cible non annulée) est ignorée et listée dans `skipped`."""
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
+    if post.status == POST_CANCELLED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication est annulée : recréez-la.")
+    if post.status == POST_READY and not (post.media_path or post.asset_id):
+        raise HTTPException(status.HTTP_409_CONFLICT, "La vidéo n'est plus disponible : recréez la publication.")
+    existing = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
+    active = {t.platform: t for t in existing if t.status != T_CANCELLED}
+    wanted, skipped = [], []
+    for t in body.targets:
+        if t.platform in active:
+            had = active[t.platform]
+            skipped.append({"platform": t.platform, "target_id": had.id, "status": had.status})
+        elif any(w.platform == t.platform for w in wanted):
+            skipped.append({"platform": t.platform, "target_id": None, "status": "DUPLICATE"})
+        else:
+            wanted.append(t)
+    if len(active) + len(wanted) > MAX_TARGETS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{MAX_TARGETS} comptes au plus par publication.")
+    planned = await _plan_targets(db, tenant, wanted, post.title, post.caption or "", post.mime_type,
+                                  post.duration_sec, post.video_size or 0)
+    now = utcnow()
+    ready = post.status == POST_READY
+    added = []
+    for t, options, when in planned:
+        row = CmTarget(post_id=post.id, platform=t.platform, account_id=t.account_id,
+                       scheduled_at=max(when, now) if ready else when, options=options,
+                       status=T_SCHEDULED if ready else T_DRAFT)
+        db.add(row)
+        added.append(row)
+    await db.commit()
+    if ready:
+        for row in added:
+            if row.scheduled_at <= now:
+                cm_jobs.launch(row.id)
+    _, names = await _tenant_index(db, tenant)
+    return {"added": [_target_out(r, names) for r in added], "skipped": skipped,
+            "post": _post_out(post, list(existing) + added, names)}
+
+
 @router.get("/posts")
 async def list_posts(org_id: Optional[int] = Query(None), start: Optional[datetime] = None,
                      end: Optional[datetime] = None, group_id: Optional[int] = Query(None),
@@ -1503,6 +1561,9 @@ class TargetPatch(BaseModel):
 @router.patch("/targets/{target_id}")
 async def update_target(target_id: int, body: TargetPatch, db: AsyncSession = Depends(get_db),
                         user: User = Depends(get_cm_user)):
+    """Heure et/ou textes d'une cible pas encore partie (DRAFT, SCHEDULED). `options` partielles, fusionnées avec
+    les options de la cible puis revérifiées (mêmes règles que POST /posts) ; une clé à null revient au texte
+    commun du post ; les hashtags ne sont ajoutés que s'ils manquent."""
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
     if t.status not in (T_DRAFT, T_SCHEDULED):

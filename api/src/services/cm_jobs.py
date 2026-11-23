@@ -548,6 +548,7 @@ async def cleanup(db: AsyncSession) -> None:
     # Vidéos dont toutes les publications sont terminées.
     posts = (await db.execute(
         select(CmPost).where(CmPost.media_path.is_not(None), CmPost.status.in_((POST_READY, POST_CANCELLED)))
+        .with_for_update(skip_locked=True)   # un ajout de cible en cours (POST /posts/{id}/targets) garde la vidéo
     )).scalars().all()
     for post in posts:
         targets = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()

@@ -49,8 +49,46 @@ et stable du compte : `instagram:@ghosthands.music`, `tiktok:@ghosthands.music`,
 `GET /posts/{id}` → `targets[]` : `status` (`SCHEDULED`, `DISPATCHING`, `PUBLISHING`, `AWAITING_ROUTINE`,
 `PUBLISHED`, `INBOX`, `FAILED`, `CANCELLED`), `url`, `external_id`, `error_message`. Après une erreur Instagram,
 cm vérifie lui-même si le Reel est en ligne quand même (même légende) avant de conclure à l'échec.
-Changer l'heure : `PATCH /targets/{id}` `{scheduled_at}` ; annuler : `POST /targets/{id}/cancel` ;
-relancer un échec : `POST /targets/{id}/retry`.
+Annuler : `POST /targets/{id}/cancel` ; relancer un échec : `POST /targets/{id}/retry`.
+
+### Compléter un post déjà soumis : `POST /posts/{id}/targets`
+Ajoute des plateformes à une publication existante, sans la recréer (une 2ᵉ `POST /posts` avec la même `ref` serait
+refusée en 409 `duplicate_ref`). Exemple : le Reel est programmé, le jeton TikTok ou YouTube arrive ensuite.
+```json
+POST /api/cm/posts/412/targets
+{"targets": [
+  {"platform": "tiktok",  "account": "tiktok:@ghosthands.music",  "scheduled_at": "2026-11-24T19:10:00+01:00",
+   "options": {"mode": "direct", "privacy_level": "PUBLIC_TO_EVERYONE", "hashtags": ["piano"]}},
+  {"platform": "youtube", "account": "youtube:@ghosthandsmusic", "scheduled_at": "2026-11-24T19:10:00+01:00",
+   "options": {"title": "Clair de lune — Beginner to Expert", "privacy_status": "public", "made_for_kids": false}}
+]}
+→ {"added": [{"id": 981, "platform": "tiktok", "status": "SCHEDULED", …}, …],
+   "skipped": [{"platform": "instagram", "target_id": 977, "status": "SCHEDULED"}],
+   "post": {…, "targets": [toutes les cibles]}}
+```
+- Mêmes règles que les cibles de `POST /posts` : compte par `account` (slug) ou `account_id`, options et limites du
+  tableau de la section 2, textes par défaut tirés du titre et de la légende commune du post, vidéo vérifiée pour le
+  compte, heure vide = tout de suite. Une seule cible invalide → erreur (400 / 404 / 409) et rien n'est ajouté.
+- Une plateforme déjà présente sur le post (cible non annulée) est **ignorée** et listée dans `skipped`, sans erreur :
+  l'appel peut être rejoué. Une plateforme annulée peut être rajoutée.
+- Post encore en envoi (avant `submit`) : les cibles ajoutées attendent le `submit` (`DRAFT`), comme les autres.
+- Post annulé, ou vidéo plus disponible : 409, recréer la publication.
+
+### Modifier une cible pas encore partie : `PATCH /targets/{id}`
+`{scheduled_at?, options?}` sur une cible `DRAFT` ou `SCHEDULED` (sinon 409 : déjà partie, ou prise par la routine).
+L'id de la cible se lit dans `GET /posts/{id}` → `targets[].id`.
+- `scheduled_at` : nouvelle heure.
+- `options` : **partielles**, fusionnées avec celles de la cible, puis revérifiées (mêmes limites que la section 2) ;
+  une clé à `null` revient au texte commun du post ; les `hashtags` ne sont ajoutés que s'ils manquent (renvoyer la
+  même liste ne les double pas).
+
+  | plateforme | clés de texte | autres |
+  |---|---|---|
+  | Instagram | `caption`, `hashtags`, `collaborators` | `share_to_feed` |
+  | TikTok | `title` (ou `caption`), `hashtags` | `privacy_level`, `allow_comment`, `allow_duet`, `allow_stitch`… |
+  | YouTube | `title`, `description`, `tags` | `category_id`, `privacy_status`, `made_for_kids`… |
+
+  Exemple : `PATCH /api/cm/targets/981 {"options": {"title": "Clair de lune #piano", "hashtags": ["debussy"]}}`.
 
 ## 4. Instagram sans connexion officielle (mode « routine »)
 Tant que le compte Instagram n'est pas connecté officiellement dans cm, sa cible passe en `AWAITING_ROUTINE` à
