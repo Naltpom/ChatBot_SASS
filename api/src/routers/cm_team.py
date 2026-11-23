@@ -378,3 +378,246 @@ async def claim(body: ClaimIn, db: AsyncSession = Depends(get_db), user: User = 
     result = await cm_access.move_account(db, platform, acc, dest, user.id)
     return {"moved": True, **result}
 
+
+
+# --------------------------------------------------------------------------
+# Personnes et partage par compte / par groupe
+# --------------------------------------------------------------------------
+# Un seul espace pour l'utilisateur : partager depuis l'espace perso le rend partageable (il devient
+# une équipe chapote.fr dont l'utilisateur est propriétaire ; comptes, groupes, planning, bibliothèque
+# y passent tels quels). Chaque personne a un rôle (admin | editor | viewer) et, sauf admin, un accès à
+# tous les comptes ou seulement à certains comptes / groupes.
+
+
+def _space_models():
+    from src.models.cm import CmGroup as _G, CmPost as _P, CmSource as _S, InstagramAccount as _I
+    from src.models.tiktok import TikTokAccount as _TA, TikTokPost as _TP
+    from src.models.youtube import YouTubeAccount as _YA, YouTubePost as _YP
+    return (_TA, _TP, _YA, _YP, _I, _P, _G, _S)
+
+
+async def ensure_shareable(db: AsyncSession, user: User, tenant: Tenant) -> Tenant:
+    """Espace perso -> équipe dont l'utilisateur est propriétaire (une fois). Rien d'autre ne change."""
+    if tenant.org_id:
+        return tenant
+    from sqlalchemy import update
+    from src.models.cm import CmGoogleIdentity
+    org = Organization(name=(f"Espace de {user.name}" if user.name else "Mon espace")[:120], owner_user_id=user.id)
+    db.add(org)
+    await db.flush()
+    db.add(Membership(user_id=user.id, organization_id=org.id, role="admin", permissions={}))
+    for model in _space_models():
+        await db.execute(update(model).where(model.owner_user_id == user.id, model.organization_id.is_(None))
+                         .values(organization_id=org.id, owner_user_id=None))
+    await db.execute(update(CmGoogleIdentity).where(CmGoogleIdentity.user_id == user.id,
+                                                    CmGoogleIdentity.organization_id.is_(None))
+                     .values(organization_id=org.id))
+    await db.commit()
+    return await _tenant(db, user, org.id)
+
+
+def _scope_out(row: Optional[CmMemberRole], org_admin: bool) -> dict:
+    if org_admin or row is None or row.role == "admin" or (row.group_ids is None and row.account_keys is None):
+        return {"all": True, "groups": [], "accounts": []}
+    return {"all": False, "groups": [int(g) for g in row.group_ids or []], "accounts": list(row.account_keys or [])}
+
+
+@router.get("/people")
+async def people(org_id: Optional[int] = None, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Qui a accès à cet espace, avec quel rôle et à quels comptes."""
+    if org_id is None:
+        return {"org_id": None, "my_role": "admin", "can_manage": True, "people": [
+            {"user_id": user.id, "name": user.name, "email": user.email, "role": "admin", "owner": True, "you": True,
+             "pending": False, "scope": {"all": True, "groups": [], "accounts": []}}]}
+    tenant = await _tenant(db, user, org_id)
+    org = await db.get(Organization, org_id)
+    roles = {r.email: r for r in (await db.execute(select(CmMemberRole).where(CmMemberRole.organization_id == org_id))).scalars()}
+    out = []
+    for u, m in (await db.execute(select(User, Membership).join(Membership, Membership.user_id == User.id)
+                                  .where(Membership.organization_id == org_id).order_by(Membership.created_at))).all():
+        r = roles.get((u.email or "").lower())
+        role = "admin" if m.role == "admin" else (r.role if r else "editor")
+        out.append({"user_id": u.id, "name": u.name, "email": u.email, "role": role, "owner": org.owner_user_id == u.id,
+                    "you": u.id == user.id, "pending": False, "scope": _scope_out(r, m.role == "admin")})
+    for i in (await db.execute(select(Invitation).where(Invitation.organization_id == org_id))).scalars():
+        r = roles.get(i.email.lower())
+        role = "admin" if i.role == "admin" else (r.role if r else "editor")
+        out.append({"user_id": None, "invitation_id": i.id, "name": None, "email": i.email, "role": role, "owner": False,
+                    "you": False, "pending": True, "scope": _scope_out(r, i.role == "admin")})
+    return {"org_id": org_id, "name": org.name, "my_role": tenant.cm_role, "can_manage": tenant.cm_role == "admin", "people": out}
+
+
+class ShareIn(BaseModel):
+    org_id: Optional[int] = None
+    email: EmailStr
+    role: Literal["admin", "editor", "viewer"] = "editor"
+    platform: Optional[Literal["tiktok", "youtube", "instagram"]] = None   # partager un compte…
+    account_id: Optional[int] = None
+    group_id: Optional[int] = None                                         # … ou un groupe
+    all: bool = False                                                      # … ou tout l'espace
+
+
+async def _member_rows(db: AsyncSession, org_id: int, email: str):
+    member = (await db.execute(select(Membership).join(User, User.id == Membership.user_id).where(
+        Membership.organization_id == org_id, func.lower(User.email) == email))).scalar_one_or_none()
+    invite = (await db.execute(select(Invitation).where(Invitation.organization_id == org_id,
+                                                        Invitation.email == email))).scalar_one_or_none()
+    row = (await db.execute(select(CmMemberRole).where(CmMemberRole.organization_id == org_id,
+                                                       CmMemberRole.email == email))).scalar_one_or_none()
+    return member, invite, row
+
+
+@router.post("/shares")
+async def share(body: ShareIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Partage un compte, un groupe ou tout l'espace avec une personne (ajoutée à l'espace si besoin)."""
+    tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin")
+    if not await invite_limiter.check(f"{user.id}"):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de partages : réessayez dans une heure.")
+    email = body.email.lower()
+    if email == (user.email or "").lower():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "C'est votre propre adresse.")
+    item = None
+    if not body.all and body.role != "admin":
+        if body.group_id is not None:
+            g = await db.get(CmGroup, body.group_id)
+            if g is None or not cm_access._same_tenant(g, tenant):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Groupe introuvable")
+            item = ("group", g.id)
+        elif body.platform and body.account_id is not None:
+            acc = await cm.get_account(db, tenant, body.platform, body.account_id)
+            item = ("account", f"{body.platform}:{acc.id}")
+        else:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choisissez ce que vous partagez.")
+    tenant = await ensure_shareable(db, user, tenant)
+    org_id = tenant.org_id
+    member, invite, row = await _member_rows(db, org_id, email)
+    if member is not None and member.role == "admin":
+        return {"org_id": org_id, "ok": True, "message": f"{email} a déjà accès à tout (administrateur)."}
+    target = (await db.execute(select(User).where(func.lower(User.email) == email))).scalar_one_or_none()
+    org_role = "admin" if body.role == "admin" else "member"
+    created = False
+    if member is None and invite is None:
+        created = True
+        if target:
+            db.add(Membership(user_id=target.id, organization_id=org_id, role=org_role, permissions={}))
+        else:
+            db.add(Invitation(organization_id=org_id, email=email, role=org_role))
+    elif body.role == "admin":
+        if member is not None:
+            member.role = "admin"
+        if invite is not None:
+            invite.role = "admin"
+    if row is None:
+        row = CmMemberRole(organization_id=org_id, email=email,
+                           group_ids=[] if item else None, account_keys=[] if item else None)
+        if not created and item:      # personne déjà là sans restriction : elle garde tout
+            row.group_ids = row.account_keys = None
+        db.add(row)
+    row.role = body.role
+    if body.role == "admin" or body.all:
+        row.group_ids = row.account_keys = None
+    elif item and (row.group_ids is not None or row.account_keys is not None):
+        if item[0] == "group":
+            row.group_ids = sorted(set((row.group_ids or []) + [item[1]]))
+            row.account_keys = list(row.account_keys or [])
+        else:
+            row.account_keys = sorted(set((row.account_keys or []) + [item[1]]))
+            row.group_ids = list(row.group_ids or [])
+    await db.commit()
+    if created:
+        org = await db.get(Organization, org_id)
+        send_org_member_email(email, org.name, org_role, existing=target is not None,
+                              app_url=settings.CM_URL or settings.APP_URL)
+    return {"org_id": org_id, "ok": True, "invited": created and target is None}
+
+
+class PersonPatch(BaseModel):
+    org_id: int
+    email: EmailStr
+    role: Literal["admin", "editor", "viewer"]
+    all: bool = True
+    groups: list[int] = Field(default_factory=list)
+    accounts: list[str] = Field(default_factory=list)
+
+
+@router.patch("/people")
+async def update_person(body: PersonPatch, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin")
+    email = body.email.lower()
+    org = await db.get(Organization, body.org_id)
+    member, invite, row = await _member_rows(db, body.org_id, email)
+    if member is None and invite is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Personne introuvable")
+    if member is not None and (member.user_id == user.id or member.user_id == org.owner_user_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Le rôle du propriétaire et le vôtre ne se changent pas ici.")
+    groups = await _valid_groups(db, body.org_id, body.groups) or []
+    keys = []
+    for k in body.accounts:
+        p, _, a = k.partition(":")
+        if p not in cm_access.MODELS or not a.isdigit():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Compte invalide.")
+        await cm.get_account(db, tenant, p, int(a))
+        keys.append(f"{p}:{int(a)}")
+    # Rôle d'équipe chapote.fr aligné : admin cm = admin de l'équipe.
+    if member is not None:
+        if member.role == "admin" and body.role != "admin":
+            await ensure_not_last_admin(db, body.org_id, "Il faut au moins un administrateur.")
+        member.role = "admin" if body.role == "admin" else "member"
+    if invite is not None:
+        invite.role = "admin" if body.role == "admin" else "member"
+    if row is None:
+        row = CmMemberRole(organization_id=body.org_id, email=email)
+        db.add(row)
+    row.role = body.role
+    if body.role == "admin" or body.all:
+        row.group_ids = row.account_keys = None
+    else:
+        row.group_ids, row.account_keys = sorted(set(groups)), sorted(set(keys))
+    await db.commit()
+    return {"ok": True}
+
+
+class PersonRef(BaseModel):
+    org_id: int
+    email: EmailStr
+
+
+@router.post("/people/remove")
+async def remove_person(body: PersonRef, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Retire tout accès à l'espace (les comptes, le planning et la bibliothèque restent)."""
+    tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "admin")
+    email = body.email.lower()
+    org = await db.get(Organization, body.org_id)
+    member, invite, row = await _member_rows(db, body.org_id, email)
+    if member is None and invite is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Personne introuvable")
+    if member is not None:
+        if member.user_id == org.owner_user_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Le propriétaire de l'espace ne peut pas être retiré.")
+        if member.role == "admin":
+            await ensure_not_last_admin(db, body.org_id, "Il faut au moins un administrateur.")
+        await db.delete(member)
+    if invite is not None:
+        await db.delete(invite)
+    if row is not None:
+        await db.delete(row)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/shares/{platform}/{account_id}")
+async def account_access(platform: Literal["tiktok", "youtube", "instagram"], account_id: int, org_id: Optional[int] = None,
+                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Qui a accès à ce compte (tout l'espace, ou par partage du compte ou d'un de ses groupes)."""
+    tenant = await _tenant(db, user, org_id)
+    await cm.get_account(db, tenant, platform, account_id)
+    data = await people(org_id, db, user)
+    from src.models.cm import CmGroupAccount
+    groups = set((await db.execute(select(CmGroupAccount.group_id).where(
+        CmGroupAccount.platform == platform, CmGroupAccount.account_id == account_id))).scalars())
+    key = f"{platform}:{account_id}"
+    return [p for p in data["people"] if p["scope"]["all"] or key in p["scope"]["accounts"]
+            or groups & set(p["scope"]["groups"])]

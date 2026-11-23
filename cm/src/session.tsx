@@ -2,8 +2,8 @@
 // un espace (perso ou une équipe) et, éventuellement, un groupe de comptes. Gardés dans le navigateur.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  getConfig, getGroups, getMe, getSpaces, logout as apiLogout, publicConfig,
-  type Config, type Group, type Me, type Scope, type Space,
+  getAccounts, getConfig, getGroups, getMe, getSpaces, logout as apiLogout, publicConfig,
+  type Account, type Config, type Group, type Me, type Scope, type Space,
 } from './api'
 
 interface SessionCtx {
@@ -13,12 +13,19 @@ interface SessionCtx {
   appUrl: string
   config: Config | null
   spaces: Space[]
+  /** Espaces utiles (avec des comptes, ou celui ouvert) : un seul, la plupart du temps. */
+  visibleSpaces: Space[]
   org: number | null
   setOrg: (org: number | null) => void
   groups: Group[]
   group: Group | null
   setGroup: (id: number | null) => void
+  /** Un seul compte affiché ("tiktok:12"), ou null. Exclusif avec le groupe. */
+  account: string | null
+  setAccount: (key: string | null) => void
   reloadGroups: () => Promise<void>
+  /** Comptes de l'espace (pour le sélecteur). */
+  accounts: Account[]
   scope: Scope
   refresh: () => Promise<void>
   signOut: () => Promise<void>
@@ -27,6 +34,7 @@ interface SessionCtx {
 const Ctx = createContext<SessionCtx | null>(null)
 const ORG_KEY = 'cm.org'
 const groupKey = (org: number | null) => `cm.group.${org ?? 'perso'}`
+const accountKey = (org: number | null) => `cm.account.${org ?? 'perso'}`
 
 function read(key: string): number | null {
   try {
@@ -34,8 +42,11 @@ function read(key: string): number | null {
     return v ? Number(v) || null : null
   } catch { return null }
 }
-function write(key: string, v: number | null) {
+function write(key: string, v: number | string | null) {
   try { v == null ? localStorage.removeItem(key) : localStorage.setItem(key, String(v)) } catch { /* stockage indisponible */ }
+}
+function readStr(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -47,7 +58,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [spaces, setSpaces] = useState<Space[]>([])
   const [org, setOrgState] = useState<number | null>(() => read(ORG_KEY))
   const [groups, setGroups] = useState<Group[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
   const [groupId, setGroupId] = useState<number | null>(() => read(groupKey(read(ORG_KEY))))
+  const [account, setAccountState] = useState<string | null>(() => readStr(accountKey(read(ORG_KEY))))
 
   const refresh = useCallback(async () => {
     try {
@@ -56,7 +69,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const [c, s] = await Promise.all([getConfig(), getSpaces()])
       setConfig(c)
       setSpaces(s)
-      setOrgState(cur => (cur != null && !s.some(x => x.org_id === cur) ? null : cur))
+      setOrgState(cur => {
+        let next = cur != null && !s.some(x => x.org_id === cur) ? null : cur
+        // Espace perso vide (ex. devenu partagé) : on ouvre le premier espace qui a des comptes.
+        const here = s.find(x => x.org_id === next)
+        if (here && !here.accounts) {
+          const other = s.find(x => x.org_id !== next && (x.accounts || 0) > 0)
+          if (other) next = other.org_id
+        }
+        if (next !== cur) write(ORG_KEY, next)
+        return next
+      })
     } catch {
       setMe(null)
     } finally {
@@ -67,9 +90,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const reloadGroups = useCallback(async () => {
     if (!me) { setGroups([]); return }
     try {
-      const g = await getGroups(org)
+      const [g, a] = await Promise.all([getGroups(org), getAccounts(org).catch(() => [] as Account[])])
       setGroups(g)
+      setAccounts(a)
       setGroupId(cur => (cur != null && !g.some(x => x.id === cur) ? null : cur))
+      setAccountState(cur => (cur && !a.some(x => `${x.platform}:${x.id}` === cur) ? null : cur))
     } catch { setGroups([]) }
   }, [me, org])
 
@@ -83,15 +108,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setOrgState(v)
     write(ORG_KEY, v)
     setGroupId(read(groupKey(v)))
+    setAccountState(readStr(accountKey(v)))
   }
-  const setGroup = (id: number | null) => { setGroupId(id); write(groupKey(org), id) }
+  const setGroup = (id: number | null) => {
+    setGroupId(id); write(groupKey(org), id)
+    setAccountState(null); write(accountKey(org), null)
+  }
+  const setAccount = (key: string | null) => {
+    setAccountState(key); write(accountKey(org), key)
+    if (key) { setGroupId(null); write(groupKey(org), null) }
+  }
   const signOut = async () => { try { await apiLogout() } finally { cache.clear(); setMe(null) } }
 
   const group = groups.find(g => g.id === groupId) || null
-  const scope = useMemo<Scope>(() => ({ org, group: group?.id ?? null }), [org, group?.id])
+  const scope = useMemo<Scope>(() => ({ org, group: account ? null : group?.id ?? null, account }), [org, group?.id, account])
+  const visibleSpaces = useMemo(() => {
+    const v = spaces.filter(x => (x.accounts || 0) > 0 || x.org_id === org)
+    return v.length ? v : spaces.slice(0, 1)
+  }, [spaces, org])
 
   return (
-    <Ctx.Provider value={{ me, ready, googleClientId, appUrl, config, spaces, org, setOrg, groups, group, setGroup,
+    <Ctx.Provider value={{ me, ready, googleClientId, appUrl, config, spaces, visibleSpaces, org, setOrg, groups, group, setGroup,
+      account, setAccount, accounts,
       reloadGroups, scope, refresh, signOut }}>
       {children}
     </Ctx.Provider>

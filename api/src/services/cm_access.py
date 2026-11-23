@@ -70,13 +70,19 @@ async def enrich(db: AsyncSession, tenant, user, membership_role: Optional[str])
         CmMemberRole.organization_id == tenant.org_id, CmMemberRole.email == (user.email or "").lower()))).scalar_one_or_none()
     tenant.cm_role = row.role if row and row.role in LEVEL else "editor"
     tenant.cm_explicit = row is not None
-    ids = [int(g) for g in (row.group_ids or [])] if row else []
-    if ids and tenant.cm_role != "admin":
+    restricted = row is not None and (row.group_ids is not None or row.account_keys is not None)
+    if restricted and tenant.cm_role != "admin":
+        ids = [int(g) for g in (row.group_ids or [])]
         valid = list((await db.execute(select(CmGroup.id).where(
-            CmGroup.id.in_(ids), CmGroup.organization_id == tenant.org_id))).scalars())
+            CmGroup.id.in_(ids or [-1]), CmGroup.organization_id == tenant.org_id))).scalars())
         tenant.group_ids = valid
-        tenant.allowed = {(p, a) for p, a in (await db.execute(select(CmGroupAccount.platform, CmGroupAccount.account_id)
-                                                               .where(CmGroupAccount.group_id.in_(valid or [-1])))).all()}
+        allowed = {(p, a) for p, a in (await db.execute(select(CmGroupAccount.platform, CmGroupAccount.account_id)
+                                                        .where(CmGroupAccount.group_id.in_(valid or [-1])))).all()}
+        for key in row.account_keys or []:
+            p, _, a = str(key).partition(":")
+            if p in MODELS and a.isdigit():
+                allowed.add((p, int(a)))
+        tenant.allowed = allowed
     return tenant
 
 

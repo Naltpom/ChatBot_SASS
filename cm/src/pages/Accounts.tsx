@@ -1,12 +1,15 @@
 // Comptes connectés (TikTok, YouTube, Instagram) et groupes de comptes de l'espace courant.
 // Un groupe réunit plusieurs comptes, toutes plateformes ; un compte peut être dans plusieurs groupes.
 import { useEffect, useState, type FormEvent } from 'react'
+import type { ShareWhat } from '../api'
+import { PlatformLogo } from '../components/PlatformLogo'
 import { Link, useLocation } from 'react-router-dom'
 import {
   acceptTransfer, addRoutineAccount, cancelTransfer, createGroup, declineTransfer, deleteGroup, disconnect, getAccounts,
   getTransfers, startOAuth, syncAccount, transferAccount, updateGroup,
   GROUP_COLORS, PLATFORM_LABEL, PLATFORMS, type Account, type Group, type GroupColor, type Platform,
 } from '../api'
+import { ShareSheet } from '../components/ShareSheet'
 import { Avatar, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDateTime, short } from '../format'
 import { useLoad, useRole, useSession } from '../session'
@@ -59,7 +62,7 @@ function GroupEditor({ group, accounts, onClose, onSaved }: { group: Group | nul
                   <label key={k} className={`pick${on ? ' on' : ''}`}>
                     <input type="checkbox" checked={on} onChange={() => toggle(k)} />
                     <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
-                    <span className="grow"><span className="ellipsis strong" style={{ display: 'block' }}>{a.name}</span><span className="tiny muted">{PLATFORM_LABEL[a.platform]}</span></span>
+                    <span className="grow"><span className="ellipsis strong" style={{ display: 'block' }}>{a.name}</span><span className="tiny muted row-nw" style={{ gap: 4 }}><PlatformLogo platform={a.platform} size={12} />{PLATFORM_LABEL[a.platform]}</span></span>
                   </label>
                 )
               })}
@@ -170,6 +173,7 @@ export default function Accounts() {
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [transferring, setTransferring] = useState<Account | null>(null)
+  const [sharing, setSharing] = useState<{ what: ShareWhat; label: string } | null>(null)
   const { canAdmin, role } = useRole()
 
   useEffect(() => {
@@ -212,7 +216,7 @@ export default function Accounts() {
           <p>Les comptes et les groupes de cet espace ne sont visibles que dans cet espace.</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <Link to="/equipe" className="btn"><Icon name="users" />Équipe</Link>
+          <Link to="/personnes" className="btn"><Icon name="users" />Personnes</Link>
           <Link to="/bibliotheque" className="btn"><Icon name="layers" />Bibliothèque Google Drive</Link>
         </div>
       </div>
@@ -245,6 +249,7 @@ export default function Accounts() {
                   <div className="row-nw">
                     <GroupDot color={g.color} />
                     <h3 className="grow ellipsis">{g.name}</h3>
+                    {canAdmin && <button type="button" className="btn btn-sm" onClick={() => setSharing({ what: { group_id: g.id }, label: `le groupe « ${g.name} »` })}>Partager</button>}
                     {canAdmin && <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Modifier ${g.name}`} onClick={() => setEditing(g)}><Icon name="edit" size={16} /></button>}
                     {canAdmin && <button type="button" className="btn btn-ghost icon-btn btn-sm btn-danger" aria-label={`Supprimer ${g.name}`} disabled={busy === `g${g.id}`} onClick={() => removeGroup(g)}><Icon name="trash" size={16} /></button>}
                   </div>
@@ -271,7 +276,7 @@ export default function Accounts() {
         return (
           <section key={p} className="card col" aria-labelledby={`t-${p}`}>
             <div className="card-head">
-              <h2 id={`t-${p}`} className="row-nw" style={{ gap: 10 }}><span aria-hidden="true" className={`dot dot-${p}`} style={{ width: 10, height: 10 }} />{PLATFORM_LABEL[p]}</h2>
+              <h2 id={`t-${p}`} className="row-nw" style={{ gap: 10 }}><PlatformLogo platform={p} size={22} />{PLATFORM_LABEL[p]}</h2>
               {!canAdmin ? null : enabled(p) ? (
                 <button type="button" className="btn btn-sm" disabled={busy === p} onClick={() => connect(p)}>
                   <Icon name="plus" size={16} />{list.length ? 'Autre compte' : 'Connecter'}
@@ -283,6 +288,7 @@ export default function Accounts() {
               <ul className="list">
                 {list.map(a => <AccountRow key={a.id} a={a} groups={groupsOf(a)} busy={busy} canAdmin={canAdmin}
                   onTransfer={() => setTransferring(a)}
+                  onShare={() => setSharing({ what: { platform: a.platform, account_id: a.id }, label: a.name || PLATFORM_LABEL[a.platform] })}
                   onSync={() => run(`s${p}${a.id}`, () => syncAccount(org, a), 'Chiffres actualisés.')}
                   onRemove={() => { if (window.confirm(`Déconnecter ${a.name} ? Les publications à venir sur ce compte ne partiront plus.`)) run(`d${p}${a.id}`, () => disconnect(org, a)) }}
                   onReconnect={() => connect(p)} />)}
@@ -307,6 +313,7 @@ export default function Accounts() {
         <TransferSheet a={transferring} onClose={() => setTransferring(null)}
                        onDone={t => { setTransferring(null); setMsg({ kind: 'ok', text: t }); accounts.reload(); reloadGroups() }} />
       )}
+      {sharing && <ShareSheet what={sharing.what} label={sharing.label} onClose={() => setSharing(null)} />}
       {editing && (
         <GroupEditor group={editing === 'new' ? null : editing} accounts={all} onClose={() => setEditing(null)}
                      onSaved={g => { setEditing(null); reloadGroups(); setMsg({ kind: 'ok', text: `Groupe « ${g.name} » enregistré.` }) }} />
@@ -315,12 +322,12 @@ export default function Accounts() {
   )
 }
 
-function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, onTransfer }:
-  { a: Account; groups: Group[]; busy: string | null; canAdmin: boolean; onSync: () => void; onRemove: () => void; onReconnect: () => void; onTransfer: () => void }) {
+function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, onTransfer, onShare }:
+  { a: Account; groups: Group[]; busy: string | null; canAdmin: boolean; onSync: () => void; onRemove: () => void; onReconnect: () => void; onTransfer: () => void; onShare: () => void }) {
   const st = accountState(a)
   return (
     <li style={{ flexWrap: 'wrap' }}>
-      <Avatar src={a.avatar_url} name={a.name} />
+      <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
       <div className="grow" style={{ flex: '1 1 180px' }}>
         <div className="strong ellipsis">{a.name}</div>
         <div className="tiny muted">
@@ -345,6 +352,7 @@ function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, 
         {a.stats_available && a.mode !== 'routine' && !a.needs_reconnect && (
           <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy === `s${a.platform}${a.id}`} aria-label={`Actualiser les chiffres de ${a.name}`}><Icon name="refresh" size={16} /><span className="only-desktop">Actualiser</span></button>
         )}
+        {canAdmin && <button type="button" className="btn btn-sm" onClick={onShare}><Icon name="users" size={16} />Partager</button>}
         {canAdmin && <button type="button" className="btn btn-sm" onClick={onTransfer}>Transférer</button>}
         {canAdmin && (
           <button type="button" className="btn btn-sm btn-danger" onClick={onRemove} disabled={busy === `d${a.platform}${a.id}`}>

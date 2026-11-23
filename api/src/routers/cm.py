@@ -21,6 +21,7 @@ https://cm.chapote.fr/instagram/callback -> POST /instagram/oauth/exchange) ou
 compte « géré par la routine » (publication et chiffres par la routine Claude).
 """
 import hmac
+from contextvars import ContextVar
 import logging
 import os
 import secrets
@@ -79,7 +80,32 @@ from src.services.video_probe import ProbeError, probe
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/cm", tags=["cm"])
+# Périmètre « un seul compte » (?account=tiktok:12) : lu une fois pour toutes les routes et appliqué
+# au même endroit que le filtre de groupe (_tenant_index / _scoped).
+_ACCOUNT_SCOPE: ContextVar[Optional[tuple]] = ContextVar("cm_account_scope", default=None)
+
+
+async def _capture_account_scope(account: Optional[str] = Query(None, max_length=40)):
+    scope = None
+    if account:
+        platform, _, raw = account.partition(":")
+        if platform not in PLATFORMS or not raw.isdigit():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Compte invalide.")
+        scope = (platform, int(raw))
+    _ACCOUNT_SCOPE.set(scope)
+
+
+def _only_account(accounts):
+    scope = _ACCOUNT_SCOPE.get()
+    if scope is None:
+        return accounts
+    kept = [(p, a) for p, a in accounts if (p, a.id) == scope]
+    if not kept:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Compte introuvable")
+    return kept
+
+
+router = APIRouter(prefix="/api/cm", tags=["cm"], dependencies=[Depends(_capture_account_scope)])
 
 STATE_SCOPE = "instagram_oauth"
 STATE_TTL_SECONDS = 600
@@ -214,15 +240,31 @@ async def config(user: User = Depends(get_cm_user)):
 
 @router.get("/spaces")
 async def spaces(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    """Espace perso + organisations dont l'utilisateur est membre."""
+    """Espace perso + organisations dont l'utilisateur est membre. `accounts` : nombre de comptes
+    connectés (l'interface n'affiche que les espaces utiles : un seul, la plupart du temps)."""
+    from src.services.cm_access import MODELS
+
+    async def count(org_id, owner_id) -> int:
+        n = 0
+        for model in MODELS.values():
+            cond = model.organization_id == org_id if org_id else (
+                (model.owner_user_id == owner_id) & model.organization_id.is_(None))
+            n += (await db.execute(select(func.count()).select_from(model).where(cond, model.revoked_at.is_(None)))).scalar() or 0
+        return n
+
     rows = (await db.execute(
         select(Organization, Membership).join(Membership, Membership.organization_id == Organization.id)
         .where(Membership.user_id == user.id, Organization.is_active.is_(True)).order_by(Organization.name)
     )).all()
-    out = [{"org_id": None, "name": "Espace perso", "role": None, "cm_role": "admin", "group_ids": None}]
+    out = [{"org_id": None, "name": "Espace perso", "role": None, "cm_role": "admin", "group_ids": None,
+            "owner": True, "owner_name": None, "accounts": await count(None, user.id)}]
     for o, m in rows:
         t = await cm_access.enrich(db, Tenant(o.id, None, m.role), user, m.role)
-        out.append({"org_id": o.id, "name": o.name, "role": m.role, "cm_role": t.cm_role, "group_ids": t.group_ids})
+        owner = await db.get(User, o.owner_user_id) if o.owner_user_id != user.id else None
+        out.append({"org_id": o.id, "name": o.name, "role": m.role, "cm_role": t.cm_role, "group_ids": t.group_ids,
+                    "owner": o.owner_user_id == user.id,
+                    "owner_name": (owner.name or owner.email) if owner else None,
+                    "accounts": await count(o.id, None)})
     return out
 
 
@@ -284,7 +326,7 @@ async def _tenant_index(db: AsyncSession, tenant: Tenant, group_id: Optional[int
     names = {(p, a.id): cm.account_name(p, a) for p, a in accounts}
     if group_id is not None:
         accounts = await _in_group(db, tenant, group_id, accounts)
-    return accounts, names
+    return _only_account(accounts), names
 
 
 async def _get_group(db: AsyncSession, tenant: Tenant, group_id: int, *, lock: bool = False) -> CmGroup:
@@ -308,7 +350,7 @@ async def _in_group(db: AsyncSession, tenant: Tenant, group_id: int, accounts):
 async def _scoped(db: AsyncSession, tenant: Tenant, group_id: Optional[int]):
     """Comptes actifs du tenant, restreints au groupe s'il est donné."""
     accounts = await cm.tenant_accounts(db, tenant)
-    return accounts if group_id is None else await _in_group(db, tenant, group_id, accounts)
+    return _only_account(accounts if group_id is None else await _in_group(db, tenant, group_id, accounts))
 
 
 def _account_filter(model, accounts, platform: Optional[str] = None, account_id: Optional[int] = None):
@@ -1174,14 +1216,14 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
     end = cm.to_utc_naive(end) or now + timedelta(days=90)
     conds = [tenant.where(CmPost), CmTarget.scheduled_at >= start, CmTarget.scheduled_at <= end]
     accounts, names = await _tenant_index(db, tenant, group_id)
-    if group_id is not None or tenant.allowed is not None:
+    if group_id is not None or tenant.allowed is not None or _ACCOUNT_SCOPE.get() is not None:
         conds.append(_account_filter(CmTarget, accounts))
     ids = (await db.execute(
         select(CmTarget.post_id).join(CmPost, CmPost.id == CmTarget.post_id).where(*conds).distinct()
     )).scalars().all()
     posts = (await db.execute(select(CmPost).where(CmPost.id.in_(ids)))).scalars().all() if ids else []
     targets = await _targets_of(db, [p.id for p in posts])
-    if group_id is not None or tenant.allowed is not None:
+    if group_id is not None or tenant.allowed is not None or _ACCOUNT_SCOPE.get() is not None:
         keep = {(p, a.id) for p, a in accounts}
         targets = {pid: [t for t in ts if (t.platform, t.account_id) in keep] for pid, ts in targets.items()}
     out = [_post_out(p, targets.get(p.id, []), names) for p in posts

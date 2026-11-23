@@ -268,7 +268,7 @@ legend { font-weight: 600; font-size: 13.5px; margin-bottom: 6px; padding: 0; }
 .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--surface-2); object-fit: cover; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: var(--muted); position: relative; }
 .avatar-sm { width: 28px; height: 28px; font-size: 12px; }
 .avatar-wrap { position: relative; flex: none; display: inline-flex; }
-.avatar-wrap .pbadge { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface); }
+.avatar-wrap .pbadge { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; border-radius: 6px; background: var(--surface); padding: 1px; line-height: 0; }
 
 /* ---------- Messages ---------- */
 .msg { border-radius: 12px; padding: 12px 14px; font-size: 14px; }
@@ -478,3 +478,10 @@ table.data tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 5
 .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; flex: none; animation: spin .9s linear infinite; opacity: .7; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-right-color: currentColor; opacity: .4; } }
+.plogo { flex: none; display: inline-block; vertical-align: middle; }
+.scope-btn .grow { flex: 1 1 auto; }
+.scope-btn-block { display: flex; width: 100%; border-radius: 12px; border: 1px solid var(--border); padding: 8px 12px; margin-top: 6px; }
+.scope-btn-block:hover { background: var(--surface-2); }
+.tabs { display: flex; gap: 4px; padding: 3px; margin: 6px 4px; border-radius: 10px; background: var(--surface-2); }
+.tabs > button { flex: 1; border: 0; background: transparent; padding: 7px 10px; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 600; color: var(--muted, inherit); cursor: pointer; }
+.tabs > button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }

@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom'
+import { PlatformLogo } from './PlatformLogo'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PLATFORM_LABEL, type GroupColor, type Platform, type TargetStatus } from '../api'
@@ -23,7 +24,7 @@ export function Brand({ to }: { to?: string }) {
 }
 
 export function PlatformTag({ platform, label }: { platform: Platform; label?: string | null }) {
-  return <span className="ptag"><span aria-hidden="true" className={`dot dot-${platform}`} /><span>{label ?? PLATFORM_LABEL[platform]}</span></span>
+  return <span className="ptag"><PlatformLogo platform={platform} size={14} /><span>{label ?? PLATFORM_LABEL[platform]}</span></span>
 }
 
 export function GroupDot({ color }: { color: GroupColor | null | undefined }) {
@@ -80,7 +81,7 @@ export function Avatar({ src, name, platform, size }: { src: string | null | und
     ? <img className={cls} src={src} alt="" referrerPolicy="no-referrer" loading="lazy" />
     : <span className={cls} aria-hidden="true">{(name || '?').replace('@', '').slice(0, 1).toUpperCase()}</span>
   if (!platform) return img
-  return <span className="avatar-wrap">{img}<span className={`pbadge dot-${platform}`} aria-hidden="true" /></span>
+  return <span className="avatar-wrap">{img}<span className="pbadge"><PlatformLogo platform={platform} size={size === 'sm' ? 12 : 16} /></span></span>
 }
 
 /** Feuille qui monte du bas sur mobile, fenêtre centrée sur ordinateur. Échap et clic à côté ferment. */

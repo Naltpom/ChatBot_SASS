@@ -2,6 +2,7 @@
 // les seuls chiffres que chaque plateforme fournit vraiment), par compte, meilleurs moments pour
 // publier (jour × heure, en heure locale) et vidéos qui marchent le mieux.
 import { useMemo, useState } from 'react'
+import { PlatformLogo } from '../components/PlatformLogo'
 import { Link } from 'react-router-dom'
 import { getStats, getVideos, PLATFORM_LABEL, type DetailedStats, type Metric, type Platform } from '../api'
 import { Avatar, Delta, Empty, Icon, Msg, Seg, Skeleton } from '../components/ui'
@@ -107,7 +108,7 @@ export default function Stats() {
             {d.platforms.map(p => (
               <article key={p.platform} className="card pcard">
                 <div className="pcard-head">
-                  <span className="pmark" style={{ background: `var(--${p.platform})` }} aria-hidden="true">{PLATFORM_LABEL[p.platform][0]}</span>
+                  <PlatformLogo platform={p.platform} size={36} />
                   <div className="grow"><h2>{PLATFORM_LABEL[p.platform]}</h2><div className="tiny muted">{p.accounts} compte{p.accounts > 1 ? 's' : ''} · {p.posts} vidéo{p.posts > 1 ? 's' : ''}</div></div>
                   <div style={{ textAlign: 'right' }}><div className="strong">{pct(p.engagement_rate)}</div><div className="tiny muted">engagement</div></div>
                 </div>

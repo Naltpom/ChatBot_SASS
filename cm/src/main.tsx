@@ -19,7 +19,7 @@ const Stats = lazy(() => import('./pages/Stats'))
 const Videos = lazy(() => import('./pages/Videos'))
 const Accounts = lazy(() => import('./pages/Accounts'))
 const Library = lazy(() => import('./pages/Library'))
-const Team = lazy(() => import('./pages/Team'))
+const People = lazy(() => import('./pages/People'))
 const Callback = lazy(() => import('./pages/Callback'))
 
 const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie']
@@ -34,7 +34,7 @@ function PageLoading() {
 }
 
 const TITLES: Record<string, string> = {
-  '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque', '/equipe': 'Équipe',
+  '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque', '/personnes': 'Personnes',
   '/nouvelle': 'Nouvelle publication', '/connexion': 'Connexion', '/inscription': 'Créer un compte',
   '/mot-de-passe-oublie': 'Mot de passe oublié',
 }
@@ -93,7 +93,8 @@ function Shell() {
         <Route path="/videos" element={<Videos />} />
         <Route path="/comptes" element={<Accounts />} />
         <Route path="/bibliotheque" element={<Library />} />
-        <Route path="/equipe" element={<Team />} />
+        <Route path="/personnes" element={<People />} />
+        <Route path="/equipe" element={<Navigate to="/personnes" replace />} />
         <Route path="/tiktok/callback" element={<Callback platform="tiktok" />} />
         <Route path="/youtube/callback" element={<Callback platform="youtube" />} />
         <Route path="/instagram/callback" element={<Callback platform="instagram" />} />

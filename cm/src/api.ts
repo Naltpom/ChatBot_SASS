@@ -45,12 +45,12 @@ export interface Post {
   duration_sec: number | null; status: string; has_media: boolean; created_at: string; targets: Target[]
 }
 export type CmRole = 'admin' | 'editor' | 'viewer'
-export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null }
+export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null; owner?: boolean; owner_name?: string | null; accounts?: number }
 export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
 export const GROUP_COLORS: GroupColor[] = ['blue', 'orange', 'green', 'purple', 'pink', 'teal', 'amber', 'slate']
 export interface Group { id: number; name: string; color: GroupColor | null; accounts: { platform: Platform; id: number }[] }
-/** Périmètre affiché : un espace (perso ou équipe) et, éventuellement, un groupe de comptes. */
-export interface Scope { org: number | null; group: number | null }
+/** Périmètre affiché : un espace et, éventuellement, un groupe de comptes OU un seul compte ("tiktok:12"). */
+export interface Scope { org: number | null; group: number | null; account?: string | null }
 
 export type CalendarItem =
   | (Video & { kind: 'video'; at: string })
@@ -130,8 +130,10 @@ const q = (scope: ScopeArg, extra: Record<string, string | number | undefined> =
   const p = new URLSearchParams()
   const org = typeof scope === 'object' && scope !== null ? scope.org : scope
   const group = typeof scope === 'object' && scope !== null ? scope.group : null
+  const account = typeof scope === 'object' && scope !== null ? scope.account : null
   if (org != null) p.set('org_id', String(org))
-  if (group != null) p.set('group_id', String(group))
+  if (account) p.set('account', account)
+  else if (group != null) p.set('group_id', String(group))
   for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== '') p.set(k, String(v))
   const s = p.toString()
   return s ? `?${s}` : ''
@@ -272,3 +274,20 @@ export const acceptTransfer = (id: number, org_id: number | null) => send<{ move
 export const declineTransfer = (id: number) => send<{ ok: boolean }>('POST', `/api/cm/transfers/${id}/decline`)
 export const cancelTransfer = (id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/transfers/${id}`)
 export const claimAccount = (claim_token: string, org_id: number | null) => send<{ moved: boolean; moved_targets: number }>('POST', '/api/cm/accounts/claim', { claim_token, org_id })
+
+// Personnes et partage (par compte, par groupe ou tout l'espace)
+export interface PersonScope { all: boolean; groups: number[]; accounts: string[] }
+export interface Person {
+  user_id: number | null; invitation_id?: number; name: string | null; email: string; role: CmRole
+  owner: boolean; you: boolean; pending: boolean; scope: PersonScope
+}
+export interface People { org_id: number | null; name?: string; my_role: CmRole; can_manage: boolean; people: Person[] }
+export type ShareWhat = { platform: Platform; account_id: number } | { group_id: number } | { all: true }
+export const getPeople = (org: number | null) => call<People>(`/api/cm/people${org != null ? `?org_id=${org}` : ''}`)
+export const share = (org: number | null, email: string, role: CmRole, what: ShareWhat) =>
+  send<{ org_id: number; ok: boolean; invited?: boolean; message?: string }>('POST', '/api/cm/shares', { org_id: org, email, role, ...what })
+export const updatePerson = (org: number, email: string, role: CmRole, scope: PersonScope) =>
+  send<{ ok: boolean }>('PATCH', '/api/cm/people', { org_id: org, email, role, all: scope.all, groups: scope.groups, accounts: scope.accounts })
+export const removePerson = (org: number, email: string) => send<{ ok: boolean }>('POST', '/api/cm/people/remove', { org_id: org, email })
+export const accountAccess = (org: number | null, platform: Platform, id: number) =>
+  call<Person[]>(`/api/cm/shares/${platform}/${id}${org != null ? `?org_id=${org}` : ''}`)
