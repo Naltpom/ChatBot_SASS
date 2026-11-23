@@ -1,8 +1,8 @@
 # Politique de confidentialité – Module de publication YouTube (Chapote Publisher)
 
-Dernière mise à jour : 22 novembre 2026.
+Dernière mise à jour : 23 novembre 2026.
 
-La présente politique décrit comment le module de publication YouTube de Chapote (**Chapote Publisher**) traite les données obtenues auprès de Google et de YouTube, conformément au **RGPD** (Règlement (UE) 2016/679) et à la loi Informatique et Libertés. Elle complète la [Politique de confidentialité de Chapote](/legal/confidentialite).
+La présente politique décrit comment le module de publication YouTube de Chapote (**Chapote Publisher**), utilisé depuis l'Espace client et depuis **Chapote CM** ([cm.chapote.fr](https://cm.chapote.fr), gestion des réseaux sociaux), traite les données obtenues auprès de Google et de YouTube, conformément au **RGPD** (Règlement (UE) 2016/679) et à la loi Informatique et Libertés. Elle complète la [Politique de confidentialité de Chapote](/legal/confidentialite).
 
 **Chapote Publisher utilise les services d'API de YouTube (YouTube API Services).** En connectant une chaîne, vous acceptez aussi les [Conditions d'utilisation de YouTube](https://www.youtube.com/t/terms), et les données sont également traitées selon les [Règles de confidentialité de Google](https://policies.google.com/privacy).
 
@@ -16,7 +16,7 @@ La présente politique décrit comment le module de publication YouTube de Chapo
 Chapote Publisher est un module de l'Espace client de Chapote. Il permet aux clients de Chapote de connecter leurs propres chaînes YouTube et d'y publier leurs propres vidéos courtes (Shorts). Il utilise la connexion Google (OAuth 2.0) et l'**API YouTube Data v3**, avec les autorisations suivantes :
 
 - `https://www.googleapis.com/auth/youtube.upload` : envoyer des vidéos sur la chaîne ;
-- `https://www.googleapis.com/auth/youtube.readonly` : lire le nom, l'identifiant et l'image de la chaîne connectée, et l'état de traitement des vidéos envoyées par Chapote.
+- `https://www.googleapis.com/auth/youtube.readonly` : lire le nom, l'identifiant et l'image de la chaîne connectée, l'état de traitement des vidéos envoyées par Chapote et, dans Chapote CM, les **chiffres publics** de la chaîne (vues, abonnés, nombre de vidéos) et de ses vidéos récentes (titre, date, durée, miniature, vues, j'aime, commentaires).
 
 ## 3. Données traitées
 
@@ -25,7 +25,9 @@ Chapote Publisher est un module de l'Espace client de Chapote. Il permet aux cli
 - **Vidéos** que le client choisit de publier : conservées **uniquement le temps de leur envoi à YouTube**, puis supprimées.
 - **Métadonnées et historique des publications** : chaîne utilisée, membre de l'équipe à l'origine de la publication, titre, description, mots-clés, catégorie, langue, réglages choisis (visibilité, date de mise en ligne, contenu « conçu pour les enfants », contenu modifié ou synthétique), nom et taille du fichier, identifiant et état de traitement de la vidéo renvoyés par YouTube, dates.
 
-Aucune autre donnée n'est collectée : pas de lecture des autres vidéos de la chaîne, des abonnés, des statistiques, des messages ni des commentaires, ni d'accès à d'autres services Google (Gmail, Drive…).
+- **Chiffres** (Chapote CM) : vues, abonnés et nombre de vidéos de la chaîne, relevés au plus toutes les quelques heures ; pour les 50 vidéos les plus récentes, titre, date, durée, miniature, vues, j'aime et nombre de commentaires.
+
+Aucune autre donnée n'est collectée : pas de lecture de la liste des abonnés, des statistiques privées de YouTube Analytics, des messages ni du texte des commentaires, ni d'accès à d'autres services Google (Gmail, Drive…).
 
 ## 4. Utilisation limitée (Google API Services User Data Policy)
 
@@ -41,7 +43,7 @@ Ces données servent **uniquement** à :
 
 - connecter la chaîne YouTube du client à son espace Chapote et maintenir cette connexion (rafraîchissement des jetons) ;
 - envoyer à YouTube les vidéos que le client a choisi de publier, avec les réglages qu'il a choisis ;
-- afficher au client le statut et l'historique de ses publications.
+- afficher au client le statut et l'historique de ses publications, son planning, et les chiffres de sa chaîne et de ses vidéos (Chapote CM).
 
 La base légale est **l'exécution du contrat** conclu entre Chapote et son client (article 6.1.b du RGPD), le module faisant partie du service fourni, ainsi que l'autorisation donnée par le titulaire de la chaîne via Google. Les données ne sont partagées qu'avec **Google / YouTube**, destinataire nécessaire des publications.
 
@@ -58,6 +60,7 @@ La base légale est **l'exécution du contrat** conclu entre Chapote et son clie
 - **Vidéos** : supprimées dès la fin de l'envoi à YouTube (réussi ou non) ; un envoi abandonné est supprimé sous 2 heures.
 - **Historique des publications** et informations de la chaîne : **12 mois** après la publication, puis supprimés.
 - **Informations de la chaîne** : actualisées au moins tous les 30 jours tant que la chaîne est connectée.
+- **Chiffres** (Chapote CM) : actualisés au plus tard tous les 30 jours tant que la chaîne est connectée ; supprimés dès que la chaîne est déconnectée.
 - La suppression du compte Chapote ou de l'équipe entraîne la suppression des chaînes connectées et de l'historique associé.
 
 ## 8. Révocation de l'accès
