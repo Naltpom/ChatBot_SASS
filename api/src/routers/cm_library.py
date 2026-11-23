@@ -18,7 +18,8 @@ Publier une vidéo de la bibliothèque : POST /api/cm/posts avec `asset_id` (rou
 """
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -302,6 +303,21 @@ async def update_asset(asset_id: int, body: AssetPatch, org_id: Optional[int] = 
     await db.commit()
     usage = await lib.usage_of(db, [a.id])
     return lib.asset_out(a, src, usage.get(a.id))
+
+
+@router.get("/assets/{asset_id}/stream")
+async def stream_asset(asset_id: int, request: Request, org_id: Optional[int] = Query(None),
+                       db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Lire la vidéo dans cm (lecteur intégré), sans passer par Google Drive."""
+    tenant = await _tenant(db, user, org_id)
+    a, _ = await _asset(db, tenant, asset_id)
+    try:
+        code, headers, body = await gd.open_stream(a.file_id, request.headers.get("range"))
+    except gd.DriveError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND if e.code in ("not_shared", "not_found") else 502, e.describe())
+    headers = {**headers, "Accept-Ranges": "bytes", "Cache-Control": "private, max-age=300"}
+    media = headers.pop("content-type", None) or a.mime_type or "video/mp4"
+    return StreamingResponse(body, status_code=206 if code == 206 else 200, media_type=media, headers=headers)
 
 
 @router.get("/assets/{asset_id}/thumbnail")

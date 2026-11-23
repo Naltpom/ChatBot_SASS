@@ -153,7 +153,13 @@ def apply(recipe: dict, asset: CmAsset, group_accounts: dict[int, list[str]], so
         for k in recipe["account"]["map"].get(folder or "", []):
             keys += group_accounts.get(int(k[6:]), []) if k.startswith("group:") else [k]
     else:
-        keys = list(source_group)
+        # « Toujours les mêmes comptes » : choisis dans la fenêtre (clé "*"), sinon le groupe du dossier.
+        chosen = recipe["account"]["map"].get("*")
+        if chosen:
+            for k in chosen:
+                keys += group_accounts.get(int(k[6:]), []) if k.startswith("group:") else [k]
+        else:
+            keys = list(source_group)
     # Heure
     w = recipe["when"]
     when, has_time = _parse_when(f"{path}/{asset.name}", w["pattern"], w["timezone"], w["default_time"])

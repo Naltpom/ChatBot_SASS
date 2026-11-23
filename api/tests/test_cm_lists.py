@@ -114,3 +114,41 @@ async def test_posts_search_status_order_pages(pg_session, cmenv, tiktok):
         rows, _ = await _all_pages(h, "/api/cm/posts?q=nocturne")
         assert [r["title"] for r in rows] == ["Nocturne 1", "Nocturne 3"]
         assert (await h.get("/api/cm/posts?status=published")).json() == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_video_sheet_groups_platforms_and_filters_comments(pg_session, cmenv, tiktok):
+    from sqlalchemy import select as _select
+    from src.models.cm import CmComment, CmTarget
+    from test_cm import _ig_routine, _tt_target
+    from test_cm_team import _plan
+    me = await _user(pg_session, "fiche@t.dev")
+    acc = await _account(pg_session, owner=me, open_id="f1")
+    ig_acc = await _ig_routine(pg_session, owner=me)
+    other = await _user(pg_session, "autre2@t.dev")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(me)
+        at = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+        plan = await _plan(h, [_tt_target(acc.id, scheduled_at=at),
+                               {"platform": "instagram", "account_id": ig_acc.id, "scheduled_at": at, "options": {}}],
+                           title="Clair de lune")
+        tids = {t.platform: t.id for t in (await pg_session.execute(_select(CmTarget))).scalars()}
+        tt = CmVideo(platform="tiktok", account_id=acc.id, external_id="7300", title="Clair de lune", views=100, likes=10, target_id=tids["tiktok"])
+        ig_v = CmVideo(platform="instagram", account_id=ig_acc.id, external_id="m55", url="https://www.instagram.com/reel/ABC_1/",
+                       views=50, likes=None, target_id=tids["instagram"])
+        pg_session.add_all([tt, ig_v])
+        await pg_session.flush()
+        pg_session.add_all([CmComment(owner_user_id=me.id, platform="instagram", account_id=ig_acc.id, media_id="m55", external_id="k9", text="Bravo"),
+                            CmComment(owner_user_id=me.id, platform="instagram", account_id=ig_acc.id, media_id="autre", external_id="k10", text="Autre")])
+        await pg_session.commit()
+        d = (await h.get(f"/api/cm/videos/{tt.id}/sheet")).json()
+        assert d["title"] == "Clair de lune" and d["post_id"] == plan.get("id", d["post_id"])
+        assert {v["platform"] for v in d["videos"]} == {"tiktok", "instagram"}
+        assert d["totals"]["views"] == 150 and d["totals"]["likes"] == 10
+        emb = {v["platform"]: v["embed"] for v in d["videos"]}
+        assert emb == {"tiktok": "https://www.tiktok.com/embed/v2/7300", "instagram": "https://www.instagram.com/reel/ABC_1/embed"}
+        got = (await h.get(f"/api/cm/inbox/comments?status=all&videos={tt.id},{ig_v.id}")).json()
+        assert [x["external_id"] for x in got] == ["k9"]
+        assert (await c.as_(other).get(f"/api/cm/videos/{tt.id}/sheet")).status_code == 404

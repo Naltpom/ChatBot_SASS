@@ -178,7 +178,7 @@ export default function Stats() {
             {top.data && top.data.length === 0 && <p className="muted small">Aucune vidéo relevée sur la période.</p>}
             <div className="vgrid">
               {(top.data || []).map((v, i) => (
-                <a key={v.id} className="vcard" href={v.url || undefined} target="_blank" rel="noreferrer">
+                <Link key={v.id} className="vcard" to={`/videos/${v.id}`}>
                   {v.thumbnail_url && <img className="vthumb" src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" />}
                   <span className="vrank">#{i + 1}</span>
                   <div className="vcard-body">
@@ -188,7 +188,7 @@ export default function Stats() {
                       {v.comments != null && <span><Icon name="comment" size={13} /> <b>{short(v.comments)}</b></span>}
                       {v.shares != null && <span><Icon name="share" size={13} /> <b>{short(v.shares)}</b></span>}</div>
                   </div>
-                </a>
+                </Link>
               ))}
             </div>
           </section>

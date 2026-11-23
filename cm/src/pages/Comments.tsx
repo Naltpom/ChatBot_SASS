@@ -5,14 +5,14 @@
 // - Messages : conversations Instagram (fenêtre de 24 h imposée par Instagram).
 // Sans la permission de la plateforme, l'écran le dit au lieu d'échouer en silence.
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { byVideo, CommentCard } from '../components/CommentCard'
 import {
-  ApiError, commentAction, getCommentsPage, getConversation, getConversations, getInboxAccounts, getKeyword, sendDm, syncInbox,
+  ApiError, getCommentsPage, PLATFORM_LABEL, getConversation, getConversations, getInboxAccounts, getKeyword, sendDm, syncInbox,
   type Comment, type Conversation, type DmMessage, type InboxAccount,
 } from '../api'
 import { LiveCount, SearchBox, SortControl, useListState, useMorePages } from '../components/list'
-import { PlatformLogo } from '../components/PlatformLogo'
 import { Empty, Icon, Msg, Seg, Skeleton } from '../components/ui'
-import { fmtDateTime } from '../format'
 import { useLoad, useRole, useSession } from '../session'
 
 type Tab = 'todo' | 'keyword' | 'messages'
@@ -29,68 +29,26 @@ function errText(e: unknown) {
   return ae?.data?.message || ae?.message || 'Erreur'
 }
 
-function CommentItem({ c, onChanged, canEdit, template }: { c: Comment; onChanged: (c: Comment | null) => void; canEdit: boolean; template?: string }) {
-  const { org } = useSession()
-  const [mode, setMode] = useState<'reply' | 'private' | null>(null)
-  const [text, setText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const [copied, setCopied] = useState(false)
-  const personal = (template || '').replace(/\{pseudo\}/g, c.author ? `@${c.author}` : '')
-  const run = async (fn: () => Promise<Comment>) => {
-    setBusy(true); setErr('')
-    try { onChanged(await fn()); setMode(null); setText('') } catch (e) { setErr(errText(e)) } finally { setBusy(false) }
-  }
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(personal); setCopied(true); window.setTimeout(() => setCopied(false), 1500) } catch { setErr('Copie impossible : sélectionnez le texte.') }
-  }
+function VideoGroup({ g, canEdit, onChanged, template }: {
+  g: ReturnType<typeof byVideo>[number]; canEdit: boolean; template?: string; onChanged: (id: number, c: Comment | null) => void
+}) {
+  const fresh = g.items.filter(c => c.status === 'new').length
+  const plats = [...new Set(g.items.map(c => PLATFORM_LABEL[c.platform]))].join(', ')
+  const head = (
+    <>
+      {g.thumb ? <img className="cgroup-thumb" src={g.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="cgroup-thumb" aria-hidden="true" />}
+      <span className="grow col" style={{ minWidth: 0, gap: 0 }}>
+        <span className="strong ellipsis">{g.title || 'Vidéo'}</span>
+        <span className="tiny muted">{fresh ? `${fresh} nouveau${fresh > 1 ? 'x' : ''} · ` : ''}{plats}</span>
+      </span>
+      {g.videoId && <Icon name="right" />}
+    </>
+  )
   return (
-    <li className="cmt">
-      <div className="row-nw" style={{ gap: 8, alignItems: 'baseline', minWidth: 0 }}>
-        <PlatformLogo platform={c.platform} size={14} />
-        {c.profile_url ? <a className="strong ellipsis" href={c.profile_url} target="_blank" rel="noreferrer">@{c.author}</a>
-          : <span className="strong ellipsis">{c.author || 'Anonyme'}</span>}
-        {c.count && c.count > 1 && <span className="tiny muted">×{c.count}</span>}
-        <span className="grow" />
-        <span className="tiny muted" style={{ whiteSpace: 'nowrap' }}>{c.published_at ? fmtDateTime(c.published_at) : ''}</span>
-      </div>
-      <p className="cmt-text">{c.text}</p>
-      <div className="tiny muted row" style={{ gap: 8 }}>
-        <span className="ellipsis" style={{ maxWidth: 220 }}>{c.account_name}</span>
-        {c.video_title && (c.video_url ? <a className="ellipsis" style={{ maxWidth: 220 }} href={c.video_url} target="_blank" rel="noreferrer">« {c.video_title} »</a> : <span className="ellipsis">« {c.video_title} »</span>)}
-        {c.like_count ? <span><Icon name="heart" size={12} /> {c.like_count}</span> : null}
-        {c.parent_id && <span>réponse</span>}
-      </div>
-      {c.reply_text && <p className="cmt-reply"><Icon name="comment" size={12} /> {c.reply_text}</p>}
-      {c.pending && <Msg>Envoi par la routine en cours ({c.pending === 'reply' ? 'réponse' : c.pending === 'hide' ? 'masquage' : 'réponse privée'}).</Msg>}
-      {c.error && <Msg kind="err">{c.error}</Msg>}
-      {err && <Msg kind="err">{err}</Msg>}
-      {canEdit && !c.pending && (
-        <div className="row" style={{ gap: 6 }}>
-          {c.platform !== 'tiktok' && c.status !== 'replied' && <button type="button" className="btn btn-sm" aria-expanded={mode === 'reply'} onClick={() => { setMode(mode === 'reply' ? null : 'reply'); setText('') }}>Répondre</button>}
-          {(c.can_private_reply ?? (c.platform === 'instagram' && !c.private_replied_at)) && (
-            <button type="button" className="btn btn-sm" aria-expanded={mode === 'private'} onClick={() => { setMode(mode === 'private' ? null : 'private'); setText(personal) }}>Réponse privée</button>
-          )}
-          {template !== undefined && <button type="button" className="btn btn-sm btn-ghost" onClick={copy}>{copied ? 'Copié ✓' : 'Copier le message'}</button>}
-          {template !== undefined && c.dm_url && <a className="btn btn-sm btn-ghost" href={c.dm_url} target="_blank" rel="noreferrer">Écrire sur Instagram <Icon name="external" size={14} /></a>}
-          {c.status === 'new' && template !== undefined && <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run(() => commentAction(org, c.id, 'contacted'))}>Fait</button>}
-          {c.status === 'new' && template === undefined && <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run(() => commentAction(org, c.id, 'ignore'))}>Ignorer</button>}
-          {c.status === 'new' && c.platform !== 'tiktok' && template === undefined && <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => { if (window.confirm('Masquer ce commentaire pour tout le monde ?')) run(() => commentAction(org, c.id, 'hide')) }}>Masquer</button>}
-          {c.status !== 'new' && <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => run(() => commentAction(org, c.id, 'reopen'))}>Remettre à traiter</button>}
-        </div>
-      )}
-      {mode && (
-        <form className="col" style={{ gap: 6 }} onSubmit={e => { e.preventDefault(); run(() => commentAction(org, c.id, mode === 'reply' ? 'reply' : 'private-reply', text.trim())) }}>
-          <label className="sr-only" htmlFor={`r${c.id}`}>{mode === 'reply' ? 'Réponse publique' : 'Message privé'}</label>
-          <textarea id={`r${c.id}`} className="input" rows={3} value={text} onChange={e => setText(e.target.value)} maxLength={2200} autoFocus
-                    placeholder={mode === 'reply' ? `Répondre à @${c.author || ''}` : 'Message privé (une seule fois, 7 jours au plus après le commentaire)'} />
-          <div className="row-nw" style={{ gap: 6 }}>
-            <button className="btn btn-primary btn-sm" disabled={busy || !text.trim()}>{mode === 'reply' ? 'Publier la réponse' : 'Envoyer en privé'}</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMode(null)}>Annuler</button>
-          </div>
-        </form>
-      )}
-    </li>
+    <section className="cgroup" aria-label={`Commentaires de « ${g.title || 'la vidéo'} »`}>
+      {g.videoId ? <Link className="cgroup-head" to={`/videos/${g.videoId}`}>{head}</Link> : <div className="cgroup-head">{head}</div>}
+      {g.items.map(c => <CommentCard key={c.id} c={c} canEdit={canEdit} template={template} onChanged={n => onChanged(c.id, n)} />)}
+    </section>
   )
 }
 
@@ -133,9 +91,9 @@ function Todo({ canEdit }: { canEdit: boolean }) {
           {list.q ? `Rien ne correspond à « ${list.q} ».` : 'Les nouveaux commentaires de vos vidéos arrivent ici.'}
         </Empty>
       )}
-      <ul className="list card card-flush list-pad">
-        {shown.map(c => <CommentItem key={c.id} c={c} canEdit={canEdit} onChanged={n => setChanged(m => ({ ...m, [c.id]: n }))} />)}
-      </ul>
+      <div className="col" style={{ gap: 14 }}>
+        {byVideo(shown).map(g => <VideoGroup key={g.key} g={g} canEdit={canEdit} onChanged={(id, n) => setChanged(m => ({ ...m, [id]: n }))} />)}
+      </div>
       <div ref={pages.sentinel} />
       {pages.busy && <Skeleton h={70} />}
     </>
@@ -170,9 +128,10 @@ function Keyword({ canEdit }: { canEdit: boolean }) {
       <LiveCount n={rows.length} what="personnes" />
       {people.loading && !people.data && <Skeleton h={80} n={3} />}
       {people.data && rows.length === 0 && <Empty title="Personne à contacter" icon="check">Aucun nouveau commentaire contenant « {w} ».</Empty>}
-      <ul className="list card card-flush list-pad">
-        {rows.map(c => <CommentItem key={c.id} c={c} canEdit={canEdit} template={tpl} onChanged={n => { if (!n || n.status !== 'new' || n.private_replied_at) setDone(d => [...d, c.id]) }} />)}
-      </ul>
+      <div className="col" style={{ gap: 14 }}>
+        {byVideo(rows).map(g => <VideoGroup key={g.key} g={g} canEdit={canEdit} template={tpl}
+          onChanged={(id, n) => { if (!n || n.status !== 'new' || n.private_replied_at) setDone(d => [...d, id]) }} />)}
+      </div>
     </>
   )
 }

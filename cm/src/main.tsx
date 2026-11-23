@@ -22,6 +22,7 @@ const Library = lazy(() => import('./pages/Library'))
 const People = lazy(() => import('./pages/People'))
 const Drafts = lazy(() => import('./pages/Drafts'))
 const Comments = lazy(() => import('./pages/Comments'))
+const VideoSheet = lazy(() => import('./pages/VideoSheet'))
 const Callback = lazy(() => import('./pages/Callback'))
 
 const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie']
@@ -98,6 +99,7 @@ function Shell() {
         <Route path="/personnes" element={<People />} />
         <Route path="/a-valider" element={<Drafts />} />
         <Route path="/commentaires" element={<Comments />} />
+        <Route path="/videos/:id" element={<VideoSheet />} />
         <Route path="/equipe" element={<Navigate to="/personnes" replace />} />
         <Route path="/tiktok/callback" element={<Callback platform="tiktok" />} />
         <Route path="/youtube/callback" element={<Callback platform="youtube" />} />

@@ -25,7 +25,7 @@ const MANAGE: { to: string; label: string; icon: IconName }[] = [
   { to: '/bibliotheque', label: 'Bibliothèque', icon: 'layers' },
   { to: '/personnes', label: 'Personnes', icon: 'users' },
 ]
-const FILTERED = (path: string) => path === '/' || ['/planning', '/stats', '/videos', '/commentaires'].some(p => path.startsWith(p))
+const FILTERED = (path: string) => path === '/' || path === '/videos' || ['/planning', '/stats', '/commentaires'].some(p => path.startsWith(p))
 
 /** Barre de filtres des pages de suivi : « Tous », vos épinglés, vos derniers choix, et
  *  « Choisir… » qui ouvre le sélecteur (recherche, onglets Groupes / Comptes). Toujours une

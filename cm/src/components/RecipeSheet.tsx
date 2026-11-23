@@ -1,6 +1,7 @@
-// Brouillons automatiques d'un dossier Drive : on analyse le rangement (noms de fichiers et de
-// dossiers seulement), on montre ce qu'on a compris sur des exemples réels, l'admin corrige si
-// besoin et active. Ensuite chaque nouvelle vidéo devient un brouillon « À valider ».
+// « Préparer les publications toutes seules » pour un dossier Drive. Simple d'abord :
+// 1. un exemple réel (ce fichier → devient tel brouillon) ; 2. trois questions résumées en une ligne,
+// chacune avec « Changer » ; 3. Activer. Rien ne part sans validation (page « À valider »).
+// Chapote lit seulement les noms des dossiers et des fichiers, jamais les vidéos.
 import { useEffect, useRef, useState } from 'react'
 import {
   analyzeSource, previewRecipe, saveRecipe,
@@ -11,13 +12,44 @@ import { useSession } from '../session'
 import { Icon, Loading, Msg, Sheet } from './ui'
 
 const PATTERNS: DatePattern[] = ['ymd_hm', 'ymd', 'dmy_hm', 'dmy', 'compact', 'none']
+const TITLE_FROM: Record<Recipe['title']['from'], string> = { folder: 'le nom du dossier', file: 'le nom du fichier', txt_first_line: 'la 1re ligne du .txt' }
+
+function Example({ x }: { x: RecipeExample }) {
+  return (
+    <div className="rx-ex">
+      <div className="rx-path"><Icon name="layers" size={14} /><span>{x.path.split('/').join(' / ')}</span></div>
+      <div className="rx-to"><span className="tiny muted">devient</span>
+        <dl className="rx-dl">
+          <dt>Titre</dt><dd className="strong">{x.title}</dd>
+          <dt>Quand</dt><dd>{x.scheduled_at ? fmtDateTime(x.scheduled_at) : <span className="muted">à choisir en validant</span>}</dd>
+          <dt>Où</dt><dd>{x.accounts.length ? x.accounts.join(', ') : <span className="status-warn">aucun compte : à choisir</span>}</dd>
+          <dt>Légende</dt><dd>{x.caption ? <span className="clamp2">{x.caption}</span> : <span className="muted">aucune</span>}</dd>
+          <dt>Couverture</dt><dd>{x.cover ? 'l’image du dossier' : <span className="muted">choisie par la plateforme</span>}</dd>
+        </dl>
+      </div>
+    </div>
+  )
+}
+
+function Question({ title, summary, open, onToggle, children }: { title: string; summary: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <div className="rx-q">
+      <div className="row-nw" style={{ gap: 10, alignItems: 'center' }}>
+        <div className="grow" style={{ minWidth: 0 }}><div className="strong">{title}</div><div className="small muted">{summary}</div></div>
+        <button type="button" className="btn btn-sm" aria-expanded={open} onClick={onToggle}>{open ? 'OK' : 'Changer'}</button>
+      </div>
+      {open && <div className="col" style={{ gap: 10, marginTop: 10 }}>{children}</div>}
+    </div>
+  )
+}
 
 export function RecipeSheet({ s, onClose, onSaved }: { s: Source; onClose: () => void; onSaved: (s: Source, proposed: number) => void }) {
   const { org } = useSession()
   const [an, setAn] = useState<Analysis | null>(null)
   const [recipe, setRecipe] = useState<Recipe | null>(s.recipe || null)
   const [examples, setExamples] = useState<RecipeExample[]>([])
-  const [auto, setAuto] = useState(s.recipe ? !!s.auto_drafts : true)
+  const [more, setMore] = useState(false)
+  const [open, setOpen] = useState<'acc' | 'when' | 'text' | null>(null)
   const [backlog, setBacklog] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -25,11 +57,10 @@ export function RecipeSheet({ s, onClose, onSaved }: { s: Source; onClose: () =>
 
   const analyze = async () => {
     setBusy(true); setErr('')
-    try { const a = await analyzeSource(org, s.id); setAn(a); setRecipe(a.recipe); setExamples(a.examples); first.current = true }
+    try { const a = await analyzeSource(org, s.id); setAn(a); setRecipe(s.recipe || a.recipe); setExamples(a.examples); first.current = !s.recipe }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   useEffect(() => { analyze() }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  // Exemples recalculés quand on corrige la recette.
   useEffect(() => {
     if (!recipe || !an) return
     if (first.current) { first.current = false; return }
@@ -38,118 +69,109 @@ export function RecipeSheet({ s, onClose, onSaved }: { s: Source; onClose: () =>
   }, [recipe]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (fn: (r: Recipe) => Recipe) => setRecipe(r => (r ? fn(structuredClone(r)) : r))
-  const save = async () => {
+  const save = async (active: boolean) => {
     if (!recipe) return
     setBusy(true); setErr('')
-    try { const r = await saveRecipe(org, s.id, recipe, auto, backlog); onSaved(r.source, r.proposed) }
+    try { const r = await saveRecipe(org, s.id, recipe, active, backlog); onSaved(r.source, r.proposed) }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
+  const targets = [...(an?.groups || []).map(g => ({ ...g, name: `Groupe ${g.name}` })), ...(an?.accounts || [])]
+  const nameOf = (k: string) => targets.find(t => t.key === k)?.name || k
+  const names = (ks: string[]) => (ks.length > 2 ? `${ks.slice(0, 2).map(nameOf).join(', ')} +${ks.length - 2}` : ks.map(nameOf).join(', '))
   const level = String(recipe?.account.level || 1) as '1' | '2' | '3'
   const folders = an?.folders[level] || []
-  const targets = [...(an?.groups || []).map(g => ({ ...g, name: `Groupe · ${g.name}` })), ...(an?.accounts || [])]
+  const accSummary = !recipe ? '' : recipe.account.from === 'folder'
+    ? `Selon le dossier : ${Object.entries(recipe.account.map).filter(([f]) => f !== '*').map(([f, k]) => `${f} → ${names(k)}`).join(' · ') || 'à associer'}`
+    : `Toujours : ${(recipe.account.map['*'] || []).map(nameOf).join(', ') || 'les comptes proposés par défaut pour ce dossier'}`
+  const whenSummary = !recipe ? '' : recipe.when.pattern === 'none' ? 'Je choisis l’heure en validant.'
+    : `La date écrite dans le nom (comme « ${an?.patterns[recipe.when.pattern]} »). Sans heure : ${recipe.when.default_time}.`
+  const textSummary = !recipe ? '' : `Titre : ${TITLE_FROM[recipe.title.from]}. Légende : ${recipe.caption.from === 'txt' ? 'le .txt' : 'aucune'}. Couverture : ${recipe.cover.from === 'image' ? 'l’image' : 'aucune'}.`
 
   return (
-    <Sheet title={`Brouillons automatiques · ${s.name}`} onClose={onClose}>
-      <div className="col" style={{ gap: 16 }}>
+    <Sheet title="Préparer les publications toutes seules" onClose={onClose}>
+      <div className="col" style={{ gap: 18 }}>
         <p className="small muted" style={{ margin: 0 }}>
-          Chapote lit la façon dont votre équipe range ses vidéos (noms des dossiers et des fichiers, jamais les vidéos)
-          et prépare un brouillon pour chaque nouvelle vidéo. Rien n’est publié sans votre validation.
+          Quand votre équipe dépose une vidéo dans « {s.name} », Chapote prépare la publication. Vous la vérifiez avant qu’elle parte.
         </p>
-        {!an && busy && <Loading label="Analyse du rangement…" />}
+        {!an && busy && <Loading label="Lecture du rangement du dossier…" />}
         {err && <Msg kind="err">{err}</Msg>}
         {an && recipe && (
           <>
-            <div className="card col" style={{ gap: 6, background: 'var(--surface-2)' }}>
-              <span className="tiny muted strong">{an.engine === 'gemini' ? 'Ce que j’ai compris' : 'Rangement détecté'} · {an.videos} vidéo{an.videos > 1 ? 's' : ''} analysée{an.videos > 1 ? 's' : ''}</span>
-              <span className="small">{an.explanation || 'Vérifiez les réglages ci-dessous sur les exemples.'}</span>
-              <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={analyze}><Icon name="refresh" size={16} />Réanalyser</button>
-            </div>
+            <section className="col" style={{ gap: 8 }} aria-labelledby="rx1">
+              <h3 id="rx1" className="rx-h">Exemple avec une de vos vidéos</h3>
+              {examples[0] ? <Example x={examples[0]} /> : <p className="small muted" style={{ margin: 0 }}>Aucune vidéo dans le dossier pour l’instant.</p>}
+              {examples.length > 1 && (
+                <button type="button" className="linkbtn" style={{ alignSelf: 'flex-start' }} aria-expanded={more} onClick={() => setMore(m => !m)}>
+                  {more ? 'Masquer les autres exemples' : `Voir ${examples.length - 1} autre${examples.length > 2 ? 's' : ''} exemple${examples.length > 2 ? 's' : ''}`}
+                </button>
+              )}
+              {more && examples.slice(1).map(x => <Example key={x.asset_id} x={x} />)}
+            </section>
 
-            <fieldset className="col" style={{ gap: 8 }}>
-              <legend>Comptes</legend>
-              <label className="check"><input type="radio" name="acc" checked={recipe.account.from === 'source'} onChange={() => set(r => { r.account.from = 'source'; return r })} />
-                <span>Les comptes proposés par défaut pour ce dossier<br /><span className="field-hint">Réglage « Comptes proposés par défaut » du dossier.</span></span></label>
-              <label className="check"><input type="radio" name="acc" checked={recipe.account.from === 'folder'} onChange={() => set(r => { r.account.from = 'folder'; return r })} />
-                <span>Selon le sous-dossier (un dossier par compte ou par client)</span></label>
-              {recipe.account.from === 'folder' && (
-                <div className="col" style={{ gap: 8, paddingLeft: 8 }}>
-                  <label className="field">Niveau du sous-dossier
-                    <select className="input" value={recipe.account.level} onChange={e => set(r => { r.account.level = Number(e.target.value); return r })}>
-                      <option value={1}>1er niveau (ex. « kiwi/… »)</option><option value={2}>2e niveau</option><option value={3}>3e niveau</option>
+            <section className="col" style={{ gap: 8 }} aria-labelledby="rx2">
+              <h3 id="rx2" className="rx-h">C’est juste ? Sinon, corrigez</h3>
+              <div className="rx-qs">
+                <Question title="Sur quels comptes ?" summary={accSummary} open={open === 'acc'} onToggle={() => setOpen(open === 'acc' ? null : 'acc')}>
+                  <label className="check"><input type="radio" name="acc" checked={recipe.account.from === 'source'} onChange={() => set(r => { r.account.from = 'source'; return r })} />Toujours les mêmes comptes</label>
+                  {recipe.account.from === 'source' && (
+                    <select className="input" aria-label="Comptes" value={(recipe.account.map['*'] || [])[0] || ''}
+                            onChange={e => set(r => { if (e.target.value) r.account.map['*'] = [e.target.value]; else delete r.account.map['*']; return r })}>
+                      <option value="">Les comptes proposés par défaut pour ce dossier</option>
+                      {targets.map(t => <option key={t.key} value={t.key}>{t.name}</option>)}
+                    </select>
+                  )}
+                  <label className="check"><input type="radio" name="acc" checked={recipe.account.from === 'folder'} onChange={() => set(r => { r.account.from = 'folder'; return r })} />Ça dépend du sous-dossier (un dossier par compte ou par client)</label>
+                  {recipe.account.from === 'folder' && (
+                    <>
+                      {folders.map(f => (
+                        <label key={f} className="field">Dossier « {f} »
+                          <select className="input" value={(recipe.account.map[f] || [])[0] || ''}
+                                  onChange={e => set(r => { if (e.target.value) r.account.map[f] = [e.target.value]; else delete r.account.map[f]; return r })}>
+                            <option value="">Ne rien préparer</option>
+                            {targets.map(t => <option key={t.key} value={t.key}>{t.name}</option>)}
+                          </select>
+                        </label>
+                      ))}
+                      <details>
+                        <summary className="small muted" style={{ cursor: 'pointer' }}>Les comptes sont rangés plus profond ?</summary>
+                        <select className="input" aria-label="Niveau des dossiers de comptes" value={recipe.account.level} style={{ marginTop: 8 }}
+                                onChange={e => set(r => { r.account.level = Number(e.target.value); return r })}>
+                          <option value={1}>Directement dans le dossier partagé</option><option value={2}>Un niveau plus bas</option><option value={3}>Deux niveaux plus bas</option>
+                        </select>
+                      </details>
+                    </>
+                  )}
+                </Question>
+                <Question title="Quand publier ?" summary={whenSummary} open={open === 'when'} onToggle={() => setOpen(open === 'when' ? null : 'when')}>
+                  <select className="input" aria-label="Où lire la date" value={recipe.when.pattern} onChange={e => set(r => { r.when.pattern = e.target.value as DatePattern; return r })}>
+                    {PATTERNS.map(p => <option key={p} value={p}>{p === 'none' ? 'Je choisis l’heure en validant' : `La date est écrite comme « ${an.patterns[p]} »`}</option>)}
+                  </select>
+                  {recipe.when.pattern !== 'none' && (
+                    <label className="field">Heure si le nom n’en donne pas
+                      <input className="input" type="time" value={recipe.when.default_time} onChange={e => set(r => { r.when.default_time = e.target.value || '18:00'; return r })} />
+                    </label>
+                  )}
+                </Question>
+                <Question title="Titre et légende ?" summary={textSummary} open={open === 'text'} onToggle={() => setOpen(open === 'text' ? null : 'text')}>
+                  <label className="field">Le titre vient de
+                    <select className="input" value={recipe.title.from} onChange={e => set(r => { r.title.from = e.target.value as Recipe['title']['from']; return r })}>
+                      {(Object.keys(TITLE_FROM) as Recipe['title']['from'][]).map(k => <option key={k} value={k}>{TITLE_FROM[k]}</option>)}
                     </select>
                   </label>
-                  {folders.length === 0 && <p className="tiny muted" style={{ margin: 0 }}>Aucun sous-dossier à ce niveau.</p>}
-                  {folders.map(f => (
-                    <label key={f} className="field">« {f} » →
-                      <select className="input" value={(recipe.account.map[f] || [])[0] || ''}
-                              onChange={e => set(r => { if (e.target.value) r.account.map[f] = [e.target.value]; else delete r.account.map[f]; return r })}>
-                        <option value="">Ne pas proposer</option>
-                        {targets.map(t => <option key={t.key} value={t.key}>{t.name}</option>)}
-                      </select>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </fieldset>
+                  <label className="check"><input type="checkbox" checked={recipe.caption.from === 'txt'} onChange={e => set(r => { r.caption.from = e.target.checked ? 'txt' : 'none'; return r })} />Légende : le fichier .txt posé à côté de la vidéo</label>
+                  <label className="check"><input type="checkbox" checked={recipe.cover.from === 'image'} onChange={e => set(r => { r.cover.from = e.target.checked ? 'image' : 'none'; return r })} />Couverture : l’image posée à côté de la vidéo</label>
+                </Question>
+              </div>
+            </section>
 
-            <fieldset className="col" style={{ gap: 8 }}>
-              <legend>Date et heure</legend>
-              <label className="field">Lues dans les noms
-                <select className="input" value={recipe.when.pattern} onChange={e => set(r => { r.when.pattern = e.target.value as DatePattern; return r })}>
-                  {PATTERNS.map(p => <option key={p} value={p}>{p === 'none' ? 'Pas de date : je choisis l’heure en validant' : `Comme « ${an.patterns[p]} »`}</option>)}
-                </select>
-              </label>
-              {recipe.when.pattern !== 'none' && (
-                <label className="field">Heure si le nom n’en donne pas
-                  <input className="input" type="time" value={recipe.when.default_time} onChange={e => set(r => { r.when.default_time = e.target.value || '18:00'; return r })} />
-                </label>
-              )}
-            </fieldset>
-
-            <fieldset className="col" style={{ gap: 8 }}>
-              <legend>Texte</legend>
-              <label className="field">Titre
-                <select className="input" value={recipe.title.from} onChange={e => set(r => { r.title.from = e.target.value as Recipe['title']['from']; return r })}>
-                  <option value="file">Nom du fichier vidéo</option><option value="folder">Nom du dossier de la vidéo</option><option value="txt_first_line">1re ligne du .txt</option>
-                </select>
-              </label>
-              <label className="check"><input type="checkbox" checked={recipe.caption.from === 'txt'} onChange={e => set(r => { r.caption.from = e.target.checked ? 'txt' : 'none'; return r })} />Légende : le fichier .txt à côté de la vidéo</label>
-              <label className="check"><input type="checkbox" checked={recipe.cover.from === 'image'} onChange={e => set(r => { r.cover.from = e.target.checked ? 'image' : 'none'; return r })} />Couverture : l’image à côté de la vidéo</label>
-            </fieldset>
-
-            {examples.length > 0 && (
-              <section className="col" style={{ gap: 8 }} aria-labelledby="rx-ex">
-                <h3 id="rx-ex" style={{ margin: 0 }}>Sur vos vidéos</h3>
-                <ul className="list">
-                  {examples.map(x => (
-                    <li key={x.asset_id} style={{ alignItems: 'flex-start' }}>
-                      <div className="grow col" style={{ gap: 2, minWidth: 0 }}>
-                        <span className="tiny muted ellipsis" title={x.path}>{x.path}</span>
-                        <span className="strong ellipsis">{x.title}</span>
-                        <span className="tiny">
-                          {x.scheduled_at ? fmtDateTime(x.scheduled_at) : <span className="muted">heure à choisir</span>}
-                          {' · '}{x.accounts.length ? x.accounts.join(', ') : <span className="status-warn">aucun compte</span>}
-                          {x.cover && ' · couverture'}
-                        </span>
-                        {x.caption && <span className="tiny muted clamp2">{x.caption}</span>}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+            {!s.auto_drafts && (
+              <label className="check"><input type="checkbox" checked={backlog} onChange={e => setBacklog(e.target.checked)} />
+                Préparer aussi les vidéos déjà dans le dossier</label>
             )}
-
-            <div className="col" style={{ gap: 6 }}>
-              <label className="check"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} />
-                <span><b>Créer les brouillons automatiquement</b><br /><span className="field-hint">À chaque nouvelle vidéo du dossier, un brouillon arrive dans « À valider ».</span></span></label>
-              {auto && !s.auto_drafts && (
-                <label className="check"><input type="checkbox" checked={backlog} onChange={e => setBacklog(e.target.checked)} />
-                  Aussi pour les vidéos déjà dans le dossier (pas encore programmées)</label>
-              )}
-            </div>
-            <div className="row-nw">
-              <button type="button" className="btn grow" onClick={onClose}>Annuler</button>
-              <button type="button" className="btn btn-primary grow" disabled={busy} onClick={save}>Enregistrer</button>
+            <div className="col" style={{ gap: 8 }}>
+              <button type="button" className="btn btn-primary btn-block" disabled={busy} onClick={() => save(true)}>{s.auto_drafts ? 'Enregistrer' : 'Activer'}</button>
+              {s.auto_drafts && <button type="button" className="btn btn-ghost btn-block" disabled={busy} onClick={() => save(false)}>Désactiver</button>}
+              <p className="small muted" style={{ margin: 0, textAlign: 'center' }}>Rien ne part sans votre validation, dans « À valider ».</p>
             </div>
           </>
         )}

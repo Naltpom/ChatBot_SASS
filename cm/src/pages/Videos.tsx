@@ -2,6 +2,7 @@
 // Recherche et tri (dans les deux sens) faits par l'API, pages au défilement.
 // Mobile : liste de cartes + tri. Ordinateur : tableau aux en-têtes triables.
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LiveCount, SearchBox, SortControl, SortTh, useListState, useMorePages } from '../components/list'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { getVideosPage, PLATFORM_LABEL, PLATFORMS, type Platform } from '../api'
@@ -57,7 +58,7 @@ export default function Videos() {
                 {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" width={56} height={76} style={{ width: 56, height: 76, objectFit: 'cover', borderRadius: 10, flex: 'none' }} />
                   : <span style={{ width: 56, height: 76, borderRadius: 10, background: 'var(--surface-2)', flex: 'none' }} />}
                 <div className="grow col" style={{ gap: 4 }}>
-                  {v.url ? <a className="strong clamp2" style={{ color: 'var(--text)' }} href={v.url} target="_blank" rel="noreferrer">{v.title || 'Sans titre'}</a>
+                  {v.id ? <Link className="strong clamp2" style={{ color: 'var(--text)' }} to={`/videos/${v.id}`}>{v.title || 'Sans titre'}</Link>
                     : <span className="strong clamp2">{v.title || 'Sans titre'}</span>}
                   <span className="tiny muted row-nw" style={{ gap: 6 }}><span aria-hidden="true" className={`dot dot-${v.platform}`} /><span className="ellipsis">{v.account_name}</span>· {v.published_at ? fmtDate(v.published_at) : '—'}</span>
                   <span className="metrics">
@@ -87,7 +88,7 @@ export default function Videos() {
                           {v.thumbnail_url ? <img src={v.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" width={56} height={76} style={{ width: 38, height: 52, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
                             : <span style={{ width: 38, height: 52, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
                           <div className="grow">
-                            {v.url ? <a className="ellipsis strong" style={{ display: 'block' }} href={v.url} target="_blank" rel="noreferrer">{v.title || 'Sans titre'}</a>
+                            {v.id ? <Link className="ellipsis strong" style={{ display: 'block' }} to={`/videos/${v.id}`}>{v.title || 'Sans titre'}</Link>
                               : <span className="ellipsis strong" style={{ display: 'block' }}>{v.title || 'Sans titre'}</span>}
                             <span className="tiny muted">{fmtDuration(v.duration_sec)}{v.via_chapote && ' · publiée depuis Chapote'}</span>
                           </div>
