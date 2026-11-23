@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 SCOPE = "https://www.googleapis.com/auth/drive"
 FOLDER_MIME = "application/vnd.google-apps.folder"
+PROJECT_MIME = "application/vnd.google-apps.project"   # « projet » Drive : ne contient pas de fichiers
 FILE_FIELDS = ("id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,parents,trashed,"
                "thumbnailLink,videoMediaMetadata(width,height,durationMillis)")
 FOLDER_FIELDS = "id,name,mimeType,driveId,trashed,capabilities(canEdit,canAddChildren,canListChildren),owners(emailAddress),sharingUser(emailAddress)"
@@ -55,6 +56,9 @@ class DriveError(Exception):
         return {
             "not_shared": "Le robot n'a pas accès à ce dossier : partagez-le avec son adresse (Lecteur suffit), puis réessayez.",
             "not_folder": "Ce lien n'est pas celui d'un dossier Google Drive.",
+            "is_project": ("Ce lien est celui d'un « projet » Google Drive, qui ne peut pas contenir de fichiers. "
+                           "Créez plutôt un dossier (Nouveau → Nouveau dossier), mettez-y les vidéos, partagez-le "
+                           "avec le robot, puis copiez l'adresse du dossier ouvert (…/drive/folders/…)."),
             "bad_link": "Lien de dossier Google Drive non reconnu : copiez l'adresse du dossier ouvert dans Google Drive.",
             "trashed": "Ce dossier est dans la corbeille de Google Drive.",
             "rate_limited": "Google Drive limite les requêtes pour le moment : réessayez dans quelques minutes.",
@@ -163,6 +167,8 @@ async def _api(method: str, path: str, *, params: Optional[dict] = None, json_bo
 def folder_id_from_link(link: str) -> str:
     """Identifiant d'un dossier à partir de son lien (ou l'identifiant lui-même)."""
     link = (link or "").strip()
+    if re.search(r"/drive/(?:u/\d+/)?project/", link):
+        raise DriveError("is_project")
     for pattern in (r"/folders/([A-Za-z0-9_-]{10,})", r"[?&]id=([A-Za-z0-9_-]{10,})"):
         m = re.search(pattern, link)
         if m:
@@ -174,6 +180,8 @@ def folder_id_from_link(link: str) -> str:
 
 async def get_folder(folder_id: str) -> dict:
     meta = await _api("GET", f"/files/{folder_id}", params={"fields": FOLDER_FIELDS})
+    if meta.get("mimeType") == PROJECT_MIME:
+        raise DriveError("is_project")
     if meta.get("mimeType") != FOLDER_MIME:
         raise DriveError("not_folder")
     if meta.get("trashed"):
