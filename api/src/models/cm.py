@@ -1,0 +1,186 @@
+"""Gestion des réseaux sociaux (cm.chapote.fr) : comptes Instagram, planning, statistiques.
+
+Mêmes règles de tenant que les modules TikTok et YouTube (organisation XOR espace
+perso, CHECK ; accès toujours scopé dans routers/cm.py).
+
+- InstagramAccount : un compte Instagram professionnel du tenant. Deux modes :
+  « api » (connexion officielle Instagram, jeton CHIFFRÉ de 60 jours, rafraîchi)
+  et « routine » (pas de jeton : la routine Claude publie et envoie les chiffres
+  avec CM_SERVICE_TOKEN).
+- CmPost : une vidéo à publier sur un ou plusieurs comptes. Le fichier est gardé
+  dans CM_MEDIA_DIR jusqu'à ce que toutes ses cibles soient terminées.
+- CmTarget : une publication sur UN compte (TikTok, YouTube ou Instagram), avec
+  son heure (maintenant ou programmée), ses options et son statut. À l'heure dite,
+  une cible TikTok/YouTube crée une publication du module correspondant
+  (tiktok_posts / youtube_posts), qui fait l'envoi ; Instagram est publié ici.
+- CmVideo : vidéos récentes de chaque compte et leurs chiffres (vues, j'aime…).
+- CmAccountStat : relevé quotidien d'un compte (abonnés, vues, j'aime, vidéos).
+"""
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    text,
+)
+
+from src.core.database import Base
+from src.core.time import utcnow
+
+PLATFORMS = ("tiktok", "youtube", "instagram")
+
+IG_MODE_API = "api"
+IG_MODE_ROUTINE = "routine"
+
+# Publication (fichier) : RECEIVING (vidéo en cours d'envoi vers Chapote), READY
+# (reçue et validée : ses cibles vivent leur vie), CANCELLED.
+POST_RECEIVING = "RECEIVING"
+POST_READY = "READY"
+POST_CANCELLED = "CANCELLED"
+
+# Cible : DRAFT (vidéo pas encore reçue), SCHEDULED (attend son heure),
+# DISPATCHING (envoi en préparation), PUBLISHING (chez la plateforme),
+# AWAITING_ROUTINE (Instagram géré par la routine : à publier), ROUTINE_CLAIMED
+# (pris en charge par la routine). Fins : PUBLISHED, INBOX (brouillon TikTok
+# envoyé dans l'app), FAILED, CANCELLED.
+T_DRAFT = "DRAFT"
+T_SCHEDULED = "SCHEDULED"
+T_DISPATCHING = "DISPATCHING"
+T_PUBLISHING = "PUBLISHING"
+T_AWAITING_ROUTINE = "AWAITING_ROUTINE"
+T_ROUTINE_CLAIMED = "ROUTINE_CLAIMED"
+T_PUBLISHED = "PUBLISHED"
+T_INBOX = "INBOX"
+T_FAILED = "FAILED"
+T_CANCELLED = "CANCELLED"
+T_FINAL = (T_PUBLISHED, T_INBOX, T_FAILED, T_CANCELLED)
+T_EDITABLE = (T_DRAFT, T_SCHEDULED, T_AWAITING_ROUTINE)
+
+
+def _tenant_check(table: str):
+    return CheckConstraint("(owner_user_id IS NULL) <> (organization_id IS NULL)",
+                           name=f"ck_{table}_owner_xor_org")
+
+
+class InstagramAccount(Base):
+    __tablename__ = "instagram_accounts"
+    __table_args__ = (_tenant_check("instagram_accounts"),)
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    connected_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    mode = Column(String(20), nullable=False, default=IG_MODE_API)
+    ig_user_id = Column(String, nullable=True)          # mode api
+    username = Column(String, nullable=False)
+    name = Column(String, nullable=True)
+    profile_picture_url = Column(Text, nullable=True)
+    account_type = Column(String, nullable=True)        # BUSINESS | MEDIA_CREATOR
+    scopes = Column(Text, nullable=True)                # séparés par des virgules
+    access_token_enc = Column(Text, nullable=True)
+    access_token_expires_at = Column(DateTime, nullable=True)
+    needs_reconnect = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmPost(Base):
+    __tablename__ = "cm_posts"
+    __table_args__ = (_tenant_check("cm_posts"),)
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(200), nullable=False)          # nom interne + titre par défaut
+    caption = Column(Text, nullable=True)                # légende par défaut
+    file_name = Column(String, nullable=True)
+    mime_type = Column(String, nullable=True)
+    video_size = Column(BigInteger, nullable=False)
+    received_bytes = Column(BigInteger, nullable=False, default=0)
+    duration_sec = Column(Float, nullable=True)
+    media_path = Column(String, nullable=True)           # supprimé quand tout est terminé
+    status = Column(String, nullable=False, default=POST_RECEIVING, index=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmTarget(Base):
+    __tablename__ = "cm_targets"
+    __table_args__ = (
+        Index("ix_cm_targets_due", "status", "scheduled_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    post_id = Column(Integer, ForeignKey("cm_posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    platform = Column(String(20), nullable=False)
+    account_id = Column(Integer, nullable=False)         # id dans tiktok_accounts / youtube_accounts / instagram_accounts
+    scheduled_at = Column(DateTime, nullable=False)      # UTC ; = création pour « maintenant »
+    options = Column(JSON, nullable=False, default=dict)
+    status = Column(String, nullable=False, default=T_DRAFT, index=True)
+    tiktok_post_id = Column(Integer, ForeignKey("tiktok_posts.id", ondelete="SET NULL"), nullable=True)
+    youtube_post_id = Column(Integer, ForeignKey("youtube_posts.id", ondelete="SET NULL"), nullable=True)
+    ig_container_id = Column(String, nullable=True)
+    external_id = Column(String, nullable=True)          # id de la vidéo publiée
+    url = Column(Text, nullable=True)
+    fail_reason = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+    notice = Column(Text, nullable=True)                 # remarque non bloquante (vidéo gardée privée…)
+    attempts = Column(Integer, nullable=False, default=0)
+    claimed_at = Column(DateTime, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CmVideo(Base):
+    __tablename__ = "cm_videos"
+    __table_args__ = (
+        Index("uq_cm_videos_account_external", "platform", "account_id", "external_id", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True)
+    platform = Column(String(20), nullable=False)
+    account_id = Column(Integer, nullable=False)
+    external_id = Column(String, nullable=False)
+    target_id = Column(Integer, ForeignKey("cm_targets.id", ondelete="SET NULL"), nullable=True)
+    title = Column(Text, nullable=True)
+    url = Column(Text, nullable=True)
+    thumbnail_url = Column(Text, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    duration_sec = Column(Float, nullable=True)
+    views = Column(BigInteger, nullable=True)
+    likes = Column(BigInteger, nullable=True)
+    comments = Column(BigInteger, nullable=True)
+    shares = Column(BigInteger, nullable=True)
+    saves = Column(BigInteger, nullable=True)
+    stats_updated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CmAccountStat(Base):
+    __tablename__ = "cm_account_stats"
+    __table_args__ = (
+        Index("uq_cm_account_stats_day", "platform", "account_id", "day", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True)
+    platform = Column(String(20), nullable=False)
+    account_id = Column(Integer, nullable=False)
+    day = Column(Date, nullable=False)
+    followers = Column(BigInteger, nullable=True)
+    views = Column(BigInteger, nullable=True)            # total du compte (ou des vidéos relevées)
+    likes = Column(BigInteger, nullable=True)
+    videos = Column(Integer, nullable=True)
+    error = Column(Text, nullable=True)                  # dernier relevé en échec
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

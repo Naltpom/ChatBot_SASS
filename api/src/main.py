@@ -23,11 +23,11 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.core.errors import install_error_handlers
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
-from src.routers import admin, admin_billing, admin_music, admin_prospecting, admin_tiktok, auth, billing, bots, embed, inbox, kb, music, orgs, public, stats, tiktok, tree, twofa, uploads, widget, youtube
+from src.routers import admin, admin_billing, admin_music, admin_prospecting, admin_tiktok, auth, billing, bots, cm, embed, inbox, kb, music, orgs, public, stats, tiktok, tree, twofa, uploads, widget, youtube
 from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
 from src.routers.external import onboarding as ext_onboarding
-from src.services import tiktok_jobs, youtube_jobs
+from src.services import cm_jobs, tiktok_jobs, youtube_jobs
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -74,9 +74,12 @@ async def lifespan(app: FastAPI):
     tiktok_jobs.start_scheduler()
     # Module YouTube : suivi des Shorts envoyés, vérification des chaînes.
     youtube_jobs.start_scheduler()
+    # cm.chapote.fr : publications programmées, suivi, statistiques, nettoyage.
+    cm_jobs.start_scheduler()
     yield
     await tiktok_jobs.stop_scheduler()
     await youtube_jobs.stop_scheduler()
+    await cm_jobs.stop_scheduler()
 
 
 # Doc interactive (Swagger /docs, ReDoc /redoc, schema /openapi.json) : on la
@@ -299,6 +302,7 @@ app.include_router(admin_prospecting.router)
 app.include_router(tiktok.router)
 app.include_router(admin_tiktok.router)
 app.include_router(youtube.router)
+app.include_router(cm.router)
 app.include_router(music.router)
 app.include_router(admin_music.router)
 app.include_router(uploads.router)

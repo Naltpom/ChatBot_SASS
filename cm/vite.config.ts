@@ -1,0 +1,9 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// En dev, /api/* part vers l'API locale (même origine qu'en production, où le nginx
+// du conteneur `cm` relaie /api/cm/, /api/tiktok/, /api/youtube/ et /api/auth/ vers `api`).
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 3003, proxy: { '/api': 'http://localhost:8001' } },
+})
