@@ -430,8 +430,20 @@ async def put_file(token: str, parent_id: str, name: str, path: str, mime: str) 
 
 
 async def get_bytes(token: str, file_id: str, max_bytes: int = 2_000_000) -> bytes:
-    resp = await _call(token, "GET", f"{settings.GDRIVE_API_BASE}/drive/v3/files/{file_id}", params={"alt": "media"})
-    return resp.content[:max_bytes]
+    """Petit fichier (infos.json…), lu en flux et coupé à `max_bytes` (jamais un gros fichier en mémoire)."""
+    out = bytearray()
+    async with _client() as c:
+        async with c.stream("GET", f"{settings.GDRIVE_API_BASE}/drive/v3/files/{file_id}",
+                            params={"alt": "media", "supportsAllDrives": "true"},
+                            headers={"Authorization": f"Bearer {token}"}) as resp:
+            if resp.status_code >= 400:
+                await resp.aread()
+                raise _error(resp)
+            async for chunk in resp.aiter_bytes():
+                out += chunk
+                if len(out) >= max_bytes:
+                    break
+    return bytes(out[:max_bytes])
 
 
 async def delete_file(token: str, file_id: str) -> None:

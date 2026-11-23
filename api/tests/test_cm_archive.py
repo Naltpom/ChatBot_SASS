@@ -38,6 +38,7 @@ class WriteDrive:
         self.perms: list[dict] = []
         self.pending: dict[str, dict] = {}
         self.grant_ok = True
+        self.fail_uploads = 0
         self.moves: list[str] = []
         self.refreshes = 0
         self.revoked: list[str] = []
@@ -123,6 +124,9 @@ class WriteDrive:
             self.pending[sid] = {"meta": json.loads(body), "token": token}
             return httpx.Response(200, headers={"location": f"https://www.googleapis.com/upload/session/{sid}"})
         if path.startswith("/upload/session/"):
+            if self.fail_uploads:
+                self.fail_uploads -= 1
+                raise httpx.ConnectError("réseau coupé")
             job = self.pending.pop(path.rsplit("/", 1)[1])
             return self._new_file(job["token"], job["meta"], body)
         if path.startswith("/upload/drive/v3/files/") and req.method == "PATCH":
@@ -285,7 +289,7 @@ async def test_robot_probe_and_direct_archive(pg_session, cmenv, wdrive, tiktok)
     ig = await _ig_routine(pg_session, owner=u)
     kiwi = wdrive._id()
     wdrive.items[kiwi] = {"name": "kiwi", "parent": "root", "folder": True}
-    src = CmSource(owner_user_id=u.id, folder_id=kiwi, name="kiwi", role="writer")
+    src = CmSource(owner_user_id=u.id, folder_id=kiwi, name="kiwi", role="writer", verified=True)
     pg_session.add(src)
     await pg_session.commit()
     # Google refuse au robot de créer un fichier : noté, l'archivage attend une connexion Drive.
@@ -392,7 +396,7 @@ async def test_existing_account_folders_are_used(pg_session, cmenv, wdrive, tikt
     wdrive.items[old_video] = {"name": "Ancienne.mp4", "parent": day, "content": b"pc"}
     old_infos = wdrive._id()
     wdrive.items[old_infos] = {"name": "infos.json", "parent": day, "content": b'{"compte": "kiwi", "id": "k2", "statut": "prete"}'}
-    pg_session.add(CmSource(owner_user_id=u.id, folder_id=kiwi, name="kiwi", role="writer", can_upload=False))
+    pg_session.add(CmSource(owner_user_id=u.id, folder_id=kiwi, name="kiwi", role="writer", verified=True, can_upload=False))
     await pg_session.commit()
     data = mp4_bytes(42_000)
     async with Client(pg_session) as c:

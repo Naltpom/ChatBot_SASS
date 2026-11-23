@@ -14,6 +14,7 @@ Où écrire, dans l'ordre :
 infos.json est réécrit à chaque changement de statut d'une cible (liens compris). Ces dossiers ne donnent jamais
 de brouillon « à valider » (infos.json porte compte + id : voir cm_library.classify). Aucun jeton n'est loggé.
 """
+import asyncio
 import hashlib
 import json
 import logging
@@ -28,6 +29,7 @@ from sqlalchemy import exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.database import AsyncSessionLocal
 from src.core.time import utcnow
 from src.models.cm import (
     POST_CANCELLED,
@@ -42,6 +44,7 @@ from src.models.cm import (
     CmTarget,
 )
 from src.services import gdrive_service as gd
+from src.services.cm_library import INFOS_NAME
 from src.services.crypto import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -57,6 +60,7 @@ CONTES = "contes"
 
 _user_tokens: dict[int, tuple[str, float]] = {}
 _probed: dict[int, float] = {}
+_source_tries: dict[int, float] = {}
 
 
 class ArchiveError(Exception):
@@ -147,8 +151,9 @@ async def connect(db: AsyncSession, tenant, user, tok: dict) -> CmDriveLink:
     except gd.DriveError as e:
         raise ArchiveError("drive_error", e.describe())
     old = await active_link(db, tenant.org_id, tenant.owner_user_id)
-    if old is not None:
-        old.revoked_at = utcnow()
+    if old is not None:                # reconnexion : l'ancien accès est révoqué chez Google et effacé
+        await _revoke(old)
+        old.revoked_at, old.refresh_token_enc = utcnow(), ""
         await db.flush()
     link = CmDriveLink(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, connected_by_user_id=user.id,
                        email=((about.get("user") or {}).get("emailAddress") or "")[:255] or None,
@@ -170,6 +175,10 @@ async def _ensure_source(db: AsyncSession, link: CmDriveLink, user=None) -> None
     """Dossier d'archives relié à la bibliothèque (lecture par le robot) : vidéos visibles, relecture possible."""
     if link.source_id or not link.root_folder_id or not gd.is_enabled():
         return
+    if user is None:                   # relance planifiée : au plus une fois par heure
+        if time.time() - _source_tries.get(link.id, 0) < PROBE_EVERY:
+            return
+        _source_tries[link.id] = time.time()
     from fastapi import HTTPException
     from src.routers.tiktok import Tenant
     from src.models.user import User
@@ -193,9 +202,7 @@ async def _ensure_source(db: AsyncSession, link: CmDriveLink, user=None) -> None
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 
 
-async def disconnect(db: AsyncSession, link: CmDriveLink) -> None:
-    """« Déconnecter Google Drive » : autorisation révoquée chez Google, jeton supprimé de la base.
-    Les fichiers déjà archivés restent dans le Drive de l'utilisateur."""
+async def _revoke(link: CmDriveLink) -> None:
     if link.refresh_token_enc:
         try:
             async with gd._client() as c:
@@ -203,6 +210,12 @@ async def disconnect(db: AsyncSession, link: CmDriveLink) -> None:
         except httpx.HTTPError:
             logger.info("cm : révocation Google Drive injoignable (jeton supprimé quand même)")
     _user_tokens.pop(link.id, None)
+
+
+async def disconnect(db: AsyncSession, link: CmDriveLink) -> None:
+    """« Déconnecter Google Drive » : autorisation révoquée chez Google, jeton supprimé de la base.
+    Les fichiers déjà archivés restent dans le Drive de l'utilisateur."""
+    await _revoke(link)
     await db.delete(link)
     await db.commit()
 
@@ -274,9 +287,10 @@ def _layout(post: CmPost, targets: list[CmTarget]) -> tuple[list[str], str, Opti
     conte = (post.archive or {}).get("conte") or {}
     if compte == CONTES:
         dossier = clean_name(conte.get("dossier") or f"{conte.get('id') or rid} — {conte.get('titre') or post.title}")
-        partie = str(conte.get("partie") or "").strip() or None
+        partie = str(conte.get("partie") or "").strip() or rid    # toujours une entrée de « parties »
         titre = clean_name(conte.get("titre") or post.title)
-        stem = titre if not partie else (f"{titre} — version longue" if partie == "longue" else f"{titre} — partie {partie}")
+        stem = (f"{titre} — version longue" if partie == "longue"
+                else f"{titre} — partie {partie}" if partie.isdigit() else titre)
         return [dossier], stem, partie
     live = [t for t in targets if t.status != T_CANCELLED] or targets
     when = _local(min((t.scheduled_at for t in live), default=post.created_at))
@@ -312,7 +326,9 @@ async def _destination(db: AsyncSession, post: CmPost) -> Optional[_Dest]:
     compte, _ = _split_ref(post.ref)
     srcs = (await db.execute(select(CmSource).where(_tenant_cond(CmSource, post.organization_id, post.owner_user_id),
                                                     CmSource.revoked_at.is_(None)))).scalars().all()
-    src = next((s for s in srcs if (s.name or "").strip().lower() == compte.lower() and s.role == "writer"), None)
+    # Seulement un dossier vérifié (partagé par l'espace lui-même) : jamais celui d'un tiers relié par son lien.
+    src = next((s for s in srcs if (s.name or "").strip().lower() == compte.lower() and s.role == "writer"
+                and s.verified), None)
     if src is not None and src.can_upload is True:
         return _Dest("robot", src.folder_id, [], robot=await gd.access_token())
     link = await active_link(db, post.organization_id, post.owner_user_id)
@@ -346,10 +362,16 @@ def _sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()[:16]
 
 
-async def sync_post(db: AsyncSession, post: CmPost) -> None:
+async def sync_post(db: AsyncSession, post: CmPost, now=None) -> None:
+    """Archive (ou met à jour) une publication. `now` : heure de la réservation (sync_due) ; un changement de
+    cible arrivé pendant l'envoi est donc repris au passage suivant."""
     targets = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
     a = dict(post.archive or {})
-    now = utcnow()
+    now = now or utcnow()
+    if not a.get("folder_id") and (post.status == POST_CANCELLED or all(t.status == T_CANCELLED for t in targets)):
+        post.archive_state = None      # annulée avant d'être archivée : rien à ranger
+        await db.commit()
+        return
     try:
         dest = await _destination(db, post)
     except (ArchiveError, gd.DriveError) as e:
@@ -363,6 +385,11 @@ async def sync_post(db: AsyncSession, post: CmPost) -> None:
         await db.commit()
         return
     via, base = dest.via, dest.base
+    if a.get("base") and a["base"] != base and a.get("video_id") and not post.media_path:
+        # Nouvelle destination, mais la vidéo n'est plus sur le serveur : l'archive reste où elle est.
+        post.archive_synced_at = now
+        await db.commit()
+        return
     if a.get("base") != base:          # nouvelle destination : tout est réécrit là-bas
         a = {"conte": a.get("conte"), "base": base, "via": via}
 
@@ -417,7 +444,7 @@ async def sync_post(db: AsyncSession, post: CmPost) -> None:
         mine = entry(post, targets)
         if not a.get("infos_id"):
             # infos.json déjà là (autre partie du conte, ou rangé par le PC) : lu et réécrit, jamais en double.
-            found = await gd.find_child(dest.folders, folder, lib_infos_name(), False)
+            found = await gd.find_child(dest.folders, folder, INFOS_NAME, False)
             if found:
                 a["infos_id"], a["infos_by"] = found, ("robot" if via == "mixte" else None)
         if partie is None:
@@ -437,10 +464,19 @@ async def sync_post(db: AsyncSession, post: CmPost) -> None:
                      "titre": conte.get("titre") or infos.get("titre") or post.title, "parties": parts}
         raw = json.dumps(infos, ensure_ascii=False, indent=2).encode()
         if a.get("infos_sha") != _sha(raw) or not a.get("infos_id"):
-            await write("infos", lib_infos_name(), raw, "application/json")
+            await write("infos", INFOS_NAME, raw, "application/json")
             a["infos_sha"] = _sha(raw)
         a.pop("error", None)
-        post.archive_state = "ok" if (a.get("video_id") or not post.media_path) else "pending"
+        if a.get("video_id"):
+            post.archive_state = "ok"
+        elif post.media_path:
+            post.archive_state = "pending"
+        else:
+            post.archive_state, a["error"] = "error", "La vidéo n'est plus sur le serveur : elle n'a pas pu être archivée."
+    except (httpx.HTTPError, OSError) as e:      # réseau coupé, vidéo effacée pendant l'envoi : réessayé plus tard
+        a["error"] = "Google Drive injoignable pendant l'archivage : nouvel essai dans 30 min."
+        post.archive_state = "error"
+        logger.info("cm : archivage de la publication %s interrompu (%s)", post.id, type(e).__name__)
     except gd.DriveError as e:
         if e.code == "no_space" and via == "robot":
             await db.execute(update(CmSource).where(CmSource.folder_id == base).values(can_upload=False))
@@ -451,31 +487,55 @@ async def sync_post(db: AsyncSession, post: CmPost) -> None:
     await db.commit()
 
 
-def lib_infos_name() -> str:
-    from src.services.cm_library import INFOS_NAME
-    return INFOS_NAME
-
-
 async def sync_due(db: AsyncSession) -> None:
-    """Publications à archiver (nouvelles, en échec depuis 30 min) ou dont une cible a changé depuis."""
+    """Publications à archiver (nouvelles, en échec depuis 30 min) ou dont une cible a changé depuis.
+    Chaque publication est d'abord réservée (archive_synced_at avancé) : deux passages simultanés n'envoient
+    jamais deux fois la même vidéo."""
     now = utcnow()
     changed = exists().where(CmTarget.post_id == CmPost.id, CmTarget.updated_at > CmPost.archive_synced_at)
-    rows = (await db.execute(select(CmPost).where(
-        CmPost.ref.is_not(None), CmPost.status.not_in((POST_RECEIVING,)),
+    rows = (await db.execute(select(CmPost.id, CmPost.archive_synced_at).where(
+        CmPost.ref.is_not(None), CmPost.status != POST_RECEIVING,
         or_((CmPost.archive_state.in_(("pending", "error"))
              & (CmPost.archive_synced_at.is_(None) | (CmPost.archive_synced_at < now - RETRY_AFTER))),
             (CmPost.archive_state == "ok") & changed),
-    ).order_by(CmPost.id).limit(SYNC_BATCH))).scalars().all()
-    for post in rows:
-        if post.status == POST_CANCELLED and not (post.archive or {}).get("folder_id"):
-            post.archive_state = None
-            await db.commit()
+    ).order_by(CmPost.id).limit(SYNC_BATCH))).all()
+    for post_id, seen in rows:
+        same = CmPost.archive_synced_at.is_(None) if seen is None else CmPost.archive_synced_at == seen
+        claimed = await db.execute(update(CmPost).where(CmPost.id == post_id, same).values(archive_synced_at=now))
+        await db.commit()
+        if claimed.rowcount != 1:
             continue
-        await sync_post(db, post)
+        post = await db.get(CmPost, post_id)
+        await db.refresh(post)
+        try:
+            await sync_post(db, post, now)
+        except Exception:
+            logger.exception("cm : archivage de la publication %s en échec", post_id)
+            await db.rollback()
     # Dossiers d'archives pas encore reliés à la bibliothèque (partage pas encore visible au 1er essai).
     for link in (await db.execute(select(CmDriveLink).where(CmDriveLink.revoked_at.is_(None),
                                                             CmDriveLink.source_id.is_(None)).limit(3))).scalars():
         await _ensure_source(db, link)
+
+
+_running: Optional[asyncio.Task] = None
+
+
+async def launch_due(db: AsyncSession) -> None:
+    """Étape de la tâche planifiée : l'archivage (envois de vidéos, parfois longs) tourne à part, pour ne pas
+    retarder les publications ; un seul passage à la fois dans ce processus."""
+    global _running
+    if _running is not None and not _running.done():
+        return
+
+    async def run():
+        async with AsyncSessionLocal() as session:
+            await sync_due(session)
+            await probe_sources(session)
+
+    _running = asyncio.create_task(run())
+    _running.add_done_callback(lambda t: t.cancelled() or t.exception() is None
+                               or logger.error("cm : archivage en échec : %r", t.exception()))
 
 
 async def probe_sources(db: AsyncSession, batch: int = 3) -> None:
