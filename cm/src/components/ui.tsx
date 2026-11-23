@@ -87,15 +87,18 @@ export function Avatar({ src, name, platform, size }: { src: string | null | und
 /** Feuille qui monte du bas sur mobile, fenêtre centrée sur ordinateur. Échap et clic à côté ferment. */
 export function Sheet({ title, onClose, children, labelledBy = 'sheet-title' }: { title: ReactNode; onClose: () => void; children: ReactNode; labelledBy?: string }) {
   const box = useRef<HTMLDivElement>(null)
+  const close = useRef(onClose)
+  close.current = onClose
+  // Une seule fois à l'ouverture (onClose change à chaque rendu du parent : ne pas reprendre le focus).
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current() }
     document.addEventListener('keydown', onKey)
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     box.current?.focus()
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = overflow; prev?.focus?.() }
-  }, [onClose])
+  }, [])
   // Rendue dans <body> : un parent avec backdrop-filter / transform (barre du haut) servirait sinon de
   // repère au position: fixed, et la fenêtre serait coupée dans ce parent.
   return createPortal(

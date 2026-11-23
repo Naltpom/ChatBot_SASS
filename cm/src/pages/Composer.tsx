@@ -8,8 +8,9 @@ import { PlatformLogo } from '../components/PlatformLogo'
 import { AccountPicker } from '../components/AccountPicker'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  creatorInfo, createPost, getAccounts, getAsset, getRobot, putPart, submitPost, PLATFORM_LABEL,
+  creatorInfo, createPost, getAccounts, getAsset, getProposal, getRobot, putPart, submitPost, PLATFORM_LABEL,
   type Account, type Asset, type CreatorInfo, type Platform,
+  type Proposal,
 } from '../api'
 import { Avatar, GroupDot, Icon, Loading, Msg, Sheet } from '../components/ui'
 import { AssetGrid } from './Library'
@@ -88,6 +89,22 @@ export default function Composer() {
     if (!id || asset) return
     getAsset(org, id).then(a => { if (accounts.data) useAsset(a); else setPendingAsset(a) }).catch(e => setErr((e as Error).message))
   }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Brouillon automatique (« À valider ») : vidéo, comptes, heure, titre et légende pré-remplis.
+  const [draft, setDraft] = useState<Proposal | null>(null)
+  useEffect(() => {
+    const id = Number(params.get('brouillon'))
+    if (!id) return
+    getProposal(org, id).then(setDraft).catch(e => setErr((e as Error).message))
+  }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!draft || !accounts.data || !draft.asset) return
+    const a = draft.asset
+    setAsset(a); setFile(null); setDuration(a.duration_sec)
+    setTitle((draft.title || a.title).slice(0, 200))
+    setCaption(draft.caption ?? a.caption ?? '')
+    add(accounts.data.filter(x => draft.accounts.some(k => k.key === key(x))))
+    if (draft.scheduled_at) { setWhen('at'); setAt(toLocalInput(new Date(draft.scheduled_at))) }
+  }, [draft, accounts.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const [pendingAsset, setPendingAsset] = useState<Asset | null>(null)
   useEffect(() => { if (pendingAsset && accounts.data) { useAsset(pendingAsset); setPendingAsset(null) } }, [pendingAsset, accounts.data]) // eslint-disable-line react-hooks/exhaustive-deps
 

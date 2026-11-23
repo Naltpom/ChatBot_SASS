@@ -128,6 +128,22 @@ Les vidéos restent dans le Drive des utilisateurs ; cm les lit grâce à un **c
   ordinateur ; absente des pages de gestion (Comptes, Bibliothèque, Personnes), qui portent sur tout
   l'espace. Le composeur reprend le filtre choisi. Choix de l'espace (rare) : menu du compte.
 
+## Brouillons automatiques (bibliothèque)
+
+- Par dossier : **Bibliothèque → ☰ → Brouillons automatiques**. Analyse du rangement : Gemini 2.5 Flash
+  (`GEMINI_API_KEY`) reçoit seulement les chemins et noms de fichiers (jamais les vidéos) + la liste des comptes et
+  groupes, et choisit dans des listes fermées (`services/cm_recipe.py`, jamais de regex venue de l'IA) ; sans clé ou
+  en erreur : règles déterministes. L'admin vérifie sur 4 vidéos réelles, corrige, active.
+- Recette (`cm_sources.recipe`) : comptes (groupe par défaut du dossier, ou sous-dossier de niveau N → compte/groupe),
+  date/heure lues dans les noms (formats `2026-11-24 18h30`, `2026-11-24`, `24-11-2026 18h30`, `24-11-2026`,
+  `20261124_1830`, fuseau Europe/Paris, heure par défaut), titre (fichier, dossier ou 1re ligne du .txt), légende
+  (.txt à côté), couverture (image à côté : même nom, `couverture.jpg`, ou seule image du dossier → `cm_assets.cover_file_id`).
+- À chaque relecture du dossier, chaque nouvelle vidéo (pas encore programmée, jamais proposée) devient un
+  `cm_proposals` « open » (une fois par vidéo ; « Aussi pour les vidéos déjà là » = arriéré). Date passée → heure à choisir.
+- Page **À valider** (pastille dans le menu) : « Vérifier et programmer » ouvre le composeur pré-rempli
+  (`/nouvelle?brouillon=<id>`) — mêmes règles qu'à la main, dont les choix TikTok ; programmer la vidéo marque le
+  brouillon « used ». « Écarter » : plus jamais proposé. Rien ne part sans validation.
+
 ## Listes à grande échelle (recherche, tri, pages)
 
 - Recherche et tri **toujours côté API** (jamais en mémoire dans le navigateur) : `q`, `sort`, `order=asc|desc`,

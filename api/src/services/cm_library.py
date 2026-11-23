@@ -11,6 +11,7 @@
   terminé. Avec le rôle Éditeur et l'option activée, la vidéo est rangée dans « Publié ».
 """
 import logging
+from collections import Counter
 import os
 import uuid
 from datetime import timedelta
@@ -44,6 +45,8 @@ logger = logging.getLogger(__name__)
 
 VIDEO_MIME_PREFIX = "video/"
 SIDECAR_EXT = (".txt",)
+IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp")
+COVER_NAMES = {"couverture", "cover", "miniature", "thumbnail", "vignette"}
 
 
 def _stem(name: str) -> str:
@@ -68,6 +71,7 @@ def source_out(s: CmSource, counts: Optional[dict] = None) -> dict:
         "url": f"https://drive.google.com/drive/folders/{s.folder_id}",
         "role": s.role, "can_organize": s.role == "writer", "shared_by": _mask(s.shared_by), "verified": s.verified,
         "group_id": s.group_id, "move_published": s.move_published,
+        "auto_drafts": s.auto_drafts, "recipe": s.recipe,
         "last_scan_at": cm.iso(s.last_scan_at), "last_error": s.last_error,
         "videos": c.get("videos", 0), "new": c.get("new", 0), "created_at": cm.iso(s.created_at),
     }
@@ -83,7 +87,7 @@ def asset_out(a: CmAsset, source: Optional[CmSource], usage: Optional[dict] = No
         "duration_sec": a.duration_sec, "width": a.width, "height": a.height,
         "drive_created_at": cm.iso(a.drive_created_at),
         "thumbnail": f"/api/cm/assets/{a.id}/thumbnail" if a.thumbnail_link else None,
-        "drive_url": f"https://drive.google.com/file/d/{a.file_id}/view",
+        "drive_url": f"https://drive.google.com/file/d/{a.file_id}/view", "has_cover": bool(a.cover_file_id),
         "removed": a.removed_at is not None, "moved_published": a.moved_published_at is not None,
         "scheduled": u.get("scheduled", 0), "published": u.get("published", 0),
         "last_published_at": cm.iso(u.get("last_published_at")),
@@ -279,6 +283,7 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
     src.role = "writer" if caps.get("canEdit") else "reader"
 
     by_folder_stem: dict[tuple[str, str], dict] = {}
+    images: dict[str, list[dict]] = {}             # dossier -> images (couvertures possibles)
     videos: list[tuple[str, dict]] = []
     for path, f in files:
         name = f.get("name") or ""
@@ -286,6 +291,9 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
             videos.append((path, f))
         elif name.lower().endswith(SIDECAR_EXT):
             by_folder_stem[(path, _stem(name))] = f
+        elif name.lower().endswith(IMAGE_EXT) or (f.get("mimeType") or "").startswith("image/"):
+            images.setdefault(path, []).append(f)
+    per_folder = Counter(path for path, _ in videos)
 
     existing = {a.file_id: a for a in (await db.execute(select(CmAsset).where(CmAsset.source_id == src.id))).scalars()}
     seen = set()
@@ -311,7 +319,16 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
         a.drive_created_at = gd.parse_time(f.get("createdTime")) or a.drive_created_at
         a.drive_modified_at = gd.parse_time(f.get("modifiedTime")) or a.drive_modified_at
         a.removed_at = None
+        # Couverture : image du même nom, sinon la seule image d'un dossier à une seule vidéo.
+        imgs = images.get(path, [])
+        same = next((i for i in imgs if _stem(i.get("name") or "") == _stem(a.name)), None)
+        named = next((i for i in imgs if _stem(i.get("name") or "").lower() in COVER_NAMES), None)
+        cover = same or (named or (imgs[0] if len(imgs) == 1 else None) if per_folder[path] == 1 else None)
+        a.cover_file_id = cover["id"] if cover else None
         side = by_folder_stem.get((path, _stem(a.name)))
+        if side is None and per_folder[path] == 1:
+            texts = [v for (pth, _), v in by_folder_stem.items() if pth == path]
+            side = texts[0] if len(texts) == 1 else None
         if side and a.caption_from != "user":
             modified = gd.parse_time(side.get("modifiedTime"))
             if a.sidecar_file_id != side["id"] or a.sidecar_modified_at != modified:
@@ -327,7 +344,14 @@ async def scan_source(db: AsyncSession, src: CmSource) -> dict:
     src.last_scan_at = now
     src.last_error = None
     await db.commit()
-    return {"ok": True, "videos": len(videos), "added": added}
+    proposed = 0
+    try:
+        from src.services import cm_recipe
+        proposed = await cm_recipe.propose(db, src)
+    except Exception:
+        logger.exception("cm : brouillons automatiques du dossier %s en échec", src.id)
+        await db.rollback()
+    return {"ok": True, "videos": len(videos), "added": added, "proposed": proposed}
 
 
 async def scan_due(db: AsyncSession, batch: int = 10) -> None:

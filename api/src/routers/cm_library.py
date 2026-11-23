@@ -25,11 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.time import utcnow
-from src.models.cm import CmAsset, CmGoogleIdentity, CmGroup, CmPost, CmSource
+from src.models.cm import CmAsset, CmGoogleIdentity, CmGroup, CmPost, CmProposal, CmSource
 from src.models.user import User
 from src.routers.cm import _same, get_cm_user
 from src.routers.tiktok import Tenant, _tenant, _tenant_of
 from src.services import cm_access
+from src.services import cm_service as cm
 from src.services import cm_paging as paging
 from src.services import cm_library as lib
 from src.services import gdrive_service as gd
@@ -41,6 +42,7 @@ router = APIRouter(prefix="/api/cm", tags=["cm-library"])
 link_limiter = RateLimiter("rl:cmsrclink:", 30, 3600)
 scan_limiter = RateLimiter("rl:cmsrcscan:", 20, 3600)
 ident_limiter = RateLimiter("rl:cmgident:", 20, 3600)
+analyze_limiter = RateLimiter("rl:cmanalyze:", 20, 3600)
 
 
 async def _source(db: AsyncSession, tenant: Tenant, source_id: int) -> CmSource:
@@ -321,3 +323,157 @@ async def asset_thumbnail(asset_id: int, db: AsyncSession = Depends(get_db), use
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Miniature indisponible")
     return Response(content=data, media_type=ctype, headers={"Cache-Control": "private, max-age=3600"})
 
+
+
+# --------------------------------------------------------------------------
+# Brouillons automatiques : recette par dossier, propositions à valider
+# --------------------------------------------------------------------------
+
+async def _names(db: AsyncSession, tenant: Tenant) -> tuple[dict[str, str], dict[str, str]]:
+    accounts = {f"{p}:{a.id}": cm.account_name(p, a) for p, a in await cm.tenant_accounts(db, tenant)}
+    groups = {f"group:{g.id}": g.name for g in (await db.execute(select(CmGroup).where(tenant.where(CmGroup)))).scalars()}
+    return accounts, groups
+
+
+async def _examples(db: AsyncSession, tenant: Tenant, src: CmSource, recipe: dict, n: int = 4) -> list[dict]:
+    from src.services import cm_recipe
+    accounts, groups = await _names(db, tenant)
+    members = await cm_recipe.group_members(db, tenant.where(CmGroup))
+    rows = (await db.execute(select(CmAsset).where(CmAsset.source_id == src.id, CmAsset.removed_at.is_(None))
+                             .order_by(CmAsset.drive_created_at.desc().nulls_last(), CmAsset.id.desc()).limit(n))).scalars().all()
+    out = []
+    for a in rows:
+        got = cm_recipe.apply(recipe, a, members, members.get(src.group_id, []) if src.group_id else [])
+        out.append({"asset_id": a.id, "path": "/".join(x for x in (a.folder_path, a.name) if x),
+                    "accounts": [accounts.get(k, k) for k in got["accounts"]], "folder": got["folder"],
+                    "scheduled_at": cm.iso(got["scheduled_at"]), "when_from": got["when_from"],
+                    "title": got["title"], "caption": (got["caption"] or "")[:160] or None, "cover": bool(a.cover_file_id)})
+    return out
+
+
+@router.post("/sources/{source_id}/analyze")
+async def analyze_source(source_id: int, org_id: Optional[int] = Query(None),
+                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Comprend le rangement du dossier (noms et chemins seulement) et propose une recette."""
+    from src.services import cm_recipe
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
+    src = await _source(db, tenant, source_id)
+    if not await analyze_limiter.check(f"{user.id}"):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop d'analyses : réessayez dans une heure.")
+    assets = (await db.execute(select(CmAsset).where(CmAsset.source_id == src.id, CmAsset.removed_at.is_(None))
+                               .order_by(CmAsset.drive_created_at.desc().nulls_last()).limit(150))).scalars().all()
+    paths = ["/".join(x for x in (a.folder_path, a.name) if x) for a in assets]
+    extra = [f"{'/'.join(x for x in (a.folder_path, 'légende.txt') if x)}" for a in assets if a.sidecar_file_id][:40]
+    extra += [f"{'/'.join(x for x in (a.folder_path, 'couverture.jpg') if x)}" for a in assets if a.cover_file_id][:40]
+    accounts, groups = await _names(db, tenant)
+    valid = set(accounts) | set(groups)
+    folders = {str(lvl): sorted({p.split("/")[lvl - 1] for p in paths if p.count("/") >= lvl})[:200] for lvl in (1, 2, 3)}
+    answer = await cm_recipe.ask_gemini("\n".join(paths + extra), accounts, groups) if paths else None
+    engine = "gemini" if answer else "regles"
+    recipe = cm_recipe.clean(answer, valid) if answer else cm_recipe.heuristic(paths, accounts, groups)
+    explanation = (answer or {}).get("explication") if answer else None
+    return {"engine": engine, "recipe": recipe, "explanation": (explanation or "")[:400] or None,
+            "examples": await _examples(db, tenant, src, recipe), "folders": folders,
+            "accounts": [{"key": k, "name": v} for k, v in accounts.items()],
+            "groups": [{"key": k, "name": v} for k, v in groups.items()],
+            "patterns": cm_recipe.PATTERN_LABEL, "videos": len(paths)}
+
+
+class RecipeIn(BaseModel):
+    recipe: dict
+    auto_drafts: bool = True
+    backlog: bool = False             # aussi pour les vidéos déjà dans le dossier
+
+
+@router.post("/sources/{source_id}/recipe/preview")
+async def preview_recipe(source_id: int, body: RecipeIn, org_id: Optional[int] = Query(None),
+                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    from src.services import cm_recipe
+    tenant = await _tenant(db, user, org_id)
+    src = await _source(db, tenant, source_id)
+    accounts, groups = await _names(db, tenant)
+    recipe = cm_recipe.clean(body.recipe, set(accounts) | set(groups))
+    return {"recipe": recipe, "examples": await _examples(db, tenant, src, recipe)}
+
+
+@router.put("/sources/{source_id}/recipe")
+async def save_recipe(source_id: int, body: RecipeIn, org_id: Optional[int] = Query(None),
+                      db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    from src.services import cm_recipe
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
+    src = await _source(db, tenant, source_id)
+    accounts, groups = await _names(db, tenant)
+    src.recipe = cm_recipe.clean(body.recipe, set(accounts) | set(groups))
+    if body.auto_drafts and not src.auto_drafts:
+        src.drafts_since = None if body.backlog else utcnow()
+    src.auto_drafts = body.auto_drafts
+    await db.commit()
+    proposed = await cm_recipe.propose(db, src)
+    return {"source": lib.source_out(src), "proposed": proposed}
+
+
+async def _proposal_out(db: AsyncSession, p: CmProposal, names: dict[str, str]) -> dict:
+    a = await db.get(CmAsset, p.asset_id)
+    src = await db.get(CmSource, p.source_id)
+    return {"id": p.id, "status": p.status, "title": p.title, "caption": p.caption,
+            "scheduled_at": cm.iso(p.scheduled_at), "when_from": p.when_from,
+            "accounts": [{"key": k, "name": names.get(k), "platform": k.split(":")[0]} for k in p.accounts or [] if k in names],
+            "asset": lib.asset_out(a, src) if a else None, "created_at": cm.iso(p.created_at)}
+
+
+@router.get("/proposals")
+async def list_proposals(response: Response, org_id: Optional[int] = Query(None),
+                         limit: int = Query(30, ge=1, le=100), cursor: Optional[str] = Query(None, max_length=300),
+                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Brouillons à valider, du plus ancien au plus récent (heure proposée d'abord)."""
+    tenant = await _tenant(db, user, org_id)
+    key = paging.nulls_last(CmProposal.scheduled_at, "dt", "asc").label("_k")
+    stmt = select(CmProposal, key).where(tenant.where(CmProposal), CmProposal.status == "open")
+    stmt = paging.apply(stmt, key, "dt", CmProposal.id, "asc", cursor, limit)
+    rows = paging.page(response, list((await db.execute(stmt)).all()), limit, lambda r: r[1], lambda r: r[0].id, cursor)
+    accounts, _ = await _names(db, tenant)
+    out = []
+    for p, _ in rows:
+        src = await db.get(CmSource, p.source_id)
+        if src is None or not cm_access.group_allowed(tenant, src.group_id):
+            continue
+        out.append(await _proposal_out(db, p, accounts))
+    return out
+
+
+@router.get("/proposals/count")
+async def count_proposals(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                          user: User = Depends(get_cm_user)):
+    tenant = await _tenant(db, user, org_id)
+    n = (await db.execute(select(func.count()).select_from(CmProposal).where(
+        tenant.where(CmProposal), CmProposal.status == "open"))).scalar() or 0
+    return {"open": n}
+
+
+async def _proposal(db: AsyncSession, tenant: Tenant, proposal_id: int) -> CmProposal:
+    p = await db.get(CmProposal, proposal_id)
+    if p is None or not _same(p, tenant):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Brouillon introuvable")
+    return p
+
+
+@router.get("/proposals/{proposal_id}")
+async def get_proposal(proposal_id: int, org_id: Optional[int] = Query(None),
+                       db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    tenant = await _tenant(db, user, org_id)
+    accounts, _ = await _names(db, tenant)
+    return await _proposal_out(db, await _proposal(db, tenant, proposal_id), accounts)
+
+
+@router.post("/proposals/{proposal_id}/dismiss")
+async def dismiss_proposal(proposal_id: int, org_id: Optional[int] = Query(None),
+                           db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Écarte le brouillon (la vidéo reste dans la bibliothèque, elle ne sera plus proposée)."""
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "edit")
+    p = await _proposal(db, tenant, proposal_id)
+    p.status = "dismissed"
+    await db.commit()
+    return {"ok": True}
