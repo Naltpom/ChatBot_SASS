@@ -56,7 +56,7 @@ La base légale est **l'exécution du contrat** conclu entre Chapote et son clie
 
 ## 7. Durées de conservation
 
-- **Jetons OAuth** : tant que la chaîne est connectée ; supprimés **immédiatement** à la déconnexion.
+- **Jetons OAuth** : tant que la chaîne est connectée ; supprimés **immédiatement** à la déconnexion depuis Chapote, et **sous 7 jours** si l'accès est retiré depuis le compte Google.
 - **Vidéos** : supprimées dès la fin de l'envoi à YouTube (réussi ou non) ; un envoi abandonné est supprimé sous 2 heures.
 - **Historique des publications** et informations de la chaîne : **12 mois** après la publication, puis supprimés.
 - **Informations de la chaîne** : actualisées au moins tous les 30 jours tant que la chaîne est connectée.
@@ -68,7 +68,7 @@ La base légale est **l'exécution du contrat** conclu entre Chapote et son clie
 L'accès de Chapote à une chaîne peut être retiré à tout moment :
 
 - **depuis Chapote** : Espace client → YouTube → « Déconnecter ». L'autorisation est révoquée auprès de Google et les jetons sont supprimés de Chapote ;
-- **depuis votre compte Google** : page [Applications tierces ayant accès à votre compte](https://myaccount.google.com/permissions) → Chapote → Supprimer l'accès. Chapote cesse alors de pouvoir publier et la chaîne apparaît « À reconnecter ».
+- **depuis votre compte Google** : page [Applications tierces ayant accès à votre compte](https://myaccount.google.com/permissions) → Chapote → Supprimer l'accès. Chapote cesse alors de pouvoir publier et la chaîne apparaît « À reconnecter » ; ses jetons sont supprimés de Chapote **sous 7 jours**.
 
 ## 9. Suppression des données sur demande
 
