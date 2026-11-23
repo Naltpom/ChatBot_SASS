@@ -533,3 +533,33 @@ async def test_left_team_falls_back_to_personal_space(pg_session, cmenv, drive):
     assert await lib.detect_shared(pg_session) == 1
     src = (await pg_session.execute(select(CmSource))).scalar_one()
     assert src.organization_id is None and src.owner_user_id == u.id
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_shared_folder_linked_once_even_when_detected_twice(pg_session, cmenv, drive, monkeypatch):
+    """Deux détections en même temps (deux workers) : un seul dossier relié."""
+    owner = await _user(pg_session, "chapote@t.dev")
+    await pg_session.commit()
+    owner_id = owner.id
+    drive.sharer = "chapote@t.dev"
+    real = lib.owner_of_email
+
+    async def racing(db, email):
+        found = await real(db, email)
+        if found and not (await db.execute(select(CmSource))).scalars().first():
+            # L'autre worker relie le même dossier juste avant nous.
+            db.add(CmSource(owner_user_id=owner_id, created_by_user_id=owner_id, provider="gdrive",
+                            folder_id=FOLDER, name="autre", verified=True))
+            await db.commit()
+        return found
+    monkeypatch.setattr(lib, "owner_of_email", racing)
+    assert await lib.detect_shared(pg_session) == 0
+    assert len((await pg_session.execute(select(CmSource).where(CmSource.revoked_at.is_(None)))).scalars().all()) == 1
+    # Lien collé à la main pour le même dossier : renvoie celui qui existe.
+    monkeypatch.setattr(lib, "owner_of_email", real)
+    owner = await pg_session.get(type(owner), owner_id)
+    async with Client(pg_session) as c:
+        r = await c.as_(owner).post("/api/cm/sources", json={"url": _link()})
+        assert r.status_code == 200, r.text
+    assert len((await pg_session.execute(select(CmSource).where(CmSource.revoked_at.is_(None)))).scalars().all()) == 1

@@ -18,6 +18,7 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -168,7 +169,17 @@ async def link_source(db: AsyncSession, tenant, user: User, link: str, group_id:
                    role="writer" if caps.get("canEdit") else "reader", shared_by=sharer or (owners[0] if owners else None),
                    verified=verified, group_id=group_id)
     db.add(src)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:                # relié au même moment (détection automatique ou double clic)
+        await db.rollback()
+        again = (await db.execute(select(CmSource).where(CmSource.folder_id == folder_id,
+                                                         CmSource.revoked_at.is_(None)))).scalar_one()
+        if not ((tenant.org_id and again.organization_id == tenant.org_id)
+                or (not tenant.org_id and again.owner_user_id == tenant.owner_user_id)):
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "Ce dossier est déjà relié à un autre espace Chapote. Retirez-le de cet espace d'abord.")
+        return again
     return src
 
 
@@ -234,7 +245,12 @@ async def detect_shared(db: AsyncSession, batch: int = 10) -> int:
                        role="writer" if caps.get("canEdit") else "reader", shared_by=sharer or (owners[0] if owners else None),
                        verified=True)
         db.add(src)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:            # relié au même moment par une autre détection
+            await db.rollback()
+            known.add(f["id"])
+            continue
         known.add(f["id"])
         linked += 1
         logger.info("cm : dossier Drive relié automatiquement (source %s)", src.id)

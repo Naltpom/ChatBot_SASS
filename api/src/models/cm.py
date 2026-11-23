@@ -232,7 +232,11 @@ class CmSource(Base):
     l'utilisateur qui relie, ou un membre de son équipe.
     """
     __tablename__ = "cm_sources"
-    __table_args__ = (_tenant_check("cm_sources"),)
+    __table_args__ = (
+        _tenant_check("cm_sources"),
+        # Un dossier n'est relié qu'une fois (deux détections simultanées créaient un doublon).
+        Index("uq_cm_sources_folder_active", "folder_id", unique=True, postgresql_where=text("revoked_at IS NULL")),
+    )
 
     id = Column(Integer, primary_key=True)
     organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
