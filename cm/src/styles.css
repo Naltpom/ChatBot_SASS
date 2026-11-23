@@ -473,3 +473,8 @@ table.data tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 5
 @media (max-width: 1023px) { .event.planned .event-thumb { display: grid; width: 48px; height: 48px; } }
 .brand { white-space: nowrap; }
 @media (max-width: 380px) { .lp-top .brand > span { display: none; } }
+
+/* Attente (dossier Drive en cours de détection) */
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; flex: none; animation: spin .9s linear infinite; opacity: .7; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-right-color: currentColor; opacity: .4; } }

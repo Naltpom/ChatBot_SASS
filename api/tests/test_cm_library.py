@@ -21,10 +21,11 @@ from sqlalchemy import select
 
 from src.core.config import settings
 from src.core.time import utcnow
-from src.models.cm import CmAsset, CmPost, CmSource, CmTarget
+from src.models.cm import CmAsset, CmGoogleIdentity, CmPost, CmSource, CmTarget
 from src.services import cm_jobs
 from src.services import cm_library as lib
 from src.services import gdrive_service as gd
+from src.routers import cm_library as lib_router
 
 from test_cm import SERVICE, _ig_routine, _yt_target, cmenv  # noqa: F401  (fixture)
 from test_tiktok import Client, _org, _user, mp4_bytes
@@ -89,6 +90,8 @@ class FakeDrive:
             return httpx.Response(200, content=b"\x89PNG", headers={"content-type": "image/png"})
         assert req.headers.get("authorization") == "Bearer ya29.robot"
         path = req.url.path
+        if path == "/drive/v3/files" and req.method == "GET" and "sharedWithMe" in req.url.params["q"]:
+            return httpx.Response(200, json={"files": [self._meta(f) for f in self.shared if f in self.folders]})
         if path == "/drive/v3/files" and req.method == "GET":
             parent = req.url.params["q"].split("'")[1]
             if not self._visible(parent):
@@ -434,3 +437,99 @@ async def test_routine_can_publish_from_library(pg_session, cmenv, drive):
         r = await c.http.post("/api/cm/posts", json={"title": "x", "asset_id": assets[0]["id"], "targets": [
             {"platform": "instagram", "account_id": iacc.id, "options": {}}]})
         assert r.status_code == 200 and r.json()["ready"] is True
+
+
+# --------------------------------------------------------------------------
+# Détection automatique des dossiers partagés
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def google_id(monkeypatch):
+    """Faux ID token Google : « tok:<email> » est accepté pour <email>."""
+    async def verify(token):
+        if not token.startswith("tok:"):
+            raise lib_router.GoogleAuthError("jeton invalide")
+        return {"email": token[4:], "email_verified": True, "sub": "sub-" + token[4:]}
+    monkeypatch.setattr(lib_router, "verify_google_id_token", verify)
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_google_identity_is_proven_and_unique(pg_session, cmenv, drive, google_id):
+    u = await _user(pg_session, "chapote@t.dev")
+    other = await _user(pg_session, "autre@t.dev")
+    stranger = await _user(pg_session, "x@t.dev")
+    org = await _org(pg_session, stranger)
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        r = await h.post("/api/cm/google-identities", json={"credential": "tok:nathan.drive@gmail.com"})
+        assert r.status_code == 200, r.text
+        assert r.json()["account_email"] == "chapote@t.dev"
+        assert [i["email"] for i in r.json()["identities"]] == ["nathan.drive@gmail.com"]
+        assert (await h.post("/api/cm/google-identities", json={"credential": "faux-jeton-sans-preuve"})).status_code == 400
+        # Espace d'une équipe dont on n'est pas membre : refusé.
+        r = await h.post("/api/cm/google-identities", json={"credential": "tok:autre.adresse@gmail.com", "org_id": org.id})
+        assert r.status_code == 404
+        # La même adresse ne peut pas être associée à un 2e compte Chapote.
+        r = await c.as_(other).post("/api/cm/google-identities", json={"credential": "tok:nathan.drive@gmail.com"})
+        assert r.status_code == 409
+        ident = (await c.as_(u).get("/api/cm/google-identities")).json()["identities"][0]
+        assert (await c.as_(other).delete(f"/api/cm/google-identities/{ident['id']}")).status_code == 404
+        assert (await c.as_(u).delete(f"/api/cm/google-identities/{ident['id']}")).json()["identities"] == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_shared_folder_is_linked_automatically(pg_session, cmenv, drive, google_id):
+    owner = await _user(pg_session, "chapote@t.dev")
+    teammate = await _user(pg_session, "coeq@t.dev")
+    org = await _org(pg_session, owner, (teammate, "member"))
+    await pg_session.commit()
+    drive.sharer = "nathan.drive@gmail.com"          # adresse Google différente du compte Chapote
+    # Adresse inconnue : rien n'est relié.
+    assert await lib.detect_shared(pg_session) == 0
+    assert (await pg_session.execute(select(CmSource))).scalars().all() == []
+    async with Client(pg_session) as c:
+        r = await c.as_(owner).post("/api/cm/google-identities", json={"credential": "tok:nathan.drive@gmail.com",
+                                                                      "org_id": org.id})
+        assert r.status_code == 200
+    assert await lib.detect_shared(pg_session) == 1
+    src = (await pg_session.execute(select(CmSource))).scalar_one()
+    assert src.organization_id == org.id and src.owner_user_id is None and src.verified is True
+    assert src.created_by_user_id == owner.id and src.name == "CM – Ghost Hands"
+    assert len((await pg_session.execute(select(CmAsset))).scalars().all()) == 2      # relu tout de suite
+    # Pas de doublon ; les membres de l'équipe le voient, pas l'espace perso.
+    assert await lib.detect_shared(pg_session) == 0
+    async with Client(pg_session) as c:
+        assert len((await c.as_(teammate).get(f"/api/cm/sources?org_id={org.id}")).json()) == 1
+        assert (await c.as_(owner).get("/api/cm/sources")).json() == []
+        # Retiré par l'utilisateur : jamais relié de nouveau automatiquement.
+        assert (await c.as_(owner).delete(f"/api/cm/sources/{src.id}?org_id={org.id}")).status_code == 200
+    assert await lib.detect_shared(pg_session) == 0
+    assert len((await pg_session.execute(select(CmSource).where(CmSource.revoked_at.is_(None)))).scalars().all()) == 0
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_shared_from_chapote_email_goes_to_personal_space(pg_session, cmenv, drive):
+    u = await _user(pg_session, "a@t.dev")                # drive.sharer = a@t.dev par défaut
+    await pg_session.commit()
+    assert await lib.detect_shared(pg_session) == 1
+    src = (await pg_session.execute(select(CmSource))).scalar_one()
+    assert src.owner_user_id == u.id and src.organization_id is None
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_left_team_falls_back_to_personal_space(pg_session, cmenv, drive):
+    """Adresse associée à une équipe que l'utilisateur a quittée : dossier relié à son espace perso."""
+    owner = await _user(pg_session, "boss@t.dev")
+    u = await _user(pg_session, "stagiaire@t.dev")
+    org = await _org(pg_session, owner)
+    pg_session.add(CmGoogleIdentity(user_id=u.id, email="stagiaire.drive@gmail.com", organization_id=org.id))
+    await pg_session.commit()
+    drive.sharer = "stagiaire.drive@gmail.com"
+    assert await lib.detect_shared(pg_session) == 1
+    src = (await pg_session.execute(select(CmSource))).scalar_one()
+    assert src.organization_id is None and src.owner_user_id == u.id

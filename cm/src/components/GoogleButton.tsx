@@ -27,14 +27,19 @@ function loadGsi(): Promise<void> {
 
 const dark = () => window.matchMedia?.('(prefers-color-scheme: dark)').matches
 
-export default function GoogleButton({ clientId, onResult, text = 'continue_with' }:
-  { clientId: string; onResult: (r: unknown) => void | Promise<void>; text?: 'continue_with' | 'signup_with' | 'signin_with' }) {
+export default function GoogleButton({ clientId, onResult, onCredential, text = 'continue_with' }:
+  { clientId: string; onResult?: (r: unknown) => void | Promise<void>
+    /** Mode « preuve » : reçoit l'ID token Google au lieu de connecter le compte. */
+    onCredential?: (credential: string) => void | Promise<void>
+    text?: 'continue_with' | 'signup_with' | 'signin_with' }) {
   const wrap = useRef<HTMLDivElement>(null)
   const slot = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
   const [err, setErr] = useState('')
   const cb = useRef(onResult)
   cb.current = onResult
+  const credCb = useRef(onCredential)
+  credCb.current = onCredential
 
   useEffect(() => {
     let alive = true
@@ -60,7 +65,10 @@ export default function GoogleButton({ clientId, onResult, text = 'continue_with
         itp_support: true,
         callback: async (r: { credential: string }) => {
           setErr('')
-          try { await cb.current(await googleLogin(r.credential)) } catch (e) { setErr((e as Error).message) }
+          try {
+            if (credCb.current) await credCb.current(r.credential)
+            else await cb.current?.(await googleLogin(r.credential))
+          } catch (e) { setErr((e as Error).message) }
         },
       })
       render()

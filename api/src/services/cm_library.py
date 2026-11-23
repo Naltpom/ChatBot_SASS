@@ -29,6 +29,7 @@ from src.models.cm import (
     T_FINAL,
     T_PUBLISHED,
     CmAsset,
+    CmGoogleIdentity,
     CmPost,
     CmSource,
     CmTarget,
@@ -131,12 +132,13 @@ async def source_counts(db: AsyncSession, source_ids: list[int]) -> dict[int, di
 # --------------------------------------------------------------------------
 
 async def _tenant_emails(db: AsyncSession, tenant, user: User) -> set[str]:
-    emails = {user.email.lower()}
+    user_ids = [user.id]
     if tenant.org_id:
-        rows = (await db.execute(select(User.email).join(Membership, Membership.user_id == User.id)
-                                 .where(Membership.organization_id == tenant.org_id))).scalars().all()
-        emails |= {e.lower() for e in rows if e}
-    return emails
+        user_ids = list((await db.execute(select(Membership.user_id).where(
+            Membership.organization_id == tenant.org_id))).scalars())
+    emails = {e.lower() for e in (await db.execute(select(User.email).where(User.id.in_(user_ids)))).scalars() if e}
+    emails |= set((await db.execute(select(CmGoogleIdentity.email).where(CmGoogleIdentity.user_id.in_(user_ids)))).scalars())
+    return emails | {user.email.lower()}
 
 
 async def link_source(db: AsyncSession, tenant, user: User, link: str, group_id: Optional[int]) -> CmSource:
@@ -168,6 +170,76 @@ async def link_source(db: AsyncSession, tenant, user: User, link: str, group_id:
     db.add(src)
     await db.commit()
     return src
+
+
+# --------------------------------------------------------------------------
+# Détection automatique : dossiers partagés avec le robot
+# --------------------------------------------------------------------------
+
+async def owner_of_email(db: AsyncSession, email: str):
+    """(utilisateur, org_id cible) pour une adresse : adresse Google associée (prouvée par
+    Google) en priorité, sinon adresse du compte Chapote. None si inconnue."""
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    ident = (await db.execute(select(CmGoogleIdentity).where(CmGoogleIdentity.email == email))).scalar_one_or_none()
+    if ident is not None:
+        user = await db.get(User, ident.user_id)
+        if user is None or not user.is_active:
+            return None
+        org_id = ident.organization_id
+        if org_id is not None:
+            member = (await db.execute(select(Membership.id).where(
+                Membership.user_id == user.id, Membership.organization_id == org_id))).first()
+            org_id = org_id if member else None
+        return user, org_id
+    user = (await db.execute(select(User).where(func.lower(User.email) == email))).scalar_one_or_none()
+    if user is None or not user.is_active:
+        return None
+    return user, None
+
+
+async def detect_shared(db: AsyncSession, batch: int = 10) -> int:
+    """Relie tout seul les dossiers nouvellement partagés avec le robot, à l'espace de la
+    personne qui les a partagés (adresse prouvée). Un dossier déjà relié une fois (même retiré
+    depuis) n'est jamais relié de nouveau automatiquement. Renvoie le nombre de dossiers reliés."""
+    if not gd.is_enabled():
+        return 0
+    try:
+        folders = await gd.shared_folders()
+    except gd.DriveError as e:
+        logger.info("cm : lecture des dossiers partagés en échec (%s)", e.code)
+        return 0
+    if not folders:
+        return 0
+    known = set((await db.execute(select(CmSource.folder_id).where(
+        CmSource.folder_id.in_([f["id"] for f in folders])))).scalars())
+    linked = 0
+    for f in folders:
+        if f["id"] in known or linked >= batch:
+            continue
+        sharer = ((f.get("sharingUser") or {}).get("emailAddress") or "").lower()
+        owners = [(o.get("emailAddress") or "").lower() for o in f.get("owners") or []]
+        found = None
+        for email in [sharer] + owners:
+            found = await owner_of_email(db, email)
+            if found:
+                break
+        if not found:
+            continue
+        user, org_id = found
+        caps = f.get("capabilities") or {}
+        src = CmSource(organization_id=org_id, owner_user_id=None if org_id else user.id, created_by_user_id=user.id,
+                       provider="gdrive", folder_id=f["id"], name=f.get("name"), drive_id=f.get("driveId"),
+                       role="writer" if caps.get("canEdit") else "reader", shared_by=sharer or (owners[0] if owners else None),
+                       verified=True)
+        db.add(src)
+        await db.commit()
+        known.add(f["id"])
+        linked += 1
+        logger.info("cm : dossier Drive relié automatiquement (source %s)", src.id)
+        await scan_source(db, src)
+    return linked
 
 
 # --------------------------------------------------------------------------
