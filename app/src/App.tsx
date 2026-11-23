@@ -50,6 +50,8 @@ import tiktokConfidMd from './legal/TIKTOK_CONFIDENTIALITE.md?raw'
 import tiktokCguMd from './legal/TIKTOK_CGU.md?raw'
 import youtubeConfidMd from './legal/YOUTUBE_CONFIDENTIALITE.md?raw'
 import youtubeCguMd from './legal/YOUTUBE_CGU.md?raw'
+import instagramConfidMd from './legal/INSTAGRAM_CONFIDENTIALITE.md?raw'
+import instagramCguMd from './legal/INSTAGRAM_CGU.md?raw'
 import Layout from './Layout'
 
 // Éditeurs EMBARQUÉS (/embed/*) ouverts par le plugin WordPress dans une iframe/
@@ -174,6 +176,8 @@ export function AppRoutes() {
       {/* Module YouTube (Shorts) : pages légales référencées par l'écran de consentement Google. */}
       <Route path="/legal/youtube-confidentialite" element={<LegalPage md={youtubeConfidMd} />} />
       <Route path="/legal/youtube-cgu" element={<LegalPage md={youtubeCguMd} />} />
+      <Route path="/legal/instagram-confidentialite" element={<LegalPage md={instagramConfidMd} />} />
+      <Route path="/legal/instagram-cgu" element={<LegalPage md={instagramCguMd} />} />
       <Route path="/mentions-legales" element={<Navigate to="/legal/mentions-legales" replace />} />
       <Route path="/cgu" element={<Navigate to="/legal/cgu" replace />} />
       <Route path="/cgv" element={<Navigate to="/legal/cgv" replace />} />

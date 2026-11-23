@@ -3,6 +3,7 @@
 // (tables GFM). Page autoportante (fond blanc, hors shell applicatif).
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 export default function LegalPage({ md }: { md: string }) {
@@ -14,11 +15,30 @@ export default function LegalPage({ md }: { md: string }) {
           ← Retour à l'accueil
         </Link>
         <article className="legal-doc">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ h2: Heading2 }}>{md}</ReactMarkdown>
         </article>
       </div>
     </div>
   )
+}
+
+// Ancres des titres de section (#suppression, #durees-de-conservation…), pour les liens
+// des plateformes (Meta : instructions de suppression des données).
+function slug(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/^\d+\.\s*/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+function textOf(node: unknown): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (node && typeof node === 'object' && 'props' in node) return textOf((node as { props: { children?: unknown } }).props.children)
+  return ''
+}
+
+function Heading2({ children }: { children?: ReactNode }) {
+  const id = slug(textOf(children))
+  return <h2 id={id.startsWith('suppression') ? 'suppression' : id}>{children}</h2>
 }
 
 const LEGAL_CSS = `
