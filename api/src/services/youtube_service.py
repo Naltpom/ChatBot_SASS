@@ -47,6 +47,17 @@ AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 SCOPE_UPLOAD = "https://www.googleapis.com/auth/youtube.upload"
 SCOPE_READONLY = "https://www.googleapis.com/auth/youtube.readonly"
 SCOPES = f"{SCOPE_UPLOAD} {SCOPE_READONLY}"
+# Répondre / modérer les commentaires : demandé seulement quand YOUTUBE_EXTRA_SCOPES le liste (vérification Google).
+SCOPE_FORCE_SSL = "https://www.googleapis.com/auth/youtube.force-ssl"
+
+
+def scopes() -> str:
+    extra = [x for x in (settings.YOUTUBE_EXTRA_SCOPES or "").split() if x == SCOPE_FORCE_SSL]
+    return " ".join([SCOPES] + extra)
+
+
+def has_scope(account: YouTubeAccount, scope: str) -> bool:
+    return scope in (account.scopes or "").split()
 
 # Envoi vers YouTube : morceaux de 8 Mio (multiple de 256 Kio exigé).
 CHUNK_UNIT = 256 * 1024
@@ -164,7 +175,7 @@ def authorize_url(state: str, app: str = "chapote") -> str:
         "client_id": settings.YOUTUBE_CLIENT_ID,
         "redirect_uri": redirect_uri(app),
         "response_type": "code",
-        "scope": SCOPES,
+        "scope": scopes(),
         "access_type": "offline",
         # Toujours l'écran de choix du compte + consentement : refresh token
         # garanti, et possibilité de connecter une 2e chaîne (compte de marque).
@@ -524,3 +535,26 @@ async def recent_videos(access_token: str, uploads_playlist: str, limit: int = 5
             "comments": _int(st.get("commentCount")),
         })
     return out
+
+
+# --------------------------------------------------------------------------
+# Commentaires (lecture : youtube.readonly ; réponse / modération : youtube.force-ssl)
+# --------------------------------------------------------------------------
+
+async def comment_threads(access_token: str, video_id: str, limit: int = 50) -> list[dict]:
+    body = await _api("GET", "/commentThreads", access_token, params={
+        "part": "snippet,replies", "videoId": video_id, "maxResults": str(min(100, limit)),
+        "order": "time", "textFormat": "plainText"})
+    return [t for t in (body.get("items") or []) if isinstance(t, dict)]
+
+
+async def reply_comment(access_token: str, parent_id: str, text: str) -> str:
+    body = await _api("POST", "/comments", access_token, params={"part": "snippet"},
+                      json={"snippet": {"parentId": parent_id, "textOriginal": text}})
+    return str(body.get("id") or "")
+
+
+async def hold_comment(access_token: str, comment_id: str) -> None:
+    """Retire le commentaire de la vue publique (« en attente d'examen »)."""
+    await _api("POST", "/comments/setModerationStatus", access_token,
+               params={"id": comment_id, "moderationStatus": "heldForReview"})

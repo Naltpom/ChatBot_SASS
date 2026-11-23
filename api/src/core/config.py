@@ -171,6 +171,13 @@ class Settings(BaseSettings):
 
     # --- Instagram (API Instagram avec connexion Instagram, Meta) ---
     # Vides = connexion officielle désactivée (comptes « gérés par la routine » seulement).
+    # Permissions demandées en plus (vides tant que Meta ne les a pas validées) :
+    # instagram_business_manage_comments, instagram_business_manage_messages.
+    INSTAGRAM_EXTRA_SCOPES: str = ""
+    # Google : https://www.googleapis.com/auth/youtube.force-ssl (répondre / modérer les commentaires).
+    YOUTUBE_EXTRA_SCOPES: str = ""
+    # Lecture des commentaires YouTube (scope readonly déjà accordé) : activée après la vérification Google.
+    YOUTUBE_COMMENTS_ENABLED: bool = False
     INSTAGRAM_CLIENT_ID: str | None = None
     INSTAGRAM_CLIENT_SECRET: str | None = None
     INSTAGRAM_REDIRECT_URI: str = "https://cm.chapote.fr/instagram/callback"

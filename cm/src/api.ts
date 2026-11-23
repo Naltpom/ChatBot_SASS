@@ -342,3 +342,32 @@ export const updatePerson = (org: number, email: string, role: CmRole, scope: Pe
 export const removePerson = (org: number, email: string) => send<{ ok: boolean }>('POST', '/api/cm/people/remove', { org_id: org, email })
 export const accountAccess = (org: number | null, platform: Platform, id: number) =>
   call<Person[]>(`/api/cm/shares/${platform}/${id}${org != null ? `?org_id=${org}` : ''}`)
+
+// Boîte de réception (commentaires, mot-clé, messages Instagram)
+export interface InboxAccount {
+  platform: Platform; id: number; name: string | null; new: number; read: boolean; reply: boolean; hide: boolean
+  private_reply: boolean; messages: boolean; source: 'api' | 'routine' | null; notice: string | null
+}
+export type CommentStatus = 'new' | 'replied' | 'hidden' | 'ignored' | 'contacted'
+export interface Comment {
+  id: number; platform: Platform; account_id: number; account_name: string | null; media_id: string | null
+  video_title: string | null; video_url: string | null; external_id: string; parent_id: string | null
+  author: string | null; text: string | null; like_count: number | null; published_at: string | null
+  status: CommentStatus; reply_text: string | null; replied_at: string | null; private_replied_at: string | null
+  pending: 'reply' | 'hide' | 'private_reply' | null; error: string | null; profile_url: string | null; dm_url: string | null
+  count?: number; can_private_reply?: boolean
+}
+export interface Conversation { id: string; with: string | null; with_id: string | null; updated_at: string | null; last: string | null; last_from_me: boolean }
+export interface DmMessage { id: string; text: string | null; at: string | null; from_me: boolean; from: string | null }
+export const getInboxAccounts = (s: ScopeArg) => call<InboxAccount[]>(`/api/cm/inbox/accounts${q(s)}`)
+export const getCommentsPage = (s: ScopeArg, opts: { status?: string; q?: string; sort?: string; order?: Order; cursor?: string | null }) =>
+  callPage<Comment>(`/api/cm/inbox/comments${q(s, { ...opts, limit: 30, cursor: opts.cursor || undefined })}`)
+export const syncInbox = (org: number | null) => send<{ comments: number; notices: string[] }>('POST', `/api/cm/inbox/sync${q(org)}`)
+export const commentAction = (org: number | null, id: number, action: 'reply' | 'hide' | 'private-reply' | 'ignore' | 'contacted' | 'reopen', text?: string) =>
+  send<Comment>('POST', `/api/cm/comments/${id}/${action}${q(org)}`, text ? { text } : undefined)
+export const getKeyword = (s: ScopeArg, word: string) => call<Comment[]>(`/api/cm/inbox/keyword${q(s, { word })}`)
+export const getConversations = (org: number | null, accountId: number) => call<Conversation[]>(`/api/cm/inbox/conversations${q(org, { account_id: accountId })}`)
+export const getConversation = (org: number | null, accountId: number, id: string) =>
+  call<{ messages: DmMessage[]; can_write: boolean }>(`/api/cm/inbox/conversations/${encodeURIComponent(id)}${q(org, { account_id: accountId })}`)
+export const sendDm = (org: number | null, accountId: number, id: string, recipient_id: string, text: string) =>
+  send<{ ok: boolean }>('POST', `/api/cm/inbox/conversations/${encodeURIComponent(id)}/send${q(org, { account_id: accountId })}`, { recipient_id, text })

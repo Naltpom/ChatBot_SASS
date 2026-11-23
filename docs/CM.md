@@ -134,6 +134,20 @@ Couverture personnalisée : `PUT /posts/{id}/cover` (JPEG/PNG ≤ 8 Mo) ou image
 envoyée à Instagram en `cover_url` (lien signé `/api/cm/cover/…`), téléchargeable par la routine. Après une erreur
 Instagram, cm cherche le Reel parmi les dernières publications (même légende) avant de conclure à l'échec.
 
+## Commentaires et messages (page Commentaires)
+
+- `cm_comments` : commentaires de toutes les vidéos (filtrés par la barre de comptes), statut new / replied / hidden /
+  ignored / contacted ; recherche, tri, pages keyset. Onglets : À traiter, Mot-clé (ex. SHEET : une ligne par personne,
+  réponse privée si possible, sinon message prêt à copier + lien profil / ig.me), Messages (Instagram, fenêtre 24 h).
+- Sources : Instagram officiel (`instagram_business_manage_comments` / `_messages`, demandées seulement si
+  `INSTAGRAM_EXTRA_SCOPES` les liste, après la revue Meta) ; Instagram « routine » : la routine remonte les commentaires
+  (`POST /routine/comments`) et exécute les réponses demandées dans cm (`GET /routine/actions`, `POST …/done`) ;
+  YouTube : lecture si `YOUTUBE_COMMENTS_ENABLED` (après la vérification Google), réponse/masquage avec
+  `youtube.force-ssl` (`YOUTUBE_EXTRA_SCOPES`) ; TikTok : pas d'API de commentaires.
+- Sans permission : message « permission en attente » (403 `permission_pending`), jamais d'échec silencieux.
+- Qui a aimé un commentaire : aucune API ne le donne. Relecture auto toutes les 15 min ; commentaires supprimés à la
+  déconnexion et après 12 mois ; messages privés jamais stockés.
+
 ## Brouillons automatiques (bibliothèque)
 
 - Par dossier : **Bibliothèque → ☰ → Brouillons automatiques**. Analyse du rangement : Gemini 2.5 Flash

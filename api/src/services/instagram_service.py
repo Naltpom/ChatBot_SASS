@@ -45,6 +45,21 @@ SCOPE_BASIC = "instagram_business_basic"
 SCOPE_PUBLISH = "instagram_business_content_publish"
 SCOPE_INSIGHTS = "instagram_business_manage_insights"
 SCOPES = f"{SCOPE_BASIC},{SCOPE_PUBLISH},{SCOPE_INSIGHTS}"
+# Boîte de réception : demandées seulement quand INSTAGRAM_EXTRA_SCOPES les liste (revue Meta à part).
+SCOPE_COMMENTS = "instagram_business_manage_comments"
+SCOPE_MESSAGES = "instagram_business_manage_messages"
+EXTRA_KNOWN = (SCOPE_COMMENTS, SCOPE_MESSAGES)
+COMMENT_FIELDS = ("id,text,username,from{id,username},timestamp,like_count,"
+                  "replies{id,text,username,from{id,username},timestamp,like_count}")
+
+
+def scopes() -> str:
+    extra = [x.strip() for x in (settings.INSTAGRAM_EXTRA_SCOPES or "").split(",") if x.strip() in EXTRA_KNOWN]
+    return ",".join([SCOPES] + extra)
+
+
+def has_scope(account: InstagramAccount, scope: str) -> bool:
+    return scope in [x.strip() for x in (account.scopes or "").split(",")]
 PROFILE_FIELDS = "user_id,username,name,account_type,profile_picture_url,followers_count,media_count"
 MEDIA_FIELDS = "id,caption,media_type,media_product_type,permalink,thumbnail_url,timestamp,like_count,comments_count"
 
@@ -112,7 +127,7 @@ def authorize_url(state: str) -> str:
         "client_id": settings.INSTAGRAM_CLIENT_ID,
         "redirect_uri": settings.INSTAGRAM_REDIRECT_URI,
         "response_type": "code",
-        "scope": SCOPES,
+        "scope": scopes(),
         "state": state,
         # Toujours l'écran de connexion (pour connecter un 2e compte).
         "force_reauth": "true",
@@ -361,3 +376,48 @@ def parse_signed_request(signed: str) -> Optional[dict]:
     except (ValueError, TypeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+# --------------------------------------------------------------------------
+# Commentaires et messages (permissions manage_comments / manage_messages)
+# --------------------------------------------------------------------------
+
+async def media_comments(token: str, media_id: str, limit: int = 50) -> list[dict]:
+    body = await _request("GET", _graph(f"/{media_id}/comments"), token=token,
+                          params={"fields": COMMENT_FIELDS, "limit": str(limit)})
+    return [c for c in (body.get("data") or []) if isinstance(c, dict)]
+
+
+async def reply_comment(token: str, comment_id: str, text: str) -> str:
+    body = await _request("POST", _graph(f"/{comment_id}/replies"), token=token, data={"message": text})
+    return str(body.get("id") or "")
+
+
+async def hide_comment(token: str, comment_id: str, hide: bool = True) -> None:
+    await _request("POST", _graph(f"/{comment_id}"), token=token, data={"hide": "true" if hide else "false"})
+
+
+async def private_reply(token: str, ig_user_id: str, comment_id: str, text: str) -> str:
+    """Réponse privée à un commentaire (7 jours après le commentaire, une seule fois)."""
+    body = await _request("POST", _graph(f"/{ig_user_id}/messages"), token=token,
+                          data={"recipient": json.dumps({"comment_id": comment_id}), "message": json.dumps({"text": text})})
+    return str(body.get("message_id") or "")
+
+
+async def conversations(token: str, ig_user_id: str, limit: int = 25) -> list[dict]:
+    body = await _request("GET", _graph(f"/{ig_user_id}/conversations"), token=token, params={
+        "platform": "instagram", "limit": str(limit),
+        "fields": "id,updated_time,participants,messages.limit(1){id,message,from,created_time}"})
+    return [c for c in (body.get("data") or []) if isinstance(c, dict)]
+
+
+async def conversation_messages(token: str, conversation_id: str, limit: int = 30) -> list[dict]:
+    body = await _request("GET", _graph(f"/{conversation_id}"), token=token,
+                          params={"fields": f"messages.limit({int(limit)}){{id,message,from,created_time}}"})
+    return [m for m in ((body.get("messages") or {}).get("data") or []) if isinstance(m, dict)]
+
+
+async def send_message(token: str, ig_user_id: str, recipient_id: str, text: str) -> str:
+    body = await _request("POST", _graph(f"/{ig_user_id}/messages"), token=token,
+                          data={"recipient": json.dumps({"id": recipient_id}), "message": json.dumps({"text": text})})
+    return str(body.get("message_id") or "")

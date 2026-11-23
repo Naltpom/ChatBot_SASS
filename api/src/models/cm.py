@@ -326,6 +326,46 @@ class CmProposal(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class CmComment(Base):
+    """Commentaire reçu sous une vidéo (boîte de réception centralisée).
+
+    Rempli par l'API officielle (Instagram avec la permission « commentaires », YouTube) ou remonté par
+    la routine (comptes Instagram gérés par la routine). `pending_action` : réponse / masquage / réponse
+    privée demandés dans cm et exécutés par la routine pour ses comptes.
+    status : new | replied | hidden | ignored | contacted."""
+    __tablename__ = "cm_comments"
+    __table_args__ = (
+        _tenant_check("cm_comments"),
+        Index("uq_cm_comments_ext", "platform", "account_id", "external_id", unique=True),
+        Index("ix_cm_comments_inbox", "platform", "account_id", "status", "published_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    platform = Column(String(20), nullable=False)
+    account_id = Column(Integer, nullable=False)
+    media_id = Column(String(100), nullable=True)
+    video_title = Column(String(300), nullable=True)
+    video_url = Column(Text, nullable=True)
+    external_id = Column(String(100), nullable=False)
+    parent_external_id = Column(String(100), nullable=True)
+    author = Column(String(150), nullable=True)
+    author_id = Column(String(100), nullable=True)
+    text = Column(Text, nullable=True)
+    like_count = Column(Integer, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    status = Column(String(12), nullable=False, default="new", index=True)
+    reply_text = Column(Text, nullable=True)
+    replied_at = Column(DateTime, nullable=True)
+    replied_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    private_replied_at = Column(DateTime, nullable=True)
+    pending_action = Column(JSON, nullable=True)
+    action_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class CmGoogleIdentity(Base):
     """Adresse Google associée à un compte Chapote, PROUVÉE par une connexion Google (ID token).
 

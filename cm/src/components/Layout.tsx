@@ -17,6 +17,7 @@ const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
   { to: '/planning', label: 'Planning', icon: 'calendar' },
   { to: '/stats', label: 'Stats', icon: 'chart' },
   { to: '/videos', label: 'Vidéos', icon: 'video' },
+  { to: '/commentaires', label: 'Commentaires', icon: 'comment' },
 ]
 const MANAGE: { to: string; label: string; icon: IconName }[] = [
   { to: '/a-valider', label: 'À valider', icon: 'check' },
@@ -24,7 +25,7 @@ const MANAGE: { to: string; label: string; icon: IconName }[] = [
   { to: '/bibliotheque', label: 'Bibliothèque', icon: 'layers' },
   { to: '/personnes', label: 'Personnes', icon: 'users' },
 ]
-const FILTERED = (path: string) => path === '/' || ['/planning', '/stats', '/videos'].some(p => path.startsWith(p))
+const FILTERED = (path: string) => path === '/' || ['/planning', '/stats', '/videos', '/commentaires'].some(p => path.startsWith(p))
 
 /** Barre de filtres des pages de suivi : « Tous », vos épinglés, vos derniers choix, et
  *  « Choisir… » qui ouvre le sélecteur (recherche, onglets Groupes / Comptes). Toujours une
@@ -218,6 +219,7 @@ function MobileMore({ drafts }: { drafts: number }) {
         <Sheet title="Pages" onClose={() => setOpen(false)}>
           <div className="col" style={{ gap: 2 }}>
             <NavLink className="menu-item" to="/a-valider" onClick={() => setOpen(false)}><Icon name="check" />À valider{drafts > 0 && <span className="nav-badge">{drafts}</span>}</NavLink>
+            <NavLink className="menu-item" to="/commentaires" onClick={() => setOpen(false)}><Icon name="comment" />Commentaires</NavLink>
             <NavLink className="menu-item" to="/videos" onClick={() => setOpen(false)}><Icon name="video" />Vidéos</NavLink>
             <NavLink className="menu-item" to="/bibliotheque" onClick={() => setOpen(false)}><Icon name="layers" />Bibliothèque</NavLink>
             <NavLink className="menu-item" to="/personnes" onClick={() => setOpen(false)}><Icon name="users" />Personnes</NavLink>
