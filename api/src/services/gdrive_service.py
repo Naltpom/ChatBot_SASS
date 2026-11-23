@@ -249,6 +249,34 @@ async def download(file_id: str, dest: str, max_bytes: int) -> int:
     return total
 
 
+async def open_stream(file_id: str, range_header: Optional[str] = None):
+    """Lecture en continu (lecteur vidéo de cm) : (statut, en-têtes utiles, générateur d'octets).
+    Le `Range` du navigateur est transmis tel quel : avance rapide sans tout télécharger."""
+    token = await access_token()
+    client = _client(timeout=httpx.Timeout(30, read=300))
+    headers = {"Authorization": f"Bearer {token}"}
+    if range_header and range_header.startswith("bytes=") and len(range_header) < 100:
+        headers["Range"] = range_header
+    req = client.build_request("GET", f"{settings.GDRIVE_API_BASE}/drive/v3/files/{file_id}",
+                               params={"alt": "media", "supportsAllDrives": "true", "acknowledgeAbuse": "true"},
+                               headers=headers)
+    resp = await client.send(req, stream=True)
+    if resp.status_code >= 400:
+        await resp.aread()
+        await client.aclose()
+        raise _error(resp)
+    keep = {k: resp.headers[k] for k in ("content-length", "content-range", "content-type") if k in resp.headers}
+
+    async def body():
+        try:
+            async for chunk in resp.aiter_bytes(256 * 1024):
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+    return resp.status_code, keep, body()
+
+
 async def read_text(file_id: str, max_bytes: int = 20000) -> str:
     token = await access_token()
     async with _client() as c:

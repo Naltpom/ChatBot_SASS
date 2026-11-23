@@ -88,6 +88,8 @@ def asset_out(a: CmAsset, source: Optional[CmSource], usage: Optional[dict] = No
         "drive_created_at": cm.iso(a.drive_created_at),
         "thumbnail": f"/api/cm/assets/{a.id}/thumbnail" if a.thumbnail_link else None,
         "drive_url": f"https://drive.google.com/file/d/{a.file_id}/view", "has_cover": bool(a.cover_file_id),
+        "folder_url": f"https://drive.google.com/drive/folders/{a.parent_id}" if a.parent_id else None,
+        "stream": f"/api/cm/assets/{a.id}/stream",
         "removed": a.removed_at is not None, "moved_published": a.moved_published_at is not None,
         "scheduled": u.get("scheduled", 0), "published": u.get("published", 0),
         "last_published_at": cm.iso(u.get("last_published_at")),

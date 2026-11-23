@@ -55,12 +55,21 @@ async def list_comments(response: Response, org_id: Optional[int] = Query(None),
                         q: Optional[str] = Query(None, max_length=100),
                         status_: Literal["todo", "new", "replied", "hidden", "ignored", "contacted", "all"] = Query("todo", alias="status"),
                         sort: Literal["recent", "likes"] = "recent", order: Literal["asc", "desc"] = "desc",
+                        videos: Optional[str] = Query(None, max_length=200),
                         limit: int = Query(30, ge=1, le=100), cursor: Optional[str] = Query(None, max_length=300),
                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    """« todo » = nouveaux + réponses en attente (routine) ; le reste par statut. En SQL, pages keyset."""
+    """« todo » = nouveaux + réponses en attente (routine) ; le reste par statut. En SQL, pages keyset.
+    `videos` : ids de vidéos (fiche vidéo) séparés par des virgules."""
     tenant = await _tenant(db, user, org_id)
     accounts, names = await _tenant_index(db, tenant, group_id)
     conds = [_account_filter(CmComment, accounts)]
+    if videos:
+        from sqlalchemy import and_, false, or_
+        from src.models.cm import CmVideo
+        ids = [int(x) for x in videos.split(",") if x.strip().isdigit()][:10]
+        vids = (await db.execute(select(CmVideo).where(CmVideo.id.in_(ids or [-1])))).scalars().all()
+        conds.append(or_(*[and_(CmComment.platform == x.platform, CmComment.account_id == x.account_id,
+                                CmComment.media_id == x.external_id) for x in vids]) if vids else false())
     if status_ == "todo":
         conds.append(CmComment.status == "new")
     elif status_ != "all":

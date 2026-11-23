@@ -456,6 +456,54 @@ async def list_videos(org_id: Optional[int] = Query(None), platform: Optional[Li
     return [_video_out(v, names) for v, _ in rows]
 
 
+def _embed(v: CmVideo) -> Optional[str]:
+    """Lecteur officiel de la plateforme (aucune API, aucune donnée envoyée par cm)."""
+    import re as _re
+    if v.platform == "youtube":
+        return f"https://www.youtube-nocookie.com/embed/{v.external_id}?rel=0"
+    if v.platform == "tiktok":
+        return f"https://www.tiktok.com/embed/v2/{v.external_id}"
+    m = _re.search(r"instagram\.com/(?:reel|reels|p)/([A-Za-z0-9_-]+)", v.url or "")
+    return f"https://www.instagram.com/reel/{m.group(1)}/embed" if m else None
+
+
+@router.get("/videos/{video_id}/sheet")
+async def video_sheet(video_id: int, org_id: Optional[int] = Query(None),
+                      db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Fiche d'une vidéo : la même vidéo sur chaque plateforme (publiée ensemble depuis Chapote),
+    chiffres par plateforme et au total, lecteurs intégrés, vidéo source et dossier Drive."""
+    from src.models.cm import CmAsset, CmComment, CmSource
+    from src.services import cm_library as lib
+    tenant = await _tenant(db, user, org_id)
+    accounts, names = await _tenant_index(db, tenant)
+    allowed = {(p, a.id) for p, a in accounts}
+    v = await db.get(CmVideo, video_id)
+    if v is None or (v.platform, v.account_id) not in allowed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo introuvable")
+    post, siblings = None, [v]
+    if v.target_id:
+        t = await db.get(CmTarget, v.target_id)
+        post = await db.get(CmPost, t.post_id) if t else None
+        if post:
+            tids = select(CmTarget.id).where(CmTarget.post_id == post.id)
+            siblings = [x for x in (await db.execute(select(CmVideo).where(CmVideo.target_id.in_(tids))
+                                                     .order_by(CmVideo.platform))).scalars()
+                        if (x.platform, x.account_id) in allowed] or [v]
+    counts = dict((await db.execute(select(CmComment.media_id, func.count()).where(
+        CmComment.media_id.in_([x.external_id for x in siblings])).group_by(CmComment.media_id))).all())
+    rows = [{**_video_out(x, names), "embed": _embed(x), "comments_stored": counts.get(x.external_id, 0)} for x in siblings]
+    total = {f: (sum(getattr(x, f) or 0 for x in siblings) if any(getattr(x, f) is not None for x in siblings) else None)
+             for f in ("views", "likes", "comments", "shares", "saves")}
+    asset = None
+    if post and post.asset_id:
+        a = await db.get(CmAsset, post.asset_id)
+        src = await db.get(CmSource, a.source_id) if a else None
+        if a and src and src.revoked_at is None and cm_access.group_allowed(tenant, src.group_id):
+            asset = lib.asset_out(a, src)
+    return {"id": v.id, "title": (post.title if post else None) or v.title, "caption": post.caption if post else None,
+            "post_id": post.id if post else None, "videos": rows, "totals": total, "asset": asset}
+
+
 async def _daily_series(db: AsyncSession, accounts, since, until) -> list[dict]:
     """Série jour par jour (du `since` au `until` inclus) : dernière valeur connue de
     chaque compte (report des jours sans relevé), totalisée et par plateforme."""
