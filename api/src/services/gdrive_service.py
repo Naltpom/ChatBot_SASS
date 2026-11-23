@@ -216,14 +216,17 @@ async def shared_folders(limit: int = 200) -> list[dict]:
     return [f for f in body.get("files") or [] if isinstance(f, dict)]
 
 
-async def walk(folder_id: str) -> list[tuple[str, dict]]:
-    """(chemin du sous-dossier, fichier) de tout le dossier, sous-dossiers compris (4 niveaux)."""
+async def walk(folder_id: str, skip: Optional[set] = None) -> list[tuple[str, dict]]:
+    """(chemin du sous-dossier, fichier) de tout le dossier, sous-dossiers compris (4 niveaux).
+    `skip` : sous-dossiers à ne pas parcourir (déjà reliés comme dossiers à part)."""
     out: list[tuple[str, dict]] = []
     todo = [(folder_id, "", 0)]
     while todo and len(out) < MAX_FILES:
         fid, path, depth = todo.pop(0)
         for f in await list_children(fid):
             if f.get("mimeType") == FOLDER_MIME:
+                if skip and f.get("id") in skip:
+                    continue
                 if depth + 1 < MAX_DEPTH:
                     todo.append((f["id"], f"{path}/{f['name']}" if path else f["name"], depth + 1))
             else:

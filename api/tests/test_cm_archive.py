@@ -38,6 +38,7 @@ class WriteDrive:
         self.perms: list[dict] = []
         self.pending: dict[str, dict] = {}
         self.grant_ok = True
+        self.moves: list[str] = []
         self.refreshes = 0
         self.revoked: list[str] = []
 
@@ -127,6 +128,12 @@ class WriteDrive:
         if path.startswith("/upload/drive/v3/files/") and req.method == "PATCH":
             self.items[path.rsplit("/", 1)[1]]["content"] = body
             return httpx.Response(200, json={"id": path.rsplit("/", 1)[1]})
+        if req.method == "PATCH" and path.startswith("/drive/v3/files/"):
+            fid = path.rsplit("/", 1)[1]
+            assert token == "ya29.robot", "seul le robot range les fichiers"
+            self.items[fid]["parent"] = p["addParents"]
+            self.moves.append(fid)
+            return httpx.Response(200, json={"id": fid})
         if path.endswith("/permissions"):
             self.perms.append({"file": path.split("/")[-2], **json.loads(body)})
             return httpx.Response(200, json={"id": "perm1"})
@@ -364,3 +371,47 @@ async def test_drive_token_refresh_and_revoked_access(pg_session, cmenv, wdrive,
         await pg_session.refresh(link)
         assert link.revoked_at is not None and link.refresh_token_enc == ""
         assert (await h.get("/api/cm/drive/archive")).json()["connected"] is False
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_existing_account_folders_are_used(pg_session, cmenv, wdrive, tiktok):
+    """Dossiers des comptes rangés par l'utilisateur dans le dossier d'archives : cm écrit dedans (pas de 2e
+    « kiwi »), dépose avec la connexion Drive, le robot range ; ce que le PC avait déjà rangé est réutilisé."""
+    u = await _user(pg_session, "a@t.dev")
+    ig = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    link = await _linked(pg_session, u, wdrive)
+    kiwi = wdrive._id()
+    wdrive.items[kiwi] = {"name": "kiwi", "parent": link.root_folder_id, "folder": True}
+    month = wdrive._id()
+    wdrive.items[month] = {"name": "2026-12", "parent": kiwi, "folder": True}
+    day = wdrive._id()
+    wdrive.items[day] = {"name": "2026-12-03 18h30 — Ancienne", "parent": month, "folder": True}
+    old_video = wdrive._id()
+    wdrive.items[old_video] = {"name": "Ancienne.mp4", "parent": day, "content": b"pc"}
+    old_infos = wdrive._id()
+    wdrive.items[old_infos] = {"name": "infos.json", "parent": day, "content": b'{"compte": "kiwi", "id": "k2", "statut": "prete"}'}
+    pg_session.add(CmSource(owner_user_id=u.id, folder_id=kiwi, name="kiwi", role="writer", can_upload=False))
+    await pg_session.commit()
+    data = mp4_bytes(42_000)
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        await _post(h, ig, data, "kiwi/k1")
+        await _post(h, ig, data, "kiwi/k2", title="Ancienne", when="2026-12-03T17:30:00Z")
+        await cm_archive.sync_due(pg_session)
+    root = settings.GDRIVE_ARCHIVE_ROOT_NAME
+    tree = wdrive.tree()
+    assert [x for x in tree if x.endswith("kiwi/")] == [f"{root}/kiwi/"]
+    new = f"{root}/kiwi/2026-12/2026-12-02 18h30 — Clair de lune"
+    assert f"{new}/Clair de lune.mp4" in tree and f"{new}/infos.json" in tree
+    assert wdrive.items[wdrive.find(f"{new}/Clair de lune.mp4")]["by"] == "ya29.user"
+    assert not [x for x in tree if "envoi en cours" in x and not x.endswith("/")]   # tout a été rangé
+    # Vidéo déjà rangée par le PC : ni renvoyée ni doublée ; son infos.json est mis à jour par le robot.
+    old = f"{root}/kiwi/2026-12/2026-12-03 18h30 — Ancienne"
+    files = sorted(x for x in tree if x.startswith(old + "/") and not x.endswith("/"))
+    assert files == sorted([f"{old}/Ancienne.mp4", f"{old}/infos.json", f"{old}/Ancienne.txt"])
+    assert wdrive.items[old_video]["content"] == b"pc"
+    infos = json.loads(wdrive.items[old_infos]["content"])
+    assert infos["id"] == "k2" and infos["plateformes"]["instagram"]["statut"] == "prete"
+    assert any(p["role"] == "writer" and p["emailAddress"] == ROBOT for p in wdrive.perms)
