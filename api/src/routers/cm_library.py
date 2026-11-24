@@ -456,7 +456,7 @@ async def _proposal_scope(db: AsyncSession, tenant: Tenant, group_id: Optional[i
     from sqlalchemy.dialects.postgresql import ARRAY, JSONB
     from sqlalchemy import String as _S, literal
     from src.routers.cm import _ACCOUNT_SCOPE, _tenant_index
-    if group_id is None and _ACCOUNT_SCOPE.get() is None:
+    if group_id is None and _ACCOUNT_SCOPE.get() is None and not getattr(tenant, "multi", False):
         return None
     accounts, _ = await _tenant_index(db, tenant, group_id)
     keys = [f"{p}:{a.id}" for p, a in accounts] or ["-"]
@@ -495,7 +495,24 @@ async def count_proposals(org_id: Optional[int] = Query(None), group_id: Optiona
     scope = await _proposal_scope(db, tenant, group_id)
     if scope is not None:
         conds.append(scope)
-    return {"open": (await db.execute(select(func.count()).select_from(CmProposal).where(*conds))).scalar() or 0}
+    total = (await db.execute(select(func.count()).select_from(CmProposal).where(*conds))).scalar() or 0
+    # Par groupe (pour cacher l'onglet « À valider » d'un groupe sans brouillon).
+    from sqlalchemy import String as _S, cast, literal
+    from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+    from src.models.cm import CmGroupAccount
+    by_group = {}
+    for g in (await db.execute(select(CmGroup).where(tenant.where(CmGroup)))).scalars():
+        if not cm_access.group_allowed(tenant, g.id) and not getattr(tenant, "multi", False):
+            continue
+        keys = [f"{p}:{a}" for p, a in (await db.execute(select(CmGroupAccount.platform, CmGroupAccount.account_id)
+                                                          .where(CmGroupAccount.group_id == g.id))).all()
+                if cm_access.account_allowed(tenant, p, a)]
+        if not keys:
+            continue
+        by_group[str(g.id)] = (await db.execute(select(func.count()).select_from(CmProposal).where(
+            tenant.where(CmProposal), CmProposal.status == "open",
+            cast(CmProposal.accounts, JSONB).has_any(literal(keys, ARRAY(_S)))))).scalar() or 0
+    return {"open": total, "by_group": by_group}
 
 
 async def _proposal(db: AsyncSession, tenant: Tenant, proposal_id: int) -> CmProposal:

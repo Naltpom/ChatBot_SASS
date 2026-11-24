@@ -479,3 +479,29 @@ class CmDriveLink(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
     revoked_at = Column(DateTime, nullable=True)
+
+
+class CmGroupShare(Base):
+    """Partage d'un groupe de comptes avec une personne (par e-mail), avec son rôle sur ce groupe :
+    admin | editor (« Peut publier ») | viewer (« Lecture seule »). En attente jusqu'à ce qu'elle accepte."""
+    __tablename__ = "cm_group_shares"
+    __table_args__ = (Index("uq_cm_group_shares", "group_id", "email", unique=True),)
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("cm_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    role = Column(String(20), nullable=False, default="editor")
+    status = Column(String(12), nullable=False, default="pending")      # pending | accepted | declined
+    invited_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    responded_at = Column(DateTime, nullable=True)
+
+
+class CmProfile(Base):
+    """Préférences cm d'une personne : nom de son espace perso (« Espace perso » par défaut)."""
+    __tablename__ = "cm_profiles"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    perso_name = Column(String(80), nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

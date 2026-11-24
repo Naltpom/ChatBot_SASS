@@ -192,12 +192,16 @@ def _human(n: Optional[int]) -> str:
 
 
 async def check_create(db: AsyncSession, org_id: Optional[int], owner_id: Optional[int], needed: int,
-                       accounts: Optional[list] = None) -> None:
+                       accounts: Optional[list] = None, owner_name: Optional[str] = None) -> None:
     """Avant de créer une publication : un stockage relié, et la vidéo tient dans celui que les règles choisissent."""
     if not settings.CM_STORAGE_REQUIRED:
         return
     links = await cm_archive.links_of(db, org_id, owner_id)
     if not links:
+        if owner_name:                 # compte d'un groupe partagé : le stockage est chez son propriétaire
+            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "storage_required", "owner": owner_name, "message":
+                                f"{owner_name}, propriétaire de ce compte, n'a pas encore relié de Google Drive : les vidéos "
+                                "sont rangées dans son Drive. Demandez-lui de le connecter (Bibliothèque → Stockage)."})
         raise HTTPException(status.HTTP_409_CONFLICT, {"code": "storage_required", "message":
                             "Connectez d'abord un Google Drive à cet espace (Bibliothèque → Stockage) : vos vidéos y sont "
                             "rangées. Sans Drive, impossible de créer une publication."})

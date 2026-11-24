@@ -188,6 +188,33 @@ Brouillons « à valider » déjà créés pour une vidéo qui passe Publiée, P
 archive automatiquement à la relecture, rien n'est publié. Sinon `POST /proposals/archive {source_id?}` (avec
 `?group_id=` / `?account=` pour la sélection) range tout en archive, sans rien publier.
 
+## 10. Périmètre (plus d'« espaces » visibles)
+On ne montre plus d'« espaces » : seulement **mes comptes** et des **groupes de comptes**, dont ceux partagés avec moi.
+Les équipes (organisations) restent en arrière-plan (facturation, membres) ; l'espace perso « existe » dès le
+premier compte connecté et peut être renommé.
+- **Lecture sur un périmètre combiné** : `?scope=` sur `accounts`, `calendar`, `posts`, `overview`, `stats`, `videos`,
+  `inbox/accounts`, `inbox/comments`, `assets`, `proposals`, `proposals/count` (sans `org_id`). Valeurs, séparées par
+  des virgules : `all` (mes comptes + groupes partagés avec moi, tous espaces) | `perso` | `org:12` | `org:12/group:3`
+  (ou `group:3`) | `acc:tiktok:7`. Chaque élément est vérifié (404 s'il n'est pas visible, 400 s'il est mal écrit).
+  Un périmètre combiné est **en lecture seule** : une écriture se fait avec l'`org_id` du compte (403 sinon).
+  Sans `scope`, rien ne change (`org_id`, `group_id`, `account` comme avant).
+- Chaque compte (`GET /accounts`) porte `org_id`, `owner` (nom du propriétaire), `mine`, `groups` et `role` (le mien).
+  Chaque publication porte `org_id`.
+- **Rôle par compte** : `GET /me/capabilities` → `{can_publish_any, accounts: [{key: "tiktok:7", platform, id, org_id,
+  role: "admin"|"editor"|"viewer", owner, mine}]}` (où afficher « + », quels comptes proposer à la publication).
+  Le rôle d'un compte vient du partage de son groupe (le plus haut s'il est dans plusieurs groupes) ; il est vérifié
+  à chaque écriture (création, ajout de cible, modification, annulation…) → `403` en « Lecture seule ».
+- **Partage par groupe** (rôles : `admin` « Admin », `editor` « Peut publier », `viewer` « Lecture seule ») :
+  `GET /groups/{id}/shares`, `POST /groups/{id}/shares {email, role}` (en attente jusqu'à acceptation ; déjà acceptée :
+  rôle mis à jour), `DELETE /groups/{id}/shares/{share_id}`. Le partage « tout l'espace » (`POST /shares`) reste
+  pour la compatibilité, mais n'est plus proposé.
+- **Invitations reçues** : `GET /invitations` → `[{id, group_id, group_name, group_color, role, role_label, owner,
+  invited_by, accounts, created_at}]`, `POST /invitations/{id}/accept` (→ `org_id`), `POST /invitations/{id}/decline`.
+- **Espace perso** : `GET /profile` / `PATCH /profile {perso_name}` (vide = « Espace perso ») ; repris par `/spaces`.
+- **« À valider »** : `GET /proposals/count` → `{open, by_group: {"<group_id>": n}}` (cacher l'onglet d'un groupe à 0).
+- **Stockage** : une publication est rangée dans le Drive de l'espace du compte, donc chez son propriétaire. S'il n'a
+  pas de Drive : `409 {"code": "storage_required", "owner": "<nom>", "message"}`.
+
 ## 9. Stockage Drive (obligatoire pour publier)
 Chaque espace (perso ou équipe) range ses vidéos dans **son** Google Drive, par la même connexion que l'archivage
 (« Connecter Google Drive », droit `drive.file` : Chapote ne voit et ne supprime que ce qu'il a créé).
