@@ -3,7 +3,6 @@
 // d'appareil gardé dans le coffre du téléphone (voir api/src/routers/cm_mobile.py).
 import * as Crypto from 'expo-crypto'
 import * as Device from 'expo-device'
-import * as Linking from 'expo-linking'
 import * as SecureStore from 'expo-secure-store'
 import * as WebBrowser from 'expo-web-browser'
 import { Platform } from 'react-native'
@@ -29,7 +28,10 @@ export async function loginWithBrowser(): Promise<Me | null> {
   const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new TextEncoder().encode(verifier))
   const challenge = base64url(new Uint8Array(digest))
   const state = base64url(Crypto.getRandomBytes(12))
-  const redirect = Linking.createURL('auth')
+  // Toujours chapotecm:// (jamais exp://) : dans Expo Go, un lien exp:// rechargeait tout le projet (page
+  // blanche). Sur iPhone, la page de connexion se ferme d'elle-même sur ce lien ; sinon l'app reprend la
+  // connexion quand on revient (pickUp).
+  const redirect = 'chapotecm://auth'
   const url = `${API_URL}/api/cm/mobile/connect?` + new URLSearchParams({ redirect_uri: redirect, challenge, state }).toString()
   // Gardé sur le téléphone : si l'app redémarre au retour (Expo Go), la connexion se termine à l'ouverture.
   await SecureStore.setItemAsync(PENDING_KEY, JSON.stringify({ verifier, at: Date.now() })).catch(() => {})
