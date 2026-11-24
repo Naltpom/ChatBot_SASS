@@ -19,6 +19,7 @@ ni secret, ni trace d'exécution.
 """
 from __future__ import annotations
 
+import functools
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -180,12 +181,7 @@ async def list_folders(account: Account, ctx: Context) -> dict:
     return await _with_box(ctx, "list_folders", account, mc.list_folders)
 
 
-@mcp.tool(annotations=READ, description=(
-    "Cherche des messages dans UN dossier d'une boîte (boîte de réception par défaut), du plus récent au plus "
-    "ancien. Tous les critères sont optionnels et combinés (ET). `query` : texte libre (sur Gmail, syntaxe de "
-    "recherche Gmail : from:, has:attachment, older_than:7d…). Renvoie des résumés (uid, date, expéditeur, objet, "
-    "non lu) et `total` ; lire un message avec get_message. `limit` : 50 au plus."))
-async def search_messages(
+async def _search_messages(
     account: Account, ctx: Context,
     query: Annotated[Optional[str], Field(description="Texte cherché dans tout le message.")] = None,
     from_: Annotated[Optional[str], Field(alias="from", description="Expéditeur (adresse ou nom, partiel).")] = None,
@@ -203,6 +199,20 @@ async def search_messages(
         return mc.search(cfg, folder=folder, query=query, from_=from_, to=to, subject=subject,
                          since=s, before=b, unseen=unseen, limit=limit)
     return await _with_box(ctx, "search_messages", account, fn)
+
+
+@mcp.tool(name="search_messages", annotations=READ, description=(
+    "Cherche des messages dans UN dossier d'une boîte (boîte de réception par défaut), du plus récent au plus "
+    "ancien. Tous les critères sont optionnels et combinés (ET). `query` : texte libre (sur Gmail, syntaxe de "
+    "recherche Gmail : from:, has:attachment, older_than:7d…). Renvoie des résumés (uid, date, expéditeur, objet, "
+    "non lu) et `total` ; lire un message avec get_message. `limit` : 50 au plus."))
+@functools.wraps(_search_messages)
+async def search_messages(**kwargs: Any) -> dict:
+    # Le paramètre public s'appelle « from » (mot réservé en Python) : FastMCP appelle la
+    # fonction avec ce nom d'alias, renommé ici vers `from_`. Le schéma vient de _search_messages.
+    if "from" in kwargs:
+        kwargs["from_"] = kwargs.pop("from")
+    return await _search_messages(**kwargs)
 
 
 @mcp.tool(annotations=READ, description=(

@@ -83,6 +83,11 @@ def _bad(msg: str):
     raise HTTPException(422, msg)
 
 
+def _clean_password(password: str, preset: Optional[str]) -> str:
+    """Gmail affiche le mot de passe d'application par groupes de 4 (« abcd efgh … ») : espaces retirés."""
+    return "".join(password.split()) if preset == "gmail" else password
+
+
 def _apply(mb: Mailbox, body: MailboxIn, creating: bool) -> None:
     data = body.model_dump(exclude_unset=True)
     preset = data.get("preset")
@@ -124,8 +129,7 @@ def _apply(mb: Mailbox, body: MailboxIn, creating: bool) -> None:
     if "username" in data:
         mb.username = (data["username"] or "").strip()
     if data.get("password"):
-        mb.password_encrypted = encrypt_password(data["password"].strip() if mb.preset == "gmail"
-                                                 else data["password"])
+        mb.password_encrypted = encrypt_password(_clean_password(data["password"], mb.preset))
     for k in ("allow_send", "allow_delete", "save_sent", "is_active"):
         if k in data and data[k] is not None:
             setattr(mb, k, bool(data[k]))
@@ -231,7 +235,7 @@ async def test_unsaved(body: MailboxIn, _: User = Depends(require_emails_admin))
     cfg = MailboxConfig(slug=mb.slug, address=mb.address, label=mb.label, imap_host=mb.imap_host,
                         imap_port=mb.imap_port, imap_tls=mb.imap_tls, smtp_host=mb.smtp_host,
                         smtp_port=mb.smtp_port, smtp_tls=mb.smtp_tls, username=mb.username,
-                        password=(body.password or "").strip() if mb.preset == "gmail" else (body.password or ""))
+                        password=_clean_password(body.password or "", mb.preset))
     return await _check(cfg)
 
 
