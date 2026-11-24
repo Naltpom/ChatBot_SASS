@@ -7,3 +7,4 @@ android/
 *.log
 .env*
 qr-expo-go.png
+qr-*.png
