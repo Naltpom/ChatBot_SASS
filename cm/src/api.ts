@@ -310,7 +310,17 @@ export type AssetState = 'all' | 'new' | 'used'
 // Drive d'archivage des publications de l'outil (connexion Google « drive.file »)
 export type DriveArchive = { oauth_enabled: boolean; connected: boolean; email: string | null; error: string | null; folder_url: string | null; folder_name: string }
 export const getDriveArchive = (org: number | null) => call<DriveArchive>(`/api/cm/drive/archive${q(org)}`)
-export const startDriveOAuth = (org: number | null) => send<{ authorize_url: string }>('POST', '/api/cm/drive/oauth/start', { org_id: org })
+export const startDriveOAuth = (org: number | null, name?: string) =>
+  send<{ authorize_url: string }>('POST', '/api/cm/drive/oauth/start', { org_id: org, ...(name ? { name } : {}) })
+export interface StorageItem extends Storage {
+  id: number; name: string; position: number; room_bytes: number | null; error: string | null
+  assign: { accounts?: [Platform, number][]; groups?: number[] } | null
+}
+export type Storages = Storage & { storages: StorageItem[] }
+export const getStorages = (org: number | null) => call<Storages>(`/api/cm/drive/storages${q(org)}`)
+export const addStorage = (org: number | null, from_id: number, name: string) => send<Storages>('POST', `/api/cm/drive/storages${q(org)}`, { from_id, name })
+export const patchStorage = (org: number | null, id: number, body: Record<string, unknown>) => send<Storages>('PATCH', `/api/cm/drive/storages/${id}${q(org)}`, body)
+export const removeStorage = (org: number | null, id: number) => send<Storages>('DELETE', `/api/cm/drive/storages/${id}${q(org)}`)
 export const exchangeDriveOAuth = (code: string, state: string) =>
   send<DriveArchive & { org_id: number | null }>('POST', '/api/cm/drive/oauth/exchange', { code, state })
 export const disconnectDriveArchive = (org: number | null) => send<DriveArchive>('DELETE', `/api/cm/drive/archive${q(org)}`)

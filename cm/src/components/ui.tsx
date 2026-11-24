@@ -115,7 +115,7 @@ export function Sheet({ title, onClose, children, labelledBy = 'sheet-title' }: 
   )
 }
 
-export type IconName = 'left' | 'right' | 'down' | 'upload' | 'refresh' | 'external' | 'home' | 'calendar' | 'chart'
+export type IconName = 'left' | 'right' | 'down' | 'up' | 'upload' | 'refresh' | 'external' | 'home' | 'calendar' | 'chart'
   | 'users' | 'plus' | 'close' | 'video' | 'eye' | 'eye-off' | 'heart' | 'comment' | 'share' | 'bookmark' | 'check'
   | 'layers' | 'clock' | 'logout' | 'grid' | 'list' | 'trend' | 'edit' | 'trash' | 'bolt' | 'shield' | 'link' | 'menu' | 'search' | 'star'
 
@@ -125,6 +125,7 @@ const PATHS: Record<IconName, string> = {
   left: 'M15 18l-6-6 6-6',
   right: 'M9 18l6-6-6-6',
   down: 'M6 9l6 6 6-6',
+  up: 'M6 15l6-6 6 6',
   upload: 'M12 16V4M7 9l5-5 5 5M4 20h16',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
   external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',

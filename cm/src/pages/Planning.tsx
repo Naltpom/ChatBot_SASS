@@ -16,7 +16,7 @@ import { addDays, dayKey, fmtDateTime, fmtTime, num, sameDay, short, startOfWeek
 import { useDesktop } from '../hooks'
 import { useLoad, useSession } from '../session'
 
-type View = 'agenda' | 'week' | 'month'
+type View = 'agenda' | 'day' | 'week' | 'month'
 type Kind = 'all' | 'done' | 'planned'
 
 const isPlanned = (i: CalendarItem) => i.kind === 'target' && i.status !== 'PUBLISHED'   // brouillon TikTok : encore à publier
@@ -27,6 +27,10 @@ function range(view: View, anchor: Date): [Date, Date] {
     const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
     const start = startOfWeek(first)
     return [start, addDays(start, 42)]
+  }
+  if (view === 'day') {
+    const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate())
+    return [d, addDays(d, 1)]
   }
   const s = startOfWeek(anchor)
   return [s, addDays(s, 7)]
@@ -66,7 +70,7 @@ export default function Planning() {
   const [kind, setKind] = useState<Kind>('all')
   const [openGroup, setOpenGroup] = useState<Group | null>(null)
   const groupOf = useGroupOf()
-  useEffect(() => { setView(v => (desktop && v === 'agenda' ? 'week' : !desktop && v === 'week' ? 'agenda' : v)) }, [desktop])
+  useEffect(() => { setView(v => (desktop && v === 'agenda' ? 'week' : !desktop && (v === 'week' || v === 'day') ? 'agenda' : v)) }, [desktop])
 
   const [start, end] = useMemo(() => range(view, anchor), [view, anchor])
   const cal = useLoad(s => getCalendar(s, start, end), [start.getTime(), end.getTime()])
@@ -100,13 +104,20 @@ export default function Planning() {
   const today = new Date()
   const week = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i))
   const shift = (n: number) => {
+    if (view === 'day') {                    // vue Jour : jour précédent / suivant
+      const d = addDays(new Date(`${selected}T12:00:00`), n)
+      setAnchor(d); setSelected(dayKey(d))
+      return
+    }
     setAnchor(a => view === 'month' ? new Date(a.getFullYear(), a.getMonth() + n, 1) : addDays(a, 7 * n))
     if (view !== 'month') setSelected(k => dayKey(addDays(new Date(`${k}T12:00:00`), 7 * n)))   // même jour, autre semaine
   }
-  const label = view === 'month'
+  const label = view === 'day'
+    ? new Date(`${selected}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+    : view === 'month'
     ? anchor.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
     : `${week[0].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} – ${week[6].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
-  const isCurrent = view === 'month' ? anchor.getMonth() === today.getMonth() && anchor.getFullYear() === today.getFullYear()
+  const isCurrent = view === 'day' ? selected === dayKey(today) : view === 'month' ? anchor.getMonth() === today.getMonth() && anchor.getFullYear() === today.getFullYear()
     : sameDay(startOfWeek(anchor), startOfWeek(today))
   const goToday = () => { setAnchor(new Date()); setSelected(dayKey(new Date())) }
   const togglePlatform = (p: Platform) => setPlatforms(ps => ps.includes(p) ? ps.filter(x => x !== p) : [...ps, p])
@@ -157,15 +168,15 @@ export default function Planning() {
           <p>Ce qui est parti, avec ses chiffres, et ce qui va partir.</p>
         </div>
         <Seg label="Affichage" value={view} onChange={setView}
-             options={desktop ? [['week', 'Semaine'], ['month', 'Mois']] : [['agenda', 'Agenda'], ['month', 'Mois']]} />
+             options={desktop ? [['day', 'Jour'], ['week', 'Semaine'], ['month', 'Mois']] : [['agenda', 'Agenda'], ['month', 'Mois']]} />
       </div>
 
       {flash && <Msg kind="ok">{flash}</Msg>}
 
       <div className="cal-toolbar">
         <div className="cal-nav">
-          <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? 'Mois précédent' : 'Semaine précédente'} onClick={() => shift(-1)}><Icon name="left" /></button>
-          <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? 'Mois suivant' : 'Semaine suivante'} onClick={() => shift(1)}><Icon name="right" /></button>
+          <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? 'Mois précédent' : view === 'day' ? 'Jour précédent' : 'Semaine précédente'} onClick={() => shift(-1)}><Icon name="left" /></button>
+          <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? 'Mois suivant' : view === 'day' ? 'Jour suivant' : 'Semaine suivante'} onClick={() => shift(1)}><Icon name="right" /></button>
           <span className="label">{label}</span>
           {(!isCurrent || selected !== dayKey(today)) && <button type="button" className="btn btn-sm" onClick={goToday}><Icon name="calendar" size={14} />Aujourd’hui</button>}
         </div>
@@ -235,6 +246,10 @@ export default function Planning() {
             </div>
           </div>
         </>
+      )}
+
+      {!search && cal.data && view === 'day' && (
+        <div className="agenda" style={{ maxWidth: 760 }}>{dayList(selected, new Date(`${selected}T12:00:00`))}</div>
       )}
 
       {!search && cal.data && view === 'week' && (

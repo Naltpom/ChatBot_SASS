@@ -451,13 +451,7 @@ class CmDriveLink(Base):
     """Drive de l'espace pour l'archivage (connexion Google au nom de l'utilisateur, droit « drive.file » :
     cm ne voit que les fichiers qu'il a créés). Un seul lien actif par espace."""
     __tablename__ = "cm_drive_links"
-    __table_args__ = (
-        _tenant_check("cm_drive_links"),
-        Index("uq_cm_drive_links_org", "organization_id", unique=True,
-              postgresql_where=text("revoked_at IS NULL AND organization_id IS NOT NULL")),
-        Index("uq_cm_drive_links_user", "owner_user_id", unique=True,
-              postgresql_where=text("revoked_at IS NULL AND organization_id IS NULL")),
-    )
+    __table_args__ = (_tenant_check("cm_drive_links"),)    # plusieurs stockages par espace (ordre, attribution)
 
     id = Column(Integer, primary_key=True)
     organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
@@ -470,6 +464,10 @@ class CmDriveLink(Base):
     error = Column(Text, nullable=True)                   # dernière erreur (ex. accès retiré chez Google)
     # Stockage (cm_storage) : Go réservés à Chapote (null = tout l'espace libre du Drive), conservation des fichiers.
     quota_gb = Column(Integer, nullable=True)
+    name = Column(String(80), nullable=True)               # nom affiché (« Drive principal », « Kiwi »…)
+    position = Column(Integer, nullable=False, default=0, server_default="0")   # ordre de remplissage
+    # Attribution : {"accounts": [["instagram", 3], …], "groups": [12, …]} ; null = tous les comptes (dans l'ordre).
+    assign = Column(JSON, nullable=True)
     retention = Column(String(24), nullable=False, default="keep", server_default="keep")
     delete_after_days = Column(Integer, nullable=True)
     drive_limit = Column(BigInteger, nullable=True)       # storageQuota du Drive (null = illimité), relu ≤ 10 min

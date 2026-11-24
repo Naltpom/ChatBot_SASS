@@ -2,7 +2,7 @@
 // et écran « Connecter votre Google Drive » à la 1re ouverture d'un espace qui n'en a pas.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { disconnectDriveArchive, getStorage, putStorage, startDriveOAuth, type Retention, type Storage } from '../api'
+import { addStorage, getAccounts, getStorages, patchStorage, removeStorage, startDriveOAuth, type Account, type Group, type Retention, type Storage, type StorageItem, type Storages } from '../api'
 import { useLoad, useRole, useSession } from '../session'
 import { Icon, Msg, Sheet } from './ui'
 
@@ -17,8 +17,8 @@ const RETENTION: [Retention, string][] = [
   ['delete_after_days', 'Supprimer la vidéo X jours après publication'],
 ]
 
-async function connectDrive(org: number | null, setErr: (s: string) => void) {
-  try { window.location.assign((await startDriveOAuth(org)).authorize_url) } catch (e) { setErr((e as Error).message) }
+async function connectDrive(org: number | null, setErr: (s: string) => void, name?: string) {
+  try { window.location.assign((await startDriveOAuth(org, name)).authorize_url) } catch (e) { setErr((e as Error).message) }
 }
 
 /** Jauge : octets rangés par Chapote sur le quota réservé (ou sur ce qui reste dans le Drive). */
@@ -39,65 +39,147 @@ function Gauge({ s }: { s: Storage }) {
   )
 }
 
+/** Stockages de l'espace : un ou plusieurs Google Drive (ou dossiers d'un même Drive), dans l'ordre de remplissage,
+ *  éventuellement attribués à des comptes ou à des groupes. */
 export function StorageCard() {
-  const { org } = useSession()
+  const { org, groups } = useSession()
   const { canAdmin } = useRole()
-  const st = useLoad(() => getStorage(org), [org])
+  const st = useLoad(() => getStorages(org), [org])
+  const accounts = useLoad(() => getAccounts(org), [org])
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
-  const [form, setForm] = useState<{ quota: string; retention: Retention; days: string } | null>(null)
-  const s = st.data
-  if (!s) return st.error ? <Msg kind="err">{st.error}</Msg> : null
-  const edit = () => setForm({ quota: s.quota_gb ? String(s.quota_gb) : '', retention: s.retention || 'keep', days: String(s.delete_after_days || 30) })
-  const save = async () => {
-    if (!form) return
+  const [adding, setAdding] = useState(false)
+  const data = st.data
+  if (!data) return st.error ? <Msg kind="err">{st.error}</Msg> : null
+  const list = data.storages
+  const run = async (fn: () => Promise<Storages>, done?: string) => {
     setErr(''); setOk('')
-    try {
-      st.setData(await putStorage(org, { quota_gb: form.quota.trim() ? Number(form.quota) : null, retention: form.retention,
-        delete_after_days: form.retention === 'delete_after_days' ? Number(form.days) : null }))
-      setForm(null); setOk('Réglages du stockage enregistrés.')
-    } catch (e) { setErr((e as Error).message) }
+    try { st.setData(await fn()); if (done) setOk(done) } catch (e) { setErr((e as Error).message) }
   }
-  const off = async () => {
-    if (!window.confirm('Déconnecter le Drive ? Les fichiers déjà rangés y restent, mais vous ne pourrez plus créer de publication.')) return
-    try { await disconnectDriveArchive(org); st.reload() } catch (e) { setErr((e as Error).message) }
+  const move = (i: number, d: number) => {
+    const j = i + d
+    if (j < 0 || j >= list.length) return
+    run(async () => { await patchStorage(org, list[i].id, { position: list[j].position }); return patchStorage(org, list[j].id, { position: list[i].position }) })
   }
   return (
-    <section className="card col" style={{ gap: 10 }} aria-labelledby="t-storage">
+    <section className="card col" style={{ gap: 12 }} aria-labelledby="t-storage">
       <div className="row-nw" style={{ gap: 10 }}>
         <span className="empty-ico" style={{ width: 36, height: 36, flex: 'none' }}><Icon name="layers" /></span>
         <div className="grow" style={{ minWidth: 0 }}>
           <h2 id="t-storage" style={{ margin: 0, fontSize: 16 }}>Stockage</h2>
-          <div className="tiny muted ellipsis">{s.connected ? `Google Drive relié${s.email ? ` : ${s.email}` : ''}` : 'Aucun Google Drive relié : obligatoire pour publier.'}</div>
+          <div className="tiny muted">{list.length ? `${list.length} stockage${list.length > 1 ? 's' : ''} · ${bytes(data.used_bytes)} utilisés` : 'Aucun Google Drive relié : obligatoire pour publier.'}</div>
         </div>
-        {canAdmin && (s.connected
-          ? <button type="button" className="btn btn-sm btn-ghost" onClick={off}>Déconnecter</button>
+        {canAdmin && (list.length
+          ? <button type="button" className="btn btn-sm" onClick={() => setAdding(a => !a)}><Icon name="plus" size={16} />Ajouter</button>
           : <button type="button" className="btn btn-sm btn-primary" onClick={() => connectDrive(org, setErr)}>Connecter Google Drive</button>)}
       </div>
-      {s.connected && (
-        <p className="small" style={{ margin: 0 }}>
-          Vos vidéos sont rangées dans le dossier {s.folder_url
-            ? <a href={s.folder_url} target="_blank" rel="noreferrer">créé par Chapote dans votre Drive</a>
-            : 'créé par Chapote dans votre Drive'} (« cm.chapote.fr archives » au départ ; vous pouvez le renommer ou le
-          déplacer), puis <span className="muted">compte / mois / date — titre</span>.
-        </p>
-      )}
-      {s.connected && <Gauge s={s} />}
-      {s.state === 'full' && <Msg kind="err">Stockage plein : les nouvelles publications sont bloquées.</Msg>}
-      {s.state === 'almost_full' && <div className="msg msg-warn" role="status">Stockage presque plein (plus de 90 %).</div>}
-      {s.connected && !form && (
+      {adding && <AddStorage list={list} onCancel={() => setAdding(false)} onErr={setErr}
+                             onFolder={(from, name) => run(() => addStorage(org, from, name), `Dossier « ${name} » créé.`).then(() => setAdding(false))} />}
+      {list.length > 1 && <p className="tiny muted" style={{ margin: 0 }}>Chaque vidéo va dans le stockage attribué à son compte (ou à son groupe) ; sinon dans le premier stockage « tous les comptes » qui a de la place, dans l’ordre ci-dessous.</p>}
+      {list.map((s, i) => (
+        <StorageRow key={s.id} s={s} canAdmin={canAdmin} accounts={accounts.data || []} groups={groups}
+                    first={i === 0} last={i === list.length - 1} onMove={d => move(i, d)}
+                    onSave={body => run(() => patchStorage(org, s.id, body), 'Stockage enregistré.')}
+                    onRemove={() => {
+                      if (window.confirm(`Retirer « ${s.name} » ? Les fichiers déjà rangés restent dans le Drive.${list.length === 1 ? ' Sans stockage, impossible de publier.' : ''}`))
+                        run(() => removeStorage(org, s.id), 'Stockage retiré.')
+                    }} />
+      ))}
+      {ok && <Msg kind="ok">{ok}</Msg>}
+      {err && <Msg kind="err">{err}</Msg>}
+    </section>
+  )
+}
+
+function AddStorage({ list, onFolder, onCancel, onErr }: { list: StorageItem[]; onFolder: (from: number, name: string) => void; onCancel: () => void; onErr: (s: string) => void }) {
+  const { org } = useSession()
+  const emails = [...new Map(list.filter(s => s.email).map(s => [s.email, s])).values()]
+  const [from, setFrom] = useState<number>(emails[0]?.id || list[0].id)
+  const [name, setName] = useState('')
+  return (
+    <div className="col" style={{ gap: 10, padding: 12, borderRadius: 12, background: 'var(--surface-2)' }}>
+      <label className="field">Nom du stockage
+        <input className="input" value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Ex. Kiwi, Clients musique, Archives 2027" />
+      </label>
+      <label className="field">Où
+        <select className="input" value={from} onChange={e => setFrom(Number(e.target.value))}>
+          {emails.map(s => <option key={s.id} value={s.id}>Nouveau dossier dans le Drive de {s.email}</option>)}
+        </select>
+      </label>
+      <div className="row" style={{ gap: 8 }}>
+        <button type="button" className="btn btn-sm btn-primary" disabled={!name.trim()} onClick={() => onFolder(from, name.trim())}>Créer le dossier</button>
+        <button type="button" className="btn btn-sm" onClick={() => connectDrive(org, onErr, name.trim() || undefined)}>Autre compte Google…</button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onCancel}>Annuler</button>
+      </div>
+      <span className="field-hint">Chapote crée le dossier « cm.chapote.fr — nom » à la racine du Drive ; vous pouvez ensuite le déplacer ou le renommer.</span>
+    </div>
+  )
+}
+
+function StorageRow({ s, canAdmin, accounts, groups, first, last, onMove, onSave, onRemove }: {
+  s: StorageItem; canAdmin: boolean; accounts: Account[]; groups: Group[]; first: boolean; last: boolean
+  onMove: (d: number) => void; onSave: (body: Record<string, unknown>) => void; onRemove: () => void
+}) {
+  const [form, setForm] = useState<null | { name: string; quota: string; retention: Retention; days: string; accounts: string[]; groups: number[] }>(null)
+  const assigned = [
+    ...(s.assign?.groups || []).map(id => groups.find(g => g.id === id)?.name).filter(Boolean),
+    ...(s.assign?.accounts || []).map(([p, id]) => accounts.find(a => a.platform === p && a.id === id)?.name).filter(Boolean),
+  ] as string[]
+  const edit = () => setForm({ name: s.name, quota: s.quota_gb ? String(s.quota_gb) : '', retention: s.retention || 'keep',
+    days: String(s.delete_after_days || 30), accounts: (s.assign?.accounts || []).map(([p, id]) => `${p}:${id}`), groups: s.assign?.groups || [] })
+  const toggle = <T,>(arr: T[], v: T) => (arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v])
+  const save = () => {
+    if (!form) return
+    onSave({ name: form.name, ...(form.quota.trim() ? { quota_gb: Number(form.quota) } : { clear_quota: true }), retention: form.retention,
+      ...(form.retention === 'delete_after_days' ? { delete_after_days: Number(form.days) } : {}), set_assign: true,
+      assign: { accounts: form.accounts.map(k => [k.split(':')[0], Number(k.split(':')[1])]), groups: form.groups } })
+    setForm(null)
+  }
+  return (
+    <div className="col" style={{ gap: 8, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+      <div className="row-nw" style={{ gap: 8, alignItems: 'flex-start' }}>
+        <div className="grow col" style={{ gap: 2, minWidth: 0 }}>
+          <span className="strong ellipsis">{s.name}</span>
+          <span className="tiny muted ellipsis">{s.email}{s.folder_url ? <> · <a href={s.folder_url} target="_blank" rel="noreferrer">ouvrir le dossier</a></> : null}</span>
+          <span className="tiny">{assigned.length ? <>Pour : <b>{assigned.join(', ')}</b></> : <span className="muted">Pour : tous les comptes (dans l’ordre)</span>}</span>
+        </div>
+        {canAdmin && (
+          <span className="row-nw" style={{ gap: 2 }}>
+            <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Monter « ${s.name} »`} disabled={first} onClick={() => onMove(-1)}><Icon name="up" size={16} /></button>
+            <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Descendre « ${s.name} »`} disabled={last} onClick={() => onMove(1)}><Icon name="down" size={16} /></button>
+          </span>
+        )}
+      </div>
+      <Gauge s={s} />
+      {s.error && <Msg kind="err">{s.error}</Msg>}
+      {s.state === 'full' && <Msg kind="err">Plein : ce stockage ne reçoit plus de vidéos.</Msg>}
+      {s.state === 'almost_full' && <div className="msg msg-warn" role="status">Presque plein (plus de 90 %).</div>}
+      {!form && (
         <div className="row small" style={{ gap: 8, alignItems: 'center' }}>
           <span className="muted">Conservation :</span>
           <b>{s.retention === 'delete_after_days' ? `supprimer ${s.delete_after_days} j après publication` : RETENTION.find(r => r[0] === s.retention)?.[1]}</b>
           {canAdmin && <button type="button" className="linkbtn" onClick={edit}>Modifier</button>}
+          {canAdmin && <button type="button" className="linkbtn" style={{ color: 'var(--danger)' }} onClick={onRemove}>Retirer</button>}
         </div>
       )}
       {form && (
         <div className="col" style={{ gap: 10 }}>
+          <label className="field">Nom<input className="input" value={form.name} maxLength={80} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
+          <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend>Pour quels comptes ?</legend>
+            <span className="field-hint">Rien de coché : tous les comptes, dans l’ordre des stockages.</span>
+            {groups.length > 0 && <div className="row" style={{ gap: 6 }}>{groups.map(g => (
+              <button key={g.id} type="button" className="chip" aria-pressed={form.groups.includes(g.id)} onClick={() => setForm({ ...form, groups: toggle(form.groups, g.id) })}>Groupe {g.name}</button>
+            ))}</div>}
+            <div className="row" style={{ gap: 6 }}>{accounts.map(a => {
+              const k = `${a.platform}:${a.id}`
+              return <button key={k} type="button" className="chip" aria-pressed={form.accounts.includes(k)} onClick={() => setForm({ ...form, accounts: toggle(form.accounts, k) })}>{a.name}</button>
+            })}</div>
+          </fieldset>
           <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
             <legend>Après publication</legend>
             {RETENTION.map(([v, label]) => (
-              <label key={v} className="check"><input type="radio" name="retention" checked={form.retention === v} onChange={() => setForm({ ...form, retention: v })} /><span>{label}</span></label>
+              <label key={v} className="check"><input type="radio" name={`retention-${s.id}`} checked={form.retention === v} onChange={() => setForm({ ...form, retention: v })} /><span>{label}</span></label>
             ))}
             {form.retention === 'delete_after_days' && (
               <label className="field">Nombre de jours
@@ -117,9 +199,7 @@ export function StorageCard() {
           </div>
         </div>
       )}
-      {ok && <Msg kind="ok">{ok}</Msg>}
-      {err && <Msg kind="err">{err}</Msg>}
-    </section>
+    </div>
   )
 }
 
@@ -142,7 +222,7 @@ export function StorageGate() {
       <Sheet title="Connecter votre Google Drive" onClose={later}>
         <div className="col" style={{ gap: 12 }}>
           <p style={{ margin: 0 }}>Chapote range vos vidéos, légendes et couvertures dans <b>votre</b> Google Drive : c’est là qu’elles sont stockées, et vous les gardez.</p>
-          <p className="small" style={{ margin: 0 }}>Rien à choisir : Chapote crée son dossier « cm.chapote.fr archives » à la racine de votre Drive
+          <p className="small" style={{ margin: 0 }}>Rien à choisir : Chapote crée son dossier « cm.chapote.fr » à la racine de votre Drive
             (renommez-le ou déplacez-le si vous voulez), et y range chaque vidéo par compte, mois et date.</p>
           <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
             <li>Chapote ne voit que les fichiers qu’il crée, rien d’autre de votre Drive.</li>

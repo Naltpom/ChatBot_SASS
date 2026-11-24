@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import select
 
+from src.core.config import settings
 from src.core.time import utcnow
 from src.models.cm import CmGroup, CmGroupAccount, CmPost, CmSource, CmTarget
 from src.services import cm_archive
@@ -128,7 +129,7 @@ async def test_archive_edge_cases(pg_session, cmenv, wdrive, tiktok):
         # Conte sans partie : une entrée dans « parties », l'infos.json partagé n'est jamais écrasé.
         await _post(h, ig, data, "contes/khm-1", title="Le Roi grenouille", archive={"dossier": "KHM-001 — Le Roi grenouille"})
         await cm_archive.sync_due(pg_session)
-        infos = wdrive.json_at("cm.chapote.fr archives/contes/KHM-001 — Le Roi grenouille/infos.json")
+        infos = wdrive.json_at(f"{settings.GDRIVE_ARCHIVE_ROOT_NAME}/contes/KHM-001 — Le Roi grenouille/infos.json")
         assert set(infos["parties"]) == {"khm-1"}
         # Destination qui change alors que la vidéo n'est plus sur le serveur : l'archive reste où elle est.
         p2.media_path = None

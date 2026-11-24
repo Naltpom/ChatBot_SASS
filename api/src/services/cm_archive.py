@@ -131,12 +131,20 @@ def _tenant_cond(model, org_id: Optional[int], owner_id: Optional[int]):
     return (model.owner_user_id == owner_id) & model.organization_id.is_(None)
 
 
+async def links_of(db: AsyncSession, org_id: Optional[int], owner_id: Optional[int]) -> list[CmDriveLink]:
+    """Stockages de l'espace, dans l'ordre de remplissage."""
+    return list((await db.execute(select(CmDriveLink).where(
+        _tenant_cond(CmDriveLink, org_id, owner_id), CmDriveLink.revoked_at.is_(None))
+        .order_by(CmDriveLink.position, CmDriveLink.id))).scalars())
+
+
 async def active_link(db: AsyncSession, org_id: Optional[int], owner_id: Optional[int]) -> Optional[CmDriveLink]:
-    return (await db.execute(select(CmDriveLink).where(_tenant_cond(CmDriveLink, org_id, owner_id),
-                                                       CmDriveLink.revoked_at.is_(None)))).scalar_one_or_none()
+    """Premier stockage de l'espace (routes d'un seul stockage, gardées pour compatibilité)."""
+    links = await links_of(db, org_id, owner_id)
+    return links[0] if links else None
 
 
-async def connect(db: AsyncSession, tenant, user, tok: dict) -> CmDriveLink:
+async def connect(db: AsyncSession, tenant, user, tok: dict, name: Optional[str] = None) -> CmDriveLink:
     """Après l'accord Google : dossier racine créé par cm, partagé en lecture avec le robot, relié à la bibliothèque."""
     if not tok.get("refresh_token"):
         raise ArchiveError("no_refresh", "Google n'a pas fourni d'accès durable : réessayez.")
@@ -146,20 +154,28 @@ async def connect(db: AsyncSession, tenant, user, tok: dict) -> CmDriveLink:
     try:
         about = gd._json(await gd._call(token, "GET", f"{settings.GDRIVE_API_BASE}/drive/v3/about",
                                         params={"fields": "user(emailAddress)"}))
-        root = await gd.ensure_folder(token, "root", settings.GDRIVE_ARCHIVE_ROOT_NAME)
+        existing = await links_of(db, tenant.org_id, tenant.owner_user_id)
+        folder_name = settings.GDRIVE_ARCHIVE_ROOT_NAME if not existing and not name \
+            else f"{settings.GDRIVE_ARCHIVE_ROOT_NAME} — {clean_name(name or 'stockage ' + str(len(existing) + 1), 60)}"
+        root = await gd.ensure_folder(token, "root", folder_name)
         if gd.robot_email():
             await gd.share_with(token, root, gd.robot_email(), "reader")
     except gd.DriveError as e:
         raise ArchiveError("drive_error", e.describe())
-    old = await active_link(db, tenant.org_id, tenant.owner_user_id)
-    if old is not None:                # reconnexion : l'ancien accès est révoqué chez Google et effacé
-        await _revoke(old)
-        old.revoked_at, old.refresh_token_enc = utcnow(), ""
-        await db.flush()
-    link = CmDriveLink(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, connected_by_user_id=user.id,
-                       email=((about.get("user") or {}).get("emailAddress") or "")[:255] or None,
-                       refresh_token_enc=encrypt_secret(tok["refresh_token"]), root_folder_id=root)
-    db.add(link)
+    email = ((about.get("user") or {}).get("emailAddress") or "")[:255] or None
+    same = next((x for x in existing if x.email and x.email == email and x.root_folder_id == root), None)
+    if same is not None:               # même compte Google et même dossier : reconnexion (nouveau jeton)
+        same.refresh_token_enc, same.error, same.connected_by_user_id = encrypt_secret(tok["refresh_token"]), None, user.id
+        for x in existing:             # les autres dossiers du même compte Google suivent le nouvel accès
+            if x.email == email:
+                x.refresh_token_enc = same.refresh_token_enc
+        link = same
+    else:
+        link = CmDriveLink(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, connected_by_user_id=user.id,
+                           email=email, refresh_token_enc=encrypt_secret(tok["refresh_token"]), root_folder_id=root,
+                           name=(name or ("Google Drive" if not existing else email or "Google Drive"))[:80],
+                           position=(max((x.position for x in existing), default=-1) + 1))
+        db.add(link)
     # Publications de l'outil encore sur le serveur : archivées aussi.
     await db.execute(update(CmPost).where(_tenant_cond(CmPost, tenant.org_id, tenant.owner_user_id),
                                           CmPost.ref.is_not(None), CmPost.archive_state.is_(None),
@@ -213,10 +229,34 @@ async def _revoke(link: CmDriveLink) -> None:
     _user_tokens.pop(link.id, None)
 
 
+async def add_folder(db: AsyncSession, link: CmDriveLink, name: str, user) -> CmDriveLink:
+    """Nouveau stockage dans le même Google Drive (même accès) : un dossier créé par cm, à son nom."""
+    token = await user_token(link)
+    try:
+        root = await gd.ensure_folder(token, "root", f"{settings.GDRIVE_ARCHIVE_ROOT_NAME} — {clean_name(name, 60)}")
+        if gd.robot_email():
+            await gd.share_with(token, root, gd.robot_email(), "reader")
+    except gd.DriveError as e:
+        raise ArchiveError("drive_error", e.describe())
+    existing = await links_of(db, link.organization_id, link.owner_user_id)
+    new = CmDriveLink(organization_id=link.organization_id, owner_user_id=link.owner_user_id,
+                      connected_by_user_id=user.id, email=link.email, refresh_token_enc=link.refresh_token_enc,
+                      root_folder_id=root, name=name[:80], position=max(x.position for x in existing) + 1)
+    db.add(new)
+    await db.commit()
+    await db.refresh(new)
+    await _ensure_source(db, new, user)
+    return new
+
+
 async def disconnect(db: AsyncSession, link: CmDriveLink) -> None:
-    """« Déconnecter Google Drive » : autorisation révoquée chez Google, jeton supprimé de la base.
-    Les fichiers déjà archivés restent dans le Drive de l'utilisateur."""
-    await _revoke(link)
+    """Retire un stockage. L'autorisation Google n'est révoquée que si plus aucun stockage de l'espace n'utilise ce
+    compte Google. Les fichiers déjà rangés restent dans le Drive."""
+    others = [x for x in await links_of(db, link.organization_id, link.owner_user_id)
+              if x.id != link.id and x.email and x.email == link.email]
+    if not others:
+        await _revoke(link)
+    _user_tokens.pop(link.id, None)
     await db.delete(link)
     await db.commit()
 
@@ -330,7 +370,8 @@ async def _destination(db: AsyncSession, post: CmPost) -> Optional[_Dest]:
                 and s.verified), None)
     if src is not None and src.can_upload is True:
         return _Dest("robot", src.folder_id, [], robot=await gd.access_token())
-    link = await active_link(db, post.organization_id, post.owner_user_id)
+    from src.services import cm_storage                  # import tardif : cm_storage importe ce module
+    link = await cm_storage.link_for_post(db, post)
     if link is None or not link.root_folder_id:
         return None
     try:
@@ -388,8 +429,9 @@ async def sync_post(db: AsyncSession, post: CmPost, now=None) -> None:
         post.archive_synced_at = now
         await db.commit()
         return
+    a["link_id"] = (post.archive or {}).get("link_id")       # stockage retenu par _destination
     if a.get("base") != base:          # nouvelle destination : tout est réécrit là-bas
-        a = {"conte": a.get("conte"), "base": base, "via": via}
+        a = {"conte": a.get("conte"), "base": base, "via": via, "link_id": a.get("link_id")}
 
     async def new_file(name: str, data: Optional[bytes] = None, path: Optional[str] = None, mime: str = "") -> str:
         """Fichier créé à sa place (robot, oauth) ou dans le dossier d'envoi puis rangé par le robot (mixte)."""
