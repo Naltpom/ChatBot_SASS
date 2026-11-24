@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SessionProvider, useSession } from '../lib/session'
 import { usePushRouting } from '../lib/push'
+import { useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
@@ -17,6 +18,7 @@ function Gate() {
   const segments = useSegments()
   const router = useRouter()
   usePushRouting()
+  useAppUpdate()
 
   useEffect(() => { SystemUI.setBackgroundColorAsync(c.bg).catch(() => {}) }, [c.bg])
   useEffect(() => {
