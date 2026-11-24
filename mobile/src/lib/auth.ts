@@ -4,6 +4,7 @@
 import * as Crypto from 'expo-crypto'
 import * as Device from 'expo-device'
 import * as Linking from 'expo-linking'
+import * as SecureStore from 'expo-secure-store'
 import * as WebBrowser from 'expo-web-browser'
 import { Platform } from 'react-native'
 import { API_URL, ApiError, callPublic, currentDevice, forgetDevice, saveDevice } from './http'
@@ -30,11 +31,47 @@ export async function loginWithBrowser(): Promise<Me | null> {
   const state = base64url(Crypto.getRandomBytes(12))
   const redirect = Linking.createURL('auth')
   const url = `${API_URL}/api/cm/mobile/connect?` + new URLSearchParams({ redirect_uri: redirect, challenge, state }).toString()
+  // Gardé sur le téléphone : si l'app redémarre au retour (Expo Go), la connexion se termine à l'ouverture.
+  await SecureStore.setItemAsync(PENDING_KEY, JSON.stringify({ verifier, at: Date.now() })).catch(() => {})
   const result = await WebBrowser.openAuthSessionAsync(url, redirect)
-  if (result.type !== 'success') return null
-  const back = parseReturn(result.url)
-  if (!back.code || back.state !== state) throw new ApiError(400, 'Connexion interrompue : recommencez.')
-  return store(await callPublic<DeviceOut>('/api/cm/mobile/token', { code: back.code, verifier, ...deviceInfo() }))
+  if (result.type === 'success') {
+    const back = parseReturn(result.url)
+    if (back.code && back.state === state) {
+      await SecureStore.deleteItemAsync(PENDING_KEY).catch(() => {})
+      return store(await callPublic<DeviceOut>('/api/cm/mobile/token', { code: back.code, verifier, ...deviceInfo() }))
+    }
+  }
+  // Retour automatique raté (Expo Go…) ou page fermée à la main : l'app reprend la connexion elle-même.
+  return pickUp(verifier, 4)
+}
+
+const PENDING_KEY = 'cm.pending-login'
+
+async function pickUp(verifier: string, tries: number): Promise<Me | null> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const out = await callPublic<DeviceOut>('/api/cm/mobile/token/pending', { verifier, ...deviceInfo() })
+      await SecureStore.deleteItemAsync(PENDING_KEY).catch(() => {})
+      return store(out)
+    } catch (e: any) {
+      if (e?.status !== 404) throw e
+    }
+    if (i < tries - 1) await new Promise(r => setTimeout(r, 1000))
+  }
+  return null
+}
+
+/** À l'ouverture de l'écran de connexion : finit une connexion commencée il y a moins de 3 minutes. */
+export async function resumeBrowserLogin(): Promise<Me | null> {
+  const raw = await SecureStore.getItemAsync(PENDING_KEY).catch(() => null)
+  if (!raw) return null
+  try {
+    const { verifier, at } = JSON.parse(raw) as { verifier: string; at: number }
+    if (Date.now() - at > 180_000) { await SecureStore.deleteItemAsync(PENDING_KEY).catch(() => {}); return null }
+    return await pickUp(verifier, 2)
+  } catch {
+    return null
+  }
 }
 
 /** Google natif (app installée) : jeton d'identité envoyé à /api/auth/google, comme le bouton du site. */

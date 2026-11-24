@@ -1,11 +1,12 @@
 // Connexion : navigateur intégré (Google, double authentification, comme sur le site) ou e-mail.
 import * as WebBrowser from 'expo-web-browser'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { AppState } from 'react-native'
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { G, Path, Rect } from 'react-native-svg'
 import type { TwoFAChallenge } from '../lib/api'
-import { loginWithBrowser, loginWithCode, loginWithGoogle, loginWithPassword } from '../lib/auth'
+import { loginWithBrowser, loginWithCode, loginWithGoogle, loginWithPassword, resumeBrowserLogin } from '../lib/auth'
 import { nativeGoogleAvailable } from '../lib/google'
 import { API_URL } from '../lib/http'
 import { useSession } from '../lib/session'
@@ -37,6 +38,14 @@ export default function Login() {
   const [code, setCode] = useState('')
   const [recovery, setRecovery] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Retour dans l'app après « Autoriser » (même si le lien de retour n'a pas marché, ou si l'app a redémarré).
+  useEffect(() => {
+    const tryResume = () => { resumeBrowserLogin().then(me => { if (me) signedIn(me) }).catch(() => {}) }
+    tryResume()
+    const sub = AppState.addEventListener('change', s => { if (s === 'active') tryResume() })
+    return () => sub.remove()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async (fn: () => Promise<void>) => {
     setError(null)
