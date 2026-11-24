@@ -318,9 +318,6 @@ class _Dest:
         return self.robot if self.via == "robot" else self.user
 
 
-_robot_writer: set[int] = set()
-
-
 async def _destination(db: AsyncSession, post: CmPost) -> Optional[_Dest]:
     """None si l'espace n'a aucun Drive où écrire."""
     compte, _ = _split_ref(post.ref)
@@ -346,10 +343,9 @@ async def _destination(db: AsyncSession, post: CmPost) -> Optional[_Dest]:
     if link.error:
         link.error = None
     if src is not None and gd.is_enabled():
-        if link.id not in _robot_writer and gd.robot_email():
-            # Le robot range les fichiers déposés par cm : il lui faut le rôle Éditeur sur le dossier d'archives.
-            await gd.share_with(token, link.root_folder_id, gd.robot_email(), "writer")
-            _robot_writer.add(link.id)
+        # Jamais de changement de partage sur la racine : il se propagerait à des dossiers créés par une autre
+        # application (rclone…), ce que le droit drive.file interdit. Le robot n'est Éditeur que du dossier
+        # d'envoi, qui ne contient que des fichiers créés par cm (voir sync_post).
         return _Dest("mixte", src.folder_id, [], user=token, robot=await gd.access_token(),
                      staging_parent=link.root_folder_id)
     return _Dest("oauth", link.root_folder_id, [clean_name(compte)], user=token)
@@ -399,6 +395,10 @@ async def sync_post(db: AsyncSession, post: CmPost, now=None) -> None:
         if via == "mixte":
             if not a.get("staging"):
                 a["staging"] = await gd.ensure_folder(dest.user, dest.staging_parent, STAGING)
+            if not a.get("staging_shared") and gd.robot_email():
+                # Le robot range ensuite les fichiers : Éditeur de ce seul dossier (que des fichiers de cm).
+                await gd.share_with(dest.user, a["staging"], gd.robot_email(), "writer")
+                a["staging_shared"] = True
             parent = a["staging"]
         fid = (await gd.put_file(dest.files, parent, name, path, mime) if path
                else await gd.put_bytes(dest.files, parent, name, data, mime))
