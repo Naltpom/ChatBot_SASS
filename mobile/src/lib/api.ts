@@ -53,7 +53,17 @@ export const RIGHTS_LABEL: Record<Rights, string> = { public_domain: 'Domaine pu
 export const RIGHTS_WARNING = '⚠️ Œuvre protégée : risque de réclamation de droits d’auteur (Content ID, son coupé, vidéo bloquée).'
 export const isRisky = (r: Rights | null | undefined) => r === 'protected' || r === 'unknown'
 export type CmRole = 'admin' | 'editor' | 'viewer'
-export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null; owner?: boolean; owner_name?: string | null; accounts?: number }
+export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null; owner?: boolean; owner_name?: string | null; accounts?: number; storage?: Storage | null }
+/** Stockage Drive de l'espace (obligatoire pour publier, voir docs/CM_ROUTINES.md §9). */
+export type StorageState = 'ok' | 'almost_full' | 'full' | 'missing'
+export type Retention = 'keep' | 'delete_after_publish' | 'delete_after_days'
+export interface Storage {
+  connected: boolean; email: string | null; quota_gb: number | null; used_bytes: number | null; drive_free_bytes: number | null
+  retention: Retention; delete_after_days: number | null; state: StorageState; max_quota_gb?: number | null
+}
+export const getStorage = (org: number | null) => call<Storage>(`/api/cm/drive/storage${q(org)}`)
+export const putStorage = (org: number | null, body: { quota_gb: number | null; retention: Retention; delete_after_days?: number | null }) =>
+  send<Storage>('PUT', `/api/cm/drive/storage${q(org)}`, body)
 export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
   | 'red' | 'indigo' | 'cyan' | 'lime' | 'rose' | 'sky' | 'emerald' | 'brown'
 export const GROUP_COLORS: GroupColor[] = ['blue', 'sky', 'cyan', 'teal', 'emerald', 'green', 'lime', 'amber', 'orange', 'brown', 'red', 'rose', 'pink', 'purple', 'indigo', 'slate']

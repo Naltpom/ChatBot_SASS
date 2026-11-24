@@ -6,6 +6,7 @@ import { FlatList, Pressable, RefreshControl, View } from 'react-native'
 import { getAssetsPage, getProposalCount, getRobot, getSources, type Asset, type AssetState, type Order, type Source } from '../../lib/api'
 import { useLoad, useRole, useSession } from '../../lib/session'
 import { Button, Card, Chip, Empty, Icon, Msg, Row, SearchField, Skeleton, Txt } from '../../ui/kit'
+import { Gauge, StorageBanner } from '../../features/storage'
 import { space, useTheme } from '../../ui/theme'
 import { AddFolderSheet, AssetCard, DriveArchiveCard, GoogleAddresses, SourceCard } from '../../features/library/components'
 import { useAuthHeaders, useDebounced, usePaged } from '../../features/library/hooks'
@@ -15,7 +16,8 @@ import { Fold, Select, SortBar } from '../../features/library/ui'
 export default function Library() {
   const { c } = useTheme()
   const router = useRouter()
-  const { org } = useSession()
+  const { org, spaces } = useSession()
+  const current = spaces.find(x => x.org_id === org)
   const { canAdmin } = useRole()
   const robot = useLoad(() => getRobot(), [], 'library.robot')
   const sources = useLoad(() => getSources(org), [org], 'library.sources')
@@ -46,6 +48,13 @@ export default function Library() {
 
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.md }}>
+      <StorageBanner space={current} />
+      {current?.storage && current.storage.state !== 'missing' ? (
+        <Card onPress={() => router.push('/storage')} accessibilityLabel="Stockage Google Drive">
+          <Txt bold>Stockage Google Drive</Txt>
+          <Gauge s={current.storage} />
+        </Card>
+      ) : null}
       <Txt muted>Les vidéos de vos dossiers Google Drive, prêtes à programmer.</Txt>
       {enabled ? <Button kind="primary" icon="plus" title="Ajouter un dossier Drive" onPress={() => setAdding(true)} /> : null}
       {drafts > 0 ? (

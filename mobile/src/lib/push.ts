@@ -9,7 +9,7 @@ import { useEffect } from 'react'
 import { Platform } from 'react-native'
 import { API_URL, ApiError, currentDevice } from './http'
 
-export type PushPrefs = { published: boolean; failed: boolean; draft: boolean; comments: boolean }
+export type PushPrefs = { published: boolean; failed: boolean; draft: boolean; comments: boolean; storage?: boolean }
 export interface PushState { enabled: boolean; prefs: PushPrefs }
 
 Notifications.setNotificationHandler({
@@ -66,6 +66,7 @@ export function usePushRouting() {
     const data = last?.notification.request.content.data as Record<string, any> | undefined
     if (!data) return
     if (data.type === 'comment') router.push('/comments')
+    else if (data.type === 'storage') router.push('/storage')
     else if (data.post_id) router.push({ pathname: '/post/[id]', params: { id: String(data.post_id) } })
   }, [last, router])
 }

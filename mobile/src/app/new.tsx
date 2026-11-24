@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker'
 import { File } from 'expo-file-system'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSharedVideo } from '../lib/share'
+import { StorageBanner } from '../features/storage'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -63,7 +64,7 @@ export default function NewPost() {
   const insets = useSafeAreaInsets()
   const params = useLocalSearchParams<{ asset?: string; proposal?: string; shared?: string }>()
   const sharedVideo = useSharedVideo()
-  const { org, config, groups, group: currentGroup, account: currentAccount, refresh: refreshSession } = useSession()
+  const { org, config, groups, group: currentGroup, account: currentAccount, refresh: refreshSession, spaces: spacesAll } = useSession()
   // Rôle relu à l'ouverture (un administrateur a pu le changer depuis).
   useEffect(() => { refreshSession() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const { canEdit } = useRole()
@@ -276,6 +277,7 @@ export default function NewPost() {
     <>
       <Stack.Screen options={{ gestureEnabled: !busy }} />
       <Screen footer={footer}>
+        <StorageBanner space={spacesAll.find(x => x.org_id === org)} />
         {!canEdit ? <Msg kind="err">Votre rôle dans cette équipe (lecteur) ne permet pas de publier. Demandez à un administrateur de l’équipe.</Msg> : null}
         {accounts.loading && !accounts.data ? <Loading /> : null}
         {accounts.error ? <Msg kind="err">{accounts.error}</Msg> : null}

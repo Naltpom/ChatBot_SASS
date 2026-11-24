@@ -18,6 +18,7 @@ const PREF_LABEL: [keyof PushPrefs, string, string][] = [
   ['failed', 'Échec de publication', 'Avec la raison, pour réessayer vite.'],
   ['draft', 'Brouillon TikTok à publier', 'La vidéo attend dans l’app TikTok.'],
   ['comments', 'Nouveaux commentaires', 'Regroupés, une fois par minute au plus.'],
+  ['storage', 'Stockage Drive', 'Presque plein (90 %) ou plein.'],
 ]
 
 export default function Settings() {
@@ -88,7 +89,7 @@ export default function Settings() {
             <Divider />
             <Row style={{ justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}><Txt>{label}</Txt><Txt small muted>{hint}</Txt></View>
-              <Switch value={push.prefs[k]} onValueChange={v => togglePref(k, v)} accessibilityLabel={label} trackColor={{ true: c.primary }} />
+              <Switch value={push.prefs[k] !== false} onValueChange={v => togglePref(k, v)} accessibilityLabel={label} trackColor={{ true: c.primary }} />
             </Row>
           </View>
         )) : null}
@@ -98,6 +99,7 @@ export default function Settings() {
         <Label>Espace et comptes</Label>
         <Button title="Comptes connectés" icon="users" onPress={() => router.push('/accounts')} />
         <Button title="Personnes et partage" icon="share" onPress={() => router.push('/people')} />
+        <Button title="Stockage Google Drive" icon="folder" onPress={() => router.push('/storage')} />
         <Button title="Brouillons à valider" icon="layers" onPress={() => router.push('/drafts')} />
       </Card>
 

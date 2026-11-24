@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SessionProvider, useSession } from '../lib/session'
 import { usePushRouting } from '../lib/push'
 import { LockProvider } from '../lib/lock'
+import { laterAt } from '../features/storage'
 import { ShareProvider, useSharedVideo } from '../lib/share'
 import { useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
@@ -25,12 +26,18 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 function Gate() {
-  const { me, ready, spaces } = useSession()
+  const { me, ready, spaces, org } = useSession()
   const { c, dark } = useTheme()
   const segments = useSegments()
   const router = useRouter()
   usePushRouting()
   useAppUpdate()
+  // Espace sans Drive (obligatoire pour publier) : écran « Connecter votre Google Drive » une fois par jour au plus.
+  const storageState = spaces.find(s => s.org_id === org)?.storage?.state
+  useEffect(() => {
+    if (!ready || !me || storageState !== 'missing' || ['storage', 'login', 'welcome'].includes(segments[0] as string)) return
+    laterAt(org).then(t => { if (Date.now() - t > 86_400_000) router.push('/storage') })
+  }, [ready, me, org, storageState]) // eslint-disable-line react-hooks/exhaustive-deps
   // Vidéo partagée depuis la galerie : nouvelle publication avec ce fichier (une fois connecté).
   const shared = useSharedVideo()
   useEffect(() => {
@@ -71,6 +78,7 @@ function Gate() {
         <Stack.Screen name="videos" options={{ title: 'Vidéos' }} />
         <Stack.Screen name="settings" options={{ title: 'Réglages' }} />
         <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
+        <Stack.Screen name="storage" options={{ title: 'Stockage' }} />
       </Stack>
     </>
   )
