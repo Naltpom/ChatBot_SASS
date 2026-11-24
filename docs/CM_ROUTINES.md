@@ -206,6 +206,13 @@ Où cm écrit :
    fichiers qu'il crée), sous « cm.chapote.fr (archives) » / `<compte>` / … Ce dossier est partagé en lecture avec le
    robot et relié à la bibliothèque.
 
+Quand : **dès la création** du post (la vidéo est envoyée tout de suite, sans attendre la publication), puis
+`infos.json` à chaque changement de statut. Un post en erreur est repris tout seul **30 min** après son dernier essai
+(`archive.last_try`) ; toute erreur est écrite dans `archive.error`. Relancer tout de suite :
+- `POST /posts/{id}/archive/retry` : une publication (avec une `ref`) ;
+- `POST /archive/retry {org_id?}` → `{relaunched: n}` : toutes celles en erreur de l'espace (reprises par lots de 5
+  par minute ; un envoi qui dépasse 25 min est repris au passage suivant).
+
 Ces dossiers ne donnent **jamais** de brouillon « à valider » (infos.json avec `compte` + `id`, section 6). Sans Drive
 d'archivage, le post l'indique (`archive.error`) et cm réessaie toutes les 30 min ; rien n'empêche la publication.
 

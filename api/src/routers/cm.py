@@ -1421,6 +1421,37 @@ async def update_post(post_id: int, body: PostPatch, db: AsyncSession = Depends(
     return _post_out(post, targets, names)
 
 
+@router.post("/posts/{post_id}/archive/retry")
+async def archive_retry(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Relance l'archivage Drive d'une publication (en erreur ou en attente) : repris dans la minute."""
+    post, tenant = await _get_post(db, user, post_id, lock=True)
+    cm_access.require(tenant, "edit")
+    targets = await _visible_targets(db, tenant, post)
+    if not post.ref:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Publication sans référence : posez-la d'abord (PATCH /posts/{id}).")
+    cm_archive.retry_now(post)
+    await db.commit()
+    _, names = await _tenant_index(db, tenant)
+    return _post_out(post, targets, names)
+
+
+class ArchiveRetryIn(BaseModel):
+    org_id: Optional[int] = None
+
+
+@router.post("/archive/retry")
+async def archive_retry_all(body: ArchiveRetryIn = ArchiveRetryIn(), db: AsyncSession = Depends(get_db),
+                            user: User = Depends(get_cm_user)):
+    """Relance l'archivage de toutes les publications en erreur de l'espace (reprises par lots, dans les minutes)."""
+    tenant = await _tenant(db, user, body.org_id)
+    cm_access.require(tenant, "edit")
+    posts = (await db.execute(select(CmPost).where(tenant.where(CmPost), CmPost.archive_state == "error"))).scalars().all()
+    for post in posts:
+        cm_archive.retry_now(post)
+    await db.commit()
+    return {"relaunched": len(posts)}
+
+
 class VideoIn(BaseModel):
     video_size: int = Field(gt=0)
 
