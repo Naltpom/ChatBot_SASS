@@ -1167,7 +1167,7 @@ def _target_out(t: CmTarget, names: dict) -> dict:
 
 def _post_out(post: CmPost, targets: list[CmTarget], names: dict) -> dict:
     return {
-        "id": post.id, "ref": post.ref, "title": post.title, "caption": post.caption, "file_name": post.file_name,
+        "id": post.id, "ref": post.ref, "org_id": post.organization_id, "title": post.title, "caption": post.caption, "file_name": post.file_name,
         "video_size": post.video_size, "duration_sec": post.duration_sec, "status": post.status,
         "has_media": bool(post.media_path), "asset_id": post.asset_id, "created_at": cm.iso(post.created_at),
         "archive": cm_archive.archive_out(post),
@@ -1692,16 +1692,24 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
                      status_: Optional[Literal["upcoming", "published", "failed"]] = Query(None, alias="status"),
                      order: Literal["asc", "desc"] = "asc",
                      limit: int = Query(200, ge=1, le=500), cursor: Optional[str] = Query(None, max_length=300),
-                     response: Response = None,
+                     response: Response = None, request: Request = None,
                      db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Planning : publications dont une cible tombe entre `start` et `end` (défaut : -30 j / +90 j),
     triées par première heure prévue (asc ou desc), recherche dans titre et légende, pages par curseur.
     Avec un groupe / un compte, seules leurs cibles sont renvoyées. Tout le filtrage est en SQL.
     `ref` (exacte) / `ref_prefix` (ex. « kiwi/ ») : publications de l'outil, sans fenêtre de dates par défaut."""
-    tenant = await _tenant(db, user, org_id)
     now = utcnow()
     by_ref = bool(ref or ref_prefix)
-    conds = [tenant.where(CmPost), CmPost.status != POST_RECEIVING]
+    if org_id is None and request is not None and _bearer(request) is not None:
+        # Jeton de service sans org_id : tous les espaces auxquels il a accès (perso + équipes), pour retrouver une
+        # publication par sa référence où qu'elle soit (comme GET /posts/{id}).
+        tenants = [await _tenant(db, user, None)] + [
+            await _tenant(db, user, oid) for oid in (await db.execute(
+                select(Membership.organization_id).where(Membership.user_id == user.id))).scalars()]
+    else:
+        tenants = [await _tenant(db, user, org_id)]
+    tenant = tenants[0]
+    conds = [or_(*[t.where(CmPost) for t in tenants]), CmPost.status != POST_RECEIVING]
     # Par référence de l'outil (« compte/ » : toutes les publications d'un compte) : sans fenêtre de dates par défaut.
     if ref:
         conds.append(CmPost.ref == ref.strip())
@@ -1712,7 +1720,10 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
     if end or not by_ref:
         conds.append(CmTarget.scheduled_at <= (cm.to_utc_naive(end) or now + timedelta(days=90)))
     accounts, names = await _tenant_index(db, tenant, group_id)
-    narrowed = group_id is not None or tenant.allowed is not None or _ACCOUNT_SCOPE.get() is not None
+    for other in tenants[1:]:
+        more, more_names = await _tenant_index(db, other, None)
+        accounts, names = accounts + more, {**names, **more_names}
+    narrowed = len(tenants) == 1 and (group_id is not None or tenant.allowed is not None or _ACCOUNT_SCOPE.get() is not None)
     if narrowed:
         conds.append(_account_filter(CmTarget, accounts))
     if status_ == "upcoming":
