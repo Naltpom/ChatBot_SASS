@@ -55,7 +55,7 @@ export type CmRole = 'admin' | 'editor' | 'viewer'
 export type Retention = 'keep' | 'delete_after_publish' | 'delete_after_days'
 export type StorageState = 'ok' | 'almost_full' | 'full' | 'missing'
 export interface Storage {
-  connected: boolean; email: string | null; quota_gb: number | null; used_bytes: number; drive_free_bytes: number | null
+  connected: boolean; email: string | null; folder_url?: string | null; quota_gb: number | null; used_bytes: number; drive_free_bytes: number | null
   retention: Retention | null; delete_after_days: number | null; state: StorageState; max_quota_gb?: number | null
 }
 export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null; owner?: boolean; owner_name?: string | null; accounts?: number; storage?: Storage }

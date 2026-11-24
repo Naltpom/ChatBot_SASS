@@ -191,10 +191,14 @@ archive automatiquement à la relecture, rien n'est publié. Sinon `POST /propos
 ## 9. Stockage Drive (obligatoire pour publier)
 Chaque espace (perso ou équipe) range ses vidéos dans **son** Google Drive, par la même connexion que l'archivage
 (« Connecter Google Drive », droit `drive.file` : Chapote ne voit et ne supprime que ce qu'il a créé).
+Dossier : automatique. À la connexion, Chapote crée « cm.chapote.fr archives » à la racine du Drive (le nom peut être
+changé, le dossier déplacé : il est suivi par son identifiant, `storage.folder_url`) et y range
+`<compte>/<AAAA-MM>/<AAAA-MM-JJ HHhMM — Titre>/` (section 8). Pas de dossier au choix : avec `drive.file`, Chapote
+n'écrit que dans un dossier qu'il a créé (sauf dossier de compte déjà relié à la bibliothèque, section 8).
 - Sans Drive relié : `POST /posts` → `409 {"code": "storage_required", "message"}`.
 - Vidéo qui ne tient pas (quota réservé ou espace libre du Drive) : `POST /posts` et `PUT /posts/{id}/video` →
   `409 {"code": "storage_full", "message", "needed_bytes", "free_bytes"}`.
-- `GET /spaces` → chaque espace porte `storage: {connected, email, quota_gb, used_bytes, drive_free_bytes, retention,
+- `GET /spaces` → chaque espace porte `storage: {connected, email, folder_url, quota_gb, used_bytes, drive_free_bytes, retention,
   delete_after_days, state}` (valeurs connues, sans appel à Google) ; `state` : `ok` | `almost_full` (≥ 90 %) | `full`
   | `missing` (pas de Drive).
 - `GET /drive/storage?org_id=` → même objet, relu chez Google (≤ 10 min), plus `max_quota_gb`.

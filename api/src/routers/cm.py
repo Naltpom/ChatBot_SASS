@@ -276,7 +276,7 @@ async def spaces(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm
     # Stockage Drive de chaque espace (valeurs connues, sans appel à Google ici).
     for sp in out:
         st = await cm_storage.status_of(db, sp["org_id"], None if sp["org_id"] else user.id)
-        sp["storage"] = {k: st[k] for k in ("connected", "email", "quota_gb", "used_bytes", "drive_free_bytes",
+        sp["storage"] = {k: st[k] for k in ("connected", "email", "folder_url", "quota_gb", "used_bytes", "drive_free_bytes",
                                             "retention", "delete_after_days", "state")}
     return out
 

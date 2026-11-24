@@ -74,6 +74,14 @@ export function StorageCard() {
           ? <button type="button" className="btn btn-sm btn-ghost" onClick={off}>Déconnecter</button>
           : <button type="button" className="btn btn-sm btn-primary" onClick={() => connectDrive(org, setErr)}>Connecter Google Drive</button>)}
       </div>
+      {s.connected && (
+        <p className="small" style={{ margin: 0 }}>
+          Vos vidéos sont rangées dans le dossier {s.folder_url
+            ? <a href={s.folder_url} target="_blank" rel="noreferrer">créé par Chapote dans votre Drive</a>
+            : 'créé par Chapote dans votre Drive'} (« cm.chapote.fr archives » au départ ; vous pouvez le renommer ou le
+          déplacer), puis <span className="muted">compte / mois / date — titre</span>.
+        </p>
+      )}
       {s.connected && <Gauge s={s} />}
       {s.state === 'full' && <Msg kind="err">Stockage plein : les nouvelles publications sont bloquées.</Msg>}
       {s.state === 'almost_full' && <div className="msg msg-warn" role="status">Stockage presque plein (plus de 90 %).</div>}
@@ -134,6 +142,8 @@ export function StorageGate() {
       <Sheet title="Connecter votre Google Drive" onClose={later}>
         <div className="col" style={{ gap: 12 }}>
           <p style={{ margin: 0 }}>Chapote range vos vidéos, légendes et couvertures dans <b>votre</b> Google Drive : c’est là qu’elles sont stockées, et vous les gardez.</p>
+          <p className="small" style={{ margin: 0 }}>Rien à choisir : Chapote crée son dossier « cm.chapote.fr archives » à la racine de votre Drive
+            (renommez-le ou déplacez-le si vous voulez), et y range chaque vidéo par compte, mois et date.</p>
           <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
             <li>Chapote ne voit que les fichiers qu’il crée, rien d’autre de votre Drive.</li>
             <li>Vous choisissez combien de place lui réserver, et si les vidéos sont supprimées après publication.</li>
