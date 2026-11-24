@@ -47,8 +47,10 @@ export default function Account() {
     setPw({ current: '', next: '' })
     return 'Mot de passe changé.'
   })
+  const [pwSent, setPwSent] = useState(false)
+  const forgotCall = () => call('/api/auth/password/forgot', { method: 'POST', body: JSON.stringify({ email: me?.email }) })
   const forgot = () => run(async () => {
-    await call('/api/auth/password/forgot', { method: 'POST', body: JSON.stringify({ email: me?.email }) })
+    await forgotCall()
     return `Un lien pour choisir un mot de passe a été envoyé à ${me?.email}.`
   })
   const startTotp = () => run(async () => { setSetup(await send('POST', '/api/auth/2fa/totp/setup')); setCode('') })
@@ -92,13 +94,21 @@ export default function Account() {
         <Button title="Enregistrer le nom" onPress={saveName} disabled={!name.trim() || name.trim() === me?.name} />
       </Card>
 
+      {me?.auth_source === 'google' && !pwSent ? (
+        <Card>
+          <Label>Mot de passe</Label>
+          <Txt small muted>Votre compte a été créé avec Google : il n’a pas de mot de passe. Créez-en un pour pouvoir aussi vous connecter avec votre e-mail.</Txt>
+          <Button kind="primary" title="Créer un mot de passe" onPress={() => run(async () => { await forgotCall(); setPwSent(true); return `Un e-mail a été envoyé à ${me?.email} : touchez le lien pour choisir votre mot de passe.` })} />
+        </Card>
+      ) : me?.auth_source === 'google' ? null : (
       <Card>
         <Label>Mot de passe</Label>
         <Field label="Mot de passe actuel" value={pw.current} onChangeText={v => setPw({ ...pw, current: v })} secureTextEntry autoComplete="current-password" />
         <Field label="Nouveau mot de passe" value={pw.next} onChangeText={v => setPw({ ...pw, next: v })} secureTextEntry autoComplete="new-password" hint="8 caractères au moins." />
         <Button kind="primary" title="Changer le mot de passe" onPress={savePw} disabled={!pw.current || pw.next.length < 8} />
-        <Button kind="ghost" title="Compte créé avec Google ? Recevoir un lien" onPress={forgot} />
+        <Button kind="ghost" title="Mot de passe oublié ? Recevoir un lien" onPress={forgot} />
       </Card>
+      )}
 
       <Card>
         <Label>Double authentification</Label>
@@ -143,7 +153,7 @@ export default function Account() {
             ))}
           </View>
         ) : null}
-        <Txt small muted>Ajouter une clé d’accès (passkey) : depuis cm.chapote.fr sur ordinateur.</Txt>
+        <Txt small muted>Les clés d’accès (passkeys) s’ajoutent pour l’instant depuis le site ; l’application d’authentification marche ici.</Txt>
       </Card>
 
       <Card>

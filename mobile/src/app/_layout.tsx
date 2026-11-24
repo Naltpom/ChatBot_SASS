@@ -57,11 +57,12 @@ function Gate() {
     if (!ready || (me && onboarded === null)) return
     SplashScreen.hideAsync().catch(() => {})
     const onLogin = segments[0] === 'login'
+    const isPublic = onLogin || segments[0] === 'reset-password'
     // Aucun réseau connecté dans aucun espace : écran d'accueil (sauf pages utiles pour en connecter un).
     const empty = !!me && spaces.length > 0 && spaces.every(s => !(s.accounts || 0))
-    const free = ['welcome', 'accounts', 'settings', 'people']
-    if (!me && !onLogin) router.replace('/login')
-    else if (me && onboarded === false && !['onboarding', 'account'].includes(segments[0] as string)) router.replace('/onboarding')
+    const free = ['welcome', 'accounts', 'settings', 'people', 'reset-password', 'account']
+    if (!me && !isPublic) router.replace('/login')
+    else if (me && onboarded === false && !['onboarding', 'account', 'reset-password'].includes(segments[0] as string)) router.replace('/onboarding')
     else if (me && onboarded === false) return
     else if (me && empty && !free.includes(segments[0] as string)) router.replace('/welcome')
     else if (me && onLogin) router.replace('/')
@@ -89,6 +90,7 @@ function Gate() {
         <Stack.Screen name="settings" options={{ title: 'Réglages' }} />
         <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
         <Stack.Screen name="storage" options={{ title: 'Stockage' }} />
+        <Stack.Screen name="reset-password" options={{ title: 'Mot de passe' }} />
         <Stack.Screen name="onboarding" options={{ title: 'Bienvenue', headerBackVisible: false, gestureEnabled: false }} />
       </Stack>
     </>
