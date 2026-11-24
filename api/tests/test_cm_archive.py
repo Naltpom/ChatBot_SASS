@@ -418,4 +418,8 @@ async def test_existing_account_folders_are_used(pg_session, cmenv, wdrive, tikt
     assert wdrive.items[old_video]["content"] == b"pc"
     infos = json.loads(wdrive.items[old_infos]["content"])
     assert infos["id"] == "k2" and infos["plateformes"]["instagram"]["statut"] == "prete"
-    assert any(p["role"] == "writer" and p["emailAddress"] == ROBOT for p in wdrive.perms)
+    # Le robot n'est Éditeur que du dossier d'envoi, jamais de la racine (droit drive.file : un changement de partage
+    # sur la racine toucherait aussi les dossiers créés par une autre application).
+    writer = [p for p in wdrive.perms if p["role"] == "writer" and p["emailAddress"] == ROBOT]
+    assert writer and all(wdrive.items[p["file"]]["name"] == "envoi en cours (cm)" for p in writer)
+    assert not [p for p in wdrive.perms if p["file"] == link.root_folder_id and p["role"] == "writer"]
