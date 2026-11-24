@@ -114,6 +114,36 @@ jobs:
           python -m pytest -q
 
   # ---------------------------------------------------------------------------
+  # JOB — front emails.chapote.fr (service compose `emails`) : typage + build Vite,
+  # puis image Docker et `nginx -t` sur la configuration RÉELLE (modèle envsubst
+  # appliqué par l'entrypoint de l'image). Un relais /mcp ou /oauth/ cassé
+  # échouerait ici plutôt qu'en production. `api` est résolu par un --add-host.
+  # ---------------------------------------------------------------------------
+  emails-front:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Typage + build (tsc && vite build)
+        working-directory: emails
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Image Docker + nginx -t
+        run: |
+          docker build -t chatbot-emails-ci ./emails
+          docker run --rm --add-host api:127.0.0.1 -e EMAILS_PROXY_KEY=ci \
+            chatbot-emails-ci nginx -t
+
+  # ---------------------------------------------------------------------------
   # JOB 2 — e2e billing : stack complète, billing ARMÉ, specs qui NE SKIPPENT PAS.
   # ---------------------------------------------------------------------------
   e2e-billing:

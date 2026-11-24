@@ -164,7 +164,7 @@ JSON
 echo "==> build plugin WordPress (chapote-bot-manager)"
 build_wp_plugin
 
-echo "==> build images (api + app)"
+echo "==> build images (api, app, music, cm, emails)"
 docker compose -f docker-compose.prod.yml build
 
 # Migrations Alembic AVANT de (re)démarrer l'app : un SEUL process, hors runtime.
@@ -186,6 +186,15 @@ for i in $(seq 1 30); do
   fi
   sleep 2
 done
+
+# emails.chapote.fr : le conteneur nginx répond (le module lui-même dépend d'EMAILS_ENABLED).
+# Non bloquant : un échec ici n'annule pas le déploiement, il est seulement signalé.
+EMAILS_PORT_VAL="$(grep -E '^EMAILS_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2)"
+if curl -fsS -o /dev/null "http://127.0.0.1:${EMAILS_PORT_VAL:-3004}/" 2>/dev/null; then
+  echo "✅ emails.chapote.fr (conteneur emails) en ligne"
+else
+  echo "⚠ conteneur emails injoignable sur 127.0.0.1:${EMAILS_PORT_VAL:-3004}" >&2
+fi
 
 echo "==> état de la stack"
 docker compose -f docker-compose.prod.yml ps
