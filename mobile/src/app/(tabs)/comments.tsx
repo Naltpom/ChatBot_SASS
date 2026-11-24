@@ -154,7 +154,8 @@ function Keyword({ top, canEdit, onRefresh }: { top: ReactElement; canEdit: bool
 
 function Thread({ acc, conv, onBack }: { acc: InboxAccount; conv: Conversation; onBack: () => void }) {
   const { c } = useTheme()
-  const { org } = useSession()
+  const { orgOf } = useSession()
+  const org = orgOf('instagram', acc.id)
   const [thread, setThread] = useState<{ messages: DmMessage[]; can_write: boolean } | null>(null)
   const [text, setText] = useState('')
   const [err, setErr] = useState('')
@@ -205,11 +206,11 @@ function Thread({ acc, conv, onBack }: { acc: InboxAccount; conv: Conversation; 
 
 function Messages({ top, accounts, onRefresh }: { top: ReactElement; accounts: InboxAccount[]; onRefresh: () => void }) {
   const { c } = useTheme()
-  const { org } = useSession()
+  const { orgOf } = useSession()
   const ig = accounts.filter(a => a.platform === 'instagram')
   const [acc, setAcc] = useState<number | null>(ig.find(a => a.messages)?.id ?? ig[0]?.id ?? null)
   const current = ig.find(a => a.id === acc)
-  const convs = useLoad(() => (current?.messages ? getConversations(org, current.id) : Promise.resolve(null as Conversation[] | null)),
+  const convs = useLoad(() => (current?.messages ? getConversations(orgOf('instagram', current.id), current.id) : Promise.resolve(null as Conversation[] | null)),
     [acc, current?.messages], 'comments-convs')
   const [open, setOpen] = useState<Conversation | null>(null)
   if (open && current) return <View style={{ flex: 1 }}><Thread acc={current} conv={open} onBack={() => setOpen(null)} /></View>
@@ -259,7 +260,7 @@ function Messages({ top, accounts, onRefresh }: { top: ReactElement; accounts: I
 
 export default function Comments() {
   const { c } = useTheme()
-  const { org } = useSession()
+  const { org, orgOf } = useSession()
   const { canEdit } = useRole()
   const [tab, setTab] = useState<Tab>('todo')
   const accounts = useLoad(s => getInboxAccounts(s), [], 'inbox-accounts')
@@ -267,7 +268,10 @@ export default function Comments() {
   const sync = async () => {
     setSyncMsg(null)
     try {
-      const r = await syncInbox(org)
+      // « Tous » : chaque espace des comptes affichés est relu.
+      const orgs = [...new Set((accounts.data || []).map(a => orgOf(a.platform, a.id)))]
+      const all = await Promise.all((orgs.length ? orgs : [org]).map(o => syncInbox(o)))
+      const r = { comments: all.reduce((n, x) => n + x.comments, 0), notices: all.flatMap(x => x.notices || []) }
       setSyncMsg({ kind: 'info', text: `${r.comments} commentaire${r.comments > 1 ? 's' : ''} relu${r.comments > 1 ? 's' : ''}.${r.notices?.length ? ` ${r.notices.join(' ')}` : ''}` })
       accounts.reload()
     } catch (e) { setSyncMsg({ kind: 'err', text: errText(e) }) }

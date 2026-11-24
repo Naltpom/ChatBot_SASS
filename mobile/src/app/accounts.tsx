@@ -182,7 +182,7 @@ export default function Accounts() {
               <AccountRow key={a.id} a={a} groups={groupsOf(groups, a)} busy={busy} canAdmin={canAdmin}
                 onTransfer={() => setTransferring(a)}
                 onShare={() => setSharing({ what: { platform: a.platform, account_id: a.id }, label: a.name || PLATFORM_LABEL[a.platform] })}
-                onSync={() => run(`s${p}${a.id}`, () => syncAccount(org, a), 'Chiffres actualisés.')}
+                onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? org, a), 'Chiffres actualisés.')}
                 onRemove={() => removeAccount(a)}
                 onReconnect={() => connect(p)}
                 onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(org, a.id, { public_domain_only: v }),

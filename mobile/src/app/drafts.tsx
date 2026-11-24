@@ -42,7 +42,7 @@ function ProposalCard({ p, canEdit, headers, onDismiss }: { p: Proposal; canEdit
       {canEdit ? (
         <Row gap={space.sm}>
           <Button kind="primary" small icon="check" title="Vérifier et programmer" flex
-            onPress={() => router.push({ pathname: '/new', params: { proposal: String(p.id) } })} />
+            onPress={() => router.push({ pathname: '/new', params: { proposal: String(p.id), ...((p as { org_id?: number | null }).org_id != null ? { org: String((p as { org_id?: number | null }).org_id) } : {}) } })} />
           <Button kind="ghost" small title="Écarter" onPress={onDismiss} accessibilityLabel={`Écarter ${title}`} />
         </Row>
       ) : null}
@@ -110,7 +110,7 @@ export default function Drafts() {
   const dismiss = async (p: Proposal) => {
     setErr('')
     try {
-      await dismissProposal(org, p.id)
+      await dismissProposal((p as { org_id?: number | null }).org_id ?? org, p.id)
       pages.setItems(cur => (cur || []).filter(x => x.id !== p.id))
       count.setData(d => (d ? { open: Math.max(0, d.open - 1) } : d))
     } catch (e) { setErr((e as Error).message) }

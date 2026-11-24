@@ -122,7 +122,7 @@ export default function Stats() {
       let ok = 0, later = 0
       for (let i = 0; i < list.length; i++) {
         setSyncing(`${i + 1}/${list.length}`)
-        try { await syncAccount(scope.org, list[i]); ok++ } catch { later++ }
+        try { await syncAccount(list[i].org_id ?? scope.org, list[i]); ok++ } catch { later++ }
       }
       setSyncMsg(`${ok} compte${ok > 1 ? 's' : ''} actualisé${ok > 1 ? 's' : ''}${later ? ` · ${later} déjà actualisé${later > 1 ? 's' : ''} il y a peu` : ''}.`)
     } catch (e) { setSyncMsg((e as Error)?.message || 'Erreur') }

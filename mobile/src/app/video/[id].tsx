@@ -69,9 +69,17 @@ export default function VideoSheetScreen() {
   const { c } = useTheme()
   const router = useRouter()
   const { id } = useLocalSearchParams<{ id: string }>()
-  const { org } = useSession()
+  const { org, spaces } = useSession()
   const { canEdit } = useRole()
-  const sheet = useLoad(() => getVideoSheet(org, Number(id)), [id, org], 'video-sheet')
+  // Vidéo d'un groupe partagé : son espace n'est pas forcément l'espace courant ; on essaie les autres.
+  const sheet = useLoad(async () => {
+    const tries = [org, ...spaces.map(s => s.org_id).filter(o => o !== org)]
+    let last: unknown = null
+    for (const o of tries) {
+      try { return await getVideoSheet(o, Number(id)) } catch (e: any) { last = e; if (e?.status !== 404 && e?.status !== 403) throw e }
+    }
+    throw last
+  }, [id, org], 'video-sheet')
   const [p, setP] = useState<'all' | Platform>('all')
   const d = sheet.data
   const shown = d ? d.videos.filter(v => p === 'all' || v.platform === p) : []

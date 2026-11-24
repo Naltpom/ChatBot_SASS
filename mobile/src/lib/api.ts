@@ -157,6 +157,8 @@ export const getStats = (s: ScopeArg, days: number, opts: ListOpts = {}) => call
 // Groupes de comptes
 type GroupBody = { name?: string; color?: GroupColor; accounts?: { platform: Platform; account_id: number }[] }
 export const getGroups = (org: number | null) => call<Group[]>(`/api/cm/groups${q(org)}`)
+/** Tous mes groupes et ceux partagés avec moi, chacun avec son org_id. */
+export const getAllGroups = () => call<(Group & { org_id: number | null })[]>('/api/cm/groups?scope=all')
 export const createGroup = (org: number | null, body: GroupBody) => send<Group>('POST', '/api/cm/groups', { org_id: org, ...body })
 export const updateGroup = (org: number | null, id: number, body: GroupBody) => send<Group>('PATCH', `/api/cm/groups/${id}${q(org)}`, body)
 export const deleteGroup = (org: number | null, id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/groups/${id}${q(org)}`)

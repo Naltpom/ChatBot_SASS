@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AppState } from 'react-native'
 import {
-  getAccounts, getCapabilities, getConfig, getGroups, getInvitations, getMe, getSpaces,
+  getAccounts, getAllGroups, getCapabilities, getConfig, getGroups, getInvitations, getMe, getSpaces,
   type Account, type Capability, type Config, type Group, type Invitation, type Me, type Scope, type Space,
 } from './api'
 import { loadDevice, onSignedOut } from './http'
@@ -33,6 +33,8 @@ interface SessionCtx {
   caps: Capabilities | null
   invitations: Invitation[]
   reloadGroups: () => Promise<void>
+  /** Espace d'un compte (pour agir sur un élément vu dans « Tous ») ; à défaut l'espace courant. */
+  orgOf: (platform: string, id: number) => number | null
   scope: Scope
   refresh: () => Promise<void>
   signedIn: (me: Me) => void
@@ -82,10 +84,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!me) { setGroups([]); setAccounts([]); return }
     try {
       const [lists, a] = await Promise.all([
-        Promise.all(spaces.map(sp => getGroups(sp.org_id).then(gs => gs.map(g => ({ ...g, org_id: sp.org_id }))).catch(() => []))),
+        getAllGroups().catch(() => Promise.all(spaces.map(sp => getGroups(sp.org_id).then(gs => gs.map(g => ({ ...g, org_id: sp.org_id }))).catch(() => []))).then(l => l.flat())),
         getAccounts({ org: null, group: null, sel: ['all'] }).catch(() => [] as Account[]),
       ])
-      const all = lists.flat()
+      const all = lists
       setGroups(all)
       setAccounts(a)
       // Sélection qui ne correspond plus à rien (groupe supprimé, partage retiré) : retour à « Tous ».
@@ -134,6 +136,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return orgs.size === 1 ? [...orgs][0] : null
   }, [sel, accounts, groups])
   const scope = useMemo<Scope>(() => ({ org: null, group: null, account: null, sel }), [sel])
+  const orgOf = useCallback((platform: string, id: number) => {
+    const a = accounts.find(x => x.platform === platform && x.id === id)
+    return a && a.org_id !== undefined ? a.org_id : org
+  }, [accounts, org])
   const visibleSpaces = useMemo(() => {
     const v = spaces.filter(x => (x.accounts || 0) > 0 || x.org_id === org)
     return v.length ? v : spaces.slice(0, 1)
@@ -141,7 +147,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{ me, ready, config, spaces, visibleSpaces, org, setOrg, groups, group, setGroup,
-      account, setAccount, accounts, sel, setSel, caps, invitations, reloadGroups, scope, refresh, signedIn, signOut }}>
+      account, setAccount, accounts, sel, setSel, caps, invitations, reloadGroups, orgOf, scope, refresh, signedIn, signOut }}>
       {children}
     </Ctx.Provider>
   )

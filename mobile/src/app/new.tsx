@@ -62,7 +62,7 @@ export default function NewPost() {
   const { c } = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const params = useLocalSearchParams<{ asset?: string; proposal?: string; shared?: string }>()
+  const params = useLocalSearchParams<{ asset?: string; proposal?: string; shared?: string; org?: string }>()
   const sharedVideo = useSharedVideo()
   const { org, config, groups, group: currentGroup, account: currentAccount, refresh: refreshSession, spaces: spacesAll } = useSession()
   // Rôle relu à l'ouverture (un administrateur a pu le changer depuis).
@@ -137,7 +137,7 @@ export default function NewPost() {
     const id = Number(params.proposal)
     if (!id || draftDone.current || !accounts.data) return
     draftDone.current = true
-    getProposal(org, id).then(d => {
+    getProposal(params.org ? Number(params.org) : org, id).then(d => {
       if (d.asset) { setAsset(d.asset); setVideo(null) }
       setTitle((d.title || d.asset?.title || '').slice(0, 200))
       setCaption(d.caption ?? d.asset?.caption ?? '')
