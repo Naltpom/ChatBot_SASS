@@ -40,16 +40,18 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# Journal d'accès d'uvicorn : les clés d'accès passées en paramètre (?k= des liens de téléchargement
-# et des commandes de la boutique, session_id de Stripe, jetons) sont masquées avant d'être écrites.
-_SECRET_QS = re.compile(r"([?&](?:k|key|token|access_token|session_id)=)[^&\s]*", re.I)
+# Journal d'accès d'uvicorn : aucun paramètre d'URL n'est écrit (codes et state OAuth, ?k= des liens de
+# téléchargement, session_id de Stripe, jetons…) : seul le chemin reste, suivi de « ?… » s'il y en avait.
+def _sans_params(path: str) -> str:
+    base, sep, _ = path.partition("?")
+    return base + ("?…" if sep else "")
 
 
 class _MasqueCles(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
         if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
-            record.args = args[:2] + (_SECRET_QS.sub(r"\1***", args[2]),) + args[3:]
+            record.args = args[:2] + (_sans_params(args[2]),) + args[3:]
         return True
 
 
