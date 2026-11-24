@@ -1,6 +1,6 @@
 # Politique de confidentialité – Module de publication YouTube (Chapote Publisher)
 
-Dernière mise à jour : 23 novembre 2026.
+Dernière mise à jour : 24 novembre 2026.
 
 La présente politique décrit comment le module de publication YouTube de Chapote (**Chapote Publisher**), utilisé depuis l'Espace client et depuis **Chapote CM** ([cm.chapote.fr](https://cm.chapote.fr), gestion des réseaux sociaux), traite les données obtenues auprès de Google et de YouTube, conformément au **RGPD** (Règlement (UE) 2016/679) et à la loi Informatique et Libertés. Elle complète la [Politique de confidentialité de Chapote](/legal/confidentialite).
 
@@ -22,7 +22,7 @@ Chapote Publisher est un module de l'Espace client de Chapote. Il permet aux cli
 
 - **Informations de la chaîne** : identifiant de chaîne, nom, pseudo (@), image de la chaîne.
 - **Jetons d'accès et d'actualisation OAuth** délivrés par Google, **stockés chiffrés** dans notre base de données. Ils ne sont jamais affichés dans l'interface ni transmis au navigateur.
-- **Vidéos** que le client choisit de publier : conservées **uniquement le temps de leur envoi à YouTube**, puis supprimées.
+- **Vidéos** que le client choisit de publier : conservées **uniquement le temps de leur publication**, puis supprimées (durées à la section 7).
 - **Métadonnées et historique des publications** : chaîne utilisée, membre de l'équipe à l'origine de la publication, titre, description, mots-clés, catégorie, langue, réglages choisis (visibilité, date de mise en ligne, contenu « conçu pour les enfants », contenu modifié ou synthétique), nom et taille du fichier, identifiant et état de traitement de la vidéo renvoyés par YouTube, dates.
 
 - **Chiffres** (Chapote CM) : vues, abonnés et nombre de vidéos de la chaîne, relevés au plus toutes les quelques heures ; pour les 50 vidéos les plus récentes, titre, date, durée, miniature, vues, j'aime et nombre de commentaires.
@@ -49,17 +49,24 @@ Ces données servent **uniquement** à :
 
 La base légale est **l'exécution du contrat** conclu entre Chapote et son client (article 6.1.b du RGPD), le module faisant partie du service fourni, ainsi que l'autorisation donnée par le titulaire de la chaîne via Google. Les données ne sont partagées qu'avec **Google / YouTube**, destinataire nécessaire des publications.
 
-## 6. Hébergement et sécurité
+## 6. Hébergement et protection des données
 
-- Les données sont hébergées sur des **serveurs situés en France**.
-- Les jetons OAuth sont chiffrés au repos ; ils ne sortent jamais du serveur et ne figurent pas dans les journaux.
-- Les chaînes connectées par un client ne sont accessibles qu'aux membres de son espace (espace personnel ou équipe).
-- Les vidéos sont stockées dans un espace temporaire non accessible publiquement.
+- **Hébergement** : **OVH SAS** (2 rue Kellermann, 59100 Roubaix), serveurs situés **en France**.
+
+Ces mesures protègent les données obtenues via les API Google et YouTube (jetons OAuth, informations de la chaîne, vidéos, métadonnées, chiffres et commentaires) :
+
+- **Chiffrement en transit** : chapote.fr, l'Espace client et Chapote CM ne fonctionnent qu'en HTTPS (TLS). Une adresse en HTTP est redirigée vers HTTPS, et le navigateur est tenu de toujours utiliser HTTPS (HSTS). Nos serveurs appellent l'API YouTube Data v3 et les serveurs OAuth de Google uniquement en HTTPS.
+- **Chiffrement au repos** : les jetons OAuth (accès et actualisation) sont chiffrés en base de données (chiffrement symétrique authentifié). La clé de chiffrement est conservée hors de la base et hors du code. Les jetons ne sont jamais affichés, jamais envoyés au navigateur et jamais écrits dans les journaux.
+- **Contrôle d'accès** : une chaîne connectée n'est accessible qu'aux membres de l'espace du client (espace personnel ou équipe), selon leur rôle ; chaque demande est vérifiée par le serveur. Seul un administrateur de l'espace peut connecter une chaîne, et seuls le membre qui l'a connectée ou un administrateur peuvent la déconnecter. Les comptes d'administration du service Chapote sont protégés par une double authentification obligatoire (application d'authentification ou clé d'accès).
+- **Cloisonnement** : les vidéos sont stockées dans un espace temporaire du serveur, jamais publié sur Internet. La base de données n'est pas exposée sur Internet : seule l'application y accède.
+- **Journaux** : les journaux de l'application et de ses serveurs web ne contiennent ni jeton, ni code d'autorisation, ni contenu des vidéos : les paramètres d'adresse (codes OAuth, liens signés) sont retirés ou masqués avant l'écriture.
+- **Minimisation** : seules les autorisations nécessaires sont demandées : `https://www.googleapis.com/auth/youtube.upload` et `https://www.googleapis.com/auth/youtube.readonly`. L'autorisation `https://www.googleapis.com/auth/youtube.force-ssl` n'est demandée que pour la boîte de réception, une fois celle-ci activée (section 3). Les données ne sont conservées que pendant les durées de la section 7.
+- **Violation de données** : en cas de violation de données à caractère personnel, l'éditeur notifie la CNIL dans les 72 heures et informe les personnes concernées lorsque la loi l'exige (articles 33 et 34 du RGPD).
 
 ## 7. Durées de conservation
 
 - **Jetons OAuth** : tant que la chaîne est connectée ; supprimés **immédiatement** à la déconnexion depuis Chapote, et **sous 7 jours** si l'accès est retiré depuis le compte Google.
-- **Vidéos** : supprimées dès la fin de l'envoi à YouTube (réussi ou non) ; un envoi abandonné est supprimé sous 2 heures.
+- **Vidéos** : depuis l'Espace client, supprimées dès la fin de l'envoi à YouTube (réussi ou non) ; un envoi vers Chapote abandonné est supprimé sous 2 heures, un envoi vers YouTube interrompu sous 3 heures. Depuis Chapote CM, où une même vidéo peut partir sur plusieurs réseaux, elle est supprimée dès la fin de toutes ses publications (48 heures de plus en cas d'échec, pour pouvoir réessayer), et gardée 7 jours au plus en attendant son rangement dans le Google Drive du client.
 - **Historique des publications** et informations de la chaîne : **12 mois** après la publication, puis supprimés.
 - **Informations de la chaîne** : actualisées au moins tous les 30 jours tant que la chaîne est connectée.
 - **Chiffres** (Chapote CM) : actualisés au plus tard tous les 30 jours tant que la chaîne est connectée ; supprimés dès que la chaîne est déconnectée.

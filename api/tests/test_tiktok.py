@@ -1018,3 +1018,20 @@ async def test_service_token_rejected_or_unconfigured(pg_session, tiktok, servic
         monkeypatch.setattr(settings, "TIKTOK_SERVICE_TOKEN", SERVICE)
         monkeypatch.setattr(settings, "TIKTOK_SERVICE_USER_EMAIL", "absent@t.dev")
         assert (await h.get("/api/tiktok/accounts")).status_code == 503
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_unreadable_token_kept(pg_session, tiktok):
+    """Jeton illisible (ex. clé de chiffrement erronée) : compte « à reconnecter », mais jetons GARDÉS
+    (la bonne clé remise les rend de nouveau utilisables). Seuls un refus de la plateforme ou une
+    expiration les effacent."""
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _account(pg_session, owner=u, refresh_token_enc="pas-un-jeton-fernet",
+                         access_token_expires_at=utcnow() - timedelta(minutes=1))
+    await pg_session.commit()
+    with pytest.raises(tt.ReconnectRequired):
+        await tt.valid_access_token(pg_session, acc, force_refresh=True)
+    await pg_session.refresh(acc)
+    assert acc.needs_reconnect is True
+    assert acc.refresh_token_enc == "pas-un-jeton-fernet" and acc.access_token_enc is not None
