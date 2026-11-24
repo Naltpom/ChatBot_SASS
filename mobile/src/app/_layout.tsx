@@ -13,7 +13,7 @@ import { ThemeProvider, useTheme } from '../ui/theme'
 SplashScreen.preventAutoHideAsync().catch(() => {})
 
 function Gate() {
-  const { me, ready } = useSession()
+  const { me, ready, spaces } = useSession()
   const { c, dark } = useTheme()
   const segments = useSegments()
   const router = useRouter()
@@ -25,9 +25,13 @@ function Gate() {
     if (!ready) return
     SplashScreen.hideAsync().catch(() => {})
     const onLogin = segments[0] === 'login'
+    // Aucun réseau connecté dans aucun espace : écran d'accueil (sauf pages utiles pour en connecter un).
+    const empty = !!me && spaces.length > 0 && spaces.every(s => !(s.accounts || 0))
+    const free = ['welcome', 'accounts', 'settings', 'people']
     if (!me && !onLogin) router.replace('/login')
+    else if (me && empty && !free.includes(segments[0] as string)) router.replace('/welcome')
     else if (me && onLogin) router.replace('/')
-  }, [me, ready, segments, router])
+  }, [me, ready, spaces, segments, router])
 
   return (
     <>
@@ -39,6 +43,7 @@ function Gate() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
+        <Stack.Screen name="welcome" options={{ title: 'Bienvenue', headerBackVisible: false, gestureEnabled: false }} />
         <Stack.Screen name="new" options={{ presentation: 'modal', title: 'Nouvelle publication' }} />
         <Stack.Screen name="post/[id]" options={{ presentation: 'modal', title: 'Publication' }} />
         <Stack.Screen name="video/[id]" options={{ title: 'Fiche vidéo' }} />
