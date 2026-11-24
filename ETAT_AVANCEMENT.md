@@ -183,6 +183,18 @@ Ordre de grandeur : **~18 200 LOC Python** (backend) · **~19 600 LOC TS/React**
 
 ---
 
+### 4.10 emails.chapote.fr — boîtes mail pour Claude (MCP distant) — ajout 2026-11-26
+| Feature | Statut | Preuve |
+|---|---|---|
+| Serveur MCP distant (SDK `mcp`, FastMCP, Streamable HTTP sans état, multi-worker) monté sur `/mcp` | ✅ | `services/emails_mcp.py`, `main.py` |
+| 12 outils (lecture, recherche multi-boîtes, fil, pièces jointes, brouillon, envoi, mark, move, corbeille) + audit sans contenu | ✅ | `services/emails_mcp.py`, `services/mail_client.py`, `models/emails.py` (`mcp_audit_log`) |
+| OAuth 2.1 conforme à la spec MCP (RFC 9728/8414, DCR RFC 7591, PKCE S256, rotation, révocation RFC 7009) | ✅ | `services/emails_oauth.py`, `routers/emails_oauth.py` |
+| Superadmin + session 2FA validée (claim `mfa`), passkeys de chapote.fr valables sur le sous-domaine | ✅ | `services/emails_access.py`, `core/security.py`, `core/config.py` (`webauthn_origins`) |
+| Mots de passe des boîtes chiffrés avec une clé dédiée (`MAILBOX_ENCRYPTION_KEY`, exigée en prod) | ✅ | `services/mailbox_crypto.py`, `config.validate_production` |
+| Interface (boîtes + préréglages OVH/Gmail, test de connexion, droits, accès Claude, journal, consentement) | ✅ | `emails/src/pages/*`, service compose `emails` |
+| Tests (IMAP/SMTP simulés, flux OAuth complet, refus, droits, absence de secrets) + job CI `emails-front` | ✅ | `api/tests/test_emails_mcp.py`, `.github/workflows/ci.yml` |
+| Mise en ligne (DNS, reverse proxy 443, `EMAILS_ENABLED=true`, origine Google SSO) | ⛔ | à faire sur le VPS — `docs/EMAILS_MCP.md` §Mise en service |
+
 ## 5. État de la base de données
 
 - **32 fichiers de migration** (30 DDL + 2 merges), chaîne **linéaire à HEAD unique** = `d3e4f5a6b7c8` (bot_status_history). Test CI garde-fou `test_alembic_single_head.py`.
