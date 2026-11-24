@@ -339,3 +339,26 @@ async def test_daily_post_limit_counts_created_posts(pg_session, cmenv, tiktok, 
         await pg_session.commit()
         r = await h.post("/api/cm/posts", json={"title": "x", "video_size": 10, "targets": [_tt_target(tk.id)]})
         assert r.status_code == 200
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_service_token_lists_posts_of_every_space(pg_session, cmenv, tiktok):
+    """Jeton de service sans org_id : GET /posts trouve les publications des espaces d'équipe (comme GET /posts/{id})."""
+    from test_cm import _service
+    u = await _user(pg_session, "a@t.dev")
+    org = await _org(pg_session, u)
+    ig = await _ig_routine(pg_session, org=org)
+    await pg_session.commit()
+    later = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        pid = await _ready(h, [{"platform": "instagram", "account_id": ig.id, "options": {}, "scheduled_at": later}],
+                           org_id=org.id, ref="ghost-hands/g77")
+        s = _service(c.http)
+        for q in ("?ref_prefix=ghost-hands/", "?ref=ghost-hands/g77", ""):
+            rows = (await s.get(f"/api/cm/posts{q}")).json()
+            assert [p["id"] for p in rows] == [pid] and rows[0]["org_id"] == org.id, q
+        # Session web sans org_id : espace perso seulement (inchangé).
+        s.headers.pop("Authorization")
+        assert (await c.as_(u).get("/api/cm/posts")).json() == []
