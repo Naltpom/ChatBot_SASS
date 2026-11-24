@@ -1147,6 +1147,8 @@ class TargetIn(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+CANCELLABLE = (*T_EDITABLE, T_INBOX, T_FAILED)   # pas encore partie, brouillon TikTok, échec
+
 Rights = Literal["public_domain", "protected", "unknown"]
 RIGHTS_WARNING = ("⚠️ Œuvre protégée : risque de réclamation de droits d'auteur (Content ID, son coupé, "
                   "vidéo bloquée).")
@@ -1192,7 +1194,7 @@ def _target_out(t: CmTarget, names: dict) -> dict:
         "status": t.status, "external_id": t.external_id, "url": t.url,
         "fail_reason": t.fail_reason, "error_message": t.error_message, "notice": t.notice,
         "published_at": cm.iso(t.published_at), "updated_at": cm.iso(t.updated_at),
-        "can_edit": t.status in T_EDITABLE, "can_retry": t.status == T_FAILED,
+        "can_edit": t.status in T_EDITABLE, "can_retry": t.status == T_FAILED, "can_cancel": t.status in CANCELLABLE,
         "is_draft": t.status == T_INBOX,      # brouillon TikTok : à publier dans l'app (légende à copier)
     }
 
@@ -1902,9 +1904,12 @@ async def publish_now(target_id: int, db: AsyncSession = Depends(get_db), user: 
 
 @router.post("/targets/{target_id}/cancel")
 async def cancel_target(target_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Annule une cible pas encore partie, ou retire une cible en échec ou un brouillon TikTok (INBOX) : elle sort du
+    planning et la plateforme peut être rajoutée (POST /posts/{id}/targets). Brouillon : rien n'est supprimé dans
+    l'app TikTok (l'API ne le permet pas)."""
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
-    if t.status not in T_EDITABLE:
+    if t.status not in CANCELLABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication est déjà partie : elle ne peut plus être annulée.")
     t.status = T_CANCELLED
     await db.commit()

@@ -60,7 +60,8 @@ et stable du compte : `instagram:@ghosthands.music`, `tiktok:@ghosthands.music`,
 `GET /posts/{id}` → `targets[]` : `status` (`SCHEDULED`, `DISPATCHING`, `PUBLISHING`, `AWAITING_ROUTINE`,
 `PUBLISHED`, `INBOX`, `FAILED`, `CANCELLED`), `url`, `external_id`, `error_message`. Après une erreur Instagram,
 cm vérifie lui-même si le Reel est en ligne quand même (même légende) avant de conclure à l'échec.
-Annuler : `POST /targets/{id}/cancel` ; relancer un échec : `POST /targets/{id}/retry` (la vidéo est relue depuis
+Annuler : `POST /targets/{id}/cancel` (cible pas encore partie, en échec `FAILED` ou brouillon TikTok `INBOX` ; sinon 409 ;
+la cible passe `CANCELLED`, sort du planning, et la même plateforme peut être rajoutée par `POST /posts/{id}/targets`) ; relancer un échec : `POST /targets/{id}/retry` (la vidéo est relue depuis
 l'archive Drive si elle n'est plus sur le serveur).
 
 ### Brouillon TikTok (`INBOX`)
@@ -74,7 +75,9 @@ Le brouillon arrive **sans légende** : `targets[].options.title` contient la l�
 - `POST /targets/{id}/resend-draft` : brouillon supprimé dans l'app → renvoyé tout de suite, même vidéo, même légende
   (relue depuis l'archive Drive si elle n'est plus sur le serveur). Cible `INBOX` seulement (sinon 409).
 - Dans cm (Planning → la vidéo → carte TikTok) : légende avec « Copier la légende », « Publié dans l'app » (lien facultatif),
-  « Renvoyer le brouillon ».
+  « Renvoyer le brouillon », « Retirer ».
+- `POST /targets/{id}/cancel` sur une cible `INBOX` : elle passe `CANCELLED` et sort du planning. Le brouillon déjà dans
+  l'app TikTok **n'est pas supprimé** (l'API ne le permet pas) : le supprimer à la main.
 
 ### Retrouver ses publications : `GET /posts?ref_prefix=<compte>/`
 - Avec le jeton de service et sans `org_id` : recherche dans tous les espaces du jeton (perso + équipes) ;

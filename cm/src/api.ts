@@ -38,7 +38,7 @@ export interface Target {
   id: number; post_id: number; platform: Platform; account_id: number; account_name: string | null
   scheduled_at: string; options: Record<string, any>; status: TargetStatus; external_id: string | null
   url: string | null; fail_reason: string | null; error_message: string | null; notice: string | null
-  published_at: string | null; can_edit: boolean; can_retry: boolean; is_draft?: boolean
+  published_at: string | null; can_edit: boolean; can_retry: boolean; can_cancel?: boolean; is_draft?: boolean
 }
 export interface Post {
   id: number; title: string; caption: string | null; file_name: string | null; video_size: number
