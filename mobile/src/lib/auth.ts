@@ -1,6 +1,7 @@
 // Connexion de l'app : par le navigateur intégré (même compte que le site : Google, double
 // authentification…) ou par le formulaire e-mail / mot de passe. Les deux finissent par un jeton
 // d'appareil gardé dans le coffre du téléphone (voir api/src/routers/cm_mobile.py).
+import { isChallenge } from './session-logic'
 import * as Crypto from 'expo-crypto'
 import * as Device from 'expo-device'
 import * as SecureStore from 'expo-secure-store'
@@ -82,14 +83,14 @@ export async function loginWithGoogle(): Promise<Me | TwoFAChallenge | null> {
   const credential = await googleIdToken()
   if (!credential) return null
   const r = await callPublic<Me | TwoFAChallenge>('/api/auth/google', { credential }, true)
-  if ('twofa_required' in r) return r
+  if (isChallenge(r)) return r
   return finishCookieLogin()
 }
 
 /** Formulaire : mot de passe, puis éventuellement le code de double authentification. */
 export async function loginWithPassword(email: string, password: string): Promise<Me | TwoFAChallenge> {
   const r = await callPublic<Me | TwoFAChallenge>('/api/auth/login', { email, password }, true)
-  if ('twofa_required' in r) return r
+  if (isChallenge(r)) return r
   return finishCookieLogin()
 }
 

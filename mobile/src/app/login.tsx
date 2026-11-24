@@ -1,4 +1,5 @@
 // Connexion : navigateur intégré (Google, double authentification, comme sur le site) ou e-mail.
+import { isChallenge } from '../lib/session-logic'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useState } from 'react'
 import { AppState } from 'react-native'
@@ -56,13 +57,13 @@ export default function Login() {
     ? () => run(async () => {
         const r = await loginWithGoogle()
         if (!r) return
-        if ('twofa_required' in r) setChallenge(r)
+        if (isChallenge(r)) setChallenge(r)
         else signedIn(r)
       })
     : viaBrowser
   const viaEmail = () => run(async () => {
     const r = await loginWithPassword(email.trim(), password)
-    if ('twofa_required' in r) setChallenge(r)
+    if (isChallenge(r)) setChallenge(r)
     else signedIn(r)
   })
   const viaCode = () => run(async () => { if (challenge) signedIn(await loginWithCode(challenge.challenge, code.trim(), recovery)) })

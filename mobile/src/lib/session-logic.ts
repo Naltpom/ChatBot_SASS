@@ -49,3 +49,10 @@ export function parseReturn(url: string): { code: string | null; state: string |
   }
   return { code: params.code ?? null, state: params.state ?? null }
 }
+
+/** Réponse de connexion qui demande le code de double authentification (une réponse « connecté » contient
+ *  aussi `twofa_required: false` : ne pas se fier à la seule présence du champ). */
+export function isChallenge(r: unknown): r is { twofa_required: true; challenge: string; methods: { totp: boolean; passkey: boolean; recovery: boolean } } {
+  const x = r as { twofa_required?: unknown; challenge?: unknown } | null
+  return !!x && x.twofa_required === true && typeof x.challenge === 'string'
+}

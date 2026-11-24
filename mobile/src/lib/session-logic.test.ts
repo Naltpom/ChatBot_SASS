@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { base64url, errorMessage, parseReturn, sessionIsFresh } from './session-logic.ts'
+import { base64url, errorMessage, isChallenge, parseReturn, sessionIsFresh } from './session-logic.ts'
 
 test('base64url matches Node for every padding length', () => {
   for (let n = 0; n < 70; n++) {
@@ -36,4 +36,10 @@ test('return link parsing', () => {
   assert.deepEqual(parseReturn('chapotecm://auth?code=a.b.c&state=xy%2Bz'), { code: 'a.b.c', state: 'xy+z' })
   assert.deepEqual(parseReturn('exp://192.168.1.2:8081/--/auth?state=s&code=k#frag'), { code: 'k', state: 's' })
   assert.deepEqual(parseReturn('chapotecm://auth'), { code: null, state: null })
+})
+
+test('2FA challenge vs signed-in user (twofa_required: false)', () => {
+  assert.equal(isChallenge({ id: 1, email: 'a@t.dev', twofa_required: false }), false)
+  assert.equal(isChallenge({ twofa_required: true, challenge: 'c', methods: { totp: true, passkey: false, recovery: true } }), true)
+  assert.equal(isChallenge(null), false)
 })
