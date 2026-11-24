@@ -2,7 +2,7 @@
 // YouTube et Instagram, publiées ou non depuis Chapote, avec leurs chiffres) et l'évolution des
 // abonnés jour par jour ; le futur montre les publications programmées.
 // Mobile : vue Agenda (bande des 7 jours + liste). Ordinateur : vue Semaine en 7 colonnes. Mois partout.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { SearchBox } from '../components/list'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { PlanRow, PublicationSheet, useGroupOf, type Group_ } from './PlanningParts'
@@ -99,7 +99,10 @@ export default function Planning() {
 
   const today = new Date()
   const week = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i))
-  const shift = (n: number) => setAnchor(a => view === 'month' ? new Date(a.getFullYear(), a.getMonth() + n, 1) : addDays(a, 7 * n))
+  const shift = (n: number) => {
+    setAnchor(a => view === 'month' ? new Date(a.getFullYear(), a.getMonth() + n, 1) : addDays(a, 7 * n))
+    if (view !== 'month') setSelected(k => dayKey(addDays(new Date(`${k}T12:00:00`), 7 * n)))   // même jour, autre semaine
+  }
   const label = view === 'month'
     ? anchor.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
     : `${week[0].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} – ${week[6].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
@@ -114,9 +117,21 @@ export default function Planning() {
   const periodViews = done.reduce((s, i) => s + (i.kind === 'video' ? i.views || 0 : 0), 0)
   const periodFollowers = (cal.data?.days || []).reduce((s, d) => s + (d.followers_delta || 0), 0)
 
-  const jump = (k: string) => {
-    setSelected(k)
-    if (view === 'agenda') document.getElementById(`jour-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const jump = (k: string) => setSelected(k)
+  // Agenda (téléphone) : un seul jour affiché ; glisser à gauche / à droite = jour suivant / précédent.
+  const goDay = (n: number) => {
+    const d = addDays(new Date(`${selected}T12:00:00`), n)
+    setSelected(dayKey(d))
+    if (!week.some(w => sameDay(w, d))) setAnchor(d)          // autre semaine : elle est chargée
+  }
+  const touch = useRef<{ x: number; y: number } | null>(null)
+  const onTouchStart = (e: React.TouchEvent) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const t0 = touch.current
+    touch.current = null
+    if (!t0) return
+    const dx = e.changedTouches[0].clientX - t0.x, dy = e.changedTouches[0].clientY - t0.y
+    if (Math.abs(dx) > 60 && Math.abs(dx) > 1.5 * Math.abs(dy)) goDay(dx < 0 ? 1 : -1)
   }
 
   const dayList = (k: string, date: Date) => {
@@ -212,7 +227,13 @@ export default function Planning() {
               )
             })}
           </div>
-          <div className="agenda">{week.map(d => dayList(dayKey(d), d))}</div>
+          <div className="agenda" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+            {dayList(selected, new Date(`${selected}T12:00:00`))}
+            <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => goDay(-1)}><Icon name="left" size={16} />Jour précédent</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => goDay(1)}>Jour suivant<Icon name="right" size={16} /></button>
+            </div>
+          </div>
         </>
       )}
 
