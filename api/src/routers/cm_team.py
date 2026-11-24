@@ -632,3 +632,171 @@ async def account_access(platform: Literal["tiktok", "youtube", "instagram"], ac
     key = f"{platform}:{account_id}"
     return [p for p in data["people"] if p["scope"]["all"] or key in p["scope"]["accounts"]
             or groups & set(p["scope"]["groups"])]
+
+
+# --------------------------------------------------------------------------
+# Partage par groupe (rôle par groupe) et invitations reçues ; droits par compte ; nom de l'espace perso
+# --------------------------------------------------------------------------
+
+from src.models.cm import CmGroupShare, CmProfile  # noqa: E402
+
+SHARE_ROLE_LABEL = {"admin": "Admin", "editor": "Peut publier", "viewer": "Lecture seule"}
+
+
+async def _owner_name(db: AsyncSession, org_id: Optional[int], owner_user_id: Optional[int]) -> Optional[str]:
+    uid = owner_user_id
+    if org_id:
+        org = await db.get(Organization, org_id)
+        uid = org.owner_user_id if org else None
+    u = await db.get(User, uid) if uid else None
+    return (u.name or u.email) if u else None
+
+
+def _share_out(s: CmGroupShare) -> dict:
+    return {"id": s.id, "group_id": s.group_id, "email": s.email, "role": s.role, "role_label": SHARE_ROLE_LABEL.get(s.role),
+            "status": s.status, "created_at": cm.iso(s.created_at), "responded_at": cm.iso(s.responded_at)}
+
+
+async def _group_admin(db: AsyncSession, user: User, group_id: int) -> tuple[CmGroup, Tenant]:
+    g = await db.get(CmGroup, group_id)
+    tenant = await cm_access._tenant_for_group(db, user, g) if g is not None else None
+    if tenant is None or not cm_access.group_allowed(tenant, g.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Groupe introuvable")
+    if cm_access.LEVEL.get(tenant.cm_role, 0) < 2 and cm_access.role_for_group(tenant, g.id) != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Seul un administrateur du groupe peut le partager.")
+    return g, tenant
+
+
+@router.get("/groups/{group_id}/shares")
+async def group_shares(group_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    g, _ = await _group_admin(db, user, group_id)
+    rows = (await db.execute(select(CmGroupShare).where(CmGroupShare.group_id == g.id).order_by(CmGroupShare.created_at))).scalars()
+    return [_share_out(s) for s in rows]
+
+
+class GroupShareIn(BaseModel):
+    email: EmailStr
+    role: Literal["admin", "editor", "viewer"] = "editor"
+
+
+@router.post("/groups/{group_id}/shares")
+async def share_group(group_id: int, body: GroupShareIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Partage un groupe avec une personne (rôle sur ce groupe). Elle le voit dans ses invitations et l'accepte.
+    Déjà acceptée : le rôle est mis à jour tout de suite."""
+    g, tenant = await _group_admin(db, user, group_id)
+    if not await invite_limiter.check(f"{user.id}"):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de partages : réessayez dans une heure.")
+    email = body.email.lower()
+    if email == (user.email or "").lower():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "C'est votre propre adresse.")
+    if not tenant.org_id:            # groupe de l'espace perso : une équipe est créée en arrière-plan (invisible)
+        tenant = await ensure_shareable(db, user, tenant)
+        g = await db.get(CmGroup, group_id)
+    s = (await db.execute(select(CmGroupShare).where(CmGroupShare.group_id == g.id, CmGroupShare.email == email))).scalar_one_or_none()
+    if s is None:
+        s = CmGroupShare(group_id=g.id, email=email, role=body.role, status="pending", invited_by_user_id=user.id)
+        db.add(s)
+    else:
+        s.role = body.role
+        if s.status == "declined":
+            s.status, s.responded_at = "pending", None
+    await db.flush()
+    if s.status == "accepted":
+        await cm_access.recompute_member(db, g.organization_id, email)
+    await db.commit()
+    return _share_out(s)
+
+
+@router.delete("/groups/{group_id}/shares/{share_id}")
+async def unshare_group(group_id: int, share_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    g, _ = await _group_admin(db, user, group_id)
+    s = await db.get(CmGroupShare, share_id)
+    if s is None or s.group_id != g.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Partage introuvable")
+    email = s.email
+    await db.delete(s)
+    await db.flush()
+    await cm_access.recompute_member(db, g.organization_id, email, removed=(g.id,))
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/invitations")
+async def my_invitations(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Groupes partagés avec moi, en attente de réponse."""
+    rows = (await db.execute(select(CmGroupShare, CmGroup).join(CmGroup, CmGroup.id == CmGroupShare.group_id).where(
+        CmGroupShare.email == (user.email or "").lower(), CmGroupShare.status == "pending")
+        .order_by(CmGroupShare.created_at))).all()
+    out = []
+    for s, g in rows:
+        by = await db.get(User, s.invited_by_user_id) if s.invited_by_user_id else None
+        n = len(await cm_access._group_accounts(db, g.id))
+        out.append({**_share_out(s), "group_name": g.name, "group_color": g.color, "accounts": n,
+                    "owner": await _owner_name(db, g.organization_id, g.owner_user_id),
+                    "invited_by": (by.name or by.email) if by else None})
+    return out
+
+
+async def _my_share(db: AsyncSession, user: User, share_id: int) -> CmGroupShare:
+    s = await db.get(CmGroupShare, share_id)
+    if s is None or s.email != (user.email or "").lower():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation introuvable")
+    return s
+
+
+@router.post("/invitations/{share_id}/accept")
+async def accept_invitation(share_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    s = await _my_share(db, user, share_id)
+    g = await db.get(CmGroup, s.group_id)
+    s.status, s.user_id, s.responded_at = "accepted", user.id, utcnow()
+    await db.flush()
+    await cm_access.recompute_member(db, g.organization_id, s.email)
+    await db.commit()
+    return {**_share_out(s), "group_name": g.name, "org_id": g.organization_id}
+
+
+@router.post("/invitations/{share_id}/decline")
+async def decline_invitation(share_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    s = await _my_share(db, user, share_id)
+    g = await db.get(CmGroup, s.group_id)
+    s.status, s.responded_at = "declined", utcnow()
+    await db.flush()
+    await cm_access.recompute_member(db, g.organization_id, s.email)
+    await db.commit()
+    return _share_out(s)
+
+
+@router.get("/me/capabilities")
+async def capabilities(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Rôle effectif sur chaque compte visible, tous espaces confondus : où afficher « + », quoi proposer à la
+    publication. key = « plateforme:id » ; role = admin | editor | viewer ; owner = nom du propriétaire."""
+    accounts = []
+    for t in await cm_access._all_tenants(db, user):
+        owner = await _owner_name(db, t.org_id, t.owner_user_id)
+        for p, a in await cm.tenant_accounts(db, t):
+            accounts.append({"key": f"{p}:{a.id}", "platform": p, "id": a.id, "org_id": t.org_id,
+                             "role": cm_access.role_for(t, p, a.id), "owner": owner, "mine": t.org_id is None or
+                             (await db.get(Organization, t.org_id)).owner_user_id == user.id})
+    return {"can_publish_any": any(a["role"] in ("admin", "editor") for a in accounts), "accounts": accounts}
+
+
+class ProfileIn(BaseModel):
+    perso_name: Optional[str] = Field(None, max_length=80)
+
+
+@router.get("/profile")
+async def get_profile(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    p = await db.get(CmProfile, user.id)
+    return {"perso_name": (p.perso_name if p else None) or "Espace perso"}
+
+
+@router.patch("/profile")
+async def set_profile(body: ProfileIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Renomme l'espace perso (vide = « Espace perso »)."""
+    p = await db.get(CmProfile, user.id)
+    if p is None:
+        p = CmProfile(user_id=user.id)
+        db.add(p)
+    p.perso_name = (body.perso_name or "").strip() or None
+    await db.commit()
+    return {"perso_name": p.perso_name or "Espace perso"}

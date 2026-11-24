@@ -132,6 +132,13 @@ class Tenant:
 async def _tenant(db: AsyncSession, user: User, org_id: Optional[int]) -> Tenant:
     from src.services import cm_access
     if org_id is None:
+        scope = cm_access.SCOPE.get()
+        if scope is not None:                 # lecture sur un périmètre combiné (?scope=, routes cm)
+            cm_access.SCOPE.set(None)         # résolu une fois ; les appels internes gardent leur espace
+            try:
+                return await cm_access.resolve_scope(db, user, scope)
+            finally:
+                cm_access.SCOPE.set(scope)
         return await cm_access.enrich(db, Tenant(None, user.id, None), user, None)
     membership = await get_membership(org_id, user, db)
     if membership is None:

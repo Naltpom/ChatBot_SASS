@@ -32,6 +32,7 @@ from src.models.cm import (
     T_FINAL,
     CmGroupAccount,
     CmGroup,
+    CmGroupShare,
     CmMemberRole,
     CmPost,
     CmTarget,
@@ -83,6 +84,24 @@ async def enrich(db: AsyncSession, tenant, user, membership_role: Optional[str])
             if p in MODELS and a.isdigit():
                 allowed.add((p, int(a)))
         tenant.allowed = allowed
+    # Partages par groupe acceptés : rôle par compte (le plus haut des groupes qui le contiennent).
+    shares = (await db.execute(select(CmGroupShare.role, CmGroupAccount.platform, CmGroupAccount.account_id)
+                               .join(CmGroup, CmGroup.id == CmGroupShare.group_id)
+                               .join(CmGroupAccount, CmGroupAccount.group_id == CmGroup.id)
+                               .where(CmGroup.organization_id == tenant.org_id, CmGroupShare.status == "accepted",
+                                      CmGroupShare.email == (user.email or "").lower()))).all()
+    group_roles = dict((await db.execute(select(CmGroupShare.group_id, CmGroupShare.role)
+                                         .join(CmGroup, CmGroup.id == CmGroupShare.group_id)
+                                         .where(CmGroup.organization_id == tenant.org_id, CmGroupShare.status == "accepted",
+                                                CmGroupShare.email == (user.email or "").lower()))).all())
+    if group_roles:
+        tenant.group_roles = group_roles
+    if shares and tenant.cm_role != "admin":
+        roles: dict = {}
+        for role, p, a in shares:
+            if LEVEL.get(role, 0) > LEVEL.get(roles.get((p, a)), -1):
+                roles[(p, a)] = role
+        tenant.account_roles = roles
     return tenant
 
 
@@ -99,6 +118,22 @@ def require(tenant, need: str, *, explicit_only: bool = False) -> None:
 
 
 ROLE_LABEL = {"admin": "administrateur", "editor": "éditeur", "viewer": "lecteur"}
+
+
+def role_for(tenant, platform: str, account_id: int) -> str:
+    """Rôle effectif sur un compte : celui du partage de groupe s'il y en a un, sinon le rôle dans l'équipe."""
+    roles = getattr(tenant, "account_roles", None)
+    if roles and (platform, account_id) in roles:
+        return roles[(platform, account_id)]
+    return getattr(tenant, "cm_role", "admin")
+
+
+def require_account(tenant, platform: str, account_id: int, need: str = "edit") -> None:
+    """Comme require(), pour un compte précis (rôle par groupe : « Lecture seule » ici, « Peut publier » là)."""
+    role = role_for(tenant, platform, account_id)
+    if LEVEL.get(role, 0) < (2 if need == "admin" else 1):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            f"Votre rôle sur ce compte ({ROLE_LABEL.get(role, role)}) ne permet pas de {NEED_LABEL[need]}.")
 
 
 def account_allowed(tenant, platform: str, account_id: int) -> bool:
@@ -236,3 +271,170 @@ async def move_account(db: AsyncSession, platform: str, acc, dest, by_user_id: i
     logger.info("cm : compte %s %s déplacé (org %s / perso %s -> org %s / perso %s), %s publications à venir",
                 platform, acc.id, old_org, old_owner, dest.org_id, dest.owner_user_id, moved)
     return {"moved_targets": moved}
+
+
+
+# --------------------------------------------------------------------------
+# Périmètre combiné (paramètre `scope`) : plusieurs espaces, groupes et comptes à la fois, en lecture
+# --------------------------------------------------------------------------
+
+from contextvars import ContextVar  # noqa: E402
+
+# Périmètre demandé par la requête en cours (`?scope=` des routes cm, posé par routers/cm._capture_account_scope).
+SCOPE: ContextVar = ContextVar("cm_scope", default=None)
+
+
+class MultiTenant:
+    """Se comporte comme un Tenant pour les lectures : `where()` couvre tous les espaces du périmètre, `allowed`
+    liste exactement les comptes visibles. Jamais d'écriture : `cm_role` = viewer (les écritures passent par
+    l'espace du compte, avec son org_id)."""
+
+    def __init__(self, user_id: int, tenants: list, allowed: set):
+        self.tenants = tenants
+        self.org_id = None
+        self.owner_user_id = user_id
+        self.user_id = user_id
+        self.role = None
+        self.cm_role = "viewer"
+        self.cm_explicit = True
+        self.group_ids = None
+        self.allowed = allowed
+        self.multi = True
+
+    @property
+    def key(self) -> str:
+        return "multi:" + ",".join(sorted(t.key for t in self.tenants))
+
+    def where(self, model):
+        from sqlalchemy import false, or_
+        conds = [t.where(model) for t in self.tenants]
+        return or_(*conds) if conds else false()
+
+
+async def _all_tenants(db: AsyncSession, user) -> list:
+    from src.models.user import Membership
+    from src.routers.tiktok import _tenant
+    out = [await _tenant(db, user, None)]
+    for oid in (await db.execute(select(Membership.organization_id).where(Membership.user_id == user.id)
+                                 .order_by(Membership.organization_id))).scalars():
+        out.append(await _tenant(db, user, oid))
+    return out
+
+
+async def _visible(db: AsyncSession, tenant) -> set:
+    rows = set()
+    for platform, model in MODELS.items():
+        for rid in (await db.execute(select(model.id).where(tenant.where(model), model.revoked_at.is_(None)))).scalars():
+            if account_allowed(tenant, platform, rid):
+                rows.add((platform, rid))
+    return rows
+
+
+async def resolve_scope(db: AsyncSession, user, scope: str) -> MultiTenant:
+    """`scope` : « all » (ou vide) | liste « perso », « org:12 », « org:12/group:3 » (ou « group:3 »),
+    « acc:tiktok:7 », séparés par des virgules. Chaque élément est vérifié : 404 s'il n'est pas visible."""
+    tenants = await _all_tenants(db, user)
+    by_key = {t.org_id: t for t in tenants}
+    visible = {t.key: await _visible(db, t) for t in tenants}
+    picked, allowed = {}, set()
+    tokens = [x.strip() for x in (scope or "").split(",") if x.strip()]
+    if not tokens or tokens == ["all"]:
+        for t in tenants:
+            picked[t.key] = t
+            allowed |= visible[t.key]
+        return MultiTenant(user.id, list(picked.values()), allowed)
+    for tok in tokens:
+        org_id, group_id, acc = None, None, None
+        parts = tok.split("/")
+        try:
+            for part in parts:
+                kind, _, val = part.partition(":")
+                if kind == "perso" and not val:
+                    org_id = None
+                elif kind == "org":
+                    org_id = int(val)
+                elif kind == "group":
+                    group_id = int(val)
+                elif kind == "acc":
+                    p, _, a = val.partition(":")
+                    if p not in MODELS:
+                        raise ValueError
+                    acc = (p, int(a))
+                else:
+                    raise ValueError
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Périmètre invalide : « {tok} ».")
+        if group_id is not None and org_id is None and not tok.startswith("perso"):
+            g = await db.get(CmGroup, group_id)
+            org_id = g.organization_id if g is not None else -1
+        if acc is not None and "org:" not in tok and not tok.startswith("perso"):
+            t = next((t for t in tenants if acc in visible[t.key]), None)
+        else:
+            t = by_key.get(org_id)
+        if t is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Périmètre introuvable : « {tok} ».")
+        items = visible[t.key]
+        if group_id is not None:
+            g = await db.get(CmGroup, group_id)
+            if g is None or not _same_tenant(g, t):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"Groupe introuvable : « {tok} ».")
+            items = items & await _group_accounts(db, group_id)
+            if not items and not group_allowed(t, group_id):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"Groupe introuvable : « {tok} ».")
+        if acc is not None:
+            if acc not in items:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"Compte introuvable : « {tok} ».")
+            items = {acc}
+        picked[t.key] = t
+        allowed |= items
+    return MultiTenant(user.id, list(picked.values()), allowed)
+
+
+async def _group_accounts(db: AsyncSession, group_id: int) -> set:
+    return {(p, a) for p, a in (await db.execute(select(CmGroupAccount.platform, CmGroupAccount.account_id)
+                                                 .where(CmGroupAccount.group_id == group_id))).all()}
+
+
+async def recompute_member(db: AsyncSession, org_id: int, email: str, removed: tuple = ()) -> None:
+    """Après l'acceptation (ou le retrait) d'un partage de groupe : membre de l'équipe (en arrière-plan), limité aux
+    groupes partagés acceptés, avec le plus haut de leurs rôles (le rôle exact est appliqué compte par compte)."""
+    from src.models.user import Membership, User
+    email = email.lower()
+    groups = (await db.execute(select(CmGroupShare.group_id, CmGroupShare.role).join(CmGroup, CmGroup.id == CmGroupShare.group_id)
+                               .where(CmGroup.organization_id == org_id, CmGroupShare.email == email,
+                                      CmGroupShare.status == "accepted"))).all()
+    member = (await db.execute(select(Membership).join(User, User.id == Membership.user_id).where(
+        Membership.organization_id == org_id, func.lower(User.email) == email))).scalar_one_or_none()
+    if member is not None and member.role == "admin":
+        return                                   # administrateur de l'équipe : il voit déjà tout
+    row = (await db.execute(select(CmMemberRole).where(CmMemberRole.organization_id == org_id,
+                                                       CmMemberRole.email == email))).scalar_one_or_none()
+    if not groups:
+        if row is not None and row.group_ids is not None:
+            managed = set((await db.execute(select(CmGroupShare.group_id).where(CmGroupShare.email == email))).scalars()) | set(removed)
+            row.group_ids = sorted({int(x) for x in row.group_ids} - managed)
+        return
+    user = (await db.execute(select(User).where(func.lower(User.email) == email))).scalar_one_or_none()
+    if member is None and user is not None:
+        db.add(Membership(user_id=user.id, organization_id=org_id, role="member", permissions={}))
+    if row is None:
+        row = CmMemberRole(organization_id=org_id, email=email)
+        db.add(row)
+    row.role = max((r for _, r in groups), key=lambda r: LEVEL.get(r, 0))
+    if row.group_ids is not None or row.account_keys is not None or member is None:
+        # Groupes d'avant (partage par l'ancienne route) gardés ; ceux gérés par partage de groupe : seulement acceptés.
+        managed = set((await db.execute(select(CmGroupShare.group_id).where(CmGroupShare.email == email))).scalars()) | set(removed)
+        legacy = {int(x) for x in (row.group_ids or [])} - managed
+        row.group_ids = sorted(legacy | {g for g, _ in groups})
+        row.account_keys = list(row.account_keys or [])
+
+
+
+async def _tenant_for_group(db: AsyncSession, user, g):
+    from src.routers.tiktok import _tenant_of
+    return await _tenant_of(db, user, g)
+
+
+def role_for_group(tenant, group_id: int) -> str:
+    """Rôle sur un groupe : admin de l'équipe, sinon le rôle du partage de ce groupe (via account_roles)."""
+    return getattr(tenant, "group_roles", {}).get(group_id) or getattr(tenant, "cm_role", "viewer")

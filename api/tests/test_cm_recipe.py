@@ -98,14 +98,14 @@ async def test_analyze_save_propose_then_use_or_dismiss(pg_session, cmenv, drive
         props = (await h.get("/api/cm/proposals")).json()
         assert len(props) == 1 and props[0]["title"] == "Prélude" and props[0]["when_from"] == "path"
         assert {a["platform"] for a in props[0]["accounts"]} == {"tiktok", "instagram"}
-        assert (await h.get("/api/cm/proposals/count")).json() == {"open": 1}
+        assert (await h.get("/api/cm/proposals/count")).json()["open"] == 1
         # Programmer cette vidéo (comme le composeur) : brouillon utilisé.
         asset_id = props[0]["asset"]["id"]
         at = (utcnow() + timedelta(days=3)).isoformat() + "Z"
         r = await h.post("/api/cm/posts", json={"title": "Prélude", "asset_id": asset_id, "targets": [
             {"platform": "instagram", "account_id": ig.id, "scheduled_at": at, "options": {}}]})
         assert r.status_code == 200, r.text
-        assert (await h.get("/api/cm/proposals/count")).json() == {"open": 0}
+        assert (await h.get("/api/cm/proposals/count")).json()["open"] == 0
         # Avec l'arriéré : les vidéos déjà là sont proposées ; écarter = plus jamais proposé.
         r = await h.put(f"/api/cm/sources/{src['id']}/recipe", json={"recipe": d["recipe"], "auto_drafts": False})
         r = await h.put(f"/api/cm/sources/{src['id']}/recipe", json={"recipe": d["recipe"], "auto_drafts": True, "backlog": True})
@@ -182,8 +182,8 @@ async def test_proposal_count_follows_the_filter(pg_session, cmenv, drive, tikto
         pg_session.add_all([CmProposal(owner_user_id=u.id, source_id=src.id, asset_id=assets[0].id, accounts=[f"tiktok:{a1.id}"]),
                             CmProposal(owner_user_id=u.id, source_id=src.id, asset_id=assets[1].id, accounts=[f"tiktok:{a2.id}"])])
         await pg_session.commit()
-        assert (await h.get("/api/cm/proposals/count")).json() == {"open": 2}
-        assert (await h.get(f"/api/cm/proposals/count?group_id={g.id}")).json() == {"open": 1}
-        assert (await h.get(f"/api/cm/proposals/count?account=tiktok:{a2.id}")).json() == {"open": 1}
+        assert (await h.get("/api/cm/proposals/count")).json()["open"] == 2
+        assert (await h.get(f"/api/cm/proposals/count?group_id={g.id}")).json()["open"] == 1
+        assert (await h.get(f"/api/cm/proposals/count?account=tiktok:{a2.id}")).json()["open"] == 1
         assert len((await h.get(f"/api/cm/proposals?group_id={g.id}")).json()) == 1
         assert len((await h.get("/api/cm/proposals")).json()) == 2

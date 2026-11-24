@@ -108,10 +108,10 @@ async def test_bulk_archive_publishes_nothing(pg_session, cmenv, drive, tiktok):
         assets = (await pg_session.execute(select(CmAsset))).scalars().all()
         pg_session.add_all([CmProposal(owner_user_id=u.id, source_id=src["id"], asset_id=a.id, accounts=[]) for a in assets])
         await pg_session.commit()
-        assert (await h.get("/api/cm/proposals/count")).json() == {"open": len(assets)}
+        assert (await h.get("/api/cm/proposals/count")).json()["open"] == len(assets)
         r = await h.post("/api/cm/proposals/archive", json={"source_id": src["id"]})
         assert r.json() == {"archived": len(assets)}
-        assert (await h.get("/api/cm/proposals/count")).json() == {"open": 0}
+        assert (await h.get("/api/cm/proposals/count")).json()["open"] == 0
         assert (await pg_session.execute(select(CmPost))).scalars().all() == []
 
 

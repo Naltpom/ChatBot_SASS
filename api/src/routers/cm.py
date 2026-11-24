@@ -71,7 +71,7 @@ from src.models.cm import (
     InstagramAccount,
 )
 from src.models.user import Membership, Organization, User
-from src.routers.tiktok import Tenant, _tenant
+from src.routers.tiktok import Tenant, _tenant, _tenant_of
 from src.services import cm_access
 from src.services import cm_archive
 from src.services import cm_storage
@@ -92,7 +92,11 @@ logger = logging.getLogger(__name__)
 _ACCOUNT_SCOPE: ContextVar[Optional[tuple]] = ContextVar("cm_account_scope", default=None)
 
 
-async def _capture_account_scope(account: Optional[str] = Query(None, max_length=40)):
+async def _capture_account_scope(account: Optional[str] = Query(None, max_length=40),
+                                 scope_: Optional[str] = Query(None, alias="scope", max_length=2000)):
+    """`account` : un seul compte (dans l'espace demandé). `scope` : périmètre combiné multi-espaces en lecture
+    (services/cm_access.resolve_scope), utilisé quand org_id est absent."""
+    cm_access.SCOPE.set(scope_.strip() if scope_ and scope_.strip() else None)
     scope = None
     if account:
         platform, _, raw = account.partition(":")
@@ -264,7 +268,9 @@ async def spaces(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm
         select(Organization, Membership).join(Membership, Membership.organization_id == Organization.id)
         .where(Membership.user_id == user.id, Organization.is_active.is_(True)).order_by(Organization.name)
     )).all()
-    out = [{"org_id": None, "name": "Espace perso", "role": None, "cm_role": "admin", "group_ids": None,
+    from src.models.cm import CmProfile
+    prof = await db.get(CmProfile, user.id)
+    out = [{"org_id": None, "name": (prof.perso_name if prof else None) or "Espace perso", "role": None, "cm_role": "admin", "group_ids": None,
             "owner": True, "owner_name": None, "accounts": await count(None, user.id)}]
     for o, m in rows:
         t = await cm_access.enrich(db, Tenant(o.id, None, m.role), user, m.role)
@@ -341,6 +347,34 @@ async def _fill_tiktok_usernames(db: AsyncSession, accounts, limit: int = 5) -> 
 ACCOUNT_SORTS = ("name", "followers", "views", "connected", "platform")
 
 
+async def _annotate_accounts(db: AsyncSession, user: User, accounts, out: list) -> None:
+    """Chaque compte porte son espace (org_id), son propriétaire, ses groupes et le rôle de la personne qui demande."""
+    from src.models.cm import CmGroupAccount
+    owners: dict = {}
+    keys = {(p, a.id) for p, a in accounts}
+    groups: dict = {}
+    if keys:
+        for gid, p, aid in (await db.execute(select(CmGroupAccount.group_id, CmGroupAccount.platform,
+                                                    CmGroupAccount.account_id))).all():
+            if (p, aid) in keys:
+                groups.setdefault((p, aid), []).append(gid)
+    tenants: dict = {}
+    for (p, a), v in zip(accounts, out):
+        k = (a.organization_id, a.owner_user_id)
+        if k not in owners:
+            uid = a.owner_user_id
+            if a.organization_id:
+                org = await db.get(Organization, a.organization_id)
+                uid = org.owner_user_id if org else None
+            u = await db.get(User, uid) if uid else None
+            owners[k] = {"name": (u.name or u.email) if u else None, "you": uid == user.id}
+            tenants[k] = await _tenant_of(db, user, a)
+        t = tenants[k]
+        v.update({"org_id": a.organization_id, "owner": owners[k]["name"], "mine": owners[k]["you"],
+                  "groups": sorted(groups.get((p, a.id), [])),
+                  "role": cm_access.role_for(t, p, a.id) if t is not None else "viewer"})
+
+
 def _sort_rows(rows: list, sort: str, order: str, value) -> list:
     """Tri stable, valeurs absentes toujours en fin de liste."""
     present = [r for r in rows if value(r) is not None]
@@ -361,6 +395,7 @@ async def list_accounts(org_id: Optional[int] = Query(None), days: int = Query(7
     await _fill_tiktok_usernames(db, accounts)
     stats = await _latest_stats_bulk(db, accounts, days)
     out = [cm.account_view(p, a, *stats.get((p, a.id), (None, None))) for p, a in accounts]
+    await _annotate_accounts(db, user, accounts, out)
     needle = (q or "").strip().lower().lstrip("@")
     if needle:
         out = [v for v in out if needle in " ".join(str(v.get(f) or "") for f in ("name", "handle", "username")).lower()]
@@ -1336,6 +1371,7 @@ async def _plan_targets(db: AsyncSession, tenant: Tenant, targets: list, title: 
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Un même compte est choisi deux fois.")
         seen.add(key)
         acc = await cm.get_account(db, tenant, t.platform, t.account_id)
+        cm_access.require_account(tenant, t.platform, acc.id, "edit")     # rôle par groupe partagé
         if not cm.can_publish(t.platform, acc):
             raise HTTPException(status.HTTP_409_CONFLICT,
                                 f"{cm.ACCOUNT_LABEL[t.platform]} « {cm.account_name(t.platform, acc)} » : publication "
@@ -1375,8 +1411,11 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
                                   asset.mime_type if asset else None, asset.duration_sec if asset else None, size,
                                   body.rights)
     # Stockage : un Drive relié obligatoire ; la vidéo envoyée doit tenir dans le stockage choisi pour ses comptes.
+    org = await db.get(Organization, tenant.org_id) if tenant.org_id else None
+    owner = await db.get(User, org.owner_user_id) if org and org.owner_user_id != user.id else None
     await cm_storage.check_create(db, tenant.org_id, tenant.owner_user_id, 0 if asset else size,
-                                  [(t.platform, t.account_id) for t, _, _ in planned])
+                                  [(t.platform, t.account_id) for t, _, _ in planned],
+                                  owner_name=(owner.name or owner.email) if owner else None)
     rights = {"rights": body.rights, "rights_note": (body.rights_note or "").strip() or None}
     if asset is not None:
         return await _create_from_asset(db, tenant, user, asset, title, body.caption, planned, ref, rights)
@@ -1888,6 +1927,7 @@ async def update_target(target_id: int, body: TargetPatch, db: AsyncSession = De
     commun du post ; les hashtags ne sont ajoutés que s'ils manquent."""
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
+    cm_access.require_account(tenant, t.platform, t.account_id, "edit")
     if t.status not in (T_DRAFT, T_SCHEDULED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication est déjà partie : elle ne peut plus être modifiée.")
     acc = await cm.get_account(db, tenant, t.platform, t.account_id)
@@ -1906,6 +1946,7 @@ async def update_target(target_id: int, body: TargetPatch, db: AsyncSession = De
 async def publish_now(target_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
+    cm_access.require_account(tenant, t.platform, t.account_id, "edit")
     if t.status != T_SCHEDULED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication n'est pas en attente.")
     t.scheduled_at = utcnow()
@@ -1922,6 +1963,7 @@ async def cancel_target(target_id: int, db: AsyncSession = Depends(get_db), user
     l'app TikTok (l'API ne le permet pas)."""
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
+    cm_access.require_account(tenant, t.platform, t.account_id, "edit")
     if t.status not in CANCELLABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette publication est déjà partie : elle ne peut plus être annulée.")
     t.status = T_CANCELLED
@@ -1939,6 +1981,7 @@ async def retry_target(target_id: int, body: RetryIn = RetryIn(), db: AsyncSessi
                        user: User = Depends(get_cm_user)):
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
+    cm_access.require_account(tenant, t.platform, t.account_id, "edit")
     if t.status != T_FAILED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Seule une publication en échec peut être relancée.")
     if post.status != POST_READY or not (post.media_path or post.asset_id or (post.archive or {}).get("video_id")):
@@ -1989,6 +2032,7 @@ async def mark_published(target_id: int, body: PublishedIn = PublishedIn(), db: 
     (lien facultatif, heure = maintenant par défaut)."""
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
+    cm_access.require_account(tenant, t.platform, t.account_id, "edit")
     if t.status != T_INBOX:
         raise HTTPException(status.HTTP_409_CONFLICT, "Seul un brouillon envoyé dans l'app TikTok peut être marqué publié.")
     url = (body.url or "").strip() or None
@@ -2012,6 +2056,7 @@ async def resend_draft(target_id: int, db: AsyncSession = Depends(get_db), user:
     """Brouillon TikTok supprimé dans l'app : renvoyé tout de suite (même vidéo, même légende, en brouillon)."""
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
+    cm_access.require_account(tenant, t.platform, t.account_id, "edit")
     if t.status != T_INBOX:
         raise HTTPException(status.HTTP_409_CONFLICT, "Seul un brouillon envoyé dans l'app TikTok peut être renvoyé.")
     if post.status != POST_READY or not (post.media_path or post.asset_id or (post.archive or {}).get("video_id")):
@@ -2068,6 +2113,7 @@ async def cover(target_id: int, exp: int, sig: str, db: AsyncSession = Depends(g
 async def _routine_target(db: AsyncSession, user: User, target_id: int) -> tuple[CmTarget, CmPost, InstagramAccount]:
     t, post, tenant = await _get_target(db, user, target_id)
     cm_access.require(tenant, "edit")
+    cm_access.require_account(tenant, t.platform, t.account_id, "edit")
     acc = await db.get(InstagramAccount, t.account_id) if t.platform == "instagram" else None
     if acc is None or acc.mode != IG_MODE_ROUTINE:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
