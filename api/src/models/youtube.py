@@ -72,6 +72,8 @@ class YouTubeAccount(Base):
     # Refresh refusé (invalid_grant : révoqué, mot de passe changé, app « en
     # test » au-delà de 7 jours…) : l'UI affiche « À reconnecter ».
     needs_reconnect = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # cm : n'accepter que des œuvres du domaine public sur cette chaîne (refus 422 rights_protected sinon).
+    public_domain_only = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     revoked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

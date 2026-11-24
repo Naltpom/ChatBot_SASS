@@ -279,7 +279,8 @@ def entry(post: CmPost, targets: list[CmTarget]) -> dict:
                              "publie_le": _local(t.published_at).isoformat() if t.published_at else None}
     return {"compte": compte, "id": rid, "titre": post.title,
             "heure": _local(first).isoformat() if first else None, "statut": post_statut(targets),
-            "publie_le": _local(max(published)).isoformat() if published else None, "plateformes": plats}
+            "publie_le": _local(max(published)).isoformat() if published else None, "plateformes": plats,
+            "droits": post.rights, "droits_note": post.rights_note}
 
 
 def _layout(post: CmPost, targets: list[CmTarget]) -> tuple[list[str], str, Optional[str]]:

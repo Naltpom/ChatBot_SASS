@@ -281,6 +281,7 @@ legend { font-weight: 600; font-size: 13.5px; margin-bottom: 6px; padding: 0; }
 .msg-err { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); }
 .msg-info { background: var(--info-bg); color: var(--text); }
 .msg-ok { background: var(--ok-bg); color: var(--ok); }
+.msg-warn { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
 .empty { text-align: center; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .empty .empty-ico { width: 56px; height: 56px; border-radius: 18px; background: var(--surface-2); display: grid; place-items: center; color: var(--muted); margin-bottom: 6px; }
 .skeleton { background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 12px; }
