@@ -2,7 +2,10 @@ import { Stack, useRouter, useSegments } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import * as SystemUI from 'expo-system-ui'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import type { ErrorBoundaryProps } from 'expo-router'
+import { installCrashHandler, onCrash, remember } from '../lib/crash'
+import { ErrorScreen } from '../ui/ErrorScreen'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SessionProvider, useSession } from '../lib/session'
@@ -11,6 +14,13 @@ import { useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
+installCrashHandler()
+
+/** Erreur d'affichage : message lisible au lieu d'une fermeture. */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => { remember(error); SplashScreen.hideAsync().catch(() => {}) }, [error])
+  return <ThemeProvider><ErrorScreen message={error.message} stack={String(error.stack || '').split('\n').slice(0, 8).join('\n')} onRetry={retry} /></ThemeProvider>
+}
 
 function Gate() {
   const { me, ready, spaces } = useSession()
@@ -59,6 +69,9 @@ function Gate() {
 }
 
 export default function RootLayout() {
+  const [fatal, setFatal] = useState<{ message: string; stack?: string } | null>(null)
+  useEffect(() => onCrash(e => { SplashScreen.hideAsync().catch(() => {}); setFatal(e) }), [])
+  if (fatal) return <ThemeProvider><ErrorScreen message={fatal.message} stack={fatal.stack} onRetry={() => setFatal(null)} /></ThemeProvider>
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
