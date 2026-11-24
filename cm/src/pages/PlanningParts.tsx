@@ -254,7 +254,6 @@ function EditInline({ item, onDone, onCancel }: { item: Extract<CalendarItem, { 
 }
 
 export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; group: Group | null; onClose: () => void; onChanged: () => void }) {
-  const { org } = useSession()
   const postId = (g.items.find(i => i.kind === 'target') as Extract<CalendarItem, { kind: 'target' }> | undefined)?.post_id
   const [post, setPost] = useState<Post | null>(null)
   const [asset, setAsset] = useState<Asset | null>(null)
@@ -269,7 +268,7 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
     getPost(postId).then(p => {
       setPost(p)
       const assetId = (p as Post & { asset_id?: number | null }).asset_id
-      if (assetId) getAsset(org, assetId).then(setAsset).catch(() => {})
+      if (assetId) getAsset(p.org_id ?? null, assetId).then(setAsset).catch(() => {})
     }).catch(() => {})
   }, [postId]) // eslint-disable-line react-hooks/exhaustive-deps
   const video = g.items.find(i => i.kind === 'video') as Extract<CalendarItem, { kind: 'video' }> | undefined

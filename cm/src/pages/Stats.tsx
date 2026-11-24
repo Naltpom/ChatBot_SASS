@@ -78,7 +78,7 @@ export default function Stats() {
   const st = useLoad(s => getStats(s, days, { q: acc.q || undefined, sort: acc.sort, order: acc.order }), [days, acc.q, acc.sort, acc.order])
   const top = useLoad(s => getVideos(s, { sort, days, limit: 12 }), [sort, days])
   const d = st.data
-  const { scope } = useSession()
+  const { scope, orgOf } = useSession()
   const [syncing, setSyncing] = useState<string | null>(null)
   const [syncMsg, setSyncMsg] = useState('')
   // Relit chaque compte affiché (Instagram : tous les Reels, une fois par heure et par compte).
@@ -88,7 +88,7 @@ export default function Stats() {
     let ok = 0, later = 0
     for (let i = 0; i < list.length; i++) {
       setSyncing(`${i + 1}/${list.length}`)
-      try { await syncAccount(scope.org, list[i]); ok++ } catch { later++ }
+      try { await syncAccount(orgOf(list[i].platform, list[i].id), list[i]); ok++ } catch { later++ }
     }
     setSyncing(null)
     setSyncMsg(`${ok} compte${ok > 1 ? 's' : ''} actualisé${ok > 1 ? 's' : ''}${later ? ` · ${later} déjà actualisé${later > 1 ? 's' : ''} il y a peu` : ''}.`)

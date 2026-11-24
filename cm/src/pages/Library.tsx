@@ -329,11 +329,14 @@ export default function Library() {
   const list = sources.data || []
   const { canAdmin } = useRole()
   const enabled = robot.data?.enabled && canAdmin
+  const { spaces, org: where } = useSession()
+  const sp = spaces.find(x => x.org_id === where)
+  const owner = sp && sp.org_id != null ? (sp.owner ? sp.name : sp.owner_name || sp.name) : null
 
   return (
     <>
       <div className="page-head">
-        <div><h1>Bibliothèque</h1><p>Les vidéos de vos dossiers Google Drive, prêtes à programmer.</p></div>
+        <div><h1>Bibliothèque</h1><p>Les vidéos de vos dossiers Google Drive, prêtes à programmer.{owner ? <> Comptes de <b>{owner}</b> (choisissez un groupe ou un compte en haut des pages pour changer).</> : null}</p></div>
         {enabled && <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}><Icon name="plus" />Ajouter un dossier Drive</button>}
       </div>
       {flash && <Msg kind="ok">{flash}</Msg>}

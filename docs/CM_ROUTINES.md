@@ -199,7 +199,8 @@ premier compte connecté et peut être renommé.
   Un périmètre combiné est **en lecture seule** : une écriture se fait avec l'`org_id` du compte (403 sinon).
   Sans `scope`, rien ne change (`org_id`, `group_id`, `account` comme avant).
 - Chaque compte (`GET /accounts`) porte `org_id`, `owner` (nom du propriétaire), `mine`, `groups` et `role` (le mien).
-  Chaque publication porte `org_id`.
+  Chaque publication, chaque groupe (`GET /groups?scope=all` : tous mes groupes et ceux partagés avec moi) et chaque
+  brouillon « à valider » porte `org_id` : c'est l'`org_id` à passer pour agir dessus.
 - **Rôle par compte** : `GET /me/capabilities` → `{can_publish_any, accounts: [{key: "tiktok:7", platform, id, org_id,
   role: "admin"|"editor"|"viewer", owner, mine}]}` (où afficher « + », quels comptes proposer à la publication).
   Le rôle d'un compte vient du partage de son groupe (le plus haut s'il est dans plusieurs groupes) ; il est vérifié

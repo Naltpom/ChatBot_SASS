@@ -207,11 +207,14 @@ function StorageRow({ s, canAdmin, accounts, groups, first, last, onMove, onSave
 export function StorageGate() {
   const { spaces, org } = useSession()
   const { canAdmin } = useRole()
-  const s = spaces.find(x => x.org_id === org)?.storage
+  const sp = spaces.find(x => x.org_id === org)
+  const s = sp?.storage
   const key = `cm.storage-gate.${org ?? 'perso'}`
   const [seen, setSeen] = useState(() => { try { return sessionStorage.getItem(key) === '1' } catch { return false } })
   const [err, setErr] = useState('')
-  if (!s) return null
+  // Le Drive est celui du propriétaire des comptes : rien à demander à qui n'a pas de comptes à lui
+  // (comptes partagés avec moi : c'est leur propriétaire qui range les vidéos).
+  if (!s || !canAdmin || !(sp?.accounts || 0)) return null
   const later = () => { try { sessionStorage.setItem(key, '1') } catch { /* */ } setSeen(true) }
   if (s.state === 'missing') {
     return seen ? (
@@ -230,9 +233,7 @@ export function StorageGate() {
             <li>Sans Drive relié, impossible de créer une publication.</li>
           </ul>
           {err && <Msg kind="err">{err}</Msg>}
-          {canAdmin
-            ? <button type="button" className="btn btn-primary" onClick={() => connectDrive(org, setErr)}>Connecter Google Drive</button>
-            : <Msg>Demandez à un administrateur de l’espace de connecter un Google Drive.</Msg>}
+          <button type="button" className="btn btn-primary" onClick={() => connectDrive(org, setErr)}>Connecter Google Drive</button>
           <button type="button" className="btn btn-ghost" onClick={later}>Plus tard</button>
         </div>
       </Sheet>

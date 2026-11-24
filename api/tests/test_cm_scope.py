@@ -23,6 +23,7 @@ async def test_group_sharing_scope_and_roles(pg_session, cmenv, tiktok):
     async with Client(pg_session) as c:
         ha = c.as_(a)
         g = (await ha.post("/api/cm/groups", json={"name": "Musique", "accounts": [{"platform": "tiktok", "account_id": a1.id}]})).json()
+        await ha.post("/api/cm/groups", json={"name": "Privé", "accounts": [{"platform": "tiktok", "account_id": a2.id}]})
         # A partage le groupe à B en lecture seule : une équipe est créée en arrière-plan, B voit une invitation.
         r = await ha.post(f"/api/cm/groups/{g['id']}/shares", json={"email": "b@t.dev", "role": "viewer"})
         assert r.status_code == 200 and r.json()["status"] == "pending"
@@ -43,6 +44,9 @@ async def test_group_sharing_scope_and_roles(pg_session, cmenv, tiktok):
         shared = rows[f"tiktok:{a1.id}"]
         assert shared["org_id"] == org_id and shared["role"] == "viewer" and shared["mine"] is False and g["id"] in shared["groups"]
         assert rows[f"tiktok:{b1.id}"]["role"] == "admin" and rows[f"tiktok:{b1.id}"]["mine"] is True
+        # Groupes de « Tous » : seulement le groupe partagé (pas « Privé »), avec son org_id.
+        gl = (await hb.get("/api/cm/groups?scope=all")).json()
+        assert [(x["name"], x["org_id"]) for x in gl] == [("Musique", org_id)]
         # Périmètre précis, vérifié élément par élément.
         one = (await hb.get(f"/api/cm/accounts?scope=org:{org_id}/group:{g['id']}")).json()
         assert [x["id"] for x in one] == [a1.id]

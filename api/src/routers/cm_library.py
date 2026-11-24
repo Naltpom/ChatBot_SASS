@@ -444,7 +444,7 @@ async def save_recipe(source_id: int, body: RecipeIn, org_id: Optional[int] = Qu
 async def _proposal_out(db: AsyncSession, p: CmProposal, names: dict[str, str]) -> dict:
     a = await db.get(CmAsset, p.asset_id)
     src = await db.get(CmSource, p.source_id)
-    return {"id": p.id, "status": p.status, "title": p.title, "caption": p.caption,
+    return {"id": p.id, "org_id": p.organization_id, "status": p.status, "title": p.title, "caption": p.caption,
             "scheduled_at": cm.iso(p.scheduled_at), "when_from": p.when_from,
             "accounts": [{"key": k, "name": names.get(k), "platform": k.split(":")[0]} for k in p.accounts or [] if k in names],
             "asset": lib.asset_out(a, src) if a else None, "created_at": cm.iso(p.created_at)}
