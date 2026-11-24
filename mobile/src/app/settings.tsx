@@ -7,6 +7,7 @@ import { call } from '../lib/http'
 import { disablePush, enablePush, getPush, pushUnsupported, setPushPrefs, type PushPrefs, type PushState } from '../lib/push'
 import { fmtAgo } from '../lib/format'
 import { useSession } from '../lib/session'
+import { useLock } from '../lib/lock'
 import { Button, Card, Divider, Label, Msg, Row, Screen, Seg, Txt } from '../ui/kit'
 import { space, useTheme, type ThemePref } from '../ui/theme'
 
@@ -51,6 +52,8 @@ export default function Settings() {
     { text: 'Déconnecter', style: 'destructive', onPress: async () => { await call(`/api/cm/mobile/devices/${d.id}`, { method: 'DELETE' }); load() } },
   ])
   const unsupported = pushUnsupported()
+  const lock = useLock()
+  const [lockMsg, setLockMsg] = useState<string | null>(null)
 
   return (
     <Screen>
@@ -58,6 +61,17 @@ export default function Settings() {
         <Label>Apparence</Label>
         <Seg<ThemePref> label="Thème" value={pref} onChange={setPref}
           options={[['system', 'Comme le téléphone'], ['light', 'Clair'], ['dark', 'Sombre']]} />
+      </Card>
+
+      <Card>
+        <Label>Sécurité</Label>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}><Txt bold>Verrouiller avec {lock.label.toLowerCase()}</Txt><Txt small muted>À l’ouverture et au retour dans l’app après une minute.</Txt></View>
+          <Switch value={lock.enabled} onValueChange={async v => setLockMsg(await lock.setEnabled(v))} accessibilityLabel="Verrouiller l’app"
+            trackColor={{ true: c.primary }} />
+        </Row>
+        {!lock.supported ? <Txt small muted>Disponible dans l’app installée, avec une empreinte ou un visage enregistré sur le téléphone.</Txt> : null}
+        {lockMsg ? <Msg kind="err">{lockMsg}</Msg> : null}
       </Card>
 
       <Card>

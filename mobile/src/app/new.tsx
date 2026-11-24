@@ -6,6 +6,7 @@ import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import { File } from 'expo-file-system'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { useSharedVideo } from '../lib/share'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -60,7 +61,8 @@ export default function NewPost() {
   const { c } = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const params = useLocalSearchParams<{ asset?: string; proposal?: string }>()
+  const params = useLocalSearchParams<{ asset?: string; proposal?: string; shared?: string }>()
+  const sharedVideo = useSharedVideo()
   const { org, config, groups, group: currentGroup, account: currentAccount, refresh: refreshSession } = useSession()
   // Rôle relu à l'ouverture (un administrateur a pu le changer depuis).
   useEffect(() => { refreshSession() }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -151,6 +153,19 @@ export default function NewPost() {
   }, [accounts.data, currentGroup, currentAccount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = <T extends Opts>(k: string, patch: Partial<T>) => setOpts(o => ({ ...o, [k]: { ...(o[k] as T), ...patch } }))
+
+  // Vidéo reçue par « Partager → Chapote CM ».
+  useEffect(() => {
+    const f = sharedVideo.file
+    if (!f) return
+    const name = fileNameOf(f.path, f.fileName || null, f.mimeType || null)
+    let size = f.size || 0
+    if (!size) { try { size = new File(f.path).size || 0 } catch { /* taille inconnue */ } }
+    setVideo({ uri: f.path, name, size, duration: f.duration != null ? f.duration / 1000 : null, mime: f.mimeType || null })
+    setAsset(null); setErr('')
+    setTitle(t => t.trim() ? t : titleFromFile(name))
+    sharedVideo.reset()
+  }, [sharedVideo.file]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickVideo = async () => {
     try {

@@ -71,6 +71,23 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.55021064822-c4j1dhecm58ajbbpq2o3gt0s3h66rajc"
         }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Déverrouiller Chapote CM avec Face ID."
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": [
+            "video/*"
+          ],
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsMovieWithMaxCount": 1
+          }
+        }
       ]
     ],
     "experiments": {

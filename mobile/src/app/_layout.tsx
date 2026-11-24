@@ -10,6 +10,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SessionProvider, useSession } from '../lib/session'
 import { usePushRouting } from '../lib/push'
+import { LockProvider } from '../lib/lock'
+import { ShareProvider, useSharedVideo } from '../lib/share'
 import { useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
 
@@ -29,6 +31,11 @@ function Gate() {
   const router = useRouter()
   usePushRouting()
   useAppUpdate()
+  // Vidéo partagée depuis la galerie : nouvelle publication avec ce fichier (une fois connecté).
+  const shared = useSharedVideo()
+  useEffect(() => {
+    if (ready && me && shared.file && segments[0] !== 'new') router.push({ pathname: '/new', params: { shared: '1' } })
+  }, [ready, me, shared.file]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { SystemUI.setBackgroundColorAsync(c.bg).catch(() => {}) }, [c.bg])
   useEffect(() => {
@@ -77,9 +84,13 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <SessionProvider>
-            <Gate />
-          </SessionProvider>
+          <ShareProvider>
+            <SessionProvider>
+              <LockProvider>
+                <Gate />
+              </LockProvider>
+            </SessionProvider>
+          </ShareProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
