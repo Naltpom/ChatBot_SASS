@@ -1,31 +1,27 @@
-// Après l'inscription ou la 1re connexion sur ce téléphone, une seule fois : notifications, verrouillage par
-// empreinte / visage, double authentification. Tout est facultatif (« Plus tard »).
+// « Sécuriser votre compte », une fois après la connexion : trois interrupteurs, rien de plus.
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { useFocusEffect, useRouter } from 'expo-router'
-import { useCallback, useState } from 'react'
-import { View } from 'react-native'
+import { useRouter } from 'expo-router'
+import { useEffect, useState } from 'react'
+import { Switch, View } from 'react-native'
 import { call } from '../lib/http'
 import { useLock } from '../lib/lock'
-import { enablePush, pushUnsupported } from '../lib/push'
+import { onboardedKey } from '../lib/onboarding'
+import { disablePush, enablePush, getPush, pushUnsupported } from '../lib/push'
 import { useSession } from '../lib/session'
-import { Button, Card, H1, Icon, Msg, Row, Screen, Txt, type IconName } from '../ui/kit'
+import { TwoFASheet } from '../features/TwoFASheet'
+import { Button, Card, Divider, H1, Msg, Row, Screen, Txt } from '../ui/kit'
 import { space, useTheme } from '../ui/theme'
 
-import { onboardedKey } from '../lib/onboarding'
-
-function Step({ icon, title, text, done, action }: { icon: IconName; title: string; text: string; done: boolean; action: React.ReactNode }) {
+function Line({ title, hint, value, onChange, disabled }: { title: string; hint?: string | null; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   const { c } = useTheme()
   return (
-    <Card>
-      <Row gap={space.md}>
-        <Icon name={done ? 'check' : icon} size={24} color={done ? c.ok : c.text} />
-        <View style={{ flex: 1 }}>
-          <Txt bold>{title}</Txt>
-          <Txt small muted>{text}</Txt>
-        </View>
-      </Row>
-      {done ? null : action}
-    </Card>
+    <Row style={{ justifyContent: 'space-between', minHeight: 56 }}>
+      <View style={{ flex: 1 }}>
+        <Txt bold>{title}</Txt>
+        {hint ? <Txt small muted>{hint}</Txt> : null}
+      </View>
+      <Switch value={value} onValueChange={onChange} disabled={disabled} accessibilityLabel={title} trackColor={{ true: c.primary }} />
+    </Row>
   )
 }
 
@@ -35,36 +31,39 @@ export default function Onboarding() {
   const lock = useLock()
   const [push, setPush] = useState(false)
   const [twofa, setTwofa] = useState(false)
+  const [sheet, setSheet] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
-  // Relu au retour de l'écran de double authentification.
-  useFocusEffect(useCallback(() => { call<{ enabled: boolean }>('/api/auth/2fa/status').then(s => setTwofa(s.enabled)).catch(() => {}) }, []))
+  useEffect(() => {
+    getPush().then(p => setPush(p.enabled)).catch(() => {})
+    call<{ totp_enabled: boolean }>('/api/auth/2fa/status').then(s => setTwofa(s.totp_enabled)).catch(() => {})
+  }, [])
+  const noPush = pushUnsupported()
 
+  const togglePush = async (v: boolean) => {
+    setMsg(null)
+    if (!v) { setPush((await disablePush().catch(() => ({ enabled: false }))).enabled); return }
+    const r = await enablePush()
+    if (typeof r === 'string') setMsg(r); else setPush(r.enabled)
+  }
   const finish = async () => {
     if (me) await AsyncStorage.setItem(onboardedKey(me.id), '1').catch(() => {})
     router.replace('/')
   }
-  const noPush = pushUnsupported()
 
   return (
     <Screen>
-      <View style={{ gap: space.sm, paddingTop: space.md }}>
-        <H1>Sécuriser votre compte</H1>
-        <Txt muted>Trois réglages rapides, tous facultatifs. Vous les retrouvez dans Réglages.</Txt>
-      </View>
+      <View style={{ paddingTop: space.md }}><H1>Sécuriser votre compte</H1></View>
       {msg ? <Msg kind="err">{msg}</Msg> : null}
-      <Step icon="bell" title="Notifications" done={push}
-        text={noPush || 'Vidéo publiée, échec, brouillon TikTok, nouveaux commentaires.'}
-        action={noPush ? null : <Button kind="primary" title="Activer les notifications" onPress={async () => {
-          const r = await enablePush(); if (typeof r === 'string') setMsg(r); else setPush(r.enabled)
-        }} />} />
-      <Step icon="shield" title={`Déverrouiller avec ${lock.label.toLowerCase()}`} done={lock.enabled}
-        text={lock.supported ? 'Demandé à l’ouverture et au retour dans l’app après une minute.' : 'Aucune empreinte ni visage enregistré sur ce téléphone (ou Expo Go).'}
-        action={lock.supported ? <Button title="Activer" onPress={async () => { const e = await lock.setEnabled(true); if (e) setMsg(e) }} /> : null} />
-      <Step icon="eye-off" title="Double authentification" done={twofa}
-        text="Un code de votre application d’authentification en plus, à chaque connexion."
-        action={<Button title="Configurer" onPress={() => router.push({ pathname: '/account', params: { section: '2fa' } })} />} />
-      <Txt small muted>Cet appareil reste connecté tant que vous ouvrez l’app au moins une fois tous les 7 jours (vous êtes prévenu la veille).</Txt>
+      <Card>
+        <Line title="Notifications" hint={noPush} value={push} onChange={togglePush} disabled={!!noPush} />
+        <Divider />
+        <Line title={`Déverrouillage par ${lock.label.toLowerCase()}`} hint={lock.supported ? null : 'Indisponible sur ce téléphone.'}
+          value={lock.enabled} disabled={!lock.supported} onChange={async v => { const e = await lock.setEnabled(v); if (e) setMsg(e) }} />
+        <Divider />
+        <Line title="Double authentification" value={twofa} onChange={() => setSheet(true)} />
+      </Card>
       <Button kind="primary" title="Continuer" onPress={finish} />
+      <TwoFASheet visible={sheet} enabled={twofa} onClose={() => setSheet(false)} onChanged={setTwofa} />
     </Screen>
   )
 }
