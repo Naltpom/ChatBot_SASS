@@ -91,8 +91,39 @@ class _Audience:
         return out
 
 
+IDLE_WARN = timedelta(days=6)
+IDLE_LIMIT = timedelta(days=7)
+
+
+async def idle_messages(db: AsyncSession) -> list[dict]:
+    """Appareils non ouverts depuis 6 jours : prévenus une fois ; depuis 7 jours : déconnectés (jeton de
+    notifications retiré) avec un dernier message."""
+    now = utcnow()
+    out: list[dict] = []
+    rows = (await db.execute(select(CmMobileDevice).where(
+        CmMobileDevice.push_token.is_not(None), CmMobileDevice.revoked_at.is_(None),
+        CmMobileDevice.last_used_at.is_not(None), CmMobileDevice.last_used_at <= now - IDLE_WARN))).scalars().all()
+    for d in rows:
+        if now - d.last_used_at > IDLE_LIMIT:
+            out.append({"to": d.push_token, "title": "Déconnecté de Chapote CM",
+                        "body": "7 jours sans ouvrir l’app : reconnectez-vous pour recevoir à nouveau les notifications.",
+                        "data": {"type": "idle_logout"}, "sound": "default", "_device": d.id})
+            d.revoked_at, d.push_token = now, None
+        elif await _reserve(db, "idle", d.id):
+            out.append({"to": d.push_token, "title": "Ouvrez Chapote CM",
+                        "body": "Sans ouverture d’ici demain, cet appareil sera déconnecté et ne recevra plus de notifications.",
+                        "data": {"type": "idle_warning"}, "sound": "default", "_device": d.id})
+    await db.commit()
+    return out
+
+
 async def collect(db: AsyncSession) -> list[dict]:
     """Messages à envoyer (et événements réservés). Ne fait aucun appel réseau."""
+    idle = await idle_messages(db)
+    return idle + await _collect_events(db)
+
+
+async def _collect_events(db: AsyncSession) -> list[dict]:
     devices = (await db.execute(select(CmMobileDevice).where(
         CmMobileDevice.push_token.is_not(None), CmMobileDevice.revoked_at.is_(None)))).scalars().all()
     if not devices:

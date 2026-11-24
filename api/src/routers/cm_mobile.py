@@ -37,7 +37,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, 
 from fastapi.responses import HTMLResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -53,6 +53,8 @@ router = APIRouter(prefix="/api/cm/mobile", tags=["cm-mobile"])
 CODE_SCOPE = "cm_mobile_code"
 CODE_TTL = timedelta(minutes=3)
 SESSION_TTL = timedelta(hours=1)
+# Appareil gardé connecté tant que l'app est ouverte au moins une fois tous les 7 jours (prévenu la veille).
+IDLE_LIMIT = timedelta(days=7)
 # Schémas de retour acceptés : l'app (build) et Expo Go (développement).
 REDIRECT_RE = re.compile(r"^(chapotecm|exp|exps)://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{1,300}$")
 CHALLENGE_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
@@ -103,6 +105,10 @@ async def _device(db: AsyncSession, token: str) -> CmMobileDevice:
         CmMobileDevice.token_hash == _hash(token)))).scalar_one_or_none()
     if dev is None or dev.revoked_at is not None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Appareil déconnecté : reconnectez-vous.")
+    if dev.last_used_at is not None and utcnow() - dev.last_used_at > IDLE_LIMIT:
+        dev.revoked_at, dev.push_token = utcnow(), None
+        await db.commit()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Déconnecté après 7 jours sans ouvrir l'app : reconnectez-vous.")
     return dev
 
 
@@ -340,6 +346,9 @@ async def refresh(body: RefreshIn, request: Request, db: AsyncSession = Depends(
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Compte désactivé.")
     dev.last_used_at = utcnow()
+    # Ouverte à nouveau : le prochain avertissement « déconnexion demain » pourra repartir.
+    from src.models.cm_mobile import CmPushEvent
+    await db.execute(delete(CmPushEvent).where(CmPushEvent.kind == "idle", CmPushEvent.ref_id == dev.id))
     await db.commit()
     return {"session": _session_token(user.id), "expires_in": int(SESSION_TTL.total_seconds()), "user": _user_out(user)}
 

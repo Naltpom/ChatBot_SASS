@@ -292,3 +292,52 @@ async def test_pending_pickup_when_return_link_fails(pg_session, cmenv):
         assert r.json()["user"]["email"] == "a@t.dev" and r.json()["refresh_token"]
         # Une seule fois.
         assert (await anon.post("/api/cm/mobile/token/pending", json={"verifier": verifier})).status_code == 404
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_idle_device_warned_then_logged_out(pg_session, cmenv):
+    """7 jours sans ouvrir l'app : prévenu la veille (une fois), puis déconnecté (refresh 401, plus de notifications)."""
+    db = pg_session
+    a = await _user(db, "a@t.dev")
+    await db.commit()
+    async with Client(db) as c:
+        token = (await c.as_(a).post("/api/cm/mobile/devices", json={})).json()["refresh_token"]
+        c.http.cookies.clear()
+        dev = (await db.execute(select(CmMobileDevice))).scalar_one()
+        dev.push_token = PUSH
+        dev.last_used_at = utcnow() - timedelta(days=6, hours=1)
+        await db.commit()
+
+        msgs = await cm_push.collect(db)
+        assert [m["data"]["type"] for m in msgs] == ["idle_warning"]
+        assert await cm_push.collect(db) == []                       # une seule fois
+
+        # Ouverte entre-temps : l'avertissement pourra repartir plus tard.
+        assert (await c.http.post("/api/cm/mobile/refresh", json={"refresh_token": token})).status_code == 200
+        assert (await db.execute(select(CmPushEvent).where(CmPushEvent.kind == "idle"))).scalars().first() is None
+
+        await db.refresh(dev)
+        dev.last_used_at = utcnow() - timedelta(days=7, hours=1)
+        await db.commit()
+        msgs = await cm_push.collect(db)
+        assert [m["data"]["type"] for m in msgs] == ["idle_logout"] and msgs[0]["to"] == PUSH
+        await db.refresh(dev)
+        assert dev.revoked_at is not None and dev.push_token is None
+        r = await c.http.post("/api/cm/mobile/refresh", json={"refresh_token": token})
+        assert r.status_code == 401
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_idle_device_refused_on_refresh_without_push(pg_session, cmenv):
+    a = await _user(pg_session, "a@t.dev")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        token = (await c.as_(a).post("/api/cm/mobile/devices", json={})).json()["refresh_token"]
+        c.http.cookies.clear()
+        dev = (await pg_session.execute(select(CmMobileDevice))).scalar_one()
+        dev.last_used_at = utcnow() - timedelta(days=8)
+        await pg_session.commit()
+        r = await c.http.post("/api/cm/mobile/refresh", json={"refresh_token": token})
+        assert r.status_code == 401 and "7 jours" in r.json()["detail"]
