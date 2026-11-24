@@ -63,14 +63,15 @@ def _free(link: CmDriveLink) -> Optional[int]:
 
 def compute(link: Optional[CmDriveLink], used: int) -> dict:
     if link is None:
-        return {"connected": False, "email": None, "quota_gb": None, "used_bytes": used, "drive_free_bytes": None,
+        return {"connected": False, "email": None, "folder_url": None, "quota_gb": None, "used_bytes": used, "drive_free_bytes": None,
                 "retention": None, "delete_after_days": None, "state": "missing", "max_quota_gb": None}
     free = _free(link)
     quota = link.quota_gb * GB if link.quota_gb else None
     full = (quota is not None and used >= quota) or (free is not None and free <= 0)
     almost = (quota is not None and used >= ALMOST * quota) or \
         (link.drive_limit is not None and (link.drive_usage or 0) >= ALMOST * link.drive_limit)
-    return {"connected": True, "email": link.email, "quota_gb": link.quota_gb, "used_bytes": used,
+    folder = f"https://drive.google.com/drive/folders/{link.root_folder_id}" if link.root_folder_id else None
+    return {"connected": True, "email": link.email, "folder_url": folder, "quota_gb": link.quota_gb, "used_bytes": used,
             "drive_free_bytes": free, "retention": link.retention, "delete_after_days": link.delete_after_days,
             "state": "full" if full else "almost_full" if almost else "ok",
             "max_quota_gb": None if free is None else (used + free) // GB}
