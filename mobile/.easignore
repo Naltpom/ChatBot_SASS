@@ -1,0 +1,10 @@
+*.log
+.env*
+.expo/
+android/
+dist/
+ios/
+node_modules/
+qr-*.png
+qr-expo-go.png
+web-build/
