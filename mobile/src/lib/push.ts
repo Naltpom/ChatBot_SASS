@@ -58,6 +58,18 @@ export async function enablePush(): Promise<PushState | string> {
   }
 }
 
+/** Connexion d'un compte : si le téléphone a déjà autorisé les notifications (autre compte avant), elles sont
+ *  activées pour ce compte aussi, sans rien demander. */
+export async function autoEnablePush(): Promise<void> {
+  if (pushUnsupported()) return
+  const { status } = await Notifications.getPermissionsAsync().catch(() => ({ status: 'undetermined' as const }))
+  if (status !== 'granted') return
+  try {
+    const cur = await getPush()
+    if (!cur.enabled) await enablePush()
+  } catch { /* sans réseau : ce sera au prochain essai */ }
+}
+
 /** Toucher une notification ouvre la publication ou les commentaires. */
 export function usePushRouting() {
   const router = useRouter()

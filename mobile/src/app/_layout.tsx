@@ -9,7 +9,7 @@ import { ErrorScreen } from '../ui/ErrorScreen'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SessionProvider, useSession } from '../lib/session'
-import { usePushRouting } from '../lib/push'
+import { autoEnablePush, usePushRouting } from '../lib/push'
 import { LockProvider } from '../lib/lock'
 import { laterAt } from '../features/storage'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -40,6 +40,7 @@ function Gate() {
   const router = useRouter()
   usePushRouting()
   useAppUpdate()
+  useEffect(() => { if (me?.id) autoEnablePush() }, [me?.id])
   // Espace sans Drive (obligatoire pour publier) : écran « Connecter votre Google Drive » une fois par jour au plus.
   const storageState = spaces.find(s => s.org_id === org)?.storage?.state
   useEffect(() => {
