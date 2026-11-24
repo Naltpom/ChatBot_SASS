@@ -63,6 +63,7 @@ function Gate() {
         <Stack.Screen name="drafts" options={{ title: 'Brouillons à valider' }} />
         <Stack.Screen name="videos" options={{ title: 'Vidéos' }} />
         <Stack.Screen name="settings" options={{ title: 'Réglages' }} />
+        <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
       </Stack>
     </>
   )

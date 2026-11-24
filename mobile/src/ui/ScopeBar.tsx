@@ -1,25 +1,31 @@
 // En-tête des onglets : espace (perso / équipe), groupe ou compte affiché, accès aux comptes et réglages.
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Pressable, View } from 'react-native'
+import { Alert, Pressable, View } from 'react-native'
+import { call } from '../lib/http'
+import type { Space } from '../lib/api'
 import { PLATFORM_LABEL } from '../lib/api'
 import { useSession } from '../lib/session'
-import { Avatar, Chip, GroupDot, Icon, IconButton, Label, Row, SearchField, Sheet, Txt } from './kit'
+import { Avatar, Button, Chip, GroupDot, Icon, IconButton, Label, Row, SearchField, Sheet, Txt } from './kit'
 import { space, useTheme } from './theme'
+
+/** Espace perso : « Mon espace » ; équipe : son nom et le rôle quand on n'y est pas administrateur. */
+export const spaceName = (s: Space) => s.org_id == null ? 'Mon espace'
+  : s.cm_role && s.cm_role !== 'admin' ? `${s.name} (${s.cm_role === 'viewer' ? 'lecture' : 'publication'})` : s.name
 
 export function ScopeTitle() {
   const { c } = useTheme()
-  const { visibleSpaces, org, group, account, accounts } = useSession()
+  const { spaces, org, group, account, accounts } = useSession()
   const [open, setOpen] = useState(false)
-  const space_ = visibleSpaces.find(s => s.org_id === org)
+  const space_ = spaces.find(s => s.org_id === org)
   const acc = account ? accounts.find(a => `${a.platform}:${a.id}` === account) : null
   const sub = acc ? (acc.name || acc.username || PLATFORM_LABEL[acc.platform]) : group ? group.name : 'Tous les comptes'
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={`Espace ${space_?.name || 'perso'}, ${sub}. Changer`}
+      <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={`Espace ${space_ ? spaceName(space_) : 'Mon espace'}, ${sub}. Changer`}
         style={{ minHeight: 44, justifyContent: 'center', maxWidth: 260 }}>
         <Row gap={4}>
-          <Txt bold size={17} numberOfLines={1}>{space_?.name || 'Mon espace'}</Txt>
+          <Txt bold size={17} numberOfLines={1}>{space_ ? spaceName(space_) : 'Mon espace'}</Txt>
           <Icon name="down" size={16} color={c.muted} />
         </Row>
         <Row gap={6}>
@@ -44,21 +50,33 @@ export function HeaderActions() {
 
 export function ScopeSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { c } = useTheme()
-  const { visibleSpaces, org, setOrg, groups, group, setGroup, account, setAccount, accounts } = useSession()
+  const { spaces, org, setOrg, groups, group, setGroup, account, setAccount, accounts, refresh } = useSession()
   const [q, setQ] = useState('')
+  const current = spaces.find(s => s.org_id === org)
+  const leave = (id: number, name: string) => Alert.alert(`Quitter « ${name} » ?`,
+    'Vous ne verrez plus ses comptes, son planning ni sa bibliothèque. Un administrateur pourra vous réinviter.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Quitter', style: 'destructive', onPress: async () => {
+        try { await call('/api/orgs/' + id + '/leave', { method: 'POST' }); setOrg(null); await refresh(); onClose() }
+        catch (e: any) { Alert.alert('Impossible de quitter', e?.message || 'Erreur') }
+      } },
+    ])
   const needle = q.trim().toLowerCase()
   const shown = accounts.filter(a => !needle || `${a.name || ''} ${a.username || ''} ${a.handle || ''} ${a.platform}`.toLowerCase().includes(needle))
   const pick = (fn: () => void) => { fn(); onClose() }
   return (
     <Sheet visible={visible} title="Afficher" onClose={onClose}>
-      {visibleSpaces.length > 1 ? (
+      {spaces.length > 1 ? (
         <View style={{ gap: space.sm }}>
           <Label>Espace</Label>
           <Row wrap>
-            {visibleSpaces.map(s => (
-              <Chip key={String(s.org_id)} label={s.name} selected={s.org_id === org} onPress={() => setOrg(s.org_id)} />
+            {spaces.map(s => (
+              <Chip key={String(s.org_id)} label={spaceName(s)} selected={s.org_id === org} onPress={() => setOrg(s.org_id)} />
             ))}
           </Row>
+          {current && current.org_id != null && !current.owner ? (
+            <Button small kind="danger" title={`Quitter « ${current.name} »`} onPress={() => leave(current.org_id as number, current.name)} />
+          ) : null}
         </View>
       ) : null}
       <View style={{ gap: space.sm }}>

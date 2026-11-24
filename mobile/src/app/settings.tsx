@@ -104,6 +104,7 @@ export default function Settings() {
         <Label>Compte</Label>
         <Txt>{me?.name}</Txt>
         <Txt small muted>{me?.email}</Txt>
+        <Button title="Mon compte : mot de passe, double authentification, confidentialité" icon="shield" onPress={() => router.push('/account')} />
         <Button kind="danger" icon="logout" title="Se déconnecter" onPress={() => Alert.alert('Se déconnecter ?', '', [
           { text: 'Annuler', style: 'cancel' }, { text: 'Se déconnecter', style: 'destructive', onPress: () => { signOut() } },
         ])} />

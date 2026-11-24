@@ -61,7 +61,9 @@ export default function NewPost() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const params = useLocalSearchParams<{ asset?: string; proposal?: string }>()
-  const { org, config, groups, group: currentGroup, account: currentAccount } = useSession()
+  const { org, config, groups, group: currentGroup, account: currentAccount, refresh: refreshSession } = useSession()
+  // Rôle relu à l'ouverture (un administrateur a pu le changer depuis).
+  useEffect(() => { refreshSession() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const { canEdit } = useRole()
   const accounts = useLoad(s => getAccounts({ org: s.org, group: null }), [], 'compose-all')
   const robot = useLoad(() => getRobot().catch(() => null), [], 'robot')

@@ -50,12 +50,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [groupId, setGroupId] = useState<number | null>(null)
   const [account, setAccountState] = useState<string | null>(null)
   const loaded = useRef(false)
+  // Espace choisi à la main (perso compris) : jamais remplacé automatiquement.
+  const chosen = useRef(false)
 
   const refresh = useCallback(async () => {
     try {
       if (!loaded.current) {
         loaded.current = true
-        const o = await readNum(ORG_KEY)
+        const raw = await AsyncStorage.getItem(ORG_KEY).catch(() => null)
+        chosen.current = raw != null
+        const o = raw && raw !== 'perso' ? Number(raw) || null : null
         setOrgState(o)
         setGroupId(await readNum(groupKey(o)))
         setAccountState(await AsyncStorage.getItem(accountKey(o)).catch(() => null))
@@ -69,11 +73,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setOrgState(cur => {
         let next = cur != null && !s.some(x => x.org_id === cur) ? null : cur
         const here = s.find(x => x.org_id === next)
-        if (here && !here.accounts) {
+        if (here && !here.accounts && !chosen.current) {
           const other = s.find(x => x.org_id !== next && (x.accounts || 0) > 0)
           if (other) next = other.org_id
         }
-        if (next !== cur) write(ORG_KEY, next)
+        if (next !== cur) write(ORG_KEY, next ?? (chosen.current ? 'perso' : null))
         return next
       })
     } catch (e: any) {
@@ -104,8 +108,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [me, refresh, reloadGroups])
 
   const setOrg = (v: number | null) => {
+    chosen.current = true
     setOrgState(v)
-    write(ORG_KEY, v)
+    write(ORG_KEY, v ?? 'perso')
     readNum(groupKey(v)).then(setGroupId)
     AsyncStorage.getItem(accountKey(v)).then(setAccountState).catch(() => setAccountState(null))
   }

@@ -1,9 +1,10 @@
 // Composants communs de l'app (équivalents de cm/src/components/ui.tsx), clair et sombre.
 import { Image } from 'expo-image'
 import * as Haptics from 'expo-haptics'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { GestureDetector, GestureHandlerRootView, usePanGesture } from 'react-native-gesture-handler'
 import {
-  ActivityIndicator, KeyboardAvoidingView, Modal, Platform as RNPlatform, Pressable, RefreshControl, ScrollView,
+  ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform as RNPlatform, Pressable, RefreshControl, ScrollView,
   StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -239,28 +240,47 @@ export function Avatar({ src, name, platform, size = 40 }: { src: string | null 
   )
 }
 
-/** Feuille qui monte du bas (glisser vers le bas ou toucher le fond pour fermer). */
+/** Feuille qui monte du bas : glisser vers le bas (poignée, titre) ou toucher le fond pour fermer. */
 export function Sheet({ visible, title, onClose, children, scroll = true, footer }:
   { visible: boolean; title: string; onClose: () => void; children: ReactNode; scroll?: boolean; footer?: ReactNode }) {
   const { c } = useTheme()
   const insets = useSafeAreaInsets()
+  const drag = useRef(new Animated.Value(0)).current
+  useEffect(() => { if (visible) drag.setValue(0) }, [visible, drag])
+  const pan = usePanGesture({
+    activeOffsetY: 8, failOffsetX: [-24, 24], runOnJS: true,
+    onUpdate: e => { drag.setValue(Math.max(0, e.translationY)) },
+    onDeactivate: e => {
+      if (!e.canceled && (e.translationY > 110 || e.velocityY > 900)) {
+        Animated.timing(drag, { toValue: 900, duration: 160, useNativeDriver: true }).start(() => onClose())
+      } else {
+        Animated.spring(drag, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start()
+      }
+    },
+  })
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <KeyboardAvoidingView behavior={RNPlatform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <Pressable style={{ flex: 1, backgroundColor: c.overlay }} onPress={onClose} accessibilityLabel="Fermer" accessibilityRole="button" />
-        <View accessibilityViewIsModal style={{ backgroundColor: c.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '92%',
-          paddingBottom: footer ? 0 : insets.bottom + space.md, width: '100%', maxWidth: 720, alignSelf: 'center' }}>
-          <View style={{ alignItems: 'center', paddingTop: 8 }}><View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: c.borderStrong }} /></View>
-          <Row style={{ paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.sm, justifyContent: 'space-between' }}>
-            <H2 style={{ flex: 1 }}>{title}</H2>
-            <IconButton icon="close" label="Fermer" onPress={onClose} />
-          </Row>
-          {scroll
-            ? <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.lg, gap: space.md }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
-            : <View style={{ paddingHorizontal: space.lg, gap: space.md, flexShrink: 1 }}>{children}</View>}
-          {footer ? <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.md, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border, backgroundColor: c.surface }}>{footer}</View> : null}
-        </View>
-      </KeyboardAvoidingView>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior={RNPlatform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <Pressable style={{ flex: 1, backgroundColor: c.overlay }} onPress={onClose} accessibilityLabel="Fermer" accessibilityRole="button" />
+          <Animated.View accessibilityViewIsModal style={{ backgroundColor: c.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '92%',
+            paddingBottom: footer ? 0 : insets.bottom + space.md, width: '100%', maxWidth: 720, alignSelf: 'center', transform: [{ translateY: drag }] }}>
+            <GestureDetector gesture={pan}>
+              <View>
+                <View style={{ alignItems: 'center', paddingTop: 8, paddingBottom: 4 }}><View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: c.borderStrong }} /></View>
+                <Row style={{ paddingHorizontal: space.lg, paddingBottom: space.sm, justifyContent: 'space-between' }}>
+                  <H2 style={{ flex: 1 }}>{title}</H2>
+                  <IconButton icon="close" label="Fermer" onPress={onClose} />
+                </Row>
+              </View>
+            </GestureDetector>
+            {scroll
+              ? <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.lg, gap: space.md }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+              : <View style={{ paddingHorizontal: space.lg, gap: space.md, flexShrink: 1 }}>{children}</View>}
+            {footer ? <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.md, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border, backgroundColor: c.surface }}>{footer}</View> : null}
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </GestureHandlerRootView>
     </Modal>
   )
 }
