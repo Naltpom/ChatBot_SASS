@@ -120,7 +120,6 @@ MAX_RECEIVING = 3
 
 state_store = SingleUseTokens("rl:igstate:", STATE_TTL_SECONDS)
 oauth_limiter = RateLimiter("rl:igoauth:", 20, 3600)
-post_limiter = RateLimiter("rl:cmpost:", 60, 86400)
 sync_limiter = RateLimiter("rl:cmsync:", 6, 3600)
 # Relecture complète (tous les Reels d'un coup) : une fois par heure et par compte, sinon par tournées.
 full_sync_limiter = RateLimiter("rl:cmsyncfull:", 1, 3600)
@@ -1215,12 +1214,22 @@ async def _get_asset(db: AsyncSession, tenant: Tenant, asset_id: int) -> CmAsset
     return row[0]
 
 
+async def _check_daily_posts(db: AsyncSession, tenant: Tenant) -> None:
+    """Garde-fou contre un emballement : publications réellement créées par l'espace sur 24 h glissantes (en base ;
+    une tentative refusée ou en échec ne compte pas). Les plateformes gardent leurs propres limites à l'envoi."""
+    since = utcnow() - timedelta(hours=24)
+    n = (await db.execute(select(func.count()).select_from(CmPost).where(
+        tenant.where(CmPost), CmPost.created_at >= since))).scalar() or 0
+    if n >= settings.CM_DAILY_POSTS:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            f"Limite de {settings.CM_DAILY_POSTS} publications créées par 24 h atteinte pour cet espace. Réessayez plus tard.")
+
+
 async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset: CmAsset, title: str,
                              caption: str, planned: list, ref: Optional[str] = None) -> dict:
     """Publication d'une vidéo de la bibliothèque : rien à envoyer, prête tout de suite. Le
     fichier sera téléchargé depuis le Drive à l'heure de la 1re publication."""
-    if not await post_limiter.check(tenant.key):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Limite quotidienne de publications atteinte. Réessayez demain.")
+    await _check_daily_posts(db, tenant)
     post = CmPost(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, user_id=user.id,
                   title=title, caption=caption or None, file_name=asset.name[:255], video_size=asset.size or 0,
                   received_bytes=asset.size or 0, mime_type=asset.mime_type, duration_sec=asset.duration_sec,
@@ -1326,8 +1335,7 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
     if receiving >= MAX_RECEIVING:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             "Des vidéos sont déjà en cours d'envoi : attendez qu'elles se terminent.")
-    if not await post_limiter.check(tenant.key):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Limite quotidienne de publications atteinte. Réessayez demain.")
+    await _check_daily_posts(db, tenant)
     cm.check_space(body.video_size)
 
     path = cm.media_dir() / f"{uuid.uuid4().hex}.part"

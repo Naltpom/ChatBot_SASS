@@ -313,3 +313,29 @@ async def test_archive_retry_routes_and_unexpected_errors(pg_session, cmenv, wdr
         assert post.archive_state == "ok" and "error" not in post.archive
         r = await h.post(f"/api/cm/posts/{pid}/archive/retry")
         assert r.status_code == 200 and r.json()["archive"]["state"] == "pending"
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_daily_post_limit_counts_created_posts(pg_session, cmenv, tiktok, monkeypatch):
+    from src.core.config import settings
+    monkeypatch.setattr(settings, "CM_DAILY_POSTS", 2)
+    u = await _user(pg_session, "a@t.dev")
+    tk = await _account(pg_session, owner=u, open_id="dl1")
+    await pg_session.commit()
+    later = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        # Une tentative refusée (ref déjà prise) ne compte pas.
+        await _ready(h, [_tt_target(tk.id, scheduled_at=later)], ref="kiwi/d1")
+        dup = await h.post("/api/cm/posts", json={"title": "x", "video_size": 10, "ref": "kiwi/d1", "targets": [_tt_target(tk.id)]})
+        assert dup.status_code == 409
+        await _ready(h, [_tt_target(tk.id, scheduled_at=later)])
+        r = await h.post("/api/cm/posts", json={"title": "x", "video_size": 10, "targets": [_tt_target(tk.id)]})
+        assert r.status_code == 429 and "2 publications" in r.json()["detail"]
+        # Hier ne compte plus (24 h glissantes).
+        for p in (await pg_session.execute(select(CmPost))).scalars():
+            p.created_at = utcnow() - timedelta(hours=25)
+        await pg_session.commit()
+        r = await h.post("/api/cm/posts", json={"title": "x", "video_size": 10, "targets": [_tt_target(tk.id)]})
+        assert r.status_code == 200
