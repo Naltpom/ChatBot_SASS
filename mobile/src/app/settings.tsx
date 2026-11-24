@@ -8,7 +8,8 @@ import { disablePush, enablePush, getPush, pushUnsupported, setPushPrefs, type P
 import { fmtAgo } from '../lib/format'
 import { useSession } from '../lib/session'
 import { useLock } from '../lib/lock'
-import { Button, Card, Divider, Label, Msg, Row, Screen, Seg, Txt } from '../ui/kit'
+import { getProfile, patchProfile } from '../lib/api'
+import { Button, Card, Divider, Label, Msg, Row, Screen, Seg, Txt, Field } from '../ui/kit'
 import { space, useTheme, type ThemePref } from '../ui/theme'
 
 interface DeviceRow { id: number; name: string | null; platform: string | null; push: boolean; created_at: string | null; last_used_at: string | null }
@@ -54,6 +55,9 @@ export default function Settings() {
   ])
   const unsupported = pushUnsupported()
   const lock = useLock()
+  const { refresh } = useSession()
+  const [persoName, setPersoName] = useState('')
+  useEffect(() => { getProfile().then(p => setPersoName(p.perso_name || '')).catch(() => {}) }, [])
   const [lockMsg, setLockMsg] = useState<string | null>(null)
 
   return (
@@ -97,6 +101,8 @@ export default function Settings() {
 
       <Card>
         <Label>Espace et comptes</Label>
+        <Field label="Nom de mon espace" value={persoName} onChangeText={setPersoName} placeholder="Espace perso"
+          onEndEditing={() => patchProfile(persoName.trim()).then(() => refresh()).catch(() => {})} hint="Visible par les personnes avec qui vous partagez un groupe." />
         <Button title="Comptes connectés" icon="users" onPress={() => router.push('/accounts')} />
         <Button title="Personnes et partage" icon="share" onPress={() => router.push('/people')} />
         <Button title="Stockage Google Drive" icon="folder" onPress={() => router.push('/storage')} />

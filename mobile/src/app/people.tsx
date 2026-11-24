@@ -1,5 +1,6 @@
 // Personnes et partage (comme cm/src/pages/People.tsx) : qui a accès à cet espace, avec quel niveau
 // (Admin, Peut publier, Lecture seule) et à quels comptes (tous, ou certains comptes / groupes).
+import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { Alert, FlatList, RefreshControl, View } from 'react-native'
 import { getPeople, removePerson, updatePerson, type CmRole, type Order, type Person, type PersonScope } from '../lib/api'
@@ -79,6 +80,7 @@ function EditPerson({ p, org, onClose, onSaved }: { p: Person; org: number; onCl
 }
 
 export default function People() {
+  const router = useRouter()
   const { c } = useTheme()
   const { org, groups, accounts, visibleSpaces } = useSession()
   const [input, setInput] = useState('')
@@ -98,14 +100,14 @@ export default function People() {
 
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.md }}>
-      <Txt muted>{space_ && !space_.owner && space_.owner_name ? `Espace partagé par ${space_.owner_name}. ` : ''}Partagez un compte, un groupe ou tout l’espace avec votre équipe.</Txt>
-      {d?.can_manage ? <Button kind="primary" icon="plus" title="Partager l’espace" onPress={() => setSharing(true)} /> : null}
+      <Txt muted>{space_ && !space_.owner && space_.owner_name ? `Espace partagé par ${space_.owner_name}. ` : ''}On partage un groupe de comptes : Comptes → le groupe → Partager.</Txt>
+      {d?.can_manage ? <Button kind="primary" icon="plus" title="Partager un groupe" onPress={() => router.push('/accounts')} /> : null}
       {msg ? <Msg kind={msg.kind}>{msg.text}</Msg> : null}
       {data.error ? <Msg kind="err">{data.error}</Msg> : null}
       {!d && data.loading ? <Skeleton h={64} n={3} /> : null}
       {d && !shared ? (
         <Empty title="Vous êtes seul·e ici" icon="users">
-          Pour travailler avec un monteur ou un client : Comptes → Partager sur un compte ou un groupe, ou partagez tout l’espace. Vous choisissez : Admin, Peut publier ou Lecture seule.
+          Pour travailler avec un monteur ou un client : Comptes → créez un groupe → Partager. Vous choisissez : Admin, Peut publier ou Lecture seule.
         </Empty>
       ) : null}
       {shared ? (

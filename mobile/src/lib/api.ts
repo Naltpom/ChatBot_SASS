@@ -19,6 +19,8 @@ export interface Account {
   platform: Platform; id: number; name: string | null; avatar_url: string | null
   needs_reconnect: boolean; can_publish: boolean; stats_available: boolean; connected_at: string | null
   mode: 'api' | 'routine'; can_direct?: boolean; can_draft?: boolean; handle?: string | null; username?: string; public_domain_only?: boolean
+  /** Périmètre combiné (docs §10) : espace du compte, propriétaire, mien ?, groupes, mon rôle. */
+  org_id?: number | null; owner?: string | null; mine?: boolean; groups?: number[]; role?: CmRole
   stats: Stats | null
 }
 export interface Video {
@@ -69,7 +71,7 @@ export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal
 export const GROUP_COLORS: GroupColor[] = ['blue', 'sky', 'cyan', 'teal', 'emerald', 'green', 'lime', 'amber', 'orange', 'brown', 'red', 'rose', 'pink', 'purple', 'indigo', 'slate']
 export interface Group { id: number; name: string; color: GroupColor | null; accounts: { platform: Platform; id: number }[] }
 /** Périmètre affiché : un espace et, éventuellement, un groupe de comptes OU un seul compte ("tiktok:12"). */
-export interface Scope { org: number | null; group: number | null; account?: string | null }
+export interface Scope { org: number | null; group: number | null; account?: string | null; sel?: string[] | null }
 
 export type CalendarItem =
   | (Video & { kind: 'video'; at: string; group?: string })
@@ -107,9 +109,13 @@ const q = (scope: ScopeArg, extra: Record<string, string | number | undefined> =
   const org = typeof scope === 'object' && scope !== null ? scope.org : scope
   const group = typeof scope === 'object' && scope !== null ? scope.group : null
   const account = typeof scope === 'object' && scope !== null ? scope.account : null
-  if (org != null) p.set('org_id', String(org))
-  if (account) p.set('account', account)
-  else if (group != null) p.set('group_id', String(group))
+  const sel = typeof scope === 'object' && scope !== null ? scope.sel : null
+  if (sel && sel.length) p.set('scope', sel.join(','))   // périmètre combiné (lecture seule)
+  else {
+    if (org != null) p.set('org_id', String(org))
+    if (account) p.set('account', account)
+    else if (group != null) p.set('group_id', String(group))
+  }
   for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== '') p.set(k, String(v))
   const s = p.toString()
   return s ? `?${s}` : ''
@@ -226,7 +232,7 @@ export const saveRecipe = (org: number | null, id: number, recipe: Recipe, auto_
   send<{ source: Source; proposed: number }>('PUT', `/api/cm/sources/${id}/recipe${q(org)}`, { recipe, auto_drafts, backlog })
 export const getProposalsPage = (s: ScopeArg, cursor?: string | null) =>
   callPage<Proposal>(`/api/cm/proposals${q(s, { limit: 30, cursor: cursor || undefined })}`)
-export const getProposalCount = (s: ScopeArg) => call<{ open: number }>(`/api/cm/proposals/count${q(s)}`)
+export const getProposalCount = (s: ScopeArg) => call<{ open: number; by_group?: Record<string, number> }>(`/api/cm/proposals/count${q(s)}`)
 export const getProposal = (org: number | null, id: number) => call<Proposal>(`/api/cm/proposals/${id}${q(org)}`)
 export const archiveProposals = (s: ScopeArg, sourceId?: number) =>
   send<{ archived: number }>('POST', `/api/cm/proposals/archive${q(s)}`, { source_id: sourceId ?? null })
@@ -340,3 +346,22 @@ export interface VideoSheet {
   asset: Asset | null
 }
 export const getVideoSheet = (org: number | null, id: number) => call<VideoSheet>(`/api/cm/videos/${id}/sheet${q(org)}`)
+
+// Périmètre (docs/CM_ROUTINES.md §10) : droits par compte, invitations, partage par groupe, espace perso.
+export interface Capability { key: string; platform: Platform; id: number; org_id: number | null; role: CmRole; owner: string | null; mine: boolean }
+export const getCapabilities = () => call<{ can_publish_any: boolean; accounts: Capability[] }>('/api/cm/me/capabilities')
+export interface Invitation {
+  id: number; group_id: number; group_name: string; group_color: GroupColor | null; role: CmRole; role_label: string
+  owner: string | null; invited_by: string | null; accounts: number | { platform: Platform; id: number; name?: string | null }[]; created_at: string
+}
+export const getInvitations = () => call<Invitation[]>('/api/cm/invitations')
+export const acceptInvitation = (id: number) => send<{ org_id: number }>('POST', `/api/cm/invitations/${id}/accept`)
+export const declineInvitation = (id: number) => send<{ ok: boolean }>('POST', `/api/cm/invitations/${id}/decline`)
+export interface GroupShare { id: number; email: string; name?: string | null; role: CmRole; pending?: boolean }
+export const getGroupShares = (org: number | null, groupId: number) => call<GroupShare[]>(`/api/cm/groups/${groupId}/shares${q(org)}`)
+export const addGroupShare = (org: number | null, groupId: number, email: string, role: CmRole) =>
+  send<GroupShare>('POST', `/api/cm/groups/${groupId}/shares${q(org)}`, { email, role })
+export const removeGroupShare = (org: number | null, groupId: number, shareId: number) =>
+  send<{ ok: boolean }>('DELETE', `/api/cm/groups/${groupId}/shares/${shareId}${q(org)}`)
+export const getProfile = () => call<{ perso_name: string | null }>('/api/cm/profile')
+export const patchProfile = (perso_name: string) => send<{ perso_name: string | null }>('PATCH', '/api/cm/profile', { perso_name })

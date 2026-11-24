@@ -23,7 +23,7 @@ export function AccountSheet({ visible, onClose, picked, onChange, detail }: {
   const [platform, setPlatform] = useState<'' | Platform>('')
   useEffect(() => { const t = setTimeout(() => setQ(input.trim()), 300); return () => clearTimeout(t) }, [input])
   // Tous les comptes de l'espace (pas seulement le groupe affiché), filtrés par le serveur.
-  const list = useLoad(s => getAccounts({ org: s.org, group: null }, q ? { q } : {}), [q], 'compose-accounts')
+  const list = useLoad(() => getAccounts({ org: null, group: null, sel: ['all'] }, q ? { q } : {}), [q], 'compose-accounts')
   const { groups } = useSession()
   const accounts = useMemo(() => (list.data || []).filter(a => !platform || a.platform === platform), [list.data, platform])
 

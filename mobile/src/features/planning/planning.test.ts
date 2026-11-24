@@ -6,7 +6,7 @@ import {
 } from './calendar.ts'
 import { diffsOf, editableText, initialOpen, postItems, postWindow, splitCommon, tiktokLinkOk } from './sheet.ts'
 import {
-  buildBody, buildTarget, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
+  buildBody, buildTarget, postOrg, unavailable, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
   type ComposeState, type TikTokOpts, type YouTubeOpts,
 } from './compose.ts'
 
@@ -184,4 +184,13 @@ test('nouvelle publication : utilitaires', () => {
   assert.equal(fileNameOf('content://x/123', 'clip.mp4'), 'clip.mp4')
   assert.equal(landingDay({ when: 'now', at: new Date(), sameTime: true, times: {}, chosen: [] }, new Date(2026, 4, 3, 12)), '2026-05-03')
   assert.equal(landingDay({ when: 'at', at: new Date(2026, 4, 9, 12), sameTime: true, times: {}, chosen: [] }), '2026-05-09')
+})
+
+test('publication : espace des comptes choisis, comptes en lecture seule', () => {
+  assert.deepEqual(postOrg([{ org_id: 12 }, { org_id: 12 }], null), { org: 12, mixed: false })
+  assert.deepEqual(postOrg([{ org_id: null }], 5), { org: null, mixed: false })
+  assert.equal(postOrg([{ org_id: 12 }, { org_id: null }], null).mixed, true)
+  assert.deepEqual(postOrg([], 7), { org: 7, mixed: false })
+  assert.equal(unavailable({ can_publish: true, needs_reconnect: false, role: 'viewer' }), 'Lecture seule')
+  assert.equal(unavailable({ can_publish: true, needs_reconnect: false, role: 'editor' }), null)
 })

@@ -26,7 +26,7 @@ export default function PublicationScreen() {
   const win = post.data ? postWindow(post.data) : null
   const winKey = win ? `${win[0].getTime()}-${win[1].getTime()}` : ''
   // Le calendrier donne les vidéos relevées (chiffres, fiche vidéo) de cette publication.
-  const cal = useLoad(s => (win ? getCalendar({ org: s.org, group: null }, win[0], win[1]) : Promise.resolve(null)), [id, winKey], 'post-sheet-cal')
+  const cal = useLoad(s => (win ? getCalendar({ org: (post.data as (Post & { org_id?: number | null }) | null)?.org_id ?? null, group: null }, win[0], win[1]) : Promise.resolve(null)), [id, winKey], 'post-sheet-cal')
   const assetId = (post.data as (Post & { asset_id?: number | null }) | null)?.asset_id ?? null
   const asset = useLoad(() => (assetId ? getAsset(org, assetId).catch(() => null) : Promise.resolve(null)), [assetId], 'post-sheet-asset')
 

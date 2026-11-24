@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router'
 import { useEffect } from 'react'
 import { Alert, View } from 'react-native'
 import { useSession } from '../lib/session'
+import { InvitationCard } from '../ui/ScopeBar'
 import * as WebBrowser from 'expo-web-browser'
 import { useState } from 'react'
 import { PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
@@ -13,7 +14,7 @@ import { space } from '../ui/theme'
 export default function Welcome() {
   const router = useRouter()
   const { me, spaces, signOut, refresh } = useSession()
-  const { org } = useSession()
+  const { org, invitations } = useSession()
   const [err, setErr] = useState<string | null>(null)
   const connect = async (p: Platform) => {
     setErr(null)
@@ -29,6 +30,7 @@ export default function Welcome() {
         <H1>Bienvenue{me?.name ? `, ${me.name.split(' ')[0]}` : ''}</H1>
         <Txt muted>Votre compte Chapote est prêt. Connectez votre premier compte : vos chiffres, votre planning et vos commentaires apparaîtront ici.</Txt>
       </View>
+      {invitations.length ? <View style={{ gap: space.sm }}><Txt bold>Invitations reçues</Txt>{invitations.map(i => <InvitationCard key={i.id} inv={i} />)}</View> : null}
       {err ? <Msg kind="err">{err}</Msg> : null}
       {PLATFORMS.map(p => (
         <Card key={p} onPress={() => connect(p)} accessibilityLabel={`Connecter ${PLATFORM_LABEL[p]}`}>

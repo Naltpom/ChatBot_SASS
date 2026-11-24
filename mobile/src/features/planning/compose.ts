@@ -40,8 +40,16 @@ export function groupAccounts(g: Group, all: Account[]): Account[] {
 }
 
 /** Raison pour laquelle un compte ne peut pas être choisi (ou null). */
-export const unavailable = (a: Pick<Account, 'can_publish' | 'needs_reconnect'>) =>
-  (!a.can_publish ? `Indisponible${a.needs_reconnect ? ' : à reconnecter' : ''}` : null)
+export const unavailable = (a: Pick<Account, 'can_publish' | 'needs_reconnect' | 'role'>) =>
+  a.role === 'viewer' ? 'Lecture seule'
+    : !a.can_publish ? `Indisponible${a.needs_reconnect ? ' : à reconnecter' : ''}` : null
+
+/** Espace (propriétaire) où créer la publication : celui des comptes choisis ; `mixed` s'ils sont chez plusieurs propriétaires. */
+export function postOrg(chosen: Pick<Account, 'org_id'>[], fallback: number | null): { org: number | null; mixed: boolean } {
+  const orgs = new Set(chosen.map(a => (a.org_id === undefined ? fallback : a.org_id)))
+  if (orgs.size > 1) return { org: fallback, mixed: true }
+  return { org: orgs.size ? [...orgs][0] : fallback, mixed: false }
+}
 
 export interface ComposeState {
   hasVideo: boolean
@@ -66,6 +74,7 @@ export function problems(s: ComposeState, config: Config | null, now = Date.now(
   if (!s.hasVideo) out.push('Choisissez une vidéo.')
   if (!s.title.trim()) out.push('Donnez un titre à la publication.')
   if (!s.chosen.length) out.push('Choisissez au moins un compte.')
+  if (postOrg(s.chosen, null).mixed) out.push('Choisissez des comptes d’un même propriétaire (une publication par propriétaire).')
   if (s.size != null && config && s.size > config.max_upload_bytes) out.push(`Vidéo trop volumineuse (${fmtSize(config.max_upload_bytes)} au plus).`)
   if (s.when === 'at' && s.sameTime && s.at.getTime() < now - 60000) out.push("L'heure choisie est déjà passée.")
   for (const a of s.chosen) {

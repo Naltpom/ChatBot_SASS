@@ -22,7 +22,7 @@ import { uploadCover, uploadParts } from '../lib/upload'
 import { Avatar, Button, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
 import {
-  accKey, buildBody, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nextHour, problems as findProblems,
+  accKey, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nextHour, problems as findProblems,
   titleFromFile, YT_PRIVACY, type ComposeState, type CreatorState, type InstaOpts, type Opts, type TikTokOpts, type YouTubeOpts,
 } from '../features/planning/compose'
 import { AccountSheet } from '../features/planning/AccountSheet'
@@ -68,7 +68,7 @@ export default function NewPost() {
   // Rôle relu à l'ouverture (un administrateur a pu le changer depuis).
   useEffect(() => { refreshSession() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const { canEdit } = useRole()
-  const accounts = useLoad(s => getAccounts({ org: s.org, group: null }), [], 'compose-all')
+  const accounts = useLoad(() => getAccounts({ org: null, group: null, sel: ['all'] }), [], 'compose-all')
   const robot = useLoad(() => getRobot().catch(() => null), [], 'robot')
   const headers = useAuthHeaders()
 
@@ -101,7 +101,7 @@ export default function NewPost() {
   const [rightsNote, setRightsNote] = useState('')
 
   const add = (list: Account[]) => {
-    const fresh = list.filter(a => a.can_publish)
+    const fresh = list.filter(a => a.can_publish && a.role !== 'viewer')
     if (!fresh.length) return
     setKnown(k => ({ ...k, ...Object.fromEntries(fresh.map(a => [accKey(a), a])) }))
     setPicked(p => [...p, ...fresh.map(accKey).filter(k => !p.includes(k))])
@@ -220,10 +220,10 @@ export default function NewPost() {
     const s = { ...state, caption, rights: rights || undefined, rightsNote }
     try {
       if (asset) {
-        const made = await createPost(buildBody(org, s, { kind: 'asset', id: asset.id }))
+        const made = await createPost(buildBody(postOrg(chosen, org).org, s, { kind: 'asset', id: asset.id }))
         if (cover) await uploadCover(made.post_id, cover.uri, cover.mime)
       } else if (video) {
-        const body = buildBody(org, s, { kind: 'file', name: video.name, size: video.size })
+        const body = buildBody(postOrg(chosen, org).org, s, { kind: 'file', name: video.name, size: video.size })
         const sig = JSON.stringify({ ...body, uri: video.uri })
         let job = sent.current
         if (job && job.sig !== sig) { deletePost(job.postId).catch(() => {}); job = null }
