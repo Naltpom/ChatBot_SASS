@@ -6,7 +6,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  cancelTarget, getAsset, getPost, markPublished, patchTarget, publishNow, resendDraft, retryTarget, PLATFORM_LABEL,
+  cancelTarget, getAsset, getPost, markPublished, patchPost, patchTarget, publishNow, resendDraft, retryTarget, PLATFORM_LABEL,
+  RIGHTS_LABEL, RIGHTS_WARNING, type Rights,
   type Asset, type CalendarItem, type Group, type Post,
 } from '../api'
 import { PlatformLogo } from '../components/PlatformLogo'
@@ -41,13 +42,14 @@ export function PlanRow({ g, group, onOpen }: { g: Group_; group: Group | null; 
   const planned = states.every(s => s === 'planned')
   const views = g.items.reduce((s, i) => s + (i.kind === 'video' ? i.views || 0 : 0), 0)
   const title = shortTitle(g.title) || 'Sans titre'
+  const risky = g.items.some(i => i.kind === 'target' && (i.rights === 'protected' || i.rights === 'unknown'))
   return (
     <button type="button" className="prow" onClick={() => onOpen(g)}
             style={{ borderLeftColor: group ? `var(--g-${group.color || 'slate'})` : 'var(--border)' }}
             aria-label={`${fmtTime(g.at)}, ${title}${group ? `, groupe ${group.name}` : ''} : ${g.items.map((i, n) => `${PLATFORM_LABEL[i.platform]} ${STATE_LABEL[states[n]].toLowerCase()}`).join(', ')}`}>
       <span className="prow-time">{fmtTime(g.at)}</span>
       <span className="prow-main">
-        <span className="prow-title">{title}</span>
+        <span className="prow-title">{risky && <span role="img" aria-label="Œuvre protégée" title="Œuvre protégée : risque de réclamation de droits d’auteur">⚠️ </span>}{title}</span>
         <span className="prow-plats" aria-hidden="true">
           {g.items.map((i, n) => <span key={`${i.kind}-${i.id}`} className={`ppill ${states[n]}`}><PlatformLogo platform={i.platform} size={14} /></span>)}
         </span>
@@ -178,6 +180,46 @@ function DraftBox({ item, busy, act }: {
   )
 }
 
+/** Droits d'auteur de l'œuvre : bandeau d'avertissement (protégée ou inconnue) et réglage. */
+function RightsBox({ post, onSaved }: { post: Post; onSaved: (p: Post) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [rights, setRights] = useState<Rights>(post.rights || 'unknown')
+  const [note, setNote] = useState(post.rights_note || '')
+  const [err, setErr] = useState('')
+  const risky = post.rights === 'protected' || post.rights === 'unknown'
+  const save = async () => {
+    setErr('')
+    try { onSaved({ ...(await patchPost(post.id, { rights, rights_note: note })) }); setEditing(false) } catch (e) { setErr((e as Error).message) }
+  }
+  return (
+    <section className="col" style={{ gap: 8 }} aria-label="Droits d’auteur">
+      {risky && <div role="alert" className="msg msg-warn" style={{ margin: 0 }}>{RIGHTS_WARNING}</div>}
+      {!editing ? (
+        <div className="row small" style={{ gap: 8, alignItems: 'center' }}>
+          <span className="muted">Droits :</span>
+          <b>{post.rights ? RIGHTS_LABEL[post.rights] : 'Non précisés'}</b>
+          {post.rights_note && <span className="muted ellipsis" style={{ minWidth: 0 }}>· {post.rights_note}</span>}
+          <button type="button" className="linkbtn" onClick={() => setEditing(true)}>Modifier</button>
+        </div>
+      ) : (
+        <div className="col" style={{ gap: 8 }}>
+          <div className="seg" role="radiogroup" aria-label="Droits d’auteur">
+            {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
+              <button key={r} type="button" role="radio" aria-checked={rights === r} aria-pressed={rights === r} onClick={() => setRights(r)}>{RIGHTS_LABEL[r]}</button>
+            ))}
+          </div>
+          <input className="input" value={note} maxLength={300} onChange={e => setNote(e.target.value)} placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" aria-label="Note sur les droits" />
+          {err && <Msg kind="err">{err}</Msg>}
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn btn-sm btn-primary" onClick={save}>Enregistrer</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditing(false)}>Annuler</button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function EditInline({ item, onDone, onCancel }: { item: Extract<CalendarItem, { kind: 'target' }>; onDone: () => void; onCancel: () => void }) {
   const [when, setWhen] = useState(toLocalInput(new Date(item.scheduled_at)))
   const key = item.platform === 'instagram' ? 'caption' : 'title'
@@ -258,6 +300,8 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
             {asset?.folder_url && <a className="linkbtn muted" href={asset.folder_url} target="_blank" rel="noreferrer">Dossier Drive</a>}
           </div>
         </div>
+
+        {post && <RightsBox post={post} onSaved={p => { setPost(p); onChanged() }} />}
 
         {((body && shortTitle(body) !== title) || tags.length > 0) && (
           <section className="col" style={{ gap: 6 }} aria-labelledby="pub-common">

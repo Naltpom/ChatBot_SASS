@@ -116,6 +116,9 @@ class CmPost(Base):
     ref = Column(String(200), nullable=True, index=True)  # référence de l'outil (« compte/id »), dédoublonnage
     # Archivage dans le Drive de l'espace (cm_archive) : pending | ok | error ; null = pas d'archive.
     archive_state = Column(String(12), nullable=True, index=True)
+    # Droits d'auteur de l'œuvre jouée : public_domain | protected | unknown (null = pas renseigné), note libre.
+    rights = Column(String(16), nullable=True)
+    rights_note = Column(String(300), nullable=True)
     archive = Column(JSON, nullable=True)                 # ids Drive (dossier, vidéo, légende, couverture, infos), conte
     archive_synced_at = Column(DateTime, nullable=True)
     status = Column(String, nullable=False, default=POST_RECEIVING, index=True)

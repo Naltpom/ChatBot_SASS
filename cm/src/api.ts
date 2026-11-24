@@ -16,7 +16,7 @@ export interface Stats {
 export interface Account {
   platform: Platform; id: number; name: string | null; avatar_url: string | null
   needs_reconnect: boolean; can_publish: boolean; stats_available: boolean; connected_at: string | null
-  mode: 'api' | 'routine'; can_direct?: boolean; can_draft?: boolean; handle?: string | null; username?: string
+  mode: 'api' | 'routine'; can_direct?: boolean; can_draft?: boolean; handle?: string | null; username?: string; public_domain_only?: boolean
   stats: Stats | null
 }
 export interface Video {
@@ -43,7 +43,14 @@ export interface Target {
 export interface Post {
   id: number; title: string; caption: string | null; file_name: string | null; video_size: number
   duration_sec: number | null; status: string; has_media: boolean; created_at: string; targets: Target[]
+  rights?: Rights | null; rights_note?: string | null; rights_warning?: string | null
 }
+export type Rights = 'public_domain' | 'protected' | 'unknown'
+export const RIGHTS_LABEL: Record<Rights, string> = { public_domain: 'Domaine public', protected: 'Œuvre protégée', unknown: 'Droits inconnus' }
+export const RIGHTS_WARNING = '⚠️ Œuvre protégée : risque de réclamation de droits d’auteur (Content ID, son coupé, vidéo bloquée).'
+export const patchPost = (id: number, body: { rights?: Rights; rights_note?: string }) => send<Post>('PATCH', `/api/cm/posts/${id}`, body)
+export const setYoutubeAccount = (org: number | null, id: number, body: { public_domain_only: boolean }) =>
+  send<Account>('PATCH', `/api/cm/accounts/youtube/${id}${q(org)}`, body)
 export type CmRole = 'admin' | 'editor' | 'viewer'
 export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null; owner?: boolean; owner_name?: string | null; accounts?: number }
 export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
@@ -55,7 +62,7 @@ export interface Scope { org: number | null; group: number | null; account?: str
 
 export type CalendarItem =
   | (Video & { kind: 'video'; at: string; group?: string })
-  | (Target & { kind: 'target'; at: string; title: string; group?: string })
+  | (Target & { kind: 'target'; at: string; title: string; group?: string; rights?: Rights | null })
 export interface CalendarDay { day: string; followers: number | null; views: number | null; followers_delta: number | null; views_delta: number | null }
 export interface Calendar { start: string; end: string; items: CalendarItem[]; days: CalendarDay[] }
 

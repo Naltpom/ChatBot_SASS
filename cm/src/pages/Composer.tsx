@@ -9,7 +9,7 @@ import { AccountPicker } from '../components/AccountPicker'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   creatorInfo, createPost, getAccounts, getAsset, getProposal, getRobot, putCover, putPart, submitPost, PLATFORM_LABEL,
-  type Account, type Asset, type CreatorInfo, type Platform,
+  RIGHTS_LABEL, RIGHTS_WARNING, type Account, type Asset, type CreatorInfo, type Platform, type Rights,
   type Proposal,
 } from '../api'
 import { Avatar, GroupDot, Icon, Loading, Msg, Sheet } from '../components/ui'
@@ -61,6 +61,8 @@ export default function Composer() {
   const [duration, setDuration] = useState<number | null>(null)
   const [title, setTitle] = useState('')
   const [caption, setCaption] = useState('')
+  const [rights, setRights] = useState<Rights | ''>('')       // droits d'auteur de l'œuvre (vide = non précisés)
+  const [rightsNote, setRightsNote] = useState('')
   const [picked, setPicked] = useState<string[]>([])
   const [opts, setOpts] = useState<Record<string, Opts>>({})
   const [creators, setCreators] = useState<Record<string, CreatorInfo | 'loading' | { error: string }>>({})
@@ -218,16 +220,19 @@ export default function Composer() {
 
   const publish = async () => {
     if ((!file && !asset) || problems.length) return
+    if ((rights === 'protected' || rights === 'unknown') && chosen.length
+        && !window.confirm(`${RIGHTS_WARNING}\n\nPublier quand même sur ${[...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ')} ?`)) return
     setErr(''); setProgress(0)
+    const rightsBody = rights ? { rights, rights_note: rightsNote.trim() || undefined } : {}
     try {
       if (asset) {
-        const made = await createPost({ org_id: org, title: title.trim(), caption, asset_id: asset.id, targets: chosen.map(buildTarget) })
+        const made = await createPost({ org_id: org, title: title.trim(), caption, asset_id: asset.id, ...rightsBody, targets: chosen.map(buildTarget) })
         if (cover) await putCover(made.post_id, cover)
         nav('/planning', { state: { flash: when === 'now' ? 'Publication lancée depuis la bibliothèque.' : 'Publication programmée : la vidéo sera récupérée dans le Drive à l’heure prévue.' } })
         return
       }
       if (!file) return
-      const plan = await createPost({ org_id: org, title: title.trim(), caption, file_name: file.name, video_size: file.size,
+      const plan = await createPost({ org_id: org, title: title.trim(), caption, file_name: file.name, video_size: file.size, ...rightsBody,
         targets: chosen.map(buildTarget) })
       const parts = plan.part_count || 0, partSize = plan.part_size || file.size
       for (let i = 0; i < parts; i++) {
@@ -307,6 +312,18 @@ export default function Composer() {
                         placeholder="Reprise sur chaque compte, sauf texte propre à un compte" />
               <span className="field-hint">{caption.length} / 2 200 · {(caption.match(/#/g) || []).length} hashtag(s)</span>
             </label>
+            <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+              <legend>Droits d’auteur de l’œuvre</legend>
+              <div className="seg" role="radiogroup" aria-label="Droits d’auteur">
+                {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
+                  <button key={r} type="button" role="radio" aria-checked={rights === r} aria-pressed={rights === r} disabled={busy}
+                          onClick={() => setRights(rights === r ? '' : r)}>{RIGHTS_LABEL[r]}</button>
+                ))}
+              </div>
+              {(rights === 'protected' || rights === 'unknown') && <div role="alert" className="msg msg-warn">{RIGHTS_WARNING}</div>}
+              {rights && <input className="input" value={rightsNote} maxLength={300} disabled={busy} onChange={e => setRightsNote(e.target.value)}
+                                placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" aria-label="Note sur les droits" />}
+            </fieldset>
           </Section>
 
           <Section title="Quand">

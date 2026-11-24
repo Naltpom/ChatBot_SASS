@@ -17,6 +17,15 @@ et stable du compte : `instagram:@ghosthands.music`, `tiktok:@ghosthands.music`,
      publication non annulée porte cette référence, `409 {"code": "duplicate_ref", "post_id": …}` (réutiliser ce post).
    - `archive` (contes seulement) : `{dossier: "KHM-040 — Le Voleur", partie: "2"|"longue", id: "khm-040", titre: "Le Voleur"}`
      → rangé dans `contes/<dossier>/` (voir section 8). Pour les autres comptes, rien à donner.
+   - `rights` : droits d'auteur de l'œuvre jouée, `"public_domain"` | `"protected"` | `"unknown"` (absent = non précisés),
+     et `rights_note` (texte libre, 300 car., ex. « reprise — Wicked, Stephen Schwartz »). Modifiables ensuite par
+     `PATCH /posts/{id} {rights, rights_note}`, quel que soit le statut. Une chaîne YouTube réglée « domaine public
+     seulement » (page Comptes, ou `PATCH /accounts/youtube/{id} {public_domain_only}`) refuse toute cible sur un post
+     qui n'est pas `public_domain` (non précisé compris) : `422 {"code": "rights_protected", "message": …}` — à la
+     création, à l'ajout d'une cible (`POST /posts/{id}/targets`) et au passage d'un post visant cette chaîne en
+     `protected`/`unknown` (`PATCH`). Un post `protected`/`unknown` porte `rights_warning` (bandeau dans cm) ; sa
+     publication déclenche une notification « ⚠️ Œuvre protégée publiée » (app mobile). `infos.json` reprend `droits`
+     et `droits_note`.
    - cible : `{platform, account: "tiktok:@pseudo", scheduled_at: "2026-12-24T17:30:00Z", options}` (UTC ; `null` =
      tout de suite). `account_id` reste accepté.
    - options TikTok : `{mode: "direct"|"draft", privacy_level: "PUBLIC_TO_EVERYONE"|…, allow_comment, allow_duet,
@@ -68,11 +77,13 @@ Le brouillon arrive **sans légende** : `targets[].options.title` contient la l�
   « Renvoyer le brouillon ».
 
 ### Retrouver ses publications : `GET /posts?ref_prefix=<compte>/`
+- Avec le jeton de service et sans `org_id` : recherche dans tous les espaces du jeton (perso + équipes) ;
+  avec `org_id` : cet espace seulement.
 - `ref_prefix=kiwi/` : toutes les publications du compte kiwi ; `ref=kiwi/k12` : une seule. Sans `start`/`end`, **pas de
   fenêtre de dates** (avec : filtre sur l'heure des cibles).
 - `status=upcoming|published|failed` (cibles pas encore parties / publiées / en échec), `q`, `order=asc|desc`,
   `limit` (≤ 500) et pages par curseur (en-tête `X-Next-Cursor`, paramètre `cursor`), comme le planning.
-- Chaque post : `ref`, `status`, `archive {state: pending|ok|error, folder_url, error}`, `targets[]` avec `status`, `url`
+- Chaque post : `ref`, `org_id`, `rights`, `rights_note`, `rights_warning`, `status`, `archive {state: pending|ok|error, folder_url, error}`, `targets[]` avec `status`, `url`
   (lien de la publication), `external_id`, `published_at`, `error_message`.
 
 ### Poser une référence sur un post déjà créé : `PATCH /posts/{id}`

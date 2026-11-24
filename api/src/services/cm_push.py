@@ -121,7 +121,12 @@ async def collect(db: AsyncSession) -> list[dict]:
         label = PLATFORM_LABEL.get(t.platform, t.platform)
         title = _short(post.title, 80)
         data = {"type": kind, "post_id": post.id, "target_id": t.id}
-        if kind == "published":
+        if kind == "published" and post.rights in ("protected", "unknown"):
+            # Œuvre protégée (ou droits inconnus) : publiée, mais à surveiller (réclamations de droits d'auteur).
+            _send(uids, "published", "⚠️ Œuvre protégée publiée",
+                  f"{title} · {label} : surveillez les réclamations de droits d'auteur (son coupé, vidéo bloquée).",
+                  {**data, "url": t.url, "rights": post.rights})
+        elif kind == "published":
             _send(uids, "published", "Vidéo publiée", f"{title} · {label}", {**data, "url": t.url})
         elif kind == "failed":
             _send(uids, "failed", f"Échec sur {label}", f"{title} : {_short(t.error_message, 120) or 'voir le planning'}", data)

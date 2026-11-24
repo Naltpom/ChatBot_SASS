@@ -15,6 +15,7 @@ from src.services import cm_jobs
 from test_cm import _ig_routine, _send, _tt_target, cmenv  # noqa: F401  (fixture)
 from test_cm_archive import _linked, _post, wdrive  # noqa: F401  (fixture)
 from test_tiktok import Client, _account, _org, _user, mp4_bytes, tiktok  # noqa: F401  (fixture)
+from test_youtube import google  # noqa: F401  (fixture)
 
 
 async def _ready(h, targets, **kw):
@@ -362,3 +363,41 @@ async def test_service_token_lists_posts_of_every_space(pg_session, cmenv, tikto
         # Session web sans org_id : espace perso seulement (inchangé).
         s.headers.pop("Authorization")
         assert (await c.as_(u).get("/api/cm/posts")).json() == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_rights_and_public_domain_only_channel(pg_session, cmenv, tiktok, google):
+    from test_cm import _yt_target
+    from test_youtube import _account as _yt_account
+    u = await _user(pg_session, "a@t.dev")
+    tk = await _account(pg_session, owner=u, open_id="rt1")
+    yt = await _yt_account(pg_session, owner=u)
+    await pg_session.commit()
+    later = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        # Chaîne « domaine public seulement » (réglage d'administrateur).
+        r = await h.patch(f"/api/cm/accounts/youtube/{yt.id}", json={"public_domain_only": True})
+        assert r.status_code == 200 and r.json()["public_domain_only"] is True
+        body = {"title": "Defying Gravity", "video_size": 10, "rights": "protected", "rights_note": "reprise — Wicked, Stephen Schwartz",
+                "targets": [_yt_target(yt.id, scheduled_at=later)]}
+        r = await h.post("/api/cm/posts", json=body)
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "rights_protected"
+        assert (await h.post("/api/cm/posts", json={**body, "rights": None})).status_code == 422     # inconnu = refusé
+        # Œuvre protégée sur TikTok : acceptée, avec l'avertissement.
+        pid = await _ready(h, [_tt_target(tk.id, scheduled_at=later)], rights="protected", rights_note="reprise — Wicked")
+        post = (await h.get(f"/api/cm/posts/{pid}")).json()
+        assert post["rights"] == "protected" and post["rights_note"] == "reprise — Wicked" and "Œuvre protégée" in post["rights_warning"]
+        cal = (await h.get("/api/cm/calendar")).json()["items"]
+        assert [i["rights"] for i in cal if i["kind"] == "target"] == ["protected"]
+        # Ajouter YouTube à la main : refusé tant que l'œuvre n'est pas du domaine public.
+        r = await h.post(f"/api/cm/posts/{pid}/targets", json={"targets": [_yt_target(yt.id, scheduled_at=later)]})
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "rights_protected"
+        r = await h.patch(f"/api/cm/posts/{pid}", json={"rights": "public_domain", "rights_note": ""})
+        assert r.status_code == 200 and r.json()["rights"] == "public_domain" and r.json()["rights_warning"] is None
+        r = await h.post(f"/api/cm/posts/{pid}/targets", json={"targets": [_yt_target(yt.id, scheduled_at=later)]})
+        assert r.status_code == 200, r.text
+        # Repasser en « protégée » avec une cible YouTube à venir sur cette chaîne : refusé.
+        r = await h.patch(f"/api/cm/posts/{pid}", json={"rights": "protected"})
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "rights_protected"

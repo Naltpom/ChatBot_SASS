@@ -8,6 +8,7 @@ import {
   acceptTransfer, addRoutineAccount, cancelTransfer, createGroup, declineTransfer, deleteGroup, disconnect, getAccounts,
   getTransfers, startOAuth, syncAccount, transferAccount, updateGroup,
   GROUP_COLORS, PLATFORM_LABEL, PLATFORMS, type Account, type Group, type GroupColor, type Platform,
+  setYoutubeAccount,
 } from '../api'
 import { ShareSheet } from '../components/ShareSheet'
 import { AccountPicker } from '../components/AccountPicker'
@@ -295,7 +296,9 @@ export default function Accounts() {
                   onShare={() => setSharing({ what: { platform: a.platform, account_id: a.id }, label: a.name || PLATFORM_LABEL[a.platform] })}
                   onSync={() => run(`s${p}${a.id}`, () => syncAccount(org, a), 'Chiffres actualisés.')}
                   onRemove={() => { if (window.confirm(`Déconnecter ${a.name} ? Les publications à venir sur ce compte ne partiront plus.`)) run(`d${p}${a.id}`, () => disconnect(org, a)) }}
-                  onReconnect={() => connect(p)} />)}
+                  onReconnect={() => connect(p)}
+                  onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(org, a.id, { public_domain_only: v }),
+                    v ? 'Cette chaîne n’accepte plus que des œuvres du domaine public.' : 'Réglage « domaine public seulement » retiré.')} />)}
               </ul>
             )}
             {p === 'instagram' && canAdmin && (
@@ -326,8 +329,8 @@ export default function Accounts() {
   )
 }
 
-function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, onTransfer, onShare }:
-  { a: Account; groups: Group[]; busy: string | null; canAdmin: boolean; onSync: () => void; onRemove: () => void; onReconnect: () => void; onTransfer: () => void; onShare: () => void }) {
+function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, onTransfer, onShare, onPublicDomain }:
+  { a: Account; groups: Group[]; busy: string | null; canAdmin: boolean; onSync: () => void; onRemove: () => void; onReconnect: () => void; onTransfer: () => void; onShare: () => void; onPublicDomain: (v: boolean) => void }) {
   const st = accountState(a)
   return (
     <li style={{ flexWrap: 'wrap' }}>
@@ -339,6 +342,13 @@ function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, 
           {a.stats?.updated_at && ` · chiffres du ${fmtDateTime(a.stats.updated_at)}`}
           {a.stats?.error && <> · <span className="status-warn">{a.stats.error}</span></>}
         </div>
+        {a.platform === 'youtube' && (
+          <label className={`check tiny${canAdmin ? '' : ' disabled'}`} style={{ marginTop: 6 }}>
+            <input type="checkbox" checked={!!a.public_domain_only} disabled={!canAdmin || busy === `p${a.platform}${a.id}`}
+                   onChange={e => onPublicDomain(e.target.checked)} />
+            <span>Domaine public seulement <span className="muted">(refuse les œuvres protégées ou aux droits inconnus)</span></span>
+          </label>
+        )}
         {groups.length > 0 && (
           <div className="row" style={{ gap: 4, marginTop: 6 }}>
             {groups.map(g => <span key={g.id} className="chip chip-sm"><GroupDot color={g.color} />{g.name}</span>)}

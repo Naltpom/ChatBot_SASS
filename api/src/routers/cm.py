@@ -367,6 +367,23 @@ async def list_accounts(org_id: Optional[int] = Query(None), days: int = Query(7
     return out
 
 
+class AccountSettingsIn(BaseModel):
+    public_domain_only: Optional[bool] = None
+
+
+@router.patch("/accounts/youtube/{account_id}")
+async def update_youtube_account(account_id: int, body: AccountSettingsIn, org_id: Optional[int] = Query(None),
+                                 db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Réglages d'une chaîne YouTube dans cm : « domaine public seulement » (refuse les œuvres protégées)."""
+    tenant = await _tenant(db, user, org_id)
+    acc = await cm.get_account(db, tenant, "youtube", account_id)
+    cm_access.require(tenant, "admin")
+    if body.public_domain_only is not None:
+        acc.public_domain_only = body.public_domain_only
+    await db.commit()
+    return cm.account_view("youtube", acc)
+
+
 @router.post("/accounts/{platform}/{account_id}/sync")
 async def sync_account(platform: Literal["tiktok", "youtube", "instagram"], account_id: int,
                        org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
@@ -820,6 +837,7 @@ async def calendar(org_id: Optional[int] = Query(None), group_id: Optional[int] 
         if t.external_id and (t.platform, t.account_id, t.external_id) in seen:
             continue      # déjà là avec ses chiffres (vidéo relevée)
         items.append({"kind": "target", "at": cm.iso(t.published_at or t.scheduled_at), "title": post.title,
+                      "rights": post.rights,
                       "group": f"p{post.id}", **_target_out(t, names)})
     items.sort(key=lambda i: i["at"] or "")
 
@@ -1129,6 +1147,17 @@ class TargetIn(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+Rights = Literal["public_domain", "protected", "unknown"]
+RIGHTS_WARNING = ("⚠️ Œuvre protégée : risque de réclamation de droits d'auteur (Content ID, son coupé, "
+                  "vidéo bloquée).")
+
+
+def _rights_refused(acc) -> HTTPException:
+    return HTTPException(422, {"code": "rights_protected", "message":
+                               f"La chaîne YouTube « {cm.account_name('youtube', acc)} » n'accepte que des œuvres du "
+                               "domaine public : cette publication est protégée ou ses droits sont inconnus."})
+
+
 class ArchiveIn(BaseModel):
     """Conte (compte « contes ») : dossier contes/<dossier>/ et partie (« 1 », « 2 »…, « longue »)."""
     dossier: Optional[str] = Field(None, max_length=150)      # ex. « KHM-040 — Le Voleur »
@@ -1149,6 +1178,9 @@ class PostIn(BaseModel):
     # du Drive (infos.json) et refuse un doublon tant qu'une publication active porte la même référence.
     ref: Optional[str] = Field(None, max_length=200)
     archive: Optional[ArchiveIn] = None
+    # Droits d'auteur de l'œuvre : public_domain | protected | unknown, et note libre (ex. « reprise — Wicked »).
+    rights: Optional[Rights] = None
+    rights_note: Optional[str] = Field(None, max_length=300)
     targets: list[TargetIn] = Field(min_length=1, max_length=MAX_TARGETS)
 
 
@@ -1167,7 +1199,9 @@ def _target_out(t: CmTarget, names: dict) -> dict:
 
 def _post_out(post: CmPost, targets: list[CmTarget], names: dict) -> dict:
     return {
-        "id": post.id, "ref": post.ref, "org_id": post.organization_id, "title": post.title, "caption": post.caption, "file_name": post.file_name,
+        "id": post.id, "ref": post.ref, "org_id": post.organization_id, "title": post.title,
+        "rights": post.rights, "rights_note": post.rights_note,
+        "rights_warning": RIGHTS_WARNING if post.rights in ("protected", "unknown") else None, "caption": post.caption, "file_name": post.file_name,
         "video_size": post.video_size, "duration_sec": post.duration_sec, "status": post.status,
         "has_media": bool(post.media_path), "asset_id": post.asset_id, "created_at": cm.iso(post.created_at),
         "archive": cm_archive.archive_out(post),
@@ -1226,14 +1260,14 @@ async def _check_daily_posts(db: AsyncSession, tenant: Tenant) -> None:
 
 
 async def _create_from_asset(db: AsyncSession, tenant: Tenant, user: User, asset: CmAsset, title: str,
-                             caption: str, planned: list, ref: Optional[str] = None) -> dict:
+                             caption: str, planned: list, ref: Optional[str] = None, rights: Optional[dict] = None) -> dict:
     """Publication d'une vidéo de la bibliothèque : rien à envoyer, prête tout de suite. Le
     fichier sera téléchargé depuis le Drive à l'heure de la 1re publication."""
     await _check_daily_posts(db, tenant)
     post = CmPost(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, user_id=user.id,
                   title=title, caption=caption or None, file_name=asset.name[:255], video_size=asset.size or 0,
                   received_bytes=asset.size or 0, mime_type=asset.mime_type, duration_sec=asset.duration_sec,
-                  media_path=None, asset_id=asset.id, status=POST_READY, ref=ref)
+                  media_path=None, asset_id=asset.id, status=POST_READY, ref=ref, **(rights or {}))
     db.add(post)
     await db.flush()
     now = utcnow()
@@ -1280,7 +1314,7 @@ async def _account_by_slug(db: AsyncSession, tenant: Tenant, platform: str, slug
 
 
 async def _plan_targets(db: AsyncSession, tenant: Tenant, targets: list, title: str, caption: str,
-                        mime: Optional[str], duration: Optional[float], size: int) -> list:
+                        mime: Optional[str], duration: Optional[float], size: int, rights: Optional[str] = None) -> list:
     """Règles communes des cibles (POST /posts et POST /posts/{id}/targets) : compte (slug ou id), publication
     possible, options normalisées, vidéo compatible si connue, heure. Tout est vérifié avant d'écrire."""
     seen = set()
@@ -1297,6 +1331,8 @@ async def _plan_targets(db: AsyncSession, tenant: Tenant, targets: list, title: 
             raise HTTPException(status.HTTP_409_CONFLICT,
                                 f"{cm.ACCOUNT_LABEL[t.platform]} « {cm.account_name(t.platform, acc)} » : publication "
                                 "impossible pour le moment (compte à reconnecter ou module indisponible).")
+        if t.platform == "youtube" and getattr(acc, "public_domain_only", False) and rights != "public_domain":
+            raise _rights_refused(acc)
         options = cm.normalize_options(t.platform, acc, t.options, title, caption or "")
         if duration and mime:
             err = cm.check_video_for(t.platform, acc, mime, duration, size)
@@ -1327,9 +1363,11 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
     if ref:
         await _check_ref_free(db, tenant, ref)
     planned = await _plan_targets(db, tenant, body.targets, title, body.caption,
-                                  asset.mime_type if asset else None, asset.duration_sec if asset else None, size)
+                                  asset.mime_type if asset else None, asset.duration_sec if asset else None, size,
+                                  body.rights)
+    rights = {"rights": body.rights, "rights_note": (body.rights_note or "").strip() or None}
     if asset is not None:
-        return await _create_from_asset(db, tenant, user, asset, title, body.caption, planned, ref)
+        return await _create_from_asset(db, tenant, user, asset, title, body.caption, planned, ref, rights)
     receiving = (await db.execute(select(func.count()).select_from(CmPost).where(
         tenant.where(CmPost), CmPost.status == POST_RECEIVING))).scalar() or 0
     if receiving >= MAX_RECEIVING:
@@ -1344,7 +1382,7 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
     post = CmPost(organization_id=tenant.org_id, owner_user_id=tenant.owner_user_id, user_id=user.id,
                   title=title, caption=body.caption or None,
                   file_name=os.path.basename(body.file_name)[:255] or None, video_size=body.video_size,
-                  received_bytes=0, media_path=str(path), status=POST_RECEIVING, ref=ref,
+                  received_bytes=0, media_path=str(path), status=POST_RECEIVING, ref=ref, **rights,
                   asset_id=await _asset_by_ref(db, tenant, ref),
                   # Publication de l'outil : archivée dans le Drive de l'espace (cm_archive).
                   archive_state="pending" if ref else None,
@@ -1400,6 +1438,8 @@ async def _check_ref_free(db: AsyncSession, tenant: Tenant, ref: str, post_id: O
 class PostPatch(BaseModel):
     ref: Optional[str] = Field(None, min_length=1, max_length=200)
     archive: Optional[ArchiveIn] = None
+    rights: Optional[Rights] = None
+    rights_note: Optional[str] = Field(None, max_length=300)
 
 
 @router.patch("/posts/{post_id}")
@@ -1409,8 +1449,18 @@ async def update_post(post_id: int, body: PostPatch, db: AsyncSession = Depends(
     post, tenant = await _get_post(db, user, post_id, lock=True)
     cm_access.require(tenant, "edit")
     targets = await _visible_targets(db, tenant, post)
-    if body.ref is None and body.archive is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Rien à modifier : donnez « ref » et/ou « archive ».")
+    if body.ref is None and body.archive is None and body.rights is None and body.rights_note is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Rien à modifier : donnez « ref », « archive » ou « rights ».")
+    if body.rights is not None:
+        if body.rights != "public_domain":   # chaîne « domaine public seulement » déjà visée : refus
+            for t in targets:
+                if t.platform == "youtube" and t.status not in T_FINAL:
+                    acc = await cm.get_account(db, tenant, "youtube", t.account_id)
+                    if getattr(acc, "public_domain_only", False):
+                        raise _rights_refused(acc)
+        post.rights = body.rights
+    if body.rights_note is not None:
+        post.rights_note = body.rights_note.strip() or None
     if body.ref is not None:
         ref = body.ref.strip()
         if "/" not in ref:
@@ -1663,7 +1713,8 @@ async def add_targets(post_id: int, body: TargetsAddIn, db: AsyncSession = Depen
     asset = await db.get(CmAsset, post.asset_id) if post.asset_id and not post.mime_type else None
     planned = await _plan_targets(db, tenant, wanted, post.title, post.caption or "",
                                   post.mime_type or (asset.mime_type if asset else None),
-                                  post.duration_sec or (asset.duration_sec if asset else None), post.video_size or 0)
+                                  post.duration_sec or (asset.duration_sec if asset else None), post.video_size or 0,
+                                  post.rights)
     now = utcnow()
     ready = post.status == POST_READY
     added = []

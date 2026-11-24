@@ -148,6 +148,7 @@ def account_view(platform: str, acc, stat: Optional[CmAccountStat] = None,
         out["can_draft"] = "video.upload" in (acc.scopes or "").split(",")
     if platform == "youtube":
         out["handle"] = acc.handle
+        out["public_domain_only"] = bool(getattr(acc, "public_domain_only", False))
     if platform == "instagram":
         out["username"] = acc.username
     stats = None
