@@ -16,22 +16,25 @@ export function TwoFASheet({ visible, enabled, onClose, onChanged }: { visible: 
   const [code, setCode] = useState('')
   const [err, setErr] = useState('')
   const [codes, setCodes] = useState<string[] | null>(null)
+  // Mode figé à l'ouverture : après « Activer », la fenêtre reste sur les codes de secours.
+  const [wasEnabled, setWasEnabled] = useState(enabled)
   useEffect(() => {
     if (!visible) return
+    setWasEnabled(enabled)
     setCode(''); setErr(''); setCodes(null); setSetup(null)
     if (!enabled) send<{ secret: string; otpauth_uri: string }>('/api/auth/2fa/totp/setup').then(setSetup).catch(e => setErr(e?.message || 'Erreur'))
-  }, [visible, enabled])
+  }, [visible]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const confirm = async () => {
     setErr('')
     try {
-      if (enabled) { await send('/api/auth/2fa/totp/disable', { code: code.trim() }); onChanged(false); onClose() }
+      if (wasEnabled) { await send('/api/auth/2fa/totp/disable', { code: code.trim() }); onChanged(false); onClose() }
       else { const r = await send<{ recovery_codes: string[] }>('/api/auth/2fa/totp/enable', { code: code.trim() }); setCodes(r.recovery_codes); onChanged(true) }
     } catch (e: any) { setErr(e?.message || 'Code refusé') }
   }
 
   return (
-    <Sheet visible={visible} title={enabled ? 'Désactiver la double authentification' : 'Double authentification'} onClose={onClose}>
+    <Sheet visible={visible} title={wasEnabled ? 'Désactiver la double authentification' : 'Double authentification'} onClose={onClose}>
       {err ? <Msg kind="err">{err}</Msg> : null}
       {codes ? (
         <>
@@ -44,7 +47,7 @@ export function TwoFASheet({ visible, enabled, onClose, onChanged }: { visible: 
         </>
       ) : (
         <>
-          {!enabled && setup ? (
+          {!wasEnabled && setup ? (
             <>
               <View style={{ alignSelf: 'center', padding: 12, backgroundColor: '#fff', borderRadius: 12 }}>
                 <QRCode value={setup.otpauth_uri} size={180} />
@@ -57,9 +60,9 @@ export function TwoFASheet({ visible, enabled, onClose, onChanged }: { visible: 
               </Row>
             </>
           ) : null}
-          <Field label={enabled ? 'Code de l’application (ou de secours)' : 'Code à 6 chiffres'} value={code} onChangeText={setCode}
+          <Field label={wasEnabled ? 'Code de l’application (ou de secours)' : 'Code à 6 chiffres'} value={code} onChangeText={setCode}
             keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" onSubmitEditing={confirm} />
-          <Button kind={enabled ? 'danger' : 'primary'} title={enabled ? 'Désactiver' : 'Activer'} onPress={confirm} disabled={code.trim().length < 6} />
+          <Button kind={wasEnabled ? 'danger' : 'primary'} title={wasEnabled ? 'Désactiver' : 'Activer'} onPress={confirm} disabled={code.trim().length < 6} />
         </>
       )}
       <View style={{ height: space.sm }} />
