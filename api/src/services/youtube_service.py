@@ -446,10 +446,12 @@ async def valid_access_token(db: AsyncSession, account: YouTubeAccount, *,
         if token:
             return token
 
-    async def _dead(reason: str):
-        # Accès retiré ou jeton expiré chez la plateforme : jetons inutilisables, effacés tout de suite
-        # (politique de confidentialité, section 7). La reconnexion en redonne de nouveaux.
-        clear_tokens(locked)
+    async def _dead(reason: str, *, erase: bool = False):
+        # erase : la plateforme a refusé le jeton, ou il est expiré : inutilisable, effacé tout de suite
+        # (politique de confidentialité, section 7 ; la reconnexion en redonne). Jamais pour un jeton
+        # absent ou illisible : une clé de chiffrement erronée ne doit pas faire perdre les jetons.
+        if erase:
+            clear_tokens(locked)
         locked.needs_reconnect = True
         await db.commit()
         raise ReconnectRequired(reason)
@@ -464,7 +466,7 @@ async def valid_access_token(db: AsyncSession, account: YouTubeAccount, *,
         # la chaîne : on ne la marque pas « à reconnecter ».
         if e.code == "invalid_grant":
             logger.info("YouTube : refresh refusé pour la chaîne %s (%s)", locked.id, e.code)
-            await _dead(e.code)
+            await _dead(e.code, erase=True)
         raise
     apply_tokens(locked, tok, now)
     await db.commit()

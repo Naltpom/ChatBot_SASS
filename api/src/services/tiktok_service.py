@@ -409,16 +409,18 @@ async def valid_access_token(db: AsyncSession, account: TikTokAccount, *,
         if token:
             return token
 
-    async def _dead(reason: str):
-        # Accès retiré ou jeton expiré chez la plateforme : jetons inutilisables, effacés tout de suite
-        # (politique de confidentialité, section 7). La reconnexion en redonne de nouveaux.
-        clear_tokens(locked)
+    async def _dead(reason: str, *, erase: bool = False):
+        # erase : la plateforme a refusé le jeton, ou il est expiré : inutilisable, effacé tout de suite
+        # (politique de confidentialité, section 7 ; la reconnexion en redonne). Jamais pour un jeton
+        # absent ou illisible : une clé de chiffrement erronée ne doit pas faire perdre les jetons.
+        if erase:
+            clear_tokens(locked)
         locked.needs_reconnect = True
         await db.commit()
         raise ReconnectRequired(reason)
 
     if locked.refresh_token_expires_at and locked.refresh_token_expires_at <= now:
-        await _dead("refresh token expiré")
+        await _dead("refresh token expiré", erase=True)
     refresh = decrypt_secret(locked.refresh_token_enc)
     if not refresh:
         await _dead("refresh token absent ou illisible")
@@ -427,7 +429,7 @@ async def valid_access_token(db: AsyncSession, account: TikTokAccount, *,
     except TikTokError as e:
         if e.code in _DEAD_REFRESH:
             logger.info("TikTok : refresh refusé pour le compte %s (%s)", locked.id, e.code)
-            await _dead(e.code)
+            await _dead(e.code, erase=True)
         raise
     apply_tokens(locked, tok, now)
     await db.commit()
