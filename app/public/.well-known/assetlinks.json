@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "fr.chapote.cm",
+      "sha256_cert_fingerprints": ["FD:A4:89:EA:4A:B1:B4:CB:E2:7A:F9:17:A9:10:72:33:E6:C6:3B:BE:CD:DF:C4:98:F3:15:5F:D4:73:5F:DE:62"]
+    }
+  }
+]
