@@ -41,7 +41,7 @@ async def _login_by_browser(h, verifier, challenge, redirect="chapotecm://auth")
     m = re.search(r'http-equiv="refresh" content="0;url=([^"]+)"', r.text)
     loc = html.unescape(m.group(1))
     assert f'href="{m.group(1)}"' in r.text
-    assert loc.startswith(redirect + "?")
+    assert loc.startswith(redirect + ("&" if "?" in redirect else "?"))
     q = parse_qs(urlparse(loc).query)
     assert q["state"] == ["s1"]
     return q["code"][0]
@@ -270,3 +270,25 @@ async def test_push_nothing_without_devices(pg_session, cmenv):
     await db.commit()
     msgs = await cm_push.collect(db)
     assert [m["title"] for m in msgs] == ["Brouillon TikTok à publier"]
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_pending_pickup_when_return_link_fails(pg_session, cmenv):
+    """Retour automatique dans l'app raté (Expo Go…) : l'app reprend le code avec son verifier."""
+    a = await _user(pg_session, "a@t.dev")
+    await pg_session.commit()
+    verifier, challenge = _pkce()
+    async with Client(pg_session) as c:
+        anon = c.http
+        assert (await anon.post("/api/cm/mobile/token/pending", json={"verifier": verifier})).status_code == 404
+        h = c.as_(a)
+        await _login_by_browser(h, verifier, challenge, redirect="exp://u.expo.dev/abc/--/auth?channel-name=preview")
+        c.http.cookies.clear()
+        # Un autre verifier ne reprend rien.
+        assert (await anon.post("/api/cm/mobile/token/pending", json={"verifier": _pkce()[0]})).status_code == 404
+        r = await anon.post("/api/cm/mobile/token/pending", json={"verifier": verifier, "name": "Pixel", "platform": "android"})
+        assert r.status_code == 200, r.text
+        assert r.json()["user"]["email"] == "a@t.dev" and r.json()["refresh_token"]
+        # Une seule fois.
+        assert (await anon.post("/api/cm/mobile/token/pending", json={"verifier": verifier})).status_code == 404
