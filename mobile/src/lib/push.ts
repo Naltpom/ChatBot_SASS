@@ -53,8 +53,8 @@ export async function enablePush(): Promise<PushState | string> {
   try {
     const token = (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data
     return await api<PushState>('PUT', { push_token: token })
-  } catch {
-    return 'Impossible d’obtenir le jeton de notifications pour ce téléphone.'
+  } catch (e: any) {
+    return `Impossible d’obtenir le jeton de notifications pour ce téléphone${e?.message ? ` (${String(e.message).slice(0, 160)})` : ''}.`
   }
 }
 
