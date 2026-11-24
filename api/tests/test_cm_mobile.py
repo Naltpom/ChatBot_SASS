@@ -156,12 +156,12 @@ async def test_push_settings(pg_session, cmenv):
         t1 = (await h.post("/api/cm/mobile/devices", json={})).json()["refresh_token"]
         t2 = (await h.post("/api/cm/mobile/devices", json={})).json()["refresh_token"]
         r = await h.get("/api/cm/mobile/push", params={"refresh_token": t1})
-        assert r.json() == {"enabled": False, "prefs": {"published": True, "failed": True, "draft": True, "comments": True}}
+        assert r.json() == {"enabled": False, "prefs": {"published": True, "failed": True, "draft": True, "comments": True, "storage": True}}
         assert (await h.put("/api/cm/mobile/push", json={"refresh_token": t1, "push_token": "nimporte"})).status_code == 400
         r = await h.put("/api/cm/mobile/push", json={"refresh_token": t1, "push_token": PUSH, "prefs": {"comments": False}})
         assert r.status_code == 200 and r.json()["enabled"] and r.json()["prefs"]["comments"] is False
         r = await h.put("/api/cm/mobile/push", json={"refresh_token": t1, "prefs": {"published": False}})
-        assert r.json()["prefs"] == {"published": False, "failed": True, "draft": True, "comments": False}
+        assert r.json()["prefs"] == {"published": False, "failed": True, "draft": True, "comments": False, "storage": True}
         # Même téléphone reconnecté : le jeton passe au nouvel appareil.
         await h.put("/api/cm/mobile/push", json={"refresh_token": t2, "push_token": PUSH})
         assert (await h.get("/api/cm/mobile/push", params={"refresh_token": t1})).json()["enabled"] is False

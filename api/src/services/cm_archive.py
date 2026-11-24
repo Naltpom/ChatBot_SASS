@@ -419,6 +419,7 @@ async def sync_post(db: AsyncSession, post: CmPost, now=None) -> None:
             await gd.put_bytes(tok, folder, name, data, mime, fid)
         else:
             a[f"{key}_id"] = await new_file(name, data=data, mime=mime)
+            a[f"{key}_ours"], a[f"{key}_bytes"] = True, len(data)       # créé par cm : compté, supprimable
 
     try:
         names, stem, partie = _layout(post, targets)
@@ -426,21 +427,24 @@ async def sync_post(db: AsyncSession, post: CmPost, now=None) -> None:
             a["folder_id"] = await gd.ensure_path(dest.folders, base, dest.prefix + names)
         folder = a["folder_id"]
         ext = "mov" if post.mime_type == "video/quicktime" else "mp4"
-        if not a.get("video_id"):      # déjà rangée là (par le PC, ou un essai précédent) : pas de doublon
+        purged = bool(a.get("purged_at"))   # fichiers déjà supprimés (conservation) : seul infos.json est tenu à jour
+        if not a.get("video_id") and not purged:   # déjà rangée là (par le PC, ou un essai précédent) : pas de doublon
             a["video_id"] = await gd.find_child(dest.folders, folder, f"{stem}.{ext}", False)
-        if not a.get("video_id") and post.media_path:
+        if not a.get("video_id") and post.media_path and not purged:
             a["video_id"] = await new_file(f"{stem}.{ext}", path=post.media_path, mime=post.mime_type or "video/mp4")
+            a["video_ours"] = True
         cap = (post.caption or "").encode()
-        if a.get("caption_sha") != _sha(cap):
+        if a.get("caption_sha") != _sha(cap) and not purged:
             await write("caption", f"{stem}.txt", cap, "text/plain; charset=utf-8")
             a["caption_sha"] = _sha(cap)
-        if not a.get("cover_id") and post.cover_path:
+        if not a.get("cover_id") and post.cover_path and not purged:
             try:
                 with open(post.cover_path, "rb") as f:
                     img = f.read()
                 ext = "png" if post.cover_path.endswith(".png") else "jpg"
                 cover = "couverture" if partie is None else f"couverture — partie {partie}"
                 a["cover_id"] = await new_file(f"{cover}.{ext}", data=img, mime="image/png" if ext == "png" else "image/jpeg")
+                a["cover_ours"], a["cover_bytes"] = True, len(img)
             except OSError:
                 pass
         mine = entry(post, targets)
@@ -469,7 +473,10 @@ async def sync_post(db: AsyncSession, post: CmPost, now=None) -> None:
             await write("infos", INFOS_NAME, raw, "application/json")
             a["infos_sha"] = _sha(raw)
         a.pop("error", None)
-        if a.get("video_id"):
+        # Octets rangés par cm (stockage de l'espace) : seulement les fichiers qu'il a créés lui-même.
+        a["bytes"] = ((post.video_size or 0) if a.get("video_ours") else 0) + (a.get("cover_bytes") or 0) \
+            + (a.get("caption_bytes") or 0 if a.get("caption_ours") else 0)
+        if a.get("video_id") or purged:
             post.archive_state = "ok"
         elif post.media_path:
             post.archive_state = "pending"
@@ -557,6 +564,9 @@ async def launch_due(db: AsyncSession) -> None:
         async with AsyncSessionLocal() as session:
             await sync_due(session)
             await probe_sources(session)
+            from src.services import cm_storage            # import tardif : cm_storage importe ce module
+            await cm_storage.purge_due(session)
+            await cm_storage.alerts(session)
 
     _running = asyncio.create_task(run())
     _running.add_done_callback(lambda t: t.cancelled() or t.exception() is None
@@ -600,3 +610,7 @@ def archive_out(post: CmPost) -> Optional[dict]:
             "last_try": (post.archive_synced_at.isoformat() + "Z") if post.archive_synced_at else None,
             "folder_url": f"https://drive.google.com/drive/folders/{a['folder_id']}" if a.get("folder_id") else None,
             "video_id": a.get("video_id")}
+
+
+def iso_now() -> str:
+    return utcnow().isoformat() + "Z"

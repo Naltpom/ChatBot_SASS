@@ -111,6 +111,7 @@ def cmenv(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "CM_URL", "https://cm.chapote.test")
     monkeypatch.setattr(settings, "CM_SERVICE_TOKEN", SERVICE)
     monkeypatch.setattr(settings, "CM_SERVICE_USER_EMAIL", "a@t.dev")
+    monkeypatch.setattr(settings, "CM_STORAGE_REQUIRED", False)    # testé à part (test_cm_storage)
     monkeypatch.setattr(cm, "PART_SIZE", 1024)
     launched: list[int] = []
     monkeypatch.setattr(cm_jobs, "launch", lambda target_id: launched.append(target_id))

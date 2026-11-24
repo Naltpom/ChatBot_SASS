@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     YOUTUBE_DAILY_POSTS: int = 50
     # cm : publications créées par espace et par 24 h glissantes (garde-fou ; comptées en base).
     CM_DAILY_POSTS: int = 150
+    # cm : un Google Drive connecté est obligatoire pour créer une publication (stockage des vidéos).
+    CM_STORAGE_REQUIRED: bool = True
     # Jeton de service (Bearer) de la chaîne de production (claude-cloud),
     # au nom de YOUTUBE_SERVICE_USER_EMAIL. Publication seulement (chaînes,
     # posts) : jamais la connexion ni la déconnexion d'une chaîne.

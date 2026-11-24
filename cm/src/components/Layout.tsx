@@ -2,6 +2,7 @@
 // Vidéos) : une barre de filtres qui défile (Tous, groupes, comptes), un geste pour changer. Les
 // pages de gestion (Comptes, Bibliothèque, Personnes) portent sur tout l'espace et n'ont pas la barre.
 // Choix de l'espace (rare) : menu du compte. Mobile : onglets en bas, « Publier » au centre.
+import { StorageGate } from './Storage'
 import { Component, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useSession } from '../session'
@@ -209,6 +210,7 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
         </header>
         {filtered && <ScopeBar />}
         <main id="contenu" className={`content${composing ? ' no-tabbar' : ''}`}>
+          {!pathname.startsWith('/drive/') && <StorageGate />}
           <PageBoundary path={pathname}><Suspense fallback={fallback ?? null}><Outlet /></Suspense></PageBoundary>
         </main>
       </div>

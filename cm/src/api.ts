@@ -52,7 +52,13 @@ export const patchPost = (id: number, body: { rights?: Rights; rights_note?: str
 export const setYoutubeAccount = (org: number | null, id: number, body: { public_domain_only: boolean }) =>
   send<Account>('PATCH', `/api/cm/accounts/youtube/${id}${q(org)}`, body)
 export type CmRole = 'admin' | 'editor' | 'viewer'
-export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null; owner?: boolean; owner_name?: string | null; accounts?: number }
+export type Retention = 'keep' | 'delete_after_publish' | 'delete_after_days'
+export type StorageState = 'ok' | 'almost_full' | 'full' | 'missing'
+export interface Storage {
+  connected: boolean; email: string | null; quota_gb: number | null; used_bytes: number; drive_free_bytes: number | null
+  retention: Retention | null; delete_after_days: number | null; state: StorageState; max_quota_gb?: number | null
+}
+export interface Space { org_id: number | null; name: string; role: string | null; cm_role?: CmRole; group_ids?: number[] | null; owner?: boolean; owner_name?: string | null; accounts?: number; storage?: Storage }
 export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
   | 'red' | 'indigo' | 'cyan' | 'lime' | 'rose' | 'sky' | 'emerald' | 'brown'
 export const GROUP_COLORS: GroupColor[] = ['blue', 'sky', 'cyan', 'teal', 'emerald', 'green', 'lime', 'amber', 'orange', 'brown', 'red', 'rose', 'pink', 'purple', 'indigo', 'slate']
@@ -308,6 +314,9 @@ export const startDriveOAuth = (org: number | null) => send<{ authorize_url: str
 export const exchangeDriveOAuth = (code: string, state: string) =>
   send<DriveArchive & { org_id: number | null }>('POST', '/api/cm/drive/oauth/exchange', { code, state })
 export const disconnectDriveArchive = (org: number | null) => send<DriveArchive>('DELETE', `/api/cm/drive/archive${q(org)}`)
+export const getStorage = (org: number | null) => call<Storage>(`/api/cm/drive/storage${q(org)}`)
+export const putStorage = (org: number | null, body: { quota_gb: number | null; retention: Retention; delete_after_days?: number | null }) =>
+  send<Storage>('PUT', `/api/cm/drive/storage${q(org)}`, body)
 export const getRobot = () => call<{ enabled: boolean; email: string | null }>('/api/cm/library/robot')
 export const getSources = (org: number | null) => call<Source[]>(`/api/cm/sources${q(org)}`)
 export const addSource = (org: number | null, url: string, group_id: number | null) =>
