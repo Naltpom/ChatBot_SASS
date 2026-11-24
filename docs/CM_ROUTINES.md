@@ -210,4 +210,4 @@ Ces dossiers ne donnent **jamais** de brouillon « à valider » (infos.json ave
 d'archivage, le post l'indique (`archive.error`) et cm réessaie toutes les 30 min ; rien n'empêche la publication.
 
 Limites : `CM_MAX_UPLOAD_MB` par vidéo, nombre de publications par jour et par espace (`post_limiter`), quota
-YouTube (~6 envois/jour pour tout chapote).
+YouTube : `YOUTUBE_DAILY_POSTS` envois par 24 h et par espace (50 par défaut), et 100 envois par jour pour tout le projet Google.

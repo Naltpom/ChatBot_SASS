@@ -201,7 +201,7 @@ async def _dispatch_youtube(db: AsyncSession, t: CmTarget, post: CmPost) -> None
     if await _active_count(db, YouTubePost, tenant) >= MAX_ACTIVE_POSTS:
         raise _Later()
     if not await youtube_router.post_limiter.check(tenant.key):
-        raise _Fail("daily_limit", "Limite quotidienne de vidéos YouTube atteinte pour votre espace (quota de l'API).")
+        raise _Fail("daily_limit", f"Limite de {settings.YOUTUBE_DAILY_POSTS} vidéos YouTube par 24 h atteinte pour votre espace : réessayez plus tard.")
     o = t.options or {}
     path = await _copy_media(post, youtube_jobs.tmp_dir())
     yp = YouTubePost(

@@ -20,7 +20,7 @@ Contrats Google :
   des morceaux (multiples de 256 Kio sauf le dernier) avec Content-Range ;
   308 = « continuer » (en-tête Range = octets reçus), 200/201 = ressource vidéo.
   Reprise : PUT vide « Content-Range: bytes */total » -> 308 + Range.
-  Coût : 1 600 unités de quota (10 000 / jour par projet).
+  Coût : compté dans « Video uploads per day » (100 / jour par projet), pas dans les 10 000 unités.
 - Projet non audité (créé après le 28/07/2020) : YouTube garde la vidéo
   PRIVÉE quel que soit privacyStatus demandé, jusqu'à l'audit de conformité.
 - Short : vidéo verticale (ou carrée) de 3 min au plus. Rien d'autre à
@@ -89,7 +89,7 @@ ERROR_MESSAGES = {
     "scope_missing": "Chapote n'a pas reçu l'autorisation d'envoyer des vidéos : reconnectez la chaîne en cochant toutes les autorisations.",
     "no_channel": "Ce compte Google n'a pas de chaîne YouTube. Créez-en une sur youtube.com, puis reconnectez-vous.",
     # API
-    "quotaExceeded": "Le quota quotidien de l'API YouTube est épuisé (environ 6 vidéos par jour). Réessayez demain, après 9 h (minuit, heure du Pacifique).",
+    "quotaExceeded": "Le quota quotidien de l'API YouTube est épuisé. Réessayez demain, après 9 h (minuit, heure du Pacifique).",
     "uploadLimitExceeded": "Cette chaîne a atteint sa limite d'envois YouTube pour aujourd'hui. Réessayez demain.",
     "rateLimitExceeded": "Trop de requêtes vers YouTube. Patientez une minute puis réessayez.",
     "userRateLimitExceeded": "Trop de requêtes vers YouTube. Patientez une minute puis réessayez.",

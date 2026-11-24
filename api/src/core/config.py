@@ -123,10 +123,10 @@ class Settings(BaseSettings):
     YOUTUBE_MAX_UPLOAD_MB: int = 1024
     # Fichiers vidéo temporaires. JAMAIS sous UPLOAD_DIR (servi publiquement).
     YOUTUBE_TMP_DIR: str = "/tmp/chapote_youtube"
-    # Envois par tenant et par 24 h. Un envoi coûte 1 600 unités de quota
-    # Google sur 10 000 / jour pour TOUT le projet (≈ 6 envois / jour tant
-    # que Google n'a pas relevé le quota).
-    YOUTUBE_DAILY_POSTS: int = 6
+    # Envois par espace et par 24 h. Google compte les envois à part (« Video
+    # uploads per day » : 100 / jour pour tout le projet) ; le quota de 10 000
+    # unités ne sert presque qu'aux lectures (constaté dans la console, 24/11/2026).
+    YOUTUBE_DAILY_POSTS: int = 50
     # Jeton de service (Bearer) de la chaîne de production (claude-cloud),
     # au nom de YOUTUBE_SERVICE_USER_EMAIL. Publication seulement (chaînes,
     # posts) : jamais la connexion ni la déconnexion d'une chaîne.
