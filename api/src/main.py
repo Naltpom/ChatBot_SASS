@@ -28,6 +28,8 @@ from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
 from src.routers.external import onboarding as ext_onboarding
 from src.services import cm_jobs, tiktok_jobs, youtube_jobs
+from src.routers import cm_mobile
+from src.services import cm_push
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -76,10 +78,13 @@ async def lifespan(app: FastAPI):
     youtube_jobs.start_scheduler()
     # cm.chapote.fr : publications programmées, suivi, statistiques, nettoyage.
     cm_jobs.start_scheduler()
+    # Application mobile : notifications (vidéo publiée, échec, brouillon, commentaires).
+    cm_push.start_scheduler()
     yield
     await tiktok_jobs.stop_scheduler()
     await youtube_jobs.stop_scheduler()
     await cm_jobs.stop_scheduler()
+    await cm_push.stop_scheduler()
 
 
 # Doc interactive (Swagger /docs, ReDoc /redoc, schema /openapi.json) : on la
@@ -306,6 +311,7 @@ app.include_router(cm.router)
 app.include_router(cm_library.router)
 app.include_router(cm_inbox.router)
 app.include_router(cm_team.router)
+app.include_router(cm_mobile.router)
 app.include_router(music.router)
 app.include_router(admin_music.router)
 app.include_router(uploads.router)
