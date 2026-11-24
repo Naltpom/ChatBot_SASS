@@ -586,6 +586,41 @@ async def test_draft_send_mark_move_trash_and_rights(env):
 
 @pytest.mark.real_db
 @pytest.mark.asyncio
+async def test_send_envelope_recipients_and_smtp_refusals(env, caplog):
+    """Régression : avec To seul (ni Cc ni Bcc), getaddresses strict (Python 3.11.10+) réduisait
+    les en-têtes vides à [('', '')] -> enveloppe vide, aucun RCPT TO, faux « refusés »."""
+    caplog.set_level(logging.WARNING)
+    await _boxes(env)
+    async with http() as c:
+        _admin, token = await _admin_token(env, c)
+        ok, s = await tool(c, token, "send_message", account="contact", to=["Nathan <nathan@exemple.fr>"],
+                           subject="To seul", body="x")
+        assert ok, s
+        assert fk.SMTP_SENT[-1]["to"] == ["nathan@exemple.fr"] and "refused" not in s
+        ok, s = await tool(c, token, "send_message", account="contact", cc=["copie@exemple.fr"], body="x")
+        assert ok and fk.SMTP_SENT[-1]["to"] == ["copie@exemple.fr"]
+        ok, s = await tool(c, token, "send_message", account="contact", bcc=["cache@exemple.fr"], body="x")
+        assert ok and fk.SMTP_SENT[-1]["to"] == ["cache@exemple.fr"]
+        ok, s = await tool(c, token, "send_message", account="contact", to=["a@exemple.fr", "a@exemple.fr"],
+                           cc=["b@exemple.fr"], body="x")
+        assert ok and fk.SMTP_SENT[-1]["to"] == ["a@exemple.fr", "b@exemple.fr"]      # sans doublon
+
+        # Refus partiel : le message EST parti pour les autres -> succès avec avertissement.
+        fk.SMTP_REFUSE["inconnu@exemple.fr"] = (550, b"5.1.1 <inconnu@exemple.fr> Recipient unknown")
+        n = len(fk.SMTP_SENT)
+        ok, s = await tool(c, token, "send_message", account="contact", to=["ok@exemple.fr", "inconnu@exemple.fr"],
+                           body="x")
+        assert ok and s["sent"] is True and len(fk.SMTP_SENT) == n + 1
+        assert s["refused"] == [{"address": "inconnu@exemple.fr", "code": 550}] and "ne pas renvoyer" in s["warning"]
+        # Refus total : erreur avec le code SMTP ; journal avec code et réponse, adresse masquée.
+        ok, err = await tool(c, token, "send_message", account="contact", to=["inconnu@exemple.fr"], body="x")
+        assert not ok and "550" in err
+    assert "refus RCPT" in caplog.text and "5.1.1 <***> Recipient unknown" in caplog.text
+    assert "inconnu@exemple.fr" not in caplog.text
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
 async def test_no_secret_in_logs_or_audit(env, caplog):
     caplog.set_level(logging.DEBUG)
     await _boxes(env)
