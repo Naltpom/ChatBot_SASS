@@ -126,6 +126,7 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
               {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => publishNow(item.id), `Publier maintenant sur ${PLATFORM_LABEL[item.platform]} ?`)}>Publier maintenant</button>}
               {item.can_retry && <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act(() => retryTarget(item.id))}>Réessayer</button>}
               {item.can_edit && <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy} onClick={() => act(() => cancelTarget(item.id), `Annuler la publication sur ${PLATFORM_LABEL[item.platform]} ?`)}>Annuler</button>}
+              {!item.can_edit && item.can_cancel && <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy} onClick={() => act(() => cancelTarget(item.id), `Retirer cette publication en échec sur ${PLATFORM_LABEL[item.platform]} du planning ? Vous pourrez rajouter la plateforme ensuite.`)}>Retirer</button>}
             </div>
           )}
         </div>
@@ -174,6 +175,8 @@ function DraftBox({ item, busy, act }: {
         <div className="row" style={{ gap: 8 }}>
           <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => setAsking(true)}>Publié dans l’app</button>
           <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => resendDraft(item.id), 'Renvoyer la vidéo dans vos brouillons TikTok ? (à faire seulement si le brouillon a été supprimé)')}>Renvoyer le brouillon</button>
+          <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy}
+                  onClick={() => act(() => cancelTarget(item.id), 'Retirer ce brouillon du planning ? Il reste dans vos brouillons TikTok : supprimez-le vous-même dans l’app.')}>Retirer</button>
         </div>
       )}
     </div>

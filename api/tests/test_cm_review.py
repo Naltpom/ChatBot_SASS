@@ -401,3 +401,31 @@ async def test_rights_and_public_domain_only_channel(pg_session, cmenv, tiktok, 
         # Repasser en « protégée » avec une cible YouTube à venir sur cette chaîne : refusé.
         r = await h.patch(f"/api/cm/posts/{pid}", json={"rights": "protected"})
         assert r.status_code == 422 and r.json()["detail"]["code"] == "rights_protected"
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_cancel_inbox_and_failed_targets(pg_session, cmenv, tiktok):
+    u = await _user(pg_session, "a@t.dev")
+    tk = await _account(pg_session, owner=u, open_id="cx1")
+    await pg_session.commit()
+    later = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        for st in ("INBOX", "FAILED"):
+            pid = await _ready(h, [_tt_target(tk.id, scheduled_at=later)])
+            t = (await pg_session.execute(select(CmTarget).where(CmTarget.post_id == pid))).scalar_one()
+            t.status = st
+            await pg_session.commit()
+            assert (await h.get(f"/api/cm/posts/{pid}")).json()["targets"][0]["can_cancel"] is True
+            r = await h.post(f"/api/cm/targets/{t.id}/cancel")
+            assert r.status_code == 200 and r.json()["status"] == "CANCELLED", st
+            # Hors du planning, et la plateforme peut être rajoutée.
+            cal = (await h.get("/api/cm/calendar")).json()["items"]
+            assert t.id not in [i["id"] for i in cal if i["kind"] == "target"]
+            r = await h.post(f"/api/cm/posts/{pid}/targets", json={"targets": [_tt_target(tk.id, scheduled_at=later)]})
+            assert r.status_code == 200 and len(r.json()["added"]) == 1, r.text
+        # Publiée : toujours refusé.
+        t.status = "PUBLISHED"
+        await pg_session.commit()
+        assert (await h.post(f"/api/cm/targets/{t.id}/cancel")).status_code == 409
