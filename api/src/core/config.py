@@ -198,6 +198,25 @@ class Settings(BaseSettings):
     INSTAGRAM_GRAPH_BASE: str = "https://graph.instagram.com"
     INSTAGRAM_API_VERSION: str = "v23.0"
 
+    # --- Boîtes mail pour Claude (emails.chapote.fr) ---
+    # Serveur MCP distant (connecteur personnalisé claude.ai) + interface d'administration,
+    # réservés au superadmin (2FA obligatoire en prod). Désactivé par défaut : routes en 404.
+    EMAILS_ENABLED: bool = False
+    # URL publique : identifiant de la ressource MCP ({EMAILS_URL}/mcp), émetteur OAuth,
+    # origine WebAuthn supplémentaire (passkeys de chapote.fr valables sur le sous-domaine).
+    EMAILS_URL: str = "http://localhost:3004"
+    # Clé partagée nginx d'emails <-> API : vraie IP du visiteur (X-Emails-Client-IP).
+    EMAILS_PROXY_KEY: str | None = None
+    # Clé Fernet DÉDIÉE aux mots de passe des boîtes (jamais ENCRYPTION_KEY) : une fuite de
+    # l'une ne donne pas l'autre. Obligatoire en prod si EMAILS_ENABLED. Vide en dev = clé
+    # éphémère (mots de passe illisibles au redémarrage).
+    MAILBOX_ENCRYPTION_KEY: str | None = None
+    # Hôtes autorisés pour les redirect_uri des clients OAuth (inscription dynamique) : seul
+    # Claude par défaut. Un client inconnu ne peut donc pas se faire envoyer un code.
+    EMAILS_OAUTH_REDIRECT_HOSTS: str = "claude.ai,claude.com"
+    # Délais réseau IMAP / SMTP (secondes) : une boîte lente ne bloque pas l'appel MCP.
+    EMAILS_IMAP_TIMEOUT: int = 20
+
     APP_URL: str = "http://localhost:3001"
     API_URL: str = "http://localhost:8001"
 
@@ -317,6 +336,21 @@ class Settings(BaseSettings):
         return self.APP_URL.rstrip("/")
 
     @property
+    def webauthn_origins(self) -> list[str]:
+        """Origines acceptées pour une cérémonie WebAuthn : chapote.fr, plus emails.chapote.fr
+        si le module est actif. Le RP ID (chapote.fr) ne change pas : une passkey enregistrée
+        sur chapote.fr vaut sur tous ses sous-domaines (règle WebAuthn du suffixe de domaine)."""
+        origins = [self.webauthn_origin]
+        if self.EMAILS_ENABLED and self.EMAILS_URL:
+            origins.append(self.EMAILS_URL.rstrip("/"))
+        return origins
+
+    @property
+    def emails_resource(self) -> str:
+        """Identifiant canonique de la ressource MCP (RFC 8707 / RFC 9728)."""
+        return f"{self.EMAILS_URL.rstrip('/')}/mcp"
+
+    @property
     def cookie_domain(self) -> str | None:
         """Domaine du cookie de session. Explicite (AUTH_COOKIE_DOMAIN) ou, en
         production, suffixe commun des hôtes d'APP_URL et MUSIC_URL (au moins
@@ -383,6 +417,20 @@ class Settings(BaseSettings):
         # ci-dessus, lui, n'a aucun sens sans billing et reste donc gardé.
         if self.MOCK_BILLING:
             raise RuntimeError("MOCK_BILLING interdit en production")
+        # emails.chapote.fr : les mots de passe des boîtes exigent leur propre clé, valide et
+        # distincte d'ENCRYPTION_KEY (sinon une seule fuite ouvrirait les deux coffres).
+        if self.EMAILS_ENABLED:
+            if not self.MAILBOX_ENCRYPTION_KEY:
+                raise RuntimeError("MAILBOX_ENCRYPTION_KEY obligatoire en production quand EMAILS_ENABLED=true")
+            if self.MAILBOX_ENCRYPTION_KEY == self.ENCRYPTION_KEY:
+                raise RuntimeError("MAILBOX_ENCRYPTION_KEY doit être distincte d'ENCRYPTION_KEY")
+            from cryptography.fernet import Fernet
+            try:
+                Fernet(self.MAILBOX_ENCRYPTION_KEY.encode())
+            except Exception:
+                raise RuntimeError("MAILBOX_ENCRYPTION_KEY n'est pas une clé Fernet valide")
+            if not self.EMAILS_URL.startswith("https://"):
+                raise RuntimeError("EMAILS_URL doit être en https:// en production")
         if (self.STRIPE_SECRET_KEY or "").startswith("sk_live"):
             raise RuntimeError(
                 "Utiliser une Restricted API Key rk_live en production (A3)"

@@ -52,11 +52,26 @@ def _encode(claims: dict, expires_delta: timedelta) -> str:
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_dashboard_token(user_id: int) -> str:
-    return _encode(
-        {"sub": str(user_id), "scope": "dashboard"},
-        timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
-    )
+def create_dashboard_token(user_id: int, mfa: bool = False) -> str:
+    """JWT de session dashboard. `mfa=True` : session ouverte APRÈS un 2nd facteur validé
+    (TOTP, code de secours ou passkey) ; exigé par emails.chapote.fr (superadmin), où avoir
+    une 2FA configurée ne suffit pas : la session elle-même doit l'avoir franchie."""
+    claims = {"sub": str(user_id), "scope": "dashboard"}
+    if mfa:
+        claims["mfa"] = True
+    return _encode(claims, timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
+
+
+def session_has_mfa(request: Request) -> bool:
+    """True si le cookie de session courant a été émis après un 2nd facteur validé."""
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
+        return False
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError:
+        return False
+    return payload.get("scope") == "dashboard" and payload.get("mfa") is True
 
 
 # --- Cookie de session dashboard (audit §3.5 : JWT en cookie httpOnly) ---
