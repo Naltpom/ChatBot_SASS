@@ -24,6 +24,7 @@ docker compose up -d --build
 | Dashboard | http://localhost:3001        |
 | API docs  | http://localhost:8001/docs   |
 | Widget    | http://localhost:8001/widget.js |
+| Emails (superadmin, `EMAILS_ENABLED=true`) | http://localhost:3004 |
 
 En dev, `MOCK_AI=true` : les réponses IA sont simulées, aucune clé requise.
 
@@ -53,6 +54,14 @@ python -m http.server 8080 -d demo
 
 En dev avec `AUTO_LOGIN_ADMIN_DEV=true`, le dashboard se connecte tout seul en
 superadmin (`ADMIN_EMAIL`).
+
+## emails.chapote.fr — boîtes mail pour Claude
+
+Serveur **MCP distant** (connecteur personnalisé claude.ai : `https://emails.chapote.fr/mcp`) qui donne à
+Claude l'accès à l'Email Pro OVH `contact@chapote.fr` et aux comptes Gmail (IMAP/SMTP, mots de passe
+d'application), avec une interface d'administration (boîtes, droits, connexions Claude, journal d'audit).
+Réservé au superadmin, 2FA obligatoire, OAuth 2.1 (PKCE, inscription dynamique). Front `emails/`, service
+compose `emails`, désactivé par défaut (`EMAILS_ENABLED=false`). Détails : [docs/EMAILS_MCP.md](docs/EMAILS_MCP.md).
 
 ## Modèle économique
 

@@ -108,7 +108,7 @@ def verify_registration(credential_json: str, challenge_b64: str) -> tuple[str, 
     v = verify_registration_response(
         credential=credential_json,
         expected_challenge=base64url_to_bytes(challenge_b64),
-        expected_origin=settings.webauthn_origin,
+        expected_origin=settings.webauthn_origins,
         expected_rp_id=settings.webauthn_rp_id,
     )
     return (
@@ -135,7 +135,7 @@ def verify_authentication(credential_json: str, challenge_b64: str,
         credential=credential_json,
         expected_challenge=base64url_to_bytes(challenge_b64),
         expected_rp_id=settings.webauthn_rp_id,
-        expected_origin=settings.webauthn_origin,
+        expected_origin=settings.webauthn_origins,
         credential_public_key=base64url_to_bytes(public_key_b64),
         credential_current_sign_count=current_sign_count,
     )

@@ -23,6 +23,7 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.core.errors import install_error_handlers
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
+from src.routers import emails, emails_oauth
 from src.routers import admin, admin_billing, admin_music, admin_prospecting, admin_tiktok, auth, billing, bots, cm, cm_inbox, cm_library, cm_team, embed, inbox, kb, music, orgs, public, stats, tiktok, tree, twofa, uploads, widget, youtube
 from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
@@ -30,6 +31,7 @@ from src.routers.external import onboarding as ext_onboarding
 from src.services import cm_jobs, tiktok_jobs, youtube_jobs
 from src.routers import cm_mobile
 from src.services import cm_push
+from src.services import emails_mcp
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -80,7 +82,9 @@ async def lifespan(app: FastAPI):
     cm_jobs.start_scheduler()
     # Application mobile : notifications (vidéo publiée, échec, brouillon, commentaires).
     cm_push.start_scheduler()
-    yield
+    # emails.chapote.fr : gestionnaire Streamable HTTP du serveur MCP (sans état, /mcp).
+    async with emails_mcp.running():
+        yield
     await tiktok_jobs.stop_scheduler()
     await youtube_jobs.stop_scheduler()
     await cm_jobs.stop_scheduler()
@@ -330,3 +334,9 @@ app.include_router(embed.router)
 app.include_router(ext_oauth.router)
 app.include_router(ext_account.router)
 app.include_router(ext_onboarding.router)
+# emails.chapote.fr (superadmin) : interface /api/emails/*, OAuth 2.1 (/.well-known/oauth-*,
+# /oauth/*) et serveur MCP distant /mcp (connecteur personnalisé claude.ai). 404 si
+# EMAILS_ENABLED=false. /mcp est une route ASGI brute (pas de redirection /mcp -> /mcp/).
+app.include_router(emails.router)
+app.include_router(emails_oauth.router)
+app.add_route("/mcp", emails_mcp.endpoint, include_in_schema=False)

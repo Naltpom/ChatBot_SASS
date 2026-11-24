@@ -425,3 +425,13 @@ oauth_refresh_limiter = RateLimiter("rl:oauthrefresh:", 30, 86400)
 # (cle = bot.id). Evite de spammer le payeur a chaque requete une fois le
 # plafond touche — un seul rappel par cycle de facturation.
 overage_cap_email_limiter = RateLimiter("rl:overagecapmail:", 1, 2678400)
+
+# --- emails.chapote.fr (serveur MCP + OAuth 2.1) : partagés via Redis entre workers ---
+# Inscription dynamique de clients (ouverte par nature) : par IP.
+emails_register_limiter = RateLimiter("rl:emreg:", 10, 3600)
+# /oauth/authorize et /oauth/token : par IP.
+emails_authorize_limiter = RateLimiter("rl:emauthz:", 30, 60)
+emails_token_limiter = RateLimiter("rl:emtoken:", 30, 60)
+# Appels MCP : par famille de jetons (un connecteur Claude), et requêtes sans jeton par IP.
+emails_mcp_limiter = RateLimiter("rl:emmcp:", 300, 60)
+emails_mcp_anon_limiter = RateLimiter("rl:emmcpanon:", 60, 60)

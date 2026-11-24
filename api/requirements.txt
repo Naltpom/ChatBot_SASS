@@ -1,11 +1,12 @@
 fastapi>=0.109.0
-uvicorn[standard]==0.27.0
+# uvicorn >= 0.31.1 et httpx >= 0.27.1 : exigés par le SDK MCP (emails.chapote.fr).
+uvicorn[standard]==0.34.0
 sqlalchemy[asyncio]==2.0.25
 asyncpg==0.29.0
 pydantic>=2.7.4
 pydantic-settings>=2.1.0
 python-dotenv==1.2.2
-httpx==0.26.0
+httpx==0.28.1
 python-multipart==0.0.18
 python-jose[cryptography]==3.4.0
 passlib[bcrypt]==1.7.4
@@ -24,6 +25,9 @@ webauthn==2.5.2
 # Boutique de partitions : aperçus des pages (le rendu PDF est fait par
 # pdftoppm, paquet poppler-utils installé dans le Dockerfile).
 pillow>=10.0
+# Serveur MCP distant d'emails.chapote.fr (SDK officiel, FastMCP + Streamable HTTP).
+# Borné à la v1 : le montage utilise StreamableHTTPSessionManager et le serveur bas niveau.
+mcp>=1.20,<2
 # Tests : épinglés (reproductibilité du harness). Config asyncio dans pytest.ini.
 # Embarqués dans l'image (surcoût négligeable, ~5 Mo) : choix assumé pour garder
 # le conteneur de dev prêt à lancer pytest sans installation à la volée.

@@ -162,6 +162,13 @@ services:
       - CM_MEDIA_DIR=/tmp/cm_media
       - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID:-}
       - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET:-}
+      # emails.chapote.fr en dev (service `emails` ci-dessous, ou cd emails && npm run dev : port 3004).
+      # Désactivé par défaut ; MAILBOX_ENCRYPTION_KEY vide = clé éphémère (dev seulement).
+      - EMAILS_ENABLED=${EMAILS_ENABLED:-false}
+      - EMAILS_URL=${EMAILS_URL:-http://localhost:3004}
+      - EMAILS_PROXY_KEY=${EMAILS_PROXY_KEY:-}
+      - MAILBOX_ENCRYPTION_KEY=${MAILBOX_ENCRYPTION_KEY:-}
+      - EMAILS_OAUTH_REDIRECT_HOSTS=${EMAILS_OAUTH_REDIRECT_HOSTS:-claude.ai,claude.com}
       # Embeddings locaux (RAG) : cache du modele fastembed hors de /app
       # (zéro interaction avec le watcher --reload). Changer de modele peut
       # changer la dimension (la base attend vector(384)).
@@ -233,6 +240,23 @@ services:
       api:
         condition: service_healthy
     command: bun run dev --host 0.0.0.0 --port 3000
+
+  # Site emails.chapote.fr (boîtes mail pour Claude, superadmin) : bundle statique + relais vers `api`
+  # de /api/emails/, de l'authentification, du serveur MCP (/mcp) et de l'OAuth (/oauth/, /.well-known/).
+  emails:
+    build:
+      context: ./emails
+      dockerfile: Dockerfile
+    container_name: chatbot-emails
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${EMAILS_PORT:-3004}:80"
+    # Clé partagée avec l'API : vraie IP du visiteur (X-Emails-Client-IP) signée par cette clé.
+    environment:
+      - EMAILS_PROXY_KEY=${EMAILS_PROXY_KEY:-}
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   postgres_data:

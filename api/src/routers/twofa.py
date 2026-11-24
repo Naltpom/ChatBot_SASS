@@ -154,7 +154,8 @@ async def _issue_dashboard(db: AsyncSession, user: User, response: Response) -> 
     user.webauthn_challenge = None
     user.webauthn_challenge_at = None
     await db.commit()
-    set_auth_cookie(response, create_dashboard_token(user.id))
+    # mfa=True : la session a franchi le 2nd facteur (exigé par emails.chapote.fr).
+    set_auth_cookie(response, create_dashboard_token(user.id, mfa=True))
     return await _user_out(db, user)
 
 

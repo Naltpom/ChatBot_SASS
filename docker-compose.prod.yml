@@ -123,6 +123,13 @@ services:
       - GDRIVE_OAUTH_CLIENT_ID=${GDRIVE_OAUTH_CLIENT_ID:-}
       - GDRIVE_OAUTH_CLIENT_SECRET=${GDRIVE_OAUTH_CLIENT_SECRET:-}
       - GDRIVE_OAUTH_REDIRECT_URI=${GDRIVE_OAUTH_REDIRECT_URI:-https://cm.chapote.fr/drive/callback}
+      # emails.chapote.fr (serveur MCP des boîtes mail pour Claude + administration, superadmin).
+      # MAILBOX_ENCRYPTION_KEY : clé Fernet DÉDIÉE, obligatoire si EMAILS_ENABLED=true (l'API refuse de démarrer sinon).
+      - EMAILS_ENABLED=${EMAILS_ENABLED:-false}
+      - EMAILS_URL=${EMAILS_URL:-https://emails.chapote.fr}
+      - EMAILS_PROXY_KEY=${EMAILS_PROXY_KEY:-}
+      - MAILBOX_ENCRYPTION_KEY=${MAILBOX_ENCRYPTION_KEY:-}
+      - EMAILS_OAUTH_REDIRECT_HOSTS=${EMAILS_OAUTH_REDIRECT_HOSTS:-claude.ai,claude.com}
       # SMTP (envoi des emails : leads, demandes de conseiller, prospection).
       # HOST vide = fallback log, jamais bloquant (les emails ne partent PAS).
       - SMTP_HOST=${SMTP_HOST:-}
@@ -254,6 +261,25 @@ services:
     # Clé partagée avec l'API : vraie IP du visiteur (X-Cm-Client-IP) signée par cette clé.
     environment:
       - CM_PROXY_KEY=${CM_PROXY_KEY:-}
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Site emails.chapote.fr (boîtes mail pour Claude, superadmin) : bundle statique + relais vers `api`
+  # de /api/emails/, de l'authentification, du serveur MCP (/mcp) et de l'OAuth (/oauth/,
+  # /.well-known/oauth-*). Le reverse proxy de l'hôte termine le TLS d'emails.chapote.fr (port 443 :
+  # les appels MCP viennent du cloud d'Anthropic) et envoie tout vers ce port (loopback uniquement).
+  emails:
+    build:
+      context: ./emails
+      dockerfile: Dockerfile
+    container_name: chatbot-emails
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${EMAILS_PORT:-3004}:80"
+    # Clé partagée avec l'API : vraie IP du visiteur (X-Emails-Client-IP) signée par cette clé.
+    environment:
+      - EMAILS_PROXY_KEY=${EMAILS_PROXY_KEY:-}
     depends_on:
       api:
         condition: service_healthy

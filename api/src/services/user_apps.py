@@ -17,7 +17,7 @@ from src.core.config import settings
 from src.core.time import utcnow
 from src.models.user import User, UserApp
 
-APPS = ("chapote", "music", "cm")
+APPS = ("chapote", "music", "cm", "emails")
 DEFAULT_APP = "chapote"
 
 
@@ -52,11 +52,13 @@ def client_ip(request: Request) -> str:
     """IP du visiteur pour les limiteurs. Derrière le nginx de music.chapote.fr ou de
     cm.chapote.fr, toutes les requêtes arrivent du même conteneur : il transmet la vraie IP
     signée par une clé partagée (music : X-Music-Client-IP + X-Music-Proxy-Key =
-    MUSIC_INGEST_TOKEN ; cm : X-Cm-Client-IP + X-Cm-Proxy-Key = CM_PROXY_KEY).
+    MUSIC_INGEST_TOKEN ; cm : X-Cm-Client-IP + X-Cm-Proxy-Key = CM_PROXY_KEY ;
+    emails : X-Emails-Client-IP + X-Emails-Proxy-Key = EMAILS_PROXY_KEY).
     Sans clé valable, l'IP vue par uvicorn."""
     for key, ip_header, key_header in (
         (settings.MUSIC_INGEST_TOKEN, "x-music-client-ip", "x-music-proxy-key"),
         (settings.CM_PROXY_KEY, "x-cm-client-ip", "x-cm-proxy-key"),
+        (settings.EMAILS_PROXY_KEY, "x-emails-client-ip", "x-emails-proxy-key"),
     ):
         given = request.headers.get(key_header) or ""
         forwarded = (request.headers.get(ip_header) or "").strip()
