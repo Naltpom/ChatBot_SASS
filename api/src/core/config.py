@@ -127,6 +127,8 @@ class Settings(BaseSettings):
     # uploads per day » : 100 / jour pour tout le projet) ; le quota de 10 000
     # unités ne sert presque qu'aux lectures (constaté dans la console, 24/11/2026).
     YOUTUBE_DAILY_POSTS: int = 50
+    # cm : publications créées par espace et par 24 h glissantes (garde-fou ; comptées en base).
+    CM_DAILY_POSTS: int = 150
     # Jeton de service (Bearer) de la chaîne de production (claude-cloud),
     # au nom de YOUTUBE_SERVICE_USER_EMAIL. Publication seulement (chaînes,
     # posts) : jamais la connexion ni la déconnexion d'une chaîne.

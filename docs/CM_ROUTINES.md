@@ -218,3 +218,5 @@ d'archivage, le post l'indique (`archive.error`) et cm réessaie toutes les 30 m
 
 Limites : `CM_MAX_UPLOAD_MB` par vidéo, nombre de publications par jour et par espace (`post_limiter`), quota
 YouTube : `YOUTUBE_DAILY_POSTS` envois par 24 h et par espace (50 par défaut), et 100 envois par jour pour tout le projet Google.
+Création de publications : `CM_DAILY_POSTS` par espace et par 24 h glissantes (150 par défaut ; seules les publications
+réellement créées comptent, pas les tentatives refusées) → au-delà, `429`.

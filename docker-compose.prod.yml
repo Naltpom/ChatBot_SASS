@@ -92,6 +92,7 @@ services:
       - YOUTUBE_REDIRECT_URI=${YOUTUBE_REDIRECT_URI:-https://chapote.fr/youtube/callback}
       - YOUTUBE_MAX_UPLOAD_MB=${YOUTUBE_MAX_UPLOAD_MB:-1024}
       - YOUTUBE_DAILY_POSTS=${YOUTUBE_DAILY_POSTS:-50}
+      - CM_DAILY_POSTS=${CM_DAILY_POSTS:-150}
       - YOUTUBE_SERVICE_TOKEN=${YOUTUBE_SERVICE_TOKEN:-}
       - YOUTUBE_SERVICE_USER_EMAIL=${YOUTUBE_SERVICE_USER_EMAIL:-}
       # cm.chapote.fr (gestion des réseaux sociaux). Jeton de la routine Claude, clé du
