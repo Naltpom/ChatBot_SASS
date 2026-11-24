@@ -27,6 +27,7 @@ import hashlib
 import html
 import re
 import secrets
+import time
 import uuid
 from datetime import timedelta
 from typing import Optional
@@ -222,14 +223,52 @@ async def connect_confirm(request: Request, redirect_uri: str = Form(""), challe
     if not await connect_limiter.check(f"u:{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives : réessayez dans une heure.")
     code = _encode({"sub": str(user.id), "scope": CODE_SCOPE, "ch": challenge, "jti": uuid.uuid4().hex}, CODE_TTL)
+    await _pending_put(challenge, code)
     sep = "&" if "?" in redirect_uri else "?"
     back = html.escape(redirect_uri + sep + urlencode({"code": code, "state": state}))
     # Lien (et rafraîchissement automatique) plutôt qu'une redirection : la CSP form-action du site
     # bloquerait la redirection vers chapotecm:// ou exp://.
     return _page(
-        "<h1>C'est fait</h1><p>Retour dans l'application…</p>"
+        "<h1>C'est fait</h1><p>Retour dans l'application… Si rien ne se passe, fermez cette page : "
+        "l'application finit la connexion toute seule.</p>"
         f'<a class="btn" href="{back}">Ouvrir l\'application</a>',
         head=f'<meta http-equiv="refresh" content="0;url={back}">')
+
+
+# Le retour automatique dans l'app (lien chapotecm:// ou exp://) n'est pas fiable partout (Expo Go…) :
+# le code est aussi gardé 3 minutes sous le challenge, et l'app le reprend elle-même en prouvant qu'elle
+# détient le verifier (POST /token/pending), quand on revient dans l'app en fermant la page.
+_PENDING_PREFIX = "rl:cmmobpend:"
+_pending_memory: dict[str, tuple[str, float]] = {}
+
+
+async def _pending_put(challenge: str, code: str) -> None:
+    from src.services.rate_limit import _get_redis, _redis_failed
+    ttl = int(CODE_TTL.total_seconds())
+    client = _get_redis()
+    if client is not None:
+        try:
+            await client.set(_PENDING_PREFIX + challenge, code, ex=ttl)
+            return
+        except Exception as exc:  # repli mémoire, comme rate_limit
+            _redis_failed(exc)
+    now = time.monotonic()
+    for k in [k for k, (_, exp) in _pending_memory.items() if exp < now]:
+        _pending_memory.pop(k, None)
+    _pending_memory[challenge] = (code, now + ttl)
+
+
+async def _pending_take(challenge: str) -> Optional[str]:
+    from src.services.rate_limit import _get_redis, _redis_failed
+    client = _get_redis()
+    if client is not None:
+        try:
+            value = await client.getdel(_PENDING_PREFIX + challenge)
+            return value.decode() if isinstance(value, bytes) else value
+        except Exception as exc:
+            _redis_failed(exc)
+    code, exp = _pending_memory.pop(challenge, (None, 0.0))
+    return code if code and exp > time.monotonic() else None
 
 
 class TokenIn(BaseModel):
@@ -258,6 +297,23 @@ async def token(body: TokenIn, request: Request, db: AsyncSession = Depends(get_
     if user is None or not user.is_active:
         raise invalid
     return await _new_device(db, user, body.name, body.platform)
+
+
+class PendingIn(BaseModel):
+    verifier: str = Field(..., min_length=43, max_length=128)
+    name: Optional[str] = Field(None, max_length=120)
+    platform: Optional[str] = Field(None, max_length=20)
+
+
+@router.post("/token/pending")
+async def token_pending(body: PendingIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Après « Autoriser », si le retour automatique dans l'app n'a pas marché : 404 tant que rien n'est autorisé."""
+    if not await token_limiter.check(_client_ip(request)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives : réessayez plus tard.")
+    code = await _pending_take(_s256(body.verifier))
+    if not code:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pas encore autorisé.")
+    return await token(TokenIn(code=code, verifier=body.verifier, name=body.name, platform=body.platform), request, db)
 
 
 class DeviceIn(BaseModel):
