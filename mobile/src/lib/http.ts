@@ -6,6 +6,12 @@ import * as SecureStore from 'expo-secure-store'
 import { errorMessage, sessionIsFresh } from './session-logic'
 
 export const API_URL: string = (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl || 'https://cm.chapote.fr'
+/** Même API, servie aussi par chapote.fr. Le serveur web de cm.chapote.fr ne laisse passer qu'une partie de
+ *  /api/auth/ (connexion) : le reste (double authentification, mot de passe, profil, équipes) passe par chapote.fr. */
+export const MAIN_URL: string = (Constants.expoConfig?.extra as { mainApiUrl?: string } | undefined)?.mainApiUrl || 'https://chapote.fr'
+export { baseFor } from './route-logic'
+import { baseFor } from './route-logic'
+const url = (path: string) => baseFor(path, API_URL, MAIN_URL) + path
 const DEVICE_KEY = 'cm.device'
 
 export class ApiError extends Error {
@@ -81,7 +87,7 @@ export async function callRaw<T>(path: string, init?: RequestInit): Promise<{ bo
   for (let attempt = 0; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(API_URL + path, {
+      res = await fetch(url(path), {
         ...init,
         credentials: 'omit',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders(attempt > 0)), ...((init?.headers as Record<string, string>) || {}) },
@@ -111,7 +117,7 @@ export async function callPage<T>(path: string): Promise<Page<T>> {
 export async function callPublic<T>(path: string, body: unknown, include = false): Promise<T> {
   let res: Response
   try {
-    res = await fetch(API_URL + path, {
+    res = await fetch(url(path), {
       method: 'POST', credentials: include ? 'include' : 'omit',
       headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm-mobile' },
       body: JSON.stringify(body),

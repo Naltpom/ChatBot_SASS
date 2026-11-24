@@ -1,8 +1,8 @@
 // Après l'inscription ou la 1re connexion sur ce téléphone, une seule fois : notifications, verrouillage par
 // empreinte / visage, double authentification. Tout est facultatif (« Plus tard »).
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { useRouter } from 'expo-router'
-import { useEffect, useState } from 'react'
+import { useFocusEffect, useRouter } from 'expo-router'
+import { useCallback, useState } from 'react'
 import { View } from 'react-native'
 import { call } from '../lib/http'
 import { useLock } from '../lib/lock'
@@ -36,7 +36,8 @@ export default function Onboarding() {
   const [push, setPush] = useState(false)
   const [twofa, setTwofa] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
-  useEffect(() => { call<{ enabled: boolean }>('/api/auth/2fa/status').then(s => setTwofa(s.enabled)).catch(() => {}) }, [])
+  // Relu au retour de l'écran de double authentification.
+  useFocusEffect(useCallback(() => { call<{ enabled: boolean }>('/api/auth/2fa/status').then(s => setTwofa(s.enabled)).catch(() => {}) }, []))
 
   const finish = async () => {
     if (me) await AsyncStorage.setItem(onboardedKey(me.id), '1').catch(() => {})
@@ -61,7 +62,7 @@ export default function Onboarding() {
         action={lock.supported ? <Button title="Activer" onPress={async () => { const e = await lock.setEnabled(true); if (e) setMsg(e) }} /> : null} />
       <Step icon="eye-off" title="Double authentification" done={twofa}
         text="Un code de votre application d’authentification en plus, à chaque connexion."
-        action={<Button title="Configurer" onPress={() => router.push('/account')} />} />
+        action={<Button title="Configurer" onPress={() => router.push({ pathname: '/account', params: { section: '2fa' } })} />} />
       <Txt small muted>Cet appareil reste connecté tant que vous ouvrez l’app au moins une fois tous les 7 jours (vous êtes prévenu la veille).</Txt>
       <Button kind="primary" title="Continuer" onPress={finish} />
     </Screen>

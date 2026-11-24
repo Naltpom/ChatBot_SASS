@@ -2,6 +2,7 @@
 // secours, clés d'accès), confidentialité, suppression du compte (RGPD).
 import * as Clipboard from 'expo-clipboard'
 import * as WebBrowser from 'expo-web-browser'
+import { Stack, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Linking, View } from 'react-native'
 import { API_URL, call } from '../lib/http'
@@ -26,6 +27,8 @@ function Codes({ codes }: { codes: string[] }) {
 
 export default function Account() {
   const { me, refresh } = useSession()
+  // Depuis « Sécuriser votre compte » : seulement la double authentification.
+  const only2fa = useLocalSearchParams<{ section?: string }>().section === '2fa'
   const [name, setName] = useState(me?.name || '')
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [pw, setPw] = useState({ current: '', next: '' })
@@ -87,6 +90,8 @@ export default function Account() {
       {msg ? <Msg kind={msg.kind}>{msg.text}</Msg> : null}
       {codes ? <Codes codes={codes} /> : null}
 
+      {only2fa ? <Stack.Screen options={{ title: 'Double authentification' }} /> : null}
+      {only2fa ? null : <>
       <Card>
         <Label>Profil</Label>
         <Txt small muted>{me?.email}</Txt>
@@ -109,6 +114,8 @@ export default function Account() {
         <Button kind="ghost" title="Mot de passe oublié ? Recevoir un lien" onPress={forgot} />
       </Card>
       )}
+
+      </>}
 
       <Card>
         <Label>Double authentification</Label>
@@ -156,7 +163,7 @@ export default function Account() {
         <Txt small muted>Les clés d’accès (passkeys) s’ajoutent pour l’instant depuis le site ; l’application d’authentification marche ici.</Txt>
       </Card>
 
-      <Card>
+      {only2fa ? null : <Card>
         <Label>Confidentialité</Label>
         <Button title="Politique de confidentialité" icon="shield" onPress={() => WebBrowser.openBrowserAsync(`${API_URL}/privacy`)} />
         <Button title="Conditions d’utilisation" icon="external" onPress={() => WebBrowser.openBrowserAsync(`${API_URL}/terms`)} />
@@ -164,7 +171,7 @@ export default function Account() {
         <Txt bold>Supprimer mon compte</Txt>
         <Txt small muted>Toutes vos données sont supprimées sous 7 jours. Pour un réseau seulement : Comptes → Déconnecter.</Txt>
         <Button kind="danger" icon="trash" title="Supprimer mon compte" onPress={askDelete} />
-      </Card>
+      </Card>}
     </Screen>
   )
 }
