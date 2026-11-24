@@ -290,6 +290,7 @@ async def test_refresh_on_the_fly_and_invalid_grant(pg_session, google):
         await yt.valid_access_token(pg_session, acc, force_refresh=True)
     await pg_session.refresh(acc)
     assert acc.needs_reconnect is True
+    assert acc.access_token_enc is None and acc.refresh_token_enc is None   # accès retiré : jetons effacés (§7)
     async with Client(pg_session) as c:
         r = await c.as_(u).post("/api/youtube/posts", json=_post(acc.id, 1000))
         assert r.status_code == 409

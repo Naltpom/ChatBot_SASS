@@ -382,6 +382,7 @@ async def refresh_if_due(db: AsyncSession, account: InstagramAccount) -> None:
         return
     except InstagramError as e:
         if e.code in ("invalid_token", "oauth_error"):
+            clear_tokens(locked)          # accès retiré chez Meta : jeton effacé (confidentialité, section 7)
             locked.needs_reconnect = True
             await db.commit()
         logger.warning("Instagram : rafraîchissement du compte %s en échec (%s)", locked.id, e.code)

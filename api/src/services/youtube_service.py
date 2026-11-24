@@ -447,6 +447,9 @@ async def valid_access_token(db: AsyncSession, account: YouTubeAccount, *,
             return token
 
     async def _dead(reason: str):
+        # Accès retiré ou jeton expiré chez la plateforme : jetons inutilisables, effacés tout de suite
+        # (politique de confidentialité, section 7). La reconnexion en redonne de nouveaux.
+        clear_tokens(locked)
         locked.needs_reconnect = True
         await db.commit()
         raise ReconnectRequired(reason)

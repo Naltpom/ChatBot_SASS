@@ -552,6 +552,7 @@ async def test_scheduled_refresh(pg_session, tiktok):
     assert soon.access_token_expires_at > utcnow() + timedelta(hours=23)
     assert decrypt_secret(later.access_token_enc) == "act.1"         # pas encore dû
     assert dead.needs_reconnect is True                              # refresh expiré => à reconnecter
+    assert dead.access_token_enc is None and dead.refresh_token_enc is None   # jetons effacés aussitôt (confidentialité §7)
     assert tiktok.refresh_count == 1
 
 
