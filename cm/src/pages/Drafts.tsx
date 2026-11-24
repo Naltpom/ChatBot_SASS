@@ -33,7 +33,7 @@ function Card({ p, onDismiss, canEdit }: { p: Proposal; onDismiss: () => void; c
         {a?.folder && <span className="tiny muted ellipsis" title={a.folder}><Icon name="layers" size={12} /> {a.source_name} / {a.folder}</span>}
         {canEdit && (
           <div className="row" style={{ gap: 8, marginTop: 4 }}>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => nav(`/nouvelle?brouillon=${p.id}`)}><Icon name="check" size={16} />Vérifier et programmer</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => nav(`/nouvelle?brouillon=${p.id}&org=${p.org_id ?? 'perso'}`)}><Icon name="check" size={16} />Vérifier et programmer</button>
             <button type="button" className="btn btn-sm btn-ghost" onClick={onDismiss}>Écarter</button>
           </div>
         )}
@@ -43,7 +43,7 @@ function Card({ p, onDismiss, canEdit }: { p: Proposal; onDismiss: () => void; c
 }
 
 export default function Drafts() {
-  const { org, scope } = useSession()
+  const { scope } = useSession()
   const { canEdit } = useRole()
   const [hidden, setHidden] = useState<number[]>([])
   const [err, setErr] = useState('')
@@ -61,7 +61,8 @@ export default function Drafts() {
   }
   const dismiss = async (p: Proposal) => {
     setErr('')
-    try { await dismissProposal(org, p.id); setHidden(h => [...h, p.id]) } catch (e) { setErr((e as Error).message) }
+    try {
+      await dismissProposal(p.org_id ?? null, p.id); setHidden(h => [...h, p.id]) } catch (e) { setErr((e as Error).message) }
   }
   return (
     <>

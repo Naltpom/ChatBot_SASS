@@ -137,10 +137,11 @@ function Keyword({ canEdit }: { canEdit: boolean }) {
 }
 
 function Messages({ accounts }: { accounts: InboxAccount[] }) {
-  const { org } = useSession()
+  const { orgOf } = useSession()
   const ig = accounts.filter(a => a.platform === 'instagram')
   const [acc, setAcc] = useState<number | null>(ig.find(a => a.messages)?.id ?? ig[0]?.id ?? null)
   const current = ig.find(a => a.id === acc)
+  const org = current ? orgOf('instagram', current.id) : null
   const convs = useLoad(() => (current?.messages ? getConversations(org, current.id) : Promise.resolve(null as Conversation[] | null)), [acc, current?.messages])
   const [open, setOpen] = useState<Conversation | null>(null)
   const [thread, setThread] = useState<{ messages: DmMessage[]; can_write: boolean } | null>(null)
@@ -204,15 +205,21 @@ function Messages({ accounts }: { accounts: InboxAccount[] }) {
 }
 
 export default function Comments() {
-  const { org } = useSession()
+  const { accounts: mine } = useSession()
   const { canEdit } = useRole()
   const [tab, setTab] = useState<Tab>('todo')
   const accounts = useLoad(s => getInboxAccounts(s))
   const [syncMsg, setSyncMsg] = useState('')
   const sync = async () => {
     setSyncMsg('')
-    try { const r = await syncInbox(org); setSyncMsg(`${r.comments} commentaire${r.comments > 1 ? 's' : ''} relu${r.comments > 1 ? 's' : ''}.`) }
-    catch (e) { setSyncMsg(errText(e)) }
+    try {
+      // Un relevé par espace des comptes affichés où je peux agir.
+      const orgs = [...new Set(mine.filter(a => a.role !== 'viewer').map(a => a.org_id ?? null))]
+      let n = 0
+      for (const o of orgs.length ? orgs : [null]) n += (await syncInbox(o)).comments
+      const r = { comments: n }
+      setSyncMsg(`${r.comments} commentaire${r.comments > 1 ? 's' : ''} relu${r.comments > 1 ? 's' : ''}.`)
+    } catch (e) { setSyncMsg(errText(e)) }
   }
   return (
     <>

@@ -46,7 +46,8 @@ function MoreMenu({ items }: { items: { label: string; onClick?: () => void; hre
 
 export function CommentCard({ c, onChanged, canEdit, template }:
   { c: Comment; onChanged: (c: Comment | null) => void; canEdit: boolean; template?: string }) {
-  const { org } = useSession()
+  const { orgOf } = useSession()
+  const org = orgOf(c.platform, c.account_id)
   const [mode, setMode] = useState<'reply' | 'private' | null>(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)

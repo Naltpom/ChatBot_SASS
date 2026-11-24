@@ -1,16 +1,17 @@
-// Comptes connectés (TikTok, YouTube, Instagram) et groupes de comptes de l'espace courant.
-// Un groupe réunit plusieurs comptes, toutes plateformes ; un compte peut être dans plusieurs groupes.
+// Comptes connectés (TikTok, YouTube, Instagram) : les miens et ceux des groupes partagés avec moi
+// (avec leur propriétaire), et les groupes de comptes. Un groupe réunit plusieurs comptes, toutes
+// plateformes ; un compte peut être dans plusieurs groupes. On partage un groupe, pas un compte seul.
+// Chaque action se fait dans l'espace du compte (org_id), selon mon rôle sur ce compte.
 import { useEffect, useState, type FormEvent } from 'react'
-import type { ShareWhat } from '../api'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { Link, useLocation } from 'react-router-dom'
 import {
   acceptTransfer, addRoutineAccount, cancelTransfer, createGroup, declineTransfer, deleteGroup, disconnect, getAccounts,
   getTransfers, startOAuth, syncAccount, transferAccount, updateGroup,
   GROUP_COLORS, PLATFORM_LABEL, PLATFORMS, type Account, type Group, type GroupColor, type Platform,
-  setYoutubeAccount,
+  setYoutubeAccount, ALL,
 } from '../api'
-import { ShareSheet } from '../components/ShareSheet'
+import { GroupShareSheet } from './People'
 import { AccountPicker } from '../components/AccountPicker'
 import { Avatar, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDateTime, short } from '../format'
@@ -27,8 +28,11 @@ const COLOR_LABEL: Record<GroupColor, string> = { blue: 'Bleu', orange: 'Orange'
   red: 'Rouge', indigo: 'Indigo', cyan: 'Cyan', lime: 'Citron vert', rose: 'Framboise', sky: 'Ciel', emerald: 'Émeraude', brown: 'Marron' }
 const akey = (p: Platform, id: number) => `${p}:${id}`
 
-function GroupEditor({ group, accounts, onClose, onSaved }: { group: Group | null; accounts: Account[]; onClose: () => void; onSaved: (g: Group) => void }) {
-  const { org } = useSession()
+function GroupEditor({ group, accounts: everyone, onClose, onSaved }: { group: Group | null; accounts: Account[]; onClose: () => void; onSaved: (g: Group) => void }) {
+  const { org: home } = useSession()
+  // Un groupe réunit les comptes d'un même propriétaire (son espace).
+  const org = group ? group.org_id ?? null : home
+  const accounts = everyone.filter(a => (a.org_id ?? null) === org)
   const [name, setName] = useState(group?.name || '')
   const [color, setColor] = useState<GroupColor>(group?.color || GROUP_COLORS[Math.floor(Math.random() * GROUP_COLORS.length)])
   const [picked, setPicked] = useState<string[]>(group ? group.accounts.map(a => akey(a.platform, a.id)) : [])
@@ -75,7 +79,8 @@ function GroupEditor({ group, accounts, onClose, onSaved }: { group: Group | nul
 
 /** Transférer un compte : vers un autre de mes espaces (immédiat) ou une autre personne (à accepter). */
 function TransferSheet({ a, onClose, onDone }: { a: Account; onClose: () => void; onDone: (text: string) => void }) {
-  const { org, spaces } = useSession()
+  const { spaces } = useSession()
+  const org = a.org_id ?? null
   const mine = spaces.filter(s => s.org_id !== org && (s.cm_role || 'admin') === 'admin')
   const [to, setTo] = useState<string>(mine.length ? String(mine[0].org_id ?? 'perso') : 'email')
   const [email, setEmail] = useState('')
@@ -157,13 +162,13 @@ function Transfers({ onChanged }: { onChanged: (text: string) => void }) {
 }
 
 export default function Accounts() {
-  const { org, config, groups, reloadGroups, group: current, setGroup } = useSession()
+  const { org, config, groups, reloadGroups, picked, toggleGroup, spaces, ownerOf } = useSession()
   const loc = useLocation()
-  const accounts = useLoad(s => getAccounts(s.org))
+  const accounts = useLoad(() => getAccounts(ALL), ['all'])
   type ASort = 'name' | 'followers' | 'views' | 'connected'
   const lst = useListState<ASort>('connected', v => (v === 'name' || v === 'connected' ? 'asc' : 'desc'))
   const filtered = lst.q || lst.sort !== 'connected' || lst.order !== 'asc'
-  const shown = useLoad(s => (filtered ? getAccounts(s.org, { q: lst.q || undefined, sort: lst.sort, order: lst.order }) : Promise.resolve(null)),
+  const shown = useLoad(() => (filtered ? getAccounts(ALL, { q: lst.q || undefined, sort: lst.sort, order: lst.order }) : Promise.resolve(null)),
                         [lst.q, lst.sort, lst.order])
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok' | 'info'; text: string } | null>(
     (loc.state as { flash?: string } | null)?.flash ? { kind: 'ok', text: (loc.state as { flash: string }).flash } : null)
@@ -171,8 +176,11 @@ export default function Accounts() {
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [transferring, setTransferring] = useState<Account | null>(null)
-  const [sharing, setSharing] = useState<{ what: ShareWhat; label: string } | null>(null)
-  const { canAdmin, role } = useRole()
+  const [sharing, setSharing] = useState<Group | null>(null)
+  const { canAdmin } = useRole()
+  // Droits : sur un compte, mon rôle sur lui ; sur un groupe, mon rôle dans l'espace de son propriétaire.
+  const adminOf = (a: Account) => (a.role || 'admin') === 'admin' && a.mine !== false
+  const groupAdmin = (g: Group) => (spaces.find(s => s.org_id === (g.org_id ?? null))?.cm_role || 'admin') === 'admin'
 
   useEffect(() => {
     if (loc.hash === '#groupes') document.getElementById('groupes')?.scrollIntoView({ block: 'start' })
@@ -182,9 +190,9 @@ export default function Accounts() {
   const byKey = new Map(all.map(a => [akey(a.platform, a.id), a]))
   const groupsOf = (a: Account) => groups.filter(g => g.accounts.some(x => x.platform === a.platform && x.id === a.id))
   const enabled = (p: Platform) => (p === 'tiktok' ? config?.tiktok : p === 'youtube' ? config?.youtube : config?.instagram_api) ?? false
-  const connect = async (p: Platform) => {
+  const connect = async (p: Platform, where: number | null = org) => {
     setBusy(p); setMsg(null)
-    try { window.location.assign((await startOAuth(p, org)).authorize_url) }
+    try { window.location.assign((await startOAuth(p, where)).authorize_url) }
     catch (e) { setMsg({ kind: 'err', text: (e as Error).message }); setBusy(null) }
   }
   const run = async (id: string, fn: () => Promise<unknown>, ok?: string) => {
@@ -203,7 +211,7 @@ export default function Accounts() {
   }
   const removeGroup = (g: Group) => {
     if (!window.confirm(`Supprimer le groupe « ${g.name} » ? Les comptes restent connectés.`)) return
-    run(`g${g.id}`, async () => { await deleteGroup(org, g.id); if (current?.id === g.id) setGroup(null) }, 'Groupe supprimé.')
+    run(`g${g.id}`, async () => { await deleteGroup(g.org_id ?? null, g.id); if (picked.includes(g.id)) toggleGroup(g.id) }, 'Groupe supprimé.')
   }
 
   return (
@@ -211,15 +219,14 @@ export default function Accounts() {
       <div className="page-head">
         <div>
           <h1>Comptes</h1>
-          <p>Les comptes et les groupes de cet espace ne sont visibles que dans cet espace.</p>
+          <p>Vos comptes, et ceux des groupes partagés avec vous (avec le nom de leur propriétaire).</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <Link to="/personnes" className="btn"><Icon name="users" />Personnes</Link>
+          <Link to="/partage" className="btn"><Icon name="users" />Partage</Link>
           <Link to="/bibliotheque" className="btn"><Icon name="layers" />Bibliothèque Google Drive</Link>
         </div>
       </div>
       {msg && <Msg kind={msg.kind}>{msg.text}</Msg>}
-      {!canAdmin && <Msg>Votre rôle dans cette équipe ({role === 'viewer' ? 'lecteur' : 'éditeur'}) ne permet pas de connecter, retirer ou transférer des comptes.</Msg>}
       <Transfers onChanged={t => { setMsg({ kind: 'ok', text: t }); accounts.reload(); reloadGroups() }} />
       {accounts.error && <Msg kind="err">{accounts.error}</Msg>}
 
@@ -227,7 +234,7 @@ export default function Accounts() {
         <div className="card-head">
           <div>
             <h2 id="t-groupes">Groupes</h2>
-            <p className="small muted" style={{ marginTop: 2 }}>Par artiste, client, langue… Filtrez l’accueil, le planning et les stats, et publiez sur un groupe en un geste.</p>
+            <p className="small muted" style={{ marginTop: 2 }}>Par artiste, client, langue… Filtrez l’accueil, le planning et les stats, publiez sur un groupe en un geste, et partagez-le.</p>
           </div>
           {canAdmin && <button type="button" className="btn btn-sm" onClick={() => setEditing('new')}><Icon name="plus" size={16} />Nouveau groupe</button>}
         </div>
@@ -242,14 +249,16 @@ export default function Accounts() {
             {groups.map(g => {
               const members = g.accounts.map(x => byKey.get(akey(x.platform, x.id))).filter(Boolean) as Account[]
               const followers = members.reduce((s, a) => s + (a.stats?.followers || 0), 0)
+              const admin = groupAdmin(g)
+              const owner = ownerOf(g)
               return (
                 <article key={g.id} className="card col" style={{ gap: 12 }}>
                   <div className="row-nw">
                     <GroupDot color={g.color} />
-                    <h3 className="grow ellipsis">{g.name}</h3>
-                    {canAdmin && <button type="button" className="btn btn-sm" onClick={() => setSharing({ what: { group_id: g.id }, label: `le groupe « ${g.name} »` })}>Partager</button>}
-                    {canAdmin && <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Modifier ${g.name}`} onClick={() => setEditing(g)}><Icon name="edit" size={16} /></button>}
-                    {canAdmin && <button type="button" className="btn btn-ghost icon-btn btn-sm btn-danger" aria-label={`Supprimer ${g.name}`} disabled={busy === `g${g.id}`} onClick={() => removeGroup(g)}><Icon name="trash" size={16} /></button>}
+                    <h3 className="grow ellipsis">{g.name}{owner && <span className="tiny muted" style={{ fontWeight: 400 }}> · de {owner}</span>}</h3>
+                    {admin && <button type="button" className="btn btn-sm" onClick={() => setSharing(g)}>Partager</button>}
+                    {admin && !owner && <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Modifier ${g.name}`} onClick={() => setEditing(g)}><Icon name="edit" size={16} /></button>}
+                    {admin && !owner && <button type="button" className="btn btn-ghost icon-btn btn-sm btn-danger" aria-label={`Supprimer ${g.name}`} disabled={busy === `g${g.id}`} onClick={() => removeGroup(g)}><Icon name="trash" size={16} /></button>}
                   </div>
                   <div className="row" style={{ gap: 6 }}>
                     {members.length === 0 ? <span className="small muted">Aucun compte</span>
@@ -257,8 +266,8 @@ export default function Accounts() {
                   </div>
                   <div className="row between small">
                     <span className="muted">{members.length} compte{members.length > 1 ? 's' : ''}{followers ? ` · ${short(followers)} abonnés` : ''}</span>
-                    <button type="button" className="btn btn-sm btn-ghost" aria-pressed={current?.id === g.id} onClick={() => setGroup(current?.id === g.id ? null : g.id)}>
-                      {current?.id === g.id ? <><Icon name="check" size={16} />Affiché</> : 'Afficher'}
+                    <button type="button" className="btn btn-sm btn-ghost" aria-pressed={picked.includes(g.id)} onClick={() => toggleGroup(g.id)}>
+                      {picked.includes(g.id) ? <><Icon name="check" size={16} />Affiché</> : 'Afficher'}
                     </button>
                   </div>
                 </article>
@@ -291,13 +300,12 @@ export default function Accounts() {
             {list.length === 0 && <p className="muted small">Aucun compte. {enabled(p) && HINT[p]}</p>}
             {list.length > 0 && (
               <ul className="list">
-                {list.map(a => <AccountRow key={a.id} a={a} groups={groupsOf(a)} busy={busy} canAdmin={canAdmin}
+                {list.map(a => <AccountRow key={a.id} a={a} groups={groupsOf(a)} busy={busy} canAdmin={adminOf(a)} owner={ownerOf(a)}
                   onTransfer={() => setTransferring(a)}
-                  onShare={() => setSharing({ what: { platform: a.platform, account_id: a.id }, label: a.name || PLATFORM_LABEL[a.platform] })}
-                  onSync={() => run(`s${p}${a.id}`, () => syncAccount(org, a), 'Chiffres actualisés.')}
-                  onRemove={() => { if (window.confirm(`Déconnecter ${a.name} ? Les publications à venir sur ce compte ne partiront plus.`)) run(`d${p}${a.id}`, () => disconnect(org, a)) }}
-                  onReconnect={() => connect(p)}
-                  onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(org, a.id, { public_domain_only: v }),
+                  onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? null, a), 'Chiffres actualisés.')}
+                  onRemove={() => { if (window.confirm(`Déconnecter ${a.name} ? Les publications à venir sur ce compte ne partiront plus.`)) run(`d${p}${a.id}`, () => disconnect(a.org_id ?? null, a)) }}
+                  onReconnect={() => connect(p, a.org_id ?? null)}
+                  onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(a.org_id ?? null, a.id, { public_domain_only: v }),
                     v ? 'Cette chaîne n’accepte plus que des œuvres du domaine public.' : 'Réglage « domaine public seulement » retiré.')} />)}
               </ul>
             )}
@@ -320,7 +328,7 @@ export default function Accounts() {
         <TransferSheet a={transferring} onClose={() => setTransferring(null)}
                        onDone={t => { setTransferring(null); setMsg({ kind: 'ok', text: t }); accounts.reload(); reloadGroups() }} />
       )}
-      {sharing && <ShareSheet what={sharing.what} label={sharing.label} onClose={() => setSharing(null)} />}
+      {sharing && <GroupShareSheet g={sharing} onClose={() => setSharing(null)} />}
       {editing && (
         <GroupEditor group={editing === 'new' ? null : editing} accounts={all} onClose={() => setEditing(null)}
                      onSaved={g => { setEditing(null); reloadGroups(); setMsg({ kind: 'ok', text: `Groupe « ${g.name} » enregistré.` }) }} />
@@ -329,8 +337,8 @@ export default function Accounts() {
   )
 }
 
-function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, onTransfer, onShare, onPublicDomain }:
-  { a: Account; groups: Group[]; busy: string | null; canAdmin: boolean; onSync: () => void; onRemove: () => void; onReconnect: () => void; onTransfer: () => void; onShare: () => void; onPublicDomain: (v: boolean) => void }) {
+function AccountRow({ a, groups, busy, canAdmin, owner, onSync, onRemove, onReconnect, onTransfer, onPublicDomain }:
+  { a: Account; groups: Group[]; busy: string | null; canAdmin: boolean; owner: string | null; onSync: () => void; onRemove: () => void; onReconnect: () => void; onTransfer: () => void; onPublicDomain: (v: boolean) => void }) {
   const st = accountState(a)
   return (
     <li style={{ flexWrap: 'wrap' }}>
@@ -338,6 +346,7 @@ function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, 
       <div className="grow" style={{ flex: '1 1 180px' }}>
         <div className="strong ellipsis">{a.name}</div>
         <div className="tiny muted">
+          {owner && <span>De {owner} · {a.role === 'viewer' ? 'Lecture seule' : a.role === 'editor' ? 'Peut publier' : 'Admin'} · </span>}
           <span className={`status-${st.tone}`}>{st.label}</span>
           {a.stats?.updated_at && ` · chiffres du ${fmtDateTime(a.stats.updated_at)}`}
           {a.stats?.error && <> · <span className="status-warn">{a.stats.error}</span></>}
@@ -366,7 +375,6 @@ function AccountRow({ a, groups, busy, canAdmin, onSync, onRemove, onReconnect, 
         {a.stats_available && a.mode !== 'routine' && !a.needs_reconnect && (
           <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy === `s${a.platform}${a.id}`} aria-label={`Actualiser les chiffres de ${a.name}`}><Icon name="refresh" size={16} /><span className="only-desktop">Actualiser</span></button>
         )}
-        {canAdmin && <button type="button" className="btn btn-sm" onClick={onShare}><Icon name="users" size={16} />Partager</button>}
         {canAdmin && <button type="button" className="btn btn-sm" onClick={onTransfer}>Transférer</button>}
         {canAdmin && (
           <button type="button" className="btn btn-sm btn-danger" onClick={onRemove} disabled={busy === `d${a.platform}${a.id}`}>

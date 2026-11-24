@@ -3,7 +3,7 @@
 // Lecteur officiel de la plateforme ; à défaut, la vidéo source lue depuis le Drive.
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { getCommentsPage, getVideoSheet, PLATFORM_LABEL, type Comment, type Platform } from '../api'
+import { ALL, getCommentsPage, getVideoSheet, PLATFORM_LABEL, type Comment, type Platform } from '../api'
 import { CommentCard } from '../components/CommentCard'
 import { useMorePages } from '../components/list'
 import { PlatformLogo } from '../components/PlatformLogo'
@@ -16,16 +16,16 @@ const FIELDS: ['views' | 'likes' | 'comments' | 'shares', string][] = [['views',
 export default function VideoSheet() {
   const { id } = useParams()
   const nav = useNavigate()
-  const { org } = useSession()
   const { canEdit } = useRole()
-  const sheet = useLoad(() => getVideoSheet(org, Number(id)), [id, org])
+  // Lecture sur « Tous » : la fiche s'ouvre quel que soit l'espace du compte.
+  const sheet = useLoad(() => getVideoSheet(ALL, Number(id)), [id])
   const [p, setP] = useState<'all' | Platform>('all')
   const d = sheet.data
   const shown = d ? d.videos.filter(v => p === 'all' || v.platform === p) : []
   const player = shown.find(v => v.embed) || null
   const ids = shown.map(v => v.id).join(',')
-  const first = useLoad(() => (ids ? getCommentsPage(org, { status: 'all', videos: ids }) : Promise.resolve(null)), [ids, org])
-  const pages = useMorePages(first.data, cursor => getCommentsPage(org, { status: 'all', videos: ids, cursor }), [ids, org])
+  const first = useLoad(() => (ids ? getCommentsPage(ALL, { status: 'all', videos: ids }) : Promise.resolve(null)), [ids])
+  const pages = useMorePages(first.data, cursor => getCommentsPage(ALL, { status: 'all', videos: ids, cursor }), [ids])
   const [changed, setChanged] = useState<Record<number, Comment | null>>({})
   const comments = (pages.items || []).map(c => (c.id in changed ? changed[c.id] : c)).filter(Boolean) as Comment[]
   const total = (f: 'views' | 'likes' | 'comments' | 'shares') => {

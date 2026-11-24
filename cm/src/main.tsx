@@ -60,7 +60,7 @@ function PageLoading() {
 }
 
 const TITLES: Record<string, string> = {
-  '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque', '/personnes': 'Personnes', '/a-valider': 'À valider', '/commentaires': 'Commentaires',
+  '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque', '/partage': 'Partage', '/a-valider': 'À valider', '/commentaires': 'Commentaires',
   '/nouvelle': 'Nouvelle publication', '/connexion': 'Connexion', '/inscription': 'Créer un compte',
   '/mot-de-passe-oublie': 'Mot de passe oublié',
 }
@@ -123,11 +123,13 @@ function Shell() {
         <Route path="/videos" element={<Videos />} />
         <Route path="/comptes" element={<Accounts />} />
         <Route path="/bibliotheque" element={<Library />} />
-        <Route path="/personnes" element={<People />} />
+        <Route path="/partage" element={<People />} />
+        <Route path="/invitations" element={<Navigate to="/partage" replace />} />
+        <Route path="/personnes" element={<Navigate to="/partage" replace />} />
         <Route path="/a-valider" element={<Drafts />} />
         <Route path="/commentaires" element={<Comments />} />
         <Route path="/videos/:id" element={<VideoSheet />} />
-        <Route path="/equipe" element={<Navigate to="/personnes" replace />} />
+        <Route path="/equipe" element={<Navigate to="/partage" replace />} />
         <Route path="/tiktok/callback" element={<Callback platform="tiktok" />} />
         <Route path="/youtube/callback" element={<Callback platform="youtube" />} />
         <Route path="/instagram/callback" element={<Callback platform="instagram" />} />

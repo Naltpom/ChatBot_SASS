@@ -18,6 +18,8 @@ export interface Account {
   needs_reconnect: boolean; can_publish: boolean; stats_available: boolean; connected_at: string | null
   mode: 'api' | 'routine'; can_direct?: boolean; can_draft?: boolean; handle?: string | null; username?: string; public_domain_only?: boolean
   stats: Stats | null
+  /** Vue « Tous » (?scope=) : espace du compte, son propriétaire, mes droits dessus. */
+  org_id?: number | null; owner?: string | null; mine?: boolean; groups?: number[]; role?: CmRole
 }
 export interface Video {
   id: number; platform: Platform; account_id: number; account_name: string | null; external_id: string
@@ -41,7 +43,7 @@ export interface Target {
   published_at: string | null; can_edit: boolean; can_retry: boolean; can_cancel?: boolean; is_draft?: boolean
 }
 export interface Post {
-  id: number; title: string; caption: string | null; file_name: string | null; video_size: number
+  id: number; org_id?: number | null; title: string; caption: string | null; file_name: string | null; video_size: number
   duration_sec: number | null; status: string; has_media: boolean; created_at: string; targets: Target[]
   rights?: Rights | null; rights_note?: string | null; rights_warning?: string | null
 }
@@ -62,9 +64,11 @@ export interface Space { org_id: number | null; name: string; role: string | nul
 export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
   | 'red' | 'indigo' | 'cyan' | 'lime' | 'rose' | 'sky' | 'emerald' | 'brown'
 export const GROUP_COLORS: GroupColor[] = ['blue', 'sky', 'cyan', 'teal', 'emerald', 'green', 'lime', 'amber', 'orange', 'brown', 'red', 'rose', 'pink', 'purple', 'indigo', 'slate']
-export interface Group { id: number; name: string; color: GroupColor | null; accounts: { platform: Platform; id: number }[] }
-/** Périmètre affiché : un espace et, éventuellement, un groupe de comptes OU un seul compte ("tiktok:12"). */
-export interface Scope { org: number | null; group: number | null; account?: string | null }
+export interface Group { id: number; org_id?: number | null; name: string; color: GroupColor | null; accounts: { platform: Platform; id: number }[] }
+/** Périmètre affiché : un espace et, éventuellement, un groupe de comptes OU un seul compte ("tiktok:12").
+ *  `scope` (« all », « group:3,group:5 »…) : vue combinée de plusieurs espaces, en lecture seule ; prime sur le reste. */
+export interface Scope { org: number | null; group: number | null; account?: string | null; scope?: string | null }
+export const ALL: Scope = { org: null, group: null, scope: 'all' }
 
 export type CalendarItem =
   | (Video & { kind: 'video'; at: string; group?: string })
@@ -145,8 +149,11 @@ const q = (scope: ScopeArg, extra: Record<string, string | number | undefined> =
   const org = typeof scope === 'object' && scope !== null ? scope.org : scope
   const group = typeof scope === 'object' && scope !== null ? scope.group : null
   const account = typeof scope === 'object' && scope !== null ? scope.account : null
-  if (org != null) p.set('org_id', String(org))
-  if (account) p.set('account', account)
+  const multi = typeof scope === 'object' && scope !== null ? scope.scope : null
+  if (multi) p.set('scope', multi)
+  else if (org != null) p.set('org_id', String(org))
+  if (multi) { /* périmètre combiné : rien d'autre */ }
+  else if (account) p.set('account', account)
   else if (group != null) p.set('group_id', String(group))
   for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== '') p.set(k, String(v))
   const s = p.toString()
@@ -188,7 +195,7 @@ export const getStats = (s: ScopeArg, days: number, opts: ListOpts = {}) => call
 
 // Groupes de comptes
 type GroupBody = { name?: string; color?: GroupColor; accounts?: { platform: Platform; account_id: number }[] }
-export const getGroups = (org: number | null) => call<Group[]>(`/api/cm/groups${q(org)}`)
+export const getGroups = (s: ScopeArg) => call<Group[]>(`/api/cm/groups${q(s)}`)
 export const createGroup = (org: number | null, body: GroupBody) => send<Group>('POST', '/api/cm/groups', { org_id: org, ...body })
 export const updateGroup = (org: number | null, id: number, body: GroupBody) => send<Group>('PATCH', `/api/cm/groups/${id}${q(org)}`, body)
 export const deleteGroup = (org: number | null, id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/groups/${id}${q(org)}`)
@@ -283,7 +290,7 @@ export interface Analysis {
   accounts: { key: string; name: string }[]; groups: { key: string; name: string }[]; patterns: Record<DatePattern, string>; videos: number
 }
 export interface Proposal {
-  id: number; status: 'open' | 'used' | 'dismissed'; title: string | null; caption: string | null
+  id: number; org_id?: number | null; status: 'open' | 'used' | 'dismissed'; title: string | null; caption: string | null
   scheduled_at: string | null; when_from: 'path' | 'date' | null
   accounts: { key: string; name: string | null; platform: Platform }[]; asset: Asset | null; created_at: string
 }
@@ -294,7 +301,7 @@ export const saveRecipe = (org: number | null, id: number, recipe: Recipe, auto_
   send<{ source: Source; proposed: number }>('PUT', `/api/cm/sources/${id}/recipe${q(org)}`, { recipe, auto_drafts, backlog })
 export const getProposalsPage = (s: ScopeArg, cursor?: string | null) =>
   callPage<Proposal>(`/api/cm/proposals${q(s, { limit: 30, cursor: cursor || undefined })}`)
-export const getProposalCount = (s: ScopeArg) => call<{ open: number }>(`/api/cm/proposals/count${q(s)}`)
+export const getProposalCount = (s: ScopeArg) => call<{ open: number; by_group?: Record<string, number> }>(`/api/cm/proposals/count${q(s)}`)
 export const getProposal = (org: number | null, id: number) => call<Proposal>(`/api/cm/proposals/${id}${q(org)}`)
 export const archiveProposals = (s: ScopeArg, sourceId?: number) =>
   send<{ archived: number }>('POST', `/api/cm/proposals/archive${q(s)}`, { source_id: sourceId ?? null })
@@ -420,4 +427,21 @@ export interface VideoSheet {
   totals: { views: number | null; likes: number | null; comments: number | null; shares: number | null; saves: number | null }
   asset: Asset | null
 }
-export const getVideoSheet = (org: number | null, id: number) => call<VideoSheet>(`/api/cm/videos/${id}/sheet${q(org)}`)
+export const getVideoSheet = (org: ScopeArg, id: number) => call<VideoSheet>(`/api/cm/videos/${id}/sheet${q(org)}`)
+
+// Partage par groupe, invitations reçues, capacités, nom de l'espace perso (docs/CM_ROUTINES.md §10)
+export interface GroupShare { id: number; email: string; name?: string | null; role: CmRole; role_label?: string; status: 'pending' | 'accepted' | 'declined'; created_at?: string }
+export const getGroupShares = (id: number) => call<GroupShare[]>(`/api/cm/groups/${id}/shares`)
+export const addGroupShare = (id: number, email: string, role: CmRole) => send<GroupShare>('POST', `/api/cm/groups/${id}/shares`, { email, role })
+export const removeGroupShare = (id: number, shareId: number) => send<{ ok: boolean }>('DELETE', `/api/cm/groups/${id}/shares/${shareId}`)
+export interface Invitation {
+  id: number; group_id: number; group_name: string; group_color: GroupColor | null; role: CmRole; role_label: string
+  owner: string | null; invited_by: string | null; accounts: number; created_at: string
+}
+export const getInvitations = () => call<Invitation[]>('/api/cm/invitations')
+export const acceptInvitation = (id: number) => send<{ org_id: number }>('POST', `/api/cm/invitations/${id}/accept`)
+export const declineInvitation = (id: number) => send<{ status: string }>('POST', `/api/cm/invitations/${id}/decline`)
+export interface Capabilities { can_publish_any: boolean; accounts: { key: string; platform: Platform; id: number; org_id: number | null; role: CmRole; owner: string | null; mine: boolean }[] }
+export const getCapabilities = () => call<Capabilities>('/api/cm/me/capabilities')
+export const getProfile = () => call<{ perso_name: string }>('/api/cm/profile')
+export const saveProfile = (perso_name: string) => send<{ perso_name: string }>('PATCH', '/api/cm/profile', { perso_name })

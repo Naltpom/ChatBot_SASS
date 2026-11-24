@@ -22,7 +22,7 @@ function readList(key: string): PinKey[] {
 function writeList(key: string, v: PinKey[]) {
   try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* stockage indisponible */ }
 }
-export function usePins(org: number | null) {
+export function usePins(org: number | string | null) {
   const pk = `cm.pins.${org ?? 'perso'}`, rk = `cm.recent.${org ?? 'perso'}`
   const [pins, setPins] = useState<PinKey[]>(() => readList(pk))
   const [recent, setRecent] = useState<PinKey[]>(() => readList(rk))
@@ -47,10 +47,13 @@ interface Common {
   /** Comptes seulement (pas d'onglet Groupes), ex. composer un groupe. */
   accountsOnly?: boolean
   footer?: ReactNode
+  /** Propriétaire d'un groupe ou d'un compte partagé avec moi (« Nathan »), sinon null. */
+  ownerOf?: (x: { org_id?: number | null }) => string | null
 }
 interface Single extends Common {
   mode: 'single'
-  value: { group: number | null; account: string | null }
+  /** `groups` : plusieurs groupes cochés (filtre « Tous / groupes »). */
+  value: { group: number | null; account: string | null; groups?: number[] }
   onPick: (v: { group: number | null; account: string | null }) => void
 }
 interface Multi extends Common {
@@ -96,7 +99,8 @@ export function AccountPicker(props: Single | Multi) {
   // --- sélection ---
   const isOn = (r: Row): boolean | 'mixed' => {
     if (props.mode === 'single') {
-      return r.kind === 'group' ? !props.value.account && props.value.group === r.g.id : props.value.account === accKey(r.a)
+      if (r.kind === 'account') return props.value.account === accKey(r.a)
+      return !props.value.account && (props.value.groups ? props.value.groups.includes(r.g.id) : props.value.group === r.g.id)
     }
     if (r.kind === 'account') return props.picked.includes(accKey(r.a))
     const keys = membersOf(r.g).filter(a => !props.disabled?.(a)).map(accKey)
@@ -180,6 +184,7 @@ export function AccountPicker(props: Single | Multi) {
                   <span className="grow col" style={{ minWidth: 0, gap: 0 }}>
                     <span className="ellipsis strong">{r.g.name}</span>
                     <span className="tiny muted row-nw" style={{ gap: 4 }}>
+                      {props.ownerOf?.(r.g) && <span className="ellipsis">Partagé par {props.ownerOf(r.g)} ·</span>}
                       {membersOf(r.g).length} compte{membersOf(r.g).length > 1 ? 's' : ''}
                       {[...new Set(membersOf(r.g).map(a => a.platform))].map(p => <PlatformLogo key={p} platform={p} size={12} />)}
                     </span>
@@ -190,7 +195,7 @@ export function AccountPicker(props: Single | Multi) {
                   <span className="fchip-av"><Avatar src={r.a.avatar_url} name={r.a.name} size="sm" /><PlatformLogo platform={r.a.platform} size={12} /></span>
                   <span className="grow col" style={{ minWidth: 0, gap: 0 }}>
                     <span className="ellipsis strong">{r.a.name || PLATFORM_LABEL[r.a.platform]}</span>
-                    <span className="tiny muted ellipsis">{why || (props.mode === 'multi' && props.detail ? props.detail(r.a) : PLATFORM_LABEL[r.a.platform])}</span>
+                    <span className="tiny muted ellipsis">{why || (props.mode === 'multi' && props.detail ? props.detail(r.a) : PLATFORM_LABEL[r.a.platform])}{!why && props.ownerOf?.(r.a) ? ` · de ${props.ownerOf(r.a)}` : ''}</span>
                   </span>
                 </>
               )}

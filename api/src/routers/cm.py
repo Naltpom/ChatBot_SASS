@@ -716,7 +716,7 @@ async def _groups_out(db: AsyncSession, tenant: Tenant, groups: list[CmGroup]) -
         for m in rows:
             if (m.platform, m.account_id) in active:     # compte déconnecté : ignoré
                 members.setdefault(m.group_id, []).append({"platform": m.platform, "id": m.account_id})
-    return [{"id": g.id, "name": g.name, "color": g.color, "accounts": members.get(g.id, []),
+    return [{"id": g.id, "org_id": g.organization_id, "name": g.name, "color": g.color, "accounts": members.get(g.id, []),
              "created_at": cm.iso(g.created_at)} for g in groups]
 
 
@@ -758,7 +758,11 @@ async def list_groups(org_id: Optional[int] = Query(None), db: AsyncSession = De
     groups = (await db.execute(
         select(CmGroup).where(tenant.where(CmGroup)).order_by(func.lower(CmGroup.name), CmGroup.id)
     )).scalars().all()
-    groups = [g for g in groups if cm_access.group_allowed(tenant, g.id)]
+    if getattr(tenant, "multi", False):      # périmètre combiné : les groupes permis dans chaque espace
+        groups = [g for g in groups if any(cm_access._same_tenant(g, t) and cm_access.group_allowed(t, g.id)
+                                           for t in tenant.tenants)]
+    else:
+        groups = [g for g in groups if cm_access.group_allowed(tenant, g.id)]
     return await _groups_out(db, tenant, list(groups))
 
 

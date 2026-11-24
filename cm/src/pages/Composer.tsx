@@ -8,7 +8,7 @@ import { PlatformLogo } from '../components/PlatformLogo'
 import { AccountPicker } from '../components/AccountPicker'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  creatorInfo, createPost, getAccounts, getAsset, getProposal, getRobot, putCover, putPart, submitPost, PLATFORM_LABEL,
+  ALL, creatorInfo, createPost, getAccounts, getAsset, getProposal, getRobot, putCover, putPart, submitPost, PLATFORM_LABEL,
   RIGHTS_LABEL, RIGHTS_WARNING, type Account, type Asset, type CreatorInfo, type Platform, type Rights,
   type Proposal,
 } from '../api'
@@ -52,10 +52,11 @@ function Check({ label, checked, onChange, disabled, hint }: { label: ReactNode;
 }
 
 export default function Composer() {
-  const { org, config, groups, group: currentGroup, account: currentAccount } = useSession()
+  const { org: home, config, groups, group: currentGroup, account: currentAccount, ownerOf } = useSession()
   const nav = useNavigate()
   const { canEdit } = useRole()
-  const accounts = useLoad(s => getAccounts(s.org))
+  // Tous mes comptes (et ceux partagés avec moi) ; une publication = un seul propriétaire (espace).
+  const accounts = useLoad(() => getAccounts(ALL), ['all'])
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [duration, setDuration] = useState<number | null>(null)
@@ -92,14 +93,14 @@ export default function Composer() {
   useEffect(() => {
     const id = Number(params.get('video'))
     if (!id || asset) return
-    getAsset(org, id).then(a => { if (accounts.data) useAsset(a); else setPendingAsset(a) }).catch(e => setErr((e as Error).message))
+    getAsset(baseOrg, id).then(a => { if (accounts.data) useAsset(a); else setPendingAsset(a) }).catch(e => setErr((e as Error).message))
   }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
   // Brouillon automatique (« À valider ») : vidéo, comptes, heure, titre et légende pré-remplis.
   const [draft, setDraft] = useState<Proposal | null>(null)
   useEffect(() => {
     const id = Number(params.get('brouillon'))
     if (!id) return
-    getProposal(org, id).then(setDraft).catch(e => setErr((e as Error).message))
+    getProposal(baseOrg, id).then(setDraft).catch(e => setErr((e as Error).message))
   }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!draft || !accounts.data || !draft.asset) return
@@ -117,10 +118,23 @@ export default function Composer() {
 
   const all = accounts.data || []
   const chosen = all.filter(a => picked.includes(key(a)))
+  // Espace de la publication : celui des comptes choisis, sinon celui du brouillon / de la vidéo, sinon le mien.
+  const fixed = params.get('org')
+  const baseOrg = fixed ? (fixed === 'perso' ? null : Number(fixed)) : home
+  const org = chosen.length ? chosen[0].org_id ?? null : baseOrg
+  const sameOrg = (a: Account) => (a.org_id ?? null) === org
+  const why = (a: Account): string | null => {
+    if (!a.can_publish) return `Indisponible${a.needs_reconnect ? ' : à reconnecter' : ''}`
+    if (a.role === 'viewer') return 'Lecture seule'
+    if ((chosen.length || asset || draft) && !sameOrg(a)) return 'Autre propriétaire : publication à part'
+    return null
+  }
   const busy = progress != null
 
   const add = (list: Account[]) => {
-    const fresh = list.filter(a => a.can_publish && !picked.includes(key(a)))
+    const first = picked.length ? all.find(a => key(a) === picked[0]) : null
+    const where = first ? first.org_id ?? null : (asset || draft ? baseOrg : list.find(a => a.can_publish && a.role !== 'viewer')?.org_id ?? null)
+    const fresh = list.filter(a => a.can_publish && a.role !== 'viewer' && (a.org_id ?? null) === where && !picked.includes(key(a)))
     if (!fresh.length) return
     setPicked(p => [...p, ...fresh.map(key)])
     setOpts(o => { const n = { ...o }; for (const a of fresh) if (!n[key(a)]) n[key(a)] = defaults(a); return n })
@@ -263,7 +277,7 @@ export default function Composer() {
           <p>Une vidéo, un ou plusieurs comptes, maintenant ou à l’heure choisie.</p>
         </div>
       </div>
-      {!canEdit && <Msg kind="err">Votre rôle dans cette équipe (lecteur) ne permet pas de publier. Demandez à un administrateur de l’équipe.</Msg>}
+      {!canEdit && <Msg kind="err">Vous êtes en « Lecture seule » sur ces comptes : demandez « Peut publier » à leur propriétaire.</Msg>}
       {accounts.loading && !accounts.data && <Loading />}
       {accounts.data && all.length === 0 && (
         <Msg>Aucun compte connecté. <Link to="/comptes">Connectez TikTok, YouTube ou Instagram</Link> pour publier.</Msg>
@@ -365,7 +379,7 @@ export default function Composer() {
                              setPicked(p => p.filter(k => keys.includes(k)))
                              add(added)
                            }}
-                           disabled={a => (!a.can_publish ? `Indisponible${a.needs_reconnect ? ' : à reconnecter' : ''}` : null)}
+                           disabled={why} ownerOf={ownerOf}
                            detail={a => `${PLATFORM_LABEL[a.platform]}${a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}`} />
           </Section>
 
