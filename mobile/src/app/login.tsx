@@ -5,7 +5,8 @@ import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { G, Path, Rect } from 'react-native-svg'
 import type { TwoFAChallenge } from '../lib/api'
-import { loginWithBrowser, loginWithCode, loginWithPassword } from '../lib/auth'
+import { loginWithBrowser, loginWithCode, loginWithGoogle, loginWithPassword } from '../lib/auth'
+import { nativeGoogleAvailable } from '../lib/google'
 import { API_URL } from '../lib/http'
 import { useSession } from '../lib/session'
 import { Button, Divider, Field, H1, Msg, Row, Txt } from '../ui/kit'
@@ -42,6 +43,14 @@ export default function Login() {
     try { await fn() } catch (e: any) { setError(e?.message || 'Connexion impossible') }
   }
   const viaBrowser = () => run(async () => { const me = await loginWithBrowser(); if (me) signedIn(me) })
+  const viaGoogle = nativeGoogleAvailable
+    ? () => run(async () => {
+        const r = await loginWithGoogle()
+        if (!r) return
+        if ('twofa_required' in r) setChallenge(r)
+        else signedIn(r)
+      })
+    : viaBrowser
   const viaEmail = () => run(async () => {
     const r = await loginWithPassword(email.trim(), password)
     if ('twofa_required' in r) setChallenge(r)
@@ -75,8 +84,8 @@ export default function Login() {
             </>
           ) : (
             <>
-              <Button kind="secondary" title="Continuer avec Google" icon="external" onPress={viaBrowser} />
-              <Txt small muted center>Une page sécurisée de cm.chapote.fr s’ouvre (même compte que sur le site, double authentification comprise).</Txt>
+              <Button kind="secondary" title="Continuer avec Google" onPress={viaGoogle} />
+              {nativeGoogleAvailable ? null : <Txt small muted center>Une page sécurisée de cm.chapote.fr s’ouvre (même compte que sur le site, double authentification comprise).</Txt>}
               <Divider />
               {mode === 'email' ? (
                 <>

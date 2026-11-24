@@ -64,6 +64,12 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.55021064822-c4j1dhecm58ajbbpq2o3gt0s3h66rajc"
+        }
       ]
     ],
     "experiments": {
@@ -78,10 +84,11 @@
       },
       "eas": {
         "projectId": "8c39edcf-d3e1-4d15-a54e-23a3e8ebcdfd"
-      }
+      },
+      "googleWebClientId": "55021064822-niokeuhk5nmejmf89d0kf6e8vo20f7g9.apps.googleusercontent.com",
+      "googleIosClientId": "55021064822-c4j1dhecm58ajbbpq2o3gt0s3h66rajc.apps.googleusercontent.com"
     },
     "owner": "naltpom",
-    "runtimeVersion": "exposdk:58.0.0",
     "updates": {
       "url": "https://u.expo.dev/8c39edcf-d3e1-4d15-a54e-23a3e8ebcdfd"
     }

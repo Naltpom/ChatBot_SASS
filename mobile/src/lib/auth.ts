@@ -37,6 +37,16 @@ export async function loginWithBrowser(): Promise<Me | null> {
   return store(await callPublic<DeviceOut>('/api/cm/mobile/token', { code: back.code, verifier, ...deviceInfo() }))
 }
 
+/** Google natif (app installée) : jeton d'identité envoyé à /api/auth/google, comme le bouton du site. */
+export async function loginWithGoogle(): Promise<Me | TwoFAChallenge | null> {
+  const { googleIdToken } = await import('./google')
+  const credential = await googleIdToken()
+  if (!credential) return null
+  const r = await callPublic<Me | TwoFAChallenge>('/api/auth/google', { credential }, true)
+  if ('twofa_required' in r) return r
+  return finishCookieLogin()
+}
+
 /** Formulaire : mot de passe, puis éventuellement le code de double authentification. */
 export async function loginWithPassword(email: string, password: string): Promise<Me | TwoFAChallenge> {
   const r = await callPublic<Me | TwoFAChallenge>('/api/auth/login', { email, password }, true)
