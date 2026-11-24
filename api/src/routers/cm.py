@@ -276,8 +276,9 @@ async def spaces(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm
     # Stockage Drive de chaque espace (valeurs connues, sans appel à Google ici).
     for sp in out:
         st = await cm_storage.status_of(db, sp["org_id"], None if sp["org_id"] else user.id)
-        sp["storage"] = {k: st[k] for k in ("connected", "email", "folder_url", "quota_gb", "used_bytes", "drive_free_bytes",
-                                            "retention", "delete_after_days", "state")}
+        sp["storage"] = {**{k: st[k] for k in ("connected", "email", "folder_url", "quota_gb", "used_bytes",
+                                               "drive_free_bytes", "retention", "delete_after_days", "state")},
+                         "count": len(st["storages"])}
     return out
 
 
@@ -1370,11 +1371,12 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
     ref = (body.ref or "").strip() or None
     if ref:
         await _check_ref_free(db, tenant, ref)
-    # Stockage : Drive connecté obligatoire ; la vidéo envoyée doit tenir dans le quota et l'espace libre.
-    await cm_storage.check_create(db, tenant.org_id, tenant.owner_user_id, 0 if asset else size)
     planned = await _plan_targets(db, tenant, body.targets, title, body.caption,
                                   asset.mime_type if asset else None, asset.duration_sec if asset else None, size,
                                   body.rights)
+    # Stockage : un Drive relié obligatoire ; la vidéo envoyée doit tenir dans le stockage choisi pour ses comptes.
+    await cm_storage.check_create(db, tenant.org_id, tenant.owner_user_id, 0 if asset else size,
+                                  [(t.platform, t.account_id) for t, _, _ in planned])
     rights = {"rights": body.rights, "rights_note": (body.rights_note or "").strip() or None}
     if asset is not None:
         return await _create_from_asset(db, tenant, user, asset, title, body.caption, planned, ref, rights)
@@ -1538,7 +1540,9 @@ async def reupload_start(post_id: int, body: VideoIn, db: AsyncSession = Depends
     if body.video_size > cm.max_upload_bytes():
         raise HTTPException(413, f"Vidéo trop volumineuse ({settings.CM_MAX_UPLOAD_MB} Mo maximum).")
     cm.check_space(body.video_size)
-    await cm_storage.check_create(db, tenant.org_id, tenant.owner_user_id, body.video_size)
+    await cm_storage.check_create(db, tenant.org_id, tenant.owner_user_id, body.video_size,
+                                  [(t.platform, t.account_id) for t in (await db.execute(
+                                      select(CmTarget).where(CmTarget.post_id == post.id))).scalars()])
     a = dict(post.archive or {})
     old = (a.get("upload") or {}).get("path")
     if old:

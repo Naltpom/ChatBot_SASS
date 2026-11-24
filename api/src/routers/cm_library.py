@@ -570,6 +570,7 @@ async def drive_archive(org_id: Optional[int] = Query(None), db: AsyncSession = 
 
 class DriveStartIn(BaseModel):
     org_id: Optional[int] = None
+    name: Optional[str] = Field(None, max_length=60)     # nom du nouveau stockage (2e Drive, autre compte Google)
 
 
 @router.post("/drive/oauth/start")
@@ -580,7 +581,8 @@ async def drive_oauth_start(body: DriveStartIn, db: AsyncSession = Depends(get_d
     cm_access.require(tenant, "admin")
     if not await drive_oauth_limiter.check(f"{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives : réessayez dans une heure.")
-    state = _encode({"sub": str(user.id), "scope": DRIVE_STATE_SCOPE, "org": tenant.org_id, "jti": uuid.uuid4().hex},
+    state = _encode({"sub": str(user.id), "scope": DRIVE_STATE_SCOPE, "org": tenant.org_id, "jti": uuid.uuid4().hex,
+                     "name": (body.name or "").strip() or None},
                     timedelta(seconds=600))
     return {"authorize_url": cm_archive.authorize_url(state)}
 
@@ -606,7 +608,7 @@ async def drive_oauth_exchange(body: DriveExchangeIn, db: AsyncSession = Depends
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_DRIVE_STATE)
     try:
         tok = await cm_archive.exchange_code(body.code)
-        link = await cm_archive.connect(db, tenant, user, tok)
+        link = await cm_archive.connect(db, tenant, user, tok, claims.get("name"))
     except cm_archive.ArchiveError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST if e.code != "drive_error" else status.HTTP_502_BAD_GATEWAY, e.message)
     return {**cm_archive.link_out(link), "org_id": tenant.org_id}
@@ -655,4 +657,76 @@ async def put_storage(body: StorageIn, org_id: Optional[int] = Query(None), db: 
         raise HTTPException(status.HTTP_409_CONFLICT, {"code": "storage_required",
                                                        "message": "Connectez d'abord un Google Drive à cet espace."})
     await cm_storage.update_settings(db, link, body.quota_gb, body.retention, body.delete_after_days)
+    return await cm_storage.status_of(db, tenant.org_id, tenant.owner_user_id)
+
+
+# Plusieurs stockages par espace : liste, nouveau dossier dans un Drive déjà relié, réglages, retrait.
+
+class StorageAddIn(BaseModel):
+    from_id: int                                       # stockage dont on reprend le compte Google
+    name: str = Field(min_length=1, max_length=60)
+
+
+class StoragePatch(BaseModel):
+    name: Optional[str] = Field(None, max_length=80)
+    quota_gb: Optional[int] = Field(None, ge=1, le=100_000)
+    clear_quota: bool = False
+    retention: Optional[Literal["keep", "delete_after_publish", "delete_after_days"]] = None
+    delete_after_days: Optional[int] = Field(None, ge=1, le=365)
+    position: Optional[int] = Field(None, ge=0, le=1000)
+    assign: Optional[dict] = None                      # {"accounts": [["instagram", 3]], "groups": [12]} ; {} = tous
+    set_assign: bool = False
+
+
+async def _storage(db: AsyncSession, tenant: Tenant, storage_id: int):
+    from src.models.cm import CmDriveLink
+    link = await db.get(CmDriveLink, storage_id)
+    if link is None or link.revoked_at is not None or not _same(link, tenant):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stockage introuvable")
+    return link
+
+
+@router.get("/drive/storages")
+async def list_storages(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                        user: User = Depends(get_cm_user)):
+    """Stockages de l'espace (ordre de remplissage, attribution, place) et résumé."""
+    tenant = await _tenant(db, user, org_id)
+    return await cm_storage.status_of(db, tenant.org_id, tenant.owner_user_id, refresh=True)
+
+
+@router.post("/drive/storages")
+async def add_storage(body: StorageAddIn, org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_cm_user)):
+    """Nouveau stockage dans un Drive déjà relié : un dossier créé par cm (ex. un par compte ou par groupe)."""
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
+    src = await _storage(db, tenant, body.from_id)
+    try:
+        await cm_archive.add_folder(db, src, body.name.strip(), user)
+    except cm_archive.ArchiveError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY if e.code == "drive_error" else 400, e.message)
+    return await cm_storage.status_of(db, tenant.org_id, tenant.owner_user_id)
+
+
+@router.patch("/drive/storages/{storage_id}")
+async def update_storage(storage_id: int, body: StoragePatch, org_id: Optional[int] = Query(None),
+                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
+    link = await _storage(db, tenant, storage_id)
+    await cm_storage.update_settings(
+        db, link, None if body.clear_quota else (body.quota_gb if body.quota_gb is not None else link.quota_gb),
+        body.retention or link.retention,
+        body.delete_after_days if body.delete_after_days is not None else link.delete_after_days,
+        name=body.name, position=body.position, assign=body.assign, set_assign=body.set_assign)
+    return await cm_storage.status_of(db, tenant.org_id, tenant.owner_user_id)
+
+
+@router.delete("/drive/storages/{storage_id}")
+async def remove_storage(storage_id: int, org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                         user: User = Depends(get_cm_user)):
+    """Retire un stockage (les fichiers déjà rangés restent dans le Drive)."""
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
+    await cm_archive.disconnect(db, await _storage(db, tenant, storage_id))
     return await cm_storage.status_of(db, tenant.org_id, tenant.owner_user_id)

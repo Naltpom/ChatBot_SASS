@@ -191,14 +191,27 @@ archive automatiquement à la relecture, rien n'est publié. Sinon `POST /propos
 ## 9. Stockage Drive (obligatoire pour publier)
 Chaque espace (perso ou équipe) range ses vidéos dans **son** Google Drive, par la même connexion que l'archivage
 (« Connecter Google Drive », droit `drive.file` : Chapote ne voit et ne supprime que ce qu'il a créé).
-Dossier : automatique. À la connexion, Chapote crée « cm.chapote.fr archives » à la racine du Drive (le nom peut être
+Dossier : automatique. À la connexion, Chapote crée « cm.chapote.fr » à la racine du Drive (le nom peut être
 changé, le dossier déplacé : il est suivi par son identifiant, `storage.folder_url`) et y range
 `<compte>/<AAAA-MM>/<AAAA-MM-JJ HHhMM — Titre>/` (section 8). Pas de dossier au choix : avec `drive.file`, Chapote
 n'écrit que dans un dossier qu'il a créé (sauf dossier de compte déjà relié à la bibliothèque, section 8).
+Plusieurs stockages par espace : un autre compte Google (« Connecter Google Drive » à nouveau, avec un nom), ou un
+autre dossier du même Drive (« cm.chapote.fr — nom », créé par Chapote). Règles : une vidéo va dans le stockage
+**attribué** à l'un de ses comptes (ou à l'un de leurs groupes) ; sinon dans le premier stockage non attribué qui a la
+place, **dans l'ordre** (`position`). Le stockage retenu est gardé pour la publication (`archive.link_id`).
+- `GET /drive/storages?org_id=` → résumé de l'espace + `storages: [{id, name, position, email, folder_url, assign,
+  quota_gb, used_bytes, drive_free_bytes, room_bytes, retention, delete_after_days, state, max_quota_gb, error}]`.
+- `POST /drive/storages?org_id= {from_id, name}` (admin) : nouveau dossier dans le Drive du stockage `from_id`.
+- `PATCH /drive/storages/{id}?org_id= {name?, quota_gb? | clear_quota, retention?, delete_after_days?, position?,
+  assign: {accounts: [["instagram", 3]], groups: [12]}, set_assign: true}` (admin ; `assign` vide = tous les comptes).
+- `DELETE /drive/storages/{id}?org_id=` (admin) : retire le stockage (fichiers gardés dans le Drive ; l'accès Google
+  n'est révoqué que si aucun autre stockage n'utilise ce compte Google).
+- `POST /drive/oauth/start {org_id, name?}` : `name` = nom du nouveau stockage (autre compte Google).
+- `GET`/`PUT /drive/storage` restent valables (résumé ; réglages du **premier** stockage).
 - Sans Drive relié : `POST /posts` → `409 {"code": "storage_required", "message"}`.
 - Vidéo qui ne tient pas (quota réservé ou espace libre du Drive) : `POST /posts` et `PUT /posts/{id}/video` →
   `409 {"code": "storage_full", "message", "needed_bytes", "free_bytes"}`.
-- `GET /spaces` → chaque espace porte `storage: {connected, email, folder_url, quota_gb, used_bytes, drive_free_bytes, retention,
+- `GET /spaces` → chaque espace porte `storage: {count, connected, email, folder_url, quota_gb, used_bytes, drive_free_bytes, retention,
   delete_after_days, state}` (valeurs connues, sans appel à Google) ; `state` : `ok` | `almost_full` (≥ 90 %) | `full`
   | `missing` (pas de Drive).
 - `GET /drive/storage?org_id=` → même objet, relu chez Google (≤ 10 min), plus `max_quota_gb`.
@@ -243,7 +256,7 @@ Où cm écrit :
    des fichiers** : cm l'essaie une fois par dossier Éditeur (carte du dossier : « archivage direct » ou « dépôt de
    fichiers refusé par Google ») ; un compte de service n'a pas d'espace de stockage hors Drive partagé ;
 2. sinon dans le Drive connecté dans la Bibliothèque (« Connecter Google Drive », droit `drive.file` : cm ne voit que les
-   fichiers qu'il crée), sous « cm.chapote.fr (archives) » / `<compte>` / … Ce dossier est partagé en lecture avec le
+   fichiers qu'il crée), sous « cm.chapote.fr » / `<compte>` / … Ce dossier est partagé en lecture avec le
    robot et relié à la bibliothèque.
 
 Quand : **dès la création** du post (la vidéo est envoyée tout de suite, sans attendre la publication), puis

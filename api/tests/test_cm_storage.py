@@ -113,3 +113,45 @@ async def test_retention_alerts_and_push(pg_session, cmenv, wdrive, tiktok, requ
             msgs = [m for m in await cm_push.collect(pg_session) if m["data"].get("type") == "storage"]
             assert len(msgs) == 1 and msgs[0]["to"] == dev.push_token and msgs[0]["data"]["state"] == state
             assert [m for m in await cm_push.collect(pg_session) if m["data"].get("type") == "storage"] == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_several_storages_assign_and_fill(pg_session, cmenv, wdrive, tiktok, required):
+    u = await _user(pg_session, "a@t.dev")
+    kiwi = await _ig_routine(pg_session, owner=u, username="kiwi.signal")
+    neuron = await _ig_routine(pg_session, owner=u, username="easy.neuron")
+    await pg_session.commit()
+    first = await _linked(pg_session, u, wdrive)
+    data = mp4_bytes(42_000)
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        # 2e stockage : un dossier « Kiwi » dans le même Drive, attribué au compte kiwi.
+        r = await h.post("/api/cm/drive/storages", json={"from_id": first.id, "name": "Kiwi"})
+        assert r.status_code == 200 and len(r.json()["storages"]) == 2
+        second = r.json()["storages"][1]
+        assert second["name"] == "Kiwi" and f"{settings.GDRIVE_ARCHIVE_ROOT_NAME} — Kiwi/" in wdrive.tree()
+        r = await h.patch(f"/api/cm/drive/storages/{second['id']}",
+                          json={"assign": {"accounts": [["instagram", kiwi.id]]}, "set_assign": True})
+        assert r.json()["storages"][1]["assign"] == {"accounts": [["instagram", kiwi.id]], "groups": []}
+        p1 = await _post(h, kiwi, data, "kiwi/m1", title="Pour Kiwi")
+        p2 = await _post(h, neuron, data, "easy-neuron/m2", title="Pour Neuron")
+        await cm_archive.sync_due(pg_session)
+        tree = wdrive.tree()
+        assert any(x.startswith(f"{settings.GDRIVE_ARCHIVE_ROOT_NAME} — Kiwi/kiwi/") and x.endswith("Pour Kiwi.mp4") for x in tree)
+        assert any(x.startswith(f"{settings.GDRIVE_ARCHIVE_ROOT_NAME}/easy-neuron/") and x.endswith("Pour Neuron.mp4") for x in tree)
+        st = (await h.get("/api/cm/drive/storages")).json()
+        assert all(s["used_bytes"] >= len(data) for s in st["storages"]) and st["used_bytes"] >= 2 * len(data)
+        # « Dans l'ordre » : stockage non attribué plein → le suivant non attribué prend le relais.
+        r = await h.post("/api/cm/drive/storages", json={"from_id": first.id, "name": "Débordement"})
+        third = r.json()["storages"][2]
+        await h.patch(f"/api/cm/drive/storages/{first.id}", json={"quota_gb": 1})
+        await pg_session.refresh(first)
+        link, _ = await cm_storage.pick_link(pg_session, None, u.id, [("instagram", neuron.id)], 2 * GB)
+        assert link.id == third["id"]
+        # Retirer un dossier ne révoque pas l'accès Google tant qu'un autre stockage l'utilise.
+        assert (await h.delete(f"/api/cm/drive/storages/{third['id']}")).status_code == 200
+        assert wdrive.revoked == [] and len((await h.get("/api/cm/drive/storages")).json()["storages"]) == 2
+        assert (await h.get("/api/cm/spaces")).json()[0]["storage"]["count"] == 2
+        for pid in (p1, p2):
+            assert (await pg_session.get(CmPost, pid)).archive.get("link_id")

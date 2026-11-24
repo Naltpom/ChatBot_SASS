@@ -186,12 +186,6 @@ function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: (s: Sou
               {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
           </label>
-          <label className={`check${s.can_organize ? '' : ' disabled'}`}>
-            <input type="checkbox" checked={s.move_published} disabled={!s.can_organize}
-                   onChange={e => run(() => patchSource(org, s.id, { move_published: e.target.checked }))} />
-            <span>Ranger les vidéos publiées dans un sous-dossier « Publié »
-              <br /><span className="field-hint">{s.can_organize ? 'Une fois publiée sur tous ses comptes, la vidéo est déplacée dans le Drive.' : 'Partagez le dossier avec le robot en Éditeur pour activer cette option.'}</span></span>
-          </label>
           {canAdmin && (
             <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setRecipe(true)}>
               <Icon name="bolt" />{s.auto_drafts ? 'Préparation automatique : réglages' : 'Préparer les publications toutes seules…'}
@@ -348,6 +342,7 @@ export default function Library() {
       {sources.error && <Msg kind="err">{sources.error}</Msg>}
       {!sources.data && sources.loading && <Skeleton h={90} n={2} />}
 
+      <StorageCard />
       {sources.data && list.length === 0 && enabled && (
         <Empty title="Reliez le dossier de vos monteurs" icon="layers">
           <p style={{ margin: '0 0 14px' }}>Partagez un dossier Google Drive avec le robot de Chapote : chaque vidéo déposée apparaît ici, avec sa légende si un fichier .txt du même nom l'accompagne. Vous n'avez plus qu'à programmer.</p>
@@ -355,14 +350,6 @@ export default function Library() {
         </Empty>
       )}
 
-      <StorageCard />
-      {enabled && sources.data && (
-        <details className="card">
-          <summary className="strong" style={{ cursor: 'pointer' }}>Adresses Google reliées automatiquement</summary>
-          <p className="small muted" style={{ margin: '8px 0 10px' }}>Un dossier partagé avec le robot depuis l'une de ces adresses est relié tout seul, dans l'espace indiqué.</p>
-          <GoogleAddresses />
-        </details>
-      )}
       {list.length > 0 && (
         <>
           <div className="autogrid" style={autogrid(Math.min(list.length, allFolders ? list.length : 6))}>
