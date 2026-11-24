@@ -8,7 +8,7 @@ import type { TwoFAChallenge } from '../lib/api'
 import { loginWithBrowser, loginWithCode, loginWithPassword } from '../lib/auth'
 import { API_URL } from '../lib/http'
 import { useSession } from '../lib/session'
-import { Button, Divider, Field, H1, Msg, Row, Seg, Txt } from '../ui/kit'
+import { Button, Divider, Field, H1, Msg, Row, Txt } from '../ui/kit'
 import { space, useTheme } from '../ui/theme'
 
 WebBrowser.maybeCompleteAuthSession()
@@ -29,7 +29,7 @@ export default function Login() {
   const { c } = useTheme()
   const insets = useSafeAreaInsets()
   const { signedIn } = useSession()
-  const [mode, setMode] = useState<'browser' | 'email'>('browser')
+  const [mode, setMode] = useState<'choose' | 'email'>('choose')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [challenge, setChallenge] = useState<TwoFAChallenge | null>(null)
@@ -75,13 +75,10 @@ export default function Login() {
             </>
           ) : (
             <>
-              <Seg label="Mode de connexion" value={mode} onChange={setMode} options={[['browser', 'Navigateur'], ['email', 'E-mail']]} />
-              {mode === 'browser' ? (
-                <>
-                  <Button kind="primary" title="Se connecter" icon="external" onPress={viaBrowser} />
-                  <Txt small muted center>S’ouvre dans une page sécurisée de cm.chapote.fr : même compte que sur le site (e-mail, Google, double authentification).</Txt>
-                </>
-              ) : (
+              <Button kind="secondary" title="Continuer avec Google" icon="external" onPress={viaBrowser} />
+              <Txt small muted center>Une page sécurisée de cm.chapote.fr s’ouvre (même compte que sur le site, double authentification comprise).</Txt>
+              <Divider />
+              {mode === 'email' ? (
                 <>
                   <Field label="E-mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"
                     autoComplete="email" textContentType="username" />
@@ -90,6 +87,8 @@ export default function Login() {
                   <Button kind="primary" title="Se connecter" onPress={viaEmail} disabled={!email.trim() || !password} />
                   <Button kind="ghost" title="Mot de passe oublié" onPress={() => WebBrowser.openBrowserAsync(`${API_URL}/`)} />
                 </>
+              ) : (
+                <Button kind="primary" title="Se connecter avec un e-mail" onPress={() => setMode('email')} />
               )}
             </>
           )}
