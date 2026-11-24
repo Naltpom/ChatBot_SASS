@@ -12,6 +12,7 @@ import { groupOf, shortTitle, type VideoItem } from '../../features/planning/cal
 import { apiUrl, openLink, PostMedia } from '../../features/planning/media'
 import { PlatformCard } from '../../features/planning/PlatformCard'
 import { initialOpen, postItems, postWindow, splitCommon } from '../../features/planning/sheet'
+import { RightsBox } from '../../features/planning/RightsBox'
 
 export default function PublicationScreen() {
   const { c } = useTheme()
@@ -83,6 +84,8 @@ export default function PublicationScreen() {
           ) : null}
         </View>
       </Row>
+
+      {post.data ? <RightsBox post={post.data} canEdit={canEdit} onSaved={p => post.setData(p)} /> : null}
 
       {showBody || tags.length ? (
         <View style={{ gap: 6 }}>

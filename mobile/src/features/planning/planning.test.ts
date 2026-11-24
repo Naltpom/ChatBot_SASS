@@ -169,6 +169,9 @@ test('nouvelle publication : corps envoyé', () => {
   assert.deepEqual({ ...body, targets: undefined }, { org_id: 7, title: 'T', caption: 'c', targets: undefined, file_name: 'v.mp4', video_size: 99 })
   const fromAsset = buildBody(null, { ...state({ chosen: [ig] }), caption: '' }, { kind: 'asset', id: 4 }) as Record<string, unknown>
   assert.equal(fromAsset.asset_id, 4); assert.equal(fromAsset.file_name, undefined)
+  const withRights = buildBody(null, { ...state({ chosen: [ig] }), caption: '', rights: 'protected', rightsNote: '  reprise  ' }, { kind: 'asset', id: 4 }) as Record<string, unknown>
+  assert.equal(withRights.rights, 'protected'); assert.equal(withRights.rights_note, 'reprise')
+  assert.equal('rights' in fromAsset, false)
 })
 
 test('nouvelle publication : utilitaires', () => {

@@ -7,8 +7,7 @@ import { useEffect, useState } from 'react'
 import { Alert, AppState, View } from 'react-native'
 import {
   addRoutineAccount, claimAccount, deleteGroup, disconnect, getAccounts, getTransfers, startOAuth, syncAccount,
-  PLATFORM_LABEL, PLATFORMS, type Account, type Group, type Order, type Platform, type ShareWhat,
-} from '../lib/api'
+  PLATFORM_LABEL, PLATFORMS, type Account, type Group, type Order, type Platform, type ShareWhat, setYoutubeAccount } from '../lib/api'
 import { short } from '../lib/format'
 import { useLoad, useRole, useSession } from '../lib/session'
 import { Avatar, Button, Card, Empty, Field, GroupDot, H2, IconButton, Msg, PlatformLogo, Row, Screen, SearchField, Skeleton, Txt } from '../ui/kit'
@@ -185,7 +184,9 @@ export default function Accounts() {
                 onShare={() => setSharing({ what: { platform: a.platform, account_id: a.id }, label: a.name || PLATFORM_LABEL[a.platform] })}
                 onSync={() => run(`s${p}${a.id}`, () => syncAccount(org, a), 'Chiffres actualisés.')}
                 onRemove={() => removeAccount(a)}
-                onReconnect={() => connect(p)} />
+                onReconnect={() => connect(p)}
+                onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(org, a.id, { public_domain_only: v }),
+                  v ? 'Cette chaîne n’accepte plus que des œuvres du domaine public.' : 'Réglage « domaine public seulement » retiré.')} />
             ))}
             {p === 'instagram' && canAdmin ? (
               <View style={{ gap: space.sm, borderTopWidth: 1, borderColor: c.border, paddingTop: space.md }}>

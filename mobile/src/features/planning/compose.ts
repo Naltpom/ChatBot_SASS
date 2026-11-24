@@ -121,10 +121,11 @@ export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 
 }
 
 /** Corps de POST /api/cm/posts : vidéo du téléphone (file_name + video_size) ou de la bibliothèque (asset_id). */
-export function buildBody(org: number | null, s: ComposeState & { caption: string },
+export function buildBody(org: number | null, s: ComposeState & { caption: string; rights?: string; rightsNote?: string },
   video: { kind: 'file'; name: string; size: number } | { kind: 'asset'; id: number }) {
   const targets = s.chosen.map(a => buildTarget(a, s.opts[accKey(a)] || defaults(a), s))
-  const base = { org_id: org, title: s.title.trim(), caption: s.caption, targets }
+  const rights = s.rights ? { rights: s.rights, ...(s.rightsNote?.trim() ? { rights_note: s.rightsNote.trim() } : {}) } : {}
+  const base = { org_id: org, title: s.title.trim(), caption: s.caption, ...rights, targets }
   return video.kind === 'asset' ? { ...base, asset_id: video.id } : { ...base, file_name: video.name, video_size: video.size }
 }
 

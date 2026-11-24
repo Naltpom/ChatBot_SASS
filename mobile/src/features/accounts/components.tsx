@@ -1,7 +1,7 @@
 // Briques de l'écran Comptes (comme cm/src/pages/Accounts.tsx) : éditeur de groupe, transfert d'un compte,
 // transferts reçus / envoyés, ligne d'un compte.
 import { useState } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View, Switch } from 'react-native'
 import {
   acceptTransfer, cancelTransfer, createGroup, declineTransfer, transferAccount, updateGroup,
   GROUP_COLORS, PLATFORM_LABEL, type Account, type Group, type GroupColor, type Transfer,
@@ -144,8 +144,9 @@ export function Transfers({ data, onChanged }: { data: { incoming: Transfer[]; o
   )
 }
 
-export function AccountRow({ a, groups, canAdmin, busy, onSync, onRemove, onReconnect, onTransfer, onShare }:
-  { a: Account; groups: Group[]; canAdmin: boolean; busy: string | null; onSync: () => void; onRemove: () => void; onReconnect: () => void; onTransfer: () => void; onShare: () => void }) {
+export function AccountRow({ a, groups, canAdmin, busy, onSync, onRemove, onReconnect, onTransfer, onShare, onPublicDomain }:
+  { a: Account; groups: Group[]; canAdmin: boolean; busy: string | null; onSync: () => void; onRemove: () => void; onReconnect: () => void; onTransfer: () => void; onShare: () => void
+    onPublicDomain?: (v: boolean) => void }) {
   const { c } = useTheme()
   const st = accountState(a)
   const tone = { ok: c.ok, warn: c.warn, danger: c.danger, muted: c.muted }[st.tone]
@@ -176,6 +177,16 @@ export function AccountRow({ a, groups, canAdmin, busy, onSync, onRemove, onReco
               <GroupDot color={g.color} size={8} /><Txt small>{g.name}</Txt>
             </View>
           ))}
+        </Row>
+      ) : null}
+      {a.platform === 'youtube' && onPublicDomain ? (
+        <Row style={{ justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Txt small bold>Domaine public seulement</Txt>
+            <Txt small muted>Refuse les œuvres protégées ou aux droits inconnus.</Txt>
+          </View>
+          <Switch value={!!a.public_domain_only} disabled={!canAdmin || busy === `p${a.platform}${a.id}`} onValueChange={onPublicDomain}
+            accessibilityLabel={`Domaine public seulement pour ${name}`} trackColor={{ true: c.primary }} />
         </Row>
       ) : null}
       <Row gap={6} wrap>

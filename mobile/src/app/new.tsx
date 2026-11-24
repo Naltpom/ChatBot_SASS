@@ -11,13 +11,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
-  creatorInfo, createPost, deletePost, getAccounts, getAsset, getProposal, getRobot, submitPost, PLATFORM_LABEL,
+  creatorInfo, createPost, isRisky, RIGHTS_LABEL, RIGHTS_WARNING, type Rights, deletePost, getAccounts, getAsset, getProposal, getRobot, submitPost, PLATFORM_LABEL,
   type Account, type Asset,
 } from '../lib/api'
 import { fmtDuration, fmtSize, TIKTOK_BC_URL, TIKTOK_MUSIC_URL, TIKTOK_PRIVACY } from '../lib/format'
 import { useLoad, useRole, useSession } from '../lib/session'
 import { uploadCover, uploadParts } from '../lib/upload'
-import { Avatar, Button, Field, Icon, Loading, Msg, Row, Screen, Seg, Txt } from '../ui/kit'
+import { Avatar, Button, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
 import {
   accKey, buildBody, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nextHour, problems as findProblems,
@@ -94,6 +94,8 @@ export default function NewPost() {
   const all = accounts.data || []
   useEffect(() => { if (accounts.data) setKnown(k => ({ ...k, ...Object.fromEntries(accounts.data!.map(a => [accKey(a), a])) })) }, [accounts.data])
   const chosen = picked.map(k => known[k]).filter(Boolean) as Account[]
+  const [rights, setRights] = useState<Rights | ''>('')   // droits d'auteur (vide = non précisés)
+  const [rightsNote, setRightsNote] = useState('')
 
   const add = (list: Account[]) => {
     const fresh = list.filter(a => a.can_publish)
@@ -191,8 +193,15 @@ export default function NewPost() {
 
   const publish = async () => {
     if (!state.hasVideo || problems.length || busy) return
+    if (isRisky(rights || null) && n) {
+      const names = [...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ')
+      const ok = await new Promise<boolean>(res => Alert.alert('Œuvre protégée', `${RIGHTS_WARNING}\n\nPublier quand même sur ${names} ?`, [
+        { text: 'Annuler', style: 'cancel', onPress: () => res(false) }, { text: 'Publier quand même', style: 'destructive', onPress: () => res(true) },
+      ], { cancelable: true, onDismiss: () => res(false) }))
+      if (!ok) return
+    }
     setErr(''); setProgress(0)
-    const s = { ...state, caption }
+    const s = { ...state, caption, rights: rights || undefined, rightsNote }
     try {
       if (asset) {
         const made = await createPost(buildBody(org, s, { kind: 'asset', id: asset.id }))
@@ -297,6 +306,15 @@ export default function NewPost() {
           <Field label="Légende" value={caption} maxLength={CAPTION_MAX} editable={!busy} onChangeText={setCaption} multiline
             placeholder="Reprise sur chaque compte, sauf texte propre à un compte"
             hint={`${count.chars.toLocaleString('fr-FR')} / 2 200 · ${count.tags} hashtag${count.tags > 1 ? 's' : ''}`} />
+          <Txt small bold>Droits d’auteur de l’œuvre</Txt>
+          <Row wrap>
+            {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
+              <Chip key={r} label={RIGHTS_LABEL[r]} selected={rights === r} onPress={busy ? undefined : () => setRights(rights === r ? '' : r)} />
+            ))}
+          </Row>
+          {isRisky(rights || null) ? <Msg kind="warn">{RIGHTS_WARNING}</Msg> : null}
+          {rights ? <Field value={rightsNote} onChangeText={setRightsNote} maxLength={300} editable={!busy}
+            placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" accessibilityLabel="Note sur les droits" /> : null}
         </Section>
 
         <Section title={`Comptes${n ? ` · ${n}` : ''}`} aside={<Button small kind="ghost" title={n ? 'Modifier' : 'Choisir'} disabled={busy} onPress={() => setPicking(true)} />}>

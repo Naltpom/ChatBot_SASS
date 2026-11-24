@@ -25,6 +25,9 @@ export function PlatformPill({ item, pill, withLabel = true }: { item: CalendarI
   )
 }
 
+/** Œuvre protégée ou droits inconnus sur une des publications de la ligne. */
+const risky = (g: PlanGroup) => g.items.some(i => i.kind === 'target' && (i.rights === 'protected' || i.rights === 'unknown'))
+
 /** Une ligne du planning : heure, titre, pastilles, bordure gauche à la couleur du groupe. */
 export function PlanRow({ g, group, onPress }: { g: PlanGroup; group: Group | null; onPress: () => void }) {
   const { c } = useTheme()
@@ -39,7 +42,7 @@ export function PlanRow({ g, group, onPress }: { g: PlanGroup; group: Group | nu
         borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border, borderLeftWidth: 5, borderLeftColor: group ? groupHex(group.color) : c.borderStrong })}>
       <Txt bold size={14} style={{ width: 46, fontVariant: ['tabular-nums'] }}>{fmtTime(g.at)}</Txt>
       <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
-        <Txt bold numberOfLines={1}>{title}</Txt>
+        <Txt bold numberOfLines={1}>{risky(g) ? '⚠️ ' : ''}{title}</Txt>
         <Row gap={5} wrap>{g.items.map(i => <PlatformPill key={`${i.kind}-${i.id}`} item={i} />)}</Row>
         {note ? <Txt size={12} color={note.tone === 'danger' ? c.danger : c.warn} numberOfLines={2}>{note.text}</Txt> : null}
       </View>
