@@ -16,8 +16,7 @@ import {
   transferChoices, transferDoneText,
 } from './logic'
 
-export function GroupEditor({ group, accounts, onClose, onSaved }: { group: Group | null; accounts: Account[]; onClose: () => void; onSaved: (g: Group) => void }) {
-  const { org } = useSession()
+export function GroupEditor({ group, accounts, onClose, onSaved, org }: { group: Group | null; accounts: Account[]; onClose: () => void; onSaved: (g: Group) => void; org: number | null }) {
   const { c } = useTheme()
   const [name, setName] = useState(group?.name || '')
   const [color, setColor] = useState<GroupColor>(group?.color || GROUP_COLORS[Math.floor(Math.random() * GROUP_COLORS.length)])

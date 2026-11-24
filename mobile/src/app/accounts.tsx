@@ -28,14 +28,18 @@ export default function Accounts() {
   const router = useRouter()
   const { org, config, groups, reloadGroups, group: current, setGroup, spaces } = useSession()
   const { canAdmin, role } = useRole()
-  const accounts = useLoad(s => getAccounts(s.org), [], 'accounts.all')
+  const { spaces: allSpaces } = useSession()
+  // Un groupe se gère dans son espace : le mien (perso), ou une équipe où je suis administrateur.
+  const manages = (g: Group & { org_id?: number | null }) => (g.org_id ?? null) == null
+    ? true : allSpaces.find(sp => sp.org_id === g.org_id)?.cm_role === 'admin'
+  const accounts = useLoad(s => getAccounts(s), [], 'accounts.all')
   const transfers = useLoad(() => getTransfers(), [], 'accounts.transfers')
   const [input, setInput] = useState('')
   const q = useDebounced(input.trim(), 300)
   const [sort, setSort] = useState<AccountSort>('connected')
   const [order, setOrder] = useState<Order>('asc')
   const filtered = !!q || sort !== 'connected' || order !== 'asc'
-  const shown = useLoad(s => (filtered ? getAccounts(s.org, { q: q || undefined, sort, order }) : Promise.resolve(null)), [q, sort, order, filtered], 'accounts.shown')
+  const shown = useLoad(s => (filtered ? getAccounts(s, { q: q || undefined, sort, order }) : Promise.resolve(null)), [q, sort, order, filtered], 'accounts.shown')
   const [msg, setMsg] = useState<Flash>(null)
   const [routineName, setRoutineName] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -43,7 +47,7 @@ export default function Accounts() {
   const [claim, setClaim] = useState<string | null>(null)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [transferring, setTransferring] = useState<Account | null>(null)
-  const [sharing, setSharing] = useState<{ what: ShareWhat; label: string } | null>(null)
+  const [sharing, setSharing] = useState<{ what: ShareWhat; label: string; org?: number | null } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
   const all = accounts.data || []
@@ -89,7 +93,7 @@ export default function Accounts() {
   }
   const removeGroup = (g: Group) => Alert.alert(`Supprimer le groupe « ${g.name} » ?`, 'Les comptes restent connectés.', [
     { text: 'Annuler', style: 'cancel' },
-    { text: 'Supprimer', style: 'destructive', onPress: () => run(`g${g.id}`, async () => { await deleteGroup(org, g.id); if (current?.id === g.id) setGroup(null) }, 'Groupe supprimé.') },
+    { text: 'Supprimer', style: 'destructive', onPress: () => run(`g${g.id}`, async () => { await deleteGroup((g as Group & { org_id?: number | null }).org_id ?? null, g.id); if (current?.id === g.id) setGroup(null) }, 'Groupe supprimé.') },
   ])
   const removeAccount = (a: Account) => Alert.alert(`${a.mode === 'routine' ? 'Retirer' : 'Déconnecter'} ${a.name || PLATFORM_LABEL[a.platform]} ?`,
     'Les publications à venir sur ce compte ne partiront plus.', [
@@ -138,10 +142,11 @@ export default function Accounts() {
             <Row gap={space.sm}>
               <GroupDot color={g.color} size={12} />
               <Txt bold size={16} numberOfLines={1} style={{ flex: 1 }}>{g.name}</Txt>
-              {canAdmin ? <IconButton icon="users" label={`Partager ${g.name}`} onPress={() => setSharing({ what: { group_id: g.id }, label: `le groupe « ${g.name} »` })} /> : null}
-              {canAdmin ? <IconButton icon="edit" label={`Modifier ${g.name}`} onPress={() => setEditing(g)} /> : null}
-              {canAdmin ? <IconButton icon="trash" color={c.danger} label={`Supprimer ${g.name}`} onPress={() => removeGroup(g)} /> : null}
+              {manages(g) ? <IconButton icon="users" label={`Partager ${g.name}`} onPress={() => setSharing({ what: { group_id: g.id }, label: `le groupe « ${g.name} »`, org: g.org_id ?? null })} /> : null}
+              {manages(g) ? <IconButton icon="edit" label={`Modifier ${g.name}`} onPress={() => setEditing(g)} /> : null}
+              {manages(g) ? <IconButton icon="trash" color={c.danger} label={`Supprimer ${g.name}`} onPress={() => removeGroup(g)} /> : null}
             </Row>
+            {!manages(g) ? <Txt small muted>Partagé avec vous{members[0]?.owner ? ` par ${members[0].owner}` : ''}{members[0]?.role ? ` · ${members[0].role === 'admin' ? 'Admin' : members[0].role === 'editor' ? 'Peut publier' : 'Lecture seule'}` : ''}</Txt> : null}
             <Row gap={6} wrap>
               {members.length === 0 ? <Txt small muted>Aucun compte</Txt>
                 : members.map(a => <Avatar key={akey(a.platform, a.id)} src={a.avatar_url} name={a.name} platform={a.platform} size={32} />)}
@@ -179,7 +184,7 @@ export default function Accounts() {
             {canAdmin && !enabled ? <Txt small muted>{p === 'instagram' ? 'Connexion officielle bientôt (validation Meta)' : 'Module indisponible'}</Txt> : null}
             {list.length === 0 ? <Txt small muted>Aucun compte. {enabled ? CONNECT_HINT[p] : ''}</Txt> : null}
             {list.map(a => (
-              <AccountRow key={a.id} a={a} groups={groupsOf(groups, a)} busy={busy} canAdmin={canAdmin}
+              <AccountRow key={`${a.platform}${a.id}`} a={a} groups={groupsOf(groups, a)} busy={busy} canAdmin={a.role ? a.role === 'admin' : canAdmin}
                 onTransfer={() => setTransferring(a)}
                 onShare={() => setSharing({ what: { platform: a.platform, account_id: a.id }, label: a.name || PLATFORM_LABEL[a.platform] })}
                 onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? org, a), 'Chiffres actualisés.')}
@@ -206,9 +211,11 @@ export default function Accounts() {
         <TransferSheet a={transferring} onClose={() => setTransferring(null)}
           onDone={t => { setTransferring(null); setMsg({ kind: 'ok', text: t }); reloadAll() }} />
       ) : null}
-      {sharing ? <ShareSheet what={sharing.what} label={sharing.label} onClose={() => setSharing(null)} /> : null}
+      {sharing ? <ShareSheet what={sharing.what} label={sharing.label} org={sharing.org} onClose={() => setSharing(null)} /> : null}
       {editing ? (
-        <GroupEditor group={editing === 'new' ? null : editing} accounts={all} onClose={() => setEditing(null)}
+        <GroupEditor group={editing === 'new' ? null : editing} org={editing === 'new' ? null : (editing as Group & { org_id?: number | null }).org_id ?? null}
+          accounts={all.filter(a => (a.org_id ?? null) === (editing === 'new' ? null : (editing as Group & { org_id?: number | null }).org_id ?? null) && a.role !== 'viewer')}
+          onClose={() => setEditing(null)}
           onSaved={g => { setEditing(null); reloadGroups(); setMsg({ kind: 'ok', text: `Groupe « ${g.name} » enregistré.` }) }} />
       ) : null}
     </Screen>
