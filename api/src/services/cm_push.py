@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import AsyncSessionLocal
 from src.core.time import utcnow
-from src.models.cm import T_FAILED, T_INBOX, T_PUBLISHED, CmComment, CmPost, CmTarget
+from src.models.cm import T_FAILED, T_INBOX, T_PUBLISHED, CmComment, CmDriveLink, CmPost, CmTarget
 from src.models.cm_mobile import CmMobileDevice, CmPushEvent
 from src.models.user import Membership, User
 from src.services.rate_limit import SingleUseTokens
@@ -132,6 +132,26 @@ async def collect(db: AsyncSession) -> list[dict]:
             _send(uids, "failed", f"Échec sur {label}", f"{title} : {_short(t.error_message, 120) or 'voir le planning'}", data)
         else:
             _send(uids, "draft", "Brouillon TikTok à publier", f"{title} : copiez la légende et publiez dans TikTok.", data)
+
+    # Stockage Drive de l'espace : passage à 90 % puis à 100 % (une fois par passage, noté par cm_storage.alerts).
+    links = (await db.execute(select(CmDriveLink).where(CmDriveLink.revoked_at.is_(None),
+                                                        CmDriveLink.storage_alert.is_not(None),
+                                                        CmDriveLink.storage_alert_at >= since))).scalars().all()
+    for link in links:
+        if not await _reserve(db, f"storage_{link.storage_alert}", link.id * 10000 + (link.storage_alert_seq or 0) % 10000):
+            continue
+        if link.organization_id is None:
+            uids = [link.owner_user_id]
+        else:
+            uids = list((await db.execute(select(Membership.user_id).where(
+                Membership.organization_id == link.organization_id))).scalars())
+        data = {"type": "storage", "state": link.storage_alert, "org_id": link.organization_id}
+        if link.storage_alert == "full":
+            _send(uids, "storage", "Stockage Drive plein",
+                  "Les nouvelles publications sont bloquées : libérez de la place ou changez la conservation.", data)
+        else:
+            _send(uids, "storage", "Stockage Drive presque plein",
+                  "Plus de 90 % utilisés : pensez à libérer de la place ou à changer la conservation.", data)
 
     comments = (await db.execute(select(CmComment).where(
         CmComment.status == "new", CmComment.created_at >= since).order_by(CmComment.id))).scalars().all()

@@ -1,6 +1,7 @@
 // Bibliothèque : les vidéos des dossiers Google Drive partagés avec le robot de Chapote.
 // Les monteurs déposent dans le Drive ; ici on retrouve chaque vidéo (miniature, durée, légende
 // du .txt du même nom) et on la programme sur les comptes, sans rien renvoyer.
+import { StorageCard } from '../components/Storage'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -14,7 +15,7 @@ import { Empty, GroupDot, Icon, Msg, Sheet, Skeleton } from '../components/ui'
 import { fmtDate, fmtDateTime, fmtDuration, fmtSize } from '../format'
 import { useLoad, useRole, useSession } from '../session'
 import { LiveCount, SearchBox, SortControl, useListState, useMorePages } from '../components/list'
-import { PLATFORM_LABEL, disconnectDriveArchive, getDriveArchive, startDriveOAuth, type Order, type Platform } from '../api'
+import { PLATFORM_LABEL, type Order, type Platform } from '../api'
 
 function CopyField({ value }: { value: string }) {
   const [done, setDone] = useState(false)
@@ -319,44 +320,6 @@ const ASSET_SORTS: [AssetSort, string][] = [['recent', 'Date d’ajout'], ['name
 const gridCols = (n: number) => (n <= 1 ? 1 : n === 2 || n === 4 ? 2 : 3)
 const autogrid = (n: number) => ({ ['--cols' as string]: String(gridCols(n)), ['--cols-md' as string]: String(Math.min(gridCols(n), 2)) })
 
-/** Drive d'archivage : où cm range les publications de l'outil (vidéo, légende, couverture, infos.json). */
-function DriveArchiveCard() {
-  const { org } = useSession()
-  const d = useLoad(() => getDriveArchive(org), [org])
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-  if (!d.data) return null
-  const a = d.data
-  const connect = async () => {
-    setErr(''); setBusy(true)
-    try { window.location.assign((await startDriveOAuth(org)).authorize_url) } catch (e) { setErr((e as Error).message); setBusy(false) }
-  }
-  const off = async () => {
-    if (!window.confirm('Déconnecter le Drive d’archivage ? Les fichiers déjà archivés restent dans votre Drive.')) return
-    try { d.setData(await disconnectDriveArchive(org)) } catch (e) { setErr((e as Error).message) }
-  }
-  return (
-    <section className="card col" style={{ gap: 8 }} aria-labelledby="t-archive">
-      <div className="row-nw" style={{ gap: 10 }}>
-        <span className="empty-ico" style={{ width: 36, height: 36, flex: 'none' }}><Icon name="layers" /></span>
-        <div className="grow" style={{ minWidth: 0 }}>
-          <h2 id="t-archive" style={{ margin: 0, fontSize: 16 }}>Archivage Drive</h2>
-          <div className="tiny muted">
-            {a.connected ? <>Relié{a.email ? ` à ${a.email}` : ''} · {a.folder_url ? <a href={a.folder_url} target="_blank" rel="noreferrer">{a.folder_name}</a> : a.folder_name}</>
-              : 'Les publications de votre outil (vidéo, légende, couverture, infos.json) sont rangées dans votre Drive.'}
-          </div>
-        </div>
-        {a.connected ? <button type="button" className="btn btn-sm btn-ghost" onClick={off}>Déconnecter</button>
-          : a.oauth_enabled ? <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={connect}>Connecter Google Drive</button> : null}
-      </div>
-      {!a.connected && !a.oauth_enabled && <p className="tiny muted" style={{ margin: 0 }}>Connexion Google Drive pas encore configurée sur Chapote.</p>}
-      {a.connected && <p className="tiny muted" style={{ margin: 0 }}>cm ne voit que les fichiers qu'il crée dans ce dossier (droit « drive.file »), rien d'autre de votre Drive.</p>}
-      {a.error && <Msg kind="err">{a.error}</Msg>}
-      {err && <Msg kind="err">{err}</Msg>}
-    </section>
-  )
-}
-
 export default function Library() {
   const { org } = useSession()
   const robot = useLoad(() => getRobot(), [])
@@ -392,7 +355,7 @@ export default function Library() {
         </Empty>
       )}
 
-      {enabled && <DriveArchiveCard />}
+      <StorageCard />
       {enabled && sources.data && (
         <details className="card">
           <summary className="strong" style={{ cursor: 'pointer' }}>Adresses Google reliées automatiquement</summary>

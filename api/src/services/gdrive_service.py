@@ -471,3 +471,17 @@ async def probe_upload(folder_id: str) -> Optional[bool]:
     except DriveError:
         pass
     return True
+
+
+async def storage_quota(token: str) -> tuple[Optional[int], int]:
+    """(limite, utilisé) du Drive de l'utilisateur, en octets (limite None = illimitée). Autorisé avec drive.file."""
+    resp = await _call(token, "GET", f"{settings.GDRIVE_API_BASE}/drive/v3/about", params={"fields": "storageQuota(limit,usage)"})
+    q = _json(resp).get("storageQuota") or {}
+    limit = int(q["limit"]) if q.get("limit") else None
+    return limit, int(q.get("usage") or 0)
+
+
+async def trash(token: str, file_id: str) -> None:
+    """Met un fichier à la corbeille du Drive (récupérable 30 jours)."""
+    await _call(token, "PATCH", f"{settings.GDRIVE_API_BASE}/drive/v3/files/{file_id}", params={"fields": "id"},
+                json_body={"trashed": True})

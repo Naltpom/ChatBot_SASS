@@ -38,6 +38,8 @@ class WriteDrive:
         self.perms: list[dict] = []
         self.pending: dict[str, dict] = {}
         self.grant_ok = True
+        self.quota = {"limit": 15 * 1024 ** 3, "usage": 1 * 1024 ** 3}
+        self.trashed: list[tuple] = []
         self.fail_uploads = 0
         self.moves: list[str] = []
         self.refreshes = 0
@@ -97,7 +99,8 @@ class WriteDrive:
         token = (req.headers.get("authorization") or "").removeprefix("Bearer ")
         path, p = req.url.path, req.url.params
         if path == "/drive/v3/about":
-            return httpx.Response(200, json={"user": {"emailAddress": "nathan@gmail.test"}})
+            return httpx.Response(200, json={"user": {"emailAddress": "nathan@gmail.test"},
+                                             "storageQuota": {k: str(v) for k, v in self.quota.items() if v is not None}})
         if path == "/drive/v3/files" and req.method == "GET":
             q = p["q"]
             parent = q.split("'")[1]
@@ -132,6 +135,11 @@ class WriteDrive:
         if path.startswith("/upload/drive/v3/files/") and req.method == "PATCH":
             self.items[path.rsplit("/", 1)[1]]["content"] = body
             return httpx.Response(200, json={"id": path.rsplit("/", 1)[1]})
+        if req.method == "PATCH" and path.startswith("/drive/v3/files/") and json.loads(body or b"{}").get("trashed"):
+            fid = path.rsplit("/", 1)[1]
+            self.trashed.append((fid, token))
+            self.items.pop(fid, None)
+            return httpx.Response(200, json={"id": fid})
         if req.method == "PATCH" and path.startswith("/drive/v3/files/"):
             fid = path.rsplit("/", 1)[1]
             assert token == "ya29.robot", "seul le robot range les fichiers"

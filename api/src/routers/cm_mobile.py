@@ -57,7 +57,7 @@ SESSION_TTL = timedelta(hours=1)
 REDIRECT_RE = re.compile(r"^(chapotecm|exp|exps)://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{1,300}$")
 CHALLENGE_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 PUSH_RE = re.compile(r"^(ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]{10,200}\]$")
-PREF_KEYS = ("published", "failed", "draft", "comments")
+PREF_KEYS = ("published", "failed", "draft", "comments", "storage")
 
 code_store = SingleUseTokens("rl:cmmobcode:", int(CODE_TTL.total_seconds()))
 connect_limiter = RateLimiter("rl:cmmobconnect:", 30, 3600)

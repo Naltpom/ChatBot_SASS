@@ -621,3 +621,38 @@ async def drive_disconnect(org_id: Optional[int] = Query(None), db: AsyncSession
     if link is not None:
         await cm_archive.disconnect(db, link)
     return cm_archive.link_out(None)
+
+
+# --------------------------------------------------------------------------
+# Stockage Drive de l'espace (obligatoire pour publier, cm_storage)
+# --------------------------------------------------------------------------
+
+from src.services import cm_storage  # noqa: E402
+
+
+@router.get("/drive/storage")
+async def get_storage(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_cm_user)):
+    """État du stockage : Drive connecté, Go réservés, octets rangés par cm, espace libre du Drive, conservation."""
+    tenant = await _tenant(db, user, org_id)
+    return await cm_storage.status_of(db, tenant.org_id, tenant.owner_user_id, refresh=True)
+
+
+class StorageIn(BaseModel):
+    quota_gb: Optional[int] = Field(None, ge=1, le=100_000)
+    retention: Literal["keep", "delete_after_publish", "delete_after_days"] = "keep"
+    delete_after_days: Optional[int] = Field(None, ge=1, le=365)
+
+
+@router.put("/drive/storage")
+async def put_storage(body: StorageIn, org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_cm_user)):
+    """Réglages (administrateur) : quota réservé à Chapote (borné par l'espace libre du Drive), conservation."""
+    tenant = await _tenant(db, user, org_id)
+    cm_access.require(tenant, "admin")
+    link = await cm_archive.active_link(db, tenant.org_id, tenant.owner_user_id)
+    if link is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, {"code": "storage_required",
+                                                       "message": "Connectez d'abord un Google Drive à cet espace."})
+    await cm_storage.update_settings(db, link, body.quota_gb, body.retention, body.delete_after_days)
+    return await cm_storage.status_of(db, tenant.org_id, tenant.owner_user_id)

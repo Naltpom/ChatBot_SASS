@@ -468,6 +468,16 @@ class CmDriveLink(Base):
     root_folder_id = Column(String(200), nullable=True)
     source_id = Column(Integer, ForeignKey("cm_sources.id", ondelete="SET NULL"), nullable=True)
     error = Column(Text, nullable=True)                   # dernière erreur (ex. accès retiré chez Google)
+    # Stockage (cm_storage) : Go réservés à Chapote (null = tout l'espace libre du Drive), conservation des fichiers.
+    quota_gb = Column(Integer, nullable=True)
+    retention = Column(String(24), nullable=False, default="keep", server_default="keep")
+    delete_after_days = Column(Integer, nullable=True)
+    drive_limit = Column(BigInteger, nullable=True)       # storageQuota du Drive (null = illimité), relu ≤ 10 min
+    drive_usage = Column(BigInteger, nullable=True)
+    drive_checked_at = Column(DateTime, nullable=True)
+    storage_alert = Column(String(16), nullable=True)     # dernier seuil notifié : almost_full | full
+    storage_alert_seq = Column(Integer, nullable=False, default=0, server_default="0")
+    storage_alert_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
     revoked_at = Column(DateTime, nullable=True)

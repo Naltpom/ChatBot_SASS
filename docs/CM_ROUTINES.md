@@ -188,6 +188,28 @@ Brouillons « à valider » déjà créés pour une vidéo qui passe Publiée, P
 archive automatiquement à la relecture, rien n'est publié. Sinon `POST /proposals/archive {source_id?}` (avec
 `?group_id=` / `?account=` pour la sélection) range tout en archive, sans rien publier.
 
+## 9. Stockage Drive (obligatoire pour publier)
+Chaque espace (perso ou équipe) range ses vidéos dans **son** Google Drive, par la même connexion que l'archivage
+(« Connecter Google Drive », droit `drive.file` : Chapote ne voit et ne supprime que ce qu'il a créé).
+- Sans Drive relié : `POST /posts` → `409 {"code": "storage_required", "message"}`.
+- Vidéo qui ne tient pas (quota réservé ou espace libre du Drive) : `POST /posts` et `PUT /posts/{id}/video` →
+  `409 {"code": "storage_full", "message", "needed_bytes", "free_bytes"}`.
+- `GET /spaces` → chaque espace porte `storage: {connected, email, quota_gb, used_bytes, drive_free_bytes, retention,
+  delete_after_days, state}` (valeurs connues, sans appel à Google) ; `state` : `ok` | `almost_full` (≥ 90 %) | `full`
+  | `missing` (pas de Drive).
+- `GET /drive/storage?org_id=` → même objet, relu chez Google (≤ 10 min), plus `max_quota_gb`.
+- `PUT /drive/storage?org_id= {quota_gb, retention, delete_after_days}` (administrateur) : `quota_gb` = Go réservés à
+  Chapote (null = tout l'espace libre ; au plus `max_quota_gb`, sinon 400) ; `retention` : `keep` |
+  `delete_after_publish` | `delete_after_days` (avec `delete_after_days` 1 à 365).
+- Conservation : quand toutes les cibles d'une publication sont terminées (au moins une publiée), selon `retention`,
+  la vidéo, la couverture et la légende **créées par Chapote** vont à la corbeille du Drive (tout de suite, ou N jours
+  après la dernière publication) ; `infos.json` reste et continue d'être mis à jour (`archive.purged_at`).
+- `used_bytes` : octets des fichiers rangés par Chapote et pas encore supprimés.
+- Notification de l'app mobile : type `storage` (préférence `storage`), `data: {type: "storage", state, org_id}`,
+  une fois à chaque passage de 90 % (`almost_full`) puis de 100 % (`full`).
+- Sur le site : carte « Stockage » (Bibliothèque), bandeau presque plein / plein, écran « Connecter votre Google
+  Drive » à la 1re ouverture d'un espace sans Drive. Réglage serveur : `CM_STORAGE_REQUIRED` (true par défaut).
+
 ## 7. Mode validation
 Si une vidéo ne doit plus partir (validation, retour en réserve), annuler ses cibles : `POST /targets/{id}/cancel`.
 cm publie tout ce qui est programmé.

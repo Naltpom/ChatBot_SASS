@@ -74,6 +74,7 @@ from src.models.user import Membership, Organization, User
 from src.routers.tiktok import Tenant, _tenant
 from src.services import cm_access
 from src.services import cm_archive
+from src.services import cm_storage
 from src.services import cm_paging as paging
 from src.services import cm_jobs
 from src.services import cm_library
@@ -272,6 +273,11 @@ async def spaces(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm
                     "owner": o.owner_user_id == user.id,
                     "owner_name": (owner.name or owner.email) if owner else None,
                     "accounts": await count(o.id, None)})
+    # Stockage Drive de chaque espace (valeurs connues, sans appel à Google ici).
+    for sp in out:
+        st = await cm_storage.status_of(db, sp["org_id"], None if sp["org_id"] else user.id)
+        sp["storage"] = {k: st[k] for k in ("connected", "email", "quota_gb", "used_bytes", "drive_free_bytes",
+                                            "retention", "delete_after_days", "state")}
     return out
 
 
@@ -1364,6 +1370,8 @@ async def create_post(body: PostIn, db: AsyncSession = Depends(get_db), user: Us
     ref = (body.ref or "").strip() or None
     if ref:
         await _check_ref_free(db, tenant, ref)
+    # Stockage : Drive connecté obligatoire ; la vidéo envoyée doit tenir dans le quota et l'espace libre.
+    await cm_storage.check_create(db, tenant.org_id, tenant.owner_user_id, 0 if asset else size)
     planned = await _plan_targets(db, tenant, body.targets, title, body.caption,
                                   asset.mime_type if asset else None, asset.duration_sec if asset else None, size,
                                   body.rights)
@@ -1530,6 +1538,7 @@ async def reupload_start(post_id: int, body: VideoIn, db: AsyncSession = Depends
     if body.video_size > cm.max_upload_bytes():
         raise HTTPException(413, f"Vidéo trop volumineuse ({settings.CM_MAX_UPLOAD_MB} Mo maximum).")
     cm.check_space(body.video_size)
+    await cm_storage.check_create(db, tenant.org_id, tenant.owner_user_id, body.video_size)
     a = dict(post.archive or {})
     old = (a.get("upload") or {}).get("path")
     if old:

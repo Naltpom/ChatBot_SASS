@@ -1,13 +1,12 @@
 // Retour de Google après l'accord « Google Drive » (archivage) : échange du code côté serveur,
 // puis retour à la Bibliothèque. Le code n'est jamais gardé dans l'adresse.
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { exchangeDriveOAuth } from '../api'
 import { Loading, Msg } from '../components/ui'
 import { useSession } from '../session'
 
 export default function DriveCallback() {
-  const nav = useNavigate()
   const { setOrg } = useSession()
   const [err, setErr] = useState('')
   const once = useRef(false)
@@ -23,7 +22,7 @@ export default function DriveCallback() {
       return
     }
     exchangeDriveOAuth(code, state)
-      .then(r => { setOrg(r.org_id); nav('/bibliotheque', { replace: true }) })
+      .then(r => { setOrg(r.org_id); window.location.replace('/bibliotheque') })   // espaces relus (stockage)
       .catch(e => setErr((e as Error).message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   return (
