@@ -835,9 +835,37 @@ def create_draft(cfg: MailboxConfig, d: Draft) -> dict:
             "to": _addr_list(msg.get("To")), "subject": str(msg["Subject"])}
 
 
-def _smtp_send(cfg: MailboxConfig, msg: EmailMessage) -> None:
+def envelope_recipients(msg: EmailMessage) -> list[str]:
+    """Destinataires de l'enveloppe SMTP (To + Cc + Bcc). Jamais d'en-tête vide passé à
+    getaddresses : en mode strict (Python ≥ 3.11.10, CVE-2023-27043), une liste contenant des
+    chaînes vides peut être jugée incohérente et réduite à [('', '')], soit aucun destinataire."""
+    headers = [str(msg[h]) for h in ("To", "Cc", "Bcc") if msg.get(h)]
+    return list(dict.fromkeys(a for _n, a in getaddresses(headers) if a))
+
+
+_ADDR_IN_TEXT = re.compile(r"[^\s<>\"',;:]+@[^\s<>\"',;:]+")
+
+
+def _smtp_text(raw: Any) -> str:
+    """Réponse du serveur SMTP pour le journal : décodée, tronquée, adresses masquées."""
+    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
+    return _ADDR_IN_TEXT.sub("***", " ".join(text.split()))[:200]
+
+
+def _log_refusal(cfg: MailboxConfig, stage: str, replies: list[tuple[Any, Any]]) -> list[str]:
+    codes = sorted({str(c) for c, _t in replies})
+    logger.warning("emails smtp : refus %s sur %s (%s) %s", stage, cfg.smtp_host, ", ".join(codes),
+                   " | ".join(_smtp_text(t) for _c, t in replies[:5]))
+    return codes
+
+
+def _smtp_send(cfg: MailboxConfig, msg: EmailMessage) -> dict[str, tuple[int, bytes]]:
+    """Envoie ; renvoie les destinataires refusés quand une partie seulement l'est (le message
+    est alors PARTI pour les autres : ce n'est pas une erreur, l'appelant le signale)."""
     timeout = settings.EMAILS_IMAP_TIMEOUT
-    rcpts = [a for _n, a in getaddresses([str(msg.get(h) or "") for h in ("To", "Cc", "Bcc")]) if a]
+    rcpts = envelope_recipients(msg)
+    if not rcpts:
+        raise MailError("Aucun destinataire valide.", "invalid")
     server: Optional[smtplib.SMTP] = None
     try:
         if cfg.smtp_tls == "ssl":
@@ -853,20 +881,33 @@ def _smtp_send(cfg: MailboxConfig, msg: EmailMessage) -> None:
             server.login(cfg.username, cfg.password)
         except smtplib.SMTPAuthenticationError:
             raise MailError("Connexion SMTP refusée : identifiant ou mot de passe incorrect.", "auth_smtp")
-        refused = server.send_message(msg, from_addr=cfg.address, to_addrs=rcpts)
+        refused = server.send_message(msg, from_addr=cfg.address, to_addrs=rcpts) or {}
         if refused:
-            raise MailError(f"Destinataire(s) refusé(s) par le serveur : {', '.join(list(refused)[:5])}.", "smtp_refused")
+            _log_refusal(cfg, "partiel RCPT", list(refused.values()))
+        return refused
     except MailError:
         raise
-    except smtplib.SMTPRecipientsRefused:
-        raise MailError("Tous les destinataires ont été refusés par le serveur SMTP.", "smtp_refused")
-    except smtplib.SMTPSenderRefused:
-        raise MailError("Adresse d'expédition refusée par le serveur SMTP.", "smtp_refused")
+    except smtplib.SMTPRecipientsRefused as e:
+        codes = _log_refusal(cfg, "RCPT", list(e.recipients.values()))
+        raise MailError(f"Tous les destinataires ont été refusés par le serveur SMTP (code {', '.join(codes)}).",
+                        "smtp_refused")
+    except smtplib.SMTPSenderRefused as e:
+        codes = _log_refusal(cfg, "MAIL FROM", [(e.smtp_code, e.smtp_error)])
+        raise MailError(f"Adresse d'expédition {cfg.address} refusée par le serveur SMTP (code {codes[0]}).",
+                        "smtp_refused")
+    except smtplib.SMTPDataError as e:
+        codes = _log_refusal(cfg, "DATA", [(e.smtp_code, e.smtp_error)])
+        raise MailError(f"Message refusé par le serveur SMTP après envoi du contenu (code {codes[0]}).",
+                        "smtp_refused")
     except (socket.timeout, TimeoutError):
         raise MailError(f"Serveur SMTP {cfg.smtp_host} : délai dépassé.", "timeout")
     except ssl.SSLError:
         raise MailError(f"Échec TLS avec {cfg.smtp_host}:{cfg.smtp_port} (port ou mode TLS ?).", "tls")
-    except (smtplib.SMTPException, OSError):
+    except smtplib.SMTPResponseException as e:
+        codes = _log_refusal(cfg, "réponse", [(e.smtp_code, e.smtp_error)])
+        raise MailError(f"Envoi impossible via {cfg.smtp_host}:{cfg.smtp_port} (code {codes[0]}).", "smtp")
+    except (smtplib.SMTPException, OSError) as e:
+        logger.warning("emails smtp : échec sur %s (%s)", cfg.smtp_host, type(e).__name__)
         raise MailError(f"Envoi impossible via {cfg.smtp_host}:{cfg.smtp_port}.", "smtp")
     finally:
         if server is not None:
@@ -883,7 +924,7 @@ def send(cfg: MailboxConfig, d: Draft) -> dict:
         folders = list_folders_raw(conn)
         msg = _build_message(conn, cfg, d, folders)
         sent_folder = _special_folder(conn, "sent", folders)
-        _smtp_send(cfg, msg)
+        refused = _smtp_send(cfg, msg)
         copied, warning = None, None
         if cfg.save_sent:
             if not sent_folder:
@@ -896,6 +937,10 @@ def send(cfg: MailboxConfig, d: Draft) -> dict:
     out = {"account": cfg.slug, "sent": True, "message_id": msg["Message-ID"],
            "to": _addr_list(msg.get("To")), "subject": str(msg["Subject"]),
            "sent_folder": sent_folder, "sent_copy_uid": copied}
+    if refused:
+        out["refused"] = [{"address": a, "code": c} for a, (c, _t) in refused.items()]
+        part = f"Envoyé, sauf à {len(refused)} destinataire(s) refusé(s) par le serveur : ne pas renvoyer aux autres."
+        warning = f"{part} {warning}" if warning else part
     if warning:
         out["warning"] = warning
     return out

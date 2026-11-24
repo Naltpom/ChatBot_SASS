@@ -53,6 +53,7 @@ Claude (cloud Anthropic) ──HTTPS 443──▶ reverse proxy de l'hôte (TLS 
 | Mots de passe des boîtes | Fernet avec une clé **dédiée** `MAILBOX_ENCRYPTION_KEY` (≠ `ENCRYPTION_KEY`, vérifié au démarrage), jamais renvoyés par l'API (`has_password` seulement), jamais journalisés. |
 | Droits par boîte | `allow_send` (sinon brouillons seulement), `allow_delete` (corbeille, **faux par défaut**, jamais de suppression définitive ; `move` vers la corbeille soumis au même droit). |
 | Audit | `mcp_audit_log` : date, client, outil, boîte, statut (`ok` / `error` / `denied`), code d'erreur, durée, nombre d'éléments. **Jamais de contenu** (requête, objet, corps, destinataire). Étapes OAuth journalisées aussi (`oauth.consent`, `oauth.token`, `oauth.revoke`, `oauth.*_replay`, `admin.revoke_*`). |
+| Refus SMTP | Code et réponse du serveur journalisés (`emails smtp : refus …`), adresses masquées (`***`) ; le code est repris dans le message renvoyé à Claude. |
 | Erreurs | Messages rédigés côté serveur (`MailError`) : ni réponse brute du serveur mail, ni secret, ni trace ; erreur inattendue = message générique, type seul dans le journal applicatif. |
 | Limites | Redis (partagé entre workers) : inscription 10/h/IP, autorisation et jeton 30/min/IP, MCP 300/min par connexion, requêtes sans jeton 60/min/IP. Tailles : 50 résultats, 100 UID par action, corps 20 000 car. (100 000 max), pièce jointe en base64 ≤ 2 Mo (texte extrait sinon, PDF compris), message lu ≤ 20 Mo. |
 
@@ -154,7 +155,7 @@ Droits : « Claude peut envoyer » (sinon `send_message` est refusé et Claude d
 | `get_thread(account, uid, folder)` | Conversation (fil Gmail, ou References / In-Reply-To + Envoyés) | — |
 | `get_attachment(account, uid, index, folder)` | Texte extrait (texte, CSV, JSON, HTML, PDF), sinon base64 ≤ 2 Mo | — |
 | `create_draft(account, to, subject, body, cc?, bcc?, html?, reply_to_uid?, reply_folder?)` | APPEND dans Brouillons, en-têtes de réponse (In-Reply-To, References, « Re: ») | — |
-| `send_message(…mêmes paramètres)` | Envoi SMTP + copie dans Envoyés | `allow_send` |
+| `send_message(…mêmes paramètres)` | Envoi SMTP + copie dans Envoyés. Refus partiel : succès avec `refused` (adresse + code) et `warning` (ne pas renvoyer aux autres) ; refus total : erreur avec le code SMTP | `allow_send` |
 | `mark(account, uids, read?, flagged?, folder)` | Lu / non lu, suivi | — |
 | `move(account, uids, destination, folder)` | Déplacement (corbeille seulement avec `allow_delete`) | — |
 | `trash(account, uids, folder)` | Corbeille (jamais de suppression définitive) | `allow_delete` |

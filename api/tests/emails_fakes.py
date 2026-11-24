@@ -61,12 +61,15 @@ class FakeAccount:
 
 ACCOUNTS: dict[str, FakeAccount] = {}     # identifiant -> boîte simulée
 SMTP_SENT: list[dict] = []
+# Adresses que le faux serveur refuse au RCPT TO : adresse -> (code, réponse).
+SMTP_REFUSE: dict[str, tuple[int, bytes]] = {}
 IMAP_LOG: list[tuple] = []
 
 
 def reset() -> None:
     ACCOUNTS.clear()
     SMTP_SENT.clear()
+    SMTP_REFUSE.clear()
     IMAP_LOG.clear()
 
 
@@ -278,8 +281,16 @@ class FakeSMTP:
         self.user = user
 
     def send_message(self, msg, from_addr=None, to_addrs=None):
-        SMTP_SENT.append({"from": from_addr, "to": list(to_addrs or []), "msg": msg, "bcc_header": msg.get("Bcc")})
-        return {}
+        """Comme smtplib.sendmail : un RCPT TO par adresse ; aucune acceptée (liste vide
+        comprise : MAIL FROM puis RSET) -> SMTPRecipientsRefused ; refus partiel -> dict."""
+        import smtplib
+        to_addrs = list(to_addrs or [])
+        refused = {a: SMTP_REFUSE[a] for a in to_addrs if a in SMTP_REFUSE}
+        if len(refused) == len(to_addrs):
+            raise smtplib.SMTPRecipientsRefused(refused)
+        SMTP_SENT.append({"from": from_addr, "to": [a for a in to_addrs if a not in refused], "msg": msg,
+                          "bcc_header": msg.get("Bcc")})
+        return refused
 
     def quit(self):
         pass
