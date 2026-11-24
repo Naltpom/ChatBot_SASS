@@ -4,12 +4,22 @@ import { useRouter } from 'expo-router'
 import { useEffect } from 'react'
 import { Alert, View } from 'react-native'
 import { useSession } from '../lib/session'
-import { Button, Card, H1, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
+import * as WebBrowser from 'expo-web-browser'
+import { useState } from 'react'
+import { PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
+import { Button, Card, H1, Icon, Msg, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
 import { space } from '../ui/theme'
 
 export default function Welcome() {
   const router = useRouter()
   const { me, spaces, signOut, refresh } = useSession()
+  const { org } = useSession()
+  const [err, setErr] = useState<string | null>(null)
+  const connect = async (p: Platform) => {
+    setErr(null)
+    try { const { authorize_url } = await startOAuth(p, org); await WebBrowser.openBrowserAsync(authorize_url); await refresh() }
+    catch (e: any) { setErr(e?.message || 'Connexion impossible') }
+  }
   const hasAccounts = spaces.some(s => (s.accounts || 0) > 0)
   useEffect(() => { if (hasAccounts) router.replace('/') }, [hasAccounts, router])
 
@@ -19,16 +29,20 @@ export default function Welcome() {
         <H1>Bienvenue{me?.name ? `, ${me.name.split(' ')[0]}` : ''}</H1>
         <Txt muted>Votre compte Chapote est prêt. Connectez votre premier compte : vos chiffres, votre planning et vos commentaires apparaîtront ici.</Txt>
       </View>
-      <Card>
-        <Row gap={space.md}>
-          <PlatformLogo platform="tiktok" size={28} />
-          <PlatformLogo platform="youtube" size={28} />
-          <PlatformLogo platform="instagram" size={28} />
-        </Row>
-        <Txt bold>TikTok, YouTube ou Instagram</Txt>
-        <Txt small muted>La connexion s’ouvre dans le navigateur, comme sur cm.chapote.fr.</Txt>
-        <Button kind="primary" title="Connecter un compte" onPress={() => router.push('/accounts')} />
-      </Card>
+      {err ? <Msg kind="err">{err}</Msg> : null}
+      {PLATFORMS.map(p => (
+        <Card key={p} onPress={() => connect(p)} accessibilityLabel={`Connecter ${PLATFORM_LABEL[p]}`}>
+          <Row gap={space.md}>
+            <PlatformLogo platform={p} size={36} />
+            <View style={{ flex: 1 }}>
+              <Txt bold size={17}>{PLATFORM_LABEL[p]}</Txt>
+              <Txt small muted>{p === 'youtube' ? 'Chaîne YouTube (Shorts)' : p === 'instagram' ? 'Compte professionnel ou créateur' : 'Compte TikTok'}</Txt>
+            </View>
+            <Icon name="right" size={18} />
+          </Row>
+        </Card>
+      ))}
+      <Txt small muted>La connexion s’ouvre dans le navigateur. Si cm.chapote.fr vous demande de vous connecter, connectez-vous puis relancez.</Txt>
       <Card>
         <Txt bold>Vous travaillez en équipe ?</Txt>
         <Txt small muted>Demandez à un administrateur de l’équipe de vous inviter avec l’adresse {me?.email}. L’équipe apparaîtra ici dès que l’invitation est acceptée.</Txt>

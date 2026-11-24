@@ -180,9 +180,6 @@ export function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: 
           <Select label="Comptes proposés par défaut" value={s.group_id ?? ''}
             options={[['', 'Aucun groupe'], ...groups.map(g => [g.id, g.name] as [number, string])]}
             onChange={v => run(() => patchSource(org, s.id, v === '' ? { clear_group: true } : { group_id: v }))} />
-          <ToggleRow label="Ranger les vidéos publiées dans un sous-dossier « Publié »" value={s.move_published} disabled={!s.can_organize}
-            hint={s.can_organize ? 'Une fois publiée sur tous ses comptes, la vidéo est déplacée dans le Drive.' : 'Partagez le dossier avec le robot en Éditeur pour activer cette option.'}
-            onChange={v => run(() => patchSource(org, s.id, { move_published: v }))} />
           <Button small icon="bolt" style={{ alignSelf: 'flex-start' }} onPress={() => setRecipe(true)}
             title={s.auto_drafts ? 'Préparation automatique : réglages' : 'Préparer les publications toutes seules…'} />
           <Row gap={space.sm} wrap>

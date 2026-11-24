@@ -8,7 +8,7 @@ import { useLoad, useRole, useSession } from '../../lib/session'
 import { Button, Card, Chip, Empty, Icon, Msg, Row, SearchField, Skeleton, Txt } from '../../ui/kit'
 import { Gauge, StorageBanner } from '../../features/storage'
 import { space, useTheme } from '../../ui/theme'
-import { AddFolderSheet, AssetCard, DriveArchiveCard, GoogleAddresses, SourceCard } from '../../features/library/components'
+import { AddFolderSheet, AssetCard, SourceCard } from '../../features/library/components'
 import { useAuthHeaders, useDebounced, usePaged } from '../../features/library/hooks'
 import { ASSET_SORTS, STATE_OPTIONS, addedFlash, assetNaturalOrder, emptyAssetsText, plural, type AssetSort } from '../../features/library/logic'
 import { Fold, Select, SortBar } from '../../features/library/ui'
@@ -79,15 +79,6 @@ export default function Library() {
           action={<Button kind="primary" icon="plus" title="Ajouter un dossier Drive" onPress={() => setAdding(true)} />}>
           Partagez un dossier Google Drive avec le robot de Chapote : chaque vidéo déposée apparaît ici, avec sa légende si un fichier .txt du même nom l’accompagne. Vous n’avez plus qu’à programmer.
         </Empty>
-      ) : null}
-      {enabled ? <DriveArchiveCard /> : null}
-      {enabled && sources.data ? (
-        <Card>
-          <Fold title="Adresses Google reliées automatiquement">
-            <Txt small muted>Un dossier partagé avec le robot depuis l’une de ces adresses est relié tout seul, dans l’espace indiqué.</Txt>
-            <GoogleAddresses />
-          </Fold>
-        </Card>
       ) : null}
       {hasSources ? (
         <>

@@ -12,6 +12,8 @@ import { SessionProvider, useSession } from '../lib/session'
 import { usePushRouting } from '../lib/push'
 import { LockProvider } from '../lib/lock'
 import { laterAt } from '../features/storage'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { onboardedKey } from '../lib/onboarding'
 import { ShareProvider, useSharedVideo } from '../lib/share'
 import { useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
@@ -29,13 +31,19 @@ function Gate() {
   const { me, ready, spaces, org } = useSession()
   const { c, dark } = useTheme()
   const segments = useSegments()
+  // « Sécuriser votre compte » une fois par utilisateur sur ce téléphone (null = pas encore lu).
+  const [onboarded, setOnboarded] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!me) { setOnboarded(null); return }
+    AsyncStorage.getItem(onboardedKey(me.id)).then(v => setOnboarded(v === '1')).catch(() => setOnboarded(true))
+  }, [me, segments[0]]) // eslint-disable-line react-hooks/exhaustive-deps
   const router = useRouter()
   usePushRouting()
   useAppUpdate()
   // Espace sans Drive (obligatoire pour publier) : écran « Connecter votre Google Drive » une fois par jour au plus.
   const storageState = spaces.find(s => s.org_id === org)?.storage?.state
   useEffect(() => {
-    if (!ready || !me || storageState !== 'missing' || ['storage', 'login', 'welcome'].includes(segments[0] as string)) return
+    if (!ready || !me || storageState !== 'missing' || ['storage', 'login', 'welcome', 'onboarding', 'account'].includes(segments[0] as string)) return
     laterAt(org).then(t => { if (Date.now() - t > 86_400_000) router.push('/storage') })
   }, [ready, me, org, storageState]) // eslint-disable-line react-hooks/exhaustive-deps
   // Vidéo partagée depuis la galerie : nouvelle publication avec ce fichier (une fois connecté).
@@ -46,16 +54,18 @@ function Gate() {
 
   useEffect(() => { SystemUI.setBackgroundColorAsync(c.bg).catch(() => {}) }, [c.bg])
   useEffect(() => {
-    if (!ready) return
+    if (!ready || (me && onboarded === null)) return
     SplashScreen.hideAsync().catch(() => {})
     const onLogin = segments[0] === 'login'
     // Aucun réseau connecté dans aucun espace : écran d'accueil (sauf pages utiles pour en connecter un).
     const empty = !!me && spaces.length > 0 && spaces.every(s => !(s.accounts || 0))
     const free = ['welcome', 'accounts', 'settings', 'people']
     if (!me && !onLogin) router.replace('/login')
+    else if (me && onboarded === false && !['onboarding', 'account'].includes(segments[0] as string)) router.replace('/onboarding')
+    else if (me && onboarded === false) return
     else if (me && empty && !free.includes(segments[0] as string)) router.replace('/welcome')
     else if (me && onLogin) router.replace('/')
-  }, [me, ready, spaces, segments, router])
+  }, [me, ready, spaces, segments, router, onboarded])
 
   return (
     <>
@@ -79,6 +89,7 @@ function Gate() {
         <Stack.Screen name="settings" options={{ title: 'Réglages' }} />
         <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
         <Stack.Screen name="storage" options={{ title: 'Stockage' }} />
+        <Stack.Screen name="onboarding" options={{ title: 'Bienvenue', headerBackVisible: false, gestureEnabled: false }} />
       </Stack>
     </>
   )
