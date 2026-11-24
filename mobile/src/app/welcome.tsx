@@ -50,6 +50,7 @@ export default function Welcome() {
         <Txt small muted>Demandez à un administrateur de l’équipe de vous inviter avec l’adresse {me?.email}. L’équipe apparaîtra ici dès que l’invitation est acceptée.</Txt>
         <Button title="Actualiser" icon="refresh" onPress={refresh} />
       </Card>
+      <Button kind="ghost" icon="left" title="Étape 1 : sécuriser mon compte" onPress={() => router.push('/onboarding')} />
       <Card>
         <Txt small muted>Connecté avec {me?.email}. Ce n’est pas le bon compte ?</Txt>
         <Button kind="danger" title="Changer de compte" onPress={() => Alert.alert('Changer de compte ?', 'Vous serez déconnecté de cet appareil.', [
