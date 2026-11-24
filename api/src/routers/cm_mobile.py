@@ -32,8 +32,8 @@ from datetime import timedelta
 from typing import Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -110,7 +110,7 @@ async def _device(db: AsyncSession, token: str) -> CmMobileDevice:
 # --------------------------------------------------------------------------
 
 _PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Chapote CM</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">{head}<title>Chapote CM</title>
 <style>
 :root{{color-scheme:light dark;--bg:#FAFAF9;--fg:#1C1917;--mute:#57534E;--line:#E7E5E4;--card:#fff;--accent:#1D4ED8}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#0C0A09;--fg:#F5F5F4;--mute:#A8A29E;--line:#292524;--card:#1C1917;--accent:#3B82F6}}}}
@@ -124,9 +124,16 @@ font:inherit;font-weight:600;text-decoration:none;background:var(--accent);color
 </style></head><body><main>{body}</main></body></html>"""
 
 
-def _page(body: str, code: int = 200) -> HTMLResponse:
-    csp = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' chapotecm: exp: exps:; frame-ancestors 'none'"
-    return HTMLResponse(_PAGE.format(body=body), status_code=code,
+GSI = "https://accounts.google.com/gsi/"
+
+
+def _page(body: str, code: int = 200, google: bool = False, head: str = "") -> HTMLResponse:
+    # Le nginx de cm ajoute sa propre CSP (form-action 'self') : le retour vers l'app ne passe donc
+    # jamais par une redirection de formulaire, mais par un lien (voir connect_confirm).
+    csp = ("default-src 'none'; style-src 'unsafe-inline'"
+           + (f" {GSI}style; script-src 'self' {GSI}client; frame-src {GSI}; connect-src 'self' {GSI}" if google else "")
+           + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+    return HTMLResponse(_PAGE.format(body=body, head=head), status_code=code,
                         headers={"Content-Security-Policy": csp, "Cache-Control": "no-store",
                                  "Referrer-Policy": "no-referrer"})
 
@@ -134,6 +141,44 @@ def _page(body: str, code: int = 200) -> HTMLResponse:
 def _check_connect(redirect_uri: str, challenge: str, state: str) -> None:
     if not REDIRECT_RE.match(redirect_uri or "") or not CHALLENGE_RE.match(challenge or "") or len(state or "") > 200:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Lien de connexion invalide : relancez la connexion depuis l'app.")
+
+
+# Connexion Google sur la page même (même bouton que le site, même Client ID autorisé pour cm.chapote.fr),
+# puis code de double authentification si besoin ; la page se recharge connectée.
+_CONNECT_JS = """(function () {
+  var box = document.getElementById('g'), msg = document.getElementById('m'), form = document.getElementById('f');
+  var challenge = null;
+  function say(t) { msg.textContent = t || ''; }
+  function post(url, body) {
+    return fetch(url, { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) {
+        if (!r.ok) throw new Error((b && (typeof b.detail === 'string' ? b.detail : b.message)) || ('Erreur ' + r.status));
+        return b; }); });
+  }
+  function done(b) {
+    if (b && b.twofa_required) { challenge = b.challenge; form.hidden = false; form.code.focus(); say(''); return; }
+    location.reload();
+  }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    post('/api/auth/2fa/login/totp', { challenge: challenge, code: form.code.value.trim() }).then(done, function (err) { say(err.message); });
+  });
+  window.addEventListener('load', function () {
+    if (!window.google || !box) return;
+    google.accounts.id.initialize({ client_id: box.dataset.client, ux_mode: 'popup', callback: function (r) {
+      say('Connexion…');
+      post('/api/auth/google', { credential: r.credential }).then(done, function (err) { say(err.message); });
+    } });
+    google.accounts.id.renderButton(box, { theme: 'outline', size: 'large', width: 300, text: 'continue_with', locale: 'fr' });
+  });
+})();
+"""
+
+
+@router.get("/connect.js")
+async def connect_js():
+    return Response(_CONNECT_JS, media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/connect", response_class=HTMLResponse)
@@ -144,11 +189,20 @@ async def connect_page(request: Request, redirect_uri: str = "", challenge: str 
     here = html.escape(str(request.url))
     if user is None:
         site = html.escape(settings.CM_URL.rstrip("/") + "/")
+        client = settings.GOOGLE_CLIENT_ID
+        google = (f'<div id="g" data-client="{html.escape(client)}" style="display:flex;justify-content:center;min-height:44px"></div>'
+                  '<form id="f" hidden><p>Code de double authentification</p>'
+                  '<input name="code" inputmode="numeric" autocomplete="one-time-code" aria-label="Code" '
+                  'style="font:inherit;width:100%;box-sizing:border-box;min-height:48px;border-radius:12px;border:1px solid var(--line);padding:0 12px;margin:8px 0">'
+                  '<button class="btn" type="submit">Valider</button></form>'
+                  '<p id="m" role="status"></p>'
+                  f'<script src="{GSI}client" async></script><script src="connect.js"></script>') if client else ""
         return _page(
-            "<h1>Connectez-vous d'abord</h1>"
-            "<p>Connectez-vous sur cm.chapote.fr (e-mail, Google…), puis revenez sur cette page.</p>"
-            f'<a class="btn" href="{site}">Ouvrir cm.chapote.fr</a>'
-            f'<a class="btn sec" href="{here}">J\'ai fini, continuer</a>')
+            "<h1>Connexion</h1>"
+            "<p>Connectez-vous avec votre compte Chapote pour relier l'application.</p>"
+            + google +
+            f'<a class="btn sec" href="{site}">E-mail et mot de passe sur cm.chapote.fr</a>'
+            f'<a class="btn sec" href="{here}">Je suis connecté, continuer</a>', google=bool(client))
     who = html.escape(user.email or user.name or "")
     fields = "".join(f'<input type="hidden" name="{k}" value="{html.escape(v)}">'
                      for k, v in (("redirect_uri", redirect_uri), ("challenge", challenge), ("state", state)))
@@ -160,7 +214,7 @@ async def connect_page(request: Request, redirect_uri: str = "", challenge: str 
         f'<form method="post" action="connect">{fields}<button class="btn" type="submit">Autoriser</button></form>')
 
 
-@router.post("/connect")
+@router.post("/connect", response_class=HTMLResponse)
 async def connect_confirm(request: Request, redirect_uri: str = Form(""), challenge: str = Form(""),
                           state: str = Form(""), db: AsyncSession = Depends(get_db)):
     _check_connect(redirect_uri, challenge, state)
@@ -169,7 +223,13 @@ async def connect_confirm(request: Request, redirect_uri: str = Form(""), challe
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives : réessayez dans une heure.")
     code = _encode({"sub": str(user.id), "scope": CODE_SCOPE, "ch": challenge, "jti": uuid.uuid4().hex}, CODE_TTL)
     sep = "&" if "?" in redirect_uri else "?"
-    return RedirectResponse(redirect_uri + sep + urlencode({"code": code, "state": state}), status_code=303)
+    back = html.escape(redirect_uri + sep + urlencode({"code": code, "state": state}))
+    # Lien (et rafraîchissement automatique) plutôt qu'une redirection : la CSP form-action du site
+    # bloquerait la redirection vers chapotecm:// ou exp://.
+    return _page(
+        "<h1>C'est fait</h1><p>Retour dans l'application…</p>"
+        f'<a class="btn" href="{back}">Ouvrir l\'application</a>',
+        head=f'<meta http-equiv="refresh" content="0;url={back}">')
 
 
 class TokenIn(BaseModel):

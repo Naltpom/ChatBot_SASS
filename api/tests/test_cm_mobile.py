@@ -1,6 +1,8 @@
 """cm.chapote.fr — application mobile : connexion (navigateur + PKCE, formulaire), sessions,
 appareils, notifications (réglages et envoi). Vraie base jetable (`real_db`)."""
 import base64
+import html
+import re
 import hashlib
 import json
 import secrets
@@ -11,6 +13,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from src.core.config import settings
 from src.core.security import AUTH_COOKIE_NAME
 from src.core.time import utcnow
 from src.models.cm import CmComment, CmMemberRole, CmPost, CmTarget
@@ -32,8 +35,12 @@ def _pkce():
 
 async def _login_by_browser(h, verifier, challenge, redirect="chapotecm://auth"):
     r = await h.post("/api/cm/mobile/connect", data={"redirect_uri": redirect, "challenge": challenge, "state": "s1"})
-    assert r.status_code == 303, r.text
-    loc = r.headers["location"]
+    assert r.status_code == 200, r.text
+    # Pas de redirection (la CSP form-action du nginx de cm la bloquerait) : un lien et un rafraîchissement.
+    assert "location" not in r.headers
+    m = re.search(r'http-equiv="refresh" content="0;url=([^"]+)"', r.text)
+    loc = html.unescape(m.group(1))
+    assert f'href="{m.group(1)}"' in r.text
     assert loc.startswith(redirect + "?")
     q = parse_qs(urlparse(loc).query)
     assert q["state"] == ["s1"]
@@ -55,8 +62,18 @@ async def test_connect_page_and_pkce_exchange(pg_session, cmenv):
         assert r.status_code == 400
         # Pas connecté sur le site : page qui renvoie vers cm.chapote.fr.
         r = await anon.get("/api/cm/mobile/connect", params={"redirect_uri": "chapotecm://auth", "challenge": challenge})
-        assert r.status_code == 200 and "Connectez-vous d" in r.text and "https://cm.chapote.test/" in r.text
-        assert "form-action" in r.headers["content-security-policy"]
+        assert r.status_code == 200 and "Connexion" in r.text and "https://cm.chapote.test/" in r.text
+        assert "form-action 'self'" in r.headers["content-security-policy"]
+        old_gid = settings.GOOGLE_CLIENT_ID
+        settings.GOOGLE_CLIENT_ID = "gid-123.apps.googleusercontent.com"
+        try:
+            r = await anon.get("/api/cm/mobile/connect", params={"redirect_uri": "chapotecm://auth", "challenge": challenge})
+            assert 'data-client="gid-123.apps.googleusercontent.com"' in r.text and "connect.js" in r.text
+            assert "https://accounts.google.com/gsi/client" in r.headers["content-security-policy"]
+        finally:
+            settings.GOOGLE_CLIENT_ID = old_gid
+        js = await anon.get("/api/cm/mobile/connect.js")
+        assert js.status_code == 200 and "javascript" in js.headers["content-type"] and "/api/auth/google" in js.text
         # Autoriser sans être connecté : refusé.
         r = await anon.post("/api/cm/mobile/connect", data={"redirect_uri": "chapotecm://auth", "challenge": challenge})
         assert r.status_code == 401
