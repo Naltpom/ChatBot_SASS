@@ -276,3 +276,40 @@ async def _send_video(h, post_id, data, part):
     for i in range(0, len(data), part):
         r = await h.put(f"/api/cm/posts/{post_id}/video/parts/{i // part}", content=data[i:i + part])
         assert r.status_code == 200, r.text
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_archive_retry_routes_and_unexpected_errors(pg_session, cmenv, wdrive, tiktok, monkeypatch):
+    u = await _user(pg_session, "a@t.dev")
+    ig = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    await _linked(pg_session, u, wdrive)
+    data = mp4_bytes(42_000)
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        pid = await _post(h, ig, data, "kiwi/r1", title="Relance")
+        # Erreur inattendue pendant l'archivage : notée sur la publication (plus de « pending » muet).
+        real = cm_archive.sync_post
+
+        async def boom(*a, **k):
+            raise KeyError("champ manquant")
+        monkeypatch.setattr(cm_archive, "sync_post", boom)
+        await cm_archive.sync_due(pg_session)
+        post = await pg_session.get(CmPost, pid)
+        await pg_session.refresh(post)
+        assert post.archive_state == "error" and "KeyError" in post.archive["error"]
+        out = (await h.get(f"/api/cm/posts/{pid}")).json()["archive"]
+        assert out["state"] == "error" and out["last_try"]
+        # Pas repris tout seul avant 30 min…
+        monkeypatch.setattr(cm_archive, "sync_post", real)
+        await cm_archive.sync_due(pg_session)
+        await pg_session.refresh(post)
+        assert post.archive_state == "error"
+        # … mais tout de suite après une relance (une publication, ou toutes celles en erreur de l'espace).
+        assert (await h.post("/api/cm/archive/retry", json={})).json() == {"relaunched": 1}
+        await cm_archive.sync_due(pg_session)
+        await pg_session.refresh(post)
+        assert post.archive_state == "ok" and "error" not in post.archive
+        r = await h.post(f"/api/cm/posts/{pid}/archive/retry")
+        assert r.status_code == 200 and r.json()["archive"]["state"] == "pending"

@@ -54,6 +54,7 @@ AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TZ = ZoneInfo("Europe/Paris")
 SYNC_BATCH = 5
 RETRY_AFTER = timedelta(minutes=30)
+POST_TIMEOUT = timedelta(minutes=25)          # au-delà, la publication est reprise au passage suivant
 KEEP_UNARCHIVED_MEDIA = timedelta(days=7)    # vidéo gardée au plus 7 j en attendant l'archivage
 PROBE_EVERY = 3600
 CONTES = "contes"
@@ -499,7 +500,8 @@ async def sync_due(db: AsyncSession) -> None:
         or_((CmPost.archive_state.in_(("pending", "error"))
              & (CmPost.archive_synced_at.is_(None) | (CmPost.archive_synced_at < now - RETRY_AFTER))),
             (CmPost.archive_state == "ok") & changed),
-    ).order_by(CmPost.id).limit(SYNC_BATCH))).all()
+    ).order_by(CmPost.archive_synced_at.is_not(None), CmPost.id)     # jamais essayées d'abord
+     .limit(SYNC_BATCH))).all()
     for post_id, seen in rows:
         same = CmPost.archive_synced_at.is_(None) if seen is None else CmPost.archive_synced_at == seen
         claimed = await db.execute(update(CmPost).where(CmPost.id == post_id, same).values(archive_synced_at=now))
@@ -509,14 +511,35 @@ async def sync_due(db: AsyncSession) -> None:
         post = await db.get(CmPost, post_id)
         await db.refresh(post)
         try:
-            await sync_post(db, post, now)
-        except Exception:
+            # Un envoi qui traîne ne bloque pas les suivants (repris au passage d'après).
+            await asyncio.wait_for(sync_post(db, post, now), POST_TIMEOUT.total_seconds())
+        except Exception as e:
             logger.exception("cm : archivage de la publication %s en échec", post_id)
             await db.rollback()
+            await _record_failure(db, post_id, now, e)
     # Dossiers d'archives pas encore reliés à la bibliothèque (partage pas encore visible au 1er essai).
     for link in (await db.execute(select(CmDriveLink).where(CmDriveLink.revoked_at.is_(None),
                                                             CmDriveLink.source_id.is_(None)).limit(3))).scalars():
         await _ensure_source(db, link)
+
+
+async def _record_failure(db: AsyncSession, post_id: int, now, e: Exception) -> None:
+    """Erreur inattendue : notée sur la publication (visible dans archive.error), reprise 30 min plus tard."""
+    what = "envoi trop long" if isinstance(e, asyncio.TimeoutError) else f"{type(e).__name__}: {str(e)[:200]}"
+    try:
+        post = await db.get(CmPost, post_id)
+        await db.refresh(post)
+        post.archive_state, post.archive_synced_at = "error", now
+        post.archive = {**(post.archive or {}), "error": f"Erreur pendant l'archivage ({what}) : nouvel essai dans 30 min."}
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+
+def retry_now(post: CmPost) -> None:
+    """Relance tout de suite (route archive/retry) : reprise au prochain passage, dans la minute."""
+    post.archive_state, post.archive_synced_at = "pending", None
+    post.archive = {k: v for k, v in (post.archive or {}).items() if k != "error"}
 
 
 _running: Optional[asyncio.Task] = None
@@ -573,5 +596,6 @@ def archive_out(post: CmPost) -> Optional[dict]:
         return None
     a = post.archive or {}
     return {"state": post.archive_state, "error": a.get("error"), "via": a.get("via"),
+            "last_try": (post.archive_synced_at.isoformat() + "Z") if post.archive_synced_at else None,
             "folder_url": f"https://drive.google.com/drive/folders/{a['folder_id']}" if a.get("folder_id") else None,
             "video_id": a.get("video_id")}
