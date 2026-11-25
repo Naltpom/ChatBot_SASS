@@ -24,7 +24,7 @@ widget.js (chapote.fr)  — garde le jeton en mémoire seulement
   │ 2. POST /api/widget/message  { text, user_token }
   ▼
 API chapote.fr (bot « Assistant Chapote CM » uniquement)
-  │ 3. tools/call vers https://cm.chapote.fr/mcp  avec  Authorization: Bearer <user_token>
+  │ 3. tools/call vers https://cm.chapote.fr/api/cm/mcp  avec  Authorization: Bearer <user_token>
   ▼
 Serveur MCP cm  — vérifie jeton + accord + cm_access à CHAQUE appel, renvoie des agrégats
   │    (comptes sous alias « Compte TikTok 1 », sans nom, e-mail ni jeton de plateforme)
