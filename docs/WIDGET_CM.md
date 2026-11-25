@@ -7,8 +7,10 @@ accord) est décrit à part, dans `docs/CM_MCP.md` (étape 3).
 
 **État (25 novembre 2026)** :
 - le bot est créé en production (id 8) et actif, avec la clé publique `pk_fladg1AxA074Nd79-nsB2l6zuK88RW2P` ;
-- l'assistant est sur la **page d'accueil** de cm.chapote.fr (bulle secondaire, chargée après l'affichage) ;
-- il n'est pas encore dans l'app web cm, et l'app mobile n'est pas modifiée.
+- l'assistant est sur **toutes les pages** de cm.chapote.fr, sauf les retours de connexion
+  (`/…/callback`) : pages publiques (chargé après l'affichage) et app connectée (chargé au premier
+  clic), en mode public ;
+- l'app mobile n'est pas modifiée.
 
 **Pour le couper** : ajouter `VITE_CM_ASSISTANT=off` dans le `.env` du serveur, puis redéployer
 (`cm` est reconstruit sans l'assistant). Ou désactiver le bot depuis chapote.fr : le widget répond 404
@@ -63,19 +65,20 @@ changent, mettre à jour ces fichiers puis relancer le script.**
 
 ## 2. Code d'intégration
 
-### Page d'accueil et app web cm (React)
+### Toutes les pages de cm (React)
 
-Le composant est prêt : `cm/src/components/ChapoteAssistant.tsx`.
+Composant : `cm/src/components/ChapoteAssistant.tsx`, placé une seule fois dans `cm/src/main.tsx`
+(`Shell`), à côté des routes :
 
 ```tsx
-import ChapoteAssistant from '../components/ChapoteAssistant'
-
-// Page d'accueil (cm/src/pages/Landing.tsx), juste avant la fermeture de <div className="lp">
-<ChapoteAssistant />
-
-// App web (cm/src/components/Layout.tsx) : rien n'est chargé avant le clic
-<ChapoteAssistant loadOn="click" />
+{!/\/callback$/.test(pathname) && <ChapoteAssistant loadOn={me ? 'click' : 'idle'} />}
 ```
+
+Règles d'affichage (`cm/src/styles.css`) :
+- mobile, app connectée : la bulle et le panneau montent au-dessus de la barre d'onglets
+  (`--chapote-widget-lift`, lu par widget.js ; 0 px par défaut pour les autres sites) ;
+- masqué quand une feuille est ouverte (`.sheet-back`) et sur « Nouvelle publication »
+  (`.actionbar`) : l'assistant ne recouvre jamais une action.
 
 Il ne fait rien tant que ces variables ne sont pas fournies **au build** de `cm` :
 
@@ -105,9 +108,6 @@ ENV VITE_CM_ASSISTANT=$VITE_CM_ASSISTANT VITE_CM_ASSISTANT_KEY=$VITE_CM_ASSISTAN
         VITE_CM_ASSISTANT_KEY: ${VITE_CM_ASSISTANT_KEY:-pk_fladg1AxA074Nd79-nsB2l6zuK88RW2P}
 ```
 
-À l'intégration dans l'app web : vérifier que la bulle ne recouvre pas la barre de navigation du
-bas sur mobile (sinon, monter la bulle : `offsetY` du design du bot + `bottom` de
-`.cm-assistant-bubble` dans `cm/src/styles.css`).
 
 ### Version HTML (référence, pour toute autre page)
 
@@ -167,6 +167,7 @@ rendu comparé au pixel près avec la version de `master`, en clair et en sombre
 | `data-theme` | `light` ou `dark` (le ton des surfaces sombres vient du design du bot : `surfaceTone`) |
 | `data-open="true"` | ouvre le panneau dès qu'il est prêt (chargement au clic) |
 | `data-url-mode="path"` | n'envoie que l'origine + le chemin de la page, jamais les paramètres ni le fragment |
+| CSS `--chapote-widget-lift` | décalage vertical en plus (bulle, accroche, panneau), ex. au-dessus d'une barre d'onglets |
 
 API JavaScript pour la page hôte, une entrée par clé :
 `window.ChapoteWidget["pk_…"].open()`, `.close()`, `.setAppearance({ color, colorText, theme })`

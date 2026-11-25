@@ -814,7 +814,7 @@ video.pub-media { width: min(100%, 220px); cursor: default; }
    dessinée avant le chargement de widget.js, à la place et à la taille exactes de la bulle du
    widget (48 px, marges 18 px). Secondaire : petite, sans libellé, sous le contenu au clavier. */
 .cm-assistant-bubble {
-  position: fixed; right: 18px; bottom: 18px; z-index: 2147483000;
+  position: fixed; right: 18px; bottom: calc(18px + var(--chapote-widget-lift, 0px)); z-index: 2147483000;
   width: 48px; height: 48px; min-width: 44px; min-height: 44px; padding: 0;
   display: grid; place-items: center; border: none; border-radius: 50%; cursor: pointer;
   box-shadow: 0 8px 26px rgb(10 30 25 / 30%); transition: transform .18s ease;
@@ -822,6 +822,14 @@ video.pub-media { width: min(100%, 220px); cursor: default; }
 .cm-assistant-bubble:hover { transform: scale(1.07); }
 .cm-assistant-bubble[aria-busy="true"] { opacity: .8; cursor: progress; }
 @media (prefers-reduced-motion: reduce) { .cm-assistant-bubble:hover { transform: none; } }
+/* App connectée sur mobile : bulle et panneau au-dessus de la barre d'onglets. */
+@media (max-width: 1023px) {
+  :root:has(.tabbar) { --chapote-widget-lift: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
+}
+/* Masqués quand une feuille est ouverte, et sur « Nouvelle publication » (barre d'action en bas,
+   bouton Programmer à droite) : l'assistant ne recouvre jamais une action. .kc-root = racine du widget. */
+body:has(> .sheet-back) .kc-root, body:has(> .sheet-back) .cm-assistant-bubble,
+body:has(.actionbar) .kc-root, body:has(.actionbar) .cm-assistant-bubble { display: none; }
 
 /* Onglets de Stats (Vue d'ensemble / Vidéos) : liens, même aspect que les onglets du sélecteur. */
 .stats-tabs { max-width: 420px; }
