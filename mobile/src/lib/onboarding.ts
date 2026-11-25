@@ -1,7 +1,8 @@
 // Écran « Sécuriser votre compte » déjà vu par cet utilisateur sur ce téléphone.
 export const onboardedKey = (userId: number) => `cm.onboarded.${userId}`
 
-/** Inscription en étapes : 1 Sécuriser (facultatif), 2 Bienvenue (connecter ses comptes et/ou accepter des
- * invitations), puis avec ses propres comptes : 3 Stockage Drive (obligatoire), 4 Groupes (si plusieurs comptes). */
-export const stepCount = (accounts: number) => (accounts >= 2 ? 4 : 3)
-export const stepTitle = (n: number, accounts: number) => `Étape ${n} sur ${stepCount(accounts)}`
+/** Inscription : 1 Vos informations, 2 Vos comptes (ou une invitation), 3 Google Drive, 4 Première vidéo.
+ * Un invité sans compte à lui s'arrête à l'étape 2. */
+export const STEPS = 4
+export const stepCount = (_accounts?: number) => STEPS
+export const stepTitle = (n: number, _accounts?: number) => `Étape ${n} sur ${STEPS}`

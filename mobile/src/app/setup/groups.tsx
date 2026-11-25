@@ -1,13 +1,13 @@
 // Inscription, étape 4 (seulement avec plusieurs comptes) : ranger les comptes en groupes, chacun avec
 // son dossier dans le Drive si on veut (« cm.chapote.fr — <nom> », créé par Chapote).
-import { useFocusEffect, useRouter } from 'expo-router'
+import { Stack, useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Switch, View } from 'react-native'
 import { addStorageFolder, assignStorage, createGroup, getGroups, getStorages, GROUP_COLORS, PLATFORM_LABEL,
   type DriveStorage, type Group } from '../../lib/api'
 import { useSession } from '../../lib/session'
 import { akey, groupBody } from '../../features/accounts/logic'
-import { StepHeader, useOwnAccounts, useSetupOrg } from '../../features/steps'
+import { useOwnAccounts, useSetupOrg } from '../../features/steps'
 import { Button, Card, Chip, Field, GroupDot, H1, Msg, PlatformLogo, Row, Screen, Txt } from '../../ui/kit'
 import { space, useTheme } from '../../ui/theme'
 
@@ -57,7 +57,7 @@ export default function SetupGroups() {
 
   return (
     <Screen onRefresh={load}>
-      <StepHeader n={4} />
+      <Stack.Screen options={{ title: 'Groupes de comptes' }} />
       <View style={{ gap: space.sm, paddingTop: space.md }}>
         <H1>Ranger vos comptes en groupes</H1>
         <Txt muted>Vous avez {own.length} comptes. Un groupe (par exemple un par client ou par chaîne) se filtre d’un geste, peut avoir son dossier dans le Drive et se partage plus tard avec d’autres personnes.</Txt>
@@ -100,7 +100,7 @@ export default function SetupGroups() {
         ) : <Txt small muted>Sans Drive relié (étape 3), les vidéos du groupe iront dans le stockage de l’espace dès qu’il sera connecté.</Txt>}
         <Button kind="primary" icon="plus" title="Créer le groupe" loading={busy} disabled={!name.trim() || !picked.length} onPress={save} />
       </Card>
-      <Button kind={groups.length ? 'primary' : 'ghost'} title={groups.length ? 'Terminer l’inscription' : 'Plus tard, terminer l’inscription'} onPress={() => router.replace('/')} />
+      <Button kind={groups.length ? 'primary' : 'ghost'} title={groups.length ? 'Terminé' : 'Plus tard'} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
     </Screen>
   )
 }

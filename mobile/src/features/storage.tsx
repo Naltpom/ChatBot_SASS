@@ -12,8 +12,8 @@ export const markLater = (org: number | null) => AsyncStorage.setItem(storageLat
 export const laterAt = async (org: number | null) => Number(await AsyncStorage.getItem(storageLater(org)).catch(() => null)) || 0
 
 /** Ouvre la connexion Google Drive (même connexion que le site, dans le navigateur). */
-export async function connectDrive(org: number | null) {
-  const { authorize_url } = await startDriveOAuth(org)
+export async function connectDrive(org: number | null, name?: string) {
+  const { authorize_url } = await startDriveOAuth(org, name)
   await openAuthorize(authorize_url)
 }
 

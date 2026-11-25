@@ -272,7 +272,8 @@ export type AssetState = 'all' | 'new' | 'used'
 // Drive d'archivage des publications de l'outil (connexion Google « drive.file »)
 export type DriveArchive = { oauth_enabled: boolean; connected: boolean; email: string | null; error: string | null; folder_url: string | null; folder_name: string }
 export const getDriveArchive = (org: number | null) => call<DriveArchive>(`/api/cm/drive/archive${q(org)}`)
-export const startDriveOAuth = (org: number | null) => send<{ authorize_url: string }>('POST', '/api/cm/drive/oauth/start', { org_id: org })
+export const startDriveOAuth = (org: number | null, name?: string) =>
+  send<{ authorize_url: string }>('POST', '/api/cm/drive/oauth/start', name ? { org_id: org, name } : { org_id: org })
 export const exchangeDriveOAuth = (code: string, state: string) =>
   send<DriveArchive & { org_id: number | null }>('POST', '/api/cm/drive/oauth/exchange', { code, state })
 export const disconnectDriveArchive = (org: number | null) => send<DriveArchive>('DELETE', `/api/cm/drive/archive${q(org)}`)

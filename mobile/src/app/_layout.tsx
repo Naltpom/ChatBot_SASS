@@ -14,7 +14,6 @@ import { autoEnablePush, usePushRouting } from '../lib/push'
 import { LockProvider } from '../lib/lock'
 import { laterAt } from '../features/storage'
 import { IdentityProvider, useIdentity } from '../lib/identity'
-import { SecurityPrompts } from '../features/SecurityPrompts'
 import { ShareProvider, useSharedVideo } from '../lib/share'
 import { launchUpdateChecked, UpdateBanner, useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
@@ -75,7 +74,6 @@ function Gate() {
   return (
     <>
       <StatusBar style={dark ? 'light' : 'dark'} />
-      {me ? <SecurityPrompts userId={me.id} active={!!onboarded && !blocked && segments[0] === '(tabs)'} /> : null}
       <Stack screenOptions={{
         headerStyle: { backgroundColor: c.bg }, headerTintColor: c.primary, headerTitleStyle: { color: c.text },
         headerShadowVisible: false, contentStyle: { backgroundColor: c.bg }, headerBackButtonDisplayMode: 'minimal',
@@ -83,7 +81,7 @@ function Gate() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
-        <Stack.Screen name="welcome" options={{ title: 'Étape 2', headerBackVisible: false, gestureEnabled: false }} />
+        <Stack.Screen name="welcome" options={{ title: '', headerBackVisible: false, gestureEnabled: false }} />
         <Stack.Screen name="new" options={{ presentation: 'modal', title: 'Nouvelle publication' }} />
         <Stack.Screen name="post/[id]" options={{ presentation: 'modal', title: 'Publication' }} />
         <Stack.Screen name="video/[id]" options={{ title: 'Fiche vidéo' }} />
@@ -97,7 +95,7 @@ function Gate() {
         <Stack.Screen name="storage" options={{ title: 'Stockage' }} />
         <Stack.Screen name="reset-password" options={{ title: 'Mot de passe' }} />
         <Stack.Screen name="oauth-return" options={{ title: 'Connexion du compte', presentation: 'modal' }} />
-        <Stack.Screen name="onboarding" options={{ title: 'Étape 1', headerBackVisible: false, gestureEnabled: false }} />
+        <Stack.Screen name="onboarding" options={{ title: '', headerBackVisible: false, gestureEnabled: false }} />
         <Stack.Screen name="blocked" options={{ headerShown: false, gestureEnabled: false }} />
       </Stack>
       <UpdateBanner visible={updateReady} />

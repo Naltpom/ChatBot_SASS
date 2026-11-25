@@ -1,6 +1,6 @@
 // Version web de démonstration, pour les captures d'écran : l'API est simulée avec de fausses données.
 // État choisi par l'adresse : ?demo=out | new | young | welcome | drive | groups | popup | full (défaut).
-type S = 'out' | 'new' | 'young' | 'welcome' | 'drive' | 'groups' | 'popup' | 'full'
+type S = 'out' | 'new' | 'young' | 'welcome' | 'drive' | 'groups' | 'popup' | 'full' | 'empty'
 const qs = new URLSearchParams(globalThis.location?.search || '')
 let state = (qs.get('demo') || globalThis.sessionStorage?.getItem('cm.demo') || 'full') as S
 try { if (qs.get('demo')) { sessionStorage.setItem('cm.demo', state); localStorage.clear() } } catch { /* */ }
@@ -26,7 +26,7 @@ const tgt = (id: number, post: number, acc: any, when: string, status: string, e
   external_id: null, url: status === 'PUBLISHED' ? 'https://example.com' : null, fail_reason: null, error_message: null, notice: null,
   published_at: status === 'PUBLISHED' ? when : null, can_edit: status === 'SCHEDULED', can_retry: status === 'FAILED', ...extra })
 const titles = ['Le Petit Chaperon rouge — partie 1', 'Hansel et Gretel', 'Le Joueur de flûte de Hamelin', 'Blanche-Neige — partie 2', 'Les Musiciens de Brême', 'Le Roi Grenouille']
-const posts = own.length ? titles.map((title, i) => {
+const posts = own.length && state !== 'empty' ? titles.map((title, i) => {
   const d = i - 2, when = at(d, 18, 30)
   const status = d < 0 ? 'PUBLISHED' : d === 0 && i === 2 ? 'SCHEDULED' : 'SCHEDULED'
   const targets = own.map((a, j) => tgt(i * 10 + j, i + 1, a, when, i === 1 && a.platform === 'tiktok' ? 'INBOX' : i === 0 && a.platform === 'instagram' ? 'FAILED' : status,
@@ -39,7 +39,7 @@ const comment = (id: number, acc: any, author: string, text: string, vt: string)
   media_id: 'm', video_title: vt, video_url: 'https://example.com', external_id: String(id), parent_id: null, author, text, like_count: 3,
   published_at: iso(now - id * H), status: 'new', reply_text: null, replied_at: null, private_replied_at: null, pending: null, error: null,
   profile_url: null, dm_url: null, can_private_reply: acc.platform === 'instagram', video_id: 1, video_thumb: null })
-const comments = own.length ? [
+const comments = own.length && state !== 'empty' ? [
   comment(1, own[0], 'lea.r', 'Ma fille ne s’endort plus sans vos histoires 😍', titles[3]),
   comment(2, own[2], 'marc_dupuis', 'Vous pourriez faire La Belle au bois dormant ?', titles[3]),
   comment(3, own[1], 'Sophie M.', 'Superbe voix, merci pour ce moment', titles[4]),

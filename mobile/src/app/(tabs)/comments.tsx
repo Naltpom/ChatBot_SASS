@@ -99,9 +99,9 @@ function Todo({ top, canEdit, onRefresh }: { top: ReactElement; canEdit: boolean
       }
       ListEmptyComponent={
         !pages.items ? <View style={{ gap: space.md }}><Skeleton h={90} n={4} /></View>
-          : <Empty title={st === 'todo' ? 'Rien à traiter' : 'Aucun commentaire'} icon="comment">
-              {list.q ? `Rien ne correspond à « ${list.q} ».` : 'Les nouveaux commentaires de vos vidéos arrivent ici.'}
-            </Empty>
+          : list.q ? <Empty title="Aucun résultat" icon="search">{`Rien ne correspond à « ${list.q} ». Essayez un autre mot ou un autre filtre.`}</Empty>
+          : st === 'todo' ? <Empty title="Tout est traité" icon="check">Aucun commentaire en attente. Les nouveaux arrivent ici, avec une notification si vous l’avez activée.</Empty>
+          : <Empty title="Aucun commentaire" icon="comment">Les commentaires de vos vidéos arrivent ici dès leur relevé.</Empty>
       }
       ListFooterComponent={pages.busy ? <Skeleton h={70} /> : undefined}
     />

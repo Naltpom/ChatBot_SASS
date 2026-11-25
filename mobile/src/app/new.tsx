@@ -62,7 +62,7 @@ export default function NewPost() {
   const { c } = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const params = useLocalSearchParams<{ asset?: string; proposal?: string; shared?: string; org?: string }>()
+  const params = useLocalSearchParams<{ asset?: string; proposal?: string; shared?: string; org?: string; first?: string }>()
   const sharedVideo = useSharedVideo()
   const { org, config, groups, group: currentGroup, account: currentAccount, refresh: refreshSession, spaces: spacesAll } = useSession()
   // Rôle relu à l'ouverture (un administrateur a pu le changer depuis).
@@ -245,6 +245,13 @@ export default function NewPost() {
       const flash = asset
         ? (when === 'now' ? 'Publication lancée depuis la bibliothèque.' : 'Publication programmée : la vidéo sera récupérée dans le Drive à l’heure prévue.')
         : (when === 'now' ? 'Publication lancée.' : 'Publication programmée.')
+      if (params.first) {
+        // Première vidéo de l'inscription : écran de réussite (et demande de notifications).
+        const names = [...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ')
+        const whenTxt = when === 'now' ? 'dans quelques minutes' : at.toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+        router.replace({ pathname: '/setup/done', params: { when: whenTxt, accounts: names } })
+        return
+      }
       router.dismissTo({ pathname: '/', params: { day: landingDay(s), flash, t: String(Date.now()) } })
     } catch (e) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})

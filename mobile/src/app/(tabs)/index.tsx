@@ -9,6 +9,7 @@ import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import { getCalendar, PLATFORM_LABEL, PLATFORMS, type Platform } from '../../lib/api'
 import { short } from '../../lib/format'
 import { useLoad, useRole, useSession } from '../../lib/session'
+import { StartChecklist } from '../../features/StartChecklist'
 import { Button, Chip, Delta, Empty, Icon, Msg, PlatformLogo, Row, SearchField, Seg, Skeleton, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import {
@@ -91,6 +92,7 @@ export default function Planning() {
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.sm }}>
       {flash ? <Msg kind="ok">{flash}</Msg> : null}
+      {!search ? <StartChecklist /> : null}
       <SearchField value={input} onChangeText={setInput} placeholder="Rechercher (titre, légende)" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} accessibilityLabel="Plateformes">
         {PLATFORMS.map(p => (
@@ -147,10 +149,15 @@ export default function Planning() {
   const empty = search
     ? (found.loading && !found.data ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View> : undefined)
     : !cal.data && cal.loading ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View>
-    : (
-      <Empty title={isPast ? 'Aucune publication ce jour-là' : 'Rien de prévu ce jour-là'} icon="calendar"
+    : kind !== 'all' ? (
+      <Empty title={kind === 'done' ? 'Aucune vidéo publiée ce jour-là' : 'Rien de programmé ce jour-là'} icon="search"
+        action={<Button kind="secondary" title="Tout afficher" onPress={() => setKind('all')} />}>
+        Le filtre « {kind === 'done' ? 'Publié' : 'Programmé'} » est actif.
+      </Empty>
+    ) : (
+      <Empty title={isPast ? 'Aucune publication ce jour-là' : summary.planned + summary.done === 0 && canEdit ? 'Votre semaine est vide' : 'Rien de prévu ce jour-là'} icon="calendar"
         action={!isPast && canEdit ? <Button kind="primary" icon="plus" title="Programmer une vidéo" onPress={() => router.push('/new')} /> : undefined}>
-        Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.
+        {isPast ? 'Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.' : 'Programmez une vidéo : elle partira toute seule à l’heure choisie, sur chaque compte.'}
       </Empty>
     )
 

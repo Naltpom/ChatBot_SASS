@@ -1,13 +1,14 @@
 // Inscription, étape 1 (obligatoire) : prénom, nom, date de naissance et conditions acceptées.
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker'
-import { Stack, useRouter } from 'expo-router'
+import { useRouter } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useState } from 'react'
 import { Platform as RNPlatform, Pressable, View } from 'react-native'
 import { putIdentity } from '../lib/api'
 import { useIdentity } from '../lib/identity'
-import { stepTitle } from '../lib/onboarding'
-import { useOwnAccounts } from '../features/steps'
+import { STEPS } from '../lib/onboarding'
+import { StepHeader, useOwnAccounts } from '../features/steps'
+import { Missing, StepProgress } from '../ui/Progress'
 import { Button, Card, Field, H1, Icon, Msg, Row, Screen, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
 
@@ -36,7 +37,8 @@ export default function Onboarding() {
   const [first, setFirst] = useState('')
   const [last, setLast] = useState('')
   const [born, setBorn] = useState<Date | null>(null)
-  const [ok, setOk] = useState({ cgu: false, cgv: false, privacy: false })
+  const [ok, setOk] = useState(false)
+  const [touched, setTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const fixedBirth = !!identity?.birth_date
@@ -54,7 +56,8 @@ export default function Onboarding() {
     DateTimePickerAndroid.open({ value: born || new Date(2000, 0, 1), mode: 'date', maximumDate: new Date(),
       onValueChange: (_, d) => { if (d) setBorn(d) } })
   }
-  const valid = first.trim() && last.trim() && born && ok.cgu && ok.cgv && ok.privacy
+  const missing = [!first.trim() && 'le prénom', !last.trim() && 'le nom', !born && 'la date de naissance', !ok && 'l’accord sur les conditions'].filter(Boolean) as string[]
+  const valid = missing.length === 0
 
   const save = async () => {
     if (!valid || !born) return
@@ -68,15 +71,16 @@ export default function Onboarding() {
 
   return (
     <Screen>
-      <Stack.Screen options={{ title: stepTitle(1, own.length), headerBackVisible: false, gestureEnabled: false }} />
-      <View style={{ gap: space.sm, paddingTop: space.md }}>
-        <H1>Vos informations</H1>
-        <Txt muted>Pour finir votre inscription.</Txt>
+      <StepHeader n={1} />
+      <View style={{ gap: space.md }}>
+        <StepProgress step={1} total={STEPS} label="Vos informations" />
+        <H1>Faisons connaissance</H1>
+        <Txt muted>Trois informations, puis on connecte vos comptes.</Txt>
       </View>
       {err ? <Msg kind="err">{err}</Msg> : null}
       <Card>
-        <Field label="Prénom" value={first} onChangeText={setFirst} autoComplete="given-name" textContentType="givenName" maxLength={80} />
-        <Field label="Nom" value={last} onChangeText={setLast} autoComplete="family-name" textContentType="familyName" maxLength={80} />
+        <Field label="Prénom" value={first} onChangeText={setFirst} onBlur={() => setTouched(true)} error={touched && !first.trim() ? 'Indiquez votre prénom.' : null} autoComplete="given-name" textContentType="givenName" maxLength={80} />
+        <Field label="Nom" value={last} onChangeText={setLast} error={touched && first.trim() && !last.trim() ? 'Indiquez votre nom.' : null} autoComplete="family-name" textContentType="familyName" maxLength={80} />
         <View style={{ gap: 6 }}>
           <Txt small bold>Date de naissance</Txt>
           {RNPlatform.OS === 'ios' && !fixedBirth ? (
@@ -94,18 +98,14 @@ export default function Onboarding() {
           {fixedBirth ? <Txt small muted>Déjà enregistrée. Une erreur ? Écrivez à contact@chapote.fr.</Txt> : null}
         </View>
       </Card>
-      <Card>
-        <Check checked={ok.cgu} onToggle={() => setOk(o => ({ ...o, cgu: !o.cgu }))}>
-          <Txt>J’accepte les <Txt bold color={c.primary} onPress={() => open(legal.cgu)}>conditions d’utilisation</Txt></Txt>
-        </Check>
-        <Check checked={ok.cgv} onToggle={() => setOk(o => ({ ...o, cgv: !o.cgv }))}>
-          <Txt>J’accepte les <Txt bold color={c.primary} onPress={() => open(legal.cgv)}>conditions de vente</Txt></Txt>
-        </Check>
-        <Check checked={ok.privacy} onToggle={() => setOk(o => ({ ...o, privacy: !o.privacy }))}>
-          <Txt>J’ai lu la <Txt bold color={c.primary} onPress={() => open(legal.privacy)}>politique de confidentialité</Txt></Txt>
-        </Check>
-      </Card>
-      <Button kind="primary" title="Continuer" loading={busy} disabled={!valid} onPress={save} />
+      <Check checked={ok} onToggle={() => setOk(v => !v)}>
+        <Txt>J’accepte les <Txt bold color={c.primary} onPress={() => open(legal.cgu)}>conditions d’utilisation</Txt>, les{' '}
+          <Txt bold color={c.primary} onPress={() => open(legal.cgv)}>conditions de vente</Txt> et la{' '}
+          <Txt bold color={c.primary} onPress={() => open(legal.privacy)}>politique de confidentialité</Txt>.</Txt>
+      </Check>
+      <Txt small muted>Chapote CM est réservé aux 15 ans et plus. Votre date de naissance ne sert qu’à le vérifier.</Txt>
+      <Button kind="primary" title="Continuer : connecter mes comptes" loading={busy} disabled={!valid} onPress={save} style={{ minHeight: 52 }} />
+      <Missing items={missing} />
     </Screen>
   )
 }

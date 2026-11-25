@@ -94,6 +94,17 @@ export async function loginWithPassword(email: string, password: string): Promis
   return finishCookieLogin()
 }
 
+/** Création du compte dans l'app (le nom est complété à l'étape « Vos informations »). */
+export async function signUpWithPassword(email: string, password: string): Promise<Me> {
+  await callPublic<Me>('/api/auth/register', { name: email.split('@')[0].slice(0, 60) || 'Nouveau compte', email, password, account_type: 'perso', invites: [] }, true)
+  return finishCookieLogin()
+}
+
+/** Lien de réinitialisation du mot de passe envoyé par e-mail. */
+export async function sendPasswordLink(email: string): Promise<void> {
+  await callPublic('/api/auth/password/forgot', { email }, false)
+}
+
 export async function loginWithCode(challenge: string, code: string, recovery = false): Promise<Me> {
   await callPublic<Me>(recovery ? '/api/auth/2fa/login/recovery' : '/api/auth/2fa/login/totp', { challenge, code }, true)
   return finishCookieLogin()
