@@ -1,9 +1,8 @@
 // Stockage Drive de l'espace : obligatoire pour publier (docs/CM_ROUTINES.md §9).
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
-import * as WebBrowser from 'expo-web-browser'
 import { View } from 'react-native'
-import { startDriveOAuth, type Space, type Storage } from '../lib/api'
+import { openAuthorize, startDriveOAuth, type Space, type Storage } from '../lib/api'
 import { fmtSize } from '../lib/format'
 import { Button, Msg, Txt } from '../ui/kit'
 import { radius, useTheme } from '../ui/theme'
@@ -15,7 +14,7 @@ export const laterAt = async (org: number | null) => Number(await AsyncStorage.g
 /** Ouvre la connexion Google Drive (même connexion que le site, dans le navigateur). */
 export async function connectDrive(org: number | null) {
   const { authorize_url } = await startDriveOAuth(org)
-  await WebBrowser.openBrowserAsync(authorize_url)
+  await openAuthorize(authorize_url)
 }
 
 export function usedRatio(s: Storage): number | null {

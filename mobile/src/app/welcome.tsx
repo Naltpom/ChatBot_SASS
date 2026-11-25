@@ -5,9 +5,8 @@ import { useEffect } from 'react'
 import { Alert, View } from 'react-native'
 import { useSession } from '../lib/session'
 import { InvitationCard } from '../ui/ScopeBar'
-import * as WebBrowser from 'expo-web-browser'
 import { useState } from 'react'
-import { PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
+import { openAuthorize, PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
 import { Button, Card, H1, Icon, Msg, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
 import { space } from '../ui/theme'
 
@@ -18,7 +17,7 @@ export default function Welcome() {
   const [err, setErr] = useState<string | null>(null)
   const connect = async (p: Platform) => {
     setErr(null)
-    try { const { authorize_url } = await startOAuth(p, org); await WebBrowser.openBrowserAsync(authorize_url); await refresh() }
+    try { const { authorize_url } = await startOAuth(p, org); await openAuthorize(authorize_url); await refresh() }
     catch (e: any) { setErr(e?.message || 'Connexion impossible') }
   }
   const hasAccounts = spaces.some(s => (s.accounts || 0) > 0)

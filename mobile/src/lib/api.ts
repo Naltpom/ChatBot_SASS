@@ -1,6 +1,7 @@
 // Appels à l'API de cm.chapote.fr, les mêmes que le site (copie de cm/src/api.ts), avec la session
 // de l'application mobile (voir ./http.ts) : /api/cm/..., /api/tiktok/..., /api/youtube/..., /api/auth/...
-import { ApiError, call, callPage, type Page } from './http'
+import * as WebBrowser from 'expo-web-browser'
+import { API_URL, ApiError, call, callPage, type Page } from './http'
 export { ApiError, type Page }
 
 
@@ -183,6 +184,17 @@ export const resendDraft = (id: number) => send<Target>('POST', `/api/cm/targets
 export const startOAuth = (platform: Platform, org: number | null) => {
   if (platform === 'instagram') return send<{ authorize_url: string }>('POST', '/api/cm/instagram/oauth/start', { org_id: org })
   return send<{ authorize_url: string }>('POST', `/api/${platform}/oauth/start`, { org_id: org, app: 'cm' })
+}
+/** Ouvre l'autorisation de la plateforme dans le navigateur du téléphone, connecté d'abord au compte de
+ * l'app (lien à usage unique) : sinon la page de retour du site échoue si le navigateur est connecté à
+ * un autre compte Chapote, ou à aucun. */
+export async function openAuthorize(authorizeUrl: string) {
+  let url = authorizeUrl
+  try {
+    const { path } = await send<{ path: string }>('POST', '/api/cm/mobile/web-link', { next: authorizeUrl })
+    url = `${API_URL}${path}`
+  } catch { /* serveur pas encore à jour : ancienne ouverture directe */ }
+  await WebBrowser.openBrowserAsync(url)
 }
 export const exchangeOAuth = (platform: Platform, code: string, state: string) =>
   send<{ account: unknown; org_id: number | null }>('POST',

@@ -2,10 +2,9 @@
 // (comme cm/src/pages/Accounts.tsx). La connexion d'un compte passe par la page web de cm.chapote.fr,
 // ouverte dans le navigateur : la liste est relue au retour dans l'app.
 import { useRouter } from 'expo-router'
-import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useState } from 'react'
 import { Alert, AppState, View } from 'react-native'
-import {
+import { openAuthorize,
   addRoutineAccount, claimAccount, deleteGroup, disconnect, getAccounts, getTransfers, startOAuth, syncAccount,
   PLATFORM_LABEL, PLATFORMS, type Account, type Group, type Order, type Platform, type ShareWhat, setYoutubeAccount } from '../lib/api'
 import { short } from '../lib/format'
@@ -60,7 +59,7 @@ export default function Accounts() {
 
   const connect = async (p: Platform) => {
     setBusy(p); setMsg(null); setBrowserHint(true)
-    try { await WebBrowser.openBrowserAsync((await startOAuth(p, org)).authorize_url) }
+    try { await openAuthorize((await startOAuth(p, org)).authorize_url) }
     catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) }
     finally { setBusy(null); reloadAll() }
   }

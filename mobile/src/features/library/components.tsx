@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useRef, useState } from 'react'
 import { Alert, Linking, Pressable, View } from 'react-native'
-import {
+import { openAuthorize,
   addSource, disconnectDriveArchive, getDriveArchive, getIdentities, getSources, patchIdentity, patchSource, removeIdentity, removeSource,
   scanSource, startDriveOAuth, type Asset, type DriveArchive, type Identities, type Source,
 } from '../../lib/api'
@@ -212,7 +212,7 @@ export function DriveArchiveCard() {
   if (!a) return null
   const connect = async () => {
     setErr(''); setBusy(true); setHint(true)
-    try { await WebBrowser.openBrowserAsync((await startDriveOAuth(org)).authorize_url) } catch (e) { setErr((e as Error).message) }
+    try { await openAuthorize((await startDriveOAuth(org)).authorize_url) } catch (e) { setErr((e as Error).message) }
     finally { setBusy(false); load() }
   }
   const off = () => Alert.alert('Déconnecter le Drive d’archivage ?', 'Les fichiers déjà archivés restent dans votre Drive.', [
