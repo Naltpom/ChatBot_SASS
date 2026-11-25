@@ -152,9 +152,10 @@ cm.chapote.fr propose trois couleurs, chacune en clair et en sombre (`styles.css
 | Bleu océan (`ocean`) | `#0066cc` | `#ffffff` | `#2997ff` | `#00101f` |
 | Vert forêt (`forest`) | `#1f6b4a` | `#ffffff` | `#5cc495` | `#062014` |
 
-Le composant lit la couleur choisie (`<html data-palette>`, mémorisée sous `cm.palette` dans le
-navigateur) et le mode clair ou sombre de l'appareil. Il les transmet au widget au chargement, puis
-à chaque changement (choix d'une autre couleur dans le menu, passage clair/sombre), sans recharger
+Le composant lit l'apparence choisie dans cm (`<html data-palette>` et `<html data-theme>`,
+enregistrées sur le compte et copiées dans le navigateur sous `cm.appearance`) ; thème « Comme
+l'appareil » : mode clair ou sombre de l'appareil. Il les transmet au widget au chargement, puis à
+chaque changement (autre couleur, autre thème, passage clair/sombre de l'appareil), sans recharger
 ni couper la conversation.
 
 Ajouts **facultatifs** dans `widget/widget.js` (rien ne change pour les autres sites clients :
