@@ -167,6 +167,11 @@ export const getMe = () => call<Me>('/api/auth/me')
 /** « Donner mon avis » : texte libre, lu par l'administration. */
 export const sendFeedback = (text: string) => send<{ ok: boolean }>('POST', '/api/cm/mobile/feedback', { context: 'general', text })
 
+/** « Donner mon avis » sans compte : formulaire public (anti-robot Turnstile). */
+export const getContactConfig = () => send<{ enabled: boolean; turnstile_site_key: string | null }>('GET', '/api/cm/mobile/contact-config')
+export const sendContact = (body: { name: string; email: string; message: string; website: string; elapsed_ms: number; turnstile_token: string | null }) =>
+  send<{ ok: boolean }>('POST', '/api/cm/mobile/contact', body)
+
 export const login = (email: string, password: string) => send<Me | TwoFAChallenge>('POST', '/api/auth/login', { email, password })
 export const register = (name: string, email: string, password: string) =>
   send<Me>('POST', '/api/auth/register', { name, email, password, account_type: 'perso', invites: [] })

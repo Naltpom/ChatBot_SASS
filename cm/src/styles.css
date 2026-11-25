@@ -689,3 +689,7 @@ video.pub-media { width: min(100%, 220px); cursor: default; }
 .dm-frame { width: 300px; max-width: 100%; align-self: center; border-radius: 34px; padding: 8px; background: #1c1c1e; box-shadow: 0 40px 80px -30px rgb(41 151 255 / 40%); }
 @keyframes dm-pop { from { transform: scale(.6); } to { transform: none; } }
 @media (prefers-reduced-motion: reduce) { .reg-demo, .reg-crit.ok span, .spin { animation: none; } }
+
+/* « Donner mon avis » sans compte : champ piège hors écran (jamais display:none, que certains robots repèrent). */
+.hp { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+.captcha { min-height: 65px; }

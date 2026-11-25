@@ -47,8 +47,9 @@ const VideoSheet = lazyPage(() => import('./pages/VideoSheet'))
 const Callback = lazyPage(() => import('./pages/Callback'))
 const DriveCallback = lazyPage(() => import('./pages/DriveCallback'))
 const Legal = lazyPage(() => import('./pages/Legal'))
+const Contact = lazyPage(() => import('./pages/Contact'))
 
-const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie', '/privacy', '/terms']
+const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie', '/privacy', '/terms', '/avis']
 const HINT = 'cm.session'
 const hadSession = () => { try { return localStorage.getItem(HINT) === '1' } catch { return false } }
 
@@ -62,7 +63,7 @@ function PageLoading() {
 const TITLES: Record<string, string> = {
   '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque', '/partage': 'Partage', '/a-valider': 'À valider', '/commentaires': 'Commentaires',
   '/nouvelle': 'Nouvelle publication', '/connexion': 'Connexion', '/inscription': 'Créer un compte',
-  '/mot-de-passe-oublie': 'Mot de passe oublié',
+  '/mot-de-passe-oublie': 'Mot de passe oublié', '/avis': 'Donner mon avis',
 }
 
 /** Page protégée sans session : vers la connexion, en gardant la page demandée (et ses paramètres OAuth). */
@@ -103,6 +104,7 @@ function Shell() {
         <Route path="/mot-de-passe-oublie" element={<Forgot />} />
         <Route path="/privacy" element={<Legal doc="privacy" />} />
         <Route path="/terms" element={<Legal doc="terms" />} />
+        <Route path="/avis" element={<Contact />} />
         <Route path="*" element={ready ? <ToLogin /> : <Splash />} />
       </Routes>
       </Suspense>

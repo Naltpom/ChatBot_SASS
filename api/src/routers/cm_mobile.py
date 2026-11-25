@@ -46,7 +46,9 @@ from src.core.security import _encode, create_dashboard_token, get_current_user,
 from src.core.time import utcnow
 from src.models.cm_mobile import CmAppOpen, CmFeedback, CmMobileDevice, CmUserIdentity
 from src.models.user import User
+from src.services.captcha import verify_turnstile_token
 from src.services.email_service import send_account_email
+from src.services.user_apps import client_ip
 from src.services.rate_limit import RateLimiter, SingleUseTokens
 
 router = APIRouter(prefix="/api/cm/mobile", tags=["cm-mobile"])
@@ -645,10 +647,14 @@ async def feedback(body: FeedbackIn, db: AsyncSession = Depends(get_db), user: U
     return {"ok": True}
 
 
+async def _admin_emails(db: AsyncSession) -> list[str]:
+    return list((await db.execute(select(User.email).where(User.is_superadmin.is_(True)))).scalars())
+
+
 async def _mail_feedback(db: AsyncSession, user: User, text: str) -> None:
     """« Donner mon avis » : copie par e-mail aux superadmins (l'équipe Chapote), avec qui l'a écrit. Répondre
     à l'e-mail répond à l'auteur. Envoi en arrière-plan : n'échoue jamais l'enregistrement."""
-    to = list((await db.execute(select(User.email).where(User.is_superadmin.is_(True)))).scalars())
+    to = await _admin_emails(db)
     if not to:
         return
     when = utcnow().strftime("%d/%m/%Y %H:%M UTC")
@@ -665,3 +671,60 @@ async def list_feedback(limit: int = 100, db: AsyncSession = Depends(get_db), us
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé à l'administration.")
     rows = (await db.execute(select(CmFeedback).order_by(CmFeedback.id.desc()).limit(max(1, min(limit, 500))))).scalars()
     return [{"context": f.context, "reason": f.reason, "text": f.text, "created_at": f.created_at.isoformat()} for f in rows]
+
+
+# --------------------------------------------------------------------------
+# « Donner mon avis » sans compte (page /avis, visiteur non connecté)
+# Anti-robot : Turnstile (clés Chapote), champ piège invisible, délai minimum de saisie, 5 envois par heure et par IP.
+# En production, sans clé Turnstile, le formulaire est fermé (404) : jamais de formulaire public sans captcha.
+# Rien n'est stocké : le message part par e-mail aux superadmins, « répondre » répond au visiteur.
+# --------------------------------------------------------------------------
+
+contact_limiter = RateLimiter("rl:cmcontact:", 5, 3600)
+CONTACT_MIN_MS = 3000
+_EMAIL_RE = re.compile(r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]{2,}$")
+
+
+def _contact_open() -> bool:
+    return not settings.is_production or bool(settings.TURNSTILE_SECRET_KEY and settings.TURNSTILE_SITE_KEY)
+
+
+class ContactIn(BaseModel):
+    name: str = Field("", max_length=80)
+    email: str = Field(..., max_length=200)
+    message: str = Field(..., max_length=2000)
+    website: str = Field("", max_length=200)          # champ piège : invisible pour un humain
+    elapsed_ms: int = Field(0, ge=0)
+    turnstile_token: Optional[str] = Field(None, max_length=4000)
+
+
+@router.get("/contact-config")
+async def contact_config():
+    """Pour la page /avis : le formulaire est-il ouvert, et la clé publique Turnstile à afficher."""
+    return {"enabled": _contact_open(), "turnstile_site_key": settings.TURNSTILE_SITE_KEY or None}
+
+
+@router.post("/contact")
+async def contact(body: ContactIn, request: Request, db: AsyncSession = Depends(get_db)):
+    if not _contact_open():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Formulaire indisponible")
+    if body.website.strip() or body.elapsed_ms < CONTACT_MIN_MS:
+        return {"ok": True}                              # robot : on ne lui dit rien
+    ip = client_ip(request)
+    if not await contact_limiter.check(ip):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop d’envois. Réessayez dans une heure.")
+    email, message = body.email.strip(), body.message.strip()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Adresse e-mail incomplète (ex. vous@exemple.fr).")
+    if len(message) < 5:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Écrivez votre message.")
+    if not await verify_turnstile_token(body.turnstile_token, ip):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vérification anti-robot échouée. Réessayez.")
+    to = await _admin_emails(db)
+    if to:
+        name = " ".join(body.name.split())[:80] or email.split("@")[0]
+        text = (f"Nouvel avis sur Chapote CM, par un visiteur sans compte.\n\n"
+                f"De : {name} <{email}>\nEnvoyé le : {utcnow():%d/%m/%Y %H:%M UTC}\n\n{message}\n\n"
+                f"Répondez à cet e-mail pour lui répondre directement.")
+        send_account_email(to, f"Avis Chapote CM (visiteur) — {name}", text, error_label="cm_contact_mail", reply_to=email)
+    return {"ok": True}
