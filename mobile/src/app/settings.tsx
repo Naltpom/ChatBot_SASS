@@ -145,15 +145,13 @@ export default function Settings() {
             return (
               <Pressable key={k} onPress={() => { Haptics.selectionAsync().catch(() => {}); setPalette(k); ok() }}
                 accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={`${p.label}${k === 'warm' ? ', par défaut' : ''}`}
-                style={({ pressed }) => ({ flex: 1, gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: col.bg,
+                style={({ pressed }) => ({ flex: 1, gap: space.sm, padding: space.sm, borderRadius: radius.md, backgroundColor: col.bg,
                   borderWidth: on ? 2 : 1, borderColor: on ? c.primary : c.border, opacity: pressed ? 0.8 : 1 })}>
-                <Row gap={space.sm}>
-                  <Logo size={32} bg={col.logo} />
-                  <View style={{ flex: 1 }}>
-                    <Txt bold color={col.text}>{p.label}</Txt>
-                    <Txt size={12} color={col.muted}>{k === 'warm' ? 'Par défaut' : 'Comme avant'}</Txt>
-                  </View>
-                </Row>
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  <Logo size={36} bg={col.logo} />
+                  <Txt bold center numberOfLines={1} color={col.text}>{p.label}</Txt>
+                  <Txt size={12} center numberOfLines={1} color={col.muted}>{k === 'warm' ? 'Par défaut' : k === 'ocean' ? 'Comme avant' : 'Nature'}</Txt>
+                </View>
                 <View style={{ height: 28, borderRadius: 8, backgroundColor: col.primary, alignItems: 'center', justifyContent: 'center' }}>
                   <Txt size={12} bold color={col.onPrimary}>{on ? 'Choisie' : 'Planifier'}</Txt>
                 </View>

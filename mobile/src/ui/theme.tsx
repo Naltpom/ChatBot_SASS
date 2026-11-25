@@ -40,12 +40,24 @@ export const GROUP_HEX: Record<string, string> = {
   rose: '#e11d48', sky: '#0284c7', emerald: '#059669', brown: '#92400e',
 }
 
+// « Vert forêt » : fonds légèrement verdis, accent vert profond (contrastes vérifiés, au moins 4,5:1).
+const forestLight: Colors = {
+  ...light, bg: '#F6F8F4', surface: '#FFFFFF', surface2: '#EEF2EB', surface3: '#E2E8DE', border: '#E3E9DF', borderStrong: '#CED8C9',
+  text: '#16201A', muted: '#5D6A61', faint: '#79857C', primary: '#2D6A3E', primaryPressed: '#245733', onPrimary: '#FFFFFF',
+  ink: '#16201A', onInk: '#FFFFFF', accent: '#2D6A3E', infoBg: '#EAF3EC', logo: '#2F7D46',
+}
+const forestDark: Colors = {
+  ...dark, bg: '#090B0A', surface: '#131714', surface2: '#1C221E', surface3: '#262E28', border: '#232B25', borderStrong: '#37413A',
+  text: '#F1F5F2', muted: '#A3ADA6', faint: '#8A948D', primary: '#5BBE78', primaryPressed: '#79CC91', onPrimary: '#06140A',
+  ink: '#F1F5F2', onInk: '#090B0A', accent: '#5BBE78', infoBg: '#10241A', logo: '#2F7D46',
+}
+
 export type ThemePref = 'system' | 'light' | 'dark'
-/** Couleur de l'app : orange (par défaut) ou bleu océan. */
-export type Palette = 'warm' | 'ocean'
-const PALETTES: Record<Palette, { light: Colors; dark: Colors }> = { warm: { light, dark }, ocean: { light: oceanLight, dark: oceanDark } }
+/** Couleur de l'app : orange (par défaut), bleu océan ou vert forêt. */
+export type Palette = 'warm' | 'ocean' | 'forest'
+const PALETTES: Record<Palette, { light: Colors; dark: Colors }> = { warm: { light, dark }, ocean: { light: oceanLight, dark: oceanDark }, forest: { light: forestLight, dark: forestDark } }
 export const PALETTE_PREVIEW: Record<Palette, { label: string; light: Colors; dark: Colors }> = {
-  warm: { label: 'Orange', ...PALETTES.warm }, ocean: { label: 'Bleu océan', ...PALETTES.ocean },
+  warm: { label: 'Orange', ...PALETTES.warm }, ocean: { label: 'Bleu océan', ...PALETTES.ocean }, forest: { label: 'Vert forêt', ...PALETTES.forest },
 }
 interface ThemeCtx { c: Colors; dark: boolean; pref: ThemePref; setPref: (p: ThemePref) => void; palette: Palette; setPalette: (p: Palette) => void }
 const Ctx = createContext<ThemeCtx>({ c: light, dark: false, pref: 'system', setPref: () => {}, palette: 'warm', setPalette: () => {} })
@@ -58,7 +70,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [palette, setPaletteState] = useState<Palette>('warm')
   useEffect(() => {
     AsyncStorage.getItem(KEY).then(v => { if (v === 'light' || v === 'dark' || v === 'system') setPrefState(v) }).catch(() => {})
-    AsyncStorage.getItem(PALETTE_KEY).then(v => { if (v === 'warm' || v === 'ocean') setPaletteState(v) }).catch(() => {})
+    AsyncStorage.getItem(PALETTE_KEY).then(v => { if (v === 'warm' || v === 'ocean' || v === 'forest') setPaletteState(v) }).catch(() => {})
   }, [])
   const setPref = (p: ThemePref) => { setPrefState(p); AsyncStorage.setItem(KEY, p).catch(() => {}) }
   const setPalette = (p: Palette) => { setPaletteState(p); AsyncStorage.setItem(PALETTE_KEY, p).catch(() => {}) }
