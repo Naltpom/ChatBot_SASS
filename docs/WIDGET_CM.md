@@ -5,8 +5,14 @@ Ce document couvre le **mode public** (étape 2) : le bot répond avec les seule
 publiques de cm. Le mode « mes données » (lecture des données cm de l'utilisateur, avec son
 accord) est décrit à part, dans `docs/CM_MCP.md` (étape 3).
 
-**État : rien n'est actif.** Le bot se crée par un script. Le composant web est désactivé par un
-drapeau et n'est placé sur aucune page. L'app mobile n'est pas modifiée.
+**État (25 novembre 2026)** :
+- le bot est créé en production (id 8) et actif, avec la clé publique `pk_fladg1AxA074Nd79-nsB2l6zuK88RW2P` ;
+- l'assistant est sur la **page d'accueil** de cm.chapote.fr (bulle secondaire, chargée après l'affichage) ;
+- il n'est pas encore dans l'app web cm, et l'app mobile n'est pas modifiée.
+
+**Pour le couper** : ajouter `VITE_CM_ASSISTANT=off` dans le `.env` du serveur, puis redéployer
+(`cm` est reconstruit sans l'assistant). Ou désactiver le bot depuis chapote.fr : le widget répond 404
+et la bulle disparaît d'elle-même.
 
 ## 1. Le bot
 
@@ -79,7 +85,8 @@ Il ne fait rien tant que ces variables ne sont pas fournies **au build** de `cm`
 | `VITE_CM_ASSISTANT_KEY` | clé publique du bot (`pk_…`) |
 | `VITE_CM_ASSISTANT_SRC` | facultatif, défaut `https://chapote.fr/widget.js` |
 
-Pour les passer au build Docker (à faire au moment de l'activation, pas avant) :
+Passées au build Docker (en place depuis l'activation sur la page d'accueil ; défauts dans
+`docker-compose.prod.yml`, modifiables par `.env`) :
 
 ```dockerfile
 # cm/Dockerfile, étape build, avant « RUN npm run build »
@@ -94,8 +101,8 @@ ENV VITE_CM_ASSISTANT=$VITE_CM_ASSISTANT VITE_CM_ASSISTANT_KEY=$VITE_CM_ASSISTAN
       context: ./cm
       dockerfile: Dockerfile
       args:
-        VITE_CM_ASSISTANT: ${VITE_CM_ASSISTANT:-}
-        VITE_CM_ASSISTANT_KEY: ${VITE_CM_ASSISTANT_KEY:-}
+        VITE_CM_ASSISTANT: ${VITE_CM_ASSISTANT:-on}
+        VITE_CM_ASSISTANT_KEY: ${VITE_CM_ASSISTANT_KEY:-pk_fladg1AxA074Nd79-nsB2l6zuK88RW2P}
 ```
 
 À l'intégration dans l'app web : vérifier que la bulle ne recouvre pas la barre de navigation du
@@ -179,7 +186,7 @@ Nouvelles options d'apparence du bot (validées par `sanitize_design`, défauts 
 
 ## 5. CSP de cm.chapote.fr (`cm/nginx.conf`)
 
-À ajouter **au moment de l'activation**, sans rien enlever. Deux directives changent :
+En place (ajoutées sans rien enlever). Deux directives ont changé :
 
 | Directive | Ajout | Pourquoi |
 |---|---|---|
@@ -189,7 +196,7 @@ Nouvelles options d'apparence du bot (validées par `sanitize_design`, défauts 
 | `img-src` | rien | `https:` y est déjà |
 | `style-src` | rien | `'unsafe-inline'` y est déjà (le widget injecte sa feuille de style) |
 
-Les deux directives, une fois modifiées :
+Les deux directives :
 
 ```nginx
 script-src 'self' https://accounts.google.com/gsi/client https://challenges.cloudflare.com https://chapote.fr;

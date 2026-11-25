@@ -13,6 +13,7 @@ import imgStats from '../landing/stats.webp'
 import imgBibliotheque from '../landing/bibliotheque.webp'
 import imgGroupes from '../landing/groupes.webp'
 import Demo from '../landing/Demo'
+import ChapoteAssistant from '../components/ChapoteAssistant'
 
 const CTA = 'Planifier mes vidéos gratuitement'
 // « Donner mon avis » : le formulaire de l'app (connexion ou inscription d'abord) : on sait qui écrit.
@@ -183,6 +184,8 @@ export default function Landing() {
           <div><h2>Plateformes</h2><ul><li><a href={`${chapote}/legal/tiktok-confidentialite`}>TikTok</a></li><li><a href={`${chapote}/legal/youtube-confidentialite`}>YouTube</a></li><li><a href={`${chapote}/legal/instagram-confidentialite`}>Instagram</a></li></ul></div>
         </div>
       </footer>
+      {/* Assistant (bulle secondaire, chargée après l'affichage) : docs/WIDGET_CM.md */}
+      <ChapoteAssistant />
     </div>
   )
 }

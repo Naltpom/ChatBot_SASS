@@ -254,6 +254,11 @@ services:
     build:
       context: ./cm
       dockerfile: Dockerfile
+      # Assistant Chapote CM sur la page d'accueil (docs/WIDGET_CM.md). Clé PUBLIQUE (pas un
+      # secret). Pour le couper : VITE_CM_ASSISTANT=off dans .env, puis redéployer.
+      args:
+        VITE_CM_ASSISTANT: ${VITE_CM_ASSISTANT:-on}
+        VITE_CM_ASSISTANT_KEY: ${VITE_CM_ASSISTANT_KEY:-pk_fladg1AxA074Nd79-nsB2l6zuK88RW2P}
     container_name: chatbot-cm
     restart: unless-stopped
     ports:
