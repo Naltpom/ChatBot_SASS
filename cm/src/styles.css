@@ -32,6 +32,12 @@
   --info-bg: #fff1ea;
   --ok-bg: #eaf7ee;
   --glow: rgb(255 106 61 / 16%);
+  --accent-shadow: rgb(255 106 61 / 60%);
+  --logo: #F05A28;
+  --phone: #1a1614;
+  --aside-bg: #0b0a09;
+  --aside-em: #ff6a3d;
+  --thumb: linear-gradient(160deg, #ff6a3d, #c93f17 55%, #5a1f0c);
   --shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 8px 28px -14px rgb(0 0 0 / 18%);
   --shadow-lg: 0 30px 70px -30px rgb(0 0 0 / 35%);
   /* Plateformes : TikTok noir, YouTube rouge, Instagram magenta (luminosités distinctes) */
@@ -79,6 +85,7 @@
     --info-bg: #2a160e;
     --ok-bg: #0e2a17;
     --glow: rgb(255 106 61 / 22%);
+    --accent-shadow: rgb(255 106 61 / 60%);
     --shadow: 0 1px 2px rgb(0 0 0 / 50%), 0 8px 28px -14px rgb(0 0 0 / 80%);
     --shadow-lg: 0 30px 70px -30px rgb(0 0 0 / 90%);
     --tiktok: #e5e5ea;
@@ -466,9 +473,9 @@ table.data tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 5
 @media (min-width: 1024px) {
   .auth { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); }
   .auth-main { padding: 28px 48px; }
-  .auth-aside { display: flex; flex-direction: column; justify-content: space-between; gap: 32px; padding: 48px; background: radial-gradient(700px 480px at 90% -5%, rgb(255 106 61 / 24%), transparent 70%), #0b0a09; color: #f5f3f0; position: relative; overflow: hidden; }
+  .auth-aside { display: flex; flex-direction: column; justify-content: space-between; gap: 32px; padding: 48px; background: radial-gradient(700px 480px at 90% -5%, color-mix(in srgb, var(--aside-em) 24%, transparent), transparent 70%), var(--aside-bg); color: #f5f3f0; position: relative; overflow: hidden; }
   .auth-aside h2 { font-size: clamp(40px, 4vw, 64px); line-height: 1.02; letter-spacing: -0.045em; font-weight: 800; color: #fff; }
-  .auth-aside .em { color: #ff6a3d; }
+  .auth-aside .em { color: var(--aside-em); }
 }
 @media (max-width: 1399px) { .week .event-thumb { display: none; } }
 .list.card { padding: 0; }
@@ -699,7 +706,7 @@ video.pub-media { width: min(100%, 220px); cursor: default; }
 .reg-crit.ok { color: var(--ok); }
 .reg-crit.ok span { background: var(--ok); color: #fff; animation: dm-pop .35s cubic-bezier(.3,1.6,.5,1); }
 .spin { display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: -3px; border: 2px solid color-mix(in srgb, currentColor 40%, transparent); border-top-color: currentColor; border-radius: 50%; animation: spin .8s linear infinite; }
-.dm-frame { width: 300px; max-width: 100%; align-self: center; border-radius: 34px; padding: 8px; background: #1a1614; box-shadow: 0 40px 80px -30px rgb(255 106 61 / 45%); }
+.dm-frame { width: 300px; max-width: 100%; align-self: center; border-radius: 34px; padding: 8px; background: var(--phone); box-shadow: 0 40px 80px -30px var(--accent-shadow); }
 @keyframes dm-pop { from { transform: scale(.6); } to { transform: none; } }
 @media (prefers-reduced-motion: reduce) { .reg-demo, .reg-crit.ok span, .spin { animation: none; } }
 
@@ -710,3 +717,42 @@ video.pub-media { width: min(100%, 220px); cursor: default; }
 /* Bouton Google en mode sombre : le cadre de Google prend sinon un fond blanc opaque derrière le bouton
    (page en « color-scheme: dark », document du cadre sans fond). En « light », le cadre reste transparent. */
 .gbtn iframe { color-scheme: light; }
+
+
+/* ---------- Couleur de l'app, au choix (menu du compte) : orange (défaut), bleu océan, vert forêt ----------
+   Mêmes valeurs « orange » et « bleu océan » que l'app mobile. data-palette sur <html>, mémorisé dans le navigateur.
+   Chaque palette garde le clair / sombre de l'appareil, et un texte sur l'accent à 4,5:1 au moins. */
+:root[data-palette="ocean"] {
+  --bg: #f5f5f7; --surface: #ffffff; --surface-2: #fafafa; --surface-3: #ededf0; --border: #e8e8ed; --border-strong: #d2d2d7;
+  --text: #1d1d1f; --muted: #6e6e73; --faint: #86868b; --primary: #0066cc; --primary-hover: #0058b0; --on-primary: #ffffff;
+  --ink: #1d1d1f; --on-ink: #ffffff; --accent: #0066cc; --info-bg: #f0f6ff;
+  --glow: rgb(0 113 227 / 14%); --accent-shadow: rgb(0 113 227 / 55%); --logo: #0071e3; --phone: #1c1c1e;
+  --aside-bg: #000000; --aside-em: #2997ff; --thumb: linear-gradient(160deg, #2997ff, #0066cc 55%, #00264d);
+}
+:root[data-palette="forest"] {
+  --bg: #f5f7f4; --surface: #ffffff; --surface-2: #ecf1eb; --surface-3: #dfe7dd; --border: #e2e9e0; --border-strong: #cbd6c8;
+  --text: #16201a; --muted: #5a665e; --faint: #7e8a82; --primary: #1f6b4a; --primary-hover: #18583c; --on-primary: #ffffff;
+  --ink: #16201a; --on-ink: #ffffff; --accent: #18583c; --info-bg: #eaf4ee;
+  --glow: rgb(31 107 74 / 14%); --accent-shadow: rgb(31 107 74 / 55%); --logo: #1f6b4a; --phone: #121915;
+  --aside-bg: #090d0b; --aside-em: #5cc495; --thumb: linear-gradient(160deg, #5cc495, #1f6b4a 55%, #0b2a1d);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="ocean"] {
+    --bg: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e; --surface-3: #3a3a3c; --border: #2c2c2e; --border-strong: #48484a;
+    --text: #f5f5f7; --muted: #a1a1a6; --faint: #8e8e93; --primary: #2997ff; --primary-hover: #4da9ff; --on-primary: #00101f;
+    --ink: #f5f5f7; --on-ink: #000000; --accent: #2997ff; --info-bg: #0b2340;
+    --glow: rgb(41 151 255 / 20%); --accent-shadow: rgb(41 151 255 / 55%);
+  }
+  :root[data-palette="forest"] {
+    --bg: #090d0b; --surface: #121915; --surface-2: #1a231e; --surface-3: #243029; --border: #222d27; --border-strong: #34433a;
+    --text: #eef3ef; --muted: #a2b0a7; --faint: #86948b; --primary: #5cc495; --primary-hover: #77d3a9; --on-primary: #062014;
+    --ink: #eef3ef; --on-ink: #090d0b; --accent: #7ad3aa; --info-bg: #0f2a1e;
+    --glow: rgb(92 196 149 / 20%); --accent-shadow: rgb(92 196 149 / 55%);
+  }
+}
+
+/* Choix de la couleur (menu du compte) */
+.palette-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 4px 12px 10px; }
+.palette-pick button { display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 64px; padding: 8px 4px; border-radius: 12px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.palette-pick button[aria-checked="true"] { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.palette-pick .sw { width: 28px; height: 28px; border-radius: 8px; }

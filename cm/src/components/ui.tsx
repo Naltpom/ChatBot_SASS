@@ -7,15 +7,15 @@ import { STATUS, signed } from '../format'
 
 /** Chapeau Chapote (même marque que chapote.fr). */
 /** Logo Chapote CM : trois cartes de vidéos verticales empilées, la première avec le bouton lecture,
- *  blanc sur orange. Même dessin que l'icône d'onglet (public/favicon.svg) et que l'app mobile. */
+ *  blanc sur la couleur de l'app (orange par défaut). Même dessin que l'icône d'onglet (public/favicon.svg) et que l'app mobile. */
 export function BrandMark({ size = 32 }: { size?: number }) {
   return (
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ width: size, height: size }}>
-      <rect width="24" height="24" rx="6.2" fill="#F05A28" />
+      <rect width="24" height="24" rx="6.2" style={{ fill: 'var(--logo, #F05A28)' }} />
       <rect x="5" y="6.2" width="7.4" height="12.2" rx="1.8" fill="#fff" opacity=".45" />
       <rect x="8.3" y="5.4" width="7.4" height="12.2" rx="1.8" fill="#fff" opacity=".7" />
       <rect x="11.6" y="4.6" width="7.4" height="12.8" rx="1.8" fill="#fff" />
-      <path d="M14.3 8.8v4.6l3.6-2.3z" fill="#F05A28" />
+      <path d="M14.3 8.8v4.6l3.6-2.3z" style={{ fill: 'var(--logo, #F05A28)' }} />
     </svg>
   )
 }

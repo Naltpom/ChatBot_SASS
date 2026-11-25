@@ -6,6 +6,7 @@ import { StorageGate } from './Storage'
 import { Component, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import FeedbackSheet from './FeedbackSheet'
+import { getPalette, PALETTES, setPalette as savePalette, type Palette } from '../palette'
 import { useSession } from '../session'
 import { getProposalCount, PLATFORM_LABEL, type Account, type Group } from '../api'
 import { PlatformLogo } from './PlatformLogo'
@@ -112,6 +113,8 @@ function AccountMenu() {
   const { search, pathname } = useLocation()
   const navigate = useNavigate()
   const [feedback, setFeedback] = useState(false)
+  const [palette, setPalette] = useState<Palette>(getPalette)
+  const pick = (p: Palette) => { setPalette(p); savePalette(p) }
   useEffect(() => { if (new URLSearchParams(search).get('avis') === '1') setFeedback(true) }, [search])
   const closeFeedback = () => {
     setFeedback(false)
@@ -140,6 +143,16 @@ function AccountMenu() {
           <div className="menu-sep" />
           <a className="menu-item" role="menuitem" href={`${appUrl.replace(/\/$/, '')}/app`}><Icon name="external" />Espace client chapote.fr</a>
           <a className="menu-item" role="menuitem" href={`${appUrl.replace(/\/$/, '')}/app/profile`}><Icon name="shield" />Sécurité du compte</a>
+          <div className="menu-sep" />
+          <div className="small muted" style={{ padding: '6px 12px 2px', fontWeight: 600 }} id="palette-label">Couleur de l’app</div>
+          <div className="palette-pick" role="radiogroup" aria-labelledby="palette-label">
+            {PALETTES.map(p => (
+              <button key={p.id} type="button" role="radio" aria-checked={palette === p.id} onClick={() => pick(p.id)}>
+                <span className="sw" style={{ background: p.color }} aria-hidden="true" />{p.label}
+              </button>
+            ))}
+          </div>
+          <div className="menu-sep" />
           <button type="button" className="menu-item" role="menuitem" onClick={() => { setOpen(false); setFeedback(true) }}><Icon name="comment" />Donner mon avis</button>
           <div className="menu-sep" />
           <button type="button" className="menu-item" role="menuitem" onClick={signOut}><Icon name="logout" />Se déconnecter</button>
