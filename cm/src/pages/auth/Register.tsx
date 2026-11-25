@@ -42,7 +42,7 @@ export default function Register() {
   }
 
   return (
-    <AuthLayout aside={<h2>Programmez une fois.<br /><span className="em">Publiez partout.</span></h2>}>
+    <AuthLayout aside={<h2>Planifiez une fois.<br /><span className="em">Publiez partout.</span></h2>}>
       {challenge ? <TwoFactor challenge={challenge} onDone={done} onBack={() => setChallenge(null)} /> : (
         <>
           <ol className="reg-steps" aria-label="Étapes">

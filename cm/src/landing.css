@@ -1,9 +1,9 @@
 /* Page d'accueil publique v4 — mobile d'abord, clair et sombre selon l'appareil (variables de styles.css).
-   Le bouton principal garde le bleu #0071e3 dans les deux thèmes : texte blanc lisible (contraste > 4,5:1). */
+   Couleurs : variables de styles.css (accent orange, texte du bouton contrasté dans chaque thème). */
 .lp { background: var(--bg); color: var(--text); overflow-x: clip; line-height: 1.5; }
 .lp-wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
 @media (min-width: 1024px) { .lp-wrap { padding: 0 32px; } }
-.lp h1, .lp h2, .lp h3 { font-family: var(--display); font-weight: 750; letter-spacing: -0.025em; line-height: 1.12; }
+.lp h1, .lp h2, .lp h3 { font-family: var(--display); font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; }
 .lp h2 { font-size: clamp(28px, 6.6vw, 44px); }
 .lp :focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 
@@ -11,8 +11,8 @@
 .lp-skip:focus { top: 8px; }
 
 /* Bouton principal et liens */
-.lp-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 14px 26px; border-radius: 999px; background: #0071e3; color: #fff; font-weight: 650; font-size: 17px; text-decoration: none; text-align: center; }
-.lp-cta:hover { background: #0062c4; color: #fff; text-decoration: none; }
+.lp-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 14px 26px; border-radius: 999px; background: var(--primary); color: var(--on-primary); font-weight: 650; font-size: 17px; text-decoration: none; text-align: center; }
+.lp-cta:hover { background: var(--primary-hover); color: var(--on-primary); text-decoration: none; }
 .lp-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; color: var(--primary); font-weight: 600; }
 
 /* En-tête */
@@ -28,11 +28,11 @@
 .lp-login:hover { color: var(--text); background: var(--surface); text-decoration: none; }
 
 /* Héros */
-.lp-hero { padding: 24px 0 40px; }
+.lp-hero { padding: 24px 0 40px; background: radial-gradient(900px 520px at 85% -10%, var(--glow), transparent 70%); }
 .lp-hero-in { display: grid; gap: 32px; align-items: center; }
 @media (min-width: 960px) { .lp-hero { padding: 72px 0 80px; } .lp-hero-in { grid-template-columns: 1.15fr .85fr; gap: 56px; } }
 .lp-plats { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.lp-plats li { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; background: var(--surface); border: 1px solid var(--border); padding: 4px 10px; border-radius: 999px; }
+.lp-plats li { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; background: transparent; border: 1px solid var(--border); padding: 4px 10px; border-radius: 999px; }
 .lp-dot { width: 8px; height: 8px; border-radius: 50%; }
 .lp-dot.tt { background: #25f4ee; box-shadow: 2px 0 0 #fe2c55; }
 .lp-dot.yt { background: #ff0033; }
@@ -51,7 +51,7 @@
 /* Captures */
 .lp-shot { margin: 0; justify-self: center; width: min(78vw, 300px); }
 .lp-shot figcaption { text-align: center; font-size: 13px; color: var(--muted); margin-top: 10px; }
-.lp-phone { border-radius: 34px; padding: 8px; background: #111; box-shadow: 0 30px 60px -25px rgb(0 0 0 / 35%); }
+.lp-phone { border-radius: 34px; padding: 8px; background: #1a1614; border: 1px solid var(--border-strong); box-shadow: 0 30px 60px -25px rgb(0 0 0 / 35%); }
 .lp-phone img { display: block; width: 100%; height: auto; aspect-ratio: 540 / 978; border-radius: 27px; background: #f5f5f7; }
 @media (min-width: 960px) { .lp-hero .lp-shot { width: 310px; } }
 
@@ -72,8 +72,8 @@
 /* Étapes */
 .lp-steps { list-style: none; margin: 32px 0 0; padding: 0; display: grid; gap: 16px; }
 @media (min-width: 900px) { .lp-steps { grid-template-columns: repeat(3, 1fr); } }
-.lp-steps li { background: var(--surface); border-radius: 20px; padding: 22px; }
-.lp-steps b { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #0071e3; color: #fff; font-size: 16px; }
+.lp-steps li { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 22px; }
+.lp-steps b { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: var(--on-primary); font-size: 16px; }
 .lp-steps h3 { font-size: 20px; margin-top: 12px; }
 .lp-steps p { color: var(--muted); margin-top: 4px; }
 
@@ -102,10 +102,10 @@
 .lp-foot li a:hover { color: var(--text); }
 
 /* v4.1 — page vivante : démo dans le héros, apparitions au défilement, bouton qui réagit. */
-.lp-hero-shot .lp-phone { box-shadow: 0 40px 80px -30px rgb(0 113 227 / 45%); }
+.lp-hero-shot .lp-phone { box-shadow: 0 40px 90px -30px rgb(255 106 61 / 55%); }
 .lp-hero-shot figcaption { max-width: 280px; margin-left: auto; margin-right: auto; }
-.lp-cta { gap: 10px; transition: background .2s, transform .15s, box-shadow .2s; box-shadow: 0 10px 24px -12px rgb(0 113 227 / 70%); }
-.lp-cta:hover { transform: translateY(-1px); box-shadow: 0 14px 30px -12px rgb(0 113 227 / 80%); }
+.lp-cta { gap: 10px; transition: background .2s, transform .15s, box-shadow .2s; box-shadow: 0 12px 30px -12px rgb(255 106 61 / 70%); }
+.lp-cta:hover { transform: translateY(-1px); box-shadow: 0 16px 34px -12px rgb(255 106 61 / 80%); }
 .lp-cta:active { transform: scale(.98); }
 .lp-arrow { display: inline-block; transition: transform .2s; }
 .lp-cta:hover .lp-arrow { transform: translateX(4px); }
@@ -120,7 +120,7 @@
 
 /* Mot du fondateur (pas d'avis client : une phrase vraie, signée) */
 .lp-why { padding-top: 0; }
-.lp-founder { margin: 0 auto; max-width: 760px; background: var(--surface); border-radius: 28px; padding: 32px 24px; }
+.lp-founder { margin: 0 auto; max-width: 760px; background: var(--surface); border: 1px solid var(--border); border-radius: 28px; padding: 32px 24px; }
 @media (min-width: 1024px) { .lp-founder { padding: 48px; } }
 .lp-founder h2 { font-size: clamp(22px, 5vw, 28px); }
 .lp-founder blockquote { margin: 14px 0 0; }

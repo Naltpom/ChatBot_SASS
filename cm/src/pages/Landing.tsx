@@ -14,7 +14,7 @@ import imgBibliotheque from '../landing/bibliotheque.webp'
 import imgGroupes from '../landing/groupes.webp'
 import Demo from '../landing/Demo'
 
-const CTA = 'Programmer mes vidéos gratuitement'
+const CTA = 'Planifier mes vidéos gratuitement'
 // « Donner mon avis » : le formulaire de l'app (connexion ou inscription d'abord) : on sait qui écrit.
 const FEEDBACK = '/avis'
 // Lien du Play Store : à renseigner quand l'app sera publique. Vide = badge masqué.
@@ -62,7 +62,7 @@ const FAQ: [string, string][] = [
 
 export default function Landing() {
   const { appUrl } = useSession()
-  useEffect(() => { document.title = 'Chapote CM · Programmez vos vidéos sur TikTok, YouTube et Instagram' }, [])
+  useEffect(() => { document.title = 'Chapote CM · Planifiez vos vidéos sur TikTok, YouTube et Instagram' }, [])
   // Apparition au défilement : un seul observateur pour toute la page. Sans lui, tout reste visible.
   const page = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -96,7 +96,7 @@ export default function Landing() {
               <ul className="lp-plats" aria-label="Réseaux pris en charge">
                 <li><i className="lp-dot tt" />TikTok</li><li><i className="lp-dot yt" />YouTube</li><li><i className="lp-dot ig" />Instagram</li>
               </ul>
-              <h1 id="lp-titre">Programmez vos vidéos courtes <em>sur tous vos comptes, en une fois.</em></h1>
+              <h1 id="lp-titre">Planifiez vos vidéos courtes <em>sur tous vos comptes, en une fois.</em></h1>
               <p className="lp-lead">Pour les créateurs, community managers et équipes. Choisissez la vidéo, les comptes et l’heure : Chapote CM publie à votre place et rassemble vos statistiques.</p>
               <div className="lp-act">
                 <Link to="/inscription" className="lp-cta">{CTA}<span aria-hidden="true" className="lp-arrow">→</span></Link>
@@ -132,7 +132,7 @@ export default function Landing() {
             <h2 id="lp-etapes">Prêt en trois étapes</h2>
             <ol className="lp-steps lp-rv">
               <li><b aria-hidden="true">1</b><h3>Connectez vos comptes</h3><p>Par les connexions officielles de TikTok, Google et Meta.</p></li>
-              <li><b aria-hidden="true">2</b><h3>Programmez</h3><p>Une vidéo, les comptes ou un groupe, et l’heure.</p></li>
+              <li><b aria-hidden="true">2</b><h3>Planifiez</h3><p>Une vidéo, les comptes ou un groupe, et l’heure.</p></li>
               <li><b aria-hidden="true">3</b><h3>Suivez les résultats</h3><p>Le statut de chaque publication, puis vos statistiques.</p></li>
             </ol>
           </div>
@@ -177,7 +177,7 @@ export default function Landing() {
 
       <footer className="lp-foot">
         <div className="lp-wrap lp-foot-in">
-          <div><p className="lp-foot-brand"><BrandMark size={24} />Chapote CM</p><p>Programmation et statistiques pour TikTok, YouTube et Instagram.</p></div>
+          <div><p className="lp-foot-brand"><BrandMark size={24} />Chapote CM</p><p>Planification et statistiques pour TikTok, YouTube et Instagram.</p></div>
           <div><h2>Chapote</h2><ul><li><a href={chapote}>chapote.fr</a></li><li><Link to="/connexion">Se connecter</Link></li><li><Link to={FEEDBACK}>Donner mon avis</Link></li></ul></div>
           <div><h2>Légal</h2><ul><li><Link to="/privacy">Confidentialité</Link></li><li><Link to="/terms">Conditions d’utilisation</Link></li><li><a href={`${chapote}/legal/mentions-legales`}>Mentions légales</a></li></ul></div>
           <div><h2>Plateformes</h2><ul><li><a href={`${chapote}/legal/tiktok-confidentialite`}>TikTok</a></li><li><a href={`${chapote}/legal/youtube-confidentialite`}>YouTube</a></li><li><a href={`${chapote}/legal/instagram-confidentialite`}>Instagram</a></li></ul></div>

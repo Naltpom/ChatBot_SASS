@@ -6,22 +6,22 @@
 .dm-bar { font-weight: 700; font-size: 16px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .dm-clock { font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 700; background: var(--surface); border: 1px solid var(--border); padding: 3px 9px; border-radius: 999px; }
 .dm-video { display: flex; gap: 10px; align-items: center; background: var(--surface); border-radius: 14px; padding: 8px; }
-.dm-thumb { flex: none; width: 44px; height: 62px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(160deg, #7c5cd6, #0071e3 60%, #25f4ee); }
+.dm-thumb { flex: none; width: 44px; height: 62px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(160deg, #ff6a3d, #c93f17 55%, #5a1f0c); }
 .dm-thumb svg { width: 22px; height: 22px; }
 .dm-video b { display: block; font-size: 13.5px; }
 .dm-video small { color: var(--muted); font-size: 12px; }
 .dm-label { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-top: 6px; }
 .dm-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .dm-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 0 10px; border-radius: 999px; border: 1.5px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background .2s, border-color .2s, color .2s, transform .15s; overflow: hidden; }
-.dm-chip[aria-pressed="true"] { border-color: #0071e3; background: #0071e3; color: #fff; }
+.dm-chip[aria-pressed="true"] { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
 .dm-chip:active, .dm-go:active { transform: scale(.96); }
 .dm-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
-.dm-go { position: relative; overflow: hidden; min-height: 46px; border: 0; border-radius: 999px; background: #0071e3; color: #fff; font: inherit; font-weight: 650; font-size: 15px; cursor: pointer; transition: transform .15s, opacity .2s; }
+.dm-go { position: relative; overflow: hidden; min-height: 46px; border: 0; border-radius: 999px; background: var(--primary); color: var(--on-primary); font: inherit; font-weight: 650; font-size: 15px; cursor: pointer; transition: transform .15s, opacity .2s; }
 .dm-go[aria-disabled="true"] { opacity: .55; cursor: default; }
 .dm-hint { min-height: 18px; font-size: 12px; color: var(--muted); text-align: center; }
 /* Onde de « toucher » pendant la lecture automatique */
-.tap::before { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px; border-radius: 50%; background: rgb(0 113 227 / 35%); animation: dm-tap .6s ease-out forwards; pointer-events: none; }
-.dm-go.tap::before { background: rgb(255 255 255 / 45%); }
+.tap::before { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px; border-radius: 50%; background: rgb(255 106 61 / 35%); animation: dm-tap .6s ease-out forwards; pointer-events: none; }
+.dm-go.tap::before { background: color-mix(in srgb, var(--on-primary) 40%, transparent); }
 @keyframes dm-tap { from { transform: scale(1); opacity: 1; } to { transform: scale(14); opacity: 0; } }
 
 .dm-day { font-size: 13px; font-weight: 700; }
