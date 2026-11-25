@@ -19,7 +19,7 @@ export class ApiError extends Error {
   constructor(public status: number, message: string, public data?: Record<string, any>) { super(message) }
 }
 
-let deviceToken: string | null = null
+let deviceToken: string | null = (globalThis as { __CM_DEMO__?: { signedIn: boolean } }).__CM_DEMO__?.signedIn ? 'demo' : null
 let session: { token: string; until: number } | null = null
 let refreshing: Promise<string> | null = null
 const signedOutListeners = new Set<() => void>()
@@ -27,6 +27,9 @@ const signedOutListeners = new Set<() => void>()
 export const onSignedOut = (fn: () => void) => { signedOutListeners.add(fn); return () => { signedOutListeners.delete(fn) } }
 
 export async function loadDevice(): Promise<string | null> {
+  // Version web de démonstration (captures d'écran) : voir ./demo.web.ts.
+  const demo = (globalThis as { __CM_DEMO__?: { signedIn: boolean } }).__CM_DEMO__
+  if (demo) { deviceToken = demo.signedIn ? 'demo' : null; return deviceToken }
   deviceToken = await SecureStore.getItemAsync(DEVICE_KEY).catch(() => null)
   return deviceToken
 }
