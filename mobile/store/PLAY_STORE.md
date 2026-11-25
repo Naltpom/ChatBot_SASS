@@ -40,7 +40,15 @@ Play Console → Créer une application
 - **Règles de confidentialité** : https://chapote.fr/legal/confidentialite
 - **Accès à l'application** : « Tout ou partie de l'application est soumis à des restrictions ». Donner un **compte de test** : e-mail et mot de passe, **sans double authentification**, déjà inscrit (étape « Vos informations » faite), avec au moins un compte connecté si possible. Google se connecte avec.
 - **Annonces** : Non, aucune publicité.
-- **Classification du contenu** : catégorie « Utilitaires, productivité, communication ». Répondre Non partout, sauf « Les utilisateurs peuvent-ils interagir ou échanger du contenu ? » : **Oui** (commentaires des réseaux).
+- **Classification du contenu** : catégorie « Utilitaires, productivité, communication ».
+  - **Contenu en ligne** (contenu absent du téléchargement mais accessible depuis l'appli) : **Oui**. Vidéos, commentaires des réseaux, statistiques, et un peu de contenu généré par l'IA : Gemini analyse les dossiers Drive (brouillons automatiques) et affiche une explication. Les légendes ne sont pas générées par l'IA.
+  - **Les utilisateurs peuvent-ils interagir ou échanger du contenu ?** : **Oui**, puis :
+    - le contenu des utilisateurs est au cœur de l'appli : **Oui** ;
+    - nudité ou violence réelle partagée publiquement : **Non** (rien n'est public dans l'appli) ;
+    - bloquer des utilisateurs : **Oui** (retirer l'accès d'une personne invitée ; masquer un commentaire sur Instagram et YouTube) ;
+    - signaler : **Non** ; modération par Chapote : **Non** ;
+    - interactions limitées aux invités : **Non** (on peut répondre publiquement aux commentaires d'inconnus).
+  - Le reste : **Non**.
 - **Public cible** : 16-17 ans et 18 ans et plus. L'app est réservée aux 15 ans et plus. N'attire pas les enfants.
 - **Applications d'actualités** : Non.
 - **Applications de santé / financières / gouvernementales** : Non.
