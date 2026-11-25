@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react'
 import { FlatList, Pressable, RefreshControl, View } from 'react-native'
 import { getPosts, PLATFORM_LABEL, type Post, type Target } from '../lib/api'
 import { useSession } from '../lib/session'
-import { Empty, Icon, Msg, PlatformLogo, Skeleton, Txt } from '../ui/kit'
+import { Button, Empty, Icon, Msg, PlatformLogo, Seg, Skeleton, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
 
 type Ev = { key: string; post: Post; t: Target; at: string; kind: 'published' | 'failed' | 'draft' }
@@ -20,7 +20,10 @@ const ago = (iso: string) => {
 export default function Activity() {
   const router = useRouter()
   const { c } = useTheme()
-  const { scope } = useSession()
+  const { scope, spaces, accounts, invitations } = useSession()
+  const [tab, setTab] = useState<'posts' | 'system'>('posts')
+  // Système : ce qui ne vient pas d'une publication (Drive, comptes à reconnecter, invitations).
+  const system: { key: string; icon: 'folder' | 'refresh' | 'users'; tone: string; title: string; text: string; cta: string; go: () => void }[] = []
   const [items, setItems] = useState<Ev[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const load = useCallback(() => {
@@ -44,21 +47,41 @@ export default function Activity() {
     draft: { icon: 'clock', color: c.warn, title: 'Brouillon TikTok à publier' },
   } as const
   const todo = (items || []).filter(i => i.kind !== 'published').length
+  for (const sp of spaces) {
+    const st = sp.storage?.state
+    if (st === 'full' || st === 'almost_full' || (st === 'missing' && sp.accounts)) system.push({ key: `s${sp.org_id}`, icon: 'folder', tone: st === 'almost_full' ? c.warn : c.danger,
+      title: st === 'missing' ? 'Google Drive à relier' : st === 'full' ? 'Stockage Drive plein' : 'Stockage Drive presque plein',
+      text: `${sp.name} · ${st === 'missing' ? 'obligatoire pour publier' : 'les nouvelles vidéos risquent d’être refusées'}`, cta: st === 'missing' ? 'Relier' : 'Voir', go: () => router.push('/storage') })
+  }
+  for (const a of accounts.filter(x => x.needs_reconnect)) system.push({ key: `a${a.platform}${a.id}`, icon: 'refresh', tone: c.danger,
+    title: `${PLATFORM_LABEL[a.platform]} à reconnecter`, text: `${a.name || a.handle || ''} · les publications sur ce compte sont en pause`, cta: 'Reconnecter', go: () => router.push('/accounts') })
+  for (const i of invitations) system.push({ key: `i${i.id}`, icon: 'users', tone: c.primary,
+    title: `Invitation : ${i.group_name}`, text: `${i.invited_by || i.owner || 'Une équipe'} vous invite · ${i.role_label}`, cta: 'Voir', go: () => router.push('/accounts') })
 
   return (
     <FlatList
       style={{ flex: 1, backgroundColor: c.bg }}
       contentContainerStyle={{ padding: space.lg, gap: space.sm, paddingBottom: 48, width: '100%', maxWidth: 820, alignSelf: 'center' }}
-      data={items || []}
+      data={tab === 'posts' ? items || [] : []}
       keyExtractor={i => i.key}
       refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={c.muted} />}
       ListHeaderComponent={
         <View style={{ gap: space.sm, paddingBottom: space.sm }}>
+          <Seg label="Type d’activité" value={tab} onChange={setTab} options={[['posts', `Publications${todo ? ` (${todo})` : ''}`], ['system', `Système${system.length ? ` (${system.length})` : ''}`]]} />
           {err ? <Msg kind="err">{err}</Msg> : null}
-          {items ? <Txt small muted>{todo ? `${todo} à regarder · ` : ''}14 derniers jours</Txt> : null}
+          {tab === 'posts' && items ? <Txt small muted>{todo ? `${todo} à regarder · ` : ''}14 derniers jours</Txt> : null}
+          {tab === 'system' ? (system.length ? system.map(x => (
+            <View key={x.key} style={{ flexDirection: 'row', gap: space.md, padding: space.md, borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center' }}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.surface2, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name={x.icon} size={18} color={x.tone} />
+              </View>
+              <View style={{ flex: 1, gap: 2 }}><Txt bold>{x.title}</Txt><Txt small muted numberOfLines={2}>{x.text}</Txt></View>
+              <Button small title={x.cta} onPress={x.go} />
+            </View>
+          )) : <Empty title="Tout va bien" icon="check">Drive, comptes et invitations : rien à faire pour l’instant.</Empty>) : null}
         </View>
       }
-      ListEmptyComponent={!items ? <View style={{ gap: space.sm }}><Skeleton h={64} n={5} /></View>
+      ListEmptyComponent={tab === 'system' ? undefined : !items ? <View style={{ gap: space.sm }}><Skeleton h={64} n={5} /></View>
         : <Empty title="Rien de neuf" icon="bell">Les vidéos publiées, les échecs et les brouillons TikTok à valider apparaîtront ici.</Empty>}
       renderItem={({ item: i }) => {
         const l = look[i.kind]

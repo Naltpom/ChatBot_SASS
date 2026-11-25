@@ -1,7 +1,8 @@
 // Fin de la première visite : une réussite claire, et la demande de notifications au moment où elle a du sens.
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
-import { useState } from 'react'
-import { Platform as RNPlatform, View } from 'react-native'
+import * as Haptics from 'expo-haptics'
+import { useEffect, useRef, useState } from 'react'
+import { Animated, Platform as RNPlatform, View } from 'react-native'
 import { enablePush } from '../../lib/push'
 import { StickyFooter } from '../../features/steps'
 import { Card, H1, Icon, Msg, Screen, Txt, Button } from '../../ui/kit'
@@ -12,6 +13,12 @@ export default function Done() {
   const { c } = useTheme()
   const { when, accounts } = useLocalSearchParams<{ when?: string; accounts?: string }>()
   const [err, setErr] = useState<string | null>(null)
+  // Célébration : la 1re vidéo programmée est le moment fort de l'inscription.
+  const pop = useRef(new Animated.Value(0.4)).current
+  useEffect(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+    Animated.spring(pop, { toValue: 1, friction: 4, tension: 120, useNativeDriver: true }).start()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const finish = () => router.replace('/')
   const notify = async () => {
     setErr(null)
@@ -28,11 +35,11 @@ export default function Done() {
     }>
       <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
       <View style={{ alignItems: 'center', gap: space.md, paddingTop: 72 }}>
-        <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: c.okBg, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="check" size={36} color={c.ok} strokeWidth={2.6} />
-        </View>
+        <Animated.View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: c.okBg, alignItems: 'center', justifyContent: 'center', transform: [{ scale: pop }] }}>
+          <Icon name="check" size={48} color={c.ok} strokeWidth={2.6} />
+        </Animated.View>
         <H1>C’est programmé !</H1>
-        <Txt muted center>{when ? `Votre vidéo partira ${when}` : 'Votre vidéo est dans le planning'}{accounts ? ` sur ${accounts}` : ''}. Vous n’avez plus rien à faire.</Txt>
+        <Txt muted center>{when ? `Votre vidéo partira ${when}` : 'Votre vidéo est dans le planning'}{accounts ? ` sur ${accounts}` : ''}. Chapote s’occupe de la suite, même téléphone éteint.</Txt>
       </View>
       <Card style={{ borderRadius: radius.lg }}>
         <Txt bold>Être prévenu quand elle est en ligne ?</Txt>

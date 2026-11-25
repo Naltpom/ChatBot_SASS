@@ -10,6 +10,8 @@ import { getCalendar, PLATFORM_LABEL, PLATFORMS, type Platform } from '../../lib
 import { short } from '../../lib/format'
 import { useLoad, useRole, useSession } from '../../lib/session'
 import { StartChecklist } from '../../features/StartChecklist'
+import { AttentionBar } from '../../features/Attention'
+import { ExampleWeek } from '../../features/ExampleWeek'
 import { Button, Chip, Delta, Empty, Icon, Msg, PlatformLogo, Row, SearchField, Seg, Skeleton, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import {
@@ -91,7 +93,10 @@ export default function Planning() {
 
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.sm }}>
-      {flash ? <Msg kind="ok">{flash}</Msg> : null}
+      {flash ? (
+        <Msg kind="ok">{flash}{canEdit ? <Txt bold color={c.primary} onPress={() => router.push('/new')}>{'  '}Programmer la suivante →</Txt> : null}</Msg>
+      ) : null}
+      {!search ? <AttentionBar /> : null}
       {!search ? <StartChecklist /> : null}
       <SearchField value={input} onChangeText={setInput} placeholder="Rechercher (titre, légende)" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} accessibilityLabel="Plateformes">
@@ -154,8 +159,8 @@ export default function Planning() {
         action={<Button kind="secondary" title="Tout afficher" onPress={() => setKind('all')} />}>
         Le filtre « {kind === 'done' ? 'Publié' : 'Programmé'} » est actif.
       </Empty>
-    ) : (
-      <Empty title={isPast ? 'Aucune publication ce jour-là' : summary.planned + summary.done === 0 && canEdit ? 'Votre semaine est vide' : 'Rien de prévu ce jour-là'} icon="calendar"
+    ) : !isPast && canEdit && summary.planned + summary.done === 0 ? <ExampleWeek canEdit={canEdit} /> : (
+      <Empty title={isPast ? 'Aucune publication ce jour-là' : 'Rien de prévu ce jour-là'} icon="calendar"
         action={!isPast && canEdit ? <Button kind="primary" icon="plus" title="Programmer une vidéo" onPress={() => router.push('/new')} /> : undefined}>
         {isPast ? 'Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.' : 'Programmez une vidéo : elle partira toute seule à l’heure choisie, sur chaque compte.'}
       </Empty>

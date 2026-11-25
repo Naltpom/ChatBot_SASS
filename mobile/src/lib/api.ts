@@ -9,7 +9,7 @@ export type Platform = 'tiktok' | 'youtube' | 'instagram'
 export const PLATFORMS: Platform[] = ['tiktok', 'youtube', 'instagram']
 export const PLATFORM_LABEL: Record<Platform, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
 
-export interface Me { id: number; email: string; name: string; avatar_url?: string | null; auth_source?: 'local' | 'google' | string; twofa_enabled?: boolean }
+export interface Me { id: number; email: string; name: string; avatar_url?: string | null; auth_source?: 'local' | 'google' | string; twofa_enabled?: boolean; email_verified?: boolean }
 export interface TwoFAChallenge { twofa_required: true; challenge: string; methods: { totp: boolean; passkey: boolean; recovery: boolean } }
 
 export interface Stats {
@@ -415,3 +415,8 @@ export function inviteToken(text: string): string | null {
   if (m) return m[1]
   return /^[A-Za-z0-9_-]{16,100}$/.test(t) ? t : null
 }
+
+// Question courte au moment d'un abandon (api/src/routers/cm_mobile.py)
+export type AbandonReason = 'no_video' | 'too_complex' | 'when' | 'accounts' | 'other'
+export const sendFeedback = (reason: AbandonReason, text?: string) =>
+  send<{ ok: boolean }>('POST', '/api/cm/mobile/feedback', { context: 'new_post_abandon', reason, text: text || undefined })

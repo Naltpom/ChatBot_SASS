@@ -100,11 +100,14 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
                   onPress={() => act(() => publishNow(item.id), { title: 'Publier maintenant ?', message: `La vidéo part tout de suite sur ${name}.`, ok: 'Publier' })} />
               ) : null}
               {item.can_retry ? <Button small kind="primary" icon="refresh" title="Réessayer" disabled={busy} onPress={() => act(() => retryTarget(item.id))} /> : null}
-              {item.can_edit ? (
-                <Button small kind="danger" icon="close" title="Annuler" disabled={busy}
-                  onPress={() => act(() => cancelTarget(item.id), { title: 'Annuler la publication ?', message: `Elle ne partira pas sur ${name}.`, ok: 'Annuler la publication', destructive: true })} />
-              ) : null}
             </Row>
+          ) : null}
+          {item.kind === 'target' && canEdit && !editing && !inbox && item.can_edit ? (
+            // Action destructive à l'écart des actions principales (loi de Fitts) : plus petite, seule, en rouge.
+            <View style={{ alignItems: 'flex-end', marginTop: space.sm }}>
+              <Button small kind="danger" title="Annuler cette publication" disabled={busy}
+                onPress={() => act(() => cancelTarget(item.id), { title: 'Annuler la publication ?', message: `Elle ne partira pas sur ${name}.`, ok: 'Annuler la publication', destructive: true })} />
+            </View>
           ) : null}
         </View>
       ) : null}

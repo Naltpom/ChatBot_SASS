@@ -6,6 +6,7 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Pressable, View } from 'react-native'
 import { getPosts } from '../lib/api'
+import { call } from '../lib/http'
 import { useLock } from '../lib/lock'
 import { enablePush, getPush, pushUnsupported } from '../lib/push'
 import { useSession } from '../lib/session'
@@ -26,6 +27,7 @@ export function StartChecklist() {
   const [hidden, setHidden] = useState<boolean | null>(null)
   const [push, setPush] = useState<boolean | null>(null)
   const [hasPost, setHasPost] = useState<boolean | null>(null)
+  const [mailSent, setMailSent] = useState(false)
   const key = `cm.checklist.hidden.${me?.id}`
   useEffect(() => { AsyncStorage.getItem(key).then(v => setHidden(v === '1')).catch(() => setHidden(false)) }, [key])
   useFocusEffect(useCallback(() => {
@@ -42,6 +44,9 @@ export function StartChecklist() {
       { key: 'drive', title: 'Relier Google Drive', done: !!storage && storage.state !== 'missing', run: () => router.push('/storage') },
       { key: 'video', title: 'Programmer une première vidéo', done: !!hasPost, run: () => router.push('/new') },
     ] : []),
+    // Vérification de l'e-mail demandée après la 1re victoire, pas à l'inscription.
+    ...(hasPost && me && me.email_verified === false ? [{ key: 'email', title: mailSent ? `E-mail envoyé à ${me.email} : ouvrez le lien` : 'Confirmer mon adresse e-mail', done: false,
+      run: () => { call('/api/auth/verify-email/request', { method: 'POST', body: '{}' }).then(() => setMailSent(true)).catch(() => setMailSent(true)) } }] : []),
     ...(pushUnsupported() ? [] : [{ key: 'push', title: 'Être prévenu quand une vidéo part', done: !!push, run: () => { enablePush().then(r => { if (typeof r !== 'string') setPush(r.enabled) }) } }]),
     ...(lock.supported ? [{ key: 'lock', title: `Protéger l’app par ${lock.label.toLowerCase()}`, done: lock.enabled, run: () => { lock.setEnabled(true) } }] : []),
     ...(own.length >= 2 ? [{ key: 'groups', title: 'Ranger vos comptes en groupes', done: groups.length > 0, run: () => router.push('/setup/groups') }] : []),

@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import { File } from 'expo-file-system'
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { useSharedVideo } from '../lib/share'
 import { StorageBanner } from '../features/storage'
 import { useVideoPlayer, VideoView } from 'expo-video'
@@ -14,13 +14,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
-  creatorInfo, createPost, isRisky, RIGHTS_LABEL, RIGHTS_WARNING, type Rights, deletePost, getAccounts, getAsset, getProposal, getRobot, submitPost, PLATFORM_LABEL,
+  creatorInfo, createPost, sendFeedback, type AbandonReason, isRisky, RIGHTS_LABEL, RIGHTS_WARNING, type Rights, deletePost, getAccounts, getAsset, getProposal, getRobot, submitPost, PLATFORM_LABEL,
   type Account, type Asset,
 } from '../lib/api'
 import { fmtDuration, fmtSize, TIKTOK_BC_URL, TIKTOK_MUSIC_URL, TIKTOK_PRIVACY } from '../lib/format'
 import { useLoad, useRole, useSession } from '../lib/session'
 import { uploadCover, uploadParts } from '../lib/upload'
-import { Avatar, Button, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg, Txt } from '../ui/kit'
+import { Avatar, Button, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg, Sheet, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
 import {
   accKey, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nextHour, problems as findProblems,
@@ -31,6 +31,13 @@ import { LibrarySheet } from '../features/planning/LibrarySheet'
 import { apiUrl, openLink, useAuthHeaders } from '../features/planning/media'
 import { InstaPanel, TikTokPanel, YouTubePanel } from '../features/planning/Panels'
 import { Check, DateTimeField, Section } from '../features/planning/ui'
+
+const TIPS = [
+  'vous pouvez fermer l’app : l’envoi reprend où il s’est arrêté.',
+  'déposez vos vidéos dans votre dossier Drive : elles arrivent dans la Bibliothèque, prêtes à programmer.',
+  'une légende écrite une fois part sur chaque compte ; vous pouvez l’adapter par réseau.',
+  'les heures de 18 h à 21 h marchent souvent bien pour les vidéos courtes.',
+]
 
 interface PickedVideo { uri: string; name: string; size: number; duration: number | null; mime: string | null }
 interface Cover { uri: string; mime: string }
@@ -92,6 +99,26 @@ export default function NewPost() {
   const [picking, setPicking] = useState(false)
   const [library, setLibrary] = useState(false)
   const busy = progress != null
+  const [errCode, setErrCode] = useState<string | null>(null)
+  const published = useRef(false)
+  // Quitter sans publier : une seule question facultative (une fois par semaine au plus).
+  const navigation = useNavigation()
+  const [ask, setAsk] = useState<null | (() => void)>(null)
+  const [otherText, setOtherText] = useState('')
+  useEffect(() => (navigation as any).addListener('beforeRemove', (e: any) => {
+    if (published.current || ask || (!video && !asset && !title.trim() && !caption.trim())) return
+    e.preventDefault()
+    const leave = () => navigation.dispatch(e.data.action)
+    AsyncStorage.getItem('cm.feedback.asked').then(v => {
+      if (v && Date.now() - Number(v) < 7 * 864e5) { leave(); return }
+      AsyncStorage.setItem('cm.feedback.asked', String(Date.now())).catch(() => {})
+      setAsk(() => leave)
+    }).catch(leave)
+  }), [navigation, video, asset, title, caption, ask])
+  const answer = (reason: AbandonReason | null) => {
+    if (reason) sendFeedback(reason, reason === 'other' ? otherText.trim() : undefined).catch(() => {})
+    const go = ask; setAsk(null); go?.()
+  }
   // Envoi interrompu : on reprend le même post (même contenu) là où il s'est arrêté.
   const sent = useRef<{ sig: string; postId: number; partSize: number; done: number } | null>(null)
 
@@ -251,7 +278,7 @@ export default function NewPost() {
       ], { cancelable: true, onDismiss: () => res(false) }))
       if (!ok) return
     }
-    setErr(''); setProgress(0)
+    setErr(''); setErrCode(null); setProgress(0)
     const s = { ...state, caption, rights: rights || undefined, rightsNote }
     try {
       if (asset) {
@@ -278,6 +305,7 @@ export default function NewPost() {
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
       clearDraft()
+      published.current = true
       const flash = asset
         ? (when === 'now' ? 'Publication lancée depuis la bibliothèque.' : 'Publication programmée : la vidéo sera récupérée dans le Drive à l’heure prévue.')
         : (when === 'now' ? 'Publication lancée.' : 'Publication programmée.')
@@ -291,6 +319,7 @@ export default function NewPost() {
       router.dismissTo({ pathname: '/', params: { day: landingDay(s), flash, t: String(Date.now()) } })
     } catch (e) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+      setErrCode(((e as { data?: { code?: string } }).data?.code) || null)
       setErr(`${(e as Error).message}${sent.current ? ' Touchez de nouveau le bouton : l’envoi reprendra où il s’est arrêté.' : ''}`)
       setProgress(null)
     }
@@ -301,7 +330,7 @@ export default function NewPost() {
     <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: insets.bottom + space.md, gap: space.sm,
       backgroundColor: c.surface, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border }}>
       <Txt small muted numberOfLines={2} accessibilityRole="text">
-        {busy ? (video && !asset ? `Envoi de la vidéo… ${pct} %${video.size ? ` (${fmtSize(video.size * (progress || 0))} / ${fmtSize(video.size)})` : ''}` : 'Envoi…')
+        {busy ? (video && !asset ? pct >= 100 ? 'Vidéo envoyée · préparation de la publication…' : `Envoi de la vidéo… ${pct} %${video.size ? ` (${fmtSize(video.size * (progress || 0))} / ${fmtSize(video.size)})` : ''}` : 'Envoi…')
           : problems.length && state.hasVideo && n ? problems[0] : summary}
       </Txt>
       {busy ? (
@@ -310,6 +339,7 @@ export default function NewPost() {
           <View style={{ width: `${pct}%`, height: 6, backgroundColor: c.primary }} />
         </View>
       ) : null}
+      {busy ? <Txt size={12} faint>Astuce · {TIPS[Math.floor(Date.now() / 6000) % TIPS.length]}</Txt> : null}
       {busy ? <Txt size={12} faint>Gardez l’app ouverte pendant l’envoi.</Txt> : null}
       <Button kind="primary" icon={when === 'now' ? 'bolt' : 'clock'} title={busy ? 'Envoi en cours…' : n ? cta : 'Choisir les comptes'}
         loading={busy} disabled={!canEdit || (n > 0 && problems.length > 0)} onPress={() => (n ? publish() : setPicking(true))} />
@@ -452,11 +482,23 @@ export default function NewPost() {
           </Txt>
         ) : null}
         {err ? <Msg kind="err">{err}</Msg> : null}
+        {errCode === 'storage_required' || errCode === 'storage_full' ? (
+          <Button icon="folder" title={errCode === 'storage_full' ? 'Voir le stockage' : 'Relier Google Drive'} onPress={() => router.push('/storage')} />
+        ) : null}
         {problems.length > 0 && n > 0 && state.hasVideo ? (
           <View style={{ gap: 4 }} accessibilityLabel="À corriger avant l’envoi">
             {problems.map(p => <Txt key={p} small muted>• {p}</Txt>)}
           </View>
         ) : null}
+        <Sheet visible={!!ask} title="Une question rapide" onClose={() => answer(null)}>
+          <Txt muted>Qu’est-ce qui vous a arrêté ? Facultatif, ça nous aide à simplifier l’app.</Txt>
+          {([['no_video', 'Ma vidéo n’était pas prête'], ['when', 'Je ne savais pas quand publier'], ['accounts', 'Un souci avec mes comptes'], ['too_complex', 'C’était trop compliqué']] as [AbandonReason, string][]).map(([k, l]) => (
+            <Button key={k} title={l} onPress={() => answer(k)} />
+          ))}
+          <Field label="Autre raison" value={otherText} onChangeText={setOtherText} maxLength={500} placeholder="En quelques mots" />
+          {otherText.trim() ? <Button kind="primary" title="Envoyer" onPress={() => answer('other')} /> : null}
+          <Button kind="ghost" title="Passer" onPress={() => answer(null)} />
+        </Sheet>
       </Screen>
 
       <AccountSheet visible={picking} onClose={() => setPicking(false)} picked={picked} detail={detail}
