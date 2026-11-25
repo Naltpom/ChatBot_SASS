@@ -1,13 +1,11 @@
-// Coque de l'application (mobile d'abord). En haut des pages de suivi (Accueil, Planning, Stats,
-// Vidéos) : une barre de filtres qui défile (Tous, groupes, comptes), un geste pour changer. Les
-// pages de gestion (Comptes, Bibliothèque, Partage) n'ont pas la barre. Pas d'« espaces » visibles.
-// Mobile : onglets en bas, « Publier » au centre.
+// Coque de l'application, alignée sur l'app mobile : Planning (page d'accueil), Commentaires, « + », Stats,
+// Bibliothèque ; Comptes et Réglages en haut à droite. Pages de suivi (Planning, Stats, Vidéos,
+// Commentaires, À valider) : barre de filtres (Tous, groupes, comptes). Pas d'« espaces » visibles.
+// Mobile : onglets en bas comme l'app ; ordinateur : barre latérale.
 import { StorageGate } from './Storage'
 import { Component, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import FeedbackSheet from './FeedbackSheet'
-import { getPalette, PALETTES, setPalette as savePalette, type Palette } from '../palette'
-import { useSession } from '../session'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useRole, useSession } from '../session'
 import { getProposalCount, PLATFORM_LABEL, type Account, type Group } from '../api'
 import { PlatformLogo } from './PlatformLogo'
 import { useDesktop } from '../hooks'
@@ -15,20 +13,21 @@ import { AccountPicker, accKey, usePins, type PinKey } from './AccountPicker'
 import { Avatar, Brand, GroupDot, Icon, Sheet, type IconName } from './ui'
 
 // Pages « suivi » : filtrées par la barre de comptes. Pages « gestion » : tout l'espace.
-const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
-  { to: '/', label: 'Accueil', icon: 'home', end: true },
+// Mêmes onglets que l'app mobile, dans le même ordre (« + » au centre sur téléphone).
+const NAV: { to: string; label: string; icon: IconName; also?: string[] }[] = [
   { to: '/planning', label: 'Planning', icon: 'calendar' },
-  { to: '/a-valider', label: 'À valider', icon: 'check' },
-  { to: '/stats', label: 'Stats', icon: 'chart' },
-  { to: '/videos', label: 'Vidéos', icon: 'video' },
   { to: '/commentaires', label: 'Commentaires', icon: 'comment' },
+  { to: '/stats', label: 'Stats', icon: 'chart', also: ['/videos'] },
+  { to: '/bibliotheque', label: 'Bibliothèque', icon: 'folder' },
 ]
 const MANAGE: { to: string; label: string; icon: IconName }[] = [
   { to: '/comptes', label: 'Comptes', icon: 'users' },
-  { to: '/bibliotheque', label: 'Bibliothèque', icon: 'layers' },
-  { to: '/partage', label: 'Partage', icon: 'users' },
+  { to: '/partage', label: 'Partage', icon: 'share' },
+  { to: '/reglages', label: 'Réglages', icon: 'settings' },
 ]
-const FILTERED = (path: string) => path === '/' || path === '/videos' || ['/planning', '/a-valider', '/stats', '/commentaires'].some(p => path.startsWith(p))
+const TITLES: [string, string][] = [['/a-valider', 'À valider'], ['/videos', 'Stats'], ['/reglages', 'Réglages']]
+const FILTERED = (path: string) => ['/planning', '/a-valider', '/stats', '/videos', '/commentaires'].some(p => path.startsWith(p))
+const isOn = (path: string, n: { to: string; also?: string[] }) => [n.to, ...(n.also || [])].some(p => path.startsWith(p))
 
 /** Barre de filtres des pages de suivi : « Tous » (mes comptes + les groupes partagés avec moi), vos
  *  épinglés, vos derniers choix, et « Choisir… » (recherche, onglets Groupes / Comptes). Les groupes
@@ -106,60 +105,17 @@ function ScopeBar() {
   )
 }
 
-function AccountMenu() {
-  const { me, appUrl, signOut } = useSession()
-  const [open, setOpen] = useState(false)
-  // « Donner mon avis » : depuis ce menu, ou par le lien /avis (page d'accueil, après connexion) → ?avis=1.
-  const { search, pathname } = useLocation()
-  const navigate = useNavigate()
-  const [feedback, setFeedback] = useState(false)
-  const [palette, setPalette] = useState<Palette>(getPalette)
-  const pick = (p: Palette) => { setPalette(p); savePalette(p) }
-  useEffect(() => { if (new URLSearchParams(search).get('avis') === '1') setFeedback(true) }, [search])
-  const closeFeedback = () => {
-    setFeedback(false)
-    if (new URLSearchParams(search).get('avis') === '1') navigate(pathname, { replace: true })
-  }
-  const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', esc)
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc) }
-  }, [open])
+/** En haut à droite, comme l'app : Comptes et Réglages (pastille : brouillons à valider + invitations). */
+function HeaderActions({ badge }: { badge: number }) {
   return (
-    <div ref={box} style={{ position: 'relative' }}>
-      <button type="button" className="btn btn-ghost icon-btn" aria-label="Mon compte" aria-expanded={open} onClick={() => setOpen(o => !o)}>
-        <Avatar src={me?.avatar_url} name={me?.name || me?.email} size="sm" />
-      </button>
-      {open && (
-        <div className="menu-pop" role="menu">
-          <div style={{ padding: '8px 12px 10px' }}>
-            <div className="strong ellipsis">{me?.name}</div>
-            <div className="small muted ellipsis">{me?.email}</div>
-          </div>
-          <div className="menu-sep" />
-          <a className="menu-item" role="menuitem" href={`${appUrl.replace(/\/$/, '')}/app`}><Icon name="external" />Espace client chapote.fr</a>
-          <a className="menu-item" role="menuitem" href={`${appUrl.replace(/\/$/, '')}/app/profile`}><Icon name="shield" />Sécurité du compte</a>
-          <div className="menu-sep" />
-          <div className="small muted" style={{ padding: '6px 12px 2px', fontWeight: 600 }} id="palette-label">Couleur de l’app</div>
-          <div className="palette-pick" role="radiogroup" aria-labelledby="palette-label">
-            {PALETTES.map(p => (
-              <button key={p.id} type="button" role="radio" aria-checked={palette === p.id} onClick={() => pick(p.id)}>
-                <span className="sw" style={{ background: p.color }} aria-hidden="true" />{p.label}
-              </button>
-            ))}
-          </div>
-          <div className="menu-sep" />
-          <button type="button" className="menu-item" role="menuitem" onClick={() => { setOpen(false); setFeedback(true) }}><Icon name="comment" />Donner mon avis</button>
-          <div className="menu-sep" />
-          <button type="button" className="menu-item" role="menuitem" onClick={signOut}><Icon name="logout" />Se déconnecter</button>
-        </div>
-      )}
-      {feedback && <FeedbackSheet onClose={closeFeedback} />}
-    </div>
+    <span className="row-nw" style={{ gap: 2 }}>
+      <NavLink to="/comptes" className="btn btn-ghost icon-btn" aria-label="Comptes connectés" title="Comptes connectés"><Icon name="users" /></NavLink>
+      <NavLink to="/reglages" className="btn btn-ghost icon-btn" style={{ position: 'relative' }} title="Réglages"
+               aria-label={badge ? `Réglages (${badge} à voir)` : 'Réglages'}>
+        <Icon name="settings" />
+        {badge > 0 && <span className="nav-badge" style={{ position: 'absolute', top: 2, right: 0, transform: 'scale(.8)' }} aria-hidden="true">{badge > 99 ? '99+' : badge}</span>}
+      </NavLink>
+    </span>
   )
 }
 
@@ -183,30 +139,33 @@ class PageBoundary extends Component<{ children: ReactNode; path: string }, { fa
 export default function Layout({ fallback }: { fallback?: ReactNode }) {
   const { pathname } = useLocation()
   const { invitations } = useSession()
+  const { canEdit } = useRole()
   const composing = pathname === '/nouvelle'
   const filtered = FILTERED(pathname)
-  const title = composing ? 'Nouvelle publication' : [...NAV, ...MANAGE].find(n => ('end' in n && n.end ? pathname === n.to : pathname.startsWith(n.to)))?.label
+  const title = composing ? 'Nouvelle publication'
+    : TITLES.find(([p]) => pathname.startsWith(p))?.[1] || [...NAV, ...MANAGE].find(n => pathname.startsWith(n.to))?.label
   useEffect(() => { window.scrollTo(0, 0) }, [pathname])
   // Brouillons à valider (pastille ; onglet caché s'il n'y en a aucun pour ce qui est affiché) : relu à chaque changement de page.
   const [drafts, setDrafts] = useState<number | null>(null)
   const { scope } = useSession()
   useEffect(() => { getProposalCount(scope).then(r => setDrafts(r.open)).catch(() => setDrafts(0)) }, [scope, pathname])
-  const nav = NAV.filter(n => n.to !== '/a-valider' || drafts !== 0 || pathname.startsWith('/a-valider'))
 
   return (
     <div className="app">
       <a href="#contenu" className="skip">Aller au contenu</a>
       <aside className="sidebar" aria-label="Navigation">
-        <Brand to="/" />
+        <Brand to="/planning" />
         <Link to="/nouvelle" className="btn btn-primary btn-block" style={{ margin: '8px 0 10px' }}><Icon name="plus" />Nouvelle publication</Link>
         <nav className="side-nav" aria-label="Navigation principale">
-          <div className="side-label">Suivi · filtrable</div>
-          {nav.map(n => (
-            <NavLink key={n.to} to={n.to} end={n.end}><Icon name={n.icon} />{n.label}
-              {n.to === '/a-valider' && !!drafts && <span className="nav-badge" aria-label={`${drafts} à valider`}>{drafts > 99 ? '99+' : drafts}</span>}
-            </NavLink>
+          {NAV.map(n => (
+            <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} />{n.label}</NavLink>
           ))}
-          <div className="side-label">Gestion</div>
+          {(!!drafts || pathname.startsWith('/a-valider')) && (
+            <NavLink to="/a-valider"><Icon name="check" />À valider
+              {!!drafts && <span className="nav-badge" aria-label={`${drafts} à valider`}>{drafts > 99 ? '99+' : drafts}</span>}
+            </NavLink>
+          )}
+          <div className="side-label">Mon espace</div>
           {MANAGE.map(n => <NavLink key={n.to} to={n.to}><Icon name={n.icon} />{n.label}
             {n.to === '/partage' && invitations > 0 && <span className="nav-badge" aria-label={`${invitations} invitation${invitations > 1 ? 's' : ''}`}>{invitations}</span>}
           </NavLink>)}
@@ -220,11 +179,10 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
         <header className="appbar">
           {composing
             ? <Link to="/planning" className="btn btn-ghost icon-btn only-mobile" aria-label="Retour au planning"><Icon name="left" /></Link>
-            : <span className="only-mobile row-nw" style={{ gap: 8, minWidth: 0 }}><Brand to="/" /></span>}
+            : <span className="only-mobile row-nw" style={{ gap: 8, minWidth: 0 }}><Brand to="/planning" /></span>}
           <span className={`appbar-title${composing ? '' : ' only-desktop'}`}>{title}</span>
           <span className="grow" />
-          {!composing && <MobileMore drafts={drafts || 0} invitations={invitations} />}
-          <AccountMenu />
+          {!composing && <HeaderActions badge={(drafts || 0) + invitations} />}
         </header>
         {filtered && <ScopeBar />}
         <main id="contenu" className={`content${composing ? ' no-tabbar' : ''}`}>
@@ -235,38 +193,11 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
 
       {!composing && (
         <nav className="tabbar" aria-label="Navigation principale">
-          {NAV.slice(0, 2).map(n => <NavLink key={n.to} to={n.to} end={n.end}><Icon name={n.icon} size={22} />{n.label}</NavLink>)}
-          <Link to="/nouvelle" className="fab" aria-label="Nouvelle publication"><Icon name="plus" size={26} /></Link>
-          <NavLink to="/stats"><Icon name="chart" size={22} />Stats</NavLink>
-          <NavLink to="/comptes"><Icon name="users" size={22} />Comptes</NavLink>
+          {NAV.slice(0, 2).map(n => <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} size={22} />{n.label}</NavLink>)}
+          {canEdit && <Link to="/nouvelle" className="fab" aria-label="Nouvelle publication"><Icon name="plus" size={26} /></Link>}
+          {NAV.slice(2).map(n => <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} size={22} />{n.label}</NavLink>)}
         </nav>
       )}
     </div>
-  )
-}
-
-/** Mobile : les pages hors de la barre du bas (Vidéos, Bibliothèque, Personnes). */
-function MobileMore({ drafts, invitations }: { drafts: number; invitations: number }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <span className="only-mobile">
-      <button type="button" className="btn btn-ghost icon-btn" aria-label={drafts || invitations ? `Plus de pages (${[drafts ? `${drafts} à valider` : '', invitations ? `${invitations} invitation${invitations > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ')})` : 'Plus de pages'} onClick={() => setOpen(true)} style={{ position: 'relative' }}>
-        <Icon name="menu" />{drafts + invitations > 0 && <span className="nav-badge" style={{ position: 'absolute', top: 2, right: 0, transform: 'scale(.8)' }} aria-hidden="true">{drafts + invitations > 99 ? '99+' : drafts + invitations}</span>}
-      </button>
-      {open && (
-        <Sheet title="Pages" onClose={() => setOpen(false)}>
-          <div className="col" style={{ gap: 2 }}>
-            <div className="tiny muted strong" style={{ padding: '4px 12px' }}>Suivi · selon les comptes affichés</div>
-            {drafts > 0 && <NavLink className="menu-item" to="/a-valider" onClick={() => setOpen(false)}><Icon name="check" />À valider<span className="nav-badge">{drafts}</span></NavLink>}
-            <NavLink className="menu-item" to="/commentaires" onClick={() => setOpen(false)}><Icon name="comment" />Commentaires</NavLink>
-            <NavLink className="menu-item" to="/videos" onClick={() => setOpen(false)}><Icon name="video" />Vidéos</NavLink>
-            <div className="menu-sep" />
-            <div className="tiny muted strong" style={{ padding: '4px 12px' }}>Gestion</div>
-            <NavLink className="menu-item" to="/bibliotheque" onClick={() => setOpen(false)}><Icon name="layers" />Bibliothèque</NavLink>
-            <NavLink className="menu-item" to="/partage" onClick={() => setOpen(false)}><Icon name="users" />Partage{invitations > 0 && <span className="nav-badge">{invitations}</span>}</NavLink>
-          </div>
-        </Sheet>
-      )}
-    </span>
   )
 }

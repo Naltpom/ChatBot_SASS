@@ -4,7 +4,9 @@
 import { useMemo, useState } from 'react'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { Link } from 'react-router-dom'
-import { getAccounts, getStats, getVideos, syncAccount, PLATFORM_LABEL, type DetailedStats, type Metric, type Platform } from '../api'
+import { getAccounts, getOverview, getStats, getVideos, syncAccount, PLATFORM_LABEL, type DetailedStats, type Metric, type Platform } from '../api'
+import ViewsChart from '../components/ViewsChart'
+import { StatsTabs } from '../components/StatsTabs'
 import { Avatar, Delta, Empty, Icon, Msg, Seg, Skeleton } from '../components/ui'
 import { METRIC_LABEL, num, pct, short } from '../format'
 import { useLoad, useSession } from '../session'
@@ -76,6 +78,9 @@ export default function Stats() {
   const [sort, setSort] = useState<'views' | 'engagement' | 'likes' | 'comments' | 'shares'>('views')
   const acc = useListState<AccSort>('views', s => (s === 'name' ? 'asc' : 'desc'), 'c')
   const st = useLoad(s => getStats(s, days, { q: acc.q || undefined, sort: acc.sort, order: acc.order }), [days, acc.q, acc.sort, acc.order])
+  // Ancien « Accueil » : courbe jour par jour et publications en échec, dans la même page.
+  const ov = useLoad(s => getOverview(s, days), [days])
+  const [metric, setMetric] = useState<'views' | 'followers'>('views')
   const top = useLoad(s => getVideos(s, { sort, days, limit: 12 }), [sort, days])
   const d = st.data
   const { scope, orgOf } = useSession()
@@ -100,7 +105,7 @@ export default function Stats() {
       <div className="page-head">
         <div>
           <h1>Statistiques</h1>
-          <p>Vidéos publiées sur la période, chiffres à jour.</p>
+          <p>Chiffres relevés plusieurs fois par jour, sur les comptes affichés.</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <button type="button" className="btn btn-sm" disabled={syncing !== null} onClick={syncAll}>
@@ -109,6 +114,7 @@ export default function Stats() {
           <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 j'], [30, '30 j'], [90, '90 j'], [365, '1 an']]} />
         </div>
       </div>
+      <StatsTabs />
       {syncMsg && <Msg>{syncMsg}</Msg>}
       {st.error && <Msg kind="err">{st.error}</Msg>}
       {!d && st.loading && <div className="kpis k6"><Skeleton h={104} n={6} /></div>}
@@ -131,6 +137,19 @@ export default function Stats() {
             <div className="kpi"><div className="kpi-label">Partages</div><div className="kpi-value">{short(d.totals.shares)}</div>
               <div className="kpi-sub">{d.totals.saves != null ? `${short(d.totals.saves)} enregistrements` : 'TikTok et Instagram'}</div></div>
           </section>
+
+          {(ov.data?.totals.failed_recent || 0) > 0 && (
+            <Msg kind="err">{ov.data!.totals.failed_recent} publication{ov.data!.totals.failed_recent > 1 ? 's' : ''} en échec ces 7 derniers jours. <Link to="/planning">Voir le planning</Link></Msg>
+          )}
+          {ov.data && (
+            <section className="card col" aria-labelledby="t-courbe">
+              <div className="card-head">
+                <h2 id="t-courbe">{metric === 'views' ? 'Vues cumulées' : 'Abonnés'}</h2>
+                <Seg label="Mesure" value={metric} onChange={setMetric} options={[['views', 'Vues'], ['followers', 'Abonnés']]} />
+              </div>
+              <ViewsChart series={ov.data.series} metric={metric} />
+            </section>
+          )}
 
           <section className="grid-3" aria-label="Par plateforme">
             {d.platforms.map(p => (

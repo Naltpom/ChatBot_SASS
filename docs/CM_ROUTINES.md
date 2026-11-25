@@ -211,7 +211,11 @@ premier compte connecté et peut être renommé.
   pour la compatibilité, mais n'est plus proposé.
 - **Invitations reçues** : `GET /invitations` → `[{id, group_id, group_name, group_color, role, role_label, owner,
   invited_by, accounts, created_at}]`, `POST /invitations/{id}/accept` (→ `org_id`), `POST /invitations/{id}/decline`.
-- **Espace perso** : `GET /profile` / `PATCH /profile {perso_name}` (vide = « Espace perso ») ; repris par `/spaces`.
+- **Profil et apparence** : `GET /profile` → `{perso_name, palette: "warm"|"ocean"|"forest", theme: "system"|"light"|"dark",
+  prefs_rev}` ; `PATCH /profile` avec seulement les champs à changer (`perso_name` vide = « Espace perso », repris par
+  `/spaces`). L'apparence est commune au site et à l'app : `prefs_rev` augmente à chaque changement de couleur ou de
+  thème. Chaque appareil garde une copie locale (affichage immédiat) et ne réapplique que si `prefs_rev` a changé
+  (l'app propose alors l'icône assortie à la couleur).
 - **« À valider »** : `GET /proposals/count` → `{open, by_group: {"<group_id>": n}}` (cacher l'onglet d'un groupe à 0).
 - **Stockage** : une publication est rangée dans le Drive de l'espace du compte, donc chez son propriétaire. S'il n'a
   pas de Drive : `409 {"code": "storage_required", "owner": "<nom>", "message"}`.

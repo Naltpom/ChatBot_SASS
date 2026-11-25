@@ -105,8 +105,15 @@ async def test_decline_profile_and_counts(pg_session, cmenv, tiktok):
         ha = c.as_(a)
         assert (await ha.post(f"/api/cm/invitations/{inv['id']}/accept")).status_code == 404
         # Nom de l'espace perso.
-        assert (await ha.get("/api/cm/profile")).json() == {"perso_name": "Espace perso"}
+        assert (await ha.get("/api/cm/profile")).json() == {"perso_name": "Espace perso", "palette": "warm",
+                                                            "theme": "system", "prefs_rev": 0}
         assert (await ha.patch("/api/cm/profile", json={"perso_name": "Studio Nathan"})).json()["perso_name"] == "Studio Nathan"
+        # Apparence partagée site / app : le numéro n'augmente que si la couleur ou le thème change.
+        r = (await ha.patch("/api/cm/profile", json={"palette": "forest", "theme": "dark"})).json()
+        assert (r["palette"], r["theme"], r["prefs_rev"], r["perso_name"]) == ("forest", "dark", 1, "Studio Nathan")
+        assert (await ha.patch("/api/cm/profile", json={"palette": "forest"})).json()["prefs_rev"] == 1
+        assert (await ha.patch("/api/cm/profile", json={"theme": "light"})).json()["prefs_rev"] == 2
+        assert (await ha.patch("/api/cm/profile", json={"palette": "rose"})).status_code == 422
         assert (await ha.get("/api/cm/spaces")).json()[0]["name"] == "Studio Nathan"
         # « À valider » : total et par groupe.
         cnt = (await ha.get("/api/cm/proposals/count?scope=all")).json()

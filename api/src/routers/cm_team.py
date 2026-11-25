@@ -782,21 +782,39 @@ async def capabilities(db: AsyncSession = Depends(get_db), user: User = Depends(
 
 class ProfileIn(BaseModel):
     perso_name: Optional[str] = Field(None, max_length=80)
+    palette: Optional[Literal["warm", "ocean", "forest"]] = None
+    theme: Optional[Literal["system", "light", "dark"]] = None
+
+
+def _profile_out(p: Optional[CmProfile]) -> dict:
+    return {"perso_name": (p.perso_name if p else None) or "Espace perso",
+            "palette": (p.palette if p else None) or "warm", "theme": (p.theme if p else None) or "system",
+            "prefs_rev": p.prefs_rev if p else 0}
 
 
 @router.get("/profile")
 async def get_profile(db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    p = await db.get(CmProfile, user.id)
-    return {"perso_name": (p.perso_name if p else None) or "Espace perso"}
+    """Nom de l'espace perso et apparence (couleur, clair / sombre), communs au site et à l'app.
+    `prefs_rev` : numéro de l'apparence ; un appareil ne réapplique que si ce numéro a changé."""
+    return _profile_out(await db.get(CmProfile, user.id))
 
 
 @router.patch("/profile")
 async def set_profile(body: ProfileIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    """Renomme l'espace perso (vide = « Espace perso »)."""
+    """Champs envoyés seulement : nom de l'espace perso (vide = « Espace perso »), couleur, clair / sombre."""
     p = await db.get(CmProfile, user.id)
     if p is None:
-        p = CmProfile(user_id=user.id)
+        p = CmProfile(user_id=user.id, prefs_rev=0)
         db.add(p)
-    p.perso_name = (body.perso_name or "").strip() or None
+    sent = body.model_fields_set
+    if "perso_name" in sent:
+        p.perso_name = (body.perso_name or "").strip() or None
+    changed = False
+    for k in ("palette", "theme"):
+        if k in sent and getattr(body, k) is not None and getattr(body, k) != getattr(p, k):
+            setattr(p, k, getattr(body, k))
+            changed = True
+    if changed:
+        p.prefs_rev = (p.prefs_rev or 0) + 1
     await db.commit()
-    return {"perso_name": p.perso_name or "Espace perso"}
+    return _profile_out(p)

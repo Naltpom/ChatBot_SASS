@@ -16,6 +16,7 @@ import { Avatar, GroupDot, Icon, Loading, Msg, Sheet } from '../components/ui'
 import { AssetGrid } from './Library'
 import { fmtDuration, fmtSize, TIKTOK_BC_URL, TIKTOK_MUSIC_URL, TIKTOK_PRIVACY, toLocalInput } from '../format'
 import { useLoad, useRole, useSession } from '../session'
+import { useDesktop } from '../hooks'
 
 interface TikTokOpts { mode: 'direct' | 'draft'; privacy: string; comment: boolean; duet: boolean; stitch: boolean
   commercial: boolean; yourBrand: boolean; branded: boolean; text: string }
@@ -32,6 +33,13 @@ function defaults(a: Account): Opts {
   if (a.platform === 'youtube') return { title: '', description: '', privacy: 'public', kids: '', synthetic: false, category: '10', notify: true, tags: '' }
   return { text: '', feed: true }
 }
+
+const STEP_LABELS = ['Vidéo et texte', 'Comptes et heure', 'Réglages par réseau']
+const STEP_INTRO = [
+  'Vidéo, titre et légende : écrits une fois, ils partent sur tous les comptes.',
+  'Choisissez les comptes et l’heure.',
+  'Dernière étape : vérifiez les réglages de chaque réseau, puis programmez.',
+]
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
@@ -80,6 +88,11 @@ export default function Composer() {
   const [params] = useSearchParams()
   const [asset, setAsset] = useState<Asset | null>(null)
   const [picking, setPicking] = useState(false)
+  // Téléphone : en 3 étapes comme l'app (contenu → comptes et heure → réglages par réseau). Ordinateur : tout sur une vue.
+  const desktop = useDesktop()
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const show = (n: 1 | 2 | 3) => desktop || step === n
+  const go = (n: 1 | 2 | 3) => { setStep(n); window.scrollTo(0, 0) }
   const [pickQ, setPickQ] = useState('')
   const robot = useLoad(() => getRobot(), [])
   const useAsset = (a: Asset) => {
@@ -282,9 +295,16 @@ export default function Composer() {
       {accounts.data && all.length === 0 && (
         <Msg>Aucun compte connecté. <Link to="/comptes">Connectez TikTok, YouTube ou Instagram</Link> pour publier.</Msg>
       )}
+      {!desktop && (
+        <div className="steps" aria-label={`Étape ${step} sur 3 : ${STEP_LABELS[step - 1]}`}>
+          <div className="row between small"><span className="strong">{STEP_LABELS[step - 1]}</span><span className="muted">Étape {step} sur 3</span></div>
+          <div className="steps-bar" aria-hidden="true">{[1, 2, 3].map(n => <span key={n} className={n <= step ? 'on' : ''} />)}</div>
+          <p className="small muted" style={{ margin: 0 }}>{STEP_INTRO[step - 1]}</p>
+        </div>
+      )}
       <div className="compose">
         <div className="side col" style={{ gap: 16 }}>
-          <Section title="Vidéo">
+          {show(1) && <Section title="Vidéo">
             {asset ? (
               <div className="row-nw" style={{ gap: 12, alignItems: 'flex-start' }}>
                 {asset.thumbnail ? <img src={asset.thumbnail} alt="" width={72} height={104} style={{ width: 72, height: 104, objectFit: 'cover', borderRadius: 10, flex: 'none', background: 'var(--surface-2)' }} />
@@ -338,9 +358,9 @@ export default function Composer() {
               {rights && <input className="input" value={rightsNote} maxLength={300} disabled={busy} onChange={e => setRightsNote(e.target.value)}
                                 placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" aria-label="Note sur les droits" />}
             </fieldset>
-          </Section>
+          </Section>}
 
-          <Section title="Quand">
+          {show(2) && <Section title="Quand">
             <label className="check"><input type="radio" name="when" checked={when === 'now'} onChange={() => setWhen('now')} disabled={busy} />Dès que la vidéo est envoyée</label>
             <label className="check"><input type="radio" name="when" checked={when === 'at'} onChange={() => setWhen('at')} disabled={busy} />À une heure précise</label>
             {when === 'at' && (
@@ -356,11 +376,11 @@ export default function Composer() {
                 <span className="field-hint">Fuseau : {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
               </div>
             )}
-          </Section>
+          </Section>}
         </div>
 
         <div className="main col" style={{ gap: 16 }}>
-          <Section title="Où publier" aside={chosen.length ? `${chosen.length} compte${chosen.length > 1 ? 's' : ''}` : undefined}>
+          {show(2) && <Section title="Où publier" aside={chosen.length ? `${chosen.length} compte${chosen.length > 1 ? 's' : ''}` : undefined}>
             {chosen.length > 0 && (
               <ul className="chosen" aria-label="Comptes choisis">
                 {chosen.map(a => (
@@ -381,10 +401,10 @@ export default function Composer() {
                            }}
                            disabled={why} ownerOf={ownerOf}
                            detail={a => `${PLATFORM_LABEL[a.platform]}${a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}`} />
-          </Section>
+          </Section>}
 
-          {chosen.some(a => a.platform === 'instagram') && (
-            <Section title="Couverture" aside="Instagram">
+          {(desktop ? chosen.some(a => a.platform === 'instagram') : step === 1) && (
+            <Section title="Couverture" aside="Instagram · facultatif">
               <div className="row-nw" style={{ gap: 12, alignItems: 'center' }}>
                 {coverUrl ? <img src={coverUrl} alt="Couverture choisie" style={{ width: 54, height: 96, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
                   : <span aria-hidden="true" style={{ width: 54, height: 96, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
@@ -401,7 +421,8 @@ export default function Composer() {
             </Section>
           )}
 
-          {chosen.map(a => {
+          {show(3) && chosen.length === 0 && <Msg>Choisissez d’abord les comptes (étape 2).</Msg>}
+          {show(3) && chosen.map(a => {
             const k = key(a), o = opts[k]
             if (!o) return null
             if (a.platform === 'tiktok') return <TikTokPanel key={k} account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} />
@@ -409,7 +430,7 @@ export default function Composer() {
             return <InstaPanel key={k} account={a} o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} />
           })}
 
-          {hasTikTok && (
+          {show(3) && hasTikTok && (
             <p className="tiny muted" style={{ margin: 0 }}>
               {tiktokBranded
                 ? <>En publiant, vous acceptez la <a href={TIKTOK_BC_URL} target="_blank" rel="noreferrer">Branded Content Policy</a> et la <a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a> de TikTok.</>
@@ -421,18 +442,32 @@ export default function Composer() {
           {problems.length > 0 && chosen.length > 0 && (file || asset) && (
             <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{problems.map(p => <li key={p}>{p}</li>)}</ul>
           )}
+          {!desktop && step < 3 ? (
+            <div className="actionbar">
+              <span className="small muted ellipsis" style={{ flex: 1, minWidth: 0 }}>{step === 1 ? (file || asset ? title.trim() || 'Sans titre' : 'Choisissez une vidéo') : summary}</span>
+              <div className="row-nw" style={{ gap: 8 }}>
+                {step > 1 ? <button type="button" className="btn" onClick={() => go((step - 1) as 1 | 2)}><Icon name="left" />Retour</button>
+                  : <Link className="btn" to="/planning">Annuler</Link>}
+                <button type="button" className="btn btn-primary btn-lg" disabled={step === 1 ? !(file || asset) : chosen.length === 0} onClick={() => go((step + 1) as 2 | 3)}>
+                  Suivant<Icon name="right" />
+                </button>
+              </div>
+            </div>
+          ) : (
           <div className="actionbar">
             <div className="col" style={{ gap: 6, flex: 1, minWidth: 0 }}>
               <span className="small muted ellipsis">{busy ? `Envoi de la vidéo… ${Math.round((progress || 0) * 100)} %` : problems.length && file && chosen.length ? problems[0] : summary}</span>
               {busy && <div className="progress"><span style={{ width: `${Math.round((progress || 0) * 100)}%` }} /></div>}
             </div>
             <div className="row-nw" style={{ gap: 8 }}>
+              {!desktop && <button type="button" className="btn" disabled={busy} onClick={() => go(2)}><Icon name="left" />Retour</button>}
               <Link className="btn only-desktop" to="/planning">Annuler</Link>
               <button type="button" className="btn btn-primary btn-lg" disabled={busy || problems.length > 0} onClick={publish}>
                 <Icon name={when === 'now' ? 'bolt' : 'clock'} />{when === 'now' ? 'Publier' : 'Programmer'}
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
       {picking && (
