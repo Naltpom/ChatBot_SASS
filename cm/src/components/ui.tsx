@@ -6,16 +6,16 @@ import { PLATFORM_LABEL, type GroupColor, type Platform, type TargetStatus } fro
 import { STATUS, signed } from '../format'
 
 /** Chapeau Chapote (même marque que chapote.fr). */
-/** Logo Chapote CM : le chapeau Chapote posé sur un M, blanc sur le bleu de l'app (même dessin que l'app mobile). */
+/** Logo Chapote CM : trois cartes de vidéos verticales empilées, la première avec le bouton lecture,
+ *  blanc sur orange. Même dessin que l'icône d'onglet (public/favicon.svg) et que l'app mobile. */
 export function BrandMark({ size = 32 }: { size?: number }) {
   return (
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ width: size, height: size }}>
-      <rect width="24" height="24" rx="5.4" fill="#0071e3" />
-      <g transform="translate(12 8.6) scale(0.5) translate(-12 -11)" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none">
-        <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" />
-        <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" />
-      </g>
-      <path d="M6.5 19v-6.2l5.5 4.4 5.5-4.4V19" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <rect width="24" height="24" rx="6.2" fill="#F05A28" />
+      <rect x="5" y="6.2" width="7.4" height="12.2" rx="1.8" fill="#fff" opacity=".45" />
+      <rect x="8.3" y="5.4" width="7.4" height="12.2" rx="1.8" fill="#fff" opacity=".7" />
+      <rect x="11.6" y="4.6" width="7.4" height="12.8" rx="1.8" fill="#fff" />
+      <path d="M14.3 8.8v4.6l3.6-2.3z" fill="#F05A28" />
     </svg>
   )
 }

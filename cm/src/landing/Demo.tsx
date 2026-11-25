@@ -139,7 +139,7 @@ export default function Demo({ autoOnly = false }: { autoOnly?: boolean }) {
         </div>
         <div className="dm-foot">
           <button type="button" tabIndex={autoOnly ? -1 : 0} className={`dm-go${tap === 'go' ? ' tap' : ''}`} aria-disabled={!ready} onClick={program}>
-            {ready ? `Programmer sur ${nets.length} compte${nets.length > 1 ? 's' : ''}` : 'Programmer'}
+            {ready ? `Planifier sur ${nets.length} compte${nets.length > 1 ? 's' : ''}` : 'Planifier'}
           </button>
           <p className="dm-hint" aria-live="polite">{user ? hint : ''}</p>
         </div>
