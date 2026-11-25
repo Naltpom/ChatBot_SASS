@@ -59,8 +59,10 @@ const PALETTES: Record<Palette, { light: Colors; dark: Colors }> = { warm: { lig
 export const PALETTE_PREVIEW: Record<Palette, { label: string; light: Colors; dark: Colors }> = {
   warm: { label: 'Orange', ...PALETTES.warm }, ocean: { label: 'Bleu océan', ...PALETTES.ocean }, forest: { label: 'Vert forêt', ...PALETTES.forest },
 }
-interface ThemeCtx { c: Colors; dark: boolean; pref: ThemePref; setPref: (p: ThemePref) => void; palette: Palette; setPalette: (p: Palette) => void }
-const Ctx = createContext<ThemeCtx>({ c: light, dark: false, pref: 'system', setPref: () => {}, palette: 'warm', setPalette: () => {} })
+interface ThemeCtx { c: Colors; dark: boolean; pref: ThemePref; setPref: (p: ThemePref) => void; palette: Palette; setPalette: (p: Palette) => void
+  /** Choix du téléphone relus (sinon on verrait les valeurs par défaut). */
+  loaded: boolean }
+const Ctx = createContext<ThemeCtx>({ c: light, dark: false, pref: 'system', setPref: () => {}, palette: 'warm', setPalette: () => {}, loaded: false })
 const KEY = 'cm.theme'
 const PALETTE_KEY = 'cm.palette'
 
@@ -68,14 +70,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const system = useColorScheme()
   const [pref, setPrefState] = useState<ThemePref>('system')
   const [palette, setPaletteState] = useState<Palette>('warm')
+  const [loaded, setLoaded] = useState(false)
   useEffect(() => {
-    AsyncStorage.getItem(KEY).then(v => { if (v === 'light' || v === 'dark' || v === 'system') setPrefState(v) }).catch(() => {})
-    AsyncStorage.getItem(PALETTE_KEY).then(v => { if (v === 'warm' || v === 'ocean' || v === 'forest') setPaletteState(v) }).catch(() => {})
+    Promise.all([
+      AsyncStorage.getItem(KEY).then(v => { if (v === 'light' || v === 'dark' || v === 'system') setPrefState(v) }),
+      AsyncStorage.getItem(PALETTE_KEY).then(v => { if (v === 'warm' || v === 'ocean' || v === 'forest') setPaletteState(v) }),
+    ]).catch(() => {}).finally(() => setLoaded(true))
   }, [])
   const setPref = (p: ThemePref) => { setPrefState(p); AsyncStorage.setItem(KEY, p).catch(() => {}) }
   const setPalette = (p: Palette) => { setPaletteState(p); AsyncStorage.setItem(PALETTE_KEY, p).catch(() => {}) }
   const isDark = pref === 'system' ? system === 'dark' : pref === 'dark'
-  const value = useMemo(() => ({ c: PALETTES[palette][isDark ? 'dark' : 'light'], dark: isDark, pref, setPref, palette, setPalette }), [isDark, pref, palette])
+  const value = useMemo(() => ({ c: PALETTES[palette][isDark ? 'dark' : 'light'], dark: isDark, pref, setPref, palette, setPalette, loaded }), [isDark, pref, palette, loaded])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

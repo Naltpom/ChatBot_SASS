@@ -16,7 +16,7 @@ import { getProfile, patchProfile } from '../lib/api'
 import { Button, Card, Divider, Icon, Label, Msg, Row, Screen, Seg, Txt, Field, type IconName } from '../ui/kit'
 import { PALETTE_PREVIEW, radius, space, useTheme, type Palette, type ThemePref } from '../ui/theme'
 import { Logo } from '../ui/Logo'
-import { currentIcon, iconAvailable, setIcon } from '../lib/app-icon'
+import { currentIcon, iconAvailable, offerIcon } from '../lib/app-icon'
 
 interface DeviceRow { id: number; name: string | null; platform: string | null; push: boolean; created_at: string | null; last_used_at: string | null }
 
@@ -32,11 +32,7 @@ export default function Settings() {
   const { c, dark, pref, setPref, palette, setPalette } = useTheme()
   // Icône de l'app : proposée assortie à la couleur choisie (version 4 et plus).
   const [icon, setIconState] = useState(() => currentIcon())
-  const askIcon = (p: Palette) => Alert.alert(`Icône ${PALETTE_PREVIEW[p].label.toLowerCase()} ?`,
-    'Sur certains téléphones, l’app redémarre pour changer d’icône : vous reviendrez ici. L’icône peut mettre quelques secondes à changer sur l’écran d’accueil.', [
-      { text: 'Non, garder l’icône actuelle', style: 'cancel' },
-      { text: 'Oui, changer', onPress: () => { setIcon(p, '/settings').then(() => { setIconState(p); ok() }).catch(() => {}) } },
-    ])
+  const askIcon = (p: Palette) => offerIcon(p, '/settings', () => { setIconState(p); ok() })
   const { me, signOut } = useSession()
   const router = useRouter()
   const [push, setPush] = useState<PushState | null>(null)
@@ -132,7 +128,7 @@ export default function Settings() {
       <Card>
         <Label>Sécurité</Label>
         <Row style={{ justifyContent: 'space-between' }}>
-          <View style={{ flex: 1 }}><Txt bold>{lock.label} · {lock.enabled ? 'activé' : 'désactivé'}</Txt><Txt small muted>Demandé à l’ouverture, et au retour dans l’app après une minute.</Txt></View>
+          <View style={{ flex: 1 }}><Txt bold>{lock.label} · {lock.enabled ? 'activé' : 'désactivé'}</Txt><Txt small muted>Demandé quand vous revenez après plus de 5 minutes hors de l’app.</Txt></View>
           <Switch value={lock.enabled} onValueChange={async v => { const e = await lock.setEnabled(v); setLockMsg(e); if (!e) ok() }} accessibilityLabel="Verrouiller l’app"
             trackColor={{ true: c.primary }} />
         </Row>
