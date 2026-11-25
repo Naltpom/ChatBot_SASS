@@ -400,3 +400,18 @@ export interface Identity {
 export const getIdentity = () => call<Identity>('/api/cm/mobile/identity')
 export const putIdentity = (body: { first_name: string; last_name: string; birth_date: string; accept_terms: boolean }) =>
   send<Identity>('PUT', '/api/cm/mobile/identity', body)
+
+// Lien d'invitation à un groupe, à envoyer par message (api/src/routers/cm_invite_links.py)
+export interface InviteLink { token: string; url: string; role: CmRole; role_label: string; expires_at: string; group_name: string }
+export const createInviteLink = (org: number | null, groupId: number, role: CmRole) =>
+  send<InviteLink>('POST', `/api/cm/groups/${groupId}/invite-link${q(org)}`, { role })
+export const revokeInviteLinks = (org: number | null, groupId: number) => send<{ ok: boolean }>('DELETE', `/api/cm/groups/${groupId}/invite-link${q(org)}`)
+export const previewInviteLink = (token: string) => call<{ group_name: string; group_color: GroupColor | null; role: CmRole; role_label: string; accounts: number; owner: string | null; invited_by: string | null; expires_at: string }>(`/api/cm/invite-links/${encodeURIComponent(token)}`)
+export const acceptInviteLink = (token: string) => send<{ ok: boolean; group_id: number; group_name: string; org_id: number | null; role: CmRole }>('POST', `/api/cm/invite-links/${encodeURIComponent(token)}/accept`)
+/** Jeton d'un lien collé (https://cm.chapote.fr/api/cm/join?t=…, chapotecm://join?t=…) ou du jeton seul. */
+export function inviteToken(text: string): string | null {
+  const t = text.trim()
+  const m = /[?&]t=([A-Za-z0-9_-]{16,100})/.exec(t)
+  if (m) return m[1]
+  return /^[A-Za-z0-9_-]{16,100}$/.test(t) ? t : null
+}

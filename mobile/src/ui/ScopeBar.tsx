@@ -49,6 +49,7 @@ export function HeaderActions() {
   const router = useRouter()
   return (
     <Row gap={0} style={{ marginRight: 4 }}>
+      <IconButton icon="bell" label="Activité" onPress={() => router.push('/activity')} />
       <IconButton icon="users" label="Comptes connectés" onPress={() => router.push('/accounts')} />
       <IconButton icon="settings" label="Réglages" onPress={() => router.push('/settings')} />
     </Row>

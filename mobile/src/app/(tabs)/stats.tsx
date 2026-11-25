@@ -201,7 +201,12 @@ export default function Stats() {
             </ChipRow>
             {top.error ? <Msg kind="err">{top.error}</Msg> : null}
             {!top.data && top.loading ? <Skeleton h={190} /> : null}
-            {top.data && top.data.length === 0 ? <Txt small muted>Aucune vidéo relevée sur la période.</Txt> : null}
+            {top.data && top.data.length === 0 ? (
+              <Empty title="Pas encore de vidéo sur la période" icon="chart"
+                action={<Button kind="primary" icon="plus" title="Programmer une vidéo" onPress={() => router.push('/new')} />}>
+                Les chiffres arrivent quelques heures après la publication. Élargissez la période ou programmez une vidéo.
+              </Empty>
+            ) : null}
             {top.data && top.data.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.md, paddingVertical: 2 }}>
                 {top.data.map((v, i) => (

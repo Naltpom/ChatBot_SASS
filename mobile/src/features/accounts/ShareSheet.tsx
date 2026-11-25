@@ -1,8 +1,8 @@
 // « Partager » un compte, un groupe ou tout l'espace (comme cm/src/components/ShareSheet.tsx) :
 // une adresse e-mail et un niveau d'accès. Accès immédiat si la personne a un compte Chapote, sinon invitation.
 import { useEffect, useState } from 'react'
-import { View } from 'react-native'
-import { accountAccess, addGroupShare, getGroupShares, removeGroupShare, share, type CmRole, type GroupShare, type Person, type ShareWhat } from '../../lib/api'
+import { Share as RNShare, View } from 'react-native'
+import { accountAccess, addGroupShare, createInviteLink, getGroupShares, removeGroupShare, share, type CmRole, type GroupShare, type Person, type ShareWhat } from '../../lib/api'
 import { useSession } from '../../lib/session'
 import { Avatar, Button, Field, Label, Msg, Row, Sheet, Txt } from '../../ui/kit'
 import { space } from '../../ui/theme'
@@ -72,6 +72,19 @@ export function ShareSheet({ what, label, onClose, onDone, org: orgProp }: { wha
               <Txt small muted>{ROLE_NAME[p.role]}{p.scope.all && p.role !== 'admin' ? ' · tout' : ''}</Txt>
             </Row>
           ))}
+        </View>
+      ) : null}
+      {groupId != null ? (
+        <View style={{ gap: space.sm }}>
+          <Label>Ou par message</Label>
+          <Txt small muted>Un lien à envoyer sur WhatsApp, SMS ou Slack, avec l’accès choisi plus haut. Valable 7 jours.</Txt>
+          <Button icon="link" title="Envoyer un lien d’invitation" onPress={async () => {
+            setErr('')
+            try {
+              const l = await createInviteLink(org, groupId, role)
+              await RNShare.share({ message: `Rejoins « ${l.group_name} » sur Chapote CM (${l.role_label}) : ${l.url}` })
+            } catch (e) { setErr((e as Error).message) }
+          }} />
         </View>
       ) : null}
       <Txt small faint>Gérer ou retirer un accès : écran Personnes.</Txt>

@@ -133,7 +133,11 @@ export default function Library() {
         ListHeaderComponent={header}
         ListFooterComponent={footer}
         ListEmptyComponent={hasSources
-          ? (assets.items ? <Txt small muted>{emptyAssetsText(q, state)}</Txt> : <View style={{ gap: 10 }}><Skeleton h={240} n={2} /></View>)
+          ? (assets.items
+            ? (q ? <Empty title="Aucun résultat" icon="search" action={<Button title="Effacer la recherche" onPress={() => setInput('')} />}>{emptyAssetsText(q, state)}</Empty>
+              : state === 'new' ? <Empty title="Tout est programmé" icon="check" action={<Button title="Voir toutes les vidéos" onPress={() => setState('all')} />}>Aucune vidéo en attente : déposez-en de nouvelles dans vos dossiers Drive, elles apparaîtront ici.</Empty>
+              : <Empty title="Aucune vidéo ici" icon="video">{emptyAssetsText(q, state)}</Empty>)
+            : <View style={{ gap: 10 }}><Skeleton h={240} n={2} /></View>)
           : undefined}
         renderItem={({ item, index }) => (
           <>

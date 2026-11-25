@@ -61,6 +61,7 @@ const identity = { done: state !== 'new', first_name: state === 'new' ? null : '
   legal: { cgu: 'https://chapote.fr/legal/cgu', cgv: 'https://chapote.fr/legal/cgv', privacy: 'https://chapote.fr/legal/confidentialite' } }
 
 const routes: [RegExp, (m: RegExpMatchArray, method: string) => any][] = [
+  [/\/api\/cm\/invite-links\/[^/]+$/, () => ({ group_name: 'Agence Lumen', group_color: 'blue', role: 'editor', role_label: 'Peut publier', accounts: 4, owner: 'Camille Martin', invited_by: 'Camille Martin', expires_at: iso(now + 6 * D) })],
   [/\/api\/cm\/mobile\/refresh$/, () => ({ session: 'demo', expires_in: 3600, user: me })],
   [/\/api\/cm\/mobile\/identity$/, () => identity],
   [/\/api\/cm\/mobile\/devices$/, () => [{ id: 1, name: 'Pixel 8', platform: 'android', created_at: iso(now - 9 * D), last_used_at: iso(now), current: true }]],

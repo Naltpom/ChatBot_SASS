@@ -9,6 +9,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSharedVideo } from '../lib/share'
 import { StorageBanner } from '../features/storage'
 import { useVideoPlayer, VideoView } from 'expo-video'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -99,6 +100,40 @@ export default function NewPost() {
   const chosen = picked.map(k => known[k]).filter(Boolean) as Account[]
   const [rights, setRights] = useState<Rights | ''>('')   // droits d'auteur (vide = non précisés)
   const [rightsNote, setRightsNote] = useState('')
+
+  // Saisie gardée sur le téléphone (appel, notification, app fermée) : reprise à la réouverture.
+  const { me } = useSession()
+  const draftKey = `cm.draft.new.${me?.id ?? 0}`
+  const fresh = !params.asset && !params.proposal && !params.shared
+  const restored = useRef(false)
+  const [resumed, setResumed] = useState(false)
+  type Draft = { title: string; caption: string; picked: string[]; when: 'now' | 'at'; at: string; sameTime: boolean; video: PickedVideo | null; rights: Rights | ''; rightsNote: string; savedAt: number }
+  useEffect(() => {
+    if (!fresh || restored.current || !accounts.data) return
+    restored.current = true
+    AsyncStorage.getItem(draftKey).then(raw => {
+      if (!raw) return
+      const d = JSON.parse(raw) as Draft
+      if (Date.now() - d.savedAt > 7 * 864e5 || (!d.title && !d.caption && !d.video)) return
+      setTitle(d.title); setCaption(d.caption); setWhen(d.when); setSameTime(d.sameTime); setRights(d.rights); setRightsNote(d.rightsNote)
+      if (new Date(d.at).getTime() > Date.now()) setAt(new Date(d.at))
+      if (d.video) setVideo(d.video)
+      add((accounts.data || []).filter(a => d.picked.includes(accKey(a))))
+      setResumed(true)
+    }).catch(() => {})
+  }, [accounts.data]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!fresh || !restored.current || asset) return
+    const t = setTimeout(() => {
+      const d: Draft = { title, caption, picked, when, at: at.toISOString(), sameTime, video, rights, rightsNote, savedAt: Date.now() }
+      AsyncStorage.setItem(draftKey, JSON.stringify(d)).catch(() => {})
+    }, 600)
+    return () => clearTimeout(t)
+  }, [title, caption, picked, when, at, sameTime, video, rights, rightsNote]) // eslint-disable-line react-hooks/exhaustive-deps
+  const clearDraft = () => AsyncStorage.removeItem(draftKey).catch(() => {})
+  const restart = () => {
+    clearDraft(); setResumed(false); setTitle(''); setCaption(''); setVideo(null); setPicked([]); setRights(''); setRightsNote(''); setWhen('at'); setAt(nextHour())
+  }
 
   const add = (list: Account[]) => {
     const fresh = list.filter(a => a.can_publish && a.role !== 'viewer')
@@ -242,6 +277,7 @@ export default function NewPost() {
         sent.current = null
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+      clearDraft()
       const flash = asset
         ? (when === 'now' ? 'Publication lancée depuis la bibliothèque.' : 'Publication programmée : la vidéo sera récupérée dans le Drive à l’heure prévue.')
         : (when === 'now' ? 'Publication lancée.' : 'Publication programmée.')
@@ -285,6 +321,11 @@ export default function NewPost() {
       <Stack.Screen options={{ gestureEnabled: !busy }} />
       <Screen footer={footer}>
         <StorageBanner space={spacesAll.find(x => x.org_id === org)} />
+        {resumed ? (
+          <Msg kind="info">Saisie reprise là où vous l’aviez laissée.{' '}
+            <Text onPress={restart} style={{ color: c.primary, fontWeight: '600' }} accessibilityRole="button">Repartir de zéro</Text>
+          </Msg>
+        ) : null}
         {!canEdit ? <Msg kind="err">Votre rôle dans cette équipe (lecteur) ne permet pas de publier. Demandez à un administrateur de l’équipe.</Msg> : null}
         {accounts.loading && !accounts.data ? <Loading /> : null}
         {accounts.error ? <Msg kind="err">{accounts.error}</Msg> : null}

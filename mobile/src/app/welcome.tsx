@@ -3,13 +3,13 @@
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { Alert, View } from 'react-native'
-import { openAuthorize, PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
+import { inviteToken, openAuthorize, PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
 import { STEPS } from '../lib/onboarding'
 import { useSession } from '../lib/session'
 import { StepHeader, StickyFooter, useOwnAccounts, useSetupOrg, useSharedAccounts } from '../features/steps'
 import { InvitationCard } from '../ui/ScopeBar'
 import { Missing, StepProgress } from '../ui/Progress'
-import { Button, Card, H1, Icon, Msg, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
+import { Button, Card, Field, H1, Icon, Msg, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
 import { space, useTheme } from '../ui/theme'
 
 const HINT: Record<Platform, string> = { tiktok: 'Compte TikTok', youtube: 'Chaîne YouTube (Shorts)', instagram: 'Compte pro ou créateur' }
@@ -22,6 +22,7 @@ export default function Welcome() {
   const own = useOwnAccounts()
   const shared = useSharedAccounts()
   const [err, setErr] = useState<string | null>(null)
+  const [link, setLink] = useState('')
   const connect = async (p: Platform) => {
     setErr(null)
     try { const { authorize_url } = await startOAuth(p, org); await openAuthorize(authorize_url); await refresh() }
@@ -71,9 +72,12 @@ export default function Welcome() {
         })}
       </View>
       <Txt small muted>Vous pouvez en connecter plusieurs, et en ajouter d’autres plus tard.</Txt>
-      {!invitations.length ? (
-        <Txt small muted>Invité par une équipe ? Demandez qu’on vous invite avec {me?.email} : l’invitation apparaîtra ici.</Txt>
-      ) : null}
+      <Card>
+        <Txt bold>Invité par une équipe ?</Txt>
+        <Txt small muted>Collez le lien d’invitation reçu par message, ou demandez qu’on vous invite avec {me?.email}.</Txt>
+        <Field label="Lien d’invitation" value={link} onChangeText={setLink} placeholder="https://cm.chapote.fr/api/cm/join?t=…" autoCapitalize="none" autoCorrect={false} />
+        <Button title="Ouvrir l’invitation" disabled={!inviteToken(link)} onPress={() => { const t = inviteToken(link); if (t) router.push({ pathname: '/join', params: { t } }) }} />
+      </Card>
       <Button kind="ghost" small title={`Pas le bon compte (${me?.email}) ? Changer`} onPress={() => Alert.alert('Changer de compte ?', 'Vous serez déconnecté de ce téléphone.', [
         { text: 'Annuler', style: 'cancel' }, { text: 'Se déconnecter', style: 'destructive', onPress: () => { signOut() } },
       ])} />

@@ -1,4 +1,5 @@
 import '../lib/demo'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
@@ -45,9 +46,14 @@ function Gate() {
   // Espace sans Drive (obligatoire pour publier) : écran « Connecter votre Google Drive » une fois par jour au plus.
   const storageState = spaces.find(s => s.org_id === org)?.storage?.state
   useEffect(() => {
-    if (!ready || !me || storageState !== 'missing' || ['storage', 'login', 'welcome', 'onboarding', 'account', 'oauth-return', 'setup'].includes(segments[0] as string)) return
+    if (!ready || !me || storageState !== 'missing' || ['storage', 'login', 'welcome', 'onboarding', 'account', 'oauth-return', 'setup', 'join'].includes(segments[0] as string)) return
     laterAt(org).then(t => { if (Date.now() - t > 86_400_000) router.push('/storage') })
   }, [ready, me, org, storageState]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Lien d'invitation ouvert avant la connexion : on y revient une fois connecté et inscrit.
+  useEffect(() => {
+    if (!ready || !me || !onboarded || segments[0] === 'join') return
+    AsyncStorage.getItem('cm.pending-join').then(t => { if (t) router.push({ pathname: '/join', params: { t } }) }).catch(() => {})
+  }, [ready, me?.id, onboarded]) // eslint-disable-line react-hooks/exhaustive-deps
   // Vidéo partagée depuis la galerie : nouvelle publication avec ce fichier (une fois connecté).
   const shared = useSharedVideo()
   useEffect(() => {
@@ -60,12 +66,12 @@ function Gate() {
     if (me && blocked) { if (!['blocked', 'account'].includes(segments[0] as string)) router.replace('/blocked'); hideSplash(); return }
     hideSplash()
     const onLogin = segments[0] === 'login'
-    const isPublic = onLogin || segments[0] === 'reset-password'
+    const isPublic = onLogin || segments[0] === 'reset-password' || segments[0] === 'join'
     // Aucun réseau connecté dans aucun espace : écran d'accueil (sauf pages utiles pour en connecter un).
     const empty = !!me && spaces.length > 0 && spaces.every(s => !(s.accounts || 0))
-    const free = ['welcome', 'accounts', 'settings', 'people', 'reset-password', 'account', 'onboarding', 'oauth-return', 'setup']
+    const free = ['welcome', 'accounts', 'settings', 'people', 'reset-password', 'account', 'onboarding', 'oauth-return', 'setup', 'join']
     if (!me && !isPublic) router.replace('/login')
-    else if (me && onboarded === false && !['onboarding', 'account', 'reset-password', 'oauth-return', 'setup'].includes(segments[0] as string)) router.replace('/onboarding')
+    else if (me && onboarded === false && !['onboarding', 'account', 'reset-password', 'oauth-return', 'setup', 'join'].includes(segments[0] as string)) router.replace('/onboarding')
     else if (me && onboarded === false) return
     else if (me && empty && !free.includes(segments[0] as string)) router.replace('/welcome')
     else if (me && onLogin) router.replace('/')
@@ -91,6 +97,7 @@ function Gate() {
         <Stack.Screen name="drafts" options={{ title: 'Brouillons à valider' }} />
         <Stack.Screen name="videos" options={{ title: 'Vidéos' }} />
         <Stack.Screen name="settings" options={{ title: 'Réglages' }} />
+        <Stack.Screen name="activity" options={{ title: 'Activité' }} />
         <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
         <Stack.Screen name="storage" options={{ title: 'Stockage' }} />
         <Stack.Screen name="reset-password" options={{ title: 'Mot de passe' }} />
