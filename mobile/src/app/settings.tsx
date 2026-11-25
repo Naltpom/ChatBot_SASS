@@ -1,3 +1,4 @@
+import { FEATURES } from '../lib/features'
 // Réglages : apparence (clair / sombre / comme le téléphone), notifications, appareils connectés, compte.
 import Constants from 'expo-constants'
 import { useRouter } from 'expo-router'
@@ -20,7 +21,7 @@ const PREF_LABEL: [keyof PushPrefs, string, string][] = [
   ['draft', 'Brouillon TikTok à publier', 'La vidéo attend dans l’app TikTok.'],
   ['comments', 'Nouveaux commentaires', 'Regroupés, une fois par minute au plus.'],
   ['storage', 'Stockage Drive', 'Presque plein (90 %) ou plein.'],
-]
+].filter(([k]) => FEATURES.comments || k !== 'comments') as [keyof PushPrefs, string, string][]
 
 export default function Settings() {
   const { c, pref, setPref } = useTheme()
@@ -82,7 +83,7 @@ export default function Settings() {
       <Card>
         <Label>Notifications</Label>
         <Row style={{ justifyContent: 'space-between' }}>
-          <View style={{ flex: 1 }}><Txt bold>Sur ce téléphone</Txt><Txt small muted>Publications, échecs, brouillons, commentaires.</Txt></View>
+          <View style={{ flex: 1 }}><Txt bold>Sur ce téléphone</Txt><Txt small muted>{FEATURES.comments ? 'Publications, échecs, brouillons, commentaires.' : 'Publications, échecs, brouillons.'}</Txt></View>
           <Switch value={!!push?.enabled} onValueChange={toggleAll} disabled={!!unsupported} accessibilityLabel="Notifications sur ce téléphone"
             trackColor={{ true: c.primary }} />
         </Row>

@@ -89,9 +89,15 @@ export default function Login() {
         contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.xl, paddingTop: insets.top + 48, paddingBottom: insets.bottom + space.lg,
           gap: space.xl, width: '100%', maxWidth: 480, alignSelf: 'center' }}>
         <View style={{ gap: space.lg }}>
-          <Logo size={64} bg={c.primary} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+            <Logo size={56} bg={c.primary} />
+            <View>
+              <Txt bold size={18}>Chapote CM</Txt>
+              <Txt small muted>Content & Community Manager</Txt>
+            </View>
+          </View>
           <Txt size={32} bold style={{ lineHeight: 38, letterSpacing: -0.6 }} accessibilityRole="header">Vos vidéos courtes, programmées et suivies.</Txt>
-          <Txt muted size={16}>Un seul planning pour TikTok, YouTube Shorts et Instagram Reels. Les chiffres et les commentaires au même endroit.</Txt>
+          <Txt muted size={16}>Un seul planning pour TikTok, YouTube Shorts et Instagram Reels. Vos chiffres au même endroit.</Txt>
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             {(['tiktok', 'youtube', 'instagram'] as const).map(p => (
               <View key={p} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' }}>

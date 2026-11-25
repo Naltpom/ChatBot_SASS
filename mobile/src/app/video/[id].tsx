@@ -1,3 +1,4 @@
+import { FEATURES } from '../../lib/features'
 // Fiche d'une vidéo : la même vidéo sur chaque plateforme (cm/src/pages/VideoSheet.tsx).
 // Filtre Toutes / plateforme : lecteur, chiffres et commentaires suivent le filtre.
 // Lecteur : la vidéo d'origine lue depuis le Drive (par notre API, avec la session) ; à défaut,
@@ -84,7 +85,7 @@ export default function VideoSheetScreen() {
   const d = sheet.data
   const shown = d ? d.videos.filter(v => p === 'all' || v.platform === p) : []
   const ids = shown.map(v => v.id).join(',')
-  const pages = usePages((s, cursor) => (ids ? getCommentsPage(org, { status: 'all', videos: ids, cursor }) : Promise.resolve({ items: [] as Comment[], next: null })),
+  const pages = usePages((s, cursor) => (ids && FEATURES.comments ? getCommentsPage(org, { status: 'all', videos: ids, cursor }) : Promise.resolve({ items: [] as Comment[], next: null })),
     [ids, org], 'video-sheet-comments')
   const [changed, setChanged] = useState<Record<number, Comment | null>>({})
   const comments = applyChanges(pages.items || [], changed, 'all')
@@ -153,7 +154,7 @@ export default function VideoSheetScreen() {
             </View>
           ) : null}
 
-          <SectionHead title={`Commentaires · ${scopeLabel}`} action="Tous" onAction={() => router.push('/comments')} />
+          {FEATURES.comments ? <SectionHead title={`Commentaires · ${scopeLabel}`} action="Tous" onAction={() => router.push('/comments')} /> : null}
         </>
       ) : null}
     </View>
@@ -162,7 +163,7 @@ export default function VideoSheetScreen() {
   return (
     <FlatList
       style={{ flex: 1, backgroundColor: c.bg }}
-      data={d ? comments : []}
+      data={d && FEATURES.comments ? comments : []}
       keyExtractor={x => String(x.id)}
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets

@@ -1,3 +1,4 @@
+import { FEATURES } from '../../lib/features'
 import { Tabs, useRouter } from 'expo-router'
 import { Pressable, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -22,7 +23,7 @@ export default function TabsLayout() {
       tabBarLabelStyle: { fontSize: 11, fontWeight: '600' }, sceneStyle: { backgroundColor: c.bg },
     }}>
       <Tabs.Screen name="index" options={{ title: 'Planning', tabBarIcon: icon('calendar') }} />
-      <Tabs.Screen name="comments" options={{ title: 'Commentaires', tabBarIcon: icon('comment') }} />
+      <Tabs.Screen name="comments" options={{ title: 'Commentaires', tabBarIcon: icon('comment'), href: FEATURES.comments ? undefined : null }} />
       <Tabs.Screen name="publish" options={{
         title: 'Publier', tabBarAccessibilityLabel: 'Nouvelle publication',
         // Lecture seule : pas de bouton « + » (le rôle vient de l'espace affiché).
