@@ -670,3 +670,22 @@ video.pub-media { width: min(100%, 220px); cursor: default; }
 .legal ul { padding-left: 20px; }
 .legal li { margin: 4px 0; }
 .legal code { font-size: 13px; overflow-wrap: anywhere; }
+
+/* Inscription v2 : étapes (la 1re déjà en cours), rappel de la démo, erreurs par champ, critère coché, chargement. */
+.reg-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; counter-reset: rs; }
+.reg-steps li { counter-increment: rs; flex: 1; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.reg-steps li::before { content: ""; height: 4px; border-radius: 99px; background: var(--surface-3, var(--border)); }
+.reg-steps li.on { color: var(--text); }
+.reg-steps li.on::before { background: linear-gradient(90deg, var(--primary) 50%, var(--surface-3, var(--border)) 50%); }
+.reg-demo { background: var(--info-bg); color: var(--text); border-radius: 14px; padding: 12px 14px; font-size: 14.5px; line-height: 1.45; animation: reg-in .5s cubic-bezier(.2,.8,.2,1); }
+@keyframes reg-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.field-err { color: var(--danger); font-size: 13px; font-weight: 500; }
+.input[aria-invalid="true"] { border-color: var(--danger); }
+.reg-crit { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); transition: color .2s; }
+.reg-crit span { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 12px; }
+.reg-crit.ok { color: var(--ok); }
+.reg-crit.ok span { background: var(--ok); color: #fff; animation: dm-pop .35s cubic-bezier(.3,1.6,.5,1); }
+.spin { display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: -3px; border: 2px solid rgb(255 255 255 / 40%); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
+.dm-frame { width: 300px; max-width: 100%; align-self: center; border-radius: 34px; padding: 8px; background: #1c1c1e; box-shadow: 0 40px 80px -30px rgb(41 151 255 / 40%); }
+@keyframes dm-pop { from { transform: scale(.6); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .reg-demo, .reg-crit.ok span, .spin { animation: none; } }
