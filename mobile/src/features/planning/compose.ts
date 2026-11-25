@@ -28,6 +28,35 @@ export function nextHour(now = new Date()): Date {
   return d
 }
 
+/** Créneaux de publication : tous les quarts d'heure (00, 15, 30, 45). */
+export const SLOT_MIN = 15
+/** Premier créneau possible : au moins 15 minutes après maintenant, arrondi au quart d'heure suivant. */
+export function earliestSlot(now = new Date()): Date {
+  const d = new Date(now.getTime() + SLOT_MIN * 60e3)
+  const m = d.getMinutes(), extra = (SLOT_MIN - (m % SLOT_MIN)) % SLOT_MIN
+  if (extra || d.getSeconds() || d.getMilliseconds()) d.setMinutes(m + (extra || (d.getSeconds() || d.getMilliseconds() ? SLOT_MIN : 0)), 0, 0)
+  return d
+}
+/** Créneaux d'un jour, à partir du premier possible si c'est aujourd'hui. */
+export function daySlots(day: Date, now = new Date()): Date[] {
+  const start = new Date(day); start.setHours(0, 0, 0, 0)
+  const min = earliestSlot(now).getTime(), out: Date[] = []
+  for (let i = 0; i < (24 * 60) / SLOT_MIN; i++) {
+    const d = new Date(start); d.setMinutes(i * SLOT_MIN)
+    if (d.getDate() !== start.getDate()) break        // changement d'heure : pas de créneau du lendemain
+    if (d.getTime() >= min) out.push(d)
+  }
+  return out
+}
+/** Ramène une heure sur un créneau valable : quart d'heure, et pas avant le premier créneau possible. */
+export function toSlot(d: Date, now = new Date()): Date {
+  const x = new Date(d)
+  const m = x.getMinutes(), extra = (SLOT_MIN - (m % SLOT_MIN)) % SLOT_MIN
+  x.setMinutes(m + extra, 0, 0)
+  const min = earliestSlot(now)
+  return x.getTime() < min.getTime() ? min : x
+}
+
 /** Compteurs de la légende. */
 export const captionCount = (s: string) => ({ chars: s.length, tags: (s.match(/#/g) || []).length })
 
@@ -85,7 +114,8 @@ export function stepProblems(s: ComposeState, config: Config | null, now = Date.
   if (!s.chosen.length) targets.push('Choisissez au moins un compte.')
   if (postOrg(s.chosen, null).mixed) targets.push('Choisissez des comptes d’un même propriétaire (une publication par propriétaire).')
   if (s.size != null && config && s.size > config.max_upload_bytes) content.push(`Vidéo trop volumineuse (${fmtSize(config.max_upload_bytes)} au plus).`)
-  if (s.when === 'at' && s.sameTime && s.at.getTime() < now - 60000) targets.push("L'heure choisie est déjà passée.")
+  const soon = (d: Date) => (d.getTime() < now - 60000 ? 'déjà passée' : d.getTime() < earliestSlot(new Date(now)).getTime() - 60000 ? 'trop proche (15 minutes d’avance au minimum)' : null)
+  if (s.when === 'at' && s.sameTime && soon(s.at)) targets.push(soon(s.at) === 'déjà passée' ? "L'heure choisie est déjà passée." : `L'heure choisie est ${soon(s.at)}.`)
   for (const a of s.chosen) {
     const k = accKey(a), o = s.opts[k], n = a.name || a.platform
     if (!o) continue
@@ -109,7 +139,7 @@ export function stepProblems(s: ComposeState, config: Config | null, now = Date.
       if (parseCollaborators((o as InstaOpts).collaborators).length > 3) out.push(`${n} : 3 collaborateurs au plus.`)
     }
     const own = s.times[k]
-    if (s.when === 'at' && !s.sameTime && own && own.getTime() < now - 60000) targets.push(`${n} : l'heure choisie est déjà passée.`)
+    if (s.when === 'at' && !s.sameTime && own && soon(own)) targets.push(`${n} : l'heure choisie est ${soon(own)}.`)
   }
   return { content, targets, options: out }
 }
