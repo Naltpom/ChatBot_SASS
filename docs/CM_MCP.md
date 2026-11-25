@@ -29,29 +29,38 @@ API chapote.fr (bot « Assistant Chapote CM » uniquement)
 Serveur MCP cm  — vérifie jeton + accord + cm_access à CHAQUE appel, renvoie des agrégats
   │    (comptes sous alias « Compte TikTok 1 », sans nom, e-mail ni jeton de plateforme)
   ▼
-IA (Anthropic) → réponse avec alias → le widget remplace les alias par les vrais noms
+IA (prestataire du bot) → réponse avec alias → le widget remplace les alias par les vrais noms
                                        DANS LE NAVIGATEUR (table fournie par la page cm)
 ```
 
 - Sans jeton (visiteur, pas d'accord, accord retiré, jeton expiré) : le bot reste en mode public.
 
-### Décisions à prendre avant l'étape 4
+### Décisions prises (25 novembre 2026)
 
-1. **Comptes partagés** : assistant autorisé par l'administrateur de l'espace (recommandé), ou par
-   le seul accord de l'utilisateur ? (§3)
+1. **Les droits du possesseur du compte priment.** Chaque compte connecté a un **tableau de
+   permissions IA** (statistiques, planning, titres et légendes), réglé par son possesseur, c'est-à-dire
+   l'administrateur de l'espace qui contient le compte. Les personnes invitées (éditeurs, lecteurs)
+   voient ce qui est activé, sans pouvoir le changer. (§3)
 2. **Conservation** des conversations « mes données » sur chapote.fr : 30 jours, hors boîte de
-   réception (recommandé), ou rien ? (§2)
-3. **TikTok** : exclu de la première version tant que ses conditions ne sont pas clarifiées
-   (recommandé) ? (§5)
-4. **Accord dans le chat** en plus de la case à l'inscription (recommandé) ? (§3)
-5. À faire de votre côté : signer le DPA d'Anthropic, vérifier son statut DPF (§5).
+   réception, effaçables à tout moment. (§2)
+3. **Toutes les plateformes**, TikTok compris : les statistiques TikTok ne sont pas encore relevées
+   (permission pas encore demandée) ; elles seront rattachées automatiquement quand elles
+   arriveront. (§5)
+4. **Accord dans le chat** en plus de la case à l'inscription. (§3)
+5. **Prestataire d'IA = celui du bot sur chapote.fr.** Le prestataire (Anthropic, OpenAI, Gemini…)
+   et la clé sont choisis sur chapote.fr, réglage du bot. cm ne choisit rien : il partage le
+   prestataire du bot. Le texte de l'accord et la politique IA affichent le prestataire réellement
+   configuré, lu sur le bot ; s'il change, l'accord repasse « à revoir ». (§3, §5)
+6. À faire de votre côté : signer l'avenant de traitement (DPA) du prestataire utilisé et vérifier
+   son mécanisme de transfert (§5).
 
 ## 1. Le serveur MCP cm (lecture seule)
 
 ### Adresse et montage
 
-- `https://cm.chapote.fr/mcp`. Même API FastAPI que le reste de cm. Nouveau `location /mcp` dans
-  `cm/nginx.conf` (ajout, aucune route existante modifiée).
+- `https://cm.chapote.fr/api/cm/mcp`. Même API FastAPI que le reste de cm, déjà relayée par le
+  nginx de cm (`/api/cm/`) : **aucune modification de `cm/nginx.conf`** ni d'aucune route existante
+  (`/mcp` est déjà pris par emails.chapote.fr).
 - Même socle que emails.chapote.fr (`api/src/services/emails_mcp.py`) : SDK officiel `mcp`,
   FastMCP, Streamable HTTP **sans état**, réponses JSON, couche ASGI devant :
   1. drapeau `CM_MCP_ENABLED` éteint → 404 ;
@@ -87,11 +96,14 @@ Dans cet ordre, à chaque appel, sans cache :
 3. **Périmètre cm** : `cm_access.resolve_scope(db, user, "all")`, exactement comme les routes
    `/api/cm/stats`, `/api/cm/posts`, `/api/cm/videos` : un lecteur limité à des groupes ne voit
    que leurs comptes.
-4. **Filtre accord** : on retire les comptes et groupes décochés, puis les espaces partagés dont
-   l'administrateur n'a pas autorisé l'assistant (§3, « Comptes partagés »).
-5. **Filtre type de données** : sans « statistiques », `stats_summary` et `top_videos` répondent
-   « type de données non autorisé » ; sans « planning », `schedule` aussi ; sans « titres et
-   légendes », aucun titre ni légende n'est renvoyé (le champ est absent, pas vide).
+4. **Permissions du compte** (réglées par son possesseur) : un compte sans permission pour le type
+   de données demandé est retiré. Un compte dont le possesseur n'a jamais réglé ses permissions
+   n'envoie rien.
+5. **Choix de l'utilisateur** : ses propres types de données et les comptes qu'il a décochés.
+   Résultat : sans « statistiques », `stats_summary` et `top_videos` ne renvoient rien pour ce compte ;
+   sans « planning », `schedule` non plus ; sans « titres et légendes », aucun titre ni légende
+   (le champ est absent, pas vide). Il faut les deux : permission du compte **et** choix de
+   l'utilisateur.
 6. **Pseudonymisation** (§4) puis **bornage** de la réponse.
 
 Les requêtes SQL réutilisent celles des routes existantes (agrégats `func.sum`, `_latest_stats_bulk`).
@@ -112,7 +124,7 @@ Délivré par une nouvelle route cm : `GET /api/cm/assistant/token`.
 |---|---|---|
 | `scope` | `cm_assistant:read` | lecture seule, refusé partout ailleurs |
 | `sub` | id de l'utilisateur | le serveur MCP le lit ; l'IA ne le voit jamais |
-| `aud` | `https://cm.chapote.fr/mcp` | utilisable seulement par le serveur MCP cm |
+| `aud` | `https://cm.chapote.fr/api/cm/mcp` | utilisable seulement par le serveur MCP cm |
 | `bot` | clé publique du bot assistant | refusé pour tout autre bot |
 | `origin` | `cm.chapote.fr` | domaine de la page qui l'a demandé |
 | `crev` | numéro de version de l'accord | retrait ou changement d'accord = jeton périmé |
@@ -155,10 +167,11 @@ Ajouts facultatifs, sans effet pour les autres sites :
   - le jeton n'est écrit dans aucun journal, aucune base, aucun message d'erreur (les journaux
     actuels ne contiennent que le nom du serveur et un message tronqué : à garder ainsi).
 - Garde stricte : le mode `user_token` n'est accepté que si l'adresse du serveur est
-  `https://cm.chapote.fr/mcp` **et** que le bot est celui de `CM_ASSISTANT_BOT_KEY`. Un autre bot
+  `https://cm.chapote.fr/api/cm/mcp` **et** que le bot est celui de `CM_ASSISTANT_BOT_KEY`. Un autre bot
   ne peut pas se faire relayer ces jetons.
-- Vérification côté chapote.fr avant de relayer : signature non vérifiée (la clé reste chez cm),
-  mais `aud`, `bot`, `origin` et `exp` lus et contrôlés ; jeton refusé = mode public.
+- Vérification côté chapote.fr avant de relayer : chapote.fr et cm tournent dans la même API ; la
+  signature, `aud`, `bot`, `origin` et `exp` sont vérifiés dès la réception du message ; jeton
+  refusé = mode public.
 
 ### Pourquoi c'est sûr
 
@@ -191,7 +204,7 @@ boîte de réception.
 1. Variables du serveur : `CM_MCP_ENABLED=true`, `CM_ASSISTANT_TOKEN_KEY` (nouvelle clé),
    `CM_ASSISTANT_BOT_KEY=pk_fladg1AxA074Nd79-nsB2l6zuK88RW2P`.
 2. Sur chapote.fr, onglet Connecteurs du bot assistant : serveur `cm`, adresse
-   `https://cm.chapote.fr/mcp`, authentification « jeton de l'utilisateur ».
+   `https://cm.chapote.fr/api/cm/mcp`, authentification « jeton de l'utilisateur ».
 3. Rien à brancher pour les utilisateurs : ils donnent ou retirent leur accord.
 
 ## 3. L'accord IA (RGPD)
@@ -215,8 +228,9 @@ conditions… », **sans case à cocher**. L'app mobile enregistre la version de
 - « J'accepte les conditions d'utilisation » : obligatoire, comme aujourd'hui.
 - « Activer l'assistant IA sur mes données » : **case séparée, facultative, non cochée**, avec
   une phrase et un lien : « L'assistant peut lire vos statistiques et votre planning pour répondre
-  à vos questions. Ces données sont traitées par Anthropic, notre fournisseur d'IA. [Politique IA] »
-  (YouTube exige que l'utilisateur approuve expressément le destinataire).
+  à vos questions. Ces données sont traitées par {prestataire}, notre fournisseur d'IA. [Politique IA] »
+  `{prestataire}` = prestataire réellement configuré sur le bot (par exemple « Anthropic »), lu sur
+  chapote.fr. YouTube exige que l'utilisateur approuve expressément le destinataire.
 - Refuser ne change rien d'autre dans l'app.
 - Moins de 15 ans (date de naissance déjà demandée dans l'app mobile) : case masquée, accord
   impossible.
@@ -234,18 +248,23 @@ vers la politique.
 ### Profil : nouvelle page « Assistant IA »
 
 - **Interrupteur général** « Assistant IA sur mes données ».
-- **Par compte connecté** (TikTok, YouTube, Instagram) et **par groupe** : tous cochés quand
-  l'accord général est donné, décochables un à un.
+- **Par compte connecté** (TikTok, YouTube, Instagram) : la personne peut décocher les comptes
+  qu'elle ne veut pas inclure dans ses conversations.
 - **Par type de données** :
   - statistiques : activé par défaut ;
   - planning et statuts : activé par défaut ;
   - titres et légendes des vidéos : **désactivé par défaut**, car ils peuvent contenir des noms de
     personnes.
-- **Comptes partagés** (vous êtes éditeur ou lecteur dans l'espace de quelqu'un d'autre) : ces
-  comptes appartiennent à l'administrateur de l'espace. Ils ne sont proposés que si cet
-  administrateur a activé « Autoriser l'assistant IA pour cet espace » (réglage de l'espace,
-  désactivé par défaut). **Décision à prendre** : je recommande cette règle ; sans elle, l'accord
-  d'un lecteur suffirait à envoyer à l'IA les chiffres d'un compte qui n'est pas le sien.
+- **Tableau de permissions de chaque compte** (droits du possesseur) :
+  - une ligne par compte, trois colonnes : statistiques, planning et statuts, titres et légendes ;
+  - **modifiable seulement par le possesseur** du compte (administrateur de l'espace qui le
+    contient ; pour l'espace perso, l'utilisateur lui-même) ;
+  - **les personnes invitées** (éditeurs, lecteurs) voient le tableau en lecture seule : elles savent
+    ce qui peut partir vers l'IA pour ces comptes, sans pouvoir le changer ;
+  - valeurs proposées quand le possesseur active l'assistant : statistiques et planning activés,
+    titres et légendes désactivés ;
+  - un compte dont le possesseur n'a jamais réglé ses permissions n'envoie rien, même si un invité a
+    donné son accord.
 - Lien vers la **Politique IA**.
 - Bouton **« Effacer mes conversations avec l'assistant »** : supprime sur chapote.fr les
   conversations `data_mode` de cet utilisateur (appel serveur à serveur signé, par empreinte `uh`).
@@ -253,15 +272,16 @@ vers la politique.
 
 ### Enregistrement
 
-- `cm_ai_consents` : `user_id`, `enabled`, `policy_version`, `rev` (incrémenté à chaque
-  changement), `stats`, `planning`, `captions`, `excluded_accounts` (liste `"tiktok:12"`),
-  `excluded_groups`, `updated_at`.
+- `cm_ai_consents` : `user_id`, `enabled`, `policy_version`, `provider` (prestataire affiché lors
+  de l'accord), `rev` (incrémenté à chaque changement), `stats`, `planning`, `captions`,
+  `excluded_accounts` (liste `"tiktok:12"`), `updated_at`.
 - `cm_ai_consent_events` (historique, jamais modifié) : `user_id`, `at`, `source`
   (`inscription` · `profil` · `chat` · `mobile`), `policy_version`, `change` (avant / après), sans
   adresse IP.
-- `cm_space_ai_settings` : `organization_id`, `allow_assistant`, `changed_by`, `changed_at`.
-- Nouvelle version de la politique IA : l'accord passe « à revoir ». L'assistant redemande l'accord
-  et n'utilise pas les données avant.
+- `cm_account_ai_permissions` : `platform`, `account_id`, `stats`, `planning`, `captions`,
+  `updated_by`, `updated_at` (une ligne par compte ; absente = rien n'est envoyé).
+- Nouvelle version de la politique IA **ou changement de prestataire sur le bot** : l'accord passe
+  « à revoir ». L'assistant redemande l'accord et n'utilise pas les données avant.
 
 ### Brouillon de la page « Politique IA »
 
@@ -276,16 +296,21 @@ vers la politique.
 > - votre planning : publications à venir, publiées, en échec ;
 > - les titres et légendes de vos vidéos, seulement si vous cochez cette case.
 >
+> Pour les comptes partagés avec vous, c'est leur possesseur qui décide de ce qui peut être envoyé ;
+> vous voyez ses réglages dans Profil → Assistant IA.
+>
 > Vos comptes sont remplacés par des noms comme « Compte TikTok 1 » avant d'être envoyés à l'IA :
 > elle ne voit pas vos pseudos. Ne sont **jamais** envoyés : votre nom, votre e-mail, votre
 > téléphone, votre date de naissance, vos identifiants de connexion aux réseaux, les commentaires.
 >
 > **Chez qui.** Les questions et ces données passent par chapote.fr (même éditeur, serveurs OVH en
-> France), puis sont traitées par **Anthropic Ireland Limited**, fournisseur du modèle d'IA Claude,
-> qui agit pour notre compte, sur des serveurs aux États-Unis. Ce transfert est encadré par les
-> clauses contractuelles types de la Commission européenne. Anthropic n'utilise pas ces données pour
-> entraîner ses modèles et les supprime sous 30 jours (sauf contenu signalé comme contraire à ses
-> règles d'usage, gardé jusqu'à 2 ans).
+> France), puis sont traitées par le prestataire d'IA de l'assistant, qui agit pour notre compte :
+> aujourd'hui **{prestataire}**. [Paragraphe propre au prestataire, par exemple pour Anthropic :
+> « Anthropic Ireland Limited, fournisseur du modèle Claude, sur des serveurs aux États-Unis ;
+> transfert encadré par les clauses contractuelles types de la Commission européenne ; pas
+> d'entraînement de modèles sur ces données ; suppression sous 30 jours, sauf contenu signalé comme
+> contraire à ses règles d'usage, gardé jusqu'à 2 ans ».] Si le prestataire change, nous vous
+> redemandons votre accord.
 >
 > **Combien de temps.** Les conversations « mes données » sont gardées 30 jours, puis supprimées.
 > Si vous déconnectez un compte YouTube, elles sont supprimées sous 7 jours.
@@ -345,7 +370,9 @@ juridique.** Les points marqués « à vérifier » n'ont pas pu être confirmé
   volontairement ([CEPD, lignes directrices 2/2019](https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-22019-processing-personal-data-under-article-61b_en)),
   mais Google et Meta parlent de consentement pour ce type de partage : **le consentement est la
   base retenue**.
-- **Transfert vers Anthropic (États-Unis)** :
+- **Transfert vers le prestataire d'IA.** Le prestataire est celui du bot sur chapote.fr ; chaque
+  prestataire possible doit avoir un DPA signé et un mécanisme de transfert. Exemple vérifié pour
+  Anthropic, prestataire par défaut des bots (États-Unis) :
   - contrat avec **Anthropic Ireland, Limited** pour un client européen
     ([Commercial Terms](https://www.anthropic.com/legal/commercial-terms)) ; traitement aux États-Unis ;
   - Anthropic agit en **sous-traitant** ; son avenant de traitement inclut les **clauses
@@ -370,7 +397,7 @@ juridique.** Les points marqués « à vérifier » n'ont pas pu être confirmé
 Source : [YouTube API Services, Developer Policies](https://developers.google.com/youtube/terms/developer-policies)
 et [conditions](https://developers.google.com/youtube/terms/api-services-terms-of-service).
 - Les données d'un utilisateur ne sont accessibles qu'à lui et aux « agents expressly approved by
-  that user » (III.E.3.b) : **le texte de l'accord nomme Anthropic**.
+  that user » (III.E.3.b) : **le texte de l'accord nomme le prestataire configuré**.
 - Pas d'usage non annoncé à l'utilisateur (III.D.2.3) : la politique IA le décrit.
 - Suppression sous **7 jours** après un retrait d'accès dans l'app ou une demande (III.D.2.3.a,
   III.E.4.g), sous 30 jours après un retrait depuis Google (III.D.2.3.b) : les conversations
@@ -381,7 +408,7 @@ et [conditions](https://developers.google.com/youtube/terms/api-services-terms-o
 - [Règlement sur les données utilisateur](https://developers.google.com/terms/api-services-user-data-policy) :
   transfert à un tiers permis pour une fonction visible, avec l'accord de l'utilisateur.
 - Aucune clause interdisant l'envoi à une IA trouvée pour l'API YouTube.
-- **Verdict** : conforme si accord explicite nommant Anthropic, et sans entraînement de modèles.
+- **Verdict** : conforme si accord explicite nommant le prestataire, et sans entraînement de modèles.
 
 ### TikTok
 
@@ -393,10 +420,10 @@ Sources : [Developer Terms](https://www.tiktok.com/legal/tik-tok-developer-terms
 - Pas de tiers autorisé sans accord écrit de TikTok (Developer Terms III.3(b)) ; divulgation
   complète aux utilisateurs (III.2(c)) ; aucun partage sans consentement (guidelines).
 - Aujourd'hui, les statistiques TikTok ne sont pas encore relevées (permission en attente).
-- **Recommandation** : **ne pas inclure TikTok** dans le mode « mes données » tant que ce point
-  n'est pas clarifié avec TikTok (le déclarer lors d'un prochain échange, sans toucher à l'audit
-  en cours). Les outils excluent les comptes TikTok par un réglage serveur
-  (`CM_MCP_PLATFORMS=youtube,instagram`).
+- **Décision** : TikTok inclus comme les autres plateformes ; ses statistiques apparaîtront dans
+  l'assistant dès qu'elles seront relevées. **Risque restant** : la clause III.3(b). À déclarer à
+  TikTok au moment de la demande des permissions de statistiques. Un réglage serveur permet de
+  retirer une plateforme sans code si besoin (`CM_MCP_PLATFORMS`, toutes par défaut).
 
 ### Meta (Instagram)
 
@@ -405,8 +432,8 @@ Source : [Meta Platform Terms](https://developers.facebook.com/terms/) (mise à 
 - Partage permis avec un prestataire (3.c.ii.2) sous **accord écrit** : traitement uniquement pour
   vous, jamais pour ses propres fins (5.a.i) ; ou sur **consentement exprès** de l'utilisateur, avec
   preuve (3.c.ii.3).
-- **Point de friction à faire valider** : Anthropic garde des données pour faire respecter sa
-  politique d'usage. Cumuler les deux voies (prestataire avec DPA + consentement exprès) réduit le
+- **Point de friction à faire valider** (si le prestataire est Anthropic) : Anthropic garde des
+  données pour faire respecter sa politique d'usage. Cumuler les deux voies (prestataire avec DPA + consentement exprès) réduit le
   risque.
 - Suppression rapide à la demande ou quand plus nécessaire (3.d) : couverte par les 30 jours et
   « Effacer mes conversations ».
@@ -418,9 +445,12 @@ Source : [Meta Platform Terms](https://developers.facebook.com/terms/) (mise à 
 2. Base légale : consentement, retirable à tout moment, aussi simplement (Profil → Assistant IA).
 3. Données : statistiques, planning, comptes sous alias ; titres et légendes seulement avec la case
    dédiée ; jamais de nom, e-mail, téléphone, date de naissance, jetons, commentaires.
-4. Destinataires : chapote.fr (même éditeur, OVH France), Anthropic Ireland Limited (sous-traitant)
-   et ses sous-traitants ultérieurs ; traitement aux États-Unis ; clauses contractuelles types.
-5. Pas d'entraînement de modèles ; conservation chez Anthropic : 30 jours (2 ans si contenu signalé).
+4. Destinataires : chapote.fr (même éditeur, OVH France) et le prestataire d'IA configuré sur
+   l'assistant (sous-traitant), avec ses sous-traitants ultérieurs, son pays de traitement et son
+   mécanisme de transfert (pour Anthropic : Anthropic Ireland Limited, États-Unis, clauses
+   contractuelles types).
+5. Pas d'entraînement de modèles ; durée de conservation chez le prestataire (Anthropic : 30 jours,
+   2 ans si contenu signalé).
 6. Conservation des conversations : 30 jours ; suppression sous 7 jours après déconnexion d'une
    plateforme ; effacement à la demande.
 7. Âge minimum : 15 ans.
@@ -428,7 +458,8 @@ Source : [Meta Platform Terms](https://developers.facebook.com/terms/) (mise à 
    Google, lien vers les conditions de YouTube.
 9. Meta : mention du partage avec un prestataire IA et du droit d'effacement.
 
-**À vérifier avant la mise en ligne** : statut DPF d'Anthropic ; signature du DPA Anthropic ;
+**À vérifier avant la mise en ligne** : DPA signé et mécanisme de transfert du prestataire utilisé
+(Anthropic : statut DPF) ;
 lecture de TikTok III.3(b) ; compatibilité entre la conservation d'Anthropic et la clause Meta 5.a.i.
 
 ## 6. Tests prévus (étape 4)
@@ -442,8 +473,8 @@ Tous automatiques, sur une vraie base Postgres jetable (`real_db`), MCP appelé 
    modèle simulé appelle les outils avec ces textes ; les réponses restent dans le périmètre de A.
 3. **Lecteur limité à des groupes** : ne reçoit que les comptes de ses groupes (mêmes cas que
    `test_cm_access`).
-4. **Comptes partagés** : espace dont l'administrateur n'a pas autorisé l'assistant → comptes
-   absents, même avec l'accord du lecteur.
+4. **Droits du possesseur** : compte sans permission (ou permission décochée par le possesseur)
+   → absent pour un invité, même avec son accord ; un invité ne peut pas modifier le tableau (403).
 5. **Sans accord / accord retiré** : jeton refusé (204) ; jeton émis avant le retrait refusé au
    premier appel suivant ; le widget sans jeton ne propose aucun outil cm au modèle.
 6. **Type décoché** : statistiques décochées → `stats_summary` et `top_videos` refusés ; titres
@@ -468,7 +499,8 @@ Tous automatiques, sur une vraie base Postgres jetable (`real_db`), MCP appelé 
 1. **Inscription** : sous « J'accepte les conditions » (obligatoire), une **case séparée,
    facultative, non cochée** : « Activer l'assistant IA sur mes données », avec la phrase
    « L'assistant peut lire vos statistiques et votre planning pour répondre à vos questions. Ces
-   données sont traitées par Anthropic, notre fournisseur d'IA » et un lien « Politique IA ». Masquée si la personne a moins de 15 ans. Envoyer le choix à l'API
+   données sont traitées par {prestataire}, notre fournisseur d'IA » (nom renvoyé par l'API) et un
+   lien « Politique IA ». Masquée si la personne a moins de 15 ans. Envoyer le choix à l'API
    (`PUT /api/cm/assistant/consent`, source `mobile`).
 2. **Réglages → « Assistant IA »** : mêmes éléments que la page du site :
    - interrupteur général ;
@@ -480,4 +512,5 @@ Tous automatiques, sur une vraie base Postgres jetable (`real_db`), MCP appelé 
 3. **Écran Assistant** (WebView de `docs/WIDGET_CM.md`) : obtenir un jeton par
    `GET /api/cm/assistant/token` juste avant chaque message (jamais stocké), le passer à la page
    de l'assistant ; fournir la table des alias pour l'affichage.
-4. **Réglage de l'espace** (administrateurs) : « Autoriser l'assistant IA pour cet espace ».
+4. **Tableau de permissions de chaque compte** : modifiable par le possesseur, en lecture seule
+   pour les invités.
