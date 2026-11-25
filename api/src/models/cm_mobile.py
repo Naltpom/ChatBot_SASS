@@ -95,3 +95,27 @@ class CmFeedback(Base):
     reason = Column(String(40), nullable=True)          # choix proposé
     text = Column(Text, nullable=True)                  # « Autre » : texte libre (500 caractères au plus)
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CmAccountRequest(Base):
+    """Demande de reprise d'un compte relié à l'espace de quelqu'un d'autre. La personne a prouvé qu'elle
+    contrôle le compte (elle vient de s'y connecter chez la plateforme), mais le compte ne bouge que si
+    un administrateur de l'espace actuel accepte. Refus ou silence : réclamation possible auprès du support."""
+    __tablename__ = "cm_account_requests"
+
+    id = Column(Integer, primary_key=True)
+    platform = Column(String(20), nullable=False)
+    account_id = Column(Integer, nullable=False)
+    requester_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    dest_organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
+    # Espace où était le compte au moment de la demande (si le compte a bougé depuis, la demande tombe).
+    from_organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    from_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    message = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="pending")   # pending | accepted | declined | cancelled | expired
+    expires_at = Column(DateTime, nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    disputed_at = Column(DateTime, nullable=True)
+    dispute_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
