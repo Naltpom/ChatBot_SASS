@@ -104,3 +104,29 @@ async def test_feedback_on_abandon(pg_session, cmenv):
         assert (await c.as_(a).get("/api/cm/mobile/feedback")).status_code == 403
         rows = (await c.as_(admin).get("/api/cm/mobile/feedback")).json()
         assert [(r["reason"], r["text"]) for r in rows] == [("other", "pas le temps"), ("when", None)]
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_feedback_general(pg_session, cmenv, monkeypatch):
+    """« Donner mon avis » : texte libre (2 000 caractères), sans choix proposé, copie e-mail aux superadmins."""
+    from src.routers import cm_mobile
+    sent = []
+    monkeypatch.setattr(cm_mobile, "send_account_email", lambda to, subject, body, **kw: sent.append((to, subject, body, kw)))
+    a = await _user(pg_session, "a@t.dev")
+    admin = await _user(pg_session, "root@t.dev")
+    admin.is_superadmin = True
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(a)
+        assert (await h.post("/api/cm/mobile/feedback", json={"context": "general"})).status_code == 400
+        assert (await h.post("/api/cm/mobile/feedback", json={"context": "general", "reason": "when", "text": "x"})).status_code == 400
+        assert (await h.post("/api/cm/mobile/feedback", json={"context": "general", "text": "y" * 2001})).status_code == 422
+        long = "Je publie le soir sur 4 comptes. " * 50
+        assert (await h.post("/api/cm/mobile/feedback", json={"context": "general", "text": long[:1900]})).status_code == 200
+        rows = (await c.as_(admin).get("/api/cm/mobile/feedback")).json()
+        assert rows[0]["context"] == "general" and len(rows[0]["text"]) > 500
+    assert len(sent) == 1
+    to, subject, body, kw = sent[0]
+    assert to == ["root@t.dev"] and kw["reply_to"] == "a@t.dev"
+    assert "a@t.dev" in body and "Je publie le soir" in body

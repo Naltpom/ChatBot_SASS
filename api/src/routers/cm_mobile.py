@@ -46,6 +46,7 @@ from src.core.security import _encode, create_dashboard_token, get_current_user,
 from src.core.time import utcnow
 from src.models.cm_mobile import CmAppOpen, CmFeedback, CmMobileDevice, CmUserIdentity
 from src.models.user import User
+from src.services.email_service import send_account_email
 from src.services.rate_limit import RateLimiter, SingleUseTokens
 
 router = APIRouter(prefix="/api/cm/mobile", tags=["cm-mobile"])
@@ -611,32 +612,50 @@ async def metrics(weeks: int = 8, db: AsyncSession = Depends(get_db), user: User
 
 
 # --------------------------------------------------------------------------
-# Question courte au moment d'un abandon (une réponse, facultative)
+# Question courte au moment d'un abandon (une réponse, facultative), et « Donner mon avis » (texte libre)
 # --------------------------------------------------------------------------
 
 feedback_limiter = RateLimiter("rl:cmmobfeedback:", 20, 86400)
-FEEDBACK_CONTEXTS = ("new_post_abandon",)
+FEEDBACK_CONTEXTS = ("new_post_abandon", "general")
+FEEDBACK_MAX = {"general": 2000}   # texte libre plus long pour « Donner mon avis » ; 500 sinon
 FEEDBACK_REASONS = ("no_video", "too_complex", "when", "accounts", "other")
 
 
 class FeedbackIn(BaseModel):
     context: str = Field(..., max_length=40)
     reason: Optional[str] = Field(None, max_length=40)
-    text: Optional[str] = Field(None, max_length=500)
+    text: Optional[str] = Field(None, max_length=2000)
 
 
 @router.post("/feedback")
 async def feedback(body: FeedbackIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     if body.context not in FEEDBACK_CONTEXTS or (body.reason and body.reason not in FEEDBACK_REASONS):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Réponse non reconnue")
+    if body.context == "general" and body.reason:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Réponse non reconnue")
     if not body.reason and not (body.text or "").strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Réponse vide")
     if not await feedback_limiter.check(str(user.id)):
         return {"ok": True}
-    db.add(CmFeedback(user_id=user.id, context=body.context, reason=body.reason,
-                      text=(body.text or "").strip()[:500] or None, created_at=utcnow()))
+    text = (body.text or "").strip()[:FEEDBACK_MAX.get(body.context, 500)] or None
+    db.add(CmFeedback(user_id=user.id, context=body.context, reason=body.reason, text=text, created_at=utcnow()))
     await db.commit()
+    if body.context == "general" and text:
+        await _mail_feedback(db, user, text)
     return {"ok": True}
+
+
+async def _mail_feedback(db: AsyncSession, user: User, text: str) -> None:
+    """« Donner mon avis » : copie par e-mail aux superadmins (l'équipe Chapote), avec qui l'a écrit. Répondre
+    à l'e-mail répond à l'auteur. Envoi en arrière-plan : n'échoue jamais l'enregistrement."""
+    to = list((await db.execute(select(User.email).where(User.is_superadmin.is_(True)))).scalars())
+    if not to:
+        return
+    when = utcnow().strftime("%d/%m/%Y %H:%M UTC")
+    body = (f"Nouvel avis sur Chapote CM.\n\n"
+            f"De : {user.name} <{user.email}> (compte n° {user.id}, inscrit le {user.created_at:%d/%m/%Y})\n"
+            f"Envoyé le : {when}\n\n{text}\n\nRépondez à cet e-mail pour lui répondre directement.")
+    send_account_email(to, f"Avis Chapote CM — {user.name}", body, error_label="cm_feedback_mail", reply_to=user.email)
 
 
 @router.get("/feedback")

@@ -14,6 +14,8 @@ import imgGroupes from '../landing/groupes.webp'
 import Demo from '../landing/Demo'
 
 const CTA = 'Programmer mes vidéos gratuitement'
+// « Donner mon avis » : le formulaire de l'app (connexion ou inscription d'abord) : on sait qui écrit.
+const FEEDBACK = '/avis'
 // Lien du Play Store : à renseigner quand l'app sera publique. Vide = badge masqué.
 const PLAY_STORE_URL = ''
 
@@ -158,6 +160,7 @@ export default function Landing() {
                 <p>Alors j’ai fait l’app, pour moi. Elle est maintenant ouverte à tous, en version 1 : publier des vidéos courtes verticales sur TikTok, Instagram et YouTube, le plus simplement possible. Elle est gratuite pour l’instant : vos retours et votre façon de faire comptent plus que tout pour la suite. Et si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.</p>
               </blockquote>
               <figcaption><Logo size={36} /><span><b>Nathan</b><small>Créateur de Chapote</small></span></figcaption>
+              <Link className="lp-link lp-fb" to={FEEDBACK}>Donner mon avis à Nathan</Link>
             </figure>
           </div>
         </section>
@@ -188,7 +191,7 @@ export default function Landing() {
       <footer className="lp-foot">
         <div className="lp-wrap lp-foot-in">
           <div><p className="lp-foot-brand"><Logo size={24} />Chapote CM</p><p>Programmation et statistiques pour TikTok, YouTube et Instagram.</p></div>
-          <div><h2>Chapote</h2><ul><li><a href={chapote}>chapote.fr</a></li><li><Link to="/connexion">Se connecter</Link></li></ul></div>
+          <div><h2>Chapote</h2><ul><li><a href={chapote}>chapote.fr</a></li><li><Link to="/connexion">Se connecter</Link></li><li><Link to={FEEDBACK}>Donner mon avis</Link></li></ul></div>
           <div><h2>Légal</h2><ul><li><Link to="/privacy">Confidentialité</Link></li><li><Link to="/terms">Conditions d’utilisation</Link></li><li><a href={`${chapote}/legal/mentions-legales`}>Mentions légales</a></li></ul></div>
           <div><h2>Plateformes</h2><ul><li><a href={`${chapote}/legal/tiktok-confidentialite`}>TikTok</a></li><li><a href={`${chapote}/legal/youtube-confidentialite`}>YouTube</a></li><li><a href={`${chapote}/legal/instagram-confidentialite`}>Instagram</a></li></ul></div>
         </div>

@@ -130,6 +130,7 @@ function Shell() {
         <Route path="/commentaires" element={<Comments />} />
         <Route path="/videos/:id" element={<VideoSheet />} />
         <Route path="/equipe" element={<Navigate to="/partage" replace />} />
+        <Route path="/avis" element={<Navigate to="/?avis=1" replace />} />
         <Route path="/tiktok/callback" element={<Callback platform="tiktok" />} />
         <Route path="/youtube/callback" element={<Callback platform="youtube" />} />
         <Route path="/instagram/callback" element={<Callback platform="instagram" />} />
