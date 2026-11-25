@@ -2,16 +2,16 @@
 // (créer un compte), une preuve à côté (captures réelles de l'app, données de démonstration), les
 // objections dans la FAQ. Rien d'inventé : pas d'avis, pas de logo client, pas de chiffre.
 // Pas de librairie d'animation ; seule la capture du haut est chargée tout de suite.
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useSession } from '../session'
 import '../landing.css'
 import imgPlanning from '../landing/planning.webp'
-import imgPublication from '../landing/publication.webp'
 import imgNouvelle from '../landing/nouvelle.webp'
 import imgStats from '../landing/stats.webp'
 import imgBibliotheque from '../landing/bibliotheque.webp'
 import imgGroupes from '../landing/groupes.webp'
+import Demo from '../landing/Demo'
 
 const CTA = 'Programmer mes vidéos gratuitement'
 // Lien du Play Store : à renseigner quand l'app sera publique. Vide = badge masqué.
@@ -36,10 +36,10 @@ function Check() {
 }
 
 /** Capture d'écran de l'app dans un cadre de téléphone. */
-function Phone({ src, alt, eager = false }: { src: string; alt: string; eager?: boolean }) {
+function Phone({ src, alt }: { src: string; alt: string }) {
   return (
     <div className="lp-phone">
-      <img src={src} alt={alt} width={540} height={978} loading={eager ? 'eager' : 'lazy'} decoding="async" {...(eager ? { fetchpriority: 'high' } : {})} />
+      <img src={src} alt={alt} width={540} height={978} loading="lazy" decoding="async" />
     </div>
   )
 }
@@ -48,9 +48,9 @@ const FEATURES: { k: string; title: string; text: string; img: string; alt: stri
   { k: 'Publication multi-réseaux', title: 'Une vidéo, tous vos comptes.', img: imgNouvelle,
     text: 'Envoyez la vidéo une fois. Choisissez les comptes TikTok, YouTube et Instagram, une légende commune ou propre à chacun, et l’heure. Rien ne part avant.',
     alt: 'Écran Nouvelle publication : choix de la vidéo, titre, légende et comptes' },
-  { k: 'Planning', title: 'Toute la semaine d’un coup d’œil.', img: imgPublication,
+  { k: 'Planning', title: 'Toute la semaine d’un coup d’œil.', img: imgPlanning,
     text: 'Ce qui est programmé, ce qui est parti et ce qui a échoué, jour par jour. Chaque publication montre son statut sur chaque réseau.',
-    alt: 'Fiche d’une publication : publiée sur YouTube et Instagram, à publier dans l’app sur TikTok' },
+    alt: 'Le planning : la semaine, et les publications du jour programmées sur TikTok, YouTube et Instagram' },
   { k: 'Statistiques', title: 'Vos chiffres réunis, sans tableur.', img: imgStats,
     text: 'Vues, abonnés, j’aime, partages et engagement sur 7 jours, 30 jours, 90 jours ou un an. Par compte ou par groupe.',
     alt: 'Écran Statistiques : vues, abonnés, engagement et vidéos publiées sur 30 jours' },
@@ -74,10 +74,21 @@ const FAQ: [string, string][] = [
 export default function Landing() {
   const { appUrl } = useSession()
   useEffect(() => { document.title = 'Chapote CM · Programmez vos vidéos sur TikTok, YouTube et Instagram' }, [])
+  // Apparition au défilement : un seul observateur pour toute la page. Sans lui, tout reste visible.
+  const page = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = page.current
+    if (!el || !('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    el.classList.add('lp-js')
+    const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target) } }),
+      { rootMargin: '0px 0px -10% 0px' })
+    el.querySelectorAll('.lp-rv').forEach(x => io.observe(x))
+    return () => io.disconnect()
+  }, [])
   const chapote = appUrl.replace(/\/$/, '')
 
   return (
-    <div className="lp">
+    <div className="lp" ref={page}>
       <a className="lp-skip" href="#contenu">Aller au contenu</a>
       <header className="lp-top">
         <div className="lp-wrap lp-top-row">
@@ -99,7 +110,7 @@ export default function Landing() {
               <h1 id="lp-titre">Programmez vos vidéos courtes <em>sur tous vos comptes, en une fois.</em></h1>
               <p className="lp-lead">Pour les créateurs, community managers et équipes. Choisissez la vidéo, les comptes et l’heure : Chapote CM publie à votre place et rassemble vos statistiques.</p>
               <div className="lp-act">
-                <Link to="/inscription" className="lp-cta">{CTA}</Link>
+                <Link to="/inscription" className="lp-cta">{CTA}<span aria-hidden="true" className="lp-arrow">→</span></Link>
                 <ul className="lp-proof">
                   <li><Check />Gratuit, sans carte bancaire</li>
                   <li><Check />Connexion officielle TikTok, Google et Meta</li>
@@ -107,9 +118,9 @@ export default function Landing() {
                 </ul>
               </div>
             </div>
-            <figure className="lp-shot">
-              <Phone eager src={imgPlanning} alt="Le planning de Chapote CM : trois publications programmées à 18 h 30 sur TikTok, YouTube et Instagram" />
-              <figcaption>Capture réelle de l’app (données de démonstration)</figcaption>
+            <figure className="lp-shot lp-hero-shot">
+              <div className="lp-phone"><Demo /></div>
+              <figcaption>Essayez : c’est l’écran de l’app, avec une vidéo de démonstration. Rien n’est publié.</figcaption>
             </figure>
           </div>
         </section>
@@ -119,7 +130,7 @@ export default function Landing() {
             <h2 id="lp-produit">Ce que fait Chapote CM</h2>
             <p className="lp-sub">Tout ce qu’il faut pour publier régulièrement, sans jongler entre trois applications.</p>
             {FEATURES.map((f, i) => (
-              <div key={f.k} className={`lp-feat${i % 2 ? ' rev' : ''}`}>
+              <div key={f.k} className={`lp-feat lp-rv${i % 2 ? ' rev' : ''}`}>
                 <div className="lp-ft"><p className="lp-k">{f.k}</p><h3>{f.title}</h3><p>{f.text}</p></div>
                 <div className="lp-shot"><Phone src={f.img} alt={f.alt} /></div>
               </div>
@@ -130,11 +141,23 @@ export default function Landing() {
         <section id="etapes" className="lp-sec" aria-labelledby="lp-etapes">
           <div className="lp-wrap">
             <h2 id="lp-etapes">Prêt en trois étapes</h2>
-            <ol className="lp-steps">
+            <ol className="lp-steps lp-rv">
               <li><b aria-hidden="true">1</b><h3>Connectez vos comptes</h3><p>Par les connexions officielles de TikTok, Google et Meta.</p></li>
               <li><b aria-hidden="true">2</b><h3>Programmez</h3><p>Une vidéo, les comptes ou un groupe, et l’heure.</p></li>
               <li><b aria-hidden="true">3</b><h3>Suivez les résultats</h3><p>Le statut de chaque publication, puis vos statistiques.</p></li>
             </ol>
+          </div>
+        </section>
+
+        <section className="lp-sec lp-why" aria-labelledby="lp-pourquoi">
+          <div className="lp-wrap">
+            <figure className="lp-founder lp-rv">
+              <h2 id="lp-pourquoi">Pourquoi Chapote CM</h2>
+              <blockquote>
+                <p>J’ai d’abord construit Chapote CM pour publier mes propres contes en vidéo sur TikTok, YouTube et Instagram, sans refaire trois fois le même travail. Aujourd’hui, je programme une fois et je suis tous mes chiffres au même endroit. Je l’ouvre à tous ceux qui publient comme moi.</p>
+              </blockquote>
+              <figcaption><Logo size={36} /><span><b>Nathan</b><small>Créateur de Chapote</small></span></figcaption>
+            </figure>
           </div>
         </section>
 
@@ -149,10 +172,10 @@ export default function Landing() {
 
         <section className="lp-sec" aria-labelledby="lp-fin">
           <div className="lp-wrap">
-            <div className="lp-final">
+            <div className="lp-final lp-rv">
               <h2 id="lp-fin">Votre prochaine vidéo part à l’heure, partout.</h2>
               <div className="lp-act center">
-                <Link to="/inscription" className="lp-cta">{CTA}</Link>
+                <Link to="/inscription" className="lp-cta">{CTA}<span aria-hidden="true" className="lp-arrow">→</span></Link>
                 <Link to="/connexion" className="lp-link">J’ai déjà un compte</Link>
               </div>
               {PLAY_STORE_URL && <a className="lp-store" href={PLAY_STORE_URL} rel="noopener">Disponible sur Google Play</a>}
