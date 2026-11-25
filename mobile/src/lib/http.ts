@@ -49,6 +49,7 @@ export async function forgetDevice() {
 }
 
 async function refresh(): Promise<string> {
+  if (!deviceToken && (globalThis as { __CM_DEMO__?: { signedIn: boolean } }).__CM_DEMO__?.signedIn) deviceToken = 'demo'
   if (!deviceToken) throw new ApiError(401, 'Connectez-vous.')
   let res: Response
   try {

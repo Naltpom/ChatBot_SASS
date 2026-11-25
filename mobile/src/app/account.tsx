@@ -30,6 +30,7 @@ export default function Account() {
   // Depuis « Sécuriser votre compte » : seulement la double authentification.
   const only2fa = useLocalSearchParams<{ section?: string }>().section === '2fa'
   const [name, setName] = useState(me?.name || '')
+  useEffect(() => { if (me?.name) setName(n => n || me.name) }, [me?.name])
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [pw, setPw] = useState({ current: '', next: '' })
   const [tf, setTf] = useState<TwoFA | null>(null)
