@@ -4,6 +4,7 @@
 // Pas de librairie d'animation ; seule la capture du haut est chargée tout de suite.
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { BrandMark } from '../components/ui'
 import { useSession } from '../session'
 import '../landing.css'
 import imgPlanning from '../landing/planning.webp'
@@ -18,20 +19,6 @@ const CTA = 'Programmer mes vidéos gratuitement'
 const FEEDBACK = '/avis'
 // Lien du Play Store : à renseigner quand l'app sera publique. Vide = badge masqué.
 const PLAY_STORE_URL = ''
-
-/** Logo Chapote CM : le chapeau posé sur un M, blanc sur bleu (même dessin que l'app mobile). */
-function Logo({ size = 32 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <rect width="24" height="24" rx="5.4" fill="#0071e3" />
-      <g transform="translate(12 8.6) scale(0.5) translate(-12 -11)" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none">
-        <path d="M4 16.5c0-.6.4-1 1-1.1 2.2-.6 4.4-.9 7-.9s4.8.3 7 .9c.6.1 1 .5 1 1.1" />
-        <path d="M7.5 15.1l1.2-7.2c.2-1.1 1.2-1.9 2.3-1.9h2c1.1 0 2.1.8 2.3 1.9l1.2 7.2" />
-      </g>
-      <path d="M6.5 19v-6.2l5.5 4.4 5.5-4.4V19" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  )
-}
 
 function Check() {
   return <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9" /></svg>
@@ -94,7 +81,7 @@ export default function Landing() {
       <a className="lp-skip" href="#contenu">Aller au contenu</a>
       <header className="lp-top">
         <div className="lp-wrap lp-top-row">
-          <Link to="/" className="lp-brand" aria-label="Chapote CM, accueil"><Logo /><span>Chapote CM</span></Link>
+          <Link to="/" className="lp-brand" aria-label="Chapote CM, accueil"><BrandMark size={32} /><span>Chapote CM</span></Link>
           <nav className="lp-nav" aria-label="Sections">
             <a href="#produit">Fonctionnalités</a><a href="#etapes">Comment ça marche</a><a href="#faq">Questions</a>
           </nav>
@@ -159,7 +146,7 @@ export default function Landing() {
                 <p>Au départ, j’avais un compte Instagram, puis un deuxième. Publier régulièrement demandait de planifier, et l’app ne le permettait pas. Ensuite, pour plus de visibilité, TikTok et YouTube… Je me suis retrouvé avec 6 comptes, un planning pour chacun et les mêmes vidéos partout : une vraie galère. En automatisant, je perdais le visuel, la cohérence et le suivi des stats.</p>
                 <p>Alors j’ai fait l’app, pour moi. Elle est maintenant ouverte à tous, en version 1 : publier des vidéos courtes verticales sur TikTok, Instagram et YouTube, le plus simplement possible. Elle est gratuite pour l’instant : vos retours et votre façon de faire comptent plus que tout pour la suite. Et si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.</p>
               </blockquote>
-              <figcaption><Logo size={36} /><span><b>Nathan</b><small>Créateur de Chapote</small></span></figcaption>
+              <figcaption><BrandMark size={36} /><span><b>Nathan</b><small>Créateur de Chapote</small></span></figcaption>
               <Link className="lp-link lp-fb" to={FEEDBACK}>Donner mon avis à Nathan</Link>
             </figure>
           </div>
@@ -190,7 +177,7 @@ export default function Landing() {
 
       <footer className="lp-foot">
         <div className="lp-wrap lp-foot-in">
-          <div><p className="lp-foot-brand"><Logo size={24} />Chapote CM</p><p>Programmation et statistiques pour TikTok, YouTube et Instagram.</p></div>
+          <div><p className="lp-foot-brand"><BrandMark size={24} />Chapote CM</p><p>Programmation et statistiques pour TikTok, YouTube et Instagram.</p></div>
           <div><h2>Chapote</h2><ul><li><a href={chapote}>chapote.fr</a></li><li><Link to="/connexion">Se connecter</Link></li><li><Link to={FEEDBACK}>Donner mon avis</Link></li></ul></div>
           <div><h2>Légal</h2><ul><li><Link to="/privacy">Confidentialité</Link></li><li><Link to="/terms">Conditions d’utilisation</Link></li><li><a href={`${chapote}/legal/mentions-legales`}>Mentions légales</a></li></ul></div>
           <div><h2>Plateformes</h2><ul><li><a href={`${chapote}/legal/tiktok-confidentialite`}>TikTok</a></li><li><a href={`${chapote}/legal/youtube-confidentialite`}>YouTube</a></li><li><a href={`${chapote}/legal/instagram-confidentialite`}>Instagram</a></li></ul></div>
