@@ -34,7 +34,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
-from src.core.security import _encode, get_current_user, get_optional_user
+from src.core.security import _encode, create_dashboard_token, get_current_user, get_optional_user, set_auth_cookie
 from src.core.time import utcnow
 from src.models.cm_mobile import CmMobileDevice
 from src.models.user import User
@@ -426,3 +426,63 @@ async def put_push(body: PushIn, db: AsyncSession = Depends(get_db)):
         dev.push_prefs = _prefs({**_prefs(dev.push_prefs), **body.prefs})
     await db.commit()
     return {"enabled": bool(dev.push_token), "prefs": _prefs(dev.push_prefs)}
+
+
+# --------------------------------------------------------------------------
+# Connexion d'un compte TikTok / YouTube / Instagram / Drive depuis l'app
+# --------------------------------------------------------------------------
+# L'autorisation se fait dans le navigateur du téléphone, et la page de retour du site
+# (cm.chapote.fr/<plateforme>/callback) termine la connexion avec le cookie de session du
+# navigateur. Si ce navigateur n'est pas connecté, ou l'est à un autre compte Chapote, l'échange
+# est refusé (le state est lié à l'utilisateur qui a commencé). L'app demande donc un lien à usage
+# unique (2 minutes) : il connecte le navigateur au compte de l'app, puis l'envoie chez la plateforme.
+
+WEB_SCOPE = "cm_mobile_web"
+WEB_TTL = timedelta(minutes=2)
+WEB_HOSTS = ("accounts.google.com", "www.tiktok.com", "www.instagram.com")
+web_store = SingleUseTokens("rl:cmmobweb:", int(WEB_TTL.total_seconds()) + 30)
+web_limiter = RateLimiter("rl:cmmobweblink:", 60, 3600)
+
+
+def _web_next_ok(url: str) -> bool:
+    from urllib.parse import urlsplit
+    if not url or len(url) > 4000:
+        return False
+    u = urlsplit(url)
+    return u.scheme == "https" and u.hostname in WEB_HOSTS and u.port is None and not u.username
+
+
+class WebLinkIn(BaseModel):
+    next: str = Field(..., max_length=4000)
+
+
+@router.post("/web-link")
+async def web_link(body: WebLinkIn, user: User = Depends(get_current_user)):
+    """Lien à ouvrir dans le navigateur : `/api/cm/mobile/web-session?t=…`."""
+    if not _web_next_ok(body.next):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Adresse d'autorisation non acceptée")
+    if not await web_limiter.check(str(user.id)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives : réessayez plus tard.")
+    t = _encode({"sub": str(user.id), "scope": WEB_SCOPE, "next": body.next, "jti": uuid.uuid4().hex}, WEB_TTL)
+    return {"path": "/api/cm/mobile/web-session?" + urlencode({"t": t}), "expires_in": int(WEB_TTL.total_seconds())}
+
+
+@router.get("/web-session")
+async def web_session(t: str = "", db: AsyncSession = Depends(get_db)):
+    invalid = _page("<h1>Lien expiré</h1><p>Revenez dans l'app Chapote CM et recommencez la connexion du compte.</p>", 400)
+    try:
+        claims = jwt.decode(t, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError:
+        return invalid
+    nxt = str(claims.get("next") or "")
+    if claims.get("scope") != WEB_SCOPE or not claims.get("jti") or not _web_next_ok(nxt):
+        return invalid
+    if not await web_store.claim(claims["jti"]):
+        return invalid
+    user = await db.get(User, int(claims["sub"]))
+    if user is None or not user.is_active:
+        return invalid
+    resp = RedirectResponse(nxt, status_code=status.HTTP_303_SEE_OTHER,
+                            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+    set_auth_cookie(resp, create_dashboard_token(user.id))
+    return resp
