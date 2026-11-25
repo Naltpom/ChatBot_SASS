@@ -25,6 +25,7 @@ from src.core.errors import install_error_handlers
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
 from src.routers import emails, emails_oauth
 from src.routers import admin, admin_billing, admin_music, admin_prospecting, admin_tiktok, auth, billing, bots, cm, cm_inbox, cm_library, cm_team, embed, inbox, kb, music, orgs, public, stats, tiktok, tree, twofa, uploads, widget, youtube
+from src.routers.widget_helpers import _HEX_COLOR_RE
 from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
 from src.routers.external import onboarding as ext_onboarding
@@ -230,7 +231,9 @@ async def serve_widget():
 
 @app.get("/widget-frame", include_in_schema=False)
 async def widget_frame(key: str, preview_token: str | None = None,
-                       parent_origin: str | None = None, design_nonce: str | None = None):
+                       parent_origin: str | None = None, design_nonce: str | None = None,
+                       color: str | None = None, color_text: str | None = None,
+                       theme: str | None = None):
     """Page hote pour l'integration iframe : le chat s'affiche ouvert, en
     pleine zone. La securite reste identique (origin de l'iframe = l'API,
     toujours accepte ; le referer de la page parente est verifie au handshake
@@ -239,7 +242,12 @@ async def widget_frame(key: str, preview_token: str | None = None,
     Aperçu (onboarding plugin WP) : `?preview_token=<jwt>` est reflété en
     `data-preview-token` ; widget.js le joint à bootstrap/session pour bypasser
     origine+captcha (session sans side-effects). Validé strictement (format JWT
-    compact base64url.base64url.base64url) avant réflexion (anti-XSS)."""
+    compact base64url.base64url.base64url) avant réflexion (anti-XSS).
+
+    Apparence imposée par l'app hôte (WebView mobile, site à plusieurs couleurs) :
+    `?color=%23C93F17&color_text=%23ffffff&theme=dark` -> data-color /
+    data-color-text / data-theme de widget.js. Hex strict et liste fermée avant
+    réflexion ; toute autre valeur est ignorée (rendu du serveur)."""
     # Anti-XSS : `key` est reflete dans le HTML -> format pk_... strict ou rien
     if not re.fullmatch(r"pk_[A-Za-z0-9_-]{10,64}", key):
         return HTMLResponse("Bad request", status_code=400)
@@ -268,29 +276,41 @@ async def widget_frame(key: str, preview_token: str | None = None,
     # (lanceur + panneau positionnés selon le design) pour prévisualiser position/
     # taille/lanceur -> data-inline=false + auto-ouverture du panneau. L'étape
     # « Aperçu » du plugin (sans re-skin) garde l'INLINE plein écran (test conv).
+    look_attr = ""
+    if color and _HEX_COLOR_RE.fullmatch(color):
+        look_attr += f' data-color="{color}"'
+    if color_text and _HEX_COLOR_RE.fullmatch(color_text):
+        look_attr += f' data-color-text="{color_text}"'
+    if theme in ("light", "dark"):
+        look_attr += f' data-theme="{theme}"'
     inline_val = "false" if reskin_attr else "true"
     open_attr = ' data-preview-open="1"' if reskin_attr else ""
     # Mode flottant (éditeur d'apparence) : fond TRANSPARENT pour que l'iframe ne
     # montre que le widget (lanceur + panneau) par-dessus la page de l'éditeur.
-    body_bg = "transparent" if reskin_attr else "#f8fafc"
+    # Thème imposé par l'app hôte : fond transparent, l'app (WebView) pose le sien.
+    body_bg = "transparent" if (reskin_attr or look_attr) else "#f8fafc"
     html = f"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chat</title><style>html,body{{margin:0;height:100%;background:{body_bg}}}</style></head>
 <body>
-<script src="{settings.API_URL}/widget.js{src_cache_bust}" data-bot-key="{key}"{preview_attr}{reskin_attr}{open_attr} data-inline="{inline_val}" defer></script>
+<script src="{settings.API_URL}/widget.js{src_cache_bust}" data-bot-key="{key}"{preview_attr}{reskin_attr}{open_attr}{look_attr} data-inline="{inline_val}" defer></script>
 </body></html>"""
     # CSP minimale (defense en profondeur sur le HTML reflete) : widget.js vient
     # de l'API, ses appels fetch() vont vers l'API, les styles sont injectes
     # inline, l'avatar peut etre un upload API ou un logo externe (https/data:).
     # Pas de frame-ancestors : la page DOIT rester embarquable partout (iframe).
+    # Turnstile (captcha du handshake) : script + iframe challenges.cloudflare.com,
+    # sinon le jeton n'est jamais obtenu en mode iframe et la session est refusée.
     api = settings.API_URL
+    turnstile = "https://challenges.cloudflare.com"
     csp = (
         "default-src 'none'; "
-        f"script-src 'self' {api}; "
+        f"script-src 'self' {api} {turnstile}; "
         "style-src 'unsafe-inline'; "
         f"img-src 'self' {api} data: https:; "
-        f"connect-src 'self' {api}"
+        f"connect-src 'self' {api}; "
+        f"frame-src {turnstile}"
     )
     return HTMLResponse(html, headers={"Content-Security-Policy": csp})
 

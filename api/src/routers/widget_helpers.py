@@ -255,6 +255,7 @@ def sanitize_design(design: dict) -> dict:
     if out.get("launcherAnimation") not in ("none", "float", "pulse"):
         out["launcherAnimation"] = "none"
     out["greeting"] = out.get("greeting") is True  # bool strict, defaut False
+    out["launcherBadge"] = out.get("launcherBadge") is not False  # bool strict, defaut True
     gt = out.get("greetingText")
     out["greetingText"] = str(gt)[:80] if isinstance(gt, str) and gt.strip() else ""
     # FENETRE
@@ -283,6 +284,9 @@ def sanitize_design(design: dict) -> dict:
     if out.get("chatBg") not in ("plain", "soft", "pattern"):
         out["chatBg"] = "plain"
     out["accentColor"] = _hex(out.get("accentColor"), None)  # null = couleur de marque
+    out["onPrimary"] = _hex(out.get("onPrimary"), None)      # null = texte blanc (historique)
+    if out.get("surfaceTone") not in ("classic", "neutral"):
+        out["surfaceTone"] = "classic"
     try:
         out["shadow"] = max(0, min(3, int(out.get("shadow", 2))))
     except (TypeError, ValueError):

@@ -83,6 +83,7 @@ DEFAULT_DESIGN = {
     "launcherShape": "round",      # round (cercle, actuel) | pill (stade) | square (carré arrondi)
     "launcherAnimation": "none",   # none (actuel) | float (bob doux) | pulse (halo)
     "greeting": False,             # accroche flottante au-dessus du lanceur (panneau fermé)
+    "launcherBadge": True,         # pastille « 1 » sur la bulle fermée (actuel) ; False = bulle discrète
     "greetingText": "",            # <= 80 chars : texte de l'accroche
     # FENETRE
     "windowWidth": 338,            # 300-560 px : largeur du panneau (338 = valeur historique)
@@ -97,6 +98,8 @@ DEFAULT_DESIGN = {
     # THEME
     "chatBg": "plain",             # plain (actuel) | soft (dégradé teinté) | pattern (pointillés)
     "accentColor": None,           # hex ou null : null = couleur de marque (boutons/options/envoi)
+    "onPrimary": None,             # hex ou null : texte posé sur la couleur de marque (null = blanc)
+    "surfaceTone": "classic",      # classic (surfaces actuelles) | neutral (sombre neutre, tons chauds)
     "shadow": 2,                   # 0-3 : intensité de l'ombre du panneau (2 = actuel)
     # MESSAGES
     "quickReplyStyle": "pill",     # pill (arrondi 999, actuel) | button (rectangulaire)
