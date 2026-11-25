@@ -693,3 +693,7 @@ video.pub-media { width: min(100%, 220px); cursor: default; }
 /* « Donner mon avis » sans compte : champ piège hors écran (jamais display:none, que certains robots repèrent). */
 .hp { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
 .captcha { min-height: 65px; }
+
+/* Bouton Google en mode sombre : le cadre de Google prend sinon un fond blanc opaque derrière le bouton
+   (page en « color-scheme: dark », document du cadre sans fond). En « light », le cadre reste transparent. */
+.gbtn iframe { color-scheme: light; }
