@@ -1,13 +1,13 @@
 // Compte sans aucun réseau connecté (nouveau compte, créé par exemple par « Continuer avec Google ») :
 // au lieu d'écrans vides, on explique la suite et on mène à la connexion des comptes.
-import { useRouter } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { useEffect } from 'react'
 import { Alert, View } from 'react-native'
 import { useSession } from '../lib/session'
 import { InvitationCard } from '../ui/ScopeBar'
 import { useState } from 'react'
 import { openAuthorize, PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
-import { Button, Card, H1, Icon, Msg, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
+import { Button, Card, H1, Icon, IconButton, Msg, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
 import { space } from '../ui/theme'
 
 export default function Welcome() {
@@ -25,6 +25,7 @@ export default function Welcome() {
 
   return (
     <Screen onRefresh={refresh}>
+      <Stack.Screen options={{ headerLeft: () => <IconButton icon="left" label="Revenir à l’étape 1" onPress={() => router.push('/onboarding')} /> }} />
       <View style={{ gap: space.sm, paddingTop: space.xl }}>
         <H1>Bienvenue{me?.name ? `, ${me.name.split(' ')[0]}` : ''}</H1>
         <Txt muted>Votre compte Chapote est prêt. Connectez votre premier compte : vos chiffres, votre planning et vos commentaires apparaîtront ici.</Txt>
@@ -43,13 +44,12 @@ export default function Welcome() {
           </Row>
         </Card>
       ))}
-      <Txt small muted>La connexion s’ouvre dans le navigateur. Si cm.chapote.fr vous demande de vous connecter, connectez-vous puis relancez.</Txt>
+      <Txt small muted>La connexion s’ouvre dans le navigateur, puis vous ramène ici.</Txt>
       <Card>
         <Txt bold>Vous travaillez en équipe ?</Txt>
         <Txt small muted>Demandez à un administrateur de l’équipe de vous inviter avec l’adresse {me?.email}. L’équipe apparaîtra ici dès que l’invitation est acceptée.</Txt>
         <Button title="Actualiser" icon="refresh" onPress={refresh} />
       </Card>
-      <Button kind="ghost" icon="left" title="Étape 1 : sécuriser mon compte" onPress={() => router.push('/onboarding')} />
       <Card>
         <Txt small muted>Connecté avec {me?.email}. Ce n’est pas le bon compte ?</Txt>
         <Button kind="danger" title="Changer de compte" onPress={() => Alert.alert('Changer de compte ?', 'Vous serez déconnecté de cet appareil.', [

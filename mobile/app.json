@@ -43,6 +43,46 @@
             "BROWSABLE",
             "DEFAULT"
           ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/tiktok/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/youtube/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/instagram/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/drive/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "chapote.fr",
+              "pathPrefix": "/tiktok/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "chapote.fr",
+              "pathPrefix": "/youtube/callback"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
