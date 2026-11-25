@@ -34,7 +34,9 @@ type Look = { color: string; colorText: string; theme: 'light' | 'dark' }
 const HEX = /^#[0-9a-fA-F]{6}$/
 
 function readLook(): Look {
-  const dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+  // Thème choisi dans cm (<html data-theme="light|dark">), sinon celui de l'appareil.
+  const forced = document.documentElement.dataset.theme
+  const dark = forced === 'dark' || (forced !== 'light' && (window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false))
   const palette = (document.documentElement.dataset.palette || 'warm') as Palette
   const fb = (FALLBACK[palette] || FALLBACK.warm)[dark ? 'dark' : 'light']
   const css = getComputedStyle(document.documentElement)
@@ -90,7 +92,7 @@ export default function ChapoteAssistant({ loadOn = 'idle' }: { loadOn?: 'idle' 
   const [loading, setLoading] = useState(false)
 
   // Couleur et thème : lecture au montage et quand le widget devient prêt, puis à chaque
-  // changement de couleur (data-palette) ou de mode clair/sombre.
+  // changement de couleur (data-palette), de thème choisi (data-theme) ou de mode de l'appareil.
   useEffect(() => {
     if (!active) return
     const update = () => {
@@ -100,7 +102,7 @@ export default function ChapoteAssistant({ loadOn = 'idle' }: { loadOn?: 'idle' 
     }
     update()
     const mo = new MutationObserver(update)
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-palette'] })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-palette', 'data-theme'] })
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
     mq?.addEventListener?.('change', update)
     return () => { mo.disconnect(); mq?.removeEventListener?.('change', update) }
