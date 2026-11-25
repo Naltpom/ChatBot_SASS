@@ -96,8 +96,8 @@ export default function Landing() {
               <ul className="lp-plats" aria-label="Réseaux pris en charge">
                 <li><i className="lp-dot tt" />TikTok</li><li><i className="lp-dot yt" />YouTube</li><li><i className="lp-dot ig" />Instagram</li>
               </ul>
-              <h1 id="lp-titre">Planifiez vos vidéos courtes <em>sur tous vos comptes, en une fois.</em></h1>
-              <p className="lp-lead">Pour les créateurs, community managers et équipes. Choisissez la vidéo, les comptes et l’heure : Chapote CM publie à votre place et rassemble vos statistiques.</p>
+              <h1 id="lp-titre">Planifiez une fois. <em>Publiez partout.</em></h1>
+              <p className="lp-lead">Vos vidéos courtes sur TikTok, YouTube et Instagram, à l’heure choisie, sur tous vos comptes. Et toutes vos statistiques au même endroit.</p>
               <div className="lp-act">
                 <Link to="/inscription" className="lp-cta">{CTA}<span aria-hidden="true" className="lp-arrow">→</span></Link>
                 <ul className="lp-proof">
