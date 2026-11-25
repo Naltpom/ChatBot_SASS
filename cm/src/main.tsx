@@ -2,6 +2,7 @@ import { lazy, StrictMode, Suspense, useEffect , type ComponentType } from 'reac
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
+import ChapoteAssistant from './components/ChapoteAssistant'
 import { BrandMark, Skeleton } from './components/ui'
 import { SessionProvider, useSession } from './session'
 import './styles.css'
@@ -108,6 +109,17 @@ function Shell() {
   // Visiteur sans session connue : la landing et la connexion s'affichent tout de suite,
   // sans attendre la réponse de l'API (elle bascule vers l'app si une session existe).
   if (!ready && (hadSession() || !PUBLIC.includes(pathname))) return <Splash />
+  return (
+    <>
+      <Pages me={!!me} ready={ready} />
+      {/* Assistant sur toutes les pages (docs/WIDGET_CM.md), sauf les retours de connexion OAuth.
+          Visiteur : chargé après l'affichage ; connecté : chargé au premier clic. */}
+      {!/\/callback$/.test(pathname) && <ChapoteAssistant loadOn={me ? 'click' : 'idle'} />}
+    </>
+  )
+}
+
+function Pages({ me, ready }: { me: boolean; ready: boolean }) {
   if (!me) {
     return (
       <Suspense fallback={<Splash />}>

@@ -479,6 +479,10 @@
       line: "#302d2a", input: "#1c1a18", inputBorder: "#3a3632", muted: "#b8b0a8", powered: "#b8b0a8" },
   };
 
+  // Décalage vertical en plus, posé par la page hôte en CSS (--chapote-widget-lift),
+  // ex. au-dessus d'une barre d'onglets fixe sur mobile. Absent : 0px (rendu inchangé).
+  function lift(px) { return "calc(" + px + "px + var(--chapote-widget-lift, 0px))"; }
+
   function css(d) {
     const brand = safeColor(d.primaryColor, "#0d9488");
     const color2 = d.secondaryColor ? safeColor(d.secondaryColor, brand) : null;
@@ -572,10 +576,10 @@
     const oaName = ({ fade: "Fade", slide: "Slide", pop: "Pop", flip: "Flip" })[d.openAnimation] || "Zoom";
     const panelPos = INLINE
       ? "position:fixed;inset:0;width:100%;height:100%;max-height:none;border-radius:0;"
-      : "position:fixed;bottom:" + (bubble + oy + 12) + "px;" + side + ":" + ox + "px;width:" + winW + "px;max-width:calc(100vw - 36px);height:" + winH + "px;max-height:70vh;border-radius:" + R + "px;";
+      : "position:fixed;bottom:" + lift(bubble + oy + 12) + ";" + side + ":" + ox + "px;width:" + winW + "px;max-width:calc(100vw - 36px);height:" + winH + "px;max-height:70vh;border-radius:" + R + "px;";
     return [
       ".kc-root{font-family:" + font + "}",
-      ".kc-bubble{position:fixed;bottom:" + oy + "px;" + side + ":" + ox + "px;width:" + bubble + "px;height:" + bubble + "px;border-radius:" + launcherRadius + ";",
+      ".kc-bubble{position:fixed;bottom:" + lift(oy) + ";" + side + ":" + ox + "px;width:" + bubble + "px;height:" + bubble + "px;border-radius:" + launcherRadius + ";",
       "border:" + (d.bordered ? "3px solid rgba(255,255,255,.95)" : "none") + ";cursor:pointer;background:" + bg + ";color:" + onBrand + ";",
       "box-shadow:0 8px 26px rgba(10,30,25,.3);display:grid;place-items:center;z-index:2147483000;",
       "transition:transform .18s ease;padding:0}",
@@ -593,7 +597,7 @@
       lAnim === "float" ? "@keyframes chapoteFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}" : "",
       lAnim === "pulse" ? "@keyframes chapoteHalo{0%{box-shadow:0 8px 26px rgba(10,30,25,.3),0 0 0 0 " + brand + "59}70%{box-shadow:0 8px 26px rgba(10,30,25,.3),0 0 0 12px " + brand + "00}100%{box-shadow:0 8px 26px rgba(10,30,25,.3),0 0 0 0 " + brand + "00}}" : "",
       // Bulle d'accroche (greeting) au-dessus du lanceur fermé
-      ".kc-greet{position:fixed;bottom:" + (bubble + oy + 14) + "px;" + side + ":" + ox + "px;max-width:230px;background:" + botBg + ";color:" + botText + ";",
+      ".kc-greet{position:fixed;bottom:" + lift(bubble + oy + 14) + ";" + side + ":" + ox + "px;max-width:230px;background:" + botBg + ";color:" + botText + ";",
       "border:1px solid " + botBorder + ";border-radius:14px;padding:9px 12px;font-size:13px;line-height:1.4;",
       "box-shadow:0 8px 26px rgba(10,30,25,.18);z-index:2147482999}",
       ".kc-badge{position:absolute;top:-2px;right:-2px;width:19px;height:19px;border-radius:99px;background:#e74c3c;",
