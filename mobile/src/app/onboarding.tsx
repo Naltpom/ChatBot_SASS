@@ -1,75 +1,111 @@
-// « Sécuriser votre compte », une fois après la connexion : trois interrupteurs, rien de plus.
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+// Inscription, étape 1 (obligatoire) : prénom, nom, date de naissance et conditions acceptées.
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker'
+import { Stack, useRouter } from 'expo-router'
+import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useState } from 'react'
-import { Switch, View } from 'react-native'
-import { call } from '../lib/http'
-import { useLock } from '../lib/lock'
-import { onboardedKey, stepTitle } from '../lib/onboarding'
-import { disablePush, enablePush, getPush, pushUnsupported } from '../lib/push'
-import { useSession } from '../lib/session'
+import { Platform as RNPlatform, Pressable, View } from 'react-native'
+import { putIdentity } from '../lib/api'
+import { useIdentity } from '../lib/identity'
+import { stepTitle } from '../lib/onboarding'
 import { useOwnAccounts } from '../features/steps'
-import { TwoFASheet } from '../features/TwoFASheet'
-import { Button, Card, Divider, H1, Msg, Row, Screen, Txt } from '../ui/kit'
-import { space, useTheme } from '../ui/theme'
+import { Button, Card, Field, H1, Icon, Msg, Row, Screen, Txt } from '../ui/kit'
+import { radius, space, useTheme } from '../ui/theme'
 
-function Line({ title, hint, value, onChange, disabled }: { title: string; hint?: string | null; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const fr = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+
+function Check({ checked, onToggle, children }: { checked: boolean; onToggle: () => void; children: React.ReactNode }) {
   const { c } = useTheme()
   return (
-    <Row style={{ justifyContent: 'space-between', minHeight: 56 }}>
-      <View style={{ flex: 1 }}>
-        <Txt bold>{title}</Txt>
-        {hint ? <Txt small muted>{hint}</Txt> : null}
+    <Pressable onPress={onToggle} accessibilityRole="checkbox" accessibilityState={{ checked }} hitSlop={6}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44 }}>
+      <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: checked ? c.primary : c.borderStrong,
+        backgroundColor: checked ? c.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+        {checked ? <Icon name="check" size={16} color="#fff" strokeWidth={3} /> : null}
       </View>
-      <Switch value={value} onValueChange={onChange} disabled={disabled} accessibilityLabel={title} trackColor={{ true: c.primary }} />
-    </Row>
+      <View style={{ flex: 1 }}>{children}</View>
+    </Pressable>
   )
 }
 
 export default function Onboarding() {
   const router = useRouter()
-  const { me } = useSession()
+  const { identity, set } = useIdentity()
+  const { c, dark } = useTheme()
   const own = useOwnAccounts()
-  const { from } = useLocalSearchParams<{ from?: string }>()
-  const lock = useLock()
-  const [push, setPush] = useState(false)
-  const [twofa, setTwofa] = useState(false)
-  const [sheet, setSheet] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [first, setFirst] = useState('')
+  const [last, setLast] = useState('')
+  const [born, setBorn] = useState<Date | null>(null)
+  const [ok, setOk] = useState({ cgu: false, cgv: false, privacy: false })
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const fixedBirth = !!identity?.birth_date
   useEffect(() => {
-    getPush().then(p => setPush(p.enabled)).catch(() => {})
-    call<{ totp_enabled: boolean }>('/api/auth/2fa/status').then(s => setTwofa(s.totp_enabled)).catch(() => {})
-  }, [])
-  const noPush = pushUnsupported()
+    if (!identity) return
+    setFirst(f => f || identity.first_name || '')
+    setLast(l => l || identity.last_name || '')
+    if (identity.birth_date) setBorn(new Date(`${identity.birth_date}T12:00:00`))
+  }, [identity])
 
-  const togglePush = async (v: boolean) => {
-    setMsg(null)
-    if (!v) { setPush((await disablePush().catch(() => ({ enabled: false }))).enabled); return }
-    const r = await enablePush()
-    if (typeof r === 'string') setMsg(r); else setPush(r.enabled)
+  const legal = identity?.legal || { cgu: 'https://chapote.fr/legal/cgu', cgv: 'https://chapote.fr/legal/cgv', privacy: 'https://chapote.fr/legal/confidentialite' }
+  const open = (u: string) => WebBrowser.openBrowserAsync(u).catch(() => {})
+  const pickDate = () => {
+    if (fixedBirth) return
+    DateTimePickerAndroid.open({ value: born || new Date(2000, 0, 1), mode: 'date', maximumDate: new Date(),
+      onValueChange: (_, d) => { if (d) setBorn(d) } })
   }
-  const finish = async () => {
-    if (me) await AsyncStorage.setItem(onboardedKey(me.id), '1').catch(() => {})
-    // Nouveau compte (ou retour depuis l'étape 2) : on continue les étapes ; sinon l'app.
-    router.replace(from === 'welcome' || !own.length ? '/welcome' : '/')
+  const valid = first.trim() && last.trim() && born && ok.cgu && ok.cgv && ok.privacy
+
+  const save = async () => {
+    if (!valid || !born) return
+    setErr(null); setBusy(true)
+    try {
+      const i = await putIdentity({ first_name: first.trim(), last_name: last.trim(), birth_date: iso(born), accept_terms: true })
+      set(i)
+      router.replace(i.blocked_until ? '/blocked' : own.length ? '/' : '/welcome')
+    } catch (e: any) { setErr(e?.message || 'Enregistrement impossible') } finally { setBusy(false) }
   }
 
   return (
     <Screen>
-      <Stack.Screen options={{ title: stepTitle(1, own.length) }} />
-      <View style={{ paddingTop: space.md }}><H1>Sécuriser votre compte</H1></View>
-      {msg ? <Msg kind="err">{msg}</Msg> : null}
+      <Stack.Screen options={{ title: stepTitle(1, own.length), headerBackVisible: false, gestureEnabled: false }} />
+      <View style={{ gap: space.sm, paddingTop: space.md }}>
+        <H1>Vos informations</H1>
+        <Txt muted>Pour finir votre inscription.</Txt>
+      </View>
+      {err ? <Msg kind="err">{err}</Msg> : null}
       <Card>
-        <Line title="Notifications" hint={noPush} value={push} onChange={togglePush} disabled={!!noPush} />
-        <Divider />
-        <Line title={`Déverrouillage par ${lock.label.toLowerCase()}`} hint={lock.supported ? null : 'Indisponible sur ce téléphone.'}
-          value={lock.enabled} disabled={!lock.supported} onChange={async v => { const e = await lock.setEnabled(v); if (e) setMsg(e) }} />
-        <Divider />
-        <Line title="Double authentification" value={twofa} onChange={() => setSheet(true)} />
+        <Field label="Prénom" value={first} onChangeText={setFirst} autoComplete="given-name" textContentType="givenName" maxLength={80} />
+        <Field label="Nom" value={last} onChangeText={setLast} autoComplete="family-name" textContentType="familyName" maxLength={80} />
+        <View style={{ gap: 6 }}>
+          <Txt small bold>Date de naissance</Txt>
+          {RNPlatform.OS === 'ios' && !fixedBirth ? (
+            <DateTimePicker value={born || new Date(2000, 0, 1)} mode="date" display="compact" locale="fr-FR" maximumDate={new Date()}
+              themeVariant={dark ? 'dark' : 'light'} accentColor={c.primary} accessibilityLabel="Date de naissance"
+              onValueChange={(_, d) => { if (d) setBorn(d) }} />
+          ) : (
+            <Pressable onPress={pickDate} disabled={fixedBirth} accessibilityRole="button" accessibilityLabel="Date de naissance"
+              style={{ minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surface,
+                flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, opacity: fixedBirth ? 0.6 : 1 }}>
+              <Icon name="calendar" size={18} color={c.muted} />
+              <Txt muted={!born}>{born ? fr(born) : 'Choisir la date'}</Txt>
+            </Pressable>
+          )}
+          {fixedBirth ? <Txt small muted>Déjà enregistrée. Une erreur ? Écrivez à contact@chapote.fr.</Txt> : null}
+        </View>
       </Card>
-      <Button kind="primary" title="Continuer" onPress={finish} />
-      <Button kind="ghost" title="Passer" onPress={finish} />
-      <TwoFASheet visible={sheet} enabled={twofa} onClose={() => setSheet(false)} onChanged={setTwofa} />
+      <Card>
+        <Check checked={ok.cgu} onToggle={() => setOk(o => ({ ...o, cgu: !o.cgu }))}>
+          <Txt>J’accepte les <Txt bold color={c.primary} onPress={() => open(legal.cgu)}>conditions d’utilisation</Txt></Txt>
+        </Check>
+        <Check checked={ok.cgv} onToggle={() => setOk(o => ({ ...o, cgv: !o.cgv }))}>
+          <Txt>J’accepte les <Txt bold color={c.primary} onPress={() => open(legal.cgv)}>conditions de vente</Txt></Txt>
+        </Check>
+        <Check checked={ok.privacy} onToggle={() => setOk(o => ({ ...o, privacy: !o.privacy }))}>
+          <Txt>J’ai lu la <Txt bold color={c.primary} onPress={() => open(legal.privacy)}>politique de confidentialité</Txt></Txt>
+        </Check>
+      </Card>
+      <Button kind="primary" title="Continuer" loading={busy} disabled={!valid} onPress={save} />
     </Screen>
   )
 }

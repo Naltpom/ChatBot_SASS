@@ -18,12 +18,12 @@ export { Icon, PlatformLogo }
 export type { IconName }
 
 type TxtProps = { children?: ReactNode; style?: StyleProp<TextStyle>; muted?: boolean; faint?: boolean; small?: boolean; bold?: boolean
-  size?: number; color?: string; numberOfLines?: number; center?: boolean; selectable?: boolean; accessibilityRole?: 'header' | 'text' }
+  size?: number; color?: string; numberOfLines?: number; center?: boolean; selectable?: boolean; accessibilityRole?: 'header' | 'text' | 'link'; onPress?: () => void }
 
-export function Txt({ children, style, muted, faint, small, bold, size, color, numberOfLines, center, selectable, accessibilityRole }: TxtProps) {
+export function Txt({ children, style, muted, faint, small, bold, size, color, numberOfLines, center, selectable, accessibilityRole, onPress }: TxtProps) {
   const { c } = useTheme()
   return (
-    <Text numberOfLines={numberOfLines} selectable={selectable} accessibilityRole={accessibilityRole} maxFontSizeMultiplier={1.6}
+    <Text numberOfLines={numberOfLines} selectable={selectable} accessibilityRole={accessibilityRole ?? (onPress ? 'link' : undefined)} onPress={onPress} maxFontSizeMultiplier={1.6}
       style={[{ color: color || (muted ? c.muted : faint ? c.faint : c.text), fontSize: size ?? (small ? 13 : 15), lineHeight: Math.round((size ?? (small ? 13 : 15)) * 1.38) },
         bold && { fontWeight: '600' }, center && { textAlign: 'center' }, style]}>
       {children}

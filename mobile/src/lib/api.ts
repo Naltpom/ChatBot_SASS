@@ -389,3 +389,13 @@ export const removeGroupShare = (org: number | null, groupId: number, shareId: n
   send<{ ok: boolean }>('DELETE', `/api/cm/groups/${groupId}/shares/${shareId}${q(org)}`)
 export const getProfile = () => call<{ perso_name: string | null }>('/api/cm/profile')
 export const patchProfile = (perso_name: string) => send<{ perso_name: string | null }>('PATCH', '/api/cm/profile', { perso_name })
+
+// Inscription dans l'app : informations, conditions, âge minimum (api/src/routers/cm_mobile.py)
+export interface Identity {
+  done: boolean; first_name: string | null; last_name: string | null; birth_date: string | null
+  terms_version: string | null; terms_current: string; terms_ok: boolean; min_age: number; blocked_until: string | null
+  legal: { cgu: string; cgv: string; privacy: string }
+}
+export const getIdentity = () => call<Identity>('/api/cm/mobile/identity')
+export const putIdentity = (body: { first_name: string; last_name: string; birth_date: string; accept_terms: boolean }) =>
+  send<Identity>('PUT', '/api/cm/mobile/identity', body)

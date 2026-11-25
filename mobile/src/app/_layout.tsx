@@ -12,8 +12,8 @@ import { SessionProvider, useSession } from '../lib/session'
 import { autoEnablePush, usePushRouting } from '../lib/push'
 import { LockProvider } from '../lib/lock'
 import { laterAt } from '../features/storage'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { onboardedKey } from '../lib/onboarding'
+import { IdentityProvider, useIdentity } from '../lib/identity'
+import { SecurityPrompts } from '../features/SecurityPrompts'
 import { ShareProvider, useSharedVideo } from '../lib/share'
 import { useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
@@ -31,12 +31,10 @@ function Gate() {
   const { me, ready, spaces, org } = useSession()
   const { c, dark } = useTheme()
   const segments = useSegments()
-  // « Sécuriser votre compte » une fois par utilisateur sur ce téléphone (null = pas encore lu).
-  const [onboarded, setOnboarded] = useState<boolean | null>(null)
-  useEffect(() => {
-    if (!me) { setOnboarded(null); return }
-    AsyncStorage.getItem(onboardedKey(me.id)).then(v => setOnboarded(v === '1')).catch(() => setOnboarded(true))
-  }, [me, segments[0]]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Inscription : informations et conditions (obligatoires), âge minimum (null = pas encore lues).
+  const { identity } = useIdentity()
+  const onboarded = identity ? identity.done : null
+  const blocked = !!identity?.blocked_until
   const router = useRouter()
   usePushRouting()
   useAppUpdate()
@@ -56,6 +54,7 @@ function Gate() {
   useEffect(() => { SystemUI.setBackgroundColorAsync(c.bg).catch(() => {}) }, [c.bg])
   useEffect(() => {
     if (!ready || (me && onboarded === null)) return
+    if (me && blocked) { if (!['blocked', 'account'].includes(segments[0] as string)) router.replace('/blocked'); SplashScreen.hideAsync().catch(() => {}); return }
     SplashScreen.hideAsync().catch(() => {})
     const onLogin = segments[0] === 'login'
     const isPublic = onLogin || segments[0] === 'reset-password'
@@ -67,11 +66,12 @@ function Gate() {
     else if (me && onboarded === false) return
     else if (me && empty && !free.includes(segments[0] as string)) router.replace('/welcome')
     else if (me && onLogin) router.replace('/')
-  }, [me, ready, spaces, segments, router, onboarded])
+  }, [me, ready, spaces, segments, router, onboarded, blocked])
 
   return (
     <>
       <StatusBar style={dark ? 'light' : 'dark'} />
+      {me ? <SecurityPrompts userId={me.id} active={!!onboarded && !blocked && segments[0] === '(tabs)'} /> : null}
       <Stack screenOptions={{
         headerStyle: { backgroundColor: c.bg }, headerTintColor: c.primary, headerTitleStyle: { color: c.text },
         headerShadowVisible: false, contentStyle: { backgroundColor: c.bg }, headerBackButtonDisplayMode: 'minimal',
@@ -79,7 +79,7 @@ function Gate() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
-        <Stack.Screen name="welcome" options={{ title: 'Étape 2 sur 2', headerBackVisible: false, gestureEnabled: false }} />
+        <Stack.Screen name="welcome" options={{ title: 'Étape 2', headerBackVisible: false, gestureEnabled: false }} />
         <Stack.Screen name="new" options={{ presentation: 'modal', title: 'Nouvelle publication' }} />
         <Stack.Screen name="post/[id]" options={{ presentation: 'modal', title: 'Publication' }} />
         <Stack.Screen name="video/[id]" options={{ title: 'Fiche vidéo' }} />
@@ -93,7 +93,8 @@ function Gate() {
         <Stack.Screen name="storage" options={{ title: 'Stockage' }} />
         <Stack.Screen name="reset-password" options={{ title: 'Mot de passe' }} />
         <Stack.Screen name="oauth-return" options={{ title: 'Connexion du compte', presentation: 'modal' }} />
-        <Stack.Screen name="onboarding" options={{ title: 'Étape 1 sur 2', headerBackVisible: false, gestureEnabled: false }} />
+        <Stack.Screen name="onboarding" options={{ title: 'Étape 1', headerBackVisible: false, gestureEnabled: false }} />
+        <Stack.Screen name="blocked" options={{ headerShown: false, gestureEnabled: false }} />
       </Stack>
     </>
   )
@@ -110,7 +111,9 @@ export default function RootLayout() {
           <ShareProvider>
             <SessionProvider>
               <LockProvider>
-                <Gate />
+                <IdentityProvider>
+                  <Gate />
+                </IdentityProvider>
               </LockProvider>
             </SessionProvider>
           </ShareProvider>
