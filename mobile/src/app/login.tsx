@@ -58,9 +58,17 @@ export default function Login() {
     try { await fn() } catch (e: any) { setError(e?.message || 'Connexion impossible') }
   }
   const viaBrowser = () => run(async () => { const me = await loginWithBrowser(); if (me) signedIn(me) })
+  // Google natif ; si Google refuse la configuration de l'app (DEVELOPER_ERROR, ex. signature pas encore
+  // reconnue), on passe tout seul par la connexion dans le navigateur, qui marche toujours.
   const viaGoogle = nativeGoogleAvailable
     ? () => run(async () => {
-        const r = await loginWithGoogle()
+        let r
+        try { r = await loginWithGoogle() } catch (e: any) {
+          if (String(e?.code ?? '').includes('DEVELOPER') || String(e?.message ?? '').includes('DEVELOPER_ERROR') || e?.code === 10 || e?.code === '10') {
+            const me = await loginWithBrowser(); if (me) signedIn(me); return
+          }
+          throw e
+        }
         if (!r) return
         if (isChallenge(r)) setChallenge(r)
         else signedIn(r)
