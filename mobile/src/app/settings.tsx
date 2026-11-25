@@ -12,9 +12,10 @@ import { disablePush, enablePush, getPush, pushUnsupported, setPushPrefs, type P
 import { fmtAgo } from '../lib/format'
 import { useSession } from '../lib/session'
 import { getProfile, patchProfile } from '../lib/api'
-import { Button, Card, Divider, Icon, Label, Msg, Row, Screen, Seg, Txt, Field, type IconName } from '../ui/kit'
+import { Button, Card, Divider, Icon, Label, Msg, Row, Screen, Seg, Sheet, Txt, Field, type IconName } from '../ui/kit'
 import { PALETTE_PREVIEW, radius, space, useTheme, type Palette, type ThemePref } from '../ui/theme'
 import { Logo } from '../ui/Logo'
+import { enablePasskey, passkeyAvailable, passkeyDone, passkeyError } from '../lib/passkey'
 import { currentIcon, iconAvailable, offerIcon } from '../lib/app-icon'
 
 interface DeviceRow { id: number; name: string | null; platform: string | null; push: boolean; created_at: string | null; last_used_at: string | null }
@@ -33,6 +34,18 @@ export default function Settings() {
   const [icon, setIconState] = useState(() => currentIcon())
   const askIcon = (p: Palette) => offerIcon(p, '/settings', () => { setIconState(p); ok() })
   const { me, signOut } = useSession()
+  // Connexion par empreinte (clé d'accès), version 6 et plus.
+  const [passkey, setPasskey] = useState(false)
+  const [pkBusy, setPkBusy] = useState(false)
+  const [pkMsg, setPkMsg] = useState<string | null>(null)
+  const [codes, setCodes] = useState<string[] | null>(null)
+  useEffect(() => { if (me) passkeyDone(me.id).then(setPasskey) }, [me?.id])
+  const activatePasskey = async () => {
+    if (!me) return
+    setPkBusy(true); setPkMsg(null)
+    try { const r = await enablePasskey(me.id); setPasskey(true); if (r?.length) setCodes(r); else ok() }
+    catch (e) { setPkMsg(passkeyError(e)) } finally { setPkBusy(false) }
+  }
   const router = useRouter()
   const [push, setPush] = useState<PushState | null>(null)
   const [pushMsg, setPushMsg] = useState<string | null>(null)
@@ -124,6 +137,20 @@ export default function Settings() {
 
       <Card>
         <Label>Sécurité</Label>
+        {passkeyAvailable ? (
+          <>
+            <Row style={{ justifyContent: 'space-between' }} gap={space.md}>
+              <View style={{ flex: 1 }}>
+                <Txt bold>Se connecter avec l’empreinte</Txt>
+                <Txt small muted>{passkey ? 'Activé sur ce téléphone. À la connexion, l’empreinte remplace le code à 6 chiffres.'
+                  : 'À la connexion, après le mot de passe ou Google, votre empreinte ou votre visage remplace le code à 6 chiffres. Rien n’est redemandé ensuite.'}</Txt>
+              </View>
+              {!passkey ? <Button small kind="primary" title="Activer" loading={pkBusy} onPress={activatePasskey} /> : null}
+            </Row>
+            {pkMsg ? <Msg kind="err">{pkMsg}</Msg> : null}
+            <Divider />
+          </>
+        ) : null}
         <NavRow icon="shield" label="Double authentification" value={me?.twofa_enabled ? 'Activée' : 'Désactivée'} onPress={() => router.push({ pathname: '/account', params: { section: '2fa' } })} />
       </Card>
 
@@ -191,7 +218,12 @@ export default function Settings() {
         <Button kind="danger" icon="trash" title="Supprimer mon compte…" onPress={() => router.push('/account')} />
       </Card>
       <Txt small faint center>Chapote CM {Constants.expoConfig?.version} · cm.chapote.fr</Txt>
-    </Screen>
+    <Sheet visible={!!codes} title="Vos codes de secours" onClose={() => setCodes(null)}>
+        <Txt muted>Gardez-les en lieu sûr (gestionnaire de mots de passe, papier). Si vous perdez ce téléphone, un de ces codes remplace l’empreinte, une seule fois chacun. Ils ne seront plus affichés.</Txt>
+        <Card><Txt selectable style={{ fontFamily: 'monospace', lineHeight: 24 }}>{(codes || []).join('\n')}</Txt></Card>
+        <Button kind="primary" title="Je les ai notés" onPress={() => { setCodes(null); ok() }} />
+      </Sheet>
+      </Screen>
     {saved ? (
       <View pointerEvents="none" style={{ position: 'absolute', bottom: 32, left: 0, right: 0, alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: c.ink, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10 }}>

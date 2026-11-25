@@ -2,15 +2,16 @@
 // elle est active. Les champs sont vérifiés quand on passe au suivant, et un bouton grisé dit ce qui manque.
 import { isChallenge } from '../lib/session-logic'
 import * as WebBrowser from 'expo-web-browser'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { Path } from 'react-native-svg'
 import type { TwoFAChallenge } from '../lib/api'
-import { loginWithBrowser, loginWithCode, loginWithGoogle, loginWithPassword, resumeBrowserLogin, sendPasswordLink, signUpWithPassword } from '../lib/auth'
+import { loginWithBrowser, loginWithCode, loginWithGoogle, loginWithPasskey, loginWithPassword, resumeBrowserLogin, sendPasswordLink, signUpWithPassword } from '../lib/auth'
 import { nativeGoogleAvailable } from '../lib/google'
 import { useSession } from '../lib/session'
 import { Logo } from '../ui/Logo'
+import { passkeyAvailable, passkeyError } from '../lib/passkey'
 import { Missing } from '../ui/Progress'
 import { Button, Field, Msg, PlatformLogo, Seg, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
@@ -90,6 +91,17 @@ export default function Login() {
     setInfo(`Si un compte existe pour ${email.trim()}, un lien vient d’être envoyé. Il ouvre l’app pour choisir un nouveau mot de passe.`)
   })
   const viaCode = () => run(async () => { if (challenge) signedIn(await loginWithCode(challenge.challenge, code.trim(), recovery)) })
+  // Empreinte (clé d'accès) à la place du code : proposée d'office si le compte en a une et le téléphone le permet.
+  const canPasskey = !!challenge?.methods.passkey && passkeyAvailable
+  const [useCode, setUseCode] = useState(false)
+  const viaPasskey = () => run(async () => {
+    if (!challenge) return
+    try { signedIn(await loginWithPasskey(challenge.challenge)) } catch (e) { throw new Error(passkeyError(e)) }
+  })
+  const asked = useRef<string | null>(null)
+  useEffect(() => {
+    if (canPasskey && challenge && asked.current !== challenge.challenge) { asked.current = challenge.challenge; setUseCode(false); viaPasskey() }
+  }, [challenge?.challenge]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: c.bg }}>
@@ -118,7 +130,18 @@ export default function Login() {
         <View style={{ gap: space.md, marginTop: 'auto' }}>
           {error ? <Msg kind="err">{error}</Msg> : null}
           {info ? <Msg kind="ok">{info}</Msg> : null}
-          {challenge ? (
+          {challenge && canPasskey && !useCode ? (
+            <>
+              <Txt bold size={18}>Confirmez avec votre empreinte</Txt>
+              <Txt small muted>Votre empreinte ou votre visage remplace le code à 6 chiffres.</Txt>
+              <Button kind="primary" icon="shield" title="Utiliser mon empreinte" onPress={viaPasskey} />
+              {challenge.methods.totp || challenge.methods.recovery ? (
+                <Button kind="ghost" title={challenge.methods.totp ? 'Utiliser un code à la place' : 'Utiliser un code de secours'}
+                  onPress={() => { setUseCode(true); setRecovery(!challenge.methods.totp) }} />
+              ) : null}
+              <Button kind="ghost" title="Retour" onPress={() => { setChallenge(null); setCode('') }} />
+            </>
+          ) : challenge ? (
             <>
               <Txt bold size={18}>Double authentification</Txt>
               <Txt small muted>{recovery ? 'Entrez un de vos codes de secours.' : 'Entrez le code à 6 chiffres de votre application d’authentification.'}</Txt>
@@ -127,6 +150,7 @@ export default function Login() {
               <Button kind="primary" title="Valider" onPress={viaCode} disabled={!code.trim()} />
               {!code.trim() ? <Missing items={['le code']} /> : null}
               {challenge.methods.recovery ? <Button kind="ghost" title={recovery ? 'Utiliser le code de l’application' : 'Utiliser un code de secours'} onPress={() => setRecovery(!recovery)} /> : null}
+              {canPasskey ? <Button kind="ghost" icon="shield" title="Utiliser mon empreinte" onPress={() => { setUseCode(false); viaPasskey() }} /> : null}
               <Button kind="ghost" title="Retour" onPress={() => { setChallenge(null); setCode('') }} />
             </>
           ) : mode === 'choose' ? (
