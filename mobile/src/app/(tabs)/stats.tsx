@@ -1,5 +1,5 @@
-// Stats : l'accueil du site (chiffres clés, courbe, comptes) et la page Statistiques (totaux, détail
-// par plateforme, meilleurs moments, par compte, vidéos qui marchent), sur une période au choix.
+// Stats, dans l'ordre de lecture : un résumé en une phrase et 3 chiffres, l'audience (courbe), ce qui marche
+// (vidéos, réseaux, meilleurs moments), la fiabilité des publications à part, puis le détail par compte.
 // Comme cm/src/pages/Dashboard.tsx et cm/src/pages/Stats.tsx ; recherche et tri des comptes par l'API.
 import { useRouter } from 'expo-router'
 import { useState, type ReactNode } from 'react'
@@ -16,11 +16,10 @@ import {
 import { radius, space, useTheme } from '../../ui/theme'
 import { Heatmap } from '../../features/insights/Heatmap'
 import { useListState } from '../../features/insights/hooks'
-import { accountState, plural, share } from '../../features/insights/logic'
+import { accountState, periodSentence, plural, share } from '../../features/insights/logic'
 import { ChipRow, Metrics, SectionHead, SortChips, Thumb } from '../../features/insights/parts'
 import { ViewsChart } from '../../features/insights/ViewsChart'
 
-const ALL: Metric[] = ['followers', 'views', 'likes', 'comments', 'shares', 'saves']
 type AccSort = 'views' | 'posts' | 'engagement_rate' | 'followers' | 'followers_delta' | 'likes' | 'name'
 const ACC_SORTS: [AccSort, string][] = [['views', 'Vues'], ['followers', 'Abonnés'], ['followers_delta', 'Abonnés gagnés'],
   ['engagement_rate', 'Engagement'], ['posts', 'Vidéos'], ['likes', 'J’aime'], ['name', 'Nom']]
@@ -28,53 +27,38 @@ type TopSort = 'views' | 'engagement' | 'likes' | 'comments' | 'shares'
 const TOP_SORTS: [TopSort, string][] = [['views', 'Les plus vues'], ['engagement', 'Plus d’interactions'], ['likes', 'Plus de j’aime'],
   ['comments', 'Plus commentées'], ['shares', 'Plus partagées']]
 
-function Kpi({ label, value, sub, onPress }: { label: string; value: string; sub?: ReactNode; onPress?: () => void }) {
+/** Un chiffre dans une rangée (pas de carte vide autour). */
+function Figure({ label, value, sub }: { label: string; value: string; sub?: ReactNode }) {
   return (
-    <Card onPress={onPress} accessibilityLabel={onPress ? `${label} : ${value}` : undefined} style={{ flexBasis: '47%', flexGrow: 1, padding: space.md, gap: 2 }}>
-      <Txt small muted numberOfLines={1}>{label}</Txt>
+    <View style={{ flex: 1, minWidth: 0, gap: 2 }} accessible accessibilityLabel={`${label} : ${value}`}>
       <Txt size={22} bold numberOfLines={1}>{value}</Txt>
-      {typeof sub === 'string' ? <Txt small muted numberOfLines={1}>{sub}</Txt> : sub}
-    </Card>
+      <Txt small muted numberOfLines={1}>{label}</Txt>
+      {typeof sub === 'string' ? <Txt size={12} muted numberOfLines={1}>{sub}</Txt> : sub}
+    </View>
   )
 }
 
-function PlatformCard({ p, totalViews }: { p: PlatformStats; totalViews: number | null }) {
+/** Une ligne par réseau : part des vues (barre), abonnés gagnés, engagement. */
+function PlatformLine({ p, totalViews }: { p: PlatformStats; totalViews: number | null }) {
   const { c } = useTheme()
   const part = share(p.views, totalViews)
   return (
-    <Card>
-      <Row gap={space.md}>
-        <PlatformLogo platform={p.platform} size={32} />
-        <View style={{ flex: 1 }}>
-          <Txt size={17} bold accessibilityRole="header">{PLATFORM_LABEL[p.platform]}</Txt>
-          <Txt small muted>{plural(p.accounts, 'compte')} · {plural(p.posts, 'vidéo')}</Txt>
-        </View>
-        <View style={{ alignItems: 'flex-end' }}><Txt bold>{pct(p.engagement_rate)}</Txt><Txt small muted>engagement</Txt></View>
+    <View style={{ gap: 6, paddingVertical: space.sm }} accessible
+      accessibilityLabel={`${PLATFORM_LABEL[p.platform]} : ${short(p.views)} vues${totalViews ? `, ${part} % du total` : ''}, ${plural(p.posts, 'vidéo')}, engagement ${pct(p.engagement_rate)}`}>
+      <Row gap={space.sm}>
+        <PlatformLogo platform={p.platform} size={22} />
+        <Txt bold style={{ flex: 1 }} numberOfLines={1}>{PLATFORM_LABEL[p.platform]}</Txt>
+        <Txt bold>{short(p.views)}</Txt><Txt small muted>vues</Txt>
       </Row>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: space.sm }}>
-        {ALL.map(m => {
-          const available = p.metrics.includes(m)
-          const v = p[m as keyof PlatformStats] as number | null
-          return (
-            <View key={m} style={{ width: '33.33%', paddingRight: 4 }} accessible
-              accessibilityLabel={`${METRIC_LABEL[m]} : ${available ? short(v) : 'non fourni'}`}>
-              <Txt small muted numberOfLines={1}>{METRIC_LABEL[m]}</Txt>
-              {available ? (
-                <Row gap={4}><Txt bold>{short(v)}</Txt>{m === 'followers' && p.followers_delta != null ? <Delta value={p.followers_delta} /> : null}</Row>
-              ) : <Txt small faint>non fourni</Txt>}
-            </View>
-          )
-        })}
-      </View>
       {totalViews ? (
-        <View style={{ gap: 4 }}>
-          <View style={{ height: 6, borderRadius: 3, backgroundColor: c.surface2, overflow: 'hidden' }}>
-            <View style={{ width: `${part}%`, height: 6, backgroundColor: c[p.platform] }} />
-          </View>
-          <Txt small muted>{part} % des vues de la période</Txt>
+        <View style={{ height: 6, borderRadius: 3, backgroundColor: c.surface2, overflow: 'hidden' }}>
+          <View style={{ width: `${part}%`, height: 6, backgroundColor: c[p.platform] }} />
         </View>
       ) : null}
-    </Card>
+      <Txt small muted numberOfLines={1}>
+        {plural(p.posts, 'vidéo')} · {pct(p.engagement_rate)} d’engagement{p.followers_delta != null ? ` · ${signed(p.followers_delta)} abonnés` : ''}
+      </Txt>
+    </View>
   )
 }
 
@@ -134,19 +118,17 @@ export default function Stats() {
   const reconnect = (o?.accounts || []).filter(a => a.needs_reconnect).length
   const noAccount = (o && o.totals.accounts === 0) || (d && d.totals.accounts === 0 && !acc.q)
 
+  const [allAccounts, setAllAccounts] = useState(false)
+  const posted = d?.totals.posts ?? 0
+  const sentence = d ? periodSentence(days, d.totals, d.platforms.filter(p => p.posts > 0).length, short) : null
+
   return (
     <Screen onRefresh={reloadAll} refreshing={(ov.loading && !!o) || (st.loading && !!d)}>
-      <View style={{ gap: space.sm }}>
-        <Txt size={26} bold accessibilityRole="header">Statistiques</Txt>
-        <Txt small muted>Chiffres relevés plusieurs fois par jour.</Txt>
-      </View>
+      <Txt size={26} bold accessibilityRole="header">Statistiques</Txt>
       <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 j'], [30, '30 j'], [90, '90 j'], [365, '1 an']]} />
-      <Button small icon="refresh" disabled={syncing !== null}
-        title={syncing ? `Actualisation… ${syncing}` : 'Actualiser les chiffres'} onPress={syncAll} style={{ alignSelf: 'flex-start' }} />
-      {syncMsg ? <Msg>{syncMsg}</Msg> : null}
       {ov.error ? <Msg kind="err">{ov.error}</Msg> : null}
       {st.error ? <Msg kind="err">{st.error}</Msg> : null}
-      {!o && !d && (ov.loading || st.loading) ? <View style={{ gap: space.md }}><Skeleton h={90} n={4} /></View> : null}
+      {!o && !d && (ov.loading || st.loading) ? <View style={{ gap: space.md }}><Skeleton h={120} /><Skeleton h={220} /><Skeleton h={160} /></View> : null}
 
       {noAccount ? (
         <Empty title={group ? 'Aucun compte dans ce groupe' : 'Connectez votre premier compte'} icon="users"
@@ -155,21 +137,18 @@ export default function Stats() {
         </Empty>
       ) : (
         <>
-          {o || d ? (
-            <View accessibilityLabel="Chiffres clés" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-              <Kpi label="Vues" value={short(d?.totals.views ?? o?.totals.views)}
-                sub={o?.totals.views_gained != null ? <Row gap={4}><Delta value={o.totals.views_gained} /><Txt small muted>en {days} j</Txt></Row>
-                  : d?.totals.avg_views != null ? `${short(d.totals.avg_views)} par vidéo` : 'cumul des comptes'} />
-              <Kpi label="Abonnés" value={short(d?.totals.followers ?? o?.totals.followers)}
-                sub={d?.totals.followers_delta != null ? <Row gap={4}><Delta value={d.totals.followers_delta} /><Txt small muted>en {days} j</Txt></Row>
-                  : plural(o?.totals.accounts ?? d?.totals.accounts ?? 0, 'compte')} />
-              {d ? <Kpi label="Engagement" value={pct(d.totals.engagement_rate)} sub={`${short(d.totals.interactions)} interactions`} /> : null}
-              {d ? <Kpi label="Vidéos" value={num(d.totals.posts)} sub={`publiées en ${days} j`} /> : null}
-              {d ? <Kpi label="J’aime" value={short(d.totals.likes)} sub={`${short(d.totals.comments)} commentaires`} /> : null}
-              {d ? <Kpi label="Partages" value={short(d.totals.shares)} sub={d.totals.saves != null ? `${short(d.totals.saves)} enregistrements` : 'TikTok et Instagram'} /> : null}
-              {o ? <Kpi label="Publiées" value={num(o.totals.published)} sub={`depuis Chapote, ${days} j`} onPress={() => router.push('/')} /> : null}
-              {o ? <Kpi label="Programmées" value={num(o.totals.upcoming)} sub={<Txt small color={c.accent}>Voir le planning</Txt>} onPress={() => router.push('/')} /> : null}
-            </View>
+          {/* 1. Le résumé : une phrase et les trois chiffres qui comptent. */}
+          {d ? (
+            <Card style={{ gap: space.md }}>
+              <Txt bold size={17} accessibilityRole="header">{sentence}</Txt>
+              <Row gap={space.md} style={{ alignItems: 'flex-start' }}>
+                <Figure label="vues" value={short(d.totals.views ?? o?.totals.views)}
+                  sub={d.totals.avg_views != null && posted ? `${short(d.totals.avg_views)} par vidéo` : undefined} />
+                <Figure label="abonnés" value={short(d.totals.followers ?? o?.totals.followers)}
+                  sub={d.totals.followers_delta != null ? <Row gap={4}><Delta value={d.totals.followers_delta} /></Row> : undefined} />
+                <Figure label="engagement" value={pct(d.totals.engagement_rate)} />
+              </Row>
+            </Card>
           ) : null}
           {o && o.totals.failed_recent > 0 ? (
             <Pressable onPress={() => router.push('/')} accessibilityRole="link">
@@ -182,10 +161,18 @@ export default function Stats() {
             </Pressable>
           ) : null}
 
+          {d && !posted ? (
+            <Empty title="Vos chiffres arrivent avec la première vidéo" icon="chart"
+              action={<Button kind="primary" icon="plus" title="Programmer une vidéo" onPress={() => router.push('/new')} />}>
+              Ici : les vidéos qui marchent, la part de chaque réseau, les meilleurs moments pour publier. Les chiffres arrivent quelques heures après la publication.
+            </Empty>
+          ) : null}
+
+          {/* 2. Audience : l'évolution. */}
           {o ? (
             <Card>
               <Row style={{ justifyContent: 'space-between' }} wrap>
-                <Txt size={18} bold accessibilityRole="header">{metric === 'views' ? 'Vues cumulées' : 'Abonnés'}</Txt>
+                <Txt size={18} bold accessibilityRole="header">Audience</Txt>
                 <View style={{ width: 180 }}>
                   <Seg label="Mesure" value={metric} onChange={setMetric} options={[['views', 'Vues'], ['followers', 'Abonnés']]} />
                 </View>
@@ -194,81 +181,99 @@ export default function Stats() {
             </Card>
           ) : null}
 
-          <View style={{ gap: space.sm }}>
-            <SectionHead title="Vidéos qui marchent" action="Toutes" onAction={() => router.push('/videos')} />
-            <ChipRow label="Classer par">
-              {TOP_SORTS.map(([s, l]) => <Chip key={s} label={l} selected={topSort === s} onPress={() => setTopSort(s)} />)}
-            </ChipRow>
-            {top.error ? <Msg kind="err">{top.error}</Msg> : null}
-            {!top.data && top.loading ? <Skeleton h={190} /> : null}
-            {top.data && top.data.length === 0 ? (
-              <Empty title="Pas encore de vidéo sur la période" icon="chart"
-                action={<Button kind="primary" icon="plus" title="Programmer une vidéo" onPress={() => router.push('/new')} />}>
-                Les chiffres arrivent quelques heures après la publication. Élargissez la période ou programmez une vidéo.
-              </Empty>
-            ) : null}
-            {top.data && top.data.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.md, paddingVertical: 2 }}>
-                {top.data.map((v, i) => (
-                  <Pressable key={v.id} onPress={() => router.push(`/video/${v.id}`)} accessibilityRole="button"
-                    accessibilityLabel={`Numéro ${i + 1} : ${v.title || 'Sans titre'}, ${v.account_name || ''}, ${short(v.views)} vues`}
-                    style={({ pressed }) => ({ width: 150, gap: 6, opacity: pressed ? 0.6 : 1 })}>
-                    <View>
-                      <Thumb uri={v.thumbnail_url} w={150} h={200} />
-                      <View style={{ position: 'absolute', top: 6, left: 6, backgroundColor: c.ink, borderRadius: radius.sm, paddingHorizontal: 6 }}>
-                        <Txt small bold color={c.onInk}>#{i + 1}</Txt>
-                      </View>
-                    </View>
-                    <Txt small bold numberOfLines={1}>{v.title || 'Sans titre'}</Txt>
-                    <Row gap={6}><PlatformLogo platform={v.platform} size={12} /><Txt small muted numberOfLines={1} style={{ flex: 1 }}>{v.account_name}</Txt></Row>
-                    <Metrics v={v} />
-                  </Pressable>
-                ))}
-              </ScrollView>
-            ) : null}
-          </View>
-
-          {d && d.platforms.length ? (
+          {/* 3. Ce qui marche. */}
+          {posted ? (
             <View style={{ gap: space.sm }}>
-              <SectionHead title="Par plateforme" />
-              {d.platforms.map(p => <PlatformCard key={p.platform} p={p} totalViews={d.totals.views} />)}
+              <SectionHead title="Vidéos qui marchent" action="Toutes" onAction={() => router.push('/videos')} />
+              <ChipRow label="Classer par">
+                {TOP_SORTS.map(([s, l]) => <Chip key={s} label={l} selected={topSort === s} onPress={() => setTopSort(s)} />)}
+              </ChipRow>
+              {top.error ? <Msg kind="err">{top.error}</Msg> : null}
+              {!top.data && top.loading ? <Skeleton h={190} /> : null}
+              {top.data && top.data.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.md, paddingVertical: 2 }}>
+                  {top.data.map((v, i) => (
+                    <Pressable key={v.id} onPress={() => router.push(`/video/${v.id}`)} accessibilityRole="button"
+                      accessibilityLabel={`Numéro ${i + 1} : ${v.title || 'Sans titre'}, ${v.account_name || ''}, ${short(v.views)} vues`}
+                      style={({ pressed }) => ({ width: 140, gap: 6, opacity: pressed ? 0.6 : 1 })}>
+                      <View>
+                        <Thumb uri={v.thumbnail_url} w={140} h={186} />
+                        <View style={{ position: 'absolute', top: 6, left: 6, backgroundColor: c.ink, borderRadius: radius.sm, paddingHorizontal: 6 }}>
+                          <Txt small bold color={c.onInk}>#{i + 1}</Txt>
+                        </View>
+                      </View>
+                      <Txt small bold numberOfLines={1}>{v.title || 'Sans titre'}</Txt>
+                      <Row gap={6}><PlatformLogo platform={v.platform} size={12} /><Txt small muted numberOfLines={1} style={{ flex: 1 }}>{v.account_name}</Txt></Row>
+                      <Metrics v={v} />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
             </View>
           ) : null}
 
-          {d ? (
+          {d && d.platforms.length > 1 && posted ? (
+            <Card style={{ gap: 0 }}>
+              <Txt size={18} bold accessibilityRole="header">Par réseau</Txt>
+              {d.platforms.map((p, i) => <View key={p.platform}>{i ? <Divider /> : null}<PlatformLine p={p} totalViews={d.totals.views} /></View>)}
+            </Card>
+          ) : null}
+
+          {d && posted ? (
             <Card>
               <Txt size={18} bold accessibilityRole="header">Meilleurs moments pour publier</Txt>
               <Heatmap posts={d.posts} />
             </Card>
           ) : null}
 
-          {d ? (
+          {/* 4. Publications : la fiabilité, à part de l'audience. */}
+          {o ? (
             <Card style={{ gap: space.md }}>
-              <SectionHead title="Par compte" action="Gérer" onAction={() => router.push('/accounts')} />
-              <SearchField value={acc.input} onChangeText={acc.setInput} placeholder="Rechercher un compte" />
-              <SortChips list={acc} options={ACC_SORTS} />
-              <Txt small muted>{plural(d.accounts.length, 'compte')}</Txt>
-              {d.accounts.length === 0 ? <Txt small muted>Aucun compte ne correspond à « {acc.q} ».</Txt> : null}
+              <Txt size={18} bold accessibilityRole="header">Publications</Txt>
+              <Row gap={space.md} style={{ alignItems: 'flex-start' }}>
+                <Figure label={`publiées (${days} j)`} value={num(o.totals.published)} />
+                <Figure label="programmées" value={num(o.totals.upcoming)} />
+                <Figure label="en échec (7 j)" value={num(o.totals.failed_recent)} />
+              </Row>
+              <Button small kind="ghost" icon="calendar" title="Voir le planning" onPress={() => router.push('/')} style={{ alignSelf: 'flex-start' }} />
+            </Card>
+          ) : null}
+
+          {/* 5. Le détail par compte : les 5 premiers, le reste sur demande. */}
+          {d && d.accounts.length ? (
+            <Card style={{ gap: space.sm }}>
+              <SectionHead title={`Par compte · ${d.accounts.length}`} action="Gérer" onAction={() => router.push('/accounts')} />
+              {allAccounts || d.accounts.length > 5 ? (
+                <>
+                  {allAccounts ? <SearchField value={acc.input} onChangeText={acc.setInput} placeholder="Rechercher un compte" /> : null}
+                  <SortChips list={acc} options={ACC_SORTS} />
+                </>
+              ) : null}
               <View>
-                {d.accounts.map((a, i) => (
+                {(allAccounts ? d.accounts : d.accounts.slice(0, 5)).map((a, i) => (
                   <View key={`${a.platform}-${a.id}`}>
                     {i ? <Divider /> : null}
                     <AccountRow a={a} state={states.get(`${a.platform}:${a.id}`)} />
                   </View>
                 ))}
               </View>
+              {d.accounts.length > 5 && !allAccounts ? <Button small kind="ghost" title={`Voir les ${d.accounts.length} comptes`} onPress={() => setAllAccounts(true)} /> : null}
             </Card>
-          ) : null}
+          ) : d && acc.q ? <Txt small muted>Aucun compte ne correspond à « {acc.q} ».</Txt> : null}
 
-          {d ? (
-            <Row gap={6} style={{ alignItems: 'flex-start' }}>
-              <Icon name="chart" size={14} color={c.faint} />
-              <Txt small faint style={{ flex: 1 }}>
-                Chiffres des API officielles : {(Object.entries(d.metrics) as [Platform, Metric[]][]).map(([p, ms]) => `${PLATFORM_LABEL[p]} (${ms.map(m => METRIC_LABEL[m].toLowerCase()).join(', ')})`).join(' · ')}.
-                Les duos et collages ne sont pas fournis par l’API TikTok, ni les partages par l’API YouTube.
-              </Txt>
-            </Row>
-          ) : null}
+          <View style={{ gap: space.sm }}>
+            <Button small kind="ghost" icon="refresh" disabled={syncing !== null}
+              title={syncing ? `Actualisation… ${syncing}` : 'Actualiser les chiffres maintenant'} onPress={syncAll} style={{ alignSelf: 'flex-start' }} />
+            {syncMsg ? <Msg>{syncMsg}</Msg> : null}
+            {d ? (
+              <Row gap={6} style={{ alignItems: 'flex-start' }}>
+                <Icon name="chart" size={14} color={c.faint} />
+                <Txt small faint style={{ flex: 1 }}>
+                  Chiffres relevés plusieurs fois par jour, via les API officielles : {(Object.entries(d.metrics) as [Platform, Metric[]][]).map(([p, ms]) => `${PLATFORM_LABEL[p]} (${ms.map(m => METRIC_LABEL[m].toLowerCase()).join(', ')})`).join(' · ')}.
+                </Txt>
+              </Row>
+            ) : null}
+          </View>
         </>
       )}
     </Screen>

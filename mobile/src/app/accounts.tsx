@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Alert, AppState, View } from 'react-native'
 import { openAuthorize,
-  addRoutineAccount, claimAccount, deleteGroup, disconnect, getAccounts, getTransfers, startOAuth, syncAccount,
+  addRoutineAccount, deleteGroup, getAccountRequests, requestAccount, disconnect, getAccounts, getTransfers, startOAuth, syncAccount,
   PLATFORM_LABEL, PLATFORMS, type Account, type Group, type Order, type Platform, type ShareWhat, setYoutubeAccount } from '../lib/api'
 import { short } from '../lib/format'
 import { useLoad, useRole, useSession } from '../lib/session'
@@ -13,8 +13,9 @@ import { Avatar, Button, Card, Empty, Field, GroupDot, H2, IconButton, Msg, Plat
 import { space, useTheme } from '../ui/theme'
 import { AccountRow, GroupEditor, TransferSheet, Transfers } from '../features/accounts/components'
 import { ShareSheet } from '../features/accounts/ShareSheet'
+import { AccountRequests } from '../features/accounts/Requests'
 import {
-  ACCOUNT_SORTS, BROWSER_HINT, CONNECT_HINT, accountNaturalOrder, akey, claimDoneText, claimToken, connectEnabled, followersSum, groupMembers,
+  ACCOUNT_SORTS, BROWSER_HINT, CONNECT_HINT, accountNaturalOrder, akey, claimToken, connectEnabled, followersSum, groupMembers,
   groupsOf, type AccountSort,
 } from '../features/accounts/logic'
 import { useDebounced } from '../features/library/hooks'
@@ -33,6 +34,8 @@ export default function Accounts() {
     ? true : allSpaces.find(sp => sp.org_id === g.org_id)?.cm_role === 'admin'
   const accounts = useLoad(s => getAccounts(s), [], 'accounts.all')
   const transfers = useLoad(() => getTransfers(), [], 'accounts.transfers')
+  const requests = useLoad(() => getAccountRequests().catch(() => null), [], 'accounts.requests')
+  const [claimNote, setClaimNote] = useState('')
   const [input, setInput] = useState('')
   const q = useDebounced(input.trim(), 300)
   const [sort, setSort] = useState<AccountSort>('connected')
@@ -50,7 +53,7 @@ export default function Accounts() {
   const [refreshing, setRefreshing] = useState(false)
 
   const all = accounts.data || []
-  const reloadAll = () => { accounts.reload(); shown.reload(); transfers.reload(); reloadGroups() }
+  const reloadAll = () => { accounts.reload(); shown.reload(); transfers.reload(); requests.reload(); reloadGroups() }
   // Retour dans l'app (après la connexion d'un compte dans le navigateur) : comptes et transferts relus.
   useEffect(() => {
     const sub = AppState.addEventListener('change', s => { if (s === 'active') { accounts.reload(); shown.reload(); transfers.reload() } })
@@ -78,14 +81,14 @@ export default function Accounts() {
     } finally { setBusy(null) }
   }
   const spaceName = spaces.find(s => s.org_id === org)?.name || 'Espace perso'
-  const takeOver = () => Alert.alert(`Reprendre ce compte dans « ${spaceName} » ?`, 'Il sera retiré de l’autre espace, avec son planning à venir.', [
-    { text: 'Annuler', style: 'cancel' },
-    { text: 'Reprendre', onPress: async () => {
-      if (!claim) return
-      try { const r = await claimAccount(claim, org); setClaim(null); setMsg({ kind: 'ok', text: claimDoneText(spaceName, r.moved_targets) }); reloadAll() }
-      catch (e) { setClaim(null); setMsg({ kind: 'err', text: (e as Error).message }) }
-    } },
-  ])
+  // Compte relié à l'espace de quelqu'un d'autre : on lui DEMANDE (il accepte ou refuse) ; en cas de litige, le support tranche.
+  const askOwner = async () => {
+    if (!claim) return
+    try {
+      const r = await requestAccount(claim, org, claimNote.trim())
+      setClaim(null); setClaimNote(''); setMsg({ kind: 'ok', text: r.message }); requests.reload()
+    } catch (e) { setClaim(null); setMsg({ kind: 'err', text: (e as Error).message }) }
+  }
   const addRoutine = async () => {
     if (!routineName.trim()) return
     if (await run('routine', () => addRoutineAccount(org, routineName.trim()), 'Compte ajouté : la routine publiera les Reels programmés et enverra les chiffres.')) setRoutineName('')
@@ -110,12 +113,18 @@ export default function Accounts() {
       {msg ? <Msg kind={msg.kind}>{msg.text}</Msg> : null}
       {claim ? (
         <Card>
-          <H2>Vous êtes responsable de ce compte ?</H2>
-          <Txt small muted>Vous venez de vous connecter au compte lui-même : c’est la preuve que vous le contrôlez. Vous pouvez le reprendre ; il quittera l’autre espace avec ses publications à venir, et arrivera dans « {spaceName} ».</Txt>
-          <Button kind="primary" title={`Reprendre dans « ${spaceName} »`} onPress={takeOver} />
-          <Txt small faint>Valable 15 minutes. Sinon, demandez à la personne en charge de vous le transférer.</Txt>
+          <H2>Ce compte est déjà relié à l’espace de quelqu’un d’autre</H2>
+          <Txt small muted>Vous venez de vous y connecter : nous pouvons demander à cet espace de vous le céder. Le compte arrivera dans « {spaceName} » avec ses publications à venir, seulement s’il accepte. En cas de refus ou sans réponse, vous pourrez faire une réclamation au support de Chapote.</Txt>
+          <Field label="Un mot pour la personne (facultatif)" value={claimNote} onChangeText={setClaimNote} maxLength={500} placeholder="Ex. : je gère ce compte pour la marque depuis janvier" />
+          <Button kind="primary" title="Envoyer la demande" onPress={askOwner} />
+          <Button kind="ghost" title="Laisser tomber" onPress={() => { setClaim(null); setClaimNote('') }} />
+          <Txt small faint>Valable 15 minutes. Votre nom et votre e-mail seront montrés aux administrateurs de l’autre espace.</Txt>
         </Card>
       ) : null}
+      <AccountRequests data={requests.data} onChanged={(text, err) => {
+        setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: text || '' })
+        reloadAll()
+      }} />
       {!canAdmin ? <Msg>{`Votre rôle dans cette équipe (${role === 'viewer' ? 'lecteur' : 'éditeur'}) ne permet pas de connecter, retirer ou transférer des comptes.`}</Msg> : null}
       <Transfers data={transfers.data} onChanged={(text, err) => {
         setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: text || '' })

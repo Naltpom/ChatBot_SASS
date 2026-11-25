@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, View } from 'react-native'
-import { ApiError, claimAccount, exchangeDriveOAuth, exchangeOAuth, PLATFORM_LABEL, type Platform } from '../lib/api'
+import { ApiError, requestAccount, exchangeDriveOAuth, exchangeOAuth, PLATFORM_LABEL, type Platform } from '../lib/api'
 import { useSession } from '../lib/session'
 import { Button, H1, Msg, Screen, Txt } from '../ui/kit'
 import { space } from '../ui/theme'
@@ -61,9 +61,11 @@ export default function OAuthReturn() {
       })
   }, [me]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const takeOver = async () => {
+  // Compte relié à l'espace de quelqu'un d'autre : une demande, pas une reprise immédiate.
+  const [asked, setAsked] = useState<string | null>(null)
+  const askOwner = async () => {
     if (!claim) return
-    try { await claimAccount(claim, org); await refresh(); setClaim(null); setErr(null); setDone(true) }
+    try { const r = await requestAccount(claim, org); setClaim(null); setErr(null); setAsked(r.message) }
     catch (e) { setErr((e as Error).message); setClaim(null) }
   }
 
@@ -75,13 +77,14 @@ export default function OAuthReturn() {
       </View>
       {done ? <Msg kind="ok">{p === 'drive' ? 'Google Drive connecté.' : `Compte ${LABEL(p)} connecté.`}</Msg> : null}
       {err ? <Msg kind="err">{err}</Msg> : null}
+      {asked ? <Msg kind="ok">{asked}</Msg> : null}
       {claim ? (
         <View style={{ gap: space.sm }}>
-          <Txt muted>Ce compte est déjà relié à un autre espace. Vous venez de vous y connecter : vous pouvez le reprendre ici (il quittera l’autre espace avec ses publications à venir).</Txt>
-          <Button kind="primary" title="Reprendre ce compte" onPress={takeOver} />
+          <Txt muted>Ce compte est déjà relié à l’espace de quelqu’un d’autre. Vous venez de vous y connecter : nous pouvons lui demander de vous le céder. Il accepte ou refuse ; en cas de litige, le support de Chapote tranche.</Txt>
+          <Button kind="primary" title="Demander ce compte" onPress={askOwner} />
         </View>
       ) : null}
-      {done || err ? <Button kind={done ? 'primary' : 'ghost'} title="Continuer" onPress={back} /> : null}
+      {done || err || asked ? <Button kind={done ? 'primary' : 'ghost'} title="Continuer" onPress={back} /> : null}
     </Screen>
   )
 }

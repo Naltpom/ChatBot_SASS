@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Comment, SeriesPoint } from '../../lib/api'
-import {
+import { periodSentence,
   absoluteUrl, accountState, applyChanges, byVideo, chartModel, chartSummary, commentActions, engagement, heatmap,
   isOwnUrl, nearestIndex, niceStep, personalize, share, sortLabel, sumField,
 } from './logic.ts'
@@ -129,4 +129,11 @@ test('URL de l’API', () => {
   assert.equal(isOwnUrl('https://cm.chapote.fr', 'https://cm.chapote.fr.evil/api'), false)
   assert.equal(sortLabel('Vues', true, 'desc'), 'Vues ↓')
   assert.equal(sortLabel('Vues', false, 'desc'), 'Vues')
+})
+
+test('periodSentence : résumé lisible de la période', () => {
+  const f = (n: number | null) => String(n)
+  assert.equal(periodSentence(30, { posts: 0, views: null, followers_delta: null }, 0, f), 'Ces 30 derniers jours : aucune vidéo publiée pour l’instant.')
+  assert.equal(periodSentence(7, { posts: 3, views: 1200, followers_delta: -4 }, 2, f), 'Ces 7 derniers jours : 3 vidéos publiées sur 2 réseaux, 1200 vues, −4 abonnés.')
+  assert.equal(periodSentence(365, { posts: 1, views: null, followers_delta: 5 }, 1, f), 'Cette année : 1 vidéo publiée, +5 abonnés.')
 })

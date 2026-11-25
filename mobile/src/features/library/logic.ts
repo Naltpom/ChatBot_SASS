@@ -63,7 +63,7 @@ export function usageText(a: Pick<Asset, 'published' | 'scheduled' | 'last_publi
 export type AssetSort = 'recent' | 'name' | 'duration' | 'size'
 export const ASSET_SORTS: [AssetSort, string][] = [['recent', 'Date d’ajout'], ['name', 'Nom'], ['duration', 'Durée'], ['size', 'Taille']]
 export const assetNaturalOrder = (s: AssetSort): Order => (s === 'name' ? 'asc' : 'desc')
-export const STATE_OPTIONS: [AssetState, string][] = [['new', 'À publier'], ['used', 'Déjà programmées'], ['all', 'Toutes']]
+export const STATE_OPTIONS: [AssetState, string][] = [['new', 'À publier'], ['used', 'Programmées'], ['all', 'Toutes']]
 
 /** Ajoute une page à la liste sans doublon (une vidéo peut glisser d'une page à l'autre). */
 export function mergeById<T extends { id: number }>(prev: T[], next: T[]): T[] {

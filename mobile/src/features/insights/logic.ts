@@ -185,3 +185,14 @@ export const isOwnUrl = (base: string, url: string) => url.startsWith(base.repla
 
 /** Tri : libellé avec flèche du sens. */
 export const sortLabel = (label: string, active: boolean, order: 'asc' | 'desc') => (active ? `${label} ${order === 'asc' ? '↑' : '↓'}` : label)
+
+/** Phrase de résumé de la période (ce que l'app a apporté, en clair) : « 30 derniers jours : 12 vidéos sur 3 réseaux, 45 k vues, +230 abonnés. » */
+export function periodSentence(days: number, t: { posts: number; views: number | null; followers_delta: number | null }, networks: number,
+  fmt: (n: number | null) => string): string {
+  const head = days === 365 ? 'Cette année' : `Ces ${days} derniers jours`
+  if (!t.posts) return `${head} : aucune vidéo publiée pour l’instant.`
+  const parts = [`${plural(t.posts, 'vidéo')} publiée${t.posts > 1 ? 's' : ''}${networks > 1 ? ` sur ${networks} réseaux` : ''}`]
+  if (t.views != null) parts.push(`${fmt(t.views)} vues`)
+  if (t.followers_delta) parts.push(`${t.followers_delta > 0 ? '+' : '−'}${fmt(Math.abs(t.followers_delta))} abonnés`)
+  return `${head} : ${parts.join(', ')}.`
+}

@@ -315,6 +315,20 @@ export const getTransfers = () => call<{ incoming: Transfer[]; outgoing: Transfe
 export const acceptTransfer = (id: number, org_id: number | null) => send<{ moved: boolean; moved_targets: number }>('POST', `/api/cm/transfers/${id}/accept`, { org_id })
 export const declineTransfer = (id: number) => send<{ ok: boolean }>('POST', `/api/cm/transfers/${id}/decline`)
 export const cancelTransfer = (id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/transfers/${id}`)
+// Demande de reprise d'un compte relié ailleurs : l'espace actuel accepte ou refuse ; sinon réclamation au support.
+export interface AccountRequest {
+  id: number; platform: Platform; account_id: number; account_name: string | null; message: string | null
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired'; disputed: boolean; can_dispute: boolean
+  expires_at: string; created_at: string; requester?: { name: string | null; email: string | null }
+}
+export const getAccountRequests = () => call<{ incoming: AccountRequest[]; outgoing: AccountRequest[] }>('/api/cm/account-requests')
+export const requestAccount = (claim_token: string, org_id: number | null, message?: string) =>
+  send<{ request: AccountRequest; message: string }>('POST', '/api/cm/account-requests', { claim_token, org_id, message: message || undefined })
+export const acceptAccountRequest = (id: number) => send<{ moved: boolean; moved_targets: number }>('POST', `/api/cm/account-requests/${id}/accept`)
+export const declineAccountRequest = (id: number) => send<{ ok: boolean }>('POST', `/api/cm/account-requests/${id}/decline`)
+export const cancelAccountRequest = (id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/account-requests/${id}`)
+export const disputeAccountRequest = (id: number, message: string) => send<{ ok: boolean; message: string }>('POST', `/api/cm/account-requests/${id}/dispute`, { message })
+/** Ancienne reprise immédiate : gardée côté serveur pour le site, l'app passe par une demande. */
 export const claimAccount = (claim_token: string, org_id: number | null) => send<{ moved: boolean; moved_targets: number }>('POST', '/api/cm/accounts/claim', { claim_token, org_id })
 
 // Personnes et partage (par compte, par groupe ou tout l'espace)

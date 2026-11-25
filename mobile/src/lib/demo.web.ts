@@ -102,6 +102,7 @@ const routes: [RegExp, (m: RegExpMatchArray, method: string) => any][] = [
     { user_id: 1, name: 'Nathan Provost', email: me.email, role: 'admin', owner: true, you: true, pending: false, scope: { all: true, groups: [], accounts: [] } },
     { user_id: 2, name: 'Camille Martin', email: 'camille@exemple.fr', role: 'editor', owner: false, you: false, pending: false, scope: { all: false, groups: [1], accounts: [] } }] })],
   [/\/api\/cm\/transfers$/, () => ({ incoming: [], outgoing: [] })],
+  [/\/api\/cm\/account-requests$/, () => ({ incoming: [], outgoing: [] })],
   [/\/api\/tiktok\/accounts\/\d+\/creator-info/, () => ({ can_post: true, creator: { nickname: 'Contes du soir', username: 'contesdusoir', avatar_url: null, privacy_level_options: ['PUBLIC_TO_EVERYONE', 'SELF_ONLY'], comment_disabled: false, duet_disabled: false, stitch_disabled: false, max_video_post_duration_sec: 600 } })],
 ]
 

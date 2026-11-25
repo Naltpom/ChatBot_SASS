@@ -1,17 +1,17 @@
 // Bibliothèque : les vidéos des dossiers Google Drive partagés avec le robot de Chapote
-// (comme cm/src/pages/Library.tsx). Recherche, tri et filtre faits par l'API, pages au défilement.
+// (comme cm/src/pages/Library.tsx). En haut ce qui attend une action (à valider), puis les vidéos ; les dossiers sont repliés. Recherche, tri et filtre faits par l'API, pages au défilement.
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { FlatList, Pressable, RefreshControl, View } from 'react-native'
 import { getAssetsPage, getProposalCount, getRobot, getSources, type Asset, type AssetState, type Order, type Source } from '../../lib/api'
 import { useLoad, useRole, useSession } from '../../lib/session'
-import { Button, Card, Chip, Empty, Icon, Msg, Row, SearchField, Skeleton, Txt } from '../../ui/kit'
+import { Button, Card, Empty, Icon, Msg, Row, SearchField, Seg, Skeleton, Txt } from '../../ui/kit'
 import { Gauge, StorageBanner } from '../../features/storage'
 import { space, useTheme } from '../../ui/theme'
 import { AddFolderSheet, AssetCard, SourceCard } from '../../features/library/components'
 import { useAuthHeaders, useDebounced, usePaged } from '../../features/library/hooks'
 import { ASSET_SORTS, STATE_OPTIONS, addedFlash, assetNaturalOrder, emptyAssetsText, plural, type AssetSort } from '../../features/library/logic'
-import { Fold, Select, SortBar } from '../../features/library/ui'
+import { Select, SortBar } from '../../features/library/ui'
 
 export default function Library() {
   const { c } = useTheme()
@@ -46,24 +46,22 @@ export default function Library() {
   const refresh = () => { robot.reload(); sources.reload(); count.reload(); assets.refresh() }
   const drafts = count.data?.open || 0
 
+  // Ordre de lecture : à valider (s'il y en a), puis les vidéos (filtre, recherche), et les dossiers Drive repliés.
+  const [showFolders, setShowFolders] = useState(false)
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.md }}>
       <StorageBanner space={current} />
-      {current?.storage && current.storage.state !== 'missing' ? (
-        <Card onPress={() => router.push('/storage')} accessibilityLabel="Stockage Google Drive">
-          <Txt bold>Stockage Google Drive</Txt>
-          <Gauge s={current.storage} />
-        </Card>
-      ) : null}
-      <Txt muted>Les vidéos de vos dossiers Google Drive, prêtes à programmer.</Txt>
-      {enabled ? <Button kind="primary" icon="plus" title="Ajouter un dossier Drive" onPress={() => setAdding(true)} /> : null}
+      <Txt muted>Les vidéos que vous (ou vos monteurs) déposez dans Google Drive arrivent ici. Touchez-en une pour la programmer.</Txt>
       {drafts > 0 ? (
-        <Card onPress={() => router.push('/drafts')} accessibilityLabel={`${drafts} brouillons à valider. Ouvrir`}>
+        <Card onPress={() => router.push('/drafts')} accessibilityLabel={`${drafts} brouillons à valider. Ouvrir`} style={{ borderWidth: 1.5, borderColor: c.primary }}>
           <Row gap={space.md}>
             <View style={{ minWidth: 28, height: 24, borderRadius: 12, paddingHorizontal: 8, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' }}>
               <Txt size={13} bold color={c.onPrimary}>{drafts > 99 ? '99+' : drafts}</Txt>
             </View>
-            <Txt bold style={{ flex: 1 }}>Brouillon{drafts > 1 ? 's' : ''} à valider depuis vos dossiers Drive</Txt>
+            <View style={{ flex: 1 }}>
+              <Txt bold>À valider</Txt>
+              <Txt small muted>Brouillon{drafts > 1 ? 's' : ''} préparé{drafts > 1 ? 's' : ''} depuis vos dossiers : vérifiez et programmez.</Txt>
+            </View>
             <Icon name="right" size={18} color={c.muted} />
           </Row>
         </Card>
@@ -82,21 +80,38 @@ export default function Library() {
       ) : null}
       {hasSources ? (
         <>
-          {(allFolders ? list : list.slice(0, 6)).map(s => <SourceCard key={s.id} s={s} onChanged={changed} onRemoved={() => removed(s)} />)}
-          {list.length > 6 ? (
-            <Button kind="ghost" small style={{ alignSelf: 'flex-start' }} onPress={() => setAllFolders(v => !v)}
-              title={allFolders ? 'Moins de dossiers' : `Voir les ${list.length} dossiers`} />
-          ) : null}
-          <View accessibilityRole="radiogroup" accessibilityLabel="Afficher">
-            <Row gap={space.sm} wrap>
-              {STATE_OPTIONS.map(([v, l]) => <Chip key={v} label={l} selected={state === v} onPress={() => setState(v)} />)}
+          <Card onPress={() => setShowFolders(v => !v)}
+            accessibilityLabel={`Dossiers Drive : ${list.length}. ${showFolders ? 'Replier' : 'Afficher'}`} style={{ paddingVertical: space.sm }}>
+            <Row gap={space.md}>
+              <Icon name="folder" size={20} color={c.muted} />
+              <View style={{ flex: 1 }}>
+                <Txt bold>{plural(list.length, 'dossier')} Drive</Txt>
+                {current?.storage && current.storage.state !== 'missing' ? <Gauge s={current.storage} /> : <Txt small muted numberOfLines={1}>{list.map(x => x.name || 'Dossier Drive').join(', ')}</Txt>}
+              </View>
+              <View style={{ transform: [{ rotate: showFolders ? '180deg' : '0deg' }] }}><Icon name="down" size={18} color={c.muted} /></View>
             </Row>
-          </View>
-          <SearchField value={input} onChangeText={setInput} placeholder="Rechercher une vidéo (nom, légende, dossier)" />
-          {list.length > 1 ? (
-            <Select label="" value={source} onChange={setSource}
-              options={[['', 'Tous les dossiers'], ...list.map(s => [s.id, s.name || 'Dossier Drive'] as [number, string])]} />
+          </Card>
+          {showFolders ? (
+            <View style={{ gap: space.sm }}>
+              {(allFolders ? list : list.slice(0, 6)).map(s => <SourceCard key={s.id} s={s} onChanged={changed} onRemoved={() => removed(s)} />)}
+              {list.length > 6 ? (
+                <Button kind="ghost" small style={{ alignSelf: 'flex-start' }} onPress={() => setAllFolders(v => !v)}
+                  title={allFolders ? 'Moins de dossiers' : `Voir les ${list.length} dossiers`} />
+              ) : null}
+              {enabled ? <Button icon="plus" title="Ajouter un dossier Drive" onPress={() => setAdding(true)} /> : null}
+              <Button small kind="ghost" icon="folder" title="Stockage" onPress={() => router.push('/storage')} style={{ alignSelf: 'flex-start' }} />
+            </View>
           ) : null}
+          <Seg label="Afficher" value={state} onChange={setState} options={STATE_OPTIONS} />
+          <SearchField value={input} onChangeText={setInput} placeholder="Rechercher (nom, légende, dossier)" />
+          <Row gap={space.sm} wrap>
+            {list.length > 1 ? (
+              <View style={{ flexGrow: 1, minWidth: 160 }}>
+                <Select label="" value={source} onChange={setSource}
+                  options={[['', 'Tous les dossiers'], ...list.map(s => [s.id, s.name || 'Dossier Drive'] as [number, string])]} />
+              </View>
+            ) : null}
+          </Row>
           <SortBar sort={sort} order={order} options={ASSET_SORTS}
             onSort={s => { setSort(s); setOrder(assetNaturalOrder(s)) }} onOrder={setOrder} />
           {assets.error ? <Msg kind="err">{assets.error}</Msg> : null}
