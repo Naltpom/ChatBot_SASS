@@ -416,8 +416,14 @@ async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
     messages = adapter.init_messages(system, history)
     tokens_in = tokens_out = 0
     last_text = ""
+    # Mode « mes données » (jeton utilisateur cm présent pour cette requête) : plus de tours de lecture.
+    from src.services.ai_actions import MAX_TOOL_TURNS_DATA, TOOL_EXHAUSTED_DATA_MESSAGE
+    from src.services.mcp_client import user_token as _mcp_user_token
+    data_mode = bool(_mcp_user_token.get())
+    max_turns = MAX_TOOL_TURNS_DATA if data_mode else MAX_TOOL_TURNS
+    exhausted = TOOL_EXHAUSTED_DATA_MESSAGE if data_mode else TOOL_EXHAUSTED_MESSAGE
     async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
-        for turn in range(MAX_TOOL_TURNS):
+        for turn in range(max_turns):
             res = await adapter.request(
                 client, api_key, bot, system, messages, tools, temperature)
             tokens_in += res.tokens_in
@@ -428,9 +434,10 @@ async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
                 return AIResult(content=res.text,
                                 tokens_in=tokens_in, tokens_out=tokens_out)
 
-            # Dernier tour autorise : ne PAS executer les tool-calls demandes.
-            if turn == MAX_TOOL_TURNS - 1:
-                break
+            # Dernier tour autorise : ne PAS executer les tool-calls demandes. Le texte de ce tour
+            # n'est qu'une phrase d'attente (« je vais vérifier ») : jamais renvoyé comme réponse.
+            if turn == max_turns - 1:
+                return AIResult(content=exhausted, tokens_in=tokens_in, tokens_out=tokens_out)
 
             tool_results = []
             for call in res.tool_calls:
