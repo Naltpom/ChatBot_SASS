@@ -42,7 +42,7 @@ export default function OAuthReturn() {
   useEffect(() => {
     if (once.current || !me) return
     once.current = true
-    WebBrowser.dismissBrowser().catch(() => {})
+    try { Promise.resolve(WebBrowser.dismissBrowser() as unknown).catch(() => {}) } catch { /* pas de navigateur ouvert */ }
     const { code, state, error } = q
     if (error || !code || !state) {
       setErr(error === 'access_denied' ? 'Vous avez refusé l’accès : aucun compte n’a été connecté.'
