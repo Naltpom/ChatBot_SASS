@@ -67,10 +67,11 @@
   //   data-theme="light|dark"    surfaces claires ou sombres
   //   data-open="true"           ouvre le panneau dès qu'il est prêt (chargement au clic)
   // Absents -> design du serveur, rendu strictement inchangé. Valeurs validées
-  // (hex / liste fermée) : rien d'autre n'entre dans la feuille de style.
+  // (hex / liste fermée) : rien d'autre n'entre dans la feuille de style. Les
+  // surfaces (classiques ou neutres) restent un choix du design : surfaceTone.
   const pageLook = {
     color: safeColor(script.getAttribute("data-color"), ""),
-    text: safeColor(script.getAttribute("data-color-text"), ""),
+    colorText: safeColor(script.getAttribute("data-color-text"), ""),
     theme: safeEnum(script.getAttribute("data-theme"), ["light", "dark"], ""),
   };
   const OPEN_ON_LOAD = script.getAttribute("data-open") === "true";
@@ -83,10 +84,10 @@
     try { const x = new URL(u); return x.origin + x.pathname; } catch (e) { return ""; }
   }
   function withPageLook(d) {
-    if (!pageLook.color && !pageLook.text && !pageLook.theme) return d;
-    const o = Object.assign({}, d, { pageTheme: true });
+    if (!pageLook.color && !pageLook.colorText && !pageLook.theme) return d;
+    const o = Object.assign({}, d);
     if (pageLook.color) { o.primaryColor = pageLook.color; o.accentColor = pageLook.color; o.secondaryColor = null; }
-    if (pageLook.text) o.onPrimary = pageLook.text;
+    if (pageLook.colorText) o.onPrimary = pageLook.colorText;
     if (pageLook.theme) o.darkMode = pageLook.theme === "dark";
     return o;
   }
@@ -467,6 +468,17 @@
     return (I18N[LOCALE] && I18N[LOCALE][key]) || I18N.fr[key] || "";
   }
 
+  // Surfaces du panneau. light / dark = valeurs historiques (inchangées) ;
+  // neutral = sombre neutre (surfaceTone "neutral"), pour les sites aux tons chauds.
+  const SURFACES = {
+    light: { panel: "#fff", msgs: "#fafbfb", bot: "#fff", botBorder: "#e6eae8", text: "#1d2b27",
+      line: "#e9edec", input: "#fff", inputBorder: "#dde3e1", muted: "#5f7873", powered: "#6b7a76" },
+    dark: { panel: "#101816", msgs: "#0c1311", bot: "#1b2624", botBorder: "#233330", text: "#e8efed",
+      line: "#233330", input: "#18221f", inputBorder: "#233330", muted: "#9fb0ab", powered: "#8a9893" },
+    neutral: { panel: "#161514", msgs: "#0f0e0d", bot: "#211f1d", botBorder: "#302d2a", text: "#f2efec",
+      line: "#302d2a", input: "#1c1a18", inputBorder: "#3a3632", muted: "#b8b0a8", powered: "#b8b0a8" },
+  };
+
   function css(d) {
     const brand = safeColor(d.primaryColor, "#0d9488");
     const color2 = d.secondaryColor ? safeColor(d.secondaryColor, brand) : null;
@@ -482,12 +494,13 @@
     const ox = safeInt(d.offsetX, 0, 120, 18);
     const oy = safeInt(d.offsetY, 0, 120, 18);
     const dark = d.darkMode === true;
-    // Texte posé sur la couleur de marque : blanc (historique) sauf si la page
-    // hôte en impose un autre (data-color-text, ex. texte sombre sur orange clair).
+    // Texte posé sur la couleur de marque : onPrimary du design ou data-color-text
+    // de la page (ex. texte sombre sur orange clair) ; blanc par défaut (historique).
     const onBrand = safeColor(d.onPrimary, "#fff");
-    // Apparence imposée par la page (data-color/data-theme) : surfaces sombres
-    // neutres et réponses rapides sur fond de panneau. Sans elle : rendu historique.
-    const pageTheme = d.pageTheme === true;
+    // surfaceTone : classic (surfaces historiques, sombre teinté vert) | neutral
+    // (sombre neutre, réponses rapides sur le fond du panneau, lien « Chapote » à la
+    // couleur de marque). Défaut classic = rendu historique au pixel près.
+    const neutral = d.surfaceTone === "neutral";
     // En-tête : solid (actuel) | soft (clair) | gradient (dégradé de marque).
     const headerStyle = safeEnum(d.headerStyle, ["solid", "soft", "gradient"], "solid");
     const soft = headerStyle === "soft";
@@ -529,18 +542,12 @@
     const lAnim = safeEnum(d.launcherAnimation, ["none", "float", "pulse"], "none");
     // Surfaces du panneau : palette sombre si darkMode, littéraux actuels sinon.
     // Bulle user et options : brand inchangé (contraste OK sur les deux fonds).
-    const neutralDark = dark && pageTheme;
-    const panelBg = dark ? (neutralDark ? "#161514" : "#101816") : "#fff";
-    const msgsSolid = dark ? (neutralDark ? "#0f0e0d" : "#0c1311") : "#fafbfb";
-    const botBg = dark ? (neutralDark ? "#211f1d" : "#1b2624") : "#fff";
-    const botBorder = dark ? (neutralDark ? "#302d2a" : "#233330") : "#e6eae8";
-    const botText = dark ? (neutralDark ? "#f2efec" : "#e8efed") : "#1d2b27";
-    const lineBorder = dark ? (neutralDark ? "#302d2a" : "#233330") : "#e9edec";
-    const inputBg = dark ? (neutralDark ? "#1c1a18" : "#18221f") : "#fff";
-    const inputBorder = dark ? (neutralDark ? "#3a3632" : "#233330") : "#dde3e1";
-    const mutedText = dark ? (neutralDark ? "#b8b0a8" : "#9fb0ab") : "#5f7873";
-    // Fond des réponses rapides : blanc (historique) ; surface du panneau si la page impose son thème.
-    const optBg = pageTheme ? panelBg : "#fff";
+    const P = SURFACES[dark ? (neutral ? "neutral" : "dark") : "light"];
+    const panelBg = P.panel, msgsSolid = P.msgs, botBg = P.bot, botBorder = P.botBorder,
+      botText = P.text, lineBorder = P.line, inputBg = P.input, inputBorder = P.inputBorder,
+      mutedText = P.muted;
+    // Fond des réponses rapides : blanc (historique) ; surface du panneau en ton neutre.
+    const optBg = neutral ? panelBg : "#fff";
     // Fond de la zone de conversation : plain=solide (actuel) | soft=léger dégradé
     // teinté marque | pattern=motif de points discret. Respecte le mode sombre.
     const chatBg = safeEnum(d.chatBg, ["plain", "soft", "pattern"], "plain");
@@ -635,7 +642,7 @@
       (optBtn ? "flex:1 1 100%;text-align:center;white-space:normal;" : "") + "border:1.5px solid " + accent + ";background:" + optBg + ";color:" + accent + ";cursor:pointer;transition:background .15s,color .15s}",
       ".kc-opt:hover{background:" + accent + ";color:" + onBrand + "}",
       ".kc-back{align-self:flex-start;font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:99px;",
-      "border:1px solid " + (pageTheme ? inputBorder : "#d8dedc") + ";background:" + optBg + ";color:" + (pageTheme ? mutedText : "#5f7873") + ";cursor:pointer}",
+      "border:1px solid " + (neutral ? inputBorder : "#d8dedc") + ";background:" + optBg + ";color:" + (neutral ? mutedText : "#5f7873") + ";cursor:pointer}",
       ".kc-typing{display:flex}.kc-typing>div{padding:10px 14px;border-radius:4px 14px 14px 14px;background:" + botBg + ";border:1px solid " + botBorder + ";display:flex;gap:4px;align-items:center}",
       ".kc-td{width:6px;height:6px;border-radius:9px;background:#b9c4c0;display:inline-block;animation:chapoteBlink 1.2s infinite}",
       ".kc-td:nth-child(2){animation-delay:.18s}.kc-td:nth-child(3){animation-delay:.36s}",
@@ -668,10 +675,10 @@
       "display:grid;place-items:center;flex-shrink:0;transition:background .15s}",
       ".kc-send:disabled{background:#e3e8e6;cursor:default}",
       // Contraste AA (≥4.5:1 sur fond clair) : #6b7a76 au lieu de #9aa7a3.
-      ".kc-powered{text-align:center;font-size:10px;color:" + (neutralDark ? mutedText : (dark ? "#8a9893" : "#6b7a76")) + ";padding:0 0 7px;background:" + panelBg + "}",
+      ".kc-powered{text-align:center;font-size:10px;color:" + P.powered + ";padding:0 0 7px;background:" + panelBg + "}",
       ".kc-powered a{color:inherit;text-decoration:none}",
       ".kc-powered a:hover{text-decoration:underline}",
-      ".kc-powered b{font-weight:700;color:" + (pageTheme ? brand : "#0d9488") + "}",
+      ".kc-powered b{font-weight:700;color:" + (neutral ? brand : "#0d9488") + "}",
       // Formulaire de contact (noeud d'arbre type "lead")
       ".kc-lead{background:" + botBg + ";border:1px solid " + botBorder + ";border-radius:" + (square ? 10 : r14) + "px;padding:12px;display:flex;flex-direction:column;gap:6px;max-width:86%;box-shadow:0 1px 2px rgba(0,0,0,.04)}",
       ".kc-lead-label{font-size:11px;font-weight:700;color:" + mutedText + "}",
@@ -887,19 +894,25 @@
   function applyDesignLive(design) {
     if (!design || typeof design !== "object" || !ui.style) return;
     state.config.design = Object.assign({}, state.config.design, design);
-    ui.style.textContent = css(withPageLook(state.config.design));
+    restyle();
     updateModeUI();
   }
+
+  function restyle() { ui.style.textContent = css(withPageLook(state.config.design)); }
 
   // Apparence imposée par la page, à chaud (changement de couleur ou passage
   // clair/sombre sans recharger) : mêmes validations que les attributs data-*.
   // Cosmétique uniquement, la conversation n'est pas touchée.
   function setAppearance(look) {
     if (!look || typeof look !== "object" || !ui.style) return;
-    if ("color" in look) pageLook.color = safeColor(look.color, "");
-    if ("colorText" in look) pageLook.text = safeColor(look.colorText, "");
-    if ("theme" in look) pageLook.theme = safeEnum(look.theme, ["light", "dark"], "");
-    ui.style.textContent = css(withPageLook(state.config.design));
+    const next = {
+      color: "color" in look ? safeColor(look.color, "") : pageLook.color,
+      colorText: "colorText" in look ? safeColor(look.colorText, "") : pageLook.colorText,
+      theme: "theme" in look ? safeEnum(look.theme, ["light", "dark"], "") : pageLook.theme,
+    };
+    if (next.color === pageLook.color && next.colorText === pageLook.colorText && next.theme === pageLook.theme) return;
+    Object.assign(pageLook, next);
+    restyle();
   }
 
   // tag : "ai" | "human" | null, libellé constant « Conseiller » (le serveur

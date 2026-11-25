@@ -26,7 +26,6 @@ Usage (sur le serveur, dans le conteneur api, depuis api/) :
 """
 import argparse
 import asyncio
-import logging
 from pathlib import Path
 
 from sqlalchemy import delete, func, select
@@ -34,13 +33,12 @@ from sqlalchemy import delete, func, select
 from src.core.constants import MODULE_AI, MODULE_MCP, MODULE_RAG
 from src.core.database import AsyncSessionLocal
 from src.models.bot import DEFAULT_DESIGN, Bot
-from src.models.kb import KbChunk, KbSource
+from src.models.kb import KbSource
 from src.models.user import User
+from src.routers.widget_helpers import sanitize_design
 from src.services.entitlement_service import PlanState, set_bot_status
 from src.services.kb_service import ingest_source
 from src.services.stripe_service import billing_enabled
-
-logger = logging.getLogger("create_cm_assistant")
 
 HERE = Path(__file__).resolve().parent / "cm_assistant"
 BOT_NAME = "Assistant Chapote CM"
@@ -69,6 +67,10 @@ DESIGN = {
     "launcherAnimation": "none",
     "greeting": False,
     "launcherBadge": False,   # pas de pastille rouge : la bulle reste secondaire
+    "onPrimary": "#ffffff",
+    "surfaceTone": "neutral",  # sombre neutre, accordé aux tons chauds de cm
+    "headerStyle": "solid",    # en-tête à la couleur de marque
+    "darkMode": False,         # clair par défaut ; la page impose son thème (data-theme)
 }
 
 
@@ -114,7 +116,7 @@ async def run(owner_email: str, dry_run: bool, activate: bool) -> int:
 
         if created:
             bot = Bot(owner_user_id=owner.id, organization_id=None, name=BOT_NAME,
-                      mode="ai", is_active=False)
+                      is_active=False)
             db.add(bot)
             await db.flush()
 
@@ -126,7 +128,8 @@ async def run(owner_email: str, dry_run: bool, activate: bool) -> int:
         bot.captcha_provider = "turnstile"
         bot.captcha_site_key = None
         bot.captcha_secret_encrypted = None
-        bot.design_json = {**DEFAULT_DESIGN, **(bot.design_json or {}), **DESIGN}
+        # Même validation que le bootstrap du widget (bornes, couleurs, listes fermées).
+        bot.design_json = sanitize_design({**DEFAULT_DESIGN, **(bot.design_json or {}), **DESIGN})
         if activate:
             bot.is_active = True
 
@@ -142,8 +145,7 @@ async def run(owner_email: str, dry_run: bool, activate: bool) -> int:
         old_ids = (await db.execute(
             select(KbSource.id).where(KbSource.bot_id == bot.id)
         )).scalars().all()
-        if old_ids:
-            await db.execute(delete(KbChunk).where(KbChunk.source_id.in_(old_ids)))
+        if old_ids:  # les extraits suivent (clé étrangère ON DELETE CASCADE)
             await db.execute(delete(KbSource).where(KbSource.id.in_(old_ids)))
         sources = []
         for title, text in kb:
@@ -179,7 +181,6 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="affiche ce qui serait fait, sans écrire")
     parser.add_argument("--activate", action="store_true", help="active le bot (inactif par défaut)")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.WARNING)
     raise SystemExit(asyncio.run(run(args.owner_email, args.dry_run, args.activate)))
 
 

@@ -98,6 +98,8 @@ DEFAULT_DESIGN = {
     # THEME
     "chatBg": "plain",             # plain (actuel) | soft (dégradé teinté) | pattern (pointillés)
     "accentColor": None,           # hex ou null : null = couleur de marque (boutons/options/envoi)
+    "onPrimary": None,             # hex ou null : texte posé sur la couleur de marque (null = blanc)
+    "surfaceTone": "classic",      # classic (surfaces actuelles) | neutral (sombre neutre, tons chauds)
     "shadow": 2,                   # 0-3 : intensité de l'ombre du panneau (2 = actuel)
     # MESSAGES
     "quickReplyStyle": "pill",     # pill (arrondi 999, actuel) | button (rectangulaire)

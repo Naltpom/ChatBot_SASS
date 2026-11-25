@@ -25,6 +25,7 @@ from src.core.errors import install_error_handlers
 import src.models  # noqa: F401 — enregistre les tables sur Base.metadata
 from src.routers import emails, emails_oauth
 from src.routers import admin, admin_billing, admin_music, admin_prospecting, admin_tiktok, auth, billing, bots, cm, cm_inbox, cm_library, cm_team, embed, inbox, kb, music, orgs, public, stats, tiktok, tree, twofa, uploads, widget, youtube
+from src.routers.widget_helpers import _HEX_COLOR_RE
 from src.routers.external import account as ext_account
 from src.routers.external import oauth as ext_oauth
 from src.routers.external import onboarding as ext_onboarding
@@ -276,10 +277,9 @@ async def widget_frame(key: str, preview_token: str | None = None,
     # taille/lanceur -> data-inline=false + auto-ouverture du panneau. L'étape
     # « Aperçu » du plugin (sans re-skin) garde l'INLINE plein écran (test conv).
     look_attr = ""
-    hex_re = r"#[0-9a-fA-F]{6}"
-    if color and re.fullmatch(hex_re, color):
+    if color and _HEX_COLOR_RE.fullmatch(color):
         look_attr += f' data-color="{color}"'
-    if color_text and re.fullmatch(hex_re, color_text):
+    if color_text and _HEX_COLOR_RE.fullmatch(color_text):
         look_attr += f' data-color-text="{color_text}"'
     if theme in ("light", "dark"):
         look_attr += f' data-theme="{theme}"'
@@ -287,7 +287,8 @@ async def widget_frame(key: str, preview_token: str | None = None,
     open_attr = ' data-preview-open="1"' if reskin_attr else ""
     # Mode flottant (éditeur d'apparence) : fond TRANSPARENT pour que l'iframe ne
     # montre que le widget (lanceur + panneau) par-dessus la page de l'éditeur.
-    body_bg = "transparent" if reskin_attr else ("#161514" if theme == "dark" else "#f8fafc")
+    # Thème imposé par l'app hôte : fond transparent, l'app (WebView) pose le sien.
+    body_bg = "transparent" if (reskin_attr or look_attr) else "#f8fafc"
     html = f"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">

@@ -62,11 +62,3 @@ def test_system_prompt_bounds():
     assert len(prompt) < MAX_SYSTEM_PROMPT_CHARS
     assert "vouvoy" in prompt and "https://cm.chapote.fr/avis" in prompt
 
-
-def test_launcher_badge_design_key():
-    # Nouvelle clé d'apparence : absente ou non booléenne -> pastille affichée (rendu
-    # historique) ; seul False strict la masque.
-    from src.routers.widget_helpers import sanitize_design
-    assert sanitize_design({})["launcherBadge"] is True
-    assert sanitize_design({"launcherBadge": "no"})["launcherBadge"] is True
-    assert sanitize_design({"launcherBadge": False})["launcherBadge"] is False

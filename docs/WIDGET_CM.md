@@ -35,7 +35,7 @@ Ce que le script règle :
 | Domaines autorisés | `cm.chapote.fr`, `localhost` (développement) |
 | Captcha | Turnstile, clés déjà en place sur le serveur (`TURNSTILE_*`) |
 | Facturation | override « offert » (étape 1) : actif, modules IA + connaissances + MCP, **3000 réponses IA / mois**, dépassement bloqué. Visible dans Admin → Facturation, tracé dans l'historique du bot |
-| Apparence | petite bulle (48 px) « ? », sans pastille rouge, orange clair par défaut ; la page transmet la couleur et le thème choisis |
+| Apparence | petite bulle (48 px) « ? », sans pastille rouge, orange clair par défaut, sombre neutre (`surfaceTone: neutral`) ; la page transmet la couleur et le thème choisis |
 | Connecteur MCP | **aucun** (étape 4) |
 
 ### Base de connaissances : d'où vient chaque texte
@@ -157,19 +157,25 @@ rendu comparé au pixel près avec la version de `master`, en clair et en sombre
 |---|---|
 | `data-color` | couleur de marque (bulle, en-tête, bouton d'envoi, bulles de l'utilisateur) |
 | `data-color-text` | texte posé sur cette couleur |
-| `data-theme` | `light` ou `dark` (surfaces sombres neutres) |
+| `data-theme` | `light` ou `dark` (le ton des surfaces sombres vient du design du bot : `surfaceTone`) |
 | `data-open="true"` | ouvre le panneau dès qu'il est prêt (chargement au clic) |
 | `data-url-mode="path"` | n'envoie que l'origine + le chemin de la page, jamais les paramètres ni le fragment |
 
 API JavaScript pour la page hôte, une entrée par clé :
-`window.ChapoteWidget["pk_…"].open()`, `.close()`, `.setAppearance({ color, colorText, theme })`.
+`window.ChapoteWidget["pk_…"].open()`, `.close()`, `.setAppearance({ color, colorText, theme })`
+(sans effet si rien ne change).
 Événement `chapote-widget-ready` (`detail.key`) quand le widget est prêt.
 
 Captures (page d'accueil, mobile 390 px, trois couleurs en clair et en sombre, bulle fermée,
 `/widget-frame` en sombre) : `docs/captures/widget-cm/`.
 
-Nouvelle option d'apparence du bot : `launcherBadge` (défaut `true`, pastille « 1 » comme
-aujourd'hui ; `false` = sans pastille).
+Nouvelles options d'apparence du bot (validées par `sanitize_design`, défauts = rendu actuel) :
+
+| Clé | Défaut | Effet |
+|---|---|---|
+| `launcherBadge` | `true` | pastille « 1 » sur la bulle fermée ; `false` = sans pastille |
+| `onPrimary` | `null` (blanc) | texte posé sur la couleur de marque ; `data-color-text` le remplace |
+| `surfaceTone` | `classic` | `neutral` : sombre neutre, réponses rapides sur le fond du panneau, lien « Chapote » à la couleur de marque |
 
 ## 5. CSP de cm.chapote.fr (`cm/nginx.conf`)
 
