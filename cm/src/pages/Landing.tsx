@@ -65,7 +65,7 @@ const FEATURES: { k: string; title: string; text: string; img: string; alt: stri
 const FAQ: [string, string][] = [
   ['Mes comptes sont-ils en sécurité ?', 'Vous vous connectez par les pages officielles de TikTok, de Google (YouTube) et de Meta (Instagram). Chapote CM ne voit jamais vos mots de passe. Vous pouvez retirer l’accès à tout moment, depuis Chapote CM ou depuis le réseau.'],
   ['Où vont mes vidéos ?', 'Dans votre propre Google Drive, dans un dossier créé par Chapote CM. Chapote CM ne voit que les fichiers qu’il y range. Après publication, vous choisissez de les garder ou de les supprimer.'],
-  ['Combien ça coûte ?', 'Chapote CM est gratuit. Aucune carte bancaire n’est demandée.'],
+  ['Combien ça coûte ?', 'Chapote CM est gratuit pour l’instant, sans carte bancaire. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.'],
   ['Puis-je travailler en équipe ?', 'Oui. Partagez un groupe de comptes avec d’autres personnes. Chacun voit le planning et les statistiques de ce groupe, selon son rôle : administrateur, éditeur ou lecteur.'],
   ['Quels réseaux sont pris en charge ?', 'TikTok, YouTube Shorts et Instagram Reels (compte professionnel Créateur ou Entreprise). Plusieurs comptes par réseau.'],
   ['Faut-il un nouveau compte ?', 'Non si vous en avez déjà un : c’est le même compte Chapote que sur chapote.fr, par e-mail ou avec Google.'],
@@ -154,7 +154,8 @@ export default function Landing() {
             <figure className="lp-founder lp-rv">
               <h2 id="lp-pourquoi">Pourquoi Chapote CM</h2>
               <blockquote>
-                <p>J’ai d’abord construit Chapote CM pour publier mes propres contes en vidéo sur TikTok, YouTube et Instagram, sans refaire trois fois le même travail. Aujourd’hui, je programme une fois et je suis tous mes chiffres au même endroit. Je l’ouvre à tous ceux qui publient comme moi.</p>
+                <p>Au départ, j’avais un compte Instagram, puis un deuxième. Publier régulièrement demandait de planifier, et l’app ne le permettait pas. Ensuite, pour plus de visibilité, TikTok et YouTube… Je me suis retrouvé avec 6 comptes, un planning pour chacun et les mêmes vidéos partout : une vraie galère. En automatisant, je perdais le visuel, la cohérence et le suivi des stats.</p>
+                <p>Alors j’ai fait l’app, pour moi. Elle est maintenant ouverte à tous, en version 1 : publier des vidéos courtes verticales sur TikTok, Instagram et YouTube, le plus simplement possible. Elle est gratuite pour l’instant : vos retours et votre façon de faire comptent plus que tout pour la suite. Et si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.</p>
               </blockquote>
               <figcaption><Logo size={36} /><span><b>Nathan</b><small>Créateur de Chapote</small></span></figcaption>
             </figure>
