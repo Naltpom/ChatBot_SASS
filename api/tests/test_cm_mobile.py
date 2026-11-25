@@ -341,3 +341,36 @@ async def test_idle_device_refused_on_refresh_without_push(pg_session, cmenv):
         await pg_session.commit()
         r = await c.http.post("/api/cm/mobile/refresh", json={"refresh_token": token})
         assert r.status_code == 401 and "7 jours" in r.json()["detail"]
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_web_link_logs_browser_into_app_account(pg_session, cmenv):
+    """Connexion d'un compte TikTok/YouTube depuis l'app : le navigateur, connecté à un autre compte,
+    passe sur le compte de l'app avant d'aller chez la plateforme (lien à usage unique)."""
+    a = await _user(pg_session, "a@t.dev")
+    await pg_session.commit()
+    google = "https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=abc"
+    async with Client(pg_session) as c:
+        anon = c.http
+        assert (await anon.post("/api/cm/mobile/web-link", json={"next": google})).status_code == 401
+        h = c.as_(a)
+        for bad in ("https://evil.test/x", "http://accounts.google.com/x", "chapotecm://auth",
+                    "https://accounts.google.com.evil.test/x", "https://u@accounts.google.com/x"):
+            assert (await h.post("/api/cm/mobile/web-link", json={"next": bad})).status_code == 400, bad
+        r = await h.post("/api/cm/mobile/web-link", json={"next": google})
+        assert r.status_code == 200, r.text
+        path = r.json()["path"]
+        assert path.startswith("/api/cm/mobile/web-session?t=")
+        c.http.cookies.clear()
+        r = await anon.get(path, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == google
+        cookie = r.cookies.get(AUTH_COOKIE_NAME)
+        assert cookie
+        c.http.cookies.clear()
+        me = await anon.get("/api/auth/me", headers={"Cookie": f"{AUTH_COOKIE_NAME}={cookie}"})
+        assert me.status_code == 200 and me.json()["email"] == "a@t.dev"
+        # Une seule fois ; jeton trafiqué refusé.
+        r = await anon.get(path, follow_redirects=False)
+        assert r.status_code == 400 and AUTH_COOKIE_NAME not in r.cookies
+        assert (await anon.get("/api/cm/mobile/web-session?t=abc", follow_redirects=False)).status_code == 400
