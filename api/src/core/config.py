@@ -131,6 +131,10 @@ class Settings(BaseSettings):
     CM_DAILY_POSTS: int = 150
     # cm : un Google Drive connecté est obligatoire pour créer une publication (stockage des vidéos).
     CM_STORAGE_REQUIRED: bool = True
+    # Âge minimum pour utiliser cm (majorité numérique en France : 15 ans, loi du 7 juillet 2023).
+    CM_MIN_AGE: int = 15
+    # Version des conditions (CGU, CGV, confidentialité) à accepter dans l'app mobile.
+    CM_TERMS_VERSION: str = "2026-11"
     # Jeton de service (Bearer) de la chaîne de production (claude-cloud),
     # au nom de YOUTUBE_SERVICE_USER_EMAIL. Publication seulement (chaînes,
     # posts) : jamais la connexion ni la déconnexion d'une chaîne.
