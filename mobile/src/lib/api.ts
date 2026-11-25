@@ -67,6 +67,16 @@ export interface Storage {
 export const getStorage = (org: number | null) => call<Storage>(`/api/cm/drive/storage${q(org)}`)
 export const putStorage = (org: number | null, body: { quota_gb: number | null; retention: Retention; delete_after_days?: number | null }) =>
   send<Storage>('PUT', `/api/cm/drive/storage${q(org)}`, body)
+/** Plusieurs stockages par espace (docs/CM_ROUTINES.md §9). */
+export interface DriveStorage {
+  id: number; name: string | null; position: number; email: string | null; folder_url: string | null
+  assign: { accounts?: [Platform, number][]; groups?: number[] } | null; state: StorageState; error?: string | null
+}
+export const getStorages = (org: number | null) => call<Storage & { storages: DriveStorage[] }>(`/api/cm/drive/storages${q(org)}`)
+export const addStorageFolder = (org: number | null, from_id: number, name: string) =>
+  send<Storage & { storages: DriveStorage[] }>('POST', `/api/cm/drive/storages${q(org)}`, { from_id, name })
+export const assignStorage = (org: number | null, id: number, assign: { accounts?: [Platform, number][]; groups?: number[] }) =>
+  send<Storage & { storages: DriveStorage[] }>('PATCH', `/api/cm/drive/storages/${id}${q(org)}`, { assign, set_assign: true })
 export type GroupColor = 'blue' | 'orange' | 'green' | 'purple' | 'pink' | 'teal' | 'amber' | 'slate'
   | 'red' | 'indigo' | 'cyan' | 'lime' | 'rose' | 'sky' | 'emerald' | 'brown'
 export const GROUP_COLORS: GroupColor[] = ['blue', 'sky', 'cyan', 'teal', 'emerald', 'green', 'lime', 'amber', 'orange', 'brown', 'red', 'rose', 'pink', 'purple', 'indigo', 'slate']

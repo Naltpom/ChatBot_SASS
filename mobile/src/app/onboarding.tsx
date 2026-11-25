@@ -1,13 +1,14 @@
 // « Sécuriser votre compte », une fois après la connexion : trois interrupteurs, rien de plus.
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { useRouter } from 'expo-router'
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Switch, View } from 'react-native'
 import { call } from '../lib/http'
 import { useLock } from '../lib/lock'
-import { onboardedKey } from '../lib/onboarding'
+import { onboardedKey, stepTitle } from '../lib/onboarding'
 import { disablePush, enablePush, getPush, pushUnsupported } from '../lib/push'
 import { useSession } from '../lib/session'
+import { useOwnAccounts } from '../features/steps'
 import { TwoFASheet } from '../features/TwoFASheet'
 import { Button, Card, Divider, H1, Msg, Row, Screen, Txt } from '../ui/kit'
 import { space, useTheme } from '../ui/theme'
@@ -28,6 +29,8 @@ function Line({ title, hint, value, onChange, disabled }: { title: string; hint?
 export default function Onboarding() {
   const router = useRouter()
   const { me } = useSession()
+  const own = useOwnAccounts()
+  const { from } = useLocalSearchParams<{ from?: string }>()
   const lock = useLock()
   const [push, setPush] = useState(false)
   const [twofa, setTwofa] = useState(false)
@@ -47,11 +50,13 @@ export default function Onboarding() {
   }
   const finish = async () => {
     if (me) await AsyncStorage.setItem(onboardedKey(me.id), '1').catch(() => {})
-    router.replace('/')
+    // Nouveau compte (ou retour depuis l'étape 2) : on continue les étapes ; sinon l'app.
+    router.replace(from === 'welcome' || !own.length ? '/welcome' : '/')
   }
 
   return (
     <Screen>
+      <Stack.Screen options={{ title: stepTitle(1, own.length) }} />
       <View style={{ paddingTop: space.md }}><H1>Sécuriser votre compte</H1></View>
       {msg ? <Msg kind="err">{msg}</Msg> : null}
       <Card>
