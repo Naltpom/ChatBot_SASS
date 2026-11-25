@@ -15,9 +15,10 @@ export const BASE = 'https://cm.chapote.fr/assistant'
 /** Seules ces adresses s'ouvrent dans l'assistant ; tout autre lien part dans le navigateur. */
 export const INSIDE = [BASE, FRAME, 'https://challenges.cloudflare.com/', 'about:blank']
 
-/** Page qui contient l'iframe du bot, aux couleurs de l'app. Aucune donnée du compte n'y est mise. */
+/** Page qui contient l'iframe du bot, aux couleurs de l'app. Aucune donnée du compte n'y est mise.
+ * `header=0` : sans le bandeau d'en-tête du chat (l'onglet a déjà son titre). */
 export function assistantHtml(color: string, text: string, theme: 'light' | 'dark', bg: string): string {
-  const src = `${FRAME}?key=${BOT_KEY}&color=${encodeURIComponent(color)}&color_text=${encodeURIComponent(text)}&theme=${theme}`
+  const src = `${FRAME}?key=${BOT_KEY}&color=${encodeURIComponent(color)}&color_text=${encodeURIComponent(text)}&theme=${theme}&header=0`
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
