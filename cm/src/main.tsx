@@ -5,10 +5,10 @@ import Layout from './components/Layout'
 import { BrandMark, Skeleton } from './components/ui'
 import { SessionProvider, useSession } from './session'
 import './styles.css'
-import { applyPalette, getPalette } from './palette'
+import { applyAppearance, getAppearance, syncAppearance } from './palette'
 
-// Couleur choisie (orange, bleu océan, vert forêt) : avant le premier affichage.
-applyPalette(getPalette())
+// Apparence (couleur, clair / sombre) : copie locale avant le premier affichage ; celle du compte ensuite.
+applyAppearance(getAppearance())
 
 // Une page = un morceau de JavaScript chargé à la demande : la landing ne charge pas l'app,
 // l'app ne charge pas la landing.
@@ -37,7 +37,6 @@ const Landing = lazyPage(() => import('./pages/Landing'))
 const Login = lazyPage(() => import('./pages/auth/Login'))
 const Register = lazyPage(() => import('./pages/auth/Register'))
 const Forgot = lazyPage(() => import('./pages/auth/Forgot'))
-const Dashboard = lazyPage(() => import('./pages/Dashboard'))
 const Planning = lazyPage(() => import('./pages/Planning'))
 const Composer = lazyPage(() => import('./pages/Composer'))
 const Stats = lazyPage(() => import('./pages/Stats'))
@@ -52,6 +51,8 @@ const Callback = lazyPage(() => import('./pages/Callback'))
 const DriveCallback = lazyPage(() => import('./pages/DriveCallback'))
 const Legal = lazyPage(() => import('./pages/Legal'))
 const Contact = lazyPage(() => import('./pages/Contact'))
+const Settings = lazyPage(() => import('./pages/Settings'))
+const Account = lazyPage(() => import('./pages/Account'))
 
 const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie', '/privacy', '/terms', '/avis']
 const HINT = 'cm.session'
@@ -65,7 +66,7 @@ function PageLoading() {
 }
 
 const TITLES: Record<string, string> = {
-  '/': 'Accueil', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque', '/partage': 'Partage', '/a-valider': 'À valider', '/commentaires': 'Commentaires',
+  '/': 'Planning', '/reglages': 'Réglages', '/reglages/compte': 'Mon compte', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque', '/partage': 'Partage', '/a-valider': 'À valider', '/commentaires': 'Commentaires',
   '/nouvelle': 'Nouvelle publication', '/connexion': 'Connexion', '/inscription': 'Créer un compte',
   '/mot-de-passe-oublie': 'Mot de passe oublié', '/avis': 'Donner mon avis',
 }
@@ -89,6 +90,15 @@ function Shell() {
     if ((pathname === '/' && !me) || pathname === '/privacy' || pathname === '/terms') return   // la landing et les pages légales posent leur titre
     document.title = `${TITLES[pathname] ? TITLES[pathname] + ' · ' : ''}Chapote CM`
   }, [pathname, me])
+
+  // Apparence du compte (modifiable sur le site ou dans l'app) : relue à la connexion et au retour sur l'onglet.
+  useEffect(() => {
+    if (!me) return
+    syncAppearance()
+    const again = () => { if (document.visibilityState === 'visible') syncAppearance() }
+    document.addEventListener('visibilitychange', again)
+    return () => document.removeEventListener('visibilitychange', again)
+  }, [me])
 
   useEffect(() => {
     if (!ready) return
@@ -122,10 +132,12 @@ function Shell() {
       <Route path="/privacy" element={<Suspense fallback={<Splash />}><Legal doc="privacy" /></Suspense>} />
       <Route path="/terms" element={<Suspense fallback={<Splash />}><Legal doc="terms" /></Suspense>} />
       <Route element={<Layout fallback={<PageLoading />} />}>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<Navigate to="/planning" replace />} />
         <Route path="/planning" element={<Planning />} />
         <Route path="/nouvelle" element={<Composer />} />
         <Route path="/stats" element={<Stats />} />
+        <Route path="/reglages" element={<Settings />} />
+        <Route path="/reglages/compte" element={<Account />} />
         <Route path="/videos" element={<Videos />} />
         <Route path="/comptes" element={<Accounts />} />
         <Route path="/bibliotheque" element={<Library />} />
@@ -136,7 +148,7 @@ function Shell() {
         <Route path="/commentaires" element={<Comments />} />
         <Route path="/videos/:id" element={<VideoSheet />} />
         <Route path="/equipe" element={<Navigate to="/partage" replace />} />
-        <Route path="/avis" element={<Navigate to="/?avis=1" replace />} />
+        <Route path="/avis" element={<Navigate to="/reglages?avis=1" replace />} />
         <Route path="/tiktok/callback" element={<Callback platform="tiktok" />} />
         <Route path="/youtube/callback" element={<Callback platform="youtube" />} />
         <Route path="/instagram/callback" element={<Callback platform="instagram" />} />

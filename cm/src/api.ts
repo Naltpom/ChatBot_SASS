@@ -6,7 +6,7 @@ export type Platform = 'tiktok' | 'youtube' | 'instagram'
 export const PLATFORMS: Platform[] = ['tiktok', 'youtube', 'instagram']
 export const PLATFORM_LABEL: Record<Platform, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
 
-export interface Me { id: number; email: string; name: string; avatar_url?: string | null }
+export interface Me { id: number; email: string; name: string; avatar_url?: string | null; auth_source?: 'local' | 'google' }
 export interface TwoFAChallenge { twofa_required: true; challenge: string; methods: { totp: boolean; passkey: boolean; recovery: boolean } }
 
 export interface Stats {
@@ -451,5 +451,23 @@ export const acceptInvitation = (id: number) => send<{ org_id: number }>('POST',
 export const declineInvitation = (id: number) => send<{ status: string }>('POST', `/api/cm/invitations/${id}/decline`)
 export interface Capabilities { can_publish_any: boolean; accounts: { key: string; platform: Platform; id: number; org_id: number | null; role: CmRole; owner: string | null; mine: boolean }[] }
 export const getCapabilities = () => call<Capabilities>('/api/cm/me/capabilities')
-export const getProfile = () => call<{ perso_name: string }>('/api/cm/profile')
-export const saveProfile = (perso_name: string) => send<{ perso_name: string }>('PATCH', '/api/cm/profile', { perso_name })
+export interface Profile { perso_name: string; palette: 'warm' | 'ocean' | 'forest'; theme: 'system' | 'light' | 'dark'; prefs_rev: number }
+export const getProfile = () => call<Profile>('/api/cm/profile')
+export const saveProfile = (perso_name: string) => send<Profile>('PATCH', '/api/cm/profile', { perso_name })
+
+// Mon compte (même compte que chapote.fr) : nom, mot de passe, double authentification, appareils de l'app.
+export interface TwoFAStatus { totp_enabled: boolean; passkeys: { id: number; name: string | null }[]; recovery_remaining: number; required: boolean; enabled: boolean }
+export interface Passkey { id: number; name: string | null; created_at: string | null; last_used_at: string | null }
+export const saveName = (name: string) => send<Me>('PATCH', '/api/auth/me', { name })
+export const changePassword = (current_password: string, new_password: string) => send<unknown>('POST', '/api/auth/password', { current_password, new_password })
+export const forgotPasswordFor = (email: string) => send<unknown>('POST', '/api/auth/password/forgot', { email })
+export const get2fa = () => call<TwoFAStatus>('/api/auth/2fa/status')
+export const totpSetup = () => send<{ secret: string; otpauth_uri: string }>('POST', '/api/auth/2fa/totp/setup')
+export const totpEnable = (code: string) => send<{ recovery_codes: string[] }>('POST', '/api/auth/2fa/totp/enable', { code })
+export const totpDisable = (code: string) => send<unknown>('POST', '/api/auth/2fa/totp/disable', { code })
+export const regenerateCodes = (code: string) => send<{ recovery_codes: string[] }>('POST', '/api/auth/2fa/recovery/regenerate', { code })
+export const getPasskeys = () => call<Passkey[]>('/api/auth/2fa/webauthn/credentials')
+export const removePasskey = (id: number) => send<unknown>('DELETE', `/api/auth/2fa/webauthn/credentials/${id}`)
+export interface Device { id: number; name: string | null; platform: string | null; push: boolean; created_at: string | null; last_used_at: string | null }
+export const getDevices = () => call<Device[]>('/api/cm/mobile/devices')
+export const removeDevice = (id: number) => send<unknown>('DELETE', `/api/cm/mobile/devices/${id}`)

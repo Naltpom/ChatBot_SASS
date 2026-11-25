@@ -499,9 +499,14 @@ class CmGroupShare(Base):
 
 
 class CmProfile(Base):
-    """Préférences cm d'une personne : nom de son espace perso (« Espace perso » par défaut)."""
+    """Préférences cm d'une personne : nom de son espace perso (« Espace perso » par défaut) et apparence,
+    partagée par le site et l'app (couleur, clair / sombre). `prefs_rev` augmente à chaque changement
+    d'apparence : chaque appareil garde une copie locale et ne relit que si le numéro a changé."""
     __tablename__ = "cm_profiles"
 
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     perso_name = Column(String(80), nullable=True)
+    palette = Column(String(10), nullable=True)          # warm (défaut) | ocean | forest
+    theme = Column(String(10), nullable=True)            # system (défaut) | light | dark
+    prefs_rev = Column(Integer, nullable=False, default=0, server_default=text("0"))
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

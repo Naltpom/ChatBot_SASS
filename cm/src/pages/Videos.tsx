@@ -1,6 +1,7 @@
 // Toutes les vidéos relevées sur les comptes du périmètre, avec leurs chiffres.
 // Recherche et tri (dans les deux sens) faits par l'API, pages au défilement.
 // Mobile : liste de cartes + tri. Ordinateur : tableau aux en-têtes triables.
+import { StatsTabs } from '../components/StatsTabs'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { LiveCount, SearchBox, SortControl, SortTh, useListState, useMorePages } from '../components/list'
@@ -29,8 +30,9 @@ export default function Videos() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Vidéos</h1><p>Relevées chez les plateformes, publiées ou non depuis Chapote.</p></div>
+        <div><h1>Statistiques</h1><p>Toutes les vidéos relevées chez les plateformes, publiées ou non depuis Chapote.</p></div>
       </div>
+      <StatsTabs />
       <div className="listbar">
         <SearchBox value={list.input} onChange={list.setInput} label="Rechercher une vidéo (titre)" />
         <span className="only-mobile sortctl"><SortControl list={list} options={SORTS} /></span>
