@@ -193,7 +193,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-family: var(--display); font-weight: 600; font-size: 18px; letter-spacing: -0.01em; }
 .brand:hover { color: var(--text); text-decoration: none; }
-.brand-mark { width: 32px; height: 32px; border-radius: 9px; flex: none; display: block; }
+.brand-mark { width: 32px; height: 32px; border-radius: 8px; flex: none; display: block; }
 .brand small { font-family: var(--sans); font-weight: 600; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; letter-spacing: .02em; }
 
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
