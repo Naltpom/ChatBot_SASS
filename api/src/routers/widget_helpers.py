@@ -255,6 +255,7 @@ def sanitize_design(design: dict) -> dict:
     if out.get("launcherAnimation") not in ("none", "float", "pulse"):
         out["launcherAnimation"] = "none"
     out["greeting"] = out.get("greeting") is True  # bool strict, defaut False
+    out["launcherBadge"] = out.get("launcherBadge") is not False  # bool strict, defaut True
     gt = out.get("greetingText")
     out["greetingText"] = str(gt)[:80] if isinstance(gt, str) and gt.strip() else ""
     # FENETRE

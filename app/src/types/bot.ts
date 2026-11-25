@@ -91,6 +91,7 @@ export interface DesignJson {
   launcherAnimation?: 'none' | 'float' | 'pulse' // animation au repos, défaut 'none'
   greeting?: boolean                             // bulle d'accroche au-dessus du lanceur fermé
   greetingText?: string                          // texte de l'accroche (max 80)
+  launcherBadge?: boolean                        // pastille « 1 » sur la bulle fermée (défaut true)
   // Fenêtre
   windowWidth?: number                           // largeur du panneau px [300,560], défaut 338 (= largeur actuelle)
   windowHeight?: number | null                   // hauteur du panneau px [360,720] ; null = auto (selon densité)

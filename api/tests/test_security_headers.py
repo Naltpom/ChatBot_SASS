@@ -62,6 +62,25 @@ async def test_widget_frame_is_embeddable(client):
 
 
 @pytest.mark.asyncio
+async def test_widget_frame_turnstile_and_look(client):
+    # Turnstile autorisé dans l'iframe (sinon pas de jeton -> session refusée) ;
+    # couleur et thème reflétés SEULEMENT s'ils sont bien formés (anti-XSS).
+    async with client as c:
+        ok = await c.get("/widget-frame", params={
+            "key": "pk_" + "a" * 12, "color": "#C93F17", "color_text": "#ffffff", "theme": "dark"})
+        bad = await c.get("/widget-frame", params={
+            "key": "pk_" + "a" * 12, "color": '#fff" onload="x', "color_text": "red", "theme": "neon"})
+    csp = ok.headers["Content-Security-Policy"]
+    assert "frame-src https://challenges.cloudflare.com" in csp
+    assert "https://challenges.cloudflare.com" in csp.split("script-src", 1)[1].split(";", 1)[0]
+    assert 'data-color="#C93F17"' in ok.text
+    assert 'data-color-text="#ffffff"' in ok.text
+    assert 'data-theme="dark"' in ok.text
+    assert "data-color" not in bad.text and "data-theme" not in bad.text
+    assert "onload" not in bad.text
+
+
+@pytest.mark.asyncio
 async def test_uploads_csp_not_clobbered(client):
     # /uploads conserve sa CSP stricte propre (default-src 'none') posee par
     # widget_cors : le middleware securite ne doit pas l'ecraser ni l'embarquer.

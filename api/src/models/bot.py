@@ -83,6 +83,7 @@ DEFAULT_DESIGN = {
     "launcherShape": "round",      # round (cercle, actuel) | pill (stade) | square (carré arrondi)
     "launcherAnimation": "none",   # none (actuel) | float (bob doux) | pulse (halo)
     "greeting": False,             # accroche flottante au-dessus du lanceur (panneau fermé)
+    "launcherBadge": True,         # pastille « 1 » sur la bulle fermée (actuel) ; False = bulle discrète
     "greetingText": "",            # <= 80 chars : texte de l'accroche
     # FENETRE
     "windowWidth": 338,            # 300-560 px : largeur du panneau (338 = valeur historique)

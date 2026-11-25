@@ -60,8 +60,39 @@
   // Whitelist d'énumération : valeur hors liste -> défaut (jamais injectée en className brute).
   function safeEnum(v, allowed, fallback) { return allowed.indexOf(v) !== -1 ? v : fallback; }
 
+  // Apparence imposée par la PAGE hôte (facultatif, cosmétique seulement) : un site
+  // qui propose plusieurs couleurs ou un mode sombre transmet son choix courant.
+  //   data-color="#C93F17"       couleur de marque (bulle, en-tête, bouton d'envoi…)
+  //   data-color-text="#ffffff"  texte posé sur cette couleur (contraste)
+  //   data-theme="light|dark"    surfaces claires ou sombres
+  //   data-open="true"           ouvre le panneau dès qu'il est prêt (chargement au clic)
+  // Absents -> design du serveur, rendu strictement inchangé. Valeurs validées
+  // (hex / liste fermée) : rien d'autre n'entre dans la feuille de style.
+  const pageLook = {
+    color: safeColor(script.getAttribute("data-color"), ""),
+    text: safeColor(script.getAttribute("data-color-text"), ""),
+    theme: safeEnum(script.getAttribute("data-theme"), ["light", "dark"], ""),
+  };
+  const OPEN_ON_LOAD = script.getAttribute("data-open") === "true";
+  // data-url-mode="path" : n'envoie que l'origine + le chemin de la page (jamais les
+  // paramètres ni le fragment, qui peuvent porter des identifiants ou des codes de
+  // connexion). Absent : adresse complète (comportement historique).
+  const PATH_ONLY = script.getAttribute("data-url-mode") === "path";
+  function stripUrl(u) {
+    if (!PATH_ONLY || !u) return u;
+    try { const x = new URL(u); return x.origin + x.pathname; } catch (e) { return ""; }
+  }
+  function withPageLook(d) {
+    if (!pageLook.color && !pageLook.text && !pageLook.theme) return d;
+    const o = Object.assign({}, d, { pageTheme: true });
+    if (pageLook.color) { o.primaryColor = pageLook.color; o.accentColor = pageLook.color; o.secondaryColor = null; }
+    if (pageLook.text) o.onPrimary = pageLook.text;
+    if (pageLook.theme) o.darkMode = pageLook.theme === "dark";
+    return o;
+  }
+
   function pageUrl() {
-    return INLINE ? (document.referrer || location.href) : location.href;
+    return stripUrl(INLINE ? (document.referrer || location.href) : location.href);
   }
 
   function visitorId() {
@@ -269,7 +300,7 @@
           public_key: BOT_KEY,
           visitor_id: visitorId(),
           page_url: pageUrl(),
-          parent_url: INLINE ? document.referrer : null,
+          parent_url: INLINE ? stripUrl(document.referrer) : null,
           captcha_token: token,
           journey: getJourney(),
         },
@@ -451,6 +482,12 @@
     const ox = safeInt(d.offsetX, 0, 120, 18);
     const oy = safeInt(d.offsetY, 0, 120, 18);
     const dark = d.darkMode === true;
+    // Texte posé sur la couleur de marque : blanc (historique) sauf si la page
+    // hôte en impose un autre (data-color-text, ex. texte sombre sur orange clair).
+    const onBrand = safeColor(d.onPrimary, "#fff");
+    // Apparence imposée par la page (data-color/data-theme) : surfaces sombres
+    // neutres et réponses rapides sur fond de panneau. Sans elle : rendu historique.
+    const pageTheme = d.pageTheme === true;
     // En-tête : solid (actuel) | soft (clair) | gradient (dégradé de marque).
     const headerStyle = safeEnum(d.headerStyle, ["solid", "soft", "gradient"], "solid");
     const soft = headerStyle === "soft";
@@ -492,15 +529,18 @@
     const lAnim = safeEnum(d.launcherAnimation, ["none", "float", "pulse"], "none");
     // Surfaces du panneau : palette sombre si darkMode, littéraux actuels sinon.
     // Bulle user et options : brand inchangé (contraste OK sur les deux fonds).
-    const panelBg = dark ? "#101816" : "#fff";
-    const msgsSolid = dark ? "#0c1311" : "#fafbfb";
-    const botBg = dark ? "#1b2624" : "#fff";
-    const botBorder = dark ? "#233330" : "#e6eae8";
-    const botText = dark ? "#e8efed" : "#1d2b27";
-    const lineBorder = dark ? "#233330" : "#e9edec";
-    const inputBg = dark ? "#18221f" : "#fff";
-    const inputBorder = dark ? "#233330" : "#dde3e1";
-    const mutedText = dark ? "#9fb0ab" : "#5f7873";
+    const neutralDark = dark && pageTheme;
+    const panelBg = dark ? (neutralDark ? "#161514" : "#101816") : "#fff";
+    const msgsSolid = dark ? (neutralDark ? "#0f0e0d" : "#0c1311") : "#fafbfb";
+    const botBg = dark ? (neutralDark ? "#211f1d" : "#1b2624") : "#fff";
+    const botBorder = dark ? (neutralDark ? "#302d2a" : "#233330") : "#e6eae8";
+    const botText = dark ? (neutralDark ? "#f2efec" : "#e8efed") : "#1d2b27";
+    const lineBorder = dark ? (neutralDark ? "#302d2a" : "#233330") : "#e9edec";
+    const inputBg = dark ? (neutralDark ? "#1c1a18" : "#18221f") : "#fff";
+    const inputBorder = dark ? (neutralDark ? "#3a3632" : "#233330") : "#dde3e1";
+    const mutedText = dark ? (neutralDark ? "#b8b0a8" : "#9fb0ab") : "#5f7873";
+    // Fond des réponses rapides : blanc (historique) ; surface du panneau si la page impose son thème.
+    const optBg = pageTheme ? panelBg : "#fff";
     // Fond de la zone de conversation : plain=solide (actuel) | soft=léger dégradé
     // teinté marque | pattern=motif de points discret. Respecte le mode sombre.
     const chatBg = safeEnum(d.chatBg, ["plain", "soft", "pattern"], "plain");
@@ -517,7 +557,7 @@
     }
     // En-tête : solid = marque (actuel) ; soft = clair (surface) ; gradient = dégradé.
     const headBg = soft ? panelBg : (gradient ? bg : (color2 ? bg : brand));
-    const headText = soft ? (dark ? "#e8efed" : "#1d2b27") : "#fff";
+    const headText = soft ? botText : onBrand;
     // Hauteur du panneau : windowHeight si défini (borné), sinon AUTO selon la
     // densité (= hauteur historique). max-height:70vh la cape au viewport.
     const winH = safeInt(d.windowHeight, 360, 720, compact ? 420 : 460);
@@ -529,7 +569,7 @@
     return [
       ".kc-root{font-family:" + font + "}",
       ".kc-bubble{position:fixed;bottom:" + oy + "px;" + side + ":" + ox + "px;width:" + bubble + "px;height:" + bubble + "px;border-radius:" + launcherRadius + ";",
-      "border:" + (d.bordered ? "3px solid rgba(255,255,255,.95)" : "none") + ";cursor:pointer;background:" + bg + ";color:#fff;",
+      "border:" + (d.bordered ? "3px solid rgba(255,255,255,.95)" : "none") + ";cursor:pointer;background:" + bg + ";color:" + onBrand + ";",
       "box-shadow:0 8px 26px rgba(10,30,25,.3);display:grid;place-items:center;z-index:2147483000;",
       "transition:transform .18s ease;padding:0}",
       ".kc-bubble:hover{transform:scale(1.07)}.kc-bubble.open{transform:scale(.92)}",
@@ -552,7 +592,7 @@
       ".kc-badge{position:absolute;top:-2px;right:-2px;width:19px;height:19px;border-radius:99px;background:#e74c3c;",
       "color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center;border:2px solid #fff}",
       ".kc-panel{" + panelPos + "background:" + panelBg + ";box-shadow:" + panelShadow + ";",
-      "display:none;flex-direction:column;overflow:hidden;z-index:2147483000;border:1px solid " + (dark ? "#233330" : "rgba(0,0,0,.06)") + "}",
+      "display:none;flex-direction:column;overflow:hidden;z-index:2147483000;border:1px solid " + (dark ? lineBorder : "rgba(0,0,0,.06)") + "}",
       // openAnimation : zoom (actuel) | fade | slide | pop (rebond) | flip (bascule).
       ".kc-panel.open{display:flex;transform-origin:bottom " + side + ";animation:chapoteOpen" + oaName + " .26s ease}",
       "@keyframes chapoteOpenZoom{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}",
@@ -561,7 +601,7 @@
       "@keyframes chapoteOpenPop{0%{opacity:0;transform:scale(.8)}60%{opacity:1;transform:scale(1.04)}100%{transform:scale(1)}}",
       "@keyframes chapoteOpenFlip{from{opacity:0;transform:perspective(700px) rotateX(-16deg)}to{opacity:1;transform:perspective(700px) rotateX(0)}}",
       ".kc-head{background:" + headBg + ";color:" + headText + ";padding:13px 15px;display:flex;align-items:center;gap:10px" + (soft ? ";border-bottom:1px solid " + lineBorder : "") + "}",
-      ".kc-head-ico{width:34px;height:34px;border-radius:10px;background:" + (soft ? bg : "rgba(255,255,255,.18)") + ";color:#fff;display:grid;place-items:center;overflow:hidden;flex-shrink:0}",
+      ".kc-head-ico{width:34px;height:34px;border-radius:10px;background:" + (soft ? bg : "rgba(255,255,255,.18)") + ";color:" + (soft ? "#fff" : onBrand) + ";display:grid;place-items:center;overflow:hidden;flex-shrink:0}",
       ".kc-head-ico svg{width:19px;height:19px}",
       ".kc-head-name{font-weight:700;font-size:14.5px;line-height:1.2}",
       ".kc-head-sub{font-size:11px;opacity:.85;display:flex;align-items:center;gap:5px}",
@@ -575,7 +615,7 @@
       ".kc-row{display:flex;flex-direction:column;align-items:flex-start}.kc-row.user{align-items:flex-end}",
       ".kc-msg{max-width:82%;padding:" + (compact ? "7px 10px" : "9px 12px") + ";font-size:" + msgFs + "px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}",
       ".kc-row.bot .kc-msg{border-radius:" + botR + ";background:" + botBg + ";color:" + botText + ";border:1px solid " + botBorder + ";box-shadow:0 1px 2px rgba(0,0,0,.04)}",
-      ".kc-row.user .kc-msg{border-radius:" + userR + ";background:" + brand + ";color:#fff}",
+      ".kc-row.user .kc-msg{border-radius:" + userR + ";background:" + brand + ";color:" + onBrand + "}",
       // Horodatage discret sous chaque message (timestamps)
       ".kc-time{font-size:10px;color:" + mutedText + ";margin:2px 4px 0}",
       // Markdown léger rendu dans les bulles (liens cliquables, gras/italique).
@@ -592,10 +632,10 @@
       ".kc-rate button.kc-on{color:" + brand + ";opacity:1}",
       ".kc-opts{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}",
       ".kc-opt{font-family:inherit;font-size:" + optFs + "px;font-weight:600;padding:" + (compact ? "6px 10px" : "8px 12px") + ";white-space:nowrap;border-radius:" + (square || optBtn ? "10px" : "99px") + ";",
-      (optBtn ? "flex:1 1 100%;text-align:center;white-space:normal;" : "") + "border:1.5px solid " + accent + ";background:#fff;color:" + accent + ";cursor:pointer;transition:background .15s,color .15s}",
-      ".kc-opt:hover{background:" + accent + ";color:#fff}",
+      (optBtn ? "flex:1 1 100%;text-align:center;white-space:normal;" : "") + "border:1.5px solid " + accent + ";background:" + optBg + ";color:" + accent + ";cursor:pointer;transition:background .15s,color .15s}",
+      ".kc-opt:hover{background:" + accent + ";color:" + onBrand + "}",
       ".kc-back{align-self:flex-start;font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:99px;",
-      "border:1px solid #d8dedc;background:#fff;color:#5f7873;cursor:pointer}",
+      "border:1px solid " + (pageTheme ? inputBorder : "#d8dedc") + ";background:" + optBg + ";color:" + (pageTheme ? mutedText : "#5f7873") + ";cursor:pointer}",
       ".kc-typing{display:flex}.kc-typing>div{padding:10px 14px;border-radius:4px 14px 14px 14px;background:" + botBg + ";border:1px solid " + botBorder + ";display:flex;gap:4px;align-items:center}",
       ".kc-td{width:6px;height:6px;border-radius:9px;background:#b9c4c0;display:inline-block;animation:chapoteBlink 1.2s infinite}",
       ".kc-td:nth-child(2){animation-delay:.18s}.kc-td:nth-child(3){animation-delay:.36s}",
@@ -622,22 +662,22 @@
       ".kc-input{flex:1;font-family:inherit;font-size:13.5px;padding:10px 13px;border-radius:99px;border:1px solid " + inputBorder + ";",
       "outline:none;background:" + inputBg + ";color:" + botText + ";min-width:0}",
       ".kc-input:focus{border-color:" + accent + "}",
-      ".kc-input:disabled{background:" + (dark ? "#0c1311" : "#f4f6f5") + "}",
+      ".kc-input:disabled{background:" + (dark ? msgsSolid : "#f4f6f5") + "}",
       // sendStyle=icon (actuel) : bouton plat ; colored : cercle plein teinté accent.
-      ".kc-send{width:40px;height:40px;border-radius:99px;border:none;cursor:pointer;background:" + (d.sendStyle === "colored" ? accent : brand) + ";color:#fff;",
+      ".kc-send{width:40px;height:40px;border-radius:99px;border:none;cursor:pointer;background:" + (d.sendStyle === "colored" ? accent : brand) + ";color:" + onBrand + ";",
       "display:grid;place-items:center;flex-shrink:0;transition:background .15s}",
       ".kc-send:disabled{background:#e3e8e6;cursor:default}",
       // Contraste AA (≥4.5:1 sur fond clair) : #6b7a76 au lieu de #9aa7a3.
-      ".kc-powered{text-align:center;font-size:10px;color:" + (dark ? "#8a9893" : "#6b7a76") + ";padding:0 0 7px;background:" + panelBg + "}",
+      ".kc-powered{text-align:center;font-size:10px;color:" + (neutralDark ? mutedText : (dark ? "#8a9893" : "#6b7a76")) + ";padding:0 0 7px;background:" + panelBg + "}",
       ".kc-powered a{color:inherit;text-decoration:none}",
       ".kc-powered a:hover{text-decoration:underline}",
-      ".kc-powered b{font-weight:700;color:#0d9488}",
+      ".kc-powered b{font-weight:700;color:" + (pageTheme ? brand : "#0d9488") + "}",
       // Formulaire de contact (noeud d'arbre type "lead")
       ".kc-lead{background:" + botBg + ";border:1px solid " + botBorder + ";border-radius:" + (square ? 10 : r14) + "px;padding:12px;display:flex;flex-direction:column;gap:6px;max-width:86%;box-shadow:0 1px 2px rgba(0,0,0,.04)}",
       ".kc-lead-label{font-size:11px;font-weight:700;color:" + mutedText + "}",
       ".kc-lead-input{font-family:inherit;font-size:13px;padding:8px 11px;border-radius:10px;border:1px solid " + inputBorder + ";outline:none;background:" + inputBg + ";color:" + botText + ";resize:vertical}",
       ".kc-lead-input:focus{border-color:" + accent + "}",
-      ".kc-lead-send{font-family:inherit;font-size:13px;font-weight:700;padding:9px;border-radius:99px;border:none;cursor:pointer;background:" + accent + ";color:#fff;margin-top:4px}",
+      ".kc-lead-send{font-family:inherit;font-size:13px;font-weight:700;padding:9px;border-radius:99px;border:none;cursor:pointer;background:" + accent + ";color:" + onBrand + ";margin-top:4px}",
       ".kc-lead-send:disabled{background:#e3e8e6;cursor:default}",
       ".kc-lead-err{font-size:11.5px;color:#c0392b}",
       // Overlay rendez-vous (noeud d'arbre type "appointment")
@@ -791,8 +831,12 @@
         ui.bubbleLabel = el("span", "kc-bubble-label", lt);
         ui.bubble.appendChild(ui.bubbleLabel);
       }
-      ui.badge = el("span", "kc-badge", "1");
-      ui.bubble.appendChild(ui.badge);
+      // launcherBadge : pastille « 1 » sur la bulle fermée (actuel) ; false = sans
+      // pastille (bulle discrète, quand le chat est secondaire sur la page).
+      if (d.launcherBadge !== false) {
+        ui.badge = el("span", "kc-badge", "1");
+        ui.bubble.appendChild(ui.badge);
+      }
       ui.bubble.addEventListener("click", toggle);
       root.appendChild(ui.bubble);
       // greeting : petite bulle d'accroche au-dessus du lanceur fermé. Texte
@@ -843,8 +887,19 @@
   function applyDesignLive(design) {
     if (!design || typeof design !== "object" || !ui.style) return;
     state.config.design = Object.assign({}, state.config.design, design);
-    ui.style.textContent = css(state.config.design);
+    ui.style.textContent = css(withPageLook(state.config.design));
     updateModeUI();
+  }
+
+  // Apparence imposée par la page, à chaud (changement de couleur ou passage
+  // clair/sombre sans recharger) : mêmes validations que les attributs data-*.
+  // Cosmétique uniquement, la conversation n'est pas touchée.
+  function setAppearance(look) {
+    if (!look || typeof look !== "object" || !ui.style) return;
+    if ("color" in look) pageLook.color = safeColor(look.color, "");
+    if ("colorText" in look) pageLook.text = safeColor(look.colorText, "");
+    if ("theme" in look) pageLook.theme = safeEnum(look.theme, ["light", "dark"], "");
+    ui.style.textContent = css(withPageLook(state.config.design));
   }
 
   // tag : "ai" | "human" | null, libellé constant « Conseiller » (le serveur
@@ -1696,13 +1751,24 @@
       // Session persistée (< 2 h) : restaure token + statut + fil AVANT build
       // (l'INLINE ouvre la session immédiatement -> doit voir state.restored).
       if (!PREVIEW_TOKEN) loadSession(); // aperçu : toujours repartir d'une conversation vierge
-      build(config.design);
+      build(withPageLook(config.design));
       // Bubble : si la session restaurée était OUVERTE, on rouvre le panneau
       // (toggle -> startSession -> renderRestored). Sinon le fil se restaure au
       // prochain clic. (INLINE : déjà ouvert + startSession appelé dans build.)
       if (!INLINE && state.restored && state.restoredOpen) toggle();
       // Aperçu d'apparence : ouvre le panneau d'office (rendu complet visible).
       if (PREVIEW_OPEN && !state.open) toggle();
+      // Chargement au clic (data-open) : le visiteur a déjà demandé le chat.
+      if (OPEN_ON_LOAD && !INLINE && !state.open) toggle();
+      // Petite API pour la page hôte : ouvrir/fermer, suivre sa couleur et son
+      // thème. Une entrée par clé de bot ; aucune donnée de session exposée.
+      window.ChapoteWidget = window.ChapoteWidget || {};
+      window.ChapoteWidget[BOT_KEY] = {
+        open: function () { if (!INLINE && !state.open) toggle(); },
+        close: function () { if (!INLINE && state.open) toggle(); },
+        setAppearance: setAppearance,
+      };
+      try { window.dispatchEvent(new CustomEvent("chapote-widget-ready", { detail: { key: BOT_KEY } })); } catch (e) { /* navigateur ancien */ }
       // Triggers proactifs : jamais en INLINE (panneau déjà ouvert, les
       // scroll/mouseleave de la page parente sont invisibles depuis l'iframe)
       if (!INLINE) initTriggers(config.triggers || []);
@@ -1733,5 +1799,7 @@
     })
     .catch(function (err) {
       console.warn("[chapote-chat]", err.message);
+      // Bot inconnu, désactivé ou injoignable : la page hôte peut retirer sa bulle d'attente.
+      try { window.dispatchEvent(new CustomEvent("chapote-widget-error", { detail: { key: BOT_KEY } })); } catch (e) { /* navigateur ancien */ }
     });
 })();
