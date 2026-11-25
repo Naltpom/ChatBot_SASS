@@ -31,6 +31,7 @@ from src.routers.external import onboarding as ext_onboarding
 from src.services import cm_jobs, tiktok_jobs, youtube_jobs
 from src.routers import cm_mobile
 from src.routers import cm_invite_links
+from src.routers import cm_account_requests
 from src.services import cm_push
 from src.services import emails_mcp
 from src.services.auth_service import ensure_dev_admin
@@ -320,6 +321,7 @@ app.include_router(cm_inbox.router)
 app.include_router(cm_team.router)
 app.include_router(cm_mobile.router)
 app.include_router(cm_invite_links.router)
+app.include_router(cm_account_requests.router)
 app.include_router(music.router)
 app.include_router(admin_music.router)
 app.include_router(uploads.router)
