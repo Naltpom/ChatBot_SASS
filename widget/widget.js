@@ -83,6 +83,45 @@
     if (!PATH_ONLY || !u) return u;
     try { const x = new URL(u); return x.origin + x.pathname; } catch (e) { return ""; }
   }
+  // Assistant « mes données » (docs/CM_MCP.md) : la page hôte peut fournir un jeton court par message
+  // (fonction asynchrone, jeton gardé EN MÉMOIRE seulement, jamais persisté) et une table
+  // alias -> vrai nom, appliquée à l'AFFICHAGE des réponses (la conversation garde les alias).
+  let userTokenProvider = null;
+  let aliasMap = null;
+  function getUserToken() {
+    if (typeof userTokenProvider !== "function") return Promise.resolve(null);
+    return new Promise(function (resolve) {
+      const timer = setTimeout(function () { resolve(null); }, 4000);
+      Promise.resolve().then(userTokenProvider).then(function (tok) {
+        clearTimeout(timer);
+        resolve(typeof tok === "string" && tok.length > 20 && tok.length < 2000 ? tok : null);
+      }, function () { clearTimeout(timer); resolve(null); });
+    });
+  }
+  function withAliases(text) {
+    if (!aliasMap || text == null) return text;
+    let out = String(text);
+    Object.keys(aliasMap).sort(function (a, b) { return b.length - a.length; }).forEach(function (alias) {
+      const esc = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out = out.replace(new RegExp(esc + "(?!\\d)", "g"), aliasMap[alias]);
+    });
+    return out;
+  }
+  function setAliases(map) {
+    if (!map || typeof map !== "object") { aliasMap = null; return; }
+    const clean = {};
+    let n = 0;
+    Object.keys(map).forEach(function (k) {
+      const v = map[k];
+      if (n < 200 && typeof k === "string" && typeof v === "string" && k.length <= 60 && v.length <= 100
+          && /^(Compte|Groupe) /.test(k)) {
+        // Le nom affiché est du texte : aucun caractère de mise en forme (lien, gras) n'est gardé.
+        clean[k] = v.replace(/[\[\]()*_]/g, ""); n += 1;
+      }
+    });
+    aliasMap = n ? clean : null;
+  }
+
   function withPageLook(d) {
     if (!pageLook.color && !pageLook.colorText && !pageLook.theme) return d;
     const o = Object.assign({}, d);
@@ -1023,10 +1062,11 @@
     // jamais la restauration d'historique), désactivé si l'OS demande moins
     // d'animations. Sinon rendu direct. L'historique persiste le texte COMPLET
     // dès maintenant -> un rechargement en cours d'animation restaure tout.
-    if (role === "bot" && !restore && text != null && text !== "" && !prefersReducedMotion()) {
-      typeInto(body, String(text));
+    const shown = role === "bot" ? withAliases(text) : text;
+    if (role === "bot" && !restore && shown != null && shown !== "" && !prefersReducedMotion()) {
+      typeInto(body, String(shown));
     } else {
-      renderMd(body, text);
+      renderMd(body, shown);
     }
     if (!restore) {
       if (!state.history) state.history = [];
@@ -1505,9 +1545,16 @@
     // Pas d'indicateur de frappe pendant l'attente humaine (simple accusé)
     if (!isHuman()) setTyping(true);
 
-    postMessage({ text: text, page_url: pageUrl() })
+    getUserToken()
+      .then(function (tok) {
+        const body = { text: text, page_url: pageUrl() };
+        if (tok) body.user_token = tok;
+        return postMessage(body);
+      })
       .then(renderResponse)
       .catch(function (err) {
+        // Autre compte connecté sur ce navigateur : nouvelle conversation (jamais de mélange).
+        if (err.status === 409) { resetChat(); return; }
         addMsg("bot", err.status === 429 ? t("error_too_fast") : t("error_generic"));
       })
       .finally(function () { setTyping(false); state.busy = false; });
@@ -1784,6 +1831,8 @@
         open: function () { if (!INLINE && !state.open) toggle(); },
         close: function () { if (!INLINE && state.open) toggle(); },
         setAppearance: setAppearance,
+        setUserTokenProvider: function (fn) { userTokenProvider = typeof fn === "function" ? fn : null; },
+        setAliases: setAliases,
       };
       try { window.dispatchEvent(new CustomEvent("chapote-widget-ready", { detail: { key: BOT_KEY } })); } catch (e) { /* navigateur ancien */ }
       // Triggers proactifs : jamais en INLINE (panneau déjà ouvert, les

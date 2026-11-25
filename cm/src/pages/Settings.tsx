@@ -3,7 +3,7 @@
 // sensible. L'apparence (couleur, clair / sombre) est enregistrée sur le compte : le site et l'app la partagent.
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { get2fa, getDevices, getProfile, getProposalCount, removeDevice, saveProfile, ALL, type Device, type TwoFAStatus } from '../api'
+import { get2fa, getAiPublic, getDevices, getProfile, getProposalCount, removeDevice, saveProfile, ALL, type Device, type TwoFAStatus } from '../api'
 import FeedbackSheet from '../components/FeedbackSheet'
 import { Avatar, Icon, Msg, Seg, type IconName } from '../components/ui'
 import { fmtAgo } from '../format'
@@ -32,6 +32,7 @@ export default function Settings() {
   const [tf, setTf] = useState<TwoFAStatus | null>(null)
   const [devices, setDevices] = useState<Device[] | null>(null)
   const [drafts, setDrafts] = useState(0)
+  const [ai, setAi] = useState(false)
   const [feedback, setFeedback] = useState(() => new URLSearchParams(search).get('avis') === '1')
   const [err, setErr] = useState('')
 
@@ -40,6 +41,7 @@ export default function Settings() {
     get2fa().then(setTf).catch(() => setTf(null))
     getDevices().then(setDevices).catch(() => setDevices(null))
     getProposalCount(ALL).then(r => setDrafts(r.open)).catch(() => {})
+    getAiPublic().then(r => setAi(r.enabled)).catch(() => setAi(false))
     const sync = () => setLook(getAppearance())
     window.addEventListener('cm-appearance', sync)
     return () => window.removeEventListener('cm-appearance', sync)
@@ -108,6 +110,7 @@ export default function Settings() {
           <h2 id="t-sec">Sécurité</h2>
           <NavRow to="/reglages/compte#2fa" icon="shield" label="Double authentification" value={tf ? (tf.enabled ? 'Activée' : 'Désactivée') : undefined} />
           <NavRow to="/reglages/compte#mot-de-passe" icon="edit" label="Mot de passe" value={me?.auth_source === 'google' ? 'Compte Google' : undefined} />
+          {ai && <NavRow to="/reglages/assistant-ia" icon="bolt" label="Assistant IA sur mes données" />}
         </section>
 
         <section className="card col set-card" aria-labelledby="t-dev">

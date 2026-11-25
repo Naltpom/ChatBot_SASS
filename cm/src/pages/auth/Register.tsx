@@ -2,9 +2,9 @@
 // E-mail vérifié quand on quitte le champ ; critère du mot de passe coché pendant la frappe ; rappel du choix fait
 // dans la démo de la page d'accueil. Le compte créé est un compte
 // Chapote (espace perso) valable aussi sur chapote.fr et music.chapote.fr.
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { ApiError, register } from '../../api'
+import { ApiError, getAiPublic, putAiConsent, register, type AiPublic } from '../../api'
 import GoogleButton from '../../components/GoogleButton'
 import { Msg } from '../../components/ui'
 import { useSession } from '../../session'
@@ -25,6 +25,10 @@ export default function Register() {
   const [busy, setBusy] = useState(false)
   const [emailErr, setEmailErr] = useState('')
   const demo = useMemo(readDemoChoice, [])
+  // Accord IA : case SÉPARÉE, facultative, non cochée (docs/CM_MCP.md §3). Seulement si la fonction est proposée.
+  const [ai, setAi] = useState<AiPublic | null>(null)
+  const [aiOk, setAiOk] = useState(false)
+  useEffect(() => { getAiPublic().then(setAi).catch(() => setAi(null)) }, [])
   const suite = window.location.search
   const legal = appUrl.replace(/\/$/, '') + '/legal'
 
@@ -34,7 +38,11 @@ export default function Register() {
     if (pb) { setEmailErr(pb); document.getElementById('email')?.focus(); return }
     if (password.length < 8) { setErr('Mot de passe trop court : 8 caractères minimum.'); return }
     setBusy(true)
-    try { await done(await register(email.trim().split('@')[0], email.trim(), password)) }
+    try {
+      const res = await register(email.trim().split('@')[0], email.trim(), password)
+      if (aiOk) await putAiConsent({ enabled: true, source: 'inscription' }).catch(() => { /* réglable ensuite */ })
+      await done(res)
+    }
     catch (e) {
       const ae = e as ApiError
       setErr(ae.status === 409 ? <>Un compte existe déjà avec cet e-mail. <Link to={`/connexion${suite}`}>Se connecter</Link></> : ae.message)
@@ -74,6 +82,14 @@ export default function Register() {
               <PasswordStrength value={password} />
             </div>
             {err && <Msg kind="err">{err}</Msg>}
+            {ai?.enabled && (
+              <label className="check small">
+                <input type="checkbox" checked={aiOk} onChange={e => setAiOk(e.target.checked)} />
+                <span>Activer l’assistant IA sur mes données (facultatif). L’assistant peut lire vos statistiques et votre planning
+                  pour répondre à vos questions. Ces données sont traitées par {ai.provider || 'notre prestataire d’IA'}, notre
+                  fournisseur d’IA. <Link to="/politique-ia" target="_blank">Politique IA</Link></span>
+              </label>
+            )}
             <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? <><span className="spin" aria-hidden="true" />Création du compte…</> : 'Créer mon compte gratuitement'}</button>
             <p className="tiny muted" style={{ textAlign: 'center' }}>
               En créant un compte, vous acceptez les <a href={`${legal}/cgu`} target="_blank" rel="noreferrer">conditions d’utilisation</a> et

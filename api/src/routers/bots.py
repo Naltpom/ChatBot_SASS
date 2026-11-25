@@ -548,8 +548,10 @@ async def generate_insights_endpoint(bot_id: int, db: AsyncSession = Depends(get
     since = utcnow() - timedelta(days=30)
     samples = (await db.execute(
         select(Message.content)
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Message.bot_id == bot.id, Message.role == "user",
-               Message.source == "ai", Message.created_at >= since)
+               Message.source == "ai", Message.created_at >= since,
+               Conversation.data_mode.is_(False))   # jamais les conversations « mes données »
         .order_by(Message.created_at.desc())
         .limit(200)
     )).scalars().all()

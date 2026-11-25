@@ -31,6 +31,7 @@ import src.models.kb  # noqa: F401
 import src.models.analytics  # noqa: F401
 import src.models.billing  # noqa: F401   # BotEntitlement, BillingSubscription, BillingProduct, BillingWebhookEvent, BotUsageCounter
 import src.models.demo  # noqa: F401   # DemoGeneration (cache demo publique)
+import src.models.cm_assistant  # noqa: F401   # Assistant Chapote CM : accord IA, permissions par compte, audit
 import src.models.emails  # noqa: F401   # emails.chapote.fr : boîtes, clients / codes / jetons OAuth MCP, audit
 
 config = context.config

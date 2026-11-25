@@ -171,7 +171,8 @@ rendu comparé au pixel près avec la version de `master`, en clair et en sombre
 | CSS `--chapote-widget-lift` | décalage vertical en plus (bulle, accroche, panneau), ex. au-dessus d'une barre d'onglets |
 
 API JavaScript pour la page hôte, une entrée par clé :
-`window.ChapoteWidget["pk_…"].open()`, `.close()`, `.setAppearance({ color, colorText, theme })`
+`window.ChapoteWidget["pk_…"].open()`, `.close()`, `.setAppearance({ color, colorText, theme })`,
+`.setUserTokenProvider(fn)` et `.setAliases(table)` (mode « mes données », voir `docs/CM_MCP.md`)
 (sans effet si rien ne change).
 Événement `chapote-widget-ready` (`detail.key`) quand le widget est prêt.
 

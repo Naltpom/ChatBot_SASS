@@ -54,8 +54,10 @@ const Legal = lazyPage(() => import('./pages/Legal'))
 const Contact = lazyPage(() => import('./pages/Contact'))
 const Settings = lazyPage(() => import('./pages/Settings'))
 const Account = lazyPage(() => import('./pages/Account'))
+const AssistantSettings = lazyPage(() => import('./pages/AssistantSettings'))
+const AiPolicy = lazyPage(() => import('./pages/AiPolicy'))
 
-const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie', '/privacy', '/terms', '/avis']
+const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie', '/privacy', '/terms', '/avis', '/politique-ia']
 const HINT = 'cm.session'
 const hadSession = () => { try { return localStorage.getItem(HINT) === '1' } catch { return false } }
 
@@ -68,6 +70,7 @@ function PageLoading() {
 
 const TITLES: Record<string, string> = {
   '/': 'Planning', '/reglages': 'Réglages', '/reglages/compte': 'Mon compte', '/planning': 'Planning', '/stats': 'Statistiques', '/videos': 'Vidéos', '/comptes': 'Comptes', '/bibliotheque': 'Bibliothèque', '/partage': 'Partage', '/a-valider': 'À valider', '/commentaires': 'Commentaires',
+  '/reglages/assistant-ia': 'Assistant IA', '/politique-ia': 'Politique IA',
   '/nouvelle': 'Nouvelle publication', '/connexion': 'Connexion', '/inscription': 'Créer un compte',
   '/mot-de-passe-oublie': 'Mot de passe oublié', '/avis': 'Donner mon avis',
 }
@@ -114,7 +117,7 @@ function Shell() {
       <Pages me={!!me} ready={ready} />
       {/* Assistant sur toutes les pages (docs/WIDGET_CM.md), sauf les retours de connexion OAuth.
           Visiteur : chargé après l'affichage ; connecté : chargé au premier clic. */}
-      {!/\/callback$/.test(pathname) && <ChapoteAssistant loadOn={me ? 'click' : 'idle'} />}
+      {!/\/callback$/.test(pathname) && <ChapoteAssistant loadOn={me ? 'click' : 'idle'} signedIn={!!me} />}
     </>
   )
 }
@@ -130,6 +133,7 @@ function Pages({ me, ready }: { me: boolean; ready: boolean }) {
         <Route path="/mot-de-passe-oublie" element={<Forgot />} />
         <Route path="/privacy" element={<Legal doc="privacy" />} />
         <Route path="/terms" element={<Legal doc="terms" />} />
+        <Route path="/politique-ia" element={<AiPolicy />} />
         <Route path="/avis" element={<Contact />} />
         <Route path="*" element={ready ? <ToLogin /> : <Splash />} />
       </Routes>
@@ -143,6 +147,7 @@ function Pages({ me, ready }: { me: boolean; ready: boolean }) {
       <Route path="/mot-de-passe-oublie" element={<Navigate to="/" replace />} />
       <Route path="/privacy" element={<Suspense fallback={<Splash />}><Legal doc="privacy" /></Suspense>} />
       <Route path="/terms" element={<Suspense fallback={<Splash />}><Legal doc="terms" /></Suspense>} />
+      <Route path="/politique-ia" element={<Suspense fallback={<Splash />}><AiPolicy /></Suspense>} />
       <Route element={<Layout fallback={<PageLoading />} />}>
         <Route path="/" element={<Navigate to="/planning" replace />} />
         <Route path="/planning" element={<Planning />} />
@@ -150,6 +155,7 @@ function Pages({ me, ready }: { me: boolean; ready: boolean }) {
         <Route path="/stats" element={<Stats />} />
         <Route path="/reglages" element={<Settings />} />
         <Route path="/reglages/compte" element={<Account />} />
+        <Route path="/reglages/assistant-ia" element={<AssistantSettings />} />
         <Route path="/videos" element={<Videos />} />
         <Route path="/comptes" element={<Accounts />} />
         <Route path="/bibliotheque" element={<Library />} />
