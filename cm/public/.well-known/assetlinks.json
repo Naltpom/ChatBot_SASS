@@ -1,10 +1,15 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "fr.chapote.cm",
-      "sha256_cert_fingerprints": ["FD:A4:89:EA:4A:B1:B4:CB:E2:7A:F9:17:A9:10:72:33:E6:C6:3B:BE:CD:DF:C4:98:F3:15:5F:D4:73:5F:DE:62"]
+      "sha256_cert_fingerprints": [
+        "FD:A4:89:EA:4A:B1:B4:CB:E2:7A:F9:17:A9:10:72:33:E6:C6:3B:BE:CD:DF:C4:98:F3:15:5F:D4:73:5F:DE:62",
+        "9B:9E:DE:01:8C:F0:50:DC:BB:D1:78:BA:AF:9B:7E:43:C0:DC:80:3D:A5:45:EF:E1:5C:E9:2E:1E:D1:11:89:A7"
+      ]
     }
   }
 ]
