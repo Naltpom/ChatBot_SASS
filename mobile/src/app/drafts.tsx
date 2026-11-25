@@ -41,7 +41,7 @@ function ProposalCard({ p, canEdit, headers, onDismiss }: { p: Proposal; canEdit
       </Row>
       {canEdit ? (
         <Row gap={space.sm}>
-          <Button kind="primary" small icon="check" title="Vérifier et programmer" flex
+          <Button kind="primary" small icon="check" title="Vérifier et planifier" flex
             onPress={() => router.push({ pathname: '/new', params: { proposal: String(p.id), ...((p as { org_id?: number | null }).org_id != null ? { org: String((p as { org_id?: number | null }).org_id) } : {}) } })} />
           <Button kind="ghost" small title="Écarter" onPress={onDismiss} accessibilityLabel={`Écarter ${title}`} />
         </Row>

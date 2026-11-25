@@ -42,7 +42,7 @@ export function StartChecklist() {
     { key: 'connect', title: 'Connecter un compte TikTok, YouTube ou Instagram', done: own.length > 0 || shared.length > 0, run: () => router.push('/accounts') },
     ...(own.length ? [
       { key: 'drive', title: 'Relier Google Drive', done: !!storage && storage.state !== 'missing', run: () => router.push('/storage') },
-      { key: 'video', title: 'Programmer une première vidéo', done: !!hasPost, run: () => router.push('/new') },
+      { key: 'video', title: 'Planifier une première vidéo', done: !!hasPost, run: () => router.push('/new') },
     ] : []),
     // Vérification de l'e-mail demandée après la 1re victoire, pas à l'inscription.
     ...(hasPost && me && me.email_verified === false ? [{ key: 'email', title: mailSent ? `E-mail envoyé à ${me.email} : ouvrez le lien` : 'Confirmer mon adresse e-mail', done: false,

@@ -64,7 +64,7 @@ export default function SetupDrive() {
       )}
       <Card>
         <Row gap={space.sm}><Icon name="layers" size={20} color={c.primary} /><Txt bold>Vos vidéos sont déjà dans Drive ?</Txt></Row>
-        <Txt small muted>Glissez leur dossier dans « {main?.name || folder} » : Chapote le voit tout seul, et ses vidéos apparaissent dans la Bibliothèque en quelques minutes, prêtes à programmer.</Txt>
+        <Txt small muted>Glissez leur dossier dans « {main?.name || folder} » : Chapote le voit tout seul, et ses vidéos apparaissent dans la Bibliothèque en quelques minutes, prêtes à planifier.</Txt>
         <Txt small muted>Un dossier d’un Drive partagé d’entreprise ? Ajoutez-le depuis la Bibliothèque → « Ajouter un dossier Drive ».</Txt>
       </Card>
     </Screen>

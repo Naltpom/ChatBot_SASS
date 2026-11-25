@@ -22,7 +22,7 @@ function Check({ checked, onToggle, children }: { checked: boolean; onToggle: ()
       style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44 }}>
       <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: checked ? c.primary : c.borderStrong,
         backgroundColor: checked ? c.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-        {checked ? <Icon name="check" size={16} color="#fff" strokeWidth={3} /> : null}
+        {checked ? <Icon name="check" size={16} color={c.onPrimary} strokeWidth={3} /> : null}
       </View>
       <View style={{ flex: 1 }}>{children}</View>
     </Pressable>

@@ -18,6 +18,9 @@ import { IdentityProvider, useIdentity } from '../lib/identity'
 import { ShareProvider, useSharedVideo } from '../lib/share'
 import { launchUpdateChecked, UpdateBanner, useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
+import { loadFonts } from '../ui/fonts'
+
+loadFonts()
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
 installCrashHandler()

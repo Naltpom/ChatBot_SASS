@@ -19,7 +19,7 @@ export default function FirstVideo() {
   return (
     <Screen footer={
       <StickyFooter>
-        <Button kind="primary" icon="plus" title="Programmer ma première vidéo" onPress={() => router.push({ pathname: '/new', params: { first: '1' } })} style={{ minHeight: 52 }} />
+        <Button kind="primary" icon="plus" title="Planifier ma première vidéo" onPress={() => router.push({ pathname: '/new', params: { first: '1' } })} style={{ minHeight: 52 }} />
         <Button kind="ghost" title="Je le ferai plus tard" onPress={() => router.replace('/')} />
       </StickyFooter>
     }>

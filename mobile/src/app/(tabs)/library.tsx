@@ -51,7 +51,7 @@ export default function Library() {
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.md }}>
       <StorageBanner space={current} />
-      <Txt muted>Les vidéos que vous (ou vos monteurs) déposez dans Google Drive arrivent ici. Touchez-en une pour la programmer.</Txt>
+      <Txt muted>Les vidéos que vous (ou vos monteurs) déposez dans Google Drive arrivent ici. Touchez-en une pour la planifier.</Txt>
       {drafts > 0 ? (
         <Card onPress={() => router.push('/drafts')} accessibilityLabel={`${drafts} brouillons à valider. Ouvrir`} style={{ borderWidth: 1.5, borderColor: c.primary }}>
           <Row gap={space.md}>
@@ -60,7 +60,7 @@ export default function Library() {
             </View>
             <View style={{ flex: 1 }}>
               <Txt bold>À valider</Txt>
-              <Txt small muted>Brouillon{drafts > 1 ? 's' : ''} préparé{drafts > 1 ? 's' : ''} depuis vos dossiers : vérifiez et programmez.</Txt>
+              <Txt small muted>Brouillon{drafts > 1 ? 's' : ''} préparé{drafts > 1 ? 's' : ''} depuis vos dossiers : vérifiez et planifiez.</Txt>
             </View>
             <Icon name="right" size={18} color={c.muted} />
           </Row>
@@ -75,7 +75,7 @@ export default function Library() {
       {sources.data && !hasSources && enabled ? (
         <Empty title="Reliez le dossier de vos monteurs" icon="folder"
           action={<Button kind="primary" icon="plus" title="Ajouter un dossier Drive" onPress={() => setAdding(true)} />}>
-          Partagez un dossier Google Drive avec le robot de Chapote : chaque vidéo déposée apparaît ici, avec sa légende si un fichier .txt du même nom l’accompagne. Vous n’avez plus qu’à programmer.
+          Partagez un dossier Google Drive avec le robot de Chapote : chaque vidéo déposée apparaît ici, avec sa légende si un fichier .txt du même nom l’accompagne. Vous n’avez plus qu’à planifier.
         </Empty>
       ) : null}
       {hasSources ? (

@@ -4,19 +4,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useColorScheme } from 'react-native'
 
+// Identité « chaude » (comme cm.chapote.fr) : fonds crème, accent orange. Succès, erreur, avertissement,
+// réseaux et groupes ne changent pas. Sur l'accent, le texte prend toujours `onPrimary`.
 const light = {
-  bg: '#f5f5f7', surface: '#ffffff', surface2: '#fafafa', border: '#e8e8ed', borderStrong: '#d2d2d7',
-  text: '#1d1d1f', muted: '#6e6e73', faint: '#86868b', primary: '#0071e3', onPrimary: '#ffffff',
-  ink: '#1d1d1f', onInk: '#ffffff', accent: '#0066cc', ok: '#1d8a3a', warn: '#b25000', danger: '#d70015',
-  dangerBg: '#fff2f3', dangerBorder: '#ffc2c7', infoBg: '#f0f6ff', okBg: '#eaf7ee', warnBg: '#fff6e8',
+  bg: '#FAF8F5', surface: '#FFFFFF', surface2: '#F3EFEA', surface3: '#E9E3DC', border: '#ECE6DF', borderStrong: '#DDD5CC',
+  text: '#1C1917', muted: '#6B635C', faint: '#8A817A', primary: '#C93F17', primaryPressed: '#B23612', onPrimary: '#FFFFFF',
+  ink: '#1C1917', onInk: '#FFFFFF', accent: '#C93F17', ok: '#1d8a3a', warn: '#b25000', danger: '#d70015',
+  dangerBg: '#fff2f3', dangerBorder: '#ffc2c7', infoBg: '#FFF1EA', okBg: '#eaf7ee', warnBg: '#fff6e8',
   tiktok: '#1d1d1f', youtube: '#ff0033', instagram: '#c13584', overlay: 'rgba(0,0,0,0.35)',
 }
 export type Colors = typeof light
 const dark: Colors = {
-  bg: '#000000', surface: '#1c1c1e', surface2: '#2c2c2e', border: '#2c2c2e', borderStrong: '#48484a',
-  text: '#f5f5f7', muted: '#a1a1a6', faint: '#8e8e93', primary: '#0a84ff', onPrimary: '#ffffff',
-  ink: '#f5f5f7', onInk: '#000000', accent: '#2997ff', ok: '#30d158', warn: '#ffb340', danger: '#ff6961',
-  dangerBg: '#2a1211', dangerBorder: '#5c1d1a', infoBg: '#0b2340', okBg: '#0e2a17', warnBg: '#2a1e0a',
+  bg: '#0B0A09', surface: '#171412', surface2: '#221E1B', surface3: '#2E2925', border: '#2A2522', borderStrong: '#3F3833',
+  text: '#F5F3F0', muted: '#A8A29E', faint: '#8F8882', primary: '#FF6A3D', primaryPressed: '#FF825C', onPrimary: '#1A0E08',
+  ink: '#F5F3F0', onInk: '#0B0A09', accent: '#FF6A3D', ok: '#30d158', warn: '#ffb340', danger: '#ff6961',
+  dangerBg: '#2a1211', dangerBorder: '#5c1d1a', infoBg: '#2A160E', okBg: '#0e2a17', warnBg: '#2a1e0a',
   tiktok: '#f5f5f7', youtube: '#ff4d6a', instagram: '#e1306c', overlay: 'rgba(0,0,0,0.6)',
 }
 

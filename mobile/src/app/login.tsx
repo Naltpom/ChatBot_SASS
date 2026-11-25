@@ -98,7 +98,7 @@ export default function Login() {
           gap: space.xl, width: '100%', maxWidth: 480, alignSelf: 'center' }}>
         <View style={{ gap: space.lg }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-            <Logo size={56} bg={c.primary} />
+            <Logo size={56} />
             <View>
               <Txt bold size={18}>Chapote CM</Txt>
               <Txt small muted>Content & Community Manager</Txt>

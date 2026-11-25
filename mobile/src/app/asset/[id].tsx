@@ -90,7 +90,7 @@ export default function AssetScreen() {
       footer={canEdit ? (
         <FooterBar>
           {dirty ? <Button title="Enregistrer" disabled={busy} onPress={save} flex /> : null}
-          <Button kind="primary" icon="calendar" title="Programmer" disabled={busy} onPress={program} flex />
+          <Button kind="primary" icon="calendar" title="Planifier" disabled={busy} onPress={program} flex />
         </FooterBar>
       ) : undefined}>
       <Txt size={20} bold accessibilityRole="header">{a.title}</Txt>

@@ -7,7 +7,7 @@
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "backgroundColor": "#f5f5f7",
+    "backgroundColor": "#FAF8F5",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "fr.chapote.cm",
@@ -114,7 +114,7 @@
       [
         "expo-notifications",
         {
-          "color": "#0071e3"
+          "color": "#C93F17"
         }
       ],
       [
@@ -122,9 +122,9 @@
         {
           "image": "./assets/splash-icon.png",
           "imageWidth": 120,
-          "backgroundColor": "#f5f5f7",
+          "backgroundColor": "#FAF8F5",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#0B0A09"
           }
         }
       ],
