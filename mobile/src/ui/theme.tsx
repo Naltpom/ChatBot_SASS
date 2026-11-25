@@ -9,7 +9,7 @@ import { useColorScheme } from 'react-native'
 const light = {
   bg: '#FAF8F5', surface: '#FFFFFF', surface2: '#F3EFEA', surface3: '#E9E3DC', border: '#ECE6DF', borderStrong: '#DDD5CC',
   text: '#1C1917', muted: '#6B635C', faint: '#8A817A', primary: '#C93F17', primaryPressed: '#B23612', onPrimary: '#FFFFFF',
-  ink: '#1C1917', onInk: '#FFFFFF', accent: '#C93F17', ok: '#1d8a3a', warn: '#b25000', danger: '#d70015',
+  ink: '#1C1917', onInk: '#FFFFFF', accent: '#B23612', ok: '#1d8a3a', warn: '#b25000', danger: '#d70015',
   dangerBg: '#fff2f3', dangerBorder: '#ffc2c7', infoBg: '#FFF1EA', okBg: '#eaf7ee', warnBg: '#fff6e8',
   tiktok: '#1d1d1f', youtube: '#ff0033', instagram: '#c13584', overlay: 'rgba(0,0,0,0.35)', logo: '#F05A28',
 }
@@ -17,7 +17,7 @@ export type Colors = typeof light
 const dark: Colors = {
   bg: '#0B0A09', surface: '#171412', surface2: '#221E1B', surface3: '#2E2925', border: '#2A2522', borderStrong: '#3F3833',
   text: '#F5F3F0', muted: '#A8A29E', faint: '#8F8882', primary: '#FF6A3D', primaryPressed: '#FF825C', onPrimary: '#1A0E08',
-  ink: '#F5F3F0', onInk: '#0B0A09', accent: '#FF6A3D', ok: '#30d158', warn: '#ffb340', danger: '#ff6961',
+  ink: '#F5F3F0', onInk: '#0B0A09', accent: '#FF8A63', ok: '#30d158', warn: '#ffb340', danger: '#ff6961',
   dangerBg: '#2a1211', dangerBorder: '#5c1d1a', infoBg: '#2A160E', okBg: '#0e2a17', warnBg: '#2a1e0a',
   tiktok: '#f5f5f7', youtube: '#ff4d6a', instagram: '#e1306c', overlay: 'rgba(0,0,0,0.6)', logo: '#F05A28',
 }
@@ -40,16 +40,16 @@ export const GROUP_HEX: Record<string, string> = {
   rose: '#e11d48', sky: '#0284c7', emerald: '#059669', brown: '#92400e',
 }
 
-// « Vert forêt » : fonds légèrement verdis, accent vert profond (contrastes vérifiés, au moins 4,5:1).
+// « Vert forêt » : mêmes valeurs que le site (cm/src/styles.css, data-palette="forest").
 const forestLight: Colors = {
-  ...light, bg: '#F6F8F4', surface: '#FFFFFF', surface2: '#EEF2EB', surface3: '#E2E8DE', border: '#E3E9DF', borderStrong: '#CED8C9',
-  text: '#16201A', muted: '#5D6A61', faint: '#79857C', primary: '#2D6A3E', primaryPressed: '#245733', onPrimary: '#FFFFFF',
-  ink: '#16201A', onInk: '#FFFFFF', accent: '#2D6A3E', infoBg: '#EAF3EC', logo: '#2F7D46',
+  ...light, bg: '#F5F7F4', surface: '#FFFFFF', surface2: '#ECF1EB', surface3: '#DFE7DD', border: '#E2E9E0', borderStrong: '#CBD6C8',
+  text: '#16201A', muted: '#5A665E', faint: '#7E8A82', primary: '#1F6B4A', primaryPressed: '#18583C', onPrimary: '#FFFFFF',
+  ink: '#16201A', onInk: '#FFFFFF', accent: '#18583C', infoBg: '#EAF4EE', logo: '#1F6B4A',
 }
 const forestDark: Colors = {
-  ...dark, bg: '#090B0A', surface: '#131714', surface2: '#1C221E', surface3: '#262E28', border: '#232B25', borderStrong: '#37413A',
-  text: '#F1F5F2', muted: '#A3ADA6', faint: '#8A948D', primary: '#5BBE78', primaryPressed: '#79CC91', onPrimary: '#06140A',
-  ink: '#F1F5F2', onInk: '#090B0A', accent: '#5BBE78', infoBg: '#10241A', logo: '#2F7D46',
+  ...dark, bg: '#090D0B', surface: '#121915', surface2: '#1A231E', surface3: '#243029', border: '#222D27', borderStrong: '#34433A',
+  text: '#EEF3EF', muted: '#A2B0A7', faint: '#86948B', primary: '#5CC495', primaryPressed: '#77D3A9', onPrimary: '#062014',
+  ink: '#EEF3EF', onInk: '#090D0B', accent: '#7AD3AA', infoBg: '#0F2A1E', logo: '#1F6B4A',
 }
 
 export type ThemePref = 'system' | 'light' | 'dark'
