@@ -16,7 +16,7 @@ import { laterAt } from '../features/storage'
 import { IdentityProvider, useIdentity } from '../lib/identity'
 import { SecurityPrompts } from '../features/SecurityPrompts'
 import { ShareProvider, useSharedVideo } from '../lib/share'
-import { useAppUpdate } from '../lib/app-update'
+import { launchUpdateChecked, UpdateBanner, useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
@@ -28,6 +28,9 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <ThemeProvider><ErrorScreen message={error.message} stack={String(error.stack || '').split('\n').slice(0, 8).join('\n')} onRetry={retry} /></ThemeProvider>
 }
 
+// L'écran de démarrage reste affiché le temps de vérifier une nouvelle version (4 s au plus).
+const hideSplash = () => { launchUpdateChecked.then(() => SplashScreen.hideAsync()).catch(() => {}) }
+
 function Gate() {
   const { me, ready, spaces, org } = useSession()
   const { c, dark } = useTheme()
@@ -38,7 +41,7 @@ function Gate() {
   const blocked = !!identity?.blocked_until
   const router = useRouter()
   usePushRouting()
-  useAppUpdate()
+  const updateReady = useAppUpdate()
   useEffect(() => { if (me?.id) autoEnablePush() }, [me?.id])
   // Espace sans Drive (obligatoire pour publier) : écran « Connecter votre Google Drive » une fois par jour au plus.
   const storageState = spaces.find(s => s.org_id === org)?.storage?.state
@@ -55,8 +58,8 @@ function Gate() {
   useEffect(() => { SystemUI.setBackgroundColorAsync(c.bg).catch(() => {}) }, [c.bg])
   useEffect(() => {
     if (!ready || (me && onboarded === null)) return
-    if (me && blocked) { if (!['blocked', 'account'].includes(segments[0] as string)) router.replace('/blocked'); SplashScreen.hideAsync().catch(() => {}); return }
-    SplashScreen.hideAsync().catch(() => {})
+    if (me && blocked) { if (!['blocked', 'account'].includes(segments[0] as string)) router.replace('/blocked'); hideSplash(); return }
+    hideSplash()
     const onLogin = segments[0] === 'login'
     const isPublic = onLogin || segments[0] === 'reset-password'
     // Aucun réseau connecté dans aucun espace : écran d'accueil (sauf pages utiles pour en connecter un).
@@ -97,6 +100,7 @@ function Gate() {
         <Stack.Screen name="onboarding" options={{ title: 'Étape 1', headerBackVisible: false, gestureEnabled: false }} />
         <Stack.Screen name="blocked" options={{ headerShown: false, gestureEnabled: false }} />
       </Stack>
+      <UpdateBanner visible={updateReady} />
     </>
   )
 }
