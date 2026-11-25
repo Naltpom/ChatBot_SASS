@@ -77,6 +77,11 @@
               "scheme": "https",
               "host": "chapote.fr",
               "pathPrefix": "/youtube/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/api/cm/join"
             }
           ],
           "category": [
@@ -85,7 +90,7 @@
           ]
         }
       ],
-      "versionCode": 1
+      "versionCode": 2
     },
     "web": {
       "favicon": "./assets/favicon.png"

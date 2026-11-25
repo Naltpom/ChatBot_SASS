@@ -8,6 +8,9 @@ const CALLBACK = /^(?:https:\/\/(?:cm\.)?chapote\.fr)?\/(tiktok|youtube|instagra
 export function redirectSystemPath({ path }: { path: string; initial: boolean }) {
   try {
     if (path.includes('dataUrl=')) return '/new?shared=1'
+    // Lien d'invitation https://cm.chapote.fr/api/cm/join?t=… ouvert dans l'app.
+    const j = /^(?:https:\/\/cm\.chapote\.fr)?\/api\/cm\/join\/?\?(.*)$/.exec(path)
+    if (j) { const t = new URLSearchParams(j[1]).get('t'); return t ? `/join?t=${encodeURIComponent(t)}` : '/' }
     const m = CALLBACK.exec(path)
     if (m) {
       const q = new URLSearchParams((m[2] || '').slice(1))
