@@ -243,8 +243,10 @@ Principe : une WebView affiche une petite page HTML dont l'adresse de base est
 Charger `/widget-frame` directement dans la WebView serait refusé : pas de page parente, donc pas de
 domaine à vérifier.
 
-`/widget-frame` accepte maintenant `color`, `color_text` (hex `#rrggbb`) et `theme`
-(`light` / `dark`), et sa CSP autorise Turnstile (sans quoi le captcha échouait en iframe).
+`/widget-frame` accepte maintenant `color`, `color_text` (hex `#rrggbb`), `theme`
+(`light` / `dark`) et `header=0` (sans le bandeau d'en-tête du chat, quand l'app affiche déjà son
+titre). Sa CSP autorise Turnstile (sans quoi le captcha échouait en iframe). Le nginx de l'hôte
+n'ajoute plus `X-Frame-Options` sur cette page (corrigé sur le serveur le 26/11/2026).
 
 ```tsx
 // ChapoteAssistant.tsx (app mobile) — dépendance : react-native-webview
@@ -268,7 +270,7 @@ export default function ChapoteAssistant({ palette }: { palette: Palette }) {
   const theme = useColorScheme() === 'dark' ? 'dark' : 'light'
   const [color, text] = PALETTES[palette][theme]
   const src = `${FRAME}?key=${BOT_KEY}&color=${encodeURIComponent(color)}`
-    + `&color_text=${encodeURIComponent(text)}&theme=${theme}`
+    + `&color_text=${encodeURIComponent(text)}&theme=${theme}&header=0`
   const bg = theme === 'dark' ? '#161514' : '#f8fafc'
   const html = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">

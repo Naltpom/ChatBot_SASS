@@ -417,8 +417,34 @@ async def tool_stats_summary(db, refs, consent, period: str = "7d", account: Opt
             "comptes": comptes[:MAX_ITEMS]}
 
 
+def _paris_midnight_utc(d) -> datetime:
+    """Minuit (heure de Paris) du jour `d`, en UTC naïf (convention des colonnes)."""
+    from datetime import timezone
+    return datetime(d.year, d.month, d.day, tzinfo=PARIS).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _day_window(day: str) -> tuple[datetime, datetime]:
+    """Jour calendaire (heure de Paris) : today, yesterday, tomorrow ou AAAA-MM-JJ -> [début, fin[ en UTC."""
+    from datetime import date
+    today = _paris(utcnow()).date()
+    key = (day or "").strip().lower()
+    named = {"today": 0, "aujourd'hui": 0, "aujourdhui": 0, "yesterday": -1, "hier": -1, "tomorrow": 1, "demain": 1}
+    if key in named:
+        d = today + timedelta(days=named[key])
+    else:
+        try:
+            d = date.fromisoformat(key[:10])
+        except ValueError:
+            raise AssistantDenied("`day` : today, yesterday, tomorrow ou une date AAAA-MM-JJ.", "invalid")
+    return _paris_midnight_utc(d), _paris_midnight_utc(d + timedelta(days=1))
+
+
 async def tool_schedule(db, refs, consent, when: str = "upcoming", days: int = 7, account: Optional[str] = None,
-                        group: Optional[str] = None) -> dict:
+                        group: Optional[str] = None, day: Optional[str] = None) -> dict:
+    """Périodes en JOURS ENTIERS (heure de Paris), comme le planning de l'app :
+    - `day` : un jour précis (hier, aujourd'hui, demain, une date) ;
+    - sinon `days` : à venir = de maintenant à la fin du N-ième jour ; publiées / en échec = du début du
+      jour il y a N-1 jours jusqu'à maintenant (days=1 : aujourd'hui seulement)."""
     if when not in ("upcoming", "published", "failed"):
         raise AssistantDenied("`when` : upcoming, published ou failed.", "invalid")
     days = max(1, min(31, int(days or 7)))
@@ -428,19 +454,28 @@ async def tool_schedule(db, refs, consent, when: str = "upcoming", days: int = 7
                 "note": "Aucun compte avec le planning autorisé."}
     by_key = {r.key: r for r in picked}
     now = utcnow()
+    today = _paris(now).date()
+    if day:
+        start, end = _day_window(day)
+        if when == "upcoming":
+            start = max(start, now)
+    elif when == "upcoming":
+        start, end = now, _paris_midnight_utc(today + timedelta(days=days))
+    else:
+        start, end = _paris_midnight_utc(today - timedelta(days=days - 1)), now
     q = select(CmTarget.platform, CmTarget.account_id, CmTarget.scheduled_at, CmTarget.published_at,
                CmTarget.status, CmTarget.fail_reason, CmPost.title).join(CmPost, CmPost.id == CmTarget.post_id) \
         .where(_cond(CmTarget, picked))
     if when == "upcoming":
-        q = q.where(CmTarget.status.in_(UPCOMING), CmTarget.scheduled_at >= now,
-                    CmTarget.scheduled_at <= now + timedelta(days=days)).order_by(CmTarget.scheduled_at)
+        q = q.where(CmTarget.status.in_(UPCOMING), CmTarget.scheduled_at >= start,
+                    CmTarget.scheduled_at < end).order_by(CmTarget.scheduled_at)
     elif when == "published":
-        q = q.where(CmTarget.status.in_((T_PUBLISHED, T_INBOX)),
-                    func.coalesce(CmTarget.published_at, CmTarget.scheduled_at) >= now - timedelta(days=days)) \
-            .order_by(func.coalesce(CmTarget.published_at, CmTarget.scheduled_at).desc())
+        at = func.coalesce(CmTarget.published_at, CmTarget.scheduled_at)
+        q = q.where(CmTarget.status.in_((T_PUBLISHED, T_INBOX)), at >= start, at < end).order_by(at.desc())
     else:
-        q = q.where(CmTarget.status == T_FAILED, CmTarget.scheduled_at >= now - timedelta(days=days)) \
-            .order_by(CmTarget.scheduled_at.desc())
+        # En échec : comptées au jour où elles étaient programmées (comme le planning).
+        q = q.where(CmTarget.status == T_FAILED, CmTarget.scheduled_at >= start,
+                    CmTarget.scheduled_at < end).order_by(CmTarget.scheduled_at.desc())
     rows = (await db.execute(q.limit(500))).all()
     per_day: dict[str, int] = {}
     items = []
@@ -459,7 +494,9 @@ async def tool_schedule(db, refs, consent, when: str = "upcoming", days: int = 7
             if allowed(ref, consent, "captions") and title:
                 item["titre"] = str(title)[:80]
             items.append(item)
-    return {"quand": when, "jours": days, "nombre": sum(per_day.values()), "par_jour": per_day,
+    periode = (f"du {_jour(_paris(start))} {_paris(start).strftime('%H:%M')} "
+               f"au {_jour(_paris(end))} {_paris(end).strftime('%H:%M')} (heure de Paris)")
+    return {"quand": when, "periode": periode, "nombre": sum(per_day.values()), "par_jour": per_day,
             "publications": items}
 
 
@@ -539,7 +576,10 @@ TOOLS: dict[str, dict] = {
         "description": "Planning de MES publications : à venir, publiées ou en échec, par jour.",
         "schema": {"type": "object", "properties": {
             "when": {"type": "string", "enum": ["upcoming", "published", "failed"]},
-            "days": {"type": "integer", "minimum": 1, "maximum": 31},
+            "days": {"type": "integer", "minimum": 1, "maximum": 31,
+                     "description": "Nombre de jours entiers (1 = aujourd'hui seulement)."},
+            "day": {"type": "string", "description": ("Un jour précis, heure de Paris : today, yesterday, tomorrow "
+                                                      "ou AAAA-MM-JJ. Prioritaire sur days.")},
             "account": {"type": "string"}, "group": {"type": "string"}}, "additionalProperties": False},
     },
     "top_videos": {
