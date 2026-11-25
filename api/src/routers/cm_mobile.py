@@ -44,7 +44,7 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import _encode, create_dashboard_token, get_current_user, get_optional_user, set_auth_cookie
 from src.core.time import utcnow
-from src.models.cm_mobile import CmMobileDevice, CmUserIdentity
+from src.models.cm_mobile import CmAppOpen, CmMobileDevice, CmUserIdentity
 from src.models.user import User
 from src.services.rate_limit import RateLimiter, SingleUseTokens
 
@@ -88,8 +88,15 @@ def _user_out(user: User) -> dict:
     return {"id": user.id, "email": user.email, "name": user.name, "avatar_url": getattr(user, "avatar_url", None)}
 
 
+async def _record_open(db: AsyncSession, user_id: int) -> None:
+    """Jour d'ouverture de l'app (une ligne par jour et par personne) : mesure des retours J1, J3, J7."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    await db.execute(pg_insert(CmAppOpen).values(user_id=user_id, day=utcnow().date()).on_conflict_do_nothing())
+
+
 async def _new_device(db: AsyncSession, user: User, name: Optional[str], platform: Optional[str]) -> dict:
     token = secrets.token_urlsafe(48)
+    await _record_open(db, user.id)
     db.add(CmMobileDevice(user_id=user.id, token_hash=_hash(token), name=(name or "").strip()[:120] or None,
                           platform=platform if platform in ("ios", "android") else None,
                           last_used_at=utcnow()))
@@ -564,3 +571,40 @@ async def put_identity(body: IdentityIn, db: AsyncSession = Depends(get_db), use
     user.name = f"{first} {last}"[:200]
     await db.commit()
     return _identity_out(row)
+
+
+# --------------------------------------------------------------------------
+# Mesure : de l'inscription à la 1re vidéo, et retours dans l'app (superadmin)
+# --------------------------------------------------------------------------
+
+@router.get("/metrics")
+async def metrics(weeks: int = 8, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Par semaine d'inscription dans l'app (étape « Vos informations ») : inscrits, avec au moins une publication
+    créée, revenus le 1er, le 3e et le 7e jour (ouverture de l'app ce jour-là)."""
+    if not user.is_superadmin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé à l'administration.")
+    from datetime import timedelta as _td
+    from sqlalchemy import func
+    from src.models.cm import CmPost
+    weeks = max(1, min(weeks, 26))
+    since = utcnow() - _td(weeks=weeks)
+    rows = (await db.execute(select(CmUserIdentity.user_id, CmUserIdentity.created_at).where(CmUserIdentity.created_at >= since))).all()
+    opens: dict[int, set] = {}
+    if rows:
+        ids = [r[0] for r in rows]
+        for uid, day in (await db.execute(select(CmAppOpen.user_id, CmAppOpen.day).where(CmAppOpen.user_id.in_(ids)))).all():
+            opens.setdefault(uid, set()).add(day)
+        posted = set((await db.execute(select(CmPost.user_id).where(CmPost.user_id.in_(ids)).group_by(CmPost.user_id))).scalars())
+    else:
+        posted = set()
+    cohorts: dict[str, dict] = {}
+    for uid, created in rows:
+        d0 = created.date()
+        wk = (d0 - _td(days=d0.weekday())).isoformat()
+        c = cohorts.setdefault(wk, {"week": wk, "signed_up": 0, "first_post": 0, "d1": 0, "d3": 0, "d7": 0})
+        c["signed_up"] += 1
+        c["first_post"] += uid in posted
+        days = opens.get(uid, set())
+        for n in (1, 3, 7):
+            c[f"d{n}"] += (d0 + _td(days=n)) in days
+    return {"weeks": sorted(cohorts.values(), key=lambda c: c["week"], reverse=True)}

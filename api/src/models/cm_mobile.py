@@ -6,7 +6,7 @@
 - `CmPushEvent` : une notification déjà envoyée (vidéo publiée, échec, brouillon, commentaire) pour
   ne jamais l'envoyer deux fois, quel que soit le nombre de workers.
 """
-from sqlalchemy import JSON, Column, Date, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, Column, Date, DateTime, ForeignKey, Index, Integer, PrimaryKeyConstraint, String
 
 from src.core.database import Base
 from src.core.time import utcnow
@@ -56,3 +56,29 @@ class CmUserIdentity(Base):
     terms_accepted_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CmGroupInviteLink(Base):
+    """Lien d'invitation à un groupe (à envoyer par message), avec un rôle. Valable 7 jours, révocable.
+    Seule l'empreinte SHA-256 du jeton est stockée."""
+    __tablename__ = "cm_group_invite_links"
+    __table_args__ = (Index("uq_cm_group_invite_links_token", "token_hash", unique=True),)
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("cm_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False)
+    role = Column(String(20), nullable=False, default="viewer")
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    uses = Column(Integer, nullable=False, default=0)
+
+
+class CmAppOpen(Base):
+    """Jour où une personne a ouvert l'app mobile (une ligne par jour) : pour mesurer les retours (J1, J3, J7)."""
+    __tablename__ = "cm_app_opens"
+    __table_args__ = (PrimaryKeyConstraint("user_id", "day"),)
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    day = Column(Date, nullable=False)
