@@ -6,7 +6,7 @@
 .dm-bar { font-weight: 700; font-size: 16px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .dm-clock { font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 700; background: var(--surface); border: 1px solid var(--border); padding: 3px 9px; border-radius: 999px; }
 .dm-video { display: flex; gap: 10px; align-items: center; background: var(--surface); border-radius: 14px; padding: 8px; }
-.dm-thumb { flex: none; width: 44px; height: 62px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(160deg, #ff6a3d, #c93f17 55%, #5a1f0c); }
+.dm-thumb { flex: none; width: 44px; height: 62px; border-radius: 9px; display: grid; place-items: center; background: var(--thumb); }
 .dm-thumb svg { width: 22px; height: 22px; }
 .dm-video b { display: block; font-size: 13.5px; }
 .dm-video small { color: var(--muted); font-size: 12px; }
@@ -20,7 +20,7 @@
 .dm-go[aria-disabled="true"] { opacity: .55; cursor: default; }
 .dm-hint { min-height: 18px; font-size: 12px; color: var(--muted); text-align: center; }
 /* Onde de « toucher » pendant la lecture automatique */
-.tap::before { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px; border-radius: 50%; background: rgb(255 106 61 / 35%); animation: dm-tap .6s ease-out forwards; pointer-events: none; }
+.tap::before { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 35%, transparent); animation: dm-tap .6s ease-out forwards; pointer-events: none; }
 .dm-go.tap::before { background: color-mix(in srgb, var(--on-primary) 40%, transparent); }
 @keyframes dm-tap { from { transform: scale(1); opacity: 1; } to { transform: scale(14); opacity: 0; } }
 

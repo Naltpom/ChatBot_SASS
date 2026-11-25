@@ -5,6 +5,10 @@ import Layout from './components/Layout'
 import { BrandMark, Skeleton } from './components/ui'
 import { SessionProvider, useSession } from './session'
 import './styles.css'
+import { applyPalette, getPalette } from './palette'
+
+// Couleur choisie (orange, bleu océan, vert forêt) : avant le premier affichage.
+applyPalette(getPalette())
 
 // Une page = un morceau de JavaScript chargé à la demande : la landing ne charge pas l'app,
 // l'app ne charge pas la landing.

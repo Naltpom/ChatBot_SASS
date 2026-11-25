@@ -51,7 +51,7 @@
 /* Captures */
 .lp-shot { margin: 0; justify-self: center; width: min(78vw, 300px); }
 .lp-shot figcaption { text-align: center; font-size: 13px; color: var(--muted); margin-top: 10px; }
-.lp-phone { border-radius: 34px; padding: 8px; background: #1a1614; border: 1px solid var(--border-strong); box-shadow: 0 30px 60px -25px rgb(0 0 0 / 35%); }
+.lp-phone { border-radius: 34px; padding: 8px; background: var(--phone); border: 1px solid var(--border-strong); box-shadow: 0 30px 60px -25px rgb(0 0 0 / 35%); }
 .lp-phone img { display: block; width: 100%; height: auto; aspect-ratio: 540 / 978; border-radius: 27px; background: #f5f5f7; }
 @media (min-width: 960px) { .lp-hero .lp-shot { width: 310px; } }
 
@@ -102,10 +102,10 @@
 .lp-foot li a:hover { color: var(--text); }
 
 /* v4.1 — page vivante : démo dans le héros, apparitions au défilement, bouton qui réagit. */
-.lp-hero-shot .lp-phone { box-shadow: 0 40px 90px -30px rgb(255 106 61 / 55%); }
+.lp-hero-shot .lp-phone { box-shadow: 0 40px 90px -30px var(--accent-shadow); }
 .lp-hero-shot figcaption { max-width: 280px; margin-left: auto; margin-right: auto; }
-.lp-cta { gap: 10px; transition: background .2s, transform .15s, box-shadow .2s; box-shadow: 0 12px 30px -12px rgb(255 106 61 / 70%); }
-.lp-cta:hover { transform: translateY(-1px); box-shadow: 0 16px 34px -12px rgb(255 106 61 / 80%); }
+.lp-cta { gap: 10px; transition: background .2s, transform .15s, box-shadow .2s; box-shadow: 0 12px 30px -12px var(--accent-shadow); }
+.lp-cta:hover { transform: translateY(-1px); box-shadow: 0 16px 34px -12px var(--accent-shadow); }
 .lp-cta:active { transform: scale(.98); }
 .lp-arrow { display: inline-block; transition: transform .2s; }
 .lp-cta:hover .lp-arrow { transform: translateX(4px); }
