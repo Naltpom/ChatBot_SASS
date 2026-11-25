@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 # aucun effet de bord (lead, webhook) qui serait ensuite annonce en echec au
 # visiteur — et pas de recherche dont le resultat serait jete.
 MAX_TOOL_TURNS = 2
+# Assistant Chapote CM, mode « mes données » (docs/CM_MCP.md) : une question peut demander plusieurs
+# lectures (comptes, planning, statistiques). Seulement quand un jeton utilisateur est présent.
+MAX_TOOL_TURNS_DATA = 6
+TOOL_EXHAUSTED_DATA_MESSAGE = ("Je n'ai pas pu tout vérifier en une fois. Posez une question plus précise, "
+                               "par exemple sur un compte ou une période.")
 TOOL_EXHAUSTED_MESSAGE = "Je n'ai pas pu effectuer cette action, pouvez-vous reformuler votre demande ?"
 
 

@@ -345,6 +345,14 @@ STATUS_FR = {T_SCHEDULED: "programmée", T_AWAITING_ROUTINE: "programmée", T_DI
              T_INBOX: "envoyée en brouillon", T_FAILED: "en échec"}
 
 
+JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+
+def _jour(dt: datetime) -> str:
+    """« jeudi 26/11 » : le jour de la semaine est donné en toutes lettres (l'IA ne le calcule pas)."""
+    return f"{JOURS[dt.weekday()]} {dt.strftime('%d/%m')}"
+
+
 def _paris(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
         return None
@@ -441,7 +449,7 @@ async def tool_schedule(db, refs, consent, when: str = "upcoming", days: int = 7
         if ref is None:
             continue
         dt = _paris(pub if when == "published" and pub else sched)
-        day = dt.strftime("%Y-%m-%d")
+        day = _jour(dt)
         per_day[day] = per_day.get(day, 0) + 1
         if len(items) < MAX_ITEMS:
             item = {"jour": day, "heure": dt.strftime("%H:%M"), "reseau": PLATFORM_LABEL[p], "compte": ref.alias,
@@ -490,7 +498,7 @@ async def tool_top_videos(db, refs, consent, period: str = "30d", metric: str = 
     videos = []
     for p, a, pub, views, likes, shares, saves, title in rows:
         ref = by_key[f"{p}:{a}"]
-        v = {"date": _paris(pub).strftime("%Y-%m-%d") if pub else None, "reseau": PLATFORM_LABEL[p],
+        v = {"date": _jour(_paris(pub)) if pub else None, "reseau": PLATFORM_LABEL[p],
              "compte": ref.alias, "vues": int(views or 0), "jaime": int(likes or 0), "partages": int(shares or 0),
              "enregistrements": int(saves or 0), "engagement_pct": _rate(likes, shares, saves, views)}
         if allowed(ref, consent, "captions") and title:
@@ -592,6 +600,12 @@ async def _run_tool(db: AsyncSession, token: str, name: str, args: Optional[dict
         clean = {k: v for k, v in args.items() if k in props and isinstance(v, (str, int)) and not isinstance(v, bool)}
         refs = await account_scope(db, user)
         result = await spec["fn"](db, refs, consent, **clean)
+        # Repère pour « aujourd'hui », « demain » : l'IA ne connaît pas la date.
+        now = _paris(utcnow())
+        result = {"maintenant": f"{_jour(now)}/{now.year} {now.strftime('%H:%M')} (heure de Paris)",
+                  "note": "Une publication = un envoi sur un compte (une vidéo sur 3 comptes compte 3 fois).",
+                  **result} if name == "schedule" else {
+                  "maintenant": f"{_jour(now)}/{now.year} {now.strftime('%H:%M')} (heure de Paris)", **result}
         items, cats = _count(result), _categories(name, result)
         text = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
         if len(text) > MAX_RESULT_CHARS:

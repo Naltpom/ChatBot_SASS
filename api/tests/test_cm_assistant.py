@@ -334,3 +334,48 @@ async def test_audit_log_without_content(pg_session, assistant, tiktok):
     assert rows[0].user_id == a.id and rows[0].categories == ["stats", "accounts"] and rows[0].jti_hash
     dump = json.dumps([[r.tool, r.status, r.error_code, r.items, r.categories] for r in rows])
     assert "1234" not in dump and "Titre" not in dump and token not in dump
+
+
+# Boucle d'outils : en mode « mes données », plusieurs lectures ; jamais de phrase d'attente renvoyée.
+
+@pytest.mark.asyncio
+async def test_tool_loop_turns_and_no_interim_text(monkeypatch):
+    from src.services import ai_service
+    from src.services.ai_actions import MAX_TOOL_TURNS, MAX_TOOL_TURNS_DATA, TOOL_EXHAUSTED_DATA_MESSAGE
+
+    class Turn:
+        def __init__(self):
+            self.text, self.tokens_in, self.tokens_out = "Je vais vérifier…", 1, 1
+            self.tool_calls = [type("C", (), {"name": "mcp_cm-data_schedule", "args": {}, "id": "t"})()]
+
+    class Adapter:
+        tool_formatter = staticmethod(lambda n, d, s: {"name": n})
+        calls = 0
+
+        def init_messages(self, system, history):
+            return list(history)
+
+        async def request(self, *a, **k):
+            Adapter.calls += 1
+            return Turn()
+
+        def append_turn(self, messages, turn, results):
+            pass
+
+    async def no_tools(*a, **k):
+        return [{"name": "mcp_cm-data_schedule"}]
+
+    async def dispatch(*a, **k):
+        return "{}", False
+    monkeypatch.setattr(ai_service, "_build_tools", no_tools)
+    monkeypatch.setattr(ai_service, "_dispatch_tool_call", dispatch)
+    bot = type("B", (), {"ai_model": "m"})()
+    res = await ai_service._run_tool_loop(Adapter(), "k", bot, "s", [], 0.3)
+    assert Adapter.calls == MAX_TOOL_TURNS and "vérifier" not in res.content
+    Adapter.calls = 0
+    ctx = mcp_client.user_token.set("jeton")
+    try:
+        res = await ai_service._run_tool_loop(Adapter(), "k", bot, "s", [], 0.3)
+    finally:
+        mcp_client.user_token.reset(ctx)
+    assert Adapter.calls == MAX_TOOL_TURNS_DATA and res.content == TOOL_EXHAUSTED_DATA_MESSAGE
