@@ -149,6 +149,18 @@ export default function Landing() {
           </div>
         </section>
 
+        <section className="lp-sec lp-why" aria-labelledby="lp-pourquoi">
+          <div className="lp-wrap">
+            <figure className="lp-founder lp-rv">
+              <h2 id="lp-pourquoi">Pourquoi Chapote CM</h2>
+              <blockquote>
+                <p>J’ai d’abord construit Chapote CM pour publier mes propres contes en vidéo sur TikTok, YouTube et Instagram, sans refaire trois fois le même travail. Aujourd’hui, je programme une fois et je suis tous mes chiffres au même endroit. Je l’ouvre à tous ceux qui publient comme moi.</p>
+              </blockquote>
+              <figcaption><Logo size={36} /><span><b>Nathan</b><small>Créateur de Chapote</small></span></figcaption>
+            </figure>
+          </div>
+        </section>
+
         <section id="faq" className="lp-sec lp-alt" aria-labelledby="lp-faq">
           <div className="lp-wrap">
             <h2 id="lp-faq">Questions fréquentes</h2>
