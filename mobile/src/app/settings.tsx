@@ -11,7 +11,6 @@ import { call } from '../lib/http'
 import { disablePush, enablePush, getPush, pushUnsupported, setPushPrefs, type PushPrefs, type PushState } from '../lib/push'
 import { fmtAgo } from '../lib/format'
 import { useSession } from '../lib/session'
-import { useLock } from '../lib/lock'
 import { getProfile, patchProfile } from '../lib/api'
 import { Button, Card, Divider, Icon, Label, Msg, Row, Screen, Seg, Txt, Field, type IconName } from '../ui/kit'
 import { PALETTE_PREVIEW, radius, space, useTheme, type Palette, type ThemePref } from '../ui/theme'
@@ -66,11 +65,9 @@ export default function Settings() {
     { text: 'Déconnecter', style: 'destructive', onPress: async () => { await call(`/api/cm/mobile/devices/${d.id}`, { method: 'DELETE' }); load() } },
   ])
   const unsupported = pushUnsupported()
-  const lock = useLock()
   const { refresh, spaces, accounts } = useSession()
   const [persoName, setPersoName] = useState('')
   useEffect(() => { getProfile().then(p => setPersoName(p.perso_name || '')).catch(() => {}) }, [])
-  const [lockMsg, setLockMsg] = useState<string | null>(null)
 
   const themeLabel = { system: 'Comme le téléphone', light: 'Clair', dark: 'Sombre' }[pref]
   const space0 = spaces.find(x => x.org_id == null)
@@ -127,14 +124,6 @@ export default function Settings() {
 
       <Card>
         <Label>Sécurité</Label>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <View style={{ flex: 1 }}><Txt bold>{lock.label} · {lock.enabled ? 'activé' : 'désactivé'}</Txt><Txt small muted>Demandé quand vous revenez après plus de 5 minutes hors de l’app.</Txt></View>
-          <Switch value={lock.enabled} onValueChange={async v => { const e = await lock.setEnabled(v); setLockMsg(e); if (!e) ok() }} accessibilityLabel="Verrouiller l’app"
-            trackColor={{ true: c.primary }} />
-        </Row>
-        {!lock.supported ? <Txt small muted>Disponible avec une empreinte ou un visage enregistré sur le téléphone.</Txt> : null}
-        {lockMsg ? <Msg kind="err">{lockMsg}</Msg> : null}
-        <Divider />
         <NavRow icon="shield" label="Double authentification" value={me?.twofa_enabled ? 'Activée' : 'Désactivée'} onPress={() => router.push({ pathname: '/account', params: { section: '2fa' } })} />
       </Card>
 

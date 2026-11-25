@@ -1,13 +1,12 @@
 // « Bien démarrer » en haut du planning, après l'inscription : de vraies actions, une progression qui ne
 // part jamais de zéro (compte créé), et la carte disparaît quand tout est fait (ou si on la masque).
-// Remplace les fenêtres de sécurité à l'arrivée : notifications et empreinte se proposent ici.
+// Remplace les fenêtres de sécurité à l'arrivée : les notifications se proposent ici.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Pressable, View } from 'react-native'
 import { getPosts } from '../lib/api'
 import { call } from '../lib/http'
-import { useLock } from '../lib/lock'
 import { enablePush, getPush, pushUnsupported } from '../lib/push'
 import { useSession } from '../lib/session'
 import { useOwnAccounts, useSetupOrg, useSharedAccounts } from './steps'
@@ -20,7 +19,6 @@ export function StartChecklist() {
   const router = useRouter()
   const { c } = useTheme()
   const { me, spaces, groups } = useSession()
-  const lock = useLock()
   const own = useOwnAccounts()
   const shared = useSharedAccounts()
   const org = useSetupOrg()
@@ -48,7 +46,6 @@ export function StartChecklist() {
     ...(hasPost && me && me.email_verified === false ? [{ key: 'email', title: mailSent ? `E-mail envoyé à ${me.email} : ouvrez le lien` : 'Confirmer mon adresse e-mail', done: false,
       run: () => { call('/api/auth/verify-email/request', { method: 'POST', body: '{}' }).then(() => setMailSent(true)).catch(() => setMailSent(true)) } }] : []),
     ...(pushUnsupported() ? [] : [{ key: 'push', title: 'Être prévenu quand une vidéo part', done: !!push, run: () => { enablePush().then(r => { if (typeof r !== 'string') setPush(r.enabled) }) } }]),
-    ...(lock.supported ? [{ key: 'lock', title: `Protéger l’app par ${lock.label.toLowerCase()}`, done: lock.enabled, run: () => { lock.setEnabled(true) } }] : []),
     ...(own.length >= 2 ? [{ key: 'groups', title: 'Ranger vos comptes en groupes', done: groups.length > 0, run: () => router.push('/setup/groups') }] : []),
     { key: 'invite', title: 'Inviter quelqu’un de l’équipe (facultatif)', done: false, run: () => router.push('/people') },
   ]
