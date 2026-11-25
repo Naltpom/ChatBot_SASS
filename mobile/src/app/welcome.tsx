@@ -8,12 +8,14 @@ import { useState } from 'react'
 import { openAuthorize, PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
 import { Button, Card, H1, Icon, Msg, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
 import { space } from '../ui/theme'
-import { StepHeader, useOwnAccounts } from '../features/steps'
+import { StepHeader, useOwnAccounts, useSetupOrg, useSharedAccounts } from '../features/steps'
 
 export default function Welcome() {
   const router = useRouter()
   const { me, signOut, refresh } = useSession()
-  const { org, invitations } = useSession()
+  const { invitations } = useSession()
+  const org = useSetupOrg()
+  const shared = useSharedAccounts()
   const [err, setErr] = useState<string | null>(null)
   const connect = async (p: Platform) => {
     setErr(null)
@@ -27,9 +29,11 @@ export default function Welcome() {
       <StepHeader n={2} backTo="/onboarding?from=welcome" />
       <View style={{ gap: space.sm, paddingTop: space.xl }}>
         <H1>Bienvenue{me?.name ? `, ${me.name.split(' ')[0]}` : ''}</H1>
-        <Txt muted>Votre compte Chapote est prêt. Connectez votre premier compte : vos chiffres, votre planning et vos commentaires apparaîtront ici.</Txt>
+        <Txt muted>Connectez vos comptes, ou acceptez une invitation si une équipe vous a invité. Les deux sont possibles.</Txt>
       </View>
       {invitations.length ? <View style={{ gap: space.sm }}><Txt bold>Invitations reçues</Txt>{invitations.map(i => <InvitationCard key={i.id} inv={i} />)}</View> : null}
+      {shared.length ? <Msg kind="ok">Invitation acceptée : {shared.length} compte{shared.length > 1 ? 's' : ''} partagé{shared.length > 1 ? 's' : ''} avec vous.</Msg> : null}
+      <Txt bold>Mes comptes</Txt>
       {err ? <Msg kind="err">{err}</Msg> : null}
       {PLATFORMS.map(p => (
         <Card key={p} onPress={() => connect(p)} accessibilityLabel={`Connecter ${PLATFORM_LABEL[p]}`}>
@@ -56,10 +60,12 @@ export default function Welcome() {
           ))}
         </Card>
       ) : null}
-      <Button kind={own.length ? 'primary' : 'ghost'} title={own.length ? 'Continuer' : 'Passer cette étape'} onPress={() => router.push('/setup/drive')} />
+      {own.length ? <Button kind="primary" title="Continuer" onPress={() => router.push('/setup/drive')} />
+        : shared.length ? <Button kind="primary" title="Terminer l’inscription" onPress={() => router.replace('/')} />
+        : <Txt small muted center>Connectez un compte ou acceptez une invitation pour continuer.</Txt>}
       <Card>
-        <Txt bold>Vous travaillez en équipe ?</Txt>
-        <Txt small muted>Demandez à un administrateur de l’équipe de vous inviter avec l’adresse {me?.email}. L’équipe apparaîtra ici dès que l’invitation est acceptée.</Txt>
+        <Txt bold>Invité par une équipe ?</Txt>
+        <Txt small muted>Demandez qu’on vous invite avec l’adresse {me?.email}. L’invitation apparaîtra en haut de cet écran.</Txt>
         <Button title="Actualiser" icon="refresh" onPress={refresh} />
       </Card>
       <Card>

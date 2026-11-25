@@ -5,21 +5,22 @@ import { useCallback, useState } from 'react'
 import { View } from 'react-native'
 import { getStorages, type DriveStorage } from '../../lib/api'
 import { useRole, useSession } from '../../lib/session'
-import { connectDrive, markLater } from '../../features/storage'
-import { StepHeader, useOwnAccounts } from '../../features/steps'
+import { connectDrive } from '../../features/storage'
+import { StepHeader, useOwnAccounts, useSetupOrg } from '../../features/steps'
 import { Button, Card, H1, Label, Msg, Screen, Txt } from '../../ui/kit'
 import { space } from '../../ui/theme'
 
 export default function SetupDrive() {
   const router = useRouter()
-  const { org, refresh } = useSession()
+  const { refresh } = useSession()
+  const org = useSetupOrg()
   const { canAdmin } = useRole()
   const own = useOwnAccounts()
   const [list, setList] = useState<DriveStorage[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const load = useCallback(() => { getStorages(org).then(r => setList(r.storages || [])).catch(() => setList([])) }, [org])
   useFocusEffect(load)
-  const next = () => router.push(own.length >= 2 ? '/setup/groups' : '/setup/share')
+  const next = () => (own.length >= 2 ? router.push('/setup/groups') : router.replace('/'))
   const connect = async () => {
     setErr(null)
     try { await connectDrive(org); await refresh(); load() } catch (e: any) { setErr(e?.message || 'Connexion impossible') }
@@ -45,7 +46,8 @@ export default function SetupDrive() {
       ) : canAdmin ? (
         <Button kind="primary" icon="folder" title="Connecter Google Drive" onPress={connect} />
       ) : <Msg>Un administrateur de l’équipe doit connecter le Drive de l’espace.</Msg>}
-      <Button kind={main ? 'primary' : 'ghost'} title={main ? 'Continuer' : 'Plus tard'} onPress={() => { if (!main) markLater(org); next() }} />
+      {main ? <Button kind="primary" title={own.length >= 2 ? 'Continuer' : 'Terminer l’inscription'} onPress={next} />
+        : canAdmin ? <Txt small muted center>Obligatoire pour publier : vos vidéos passent par ce Drive.</Txt> : null}
     </Screen>
   )
 }

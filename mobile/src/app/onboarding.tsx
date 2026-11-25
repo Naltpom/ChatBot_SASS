@@ -68,6 +68,7 @@ export default function Onboarding() {
         <Line title="Double authentification" value={twofa} onChange={() => setSheet(true)} />
       </Card>
       <Button kind="primary" title="Continuer" onPress={finish} />
+      <Button kind="ghost" title="Passer" onPress={finish} />
       <TwoFASheet visible={sheet} enabled={twofa} onClose={() => setSheet(false)} onChanged={setTwofa} />
     </Screen>
   )

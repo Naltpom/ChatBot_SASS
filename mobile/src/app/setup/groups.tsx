@@ -7,13 +7,14 @@ import { addStorageFolder, assignStorage, createGroup, getGroups, getStorages, G
   type DriveStorage, type Group } from '../../lib/api'
 import { useSession } from '../../lib/session'
 import { akey, groupBody } from '../../features/accounts/logic'
-import { StepHeader, useOwnAccounts } from '../../features/steps'
+import { StepHeader, useOwnAccounts, useSetupOrg } from '../../features/steps'
 import { Button, Card, Chip, Field, GroupDot, H1, Msg, PlatformLogo, Row, Screen, Txt } from '../../ui/kit'
 import { space, useTheme } from '../../ui/theme'
 
 export default function SetupGroups() {
   const router = useRouter()
-  const { org, refresh } = useSession()
+  const { refresh } = useSession()
+  const org = useSetupOrg()
   const { c } = useTheme()
   const own = useOwnAccounts()
   const [groups, setGroups] = useState<Group[]>([])
@@ -59,7 +60,7 @@ export default function SetupGroups() {
       <StepHeader n={4} />
       <View style={{ gap: space.sm, paddingTop: space.md }}>
         <H1>Ranger vos comptes en groupes</H1>
-        <Txt muted>Vous avez {own.length} comptes. Un groupe (par exemple un par client ou par chaîne) se filtre d’un geste, peut avoir son dossier dans le Drive et se partage avec d’autres personnes.</Txt>
+        <Txt muted>Vous avez {own.length} comptes. Un groupe (par exemple un par client ou par chaîne) se filtre d’un geste, peut avoir son dossier dans le Drive et se partage plus tard avec d’autres personnes.</Txt>
       </View>
       {groups.length ? (
         <Card>
@@ -99,7 +100,7 @@ export default function SetupGroups() {
         ) : <Txt small muted>Sans Drive relié (étape 3), les vidéos du groupe iront dans le stockage de l’espace dès qu’il sera connecté.</Txt>}
         <Button kind="primary" icon="plus" title="Créer le groupe" loading={busy} disabled={!name.trim() || !picked.length} onPress={save} />
       </Card>
-      <Button kind={groups.length ? 'primary' : 'ghost'} title={groups.length ? 'Continuer' : 'Passer'} onPress={() => router.push('/setup/share')} />
+      <Button kind={groups.length ? 'primary' : 'ghost'} title={groups.length ? 'Terminer l’inscription' : 'Plus tard, terminer l’inscription'} onPress={() => router.replace('/')} />
     </Screen>
   )
 }

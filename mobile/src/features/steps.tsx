@@ -4,10 +4,22 @@ import { stepTitle } from '../lib/onboarding'
 import { useSession } from '../lib/session'
 import { IconButton } from '../ui/kit'
 
-/** Comptes de l'espace en cours (ceux qu'on range en groupes et qu'on partage). */
+/** Mes propres comptes (pas ceux des groupes partagés avec moi). */
 export function useOwnAccounts() {
-  const { accounts, org } = useSession()
-  return accounts.filter(a => (a.org_id ?? null) === org && a.mine !== false)
+  const { accounts } = useSession()
+  return accounts.filter(a => a.mine !== false)
+}
+
+/** Espace de mes comptes (où connecter le Drive et créer les groupes) : perso pour un nouveau compte. */
+export function useSetupOrg(): number | null {
+  const own = useOwnAccounts()
+  return own[0]?.org_id ?? null
+}
+
+/** Comptes visibles grâce à une invitation acceptée. */
+export function useSharedAccounts() {
+  const { accounts } = useSession()
+  return accounts.filter(a => a.mine === false)
 }
 
 export function StepHeader({ n, backTo }: { n: number; backTo?: string }) {
