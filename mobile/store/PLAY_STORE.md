@@ -4,7 +4,7 @@ Fichiers prêts :
 - `store/icon-512.png` : icône de l'application (512 × 512)
 - `store/feature-1024x500.png` : image de présentation
 - Le fichier de l'app (`.aab`) : le lien est donné dans la conversation.
-- Captures d'écran : à faire sur le téléphone, de 2 à 8. Par exemple : Planning, une publication, Commentaires, Stats, Nouvelle publication.
+- Captures d'écran : à faire sur le téléphone, de 2 à 8. Par exemple : Planning, une publication, Stats, Nouvelle publication, Bibliothèque.
 
 ## 1. Créer l'application
 Play Console → Créer une application
@@ -16,15 +16,14 @@ Play Console → Créer une application
 
 ## 2. Fiche principale (Croissance → Fiche du Play Store)
 **Description courte** (80 caractères au maximum) :
-> Programmez et suivez vos vidéos TikTok, YouTube et Instagram, depuis votre poche.
+> Planifiez et suivez vos vidéos TikTok, YouTube et Instagram, depuis votre poche.
 
 **Description complète** :
 > Chapote CM est l'application de cm.chapote.fr : le planning de vos vidéos courtes sur TikTok, YouTube (Shorts) et Instagram (Reels).
 >
-> • Planning : vos publications jour par jour, à déplacer d'un geste.
-> • Publier : envoyez une vidéo depuis votre galerie, choisissez les comptes et l'heure.
+> • Planning : vos publications jour par jour, semaine après semaine.
+> • Planifier : envoyez une vidéo depuis votre galerie, choisissez les comptes et l'heure, en quelques étapes.
 > • Suivre : publiée, en échec, brouillon TikTok à valider. Une notification vous prévient.
-> • Commentaires : lisez-les et répondez sans changer d'application.
 > • Statistiques : abonnés, vues et j'aime de chaque compte.
 > • Bibliothèque : vos vidéos rangées dans votre Google Drive.
 > • En équipe : regroupez vos comptes et partagez-les, en lecture seule ou avec le droit de publier.
@@ -70,3 +69,8 @@ Play Console → Créer une application
 ## 5. Ensuite
 - Mises à jour de l'app sans nouvelle version Play Store : canal `production` d'EAS Update.
 - Nouvelle version native (nouveau module, nouvelle permission) : augmenter `android.versionCode` dans `app.json`, reconstruire le `.aab` et le téléverser.
+
+## Version 3 (versionCode 3) — notes de version
+> Nouvelle identité : nouveau logo et trois couleurs au choix (orange, bleu océan, vert forêt). Publication en étapes, statistiques et bibliothèque plus claires.
+
+À mettre à jour dans la fiche en même temps : icône (`store/icon-512.png`), image de présentation (`store/feature-1024x500.png`), description courte ci-dessus.

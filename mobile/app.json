@@ -19,7 +19,7 @@
     "android": {
       "package": "fr.chapote.cm",
       "adaptiveIcon": {
-        "backgroundColor": "#0071e3",
+        "backgroundColor": "#F05A28",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -90,7 +90,7 @@
           ]
         }
       ],
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png"
