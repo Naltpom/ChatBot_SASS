@@ -44,7 +44,7 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import _encode, create_dashboard_token, get_current_user, get_optional_user, set_auth_cookie
 from src.core.time import utcnow
-from src.models.cm_mobile import CmAppOpen, CmMobileDevice, CmUserIdentity
+from src.models.cm_mobile import CmAppOpen, CmFeedback, CmMobileDevice, CmUserIdentity
 from src.models.user import User
 from src.services.rate_limit import RateLimiter, SingleUseTokens
 
@@ -608,3 +608,41 @@ async def metrics(weeks: int = 8, db: AsyncSession = Depends(get_db), user: User
         for n in (1, 3, 7):
             c[f"d{n}"] += (d0 + _td(days=n)) in days
     return {"weeks": sorted(cohorts.values(), key=lambda c: c["week"], reverse=True)}
+
+
+# --------------------------------------------------------------------------
+# Question courte au moment d'un abandon (une réponse, facultative)
+# --------------------------------------------------------------------------
+
+feedback_limiter = RateLimiter("rl:cmmobfeedback:", 20, 86400)
+FEEDBACK_CONTEXTS = ("new_post_abandon",)
+FEEDBACK_REASONS = ("no_video", "too_complex", "when", "accounts", "other")
+
+
+class FeedbackIn(BaseModel):
+    context: str = Field(..., max_length=40)
+    reason: Optional[str] = Field(None, max_length=40)
+    text: Optional[str] = Field(None, max_length=500)
+
+
+@router.post("/feedback")
+async def feedback(body: FeedbackIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    if body.context not in FEEDBACK_CONTEXTS or (body.reason and body.reason not in FEEDBACK_REASONS):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Réponse non reconnue")
+    if not body.reason and not (body.text or "").strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Réponse vide")
+    if not await feedback_limiter.check(str(user.id)):
+        return {"ok": True}
+    db.add(CmFeedback(user_id=user.id, context=body.context, reason=body.reason,
+                      text=(body.text or "").strip()[:500] or None, created_at=utcnow()))
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/feedback")
+async def list_feedback(limit: int = 100, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Dernières réponses (superadmin)."""
+    if not user.is_superadmin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé à l'administration.")
+    rows = (await db.execute(select(CmFeedback).order_by(CmFeedback.id.desc()).limit(max(1, min(limit, 500))))).scalars()
+    return [{"context": f.context, "reason": f.reason, "text": f.text, "created_at": f.created_at.isoformat()} for f in rows]
