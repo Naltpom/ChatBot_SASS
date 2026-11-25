@@ -402,8 +402,11 @@ export const addGroupShare = (org: number | null, groupId: number, email: string
   send<GroupShare>('POST', `/api/cm/groups/${groupId}/shares${q(org)}`, { email, role })
 export const removeGroupShare = (org: number | null, groupId: number, shareId: number) =>
   send<{ ok: boolean }>('DELETE', `/api/cm/groups/${groupId}/shares/${shareId}${q(org)}`)
-export const getProfile = () => call<{ perso_name: string | null }>('/api/cm/profile')
-export const patchProfile = (perso_name: string) => send<{ perso_name: string | null }>('PATCH', '/api/cm/profile', { perso_name })
+/** Profil : nom de l'espace perso et apparence commune au site et à l'app (`prefs_rev` : numéro de l'apparence). */
+export interface Profile { perso_name: string | null; palette?: 'warm' | 'ocean' | 'forest'; theme?: 'system' | 'light' | 'dark'; prefs_rev?: number }
+export const getProfile = () => call<Profile>('/api/cm/profile')
+export const patchProfile = (perso_name: string) => send<Profile>('PATCH', '/api/cm/profile', { perso_name })
+export const patchAppearance = (body: { palette?: Profile['palette']; theme?: Profile['theme'] }) => send<Profile>('PATCH', '/api/cm/profile', body)
 
 // Inscription dans l'app : informations, conditions, âge minimum (api/src/routers/cm_mobile.py)
 export interface Identity {

@@ -20,6 +20,7 @@ import { launchUpdateChecked, UpdateBanner, useAppUpdate } from '../lib/app-upda
 import { ThemeProvider, useTheme } from '../ui/theme'
 import { loadFonts } from '../ui/fonts'
 import { takeResume } from '../lib/app-icon'
+import { AppearanceSync } from '../lib/appearance-sync'
 
 loadFonts()
 
@@ -130,6 +131,7 @@ export default function RootLayout() {
           <ShareProvider>
             <SessionProvider>
               <LockProvider>
+                <AppearanceSync />
                 <IdentityProvider>
                   <Gate />
                 </IdentityProvider>
