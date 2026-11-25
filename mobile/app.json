@@ -90,13 +90,21 @@
           ]
         }
       ],
-      "versionCode": 3
+      "versionCode": 4
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-router",
+      "./plugins/with-alias-links",
+      [
+        "expo-alternate-app-icons",
+        [
+          { "name": "Ocean", "ios": "./assets/icon-ocean.png", "android": { "foregroundImage": "./assets/android-icon-foreground-ocean.png", "backgroundColor": "#0071E3" } },
+          { "name": "Forest", "ios": "./assets/icon-forest.png", "android": { "foregroundImage": "./assets/android-icon-foreground-forest.png", "backgroundColor": "#1F6B4A" } }
+        ]
+      ],
       "expo-secure-store",
       "expo-web-browser",
       "expo-video",
