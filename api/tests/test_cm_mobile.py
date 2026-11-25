@@ -374,3 +374,34 @@ async def test_web_link_logs_browser_into_app_account(pg_session, cmenv):
         r = await anon.get(path, follow_redirects=False)
         assert r.status_code == 400 and AUTH_COOKIE_NAME not in r.cookies
         assert (await anon.get("/api/cm/mobile/web-session?t=abc", follow_redirects=False)).status_code == 400
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_identity_terms_and_min_age(pg_session, cmenv):
+    from datetime import date
+    a = await _user(pg_session, "a@t.dev")
+    b = await _user(pg_session, "b@t.dev")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        assert (await c.http.get("/api/cm/mobile/identity")).status_code == 401
+        h = c.as_(a)
+        r = await h.get("/api/cm/mobile/identity")
+        assert r.status_code == 200 and r.json()["done"] is False and r.json()["min_age"] == settings.CM_MIN_AGE
+        body = {"first_name": " Nathan ", "last_name": "Provost", "birth_date": "1995-04-12", "accept_terms": False}
+        assert (await h.put("/api/cm/mobile/identity", json=body)).status_code == 400
+        for bad in ("2999-01-01", "1800-01-01", "1995-02-30"):
+            assert (await h.put("/api/cm/mobile/identity", json={**body, "accept_terms": True, "birth_date": bad})).status_code == 400
+        r = await h.put("/api/cm/mobile/identity", json={**body, "accept_terms": True})
+        assert r.status_code == 200, r.text
+        out = r.json()
+        assert out["done"] and out["blocked_until"] is None and out["first_name"] == "Nathan"
+        assert (await h.get("/api/auth/me")).json()["name"] == "Nathan Provost"
+        # Date de naissance figée.
+        r = await h.put("/api/cm/mobile/identity", json={**body, "accept_terms": True, "birth_date": "1990-01-01"})
+        assert r.status_code == 409
+        # Trop jeune : inscription faite, bloquée jusqu'à l'anniversaire.
+        today = date.today()
+        young = date(today.year - settings.CM_MIN_AGE + 1, 1, 1).isoformat()
+        r = await c.as_(b).put("/api/cm/mobile/identity", json={**body, "accept_terms": True, "birth_date": young})
+        assert r.status_code == 200 and r.json()["done"] and r.json()["blocked_until"] > today.isoformat()

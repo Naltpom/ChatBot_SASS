@@ -6,7 +6,7 @@
 - `CmPushEvent` : une notification déjà envoyée (vidéo publiée, échec, brouillon, commentaire) pour
   ne jamais l'envoyer deux fois, quel que soit le nombre de workers.
 """
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, Column, Date, DateTime, ForeignKey, Index, Integer, String
 
 from src.core.database import Base
 from src.core.time import utcnow
@@ -40,3 +40,19 @@ class CmPushEvent(Base):
     kind = Column(String(20), nullable=False)            # published | failed | draft | comment
     ref_id = Column(Integer, nullable=False)             # id de la cible ou du commentaire
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CmUserIdentity(Base):
+    """Informations données à l'inscription dans l'app : prénom, nom, date de naissance (âge minimum), et
+    acceptation des conditions (CGU, CGV, confidentialité) avec leur version. La date de naissance ne se
+    change plus ensuite (erreur : par le contact)."""
+    __tablename__ = "cm_user_identities"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    first_name = Column(String(80), nullable=False)
+    last_name = Column(String(80), nullable=False)
+    birth_date = Column(Date, nullable=False)
+    terms_version = Column(String(20), nullable=False)
+    terms_accepted_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, nullable=False)

@@ -44,7 +44,7 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import _encode, create_dashboard_token, get_current_user, get_optional_user, set_auth_cookie
 from src.core.time import utcnow
-from src.models.cm_mobile import CmMobileDevice
+from src.models.cm_mobile import CmMobileDevice, CmUserIdentity
 from src.models.user import User
 from src.services.rate_limit import RateLimiter, SingleUseTokens
 
@@ -486,3 +486,81 @@ async def web_session(t: str = "", db: AsyncSession = Depends(get_db)):
                             headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
     set_auth_cookie(resp, create_dashboard_token(user.id))
     return resp
+
+
+# --------------------------------------------------------------------------
+# Inscription dans l'app : nom, date de naissance, conditions acceptées, âge minimum
+# --------------------------------------------------------------------------
+# Une personne sous l'âge minimum (CM_MIN_AGE) termine son inscription, mais l'app reste bloquée
+# jusqu'à son anniversaire (`blocked_until`). La date de naissance ne se modifie plus ensuite.
+
+LEGAL_DOCS = {"cgu": "https://chapote.fr/legal/cgu", "cgv": "https://chapote.fr/legal/cgv",
+              "privacy": "https://chapote.fr/legal/confidentialite"}
+
+
+def _birthday(born, years: int):
+    from datetime import date
+    try:
+        return born.replace(year=born.year + years)
+    except ValueError:  # 29 février
+        return date(born.year + years, 3, 1)
+
+
+def _identity_out(row: Optional[CmUserIdentity]) -> dict:
+    from datetime import date
+    min_age = settings.CM_MIN_AGE
+    out = {"done": False, "first_name": None, "last_name": None, "birth_date": None, "terms_version": None,
+           "terms_current": settings.CM_TERMS_VERSION, "terms_ok": False, "min_age": min_age,
+           "blocked_until": None, "legal": LEGAL_DOCS}
+    if row is None:
+        return out
+    until = _birthday(row.birth_date, min_age)
+    out.update(first_name=row.first_name, last_name=row.last_name, birth_date=row.birth_date.isoformat(),
+               terms_version=row.terms_version, terms_ok=row.terms_version == settings.CM_TERMS_VERSION,
+               blocked_until=until.isoformat() if until > date.today() else None)
+    out["done"] = out["terms_ok"]
+    return out
+
+
+class IdentityIn(BaseModel):
+    first_name: str = Field(..., min_length=1, max_length=80)
+    last_name: str = Field(..., min_length=1, max_length=80)
+    birth_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    accept_terms: bool
+
+
+@router.get("/identity")
+async def get_identity(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    return _identity_out(await db.get(CmUserIdentity, user.id))
+
+
+@router.put("/identity")
+async def put_identity(body: IdentityIn, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from datetime import date
+    if not body.accept_terms:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Acceptez les conditions pour continuer.")
+    first, last = " ".join(body.first_name.split()), " ".join(body.last_name.split())
+    if not first or not last:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Prénom et nom obligatoires.")
+    try:
+        born = date.fromisoformat(body.birth_date)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Date de naissance invalide.")
+    today = date.today()
+    if born >= today or born < date(today.year - 120, 1, 1):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Date de naissance invalide.")
+    row = await db.get(CmUserIdentity, user.id)
+    now = utcnow()
+    if row is None:
+        row = CmUserIdentity(user_id=user.id, first_name=first, last_name=last, birth_date=born,
+                             terms_version=settings.CM_TERMS_VERSION, terms_accepted_at=now, created_at=now, updated_at=now)
+        db.add(row)
+    else:
+        if row.birth_date != born:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "La date de naissance ne se modifie pas ici : contactez-nous en cas d'erreur.")
+        row.first_name, row.last_name = first, last
+        row.terms_version, row.terms_accepted_at, row.updated_at = settings.CM_TERMS_VERSION, now, now
+    user.name = f"{first} {last}"[:200]
+    await db.commit()
+    return _identity_out(row)
