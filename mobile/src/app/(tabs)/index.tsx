@@ -1,10 +1,10 @@
-// Planning : un jour à la fois (glisser à gauche / à droite pour changer de jour), bande des 7 jours,
+// Planning : un jour à la fois (glisser à gauche / à droite pour changer de jour), bande des semaines qui glisse,
 // recherche faite par le serveur, tirer pour actualiser. Passé : vidéos publiées (avec chiffres) ;
 // futur : publications programmées. Comme cm/src/pages/Planning.tsx (vue Agenda).
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
+import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import { getCalendar, PLATFORM_LABEL, PLATFORMS, type Platform } from '../../lib/api'
 import { short } from '../../lib/format'
@@ -12,11 +12,11 @@ import { useLoad, useRole, useSession } from '../../lib/session'
 import { StartChecklist } from '../../features/StartChecklist'
 import { AttentionBar } from '../../features/Attention'
 import { ExampleWeek } from '../../features/ExampleWeek'
-import { Button, Chip, Delta, Empty, Icon, Msg, PlatformLogo, Row, SearchField, Seg, Skeleton, Txt } from '../../ui/kit'
+import { Button, Chip, Delta, Empty, Msg, PlatformLogo, Row, SearchField, Skeleton, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import {
   byDay, dayKey, filterItems, fromKey, groupItems, groupOf, openTarget, periodSummary, searchRange, searchSections,
-  shiftKey, weekKeys, weekRange, type Kind, type PlanGroup,
+  shiftKey, weekKeys, weekRange, type PlanGroup,
 } from '../../features/planning/calendar'
 import { PlanRow } from '../../features/planning/ui'
 
@@ -28,12 +28,11 @@ export default function Planning() {
   const { c } = useTheme()
   const router = useRouter()
   const params = useLocalSearchParams<{ day?: string; flash?: string; t?: string }>()
-  const { groups } = useSession()
+  const { groups, accounts } = useSession()
   const { canEdit } = useRole()
   const today = dayKey(new Date())
   const [selected, setSelected] = useState(today)
   const [platforms, setPlatforms] = useState<Platform[]>([])
-  const [kind, setKind] = useState<Kind>('all')
   const [flash, setFlash] = useState<string | null>(null)
   // Retour de « Nouvelle publication » : le jour programmé et un message.
   useEffect(() => {
@@ -64,23 +63,29 @@ export default function Planning() {
   useEffect(() => { if (!cal.loading && !found.loading) setPulling(false) }, [cal.loading, found.loading])
   const refresh = () => { setPulling(true); cal.reload(); if (search) found.reload() }
 
-  const items = useMemo(() => filterItems(cal.data?.items || [], platforms, kind), [cal.data, platforms, kind])
+  const items = useMemo(() => filterItems(cal.data?.items || [], platforms, 'all'), [cal.data, platforms])
   const days = useMemo(() => byDay(items), [items])
   const stats = useMemo(() => new Map((cal.data?.days || []).map(d => [d.day, d])), [cal.data])
   const dayGroups = useMemo(() => groupItems(days.get(selected) || []), [days, selected])
-  const results = useMemo(() => (search && found.data ? searchSections(filterItems(found.data.items, platforms, kind)) : []), [search, found.data, platforms, kind])
+  const results = useMemo(() => (search && found.data ? searchSections(filterItems(found.data.items, platforms, 'all')) : []), [search, found.data, platforms])
   const summary = useMemo(() => periodSummary(items), [items])
   const weekFollowers = (cal.data?.days || []).reduce((s, d) => s + (d.followers_delta || 0), 0)
 
+  // Un glissé commencé sur la bande des semaines fait défiler les semaines, pas les jours.
+  const onStrip = useRef(false)
   const goDay = (n: number) => { Haptics.selectionAsync().catch(() => {}); setSelected(k => shiftKey(k, n)) }
   const pan = usePanGesture({
     activeOffsetX: [-24, 24], failOffsetY: [-14, 14], runOnJS: true,
-    onDeactivate: e => { if (!e.canceled && Math.abs(e.translationX) > 60) goDay(e.translationX < 0 ? 1 : -1) },
+    onDeactivate: e => { if (!e.canceled && !onStrip.current && Math.abs(e.translationX) > 60) goDay(e.translationX < 0 ? 1 : -1) },
+    onFinalize: () => { onStrip.current = false },
   })
   const open = (g: PlanGroup) => {
     const t = openTarget(g)
     if (t) router.push({ pathname: t.pathname, params: { id: t.id } })
   }
+  // Filtre par réseau : seulement si au moins 2 types de réseaux sont connectés.
+  const connected = useMemo(() => PLATFORMS.filter(p => accounts.some(a => a.platform === p)), [accounts])
+  useEffect(() => { setPlatforms(ps => ps.filter(p => connected.includes(p))) }, [connected])
   const togglePlatform = (p: Platform) => setPlatforms(ps => (ps.includes(p) ? ps.filter(x => x !== p) : [...ps, p]))
 
   const rows: ListRow[] = search
@@ -99,31 +104,18 @@ export default function Planning() {
       {!search ? <AttentionBar /> : null}
       {!search ? <StartChecklist /> : null}
       <SearchField value={input} onChangeText={setInput} placeholder="Rechercher (titre, légende)" />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} accessibilityLabel="Plateformes">
-        {PLATFORMS.map(p => (
-          <Chip key={p} label={PLATFORM_LABEL[p]} selected={platforms.includes(p)} onPress={() => togglePlatform(p)}
-            left={<PlatformLogo platform={p} size={14} />} />
-        ))}
-      </ScrollView>
-      <Seg label="Type" value={kind} onChange={setKind} options={[['all', 'Tout'], ['done', 'Publié'], ['planned', 'Programmé']]} />
+      {connected.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} accessibilityLabel="Réseaux">
+          {connected.map(p => (
+            <Chip key={p} label={PLATFORM_LABEL[p]} selected={platforms.includes(p)} onPress={() => togglePlatform(p)}
+              left={<PlatformLogo platform={p} size={14} />} />
+          ))}
+        </ScrollView>
+      ) : null}
       {!search ? (
         <>
-          <View style={{ flexDirection: 'row', gap: 4 }} accessibilityLabel="Jours de la semaine">
-            {week.map(k => {
-              const d = fromKey(k), on = k === selected, n = groupItems(days.get(k) || []).length
-              return (
-                <Pressable key={k} onPress={() => { Haptics.selectionAsync().catch(() => {}); setSelected(k) }} accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  accessibilityLabel={`${longDay(k)}, ${n ? `${n} vidéo${n > 1 ? 's' : ''}` : 'rien'}${k === today ? ', aujourd’hui' : ''}`}
-                  style={{ flex: 1, minHeight: 58, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', gap: 1,
-                    backgroundColor: on ? c.ink : 'transparent', borderWidth: k === today && !on ? 1.5 : 0, borderColor: c.primary }}>
-                  <Txt size={12} color={on ? c.onInk : c.muted}>{d.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')}</Txt>
-                  <Txt bold size={17} color={on ? c.onInk : c.text}>{d.getDate()}</Txt>
-                  <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: n ? (on ? c.onInk : c.primary) : 'transparent' }} />
-                </Pressable>
-              )
-            })}
-          </View>
+          <WeekStrip touchRef={onStrip} selected={selected} today={today} counts={k => groupItems(days.get(k) || []).length}
+            onSelect={k => { Haptics.selectionAsync().catch(() => {}); setSelected(k) }} />
           <Row style={{ justifyContent: 'space-between' }}>
             <View style={{ flex: 1, gap: 2 }}>
               <Txt bold size={18} accessibilityRole="header">{title}</Txt>
@@ -154,16 +146,13 @@ export default function Planning() {
   const empty = search
     ? (found.loading && !found.data ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View> : undefined)
     : !cal.data && cal.loading ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View>
-    : kind !== 'all' ? (
-      <Empty title={kind === 'done' ? 'Aucune vidéo publiée ce jour-là' : 'Rien de programmé ce jour-là'} icon="search"
-        action={<Button kind="secondary" title="Tout afficher" onPress={() => setKind('all')} />}>
-        Le filtre « {kind === 'done' ? 'Publié' : 'Programmé'} » est actif.
-      </Empty>
-    ) : !isPast && canEdit && summary.planned + summary.done === 0 ? <ExampleWeek canEdit={canEdit} /> : (
+    : !isPast && canEdit && summary.planned + summary.done === 0 ? <ExampleWeek canEdit={canEdit} /> : (
+      <View style={{ flex: 1, minHeight: 260, justifyContent: 'center', borderRadius: radius.lg, borderWidth: 1, borderStyle: 'dashed', borderColor: c.border }}>
       <Empty title={isPast ? 'Aucune publication ce jour-là' : 'Rien de prévu ce jour-là'} icon="calendar"
         action={!isPast && canEdit ? <Button kind="primary" icon="plus" title="Programmer une vidéo" onPress={() => router.push('/new')} /> : undefined}>
         {isPast ? 'Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.' : 'Programmez une vidéo : elle partira toute seule à l’heure choisie, sur chaque compte.'}
       </Empty>
+      </View>
     )
 
   return (
@@ -179,23 +168,8 @@ export default function Planning() {
             : <PlanRow g={r.g} group={groupOf(r.g.items, groups)} onPress={() => open(r.g)} />}
           ListHeaderComponent={header}
           ListEmptyComponent={empty}
-          ListFooterComponent={!search ? (
-            <View style={{ gap: space.md, paddingTop: space.md }}>
-              <Row style={{ justifyContent: 'space-between' }}>
-                <Button small kind="ghost" icon="left" title="Jour précédent" onPress={() => goDay(-1)} />
-                <Pressable onPress={() => goDay(1)} accessibilityRole="button" accessibilityLabel="Jour suivant"
-                  style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12 }}>
-                  <Txt bold size={14} color={c.primary}>Jour suivant</Txt><Icon name="right" size={18} color={c.primary} />
-                </Pressable>
-              </Row>
-              <Txt size={12} faint center>
-                Glisser à gauche ou à droite pour changer de jour · tirer vers le bas pour actualiser.{'\n'}
-                Plein : publiée · pointillé : programmée · orange : brouillon TikTok · rouge : échec.
-              </Txt>
-            </View>
-          ) : undefined}
           ItemSeparatorComponent={() => <View style={{ height: space.sm }} />}
-          contentContainerStyle={{ padding: space.lg, paddingBottom: 48, width: '100%', maxWidth: 820, alignSelf: 'center' }}
+          contentContainerStyle={{ flexGrow: 1, padding: space.lg, paddingBottom: 48, width: '100%', maxWidth: 820, alignSelf: 'center' }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           refreshControl={<RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={c.muted} />}
@@ -209,3 +183,48 @@ export default function Planning() {
   )
 }
 
+
+/** Bande des jours : une page par semaine, qui glisse et se cale (comme un carrousel de photos). */
+function WeekStrip({ touchRef, selected, today, counts, onSelect }: {
+  touchRef: { current: boolean }; selected: string; today: string; counts: (k: string) => number; onSelect: (k: string) => void
+}) {
+  const { c } = useTheme()
+  const { width: win } = useWindowDimensions()
+  const [w, setW] = useState(Math.min(win, 820) - space.lg * 2)
+  const ref = useRef<ScrollViewInstance>(null)
+  const start = weekKeys(selected)[0]
+  // Trois pages : semaine d'avant, semaine choisie, semaine d'après. On revient au centre après chaque glissé.
+  const pages = [shiftKey(start, -7), start, shiftKey(start, 7)]
+  useEffect(() => { ref.current?.scrollTo({ x: w, animated: false }) }, [start, w])
+  const onEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const i = Math.round(e.nativeEvent.contentOffset.x / w)
+    if (i === 1) return
+    const day = (new Date(fromKey(selected)).getDay() + 6) % 7
+    onSelect(shiftKey(pages[i], day))
+  }
+  return (
+    <View onLayout={e => setW(e.nativeEvent.layout.width)} accessibilityLabel="Jours de la semaine"
+      onTouchStart={() => { touchRef.current = true }}>
+      <ScrollView ref={ref} horizontal pagingEnabled showsHorizontalScrollIndicator={false} decelerationRate="fast"
+        contentOffset={{ x: w, y: 0 }} onMomentumScrollEnd={onEnd}>
+        {pages.map(p => (
+          <View key={p} style={{ width: w, flexDirection: 'row', gap: 4 }}>
+            {weekKeys(p).map(k => {
+              const d = fromKey(k), on = k === selected, n = counts(k)
+              return (
+                <Pressable key={k} onPress={() => onSelect(k)} accessibilityRole="button" accessibilityState={{ selected: on }}
+                  accessibilityLabel={`${longDay(k)}, ${n ? `${n} vidéo${n > 1 ? 's' : ''}` : 'rien'}${k === today ? ', aujourd’hui' : ''}`}
+                  style={{ flex: 1, minHeight: 58, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', gap: 1,
+                    backgroundColor: on ? c.ink : 'transparent', borderWidth: k === today && !on ? 1.5 : 0, borderColor: c.primary }}>
+                  <Txt size={12} color={on ? c.onInk : c.muted}>{d.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')}</Txt>
+                  <Txt bold size={17} color={on ? c.onInk : c.text}>{d.getDate()}</Txt>
+                  <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: n ? (on ? c.onInk : c.primary) : 'transparent' }} />
+                </Pressable>
+              )
+            })}
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  )
+}

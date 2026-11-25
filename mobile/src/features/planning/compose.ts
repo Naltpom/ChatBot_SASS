@@ -67,16 +67,25 @@ export interface ComposeState {
   times: Record<string, Date | undefined>
 }
 
+type Fmt = (n: number) => string
+
 /** Problèmes bloquants, en général puis par compte. */
-export function problems(s: ComposeState, config: Config | null, now = Date.now(), fmtSize: (b: number) => string = b => `${b} o`,
-  fmtDuration: (sec: number) => string = sec => `${sec} s`): string[] {
-  const out: string[] = []
-  if (!s.hasVideo) out.push('Choisissez une vidéo.')
-  if (!s.title.trim()) out.push('Donnez un titre à la publication.')
-  if (!s.chosen.length) out.push('Choisissez au moins un compte.')
-  if (postOrg(s.chosen, null).mixed) out.push('Choisissez des comptes d’un même propriétaire (une publication par propriétaire).')
-  if (s.size != null && config && s.size > config.max_upload_bytes) out.push(`Vidéo trop volumineuse (${fmtSize(config.max_upload_bytes)} au plus).`)
-  if (s.when === 'at' && s.sameTime && s.at.getTime() < now - 60000) out.push("L'heure choisie est déjà passée.")
+export function problems(s: ComposeState, config: Config | null, now = Date.now(), fmtSize: Fmt = b => `${b} o`,
+  fmtDuration: Fmt = sec => `${sec} s`): string[] {
+  const p = stepProblems(s, config, now, fmtSize, fmtDuration)
+  return [...p.content.slice(0, 2), ...p.targets.slice(0, 2), ...p.content.slice(2), ...p.targets.slice(2), ...p.options]
+}
+
+/** Problèmes rangés par étape du parcours : 1 contenu, 2 comptes et heure, 3 réglages par réseau. */
+export function stepProblems(s: ComposeState, config: Config | null, now = Date.now(), fmtSize: Fmt = b => `${b} o`,
+  fmtDuration: Fmt = sec => `${sec} s`): { content: string[]; targets: string[]; options: string[] } {
+  const content: string[] = [], targets: string[] = [], out: string[] = []
+  if (!s.hasVideo) content.push('Choisissez une vidéo.')
+  if (!s.title.trim()) content.push('Donnez un titre à la publication.')
+  if (!s.chosen.length) targets.push('Choisissez au moins un compte.')
+  if (postOrg(s.chosen, null).mixed) targets.push('Choisissez des comptes d’un même propriétaire (une publication par propriétaire).')
+  if (s.size != null && config && s.size > config.max_upload_bytes) content.push(`Vidéo trop volumineuse (${fmtSize(config.max_upload_bytes)} au plus).`)
+  if (s.when === 'at' && s.sameTime && s.at.getTime() < now - 60000) targets.push("L'heure choisie est déjà passée.")
   for (const a of s.chosen) {
     const k = accKey(a), o = s.opts[k], n = a.name || a.platform
     if (!o) continue
@@ -100,10 +109,42 @@ export function problems(s: ComposeState, config: Config | null, now = Date.now(
       if (parseCollaborators((o as InstaOpts).collaborators).length > 3) out.push(`${n} : 3 collaborateurs au plus.`)
     }
     const own = s.times[k]
-    if (s.when === 'at' && !s.sameTime && own && own.getTime() < now - 60000) out.push(`${n} : l'heure choisie est déjà passée.`)
+    if (s.when === 'at' && !s.sameTime && own && own.getTime() < now - 60000) targets.push(`${n} : l'heure choisie est déjà passée.`)
+  }
+  return { content, targets, options: out }
+}
+
+/** Réglages qu'il faut obligatoirement remplir compte par compte (sinon l'étape 3 est sautée). */
+export function needsOptions(chosen: Account[], opts: Record<string, Opts>): boolean {
+  return chosen.some(a => {
+    const o = opts[accKey(a)]
+    if (!o) return false
+    if (a.platform === 'youtube') return !(o as YouTubeOpts).kids
+    if (a.platform === 'tiktok') return (o as TikTokOpts).mode === 'direct' && !(o as TikTokOpts).privacy
+    return false
+  })
+}
+
+/** Publication déjà prévue (ou publiée) sur un compte, vue depuis le calendrier. */
+export interface Nearby { at: Date; title: string; minutes: number }
+
+/** Pour chaque compte choisi : ses autres publications le même jour, et l'écart en minutes avec l'heure choisie. */
+export function nearbyPosts(items: { kind: string; platform: string; account_id: number; at: string; title?: string | null; status?: string }[],
+  chosen: Pick<Account, 'platform' | 'id'>[], timeOf: (k: string) => Date): Record<string, Nearby[]> {
+  const out: Record<string, Nearby[]> = {}
+  for (const a of chosen) {
+    const k = accKey(a), t = timeOf(k)
+    out[k] = items
+      .filter(i => i.platform === a.platform && i.account_id === a.id && i.status !== 'failed' && i.status !== 'cancelled')
+      .map(i => ({ at: new Date(i.at), title: i.title || 'Sans titre', minutes: Math.round(Math.abs(new Date(i.at).getTime() - t.getTime()) / 60000) }))
+      .filter(x => x.at.toDateString() === t.toDateString())
+      .sort((x, y) => x.at.getTime() - y.at.getTime())
   }
   return out
 }
+
+/** Comptes qui auront une autre publication à moins d'une heure de celle-ci. */
+export const tooClose = (near: Record<string, Nearby[]>) => Object.keys(near).filter(k => near[k].some(x => x.minutes < 60))
 
 /** Une cible de POST /posts. */
 export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 'at' | 'sameTime' | 'times'>) {

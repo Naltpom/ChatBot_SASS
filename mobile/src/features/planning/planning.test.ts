@@ -6,7 +6,7 @@ import {
 } from './calendar.ts'
 import { diffsOf, editableText, initialOpen, postItems, postWindow, splitCommon, tiktokLinkOk } from './sheet.ts'
 import {
-  buildBody, buildTarget, postOrg, unavailable, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
+  buildBody, buildTarget, postOrg, stepProblems, needsOptions, nearbyPosts, tooClose, unavailable, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
   type ComposeState, type TikTokOpts, type YouTubeOpts,
 } from './compose.ts'
 
@@ -193,4 +193,27 @@ test('publication : espace des comptes choisis, comptes en lecture seule', () =>
   assert.deepEqual(postOrg([], 7), { org: 7, mixed: false })
   assert.equal(unavailable({ can_publish: true, needs_reconnect: false, role: 'viewer' }), 'Lecture seule')
   assert.equal(unavailable({ can_publish: true, needs_reconnect: false, role: 'editor' }), null)
+})
+
+test('compose : problèmes par étape, réglages obligatoires, publications proches', () => {
+  const now = Date.parse('2026-05-01T10:00:00Z')
+  const yt = { platform: 'youtube', id: 2, name: 'YT', can_publish: true } as any
+  const base = { hasVideo: false, size: null, duration: null, title: '', chosen: [yt], opts: { 'youtube:2': defaults(yt) }, creators: {},
+    when: 'at' as const, at: new Date(now - 3600e3), sameTime: true, times: {} }
+  const p = stepProblems(base, null, now)
+  assert.deepEqual(p.content, ['Choisissez une vidéo.', 'Donnez un titre à la publication.'])
+  assert.deepEqual(p.targets, ["L'heure choisie est déjà passée."])
+  assert.equal(p.options.length, 1)
+  assert.equal(needsOptions([yt], { 'youtube:2': defaults(yt) }), true)
+  assert.equal(needsOptions([yt], { 'youtube:2': { ...defaults(yt), kids: 'no' } as any }), false)
+  const at = new Date('2026-05-01T18:00:00')
+  const items = [
+    { kind: 'target', platform: 'youtube', account_id: 2, at: new Date('2026-05-01T18:40:00').toISOString(), title: 'A', status: 'scheduled' },
+    { kind: 'target', platform: 'youtube', account_id: 2, at: new Date('2026-05-01T09:00:00').toISOString(), title: 'B', status: 'scheduled' },
+    { kind: 'target', platform: 'youtube', account_id: 2, at: new Date('2026-05-02T18:10:00').toISOString(), title: 'C', status: 'scheduled' },
+    { kind: 'target', platform: 'youtube', account_id: 3, at: new Date('2026-05-01T18:10:00').toISOString(), title: 'D', status: 'scheduled' },
+  ]
+  const near = nearbyPosts(items, [yt], () => at)
+  assert.deepEqual(near['youtube:2'].map(x => [x.title, x.minutes]), [['B', 540], ['A', 40]])
+  assert.deepEqual(tooClose(near), ['youtube:2'])
 })
