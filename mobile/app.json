@@ -1,0 +1,176 @@
+{
+  "expo": {
+    "name": "Chapote CM",
+    "slug": "chapote-cm",
+    "version": "1.0.0",
+    "scheme": "chapotecm",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#FAF8F5",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "fr.chapote.cm",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Choisir une vidéo de la galerie à publier.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "fr.chapote.cm",
+      "adaptiveIcon": {
+        "backgroundColor": "#0071e3",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "chapote.fr",
+              "pathPrefix": "/reset-password"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/tiktok/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/youtube/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/instagram/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/drive/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "chapote.fr",
+              "pathPrefix": "/tiktok/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "chapote.fr",
+              "pathPrefix": "/youtube/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "cm.chapote.fr",
+              "pathPrefix": "/api/cm/join"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "versionCode": 2
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-video",
+      "expo-image",
+      "@react-native-community/datetimepicker",
+      "expo-localization",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choisir une vidéo de la galerie à publier.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#C93F17"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 120,
+          "backgroundColor": "#FAF8F5",
+          "dark": {
+            "backgroundColor": "#0B0A09"
+          }
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.55021064822-c4j1dhecm58ajbbpq2o3gt0s3h66rajc"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Déverrouiller Chapote CM avec Face ID."
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": [
+            "video/*"
+          ],
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsMovieWithMaxCount": 1
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "apiUrl": "https://cm.chapote.fr",
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "8c39edcf-d3e1-4d15-a54e-23a3e8ebcdfd"
+      },
+      "googleWebClientId": "55021064822-niokeuhk5nmejmf89d0kf6e8vo20f7g9.apps.googleusercontent.com",
+      "googleIosClientId": "55021064822-c4j1dhecm58ajbbpq2o3gt0s3h66rajc.apps.googleusercontent.com"
+    },
+    "owner": "naltpom",
+    "updates": {
+      "url": "https://u.expo.dev/8c39edcf-d3e1-4d15-a54e-23a3e8ebcdfd"
+    }
+  }
+}

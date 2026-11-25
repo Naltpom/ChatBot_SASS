@@ -1,0 +1,11 @@
+node_modules/
+.expo/
+dist/
+web-build/
+ios/
+android/
+*.log
+.env*
+qr-expo-go.png
+qr-*.png
+google-services.json
