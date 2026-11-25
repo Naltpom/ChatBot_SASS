@@ -6,7 +6,7 @@
 - `CmPushEvent` : une notification déjà envoyée (vidéo publiée, échec, brouillon, commentaire) pour
   ne jamais l'envoyer deux fois, quel que soit le nombre de workers.
 """
-from sqlalchemy import JSON, Column, Date, DateTime, ForeignKey, Index, Integer, PrimaryKeyConstraint, String
+from sqlalchemy import JSON, Column, Date, DateTime, ForeignKey, Index, Integer, PrimaryKeyConstraint, String, Text
 
 from src.core.database import Base
 from src.core.time import utcnow
@@ -82,3 +82,16 @@ class CmAppOpen(Base):
 
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     day = Column(Date, nullable=False)
+
+
+class CmFeedback(Base):
+    """Réponse à une question courte posée dans l'app au moment d'un abandon (ex. « Qu'est-ce qui vous a arrêté ? »
+    en quittant une nouvelle publication sans la programmer)."""
+    __tablename__ = "cm_feedback"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    context = Column(String(40), nullable=False)       # ex. new_post_abandon
+    reason = Column(String(40), nullable=True)          # choix proposé
+    text = Column(Text, nullable=True)                  # « Autre » : texte libre (500 caractères au plus)
+    created_at = Column(DateTime, default=utcnow, nullable=False)

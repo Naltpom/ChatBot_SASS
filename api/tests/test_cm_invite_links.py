@@ -85,3 +85,22 @@ async def test_app_opens_and_metrics(pg_session, cmenv):
         assert (await c.as_(a).get("/api/cm/mobile/metrics")).status_code == 403
         m = (await c.as_(admin).get("/api/cm/mobile/metrics")).json()["weeks"]
         assert sum(w["signed_up"] for w in m) == 1 and sum(w["d3"] for w in m) == 1 and sum(w["d1"] for w in m) == 0
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_feedback_on_abandon(pg_session, cmenv):
+    a = await _user(pg_session, "a@t.dev")
+    admin = await _user(pg_session, "root@t.dev")
+    admin.is_superadmin = True
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        assert (await c.http.post("/api/cm/mobile/feedback", json={"context": "new_post_abandon", "reason": "when"})).status_code == 401
+        h = c.as_(a)
+        assert (await h.post("/api/cm/mobile/feedback", json={"context": "autre", "reason": "when"})).status_code == 400
+        assert (await h.post("/api/cm/mobile/feedback", json={"context": "new_post_abandon"})).status_code == 400
+        assert (await h.post("/api/cm/mobile/feedback", json={"context": "new_post_abandon", "reason": "when"})).status_code == 200
+        assert (await h.post("/api/cm/mobile/feedback", json={"context": "new_post_abandon", "reason": "other", "text": " pas le temps "})).status_code == 200
+        assert (await c.as_(a).get("/api/cm/mobile/feedback")).status_code == 403
+        rows = (await c.as_(admin).get("/api/cm/mobile/feedback")).json()
+        assert [(r["reason"], r["text"]) for r in rows] == [("other", "pas le temps"), ("when", None)]
