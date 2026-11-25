@@ -39,7 +39,7 @@ export default function TabsLayout() {
         ),
       }} />
       <Tabs.Screen name="library" options={{ title: 'Bibliothèque', tabBarIcon: icon('folder') }} />
-      <Tabs.Screen name="assistant" options={{ title: 'Assistant', tabBarIcon: icon('comment'), headerTitle: 'Assistant', headerRight: undefined,
+      <Tabs.Screen name="assistant" options={{ title: 'Assistant', tabBarIcon: icon('comment'), headerShown: false,
         href: assistantAvailable ? undefined : null }} />
     </Tabs>
   )
