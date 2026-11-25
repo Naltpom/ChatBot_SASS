@@ -195,17 +195,20 @@ export function Skeleton({ h = 72, n = 1 }: { h?: number; n?: number }) {
   return <>{Array.from({ length: n }, (_, i) => <View key={i} style={{ height: h, borderRadius: radius.lg, backgroundColor: c.surface2 }} />)}</>
 }
 
-export function Empty({ title, icon = 'calendar', children, action }: { title: string; icon?: IconName; children?: ReactNode; action?: ReactNode }) {
+export function Empty({ title, icon = 'calendar', children, action, bare }: { title: string; icon?: IconName; children?: ReactNode; action?: ReactNode
+  /** Sans carte : posé sur le fond (dans un cadre en pointillés, par exemple). */
+  bare?: boolean }) {
   const { c } = useTheme()
+  const Box = bare ? View : Card
   return (
-    <Card style={{ alignItems: 'center', paddingVertical: 28 }}>
+    <Box style={{ alignItems: 'center', paddingVertical: 28, paddingHorizontal: bare ? space.lg : undefined, gap: bare ? space.md : undefined }}>
       <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: c.surface2, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name={icon} size={24} color={c.muted} />
       </View>
       <Txt bold size={17} center>{title}</Txt>
       {typeof children === 'string' ? <Txt muted center small>{children}</Txt> : children}
       {action}
-    </Card>
+    </Box>
   )
 }
 

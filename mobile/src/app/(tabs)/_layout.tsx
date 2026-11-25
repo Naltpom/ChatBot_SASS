@@ -6,6 +6,7 @@ import { ScopeTitle, HeaderActions } from '../../ui/ScopeBar'
 import { Icon, type IconName } from '../../ui/kit'
 import { useTheme } from '../../ui/theme'
 import { useRole } from '../../lib/session'
+import { assistantAvailable } from '../../lib/assistant'
 
 const icon = (name: IconName) => ({ color }: { color: unknown }) => <Icon name={name} size={24} color={String(color)} />
 
@@ -24,8 +25,9 @@ export default function TabsLayout() {
     }}>
       <Tabs.Screen name="index" options={{ title: 'Planning', tabBarIcon: icon('calendar') }} />
       <Tabs.Screen name="comments" options={{ title: 'Commentaires', tabBarIcon: icon('comment'), href: FEATURES.comments ? undefined : null }} />
+      <Tabs.Screen name="stats" options={{ title: 'Stats', tabBarIcon: icon('chart') }} />
       <Tabs.Screen name="publish" options={{
-        title: 'Publier', tabBarAccessibilityLabel: 'Nouvelle publication',
+        title: 'Planifier', tabBarAccessibilityLabel: 'Nouvelle publication',
         // Lecture seule : pas de bouton « + » (le rôle vient de l'espace affiché).
         tabBarButton: () => !canEdit ? null : (
           <Pressable onPress={() => router.push('/new')} accessibilityRole="button" accessibilityLabel="Nouvelle publication"
@@ -36,8 +38,9 @@ export default function TabsLayout() {
           </Pressable>
         ),
       }} />
-      <Tabs.Screen name="stats" options={{ title: 'Stats', tabBarIcon: icon('chart') }} />
       <Tabs.Screen name="library" options={{ title: 'Bibliothèque', tabBarIcon: icon('folder') }} />
+      <Tabs.Screen name="assistant" options={{ title: 'Assistant', tabBarIcon: icon('comment'), headerTitle: 'Assistant', headerRight: undefined,
+        href: assistantAvailable ? undefined : null }} />
     </Tabs>
   )
 }

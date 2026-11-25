@@ -4,7 +4,7 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native'
+import { Animated, Easing, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import { getCalendar, PLATFORM_LABEL, PLATFORMS, type Platform } from '../../lib/api'
 import { short } from '../../lib/format'
@@ -74,9 +74,33 @@ export default function Planning() {
   // Un glissé commencé sur la bande des semaines fait défiler les semaines, pas les jours.
   const onStrip = useRef(false)
   const goDay = (n: number) => { Haptics.selectionAsync().catch(() => {}); setSelected(k => shiftKey(k, n)) }
+  // Changement de jour en glissant : les publications du jour tournent comme la face d'un octogone
+  // (elles suivent le doigt, la face part de côté, la suivante arrive en tournant).
+  const { width } = useWindowDimensions()
+  const turn = useRef(new Animated.Value(0)).current           // -1 … 1 : une face (45°)
+  const radiusX = (Math.min(width, 820) / 2) / Math.tan(Math.PI / 8) // distance du centre de l'octogone
+  const face = useMemo(() => ({
+    opacity: turn.interpolate({ inputRange: [-1, 0, 1], outputRange: [0.35, 1, 0.35] }),
+    transform: [
+      { perspective: 1400 },
+      { translateX: turn.interpolate({ inputRange: [-1, -0.5, 0, 0.5, 1], outputRange: [-1, -0.5, 0, 0.5, 1].map(t => radiusX * Math.sin(t * Math.PI / 4)) }) },
+      { rotateY: turn.interpolate({ inputRange: [-1, 1], outputRange: ['-45deg', '45deg'] }) },
+    ],
+  }), [turn, radiusX])
+  const spin = (dir: -1 | 1) => {
+    Animated.timing(turn, { toValue: dir, duration: 170, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(() => {
+      goDay(dir < 0 ? 1 : -1)
+      turn.setValue(-dir)
+      Animated.spring(turn, { toValue: 0, damping: 18, stiffness: 180, mass: 0.8, useNativeDriver: true }).start()
+    })
+  }
   const pan = usePanGesture({
     activeOffsetX: [-24, 24], failOffsetY: [-14, 14], runOnJS: true,
-    onDeactivate: e => { if (!e.canceled && !onStrip.current && Math.abs(e.translationX) > 60) goDay(e.translationX < 0 ? 1 : -1) },
+    onUpdate: e => { if (!onStrip.current) turn.setValue(Math.max(-1, Math.min(1, e.translationX / (width * 0.9)))) },
+    onDeactivate: e => {
+      if (!e.canceled && !onStrip.current && Math.abs(e.translationX) > 60) spin(e.translationX < 0 ? -1 : 1)
+      else Animated.spring(turn, { toValue: 0, damping: 18, stiffness: 200, useNativeDriver: true }).start()
+    },
     onFinalize: () => { onStrip.current = false },
   })
   const open = (g: PlanGroup) => {
@@ -147,12 +171,12 @@ export default function Planning() {
     ? (found.loading && !found.data ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View> : undefined)
     : !cal.data && cal.loading ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View>
     : !isPast && canEdit && summary.planned + summary.done === 0 ? <ExampleWeek canEdit={canEdit} /> : (
-      <View style={{ flex: 1, minHeight: 260, justifyContent: 'center', borderRadius: radius.lg, borderWidth: 1, borderStyle: 'dashed', borderColor: c.border }}>
-      <Empty title={isPast ? 'Aucune publication ce jour-là' : 'Rien de prévu ce jour-là'} icon="calendar"
+      <Animated.View style={[{ flex: 1, minHeight: 260, justifyContent: 'center', borderRadius: radius.lg, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.borderStrong }, face]}>
+      <Empty bare title={isPast ? 'Aucune publication ce jour-là' : 'Rien de prévu ce jour-là'} icon="calendar"
         action={!isPast && canEdit ? <Button kind="primary" icon="plus" title="Planifier une vidéo" onPress={() => router.push('/new')} /> : undefined}>
         {isPast ? 'Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.' : 'Planifiez une vidéo : elle partira toute seule à l’heure choisie, sur chaque compte.'}
       </Empty>
-      </View>
+      </Animated.View>
     )
 
   return (
@@ -165,7 +189,8 @@ export default function Planning() {
             ? <Txt bold size={15} style={{ marginTop: space.sm }} accessibilityRole="header">
                 {fromKey(r.day).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
               </Txt>
-            : <PlanRow g={r.g} group={groupOf(r.g.items, groups)} onPress={() => open(r.g)} />}
+            : search ? <PlanRow g={r.g} group={groupOf(r.g.items, groups)} onPress={() => open(r.g)} />
+            : <Animated.View style={face}><PlanRow g={r.g} group={groupOf(r.g.items, groups)} onPress={() => open(r.g)} /></Animated.View>}
           ListHeaderComponent={header}
           ListEmptyComponent={empty}
           ItemSeparatorComponent={() => <View style={{ height: space.sm }} />}
