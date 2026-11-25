@@ -63,8 +63,9 @@ async def stats_summary(ctx: Context, period: Period = "7d", account: Alias = No
 async def schedule(ctx: Context,
                    when: Annotated[str, Field(description="upcoming, published ou failed.")] = "upcoming",
                    days: Annotated[int, Field(ge=1, le=31, description="Nombre de jours (1 à 31).")] = 7,
-                   account: Alias = None, group: GroupAlias = None) -> str:
-    return await _run(ctx, "schedule", {"when": when, "days": days, "account": account, "group": group})
+                   account: Alias = None, group: GroupAlias = None,
+                   day: Annotated[Optional[str], Field(description="today, yesterday, tomorrow ou AAAA-MM-JJ (heure de Paris).")] = None) -> str:
+    return await _run(ctx, "schedule", {"when": when, "days": days, "account": account, "group": group, "day": day})
 
 
 @mcp.tool(annotations=READ, description=cm_assistant.TOOLS["top_videos"]["description"])

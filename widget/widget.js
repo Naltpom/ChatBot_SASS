@@ -75,6 +75,9 @@
     theme: safeEnum(script.getAttribute("data-theme"), ["light", "dark"], ""),
   };
   const OPEN_ON_LOAD = script.getAttribute("data-open") === "true";
+  // data-header="false" : sans bandeau d'en-tête (nom, statut), quand la page hôte affiche déjà
+  // son propre titre (ex. onglet « Assistant » d'une app mobile). Seulement en mode intégré (iframe).
+  const HIDE_HEADER = INLINE && script.getAttribute("data-header") === "false";
   // data-url-mode="path" : n'envoie que l'origine + le chemin de la page (jamais les
   // paramètres ni le fragment, qui peuvent porter des identifiants ou des codes de
   // connexion). Absent : adresse complète (comportement historique).
@@ -814,6 +817,7 @@
       x.addEventListener("click", toggle);
       head.appendChild(x);
     }
+    if (HIDE_HEADER) head.style.display = "none";
     ui.panel.appendChild(head);
 
     ui.msgs = el("div", "kc-msgs");

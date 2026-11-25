@@ -379,3 +379,34 @@ async def test_tool_loop_turns_and_no_interim_text(monkeypatch):
     finally:
         mcp_client.user_token.reset(ctx)
     assert Adapter.calls == MAX_TOOL_TURNS_DATA and res.content == TOOL_EXHAUSTED_DATA_MESSAGE
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_schedule_calendar_day_paris(pg_session, assistant, tiktok):
+    """« Combien en échec hier ? » : le jour calendaire (heure de Paris), pas les dernières 24 h."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    a = await _user(pg_session, "jour@t.dev")
+    a1 = await _account(pg_session, owner=a, open_id="oid-jour", display_name="jour.secret")
+    paris = ZoneInfo("Europe/Paris")
+    yesterday = (datetime.now(paris) - timedelta(days=1)).date()
+    for hour in (0, 1, 8, 15, 23):           # 5 échecs répartis sur toute la journée d'hier
+        local = datetime(yesterday.year, yesterday.month, yesterday.day, hour, 30, tzinfo=paris)
+        p = CmPost(owner_user_id=a.id, user_id=a.id, title="x", video_size=1, status="READY")
+        pg_session.add(p)
+        await pg_session.flush()
+        pg_session.add(CmTarget(post_id=p.id, platform="tiktok", account_id=a1.id, status=T_FAILED, fail_reason="auth",
+                                scheduled_at=local.astimezone(timezone.utc).replace(tzinfo=None)))
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        await _consent(c.as_(a))
+        token = await _token(c.as_(a))
+    out, err = await ca.run_tool(token, "schedule", {"when": "failed", "day": "yesterday"})
+    assert not err and '"nombre":5' in out, out
+    out, _ = await ca.run_tool(token, "schedule", {"when": "failed", "days": 2})   # hier + aujourd'hui
+    assert '"nombre":5' in out
+    out, _ = await ca.run_tool(token, "schedule", {"when": "failed", "day": "today"})
+    assert '"nombre":0' in out
+    out, err = await ca.run_tool(token, "schedule", {"when": "failed", "day": "n'importe quoi"})
+    assert err

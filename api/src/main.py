@@ -235,7 +235,7 @@ async def serve_widget():
 async def widget_frame(key: str, preview_token: str | None = None,
                        parent_origin: str | None = None, design_nonce: str | None = None,
                        color: str | None = None, color_text: str | None = None,
-                       theme: str | None = None):
+                       theme: str | None = None, header: str | None = None):
     """Page hote pour l'integration iframe : le chat s'affiche ouvert, en
     pleine zone. La securite reste identique (origin de l'iframe = l'API,
     toujours accepte ; le referer de la page parente est verifie au handshake
@@ -285,6 +285,9 @@ async def widget_frame(key: str, preview_token: str | None = None,
         look_attr += f' data-color-text="{color_text}"'
     if theme in ("light", "dark"):
         look_attr += f' data-theme="{theme}"'
+    # ?header=0 : sans bandeau d'en-tête (l'app hôte affiche déjà son titre).
+    if header in ("0", "false"):
+        look_attr += ' data-header="false"'
     inline_val = "false" if reskin_attr else "true"
     open_attr = ' data-preview-open="1"' if reskin_attr else ""
     # Mode flottant (éditeur d'apparence) : fond TRANSPARENT pour que l'iframe ne

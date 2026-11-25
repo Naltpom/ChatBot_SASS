@@ -70,12 +70,15 @@ async def test_widget_frame_turnstile_and_look(client):
             "key": "pk_" + "a" * 12, "color": "#C93F17", "color_text": "#ffffff", "theme": "dark"})
         bad = await c.get("/widget-frame", params={
             "key": "pk_" + "a" * 12, "color": '#fff" onload="x', "color_text": "red", "theme": "neon"})
+        nohead = await c.get("/widget-frame", params={"key": "pk_" + "a" * 12, "header": "0"})
+        withhead = await c.get("/widget-frame", params={"key": "pk_" + "a" * 12, "header": "<x>"})
     csp = ok.headers["Content-Security-Policy"]
     assert "frame-src https://challenges.cloudflare.com" in csp
     assert "https://challenges.cloudflare.com" in csp.split("script-src", 1)[1].split(";", 1)[0]
     assert 'data-color="#C93F17"' in ok.text
     assert 'data-color-text="#ffffff"' in ok.text
     assert 'data-theme="dark"' in ok.text
+    assert 'data-header="false"' in nohead.text and "data-header" not in withhead.text
     assert "data-color" not in bad.text and "data-theme" not in bad.text
     assert "onload" not in bad.text
 
