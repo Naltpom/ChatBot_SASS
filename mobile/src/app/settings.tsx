@@ -16,6 +16,7 @@ import { getProfile, patchProfile } from '../lib/api'
 import { Button, Card, Divider, Icon, Label, Msg, Row, Screen, Seg, Txt, Field, type IconName } from '../ui/kit'
 import { PALETTE_PREVIEW, radius, space, useTheme, type Palette, type ThemePref } from '../ui/theme'
 import { Logo } from '../ui/Logo'
+import { currentIcon, iconAvailable, setIcon } from '../lib/app-icon'
 
 interface DeviceRow { id: number; name: string | null; platform: string | null; push: boolean; created_at: string | null; last_used_at: string | null }
 
@@ -29,6 +30,13 @@ const PREF_LABEL: [keyof PushPrefs, string, string][] = [
 
 export default function Settings() {
   const { c, dark, pref, setPref, palette, setPalette } = useTheme()
+  // Icône de l'app : proposée assortie à la couleur choisie (version 4 et plus).
+  const [icon, setIconState] = useState(() => currentIcon())
+  const askIcon = (p: Palette) => Alert.alert(`Icône ${PALETTE_PREVIEW[p].label.toLowerCase()} ?`,
+    'Sur certains téléphones, l’app redémarre pour changer d’icône : vous reviendrez ici. L’icône peut mettre quelques secondes à changer sur l’écran d’accueil.', [
+      { text: 'Non, garder l’icône actuelle', style: 'cancel' },
+      { text: 'Oui, changer', onPress: () => { setIcon(p, '/settings').then(() => { setIconState(p); ok() }).catch(() => {}) } },
+    ])
   const { me, signOut } = useSession()
   const router = useRouter()
   const [push, setPush] = useState<PushState | null>(null)
@@ -159,7 +167,22 @@ export default function Settings() {
             )
           })}
         </Row>
-        <Txt size={12} muted>L’icône de l’app sur l’écran d’accueil reste la même : Android ne permet pas de la changer depuis l’app sans nouvelle version.</Txt>
+        {iconAvailable() && icon && icon !== palette ? (
+          <Pressable onPress={() => askIcon(palette)} accessibilityRole="button"
+            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.md,
+              backgroundColor: c.infoBg, opacity: pressed ? 0.7 : 1 })}>
+            <Logo size={36} bg={c.logo} />
+            <View style={{ flex: 1 }}>
+              <Txt bold color={c.primary}>Changer aussi l’icône de l’app</Txt>
+              <Txt size={12} muted>Pour l’assortir à la couleur {PALETTE_PREVIEW[palette].label.toLowerCase()}.</Txt>
+            </View>
+            <Icon name="right" size={18} color={c.primary} />
+          </Pressable>
+        ) : iconAvailable() && icon ? (
+          <Txt size={12} muted>L’icône de l’app est assortie à la couleur choisie.</Txt>
+        ) : (
+          <Txt size={12} muted>Icône assortie à la couleur : disponible avec la prochaine version de l’app sur le Play Store.</Txt>
+        )}
       </Card>
 
       <Card>

@@ -19,6 +19,7 @@ import { ShareProvider, useSharedVideo } from '../lib/share'
 import { launchUpdateChecked, UpdateBanner, useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
 import { loadFonts } from '../ui/fonts'
+import { takeResume } from '../lib/app-icon'
 
 loadFonts()
 
@@ -56,6 +57,11 @@ function Gate() {
   useEffect(() => {
     if (!ready || !me || !onboarded || segments[0] === 'join') return
     AsyncStorage.getItem('cm.pending-join').then(t => { if (t) router.push({ pathname: '/join', params: { t } }) }).catch(() => {})
+  }, [ready, me?.id, onboarded]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Changement d'icône : si le téléphone a relancé l'app, on revient sur la page où l'on était (Réglages).
+  useEffect(() => {
+    if (!ready || !me || !onboarded) return
+    takeResume().then(path => { if (path) router.push(path as never) })
   }, [ready, me?.id, onboarded]) // eslint-disable-line react-hooks/exhaustive-deps
   // Vidéo partagée depuis la galerie : nouvelle publication avec ce fichier (une fois connecté).
   const shared = useSharedVideo()
