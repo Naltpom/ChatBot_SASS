@@ -13,6 +13,7 @@ import { STATUS, signed } from '../lib/format'
 import { Icon, type IconName } from './Icon'
 import { PlatformLogo } from './PlatformLogo'
 import { GROUP_HEX, radius, space, useTheme } from './theme'
+import { HEADING, useHeadingFont } from './fonts'
 
 export { Icon, PlatformLogo }
 export type { IconName }
@@ -22,17 +23,23 @@ type TxtProps = { children?: ReactNode; style?: StyleProp<TextStyle>; muted?: bo
 
 export function Txt({ children, style, muted, faint, small, bold, size, color, numberOfLines, center, selectable, accessibilityRole, onPress }: TxtProps) {
   const { c } = useTheme()
+  const fonts = useHeadingFont()
+  const fs = size ?? (small ? 13 : 15)
+  // Titres (en-têtes, ou gros texte en gras) : Bricolage Grotesque, interlettrage un peu serré sur les gros titres.
+  const heading = fonts && bold && (accessibilityRole === 'header' ? fs >= 15 : fs >= 20)
   return (
     <Text numberOfLines={numberOfLines} selectable={selectable} accessibilityRole={accessibilityRole ?? (onPress ? 'link' : undefined)} onPress={onPress} maxFontSizeMultiplier={1.6}
-      style={[{ color: color || (muted ? c.muted : faint ? c.faint : c.text), fontSize: size ?? (small ? 13 : 15), lineHeight: Math.round((size ?? (small ? 13 : 15)) * 1.38) },
-        bold && { fontWeight: '600' }, center && { textAlign: 'center' }, style]}>
+      style={[{ color: color || (muted ? c.muted : faint ? c.faint : c.text), fontSize: fs, lineHeight: Math.round(fs * 1.38) },
+        bold && !heading && { fontWeight: '600' },
+        heading && { fontFamily: fs >= 24 ? HEADING.black : HEADING.bold, fontWeight: 'normal', letterSpacing: fs >= 22 ? -0.03 * fs : 0 },
+        center && { textAlign: 'center' }, style]}>
       {children}
     </Text>
   )
 }
 
 export const H1 = ({ children, style }: { children: ReactNode; style?: StyleProp<TextStyle> }) =>
-  <Txt size={26} bold accessibilityRole="header" style={[{ letterSpacing: -0.4 }, style]}>{children}</Txt>
+  <Txt size={26} bold accessibilityRole="header" style={style}>{children}</Txt>
 export const H2 = ({ children, style }: { children: ReactNode; style?: StyleProp<TextStyle> }) =>
   <Txt size={18} bold accessibilityRole="header" style={style}>{children}</Txt>
 export const Label = ({ children, style }: { children: ReactNode; style?: StyleProp<TextStyle> }) => {
@@ -63,9 +70,9 @@ export function Button({ title, onPress, kind = 'secondary', icon, disabled, loa
       accessibilityState={{ disabled: !!off, busy: loading || busy }}
       style={({ pressed }) => [{
         minHeight: small ? 40 : 48, paddingHorizontal: title ? (small ? 12 : 16) : 0, minWidth: title ? undefined : (small ? 40 : 48),
-        borderRadius: radius.md, backgroundColor: bg, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+        borderRadius: radius.md, backgroundColor: kind === 'primary' && pressed && !off ? c.primaryPressed : bg, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
         borderWidth: kind === 'secondary' ? StyleSheet.hairlineWidth * 2 : 0, borderColor: c.borderStrong,
-        opacity: off && !loading && !busy ? 0.45 : pressed ? 0.7 : 1,
+        opacity: off && !loading && !busy ? 0.45 : pressed && kind !== 'primary' ? 0.7 : 1,
       }, flex && { flex: 1 }, style]}>
       {loading || busy ? <ActivityIndicator color={fg} /> : icon ? <Icon name={icon} size={small ? 18 : 20} color={fg} /> : null}
       {title ? <Txt bold color={fg} size={small ? 14 : 15} numberOfLines={1}>{title}</Txt> : null}

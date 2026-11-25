@@ -99,7 +99,7 @@ export default function Planning() {
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.sm }}>
       {flash ? (
-        <Msg kind="ok">{flash}{canEdit ? <Txt bold color={c.primary} onPress={() => router.push('/new')}>{'  '}Programmer la suivante →</Txt> : null}</Msg>
+        <Msg kind="ok">{flash}{canEdit ? <Txt bold color={c.primary} onPress={() => router.push('/new')}>{'  '}Planifier la suivante →</Txt> : null}</Msg>
       ) : null}
       {!search ? <AttentionBar /> : null}
       {!search ? <StartChecklist /> : null}
@@ -149,8 +149,8 @@ export default function Planning() {
     : !isPast && canEdit && summary.planned + summary.done === 0 ? <ExampleWeek canEdit={canEdit} /> : (
       <View style={{ flex: 1, minHeight: 260, justifyContent: 'center', borderRadius: radius.lg, borderWidth: 1, borderStyle: 'dashed', borderColor: c.border }}>
       <Empty title={isPast ? 'Aucune publication ce jour-là' : 'Rien de prévu ce jour-là'} icon="calendar"
-        action={!isPast && canEdit ? <Button kind="primary" icon="plus" title="Programmer une vidéo" onPress={() => router.push('/new')} /> : undefined}>
-        {isPast ? 'Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.' : 'Programmez une vidéo : elle partira toute seule à l’heure choisie, sur chaque compte.'}
+        action={!isPast && canEdit ? <Button kind="primary" icon="plus" title="Planifier une vidéo" onPress={() => router.push('/new')} /> : undefined}>
+        {isPast ? 'Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.' : 'Planifiez une vidéo : elle partira toute seule à l’heure choisie, sur chaque compte.'}
       </Empty>
       </View>
     )

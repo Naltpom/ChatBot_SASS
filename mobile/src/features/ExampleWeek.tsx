@@ -34,7 +34,7 @@ export function ExampleWeek({ canEdit }: { canEdit: boolean }) {
         ))}
       </View>
       <Txt small muted>Chaque vidéo part toute seule à l’heure choisie, sur chaque compte. Vous suivez ici ce qui est publié.</Txt>
-      {canEdit ? <Button kind="primary" icon="plus" title="Programmer ma vraie première vidéo" onPress={() => router.push('/new')} /> : null}
+      {canEdit ? <Button kind="primary" icon="plus" title="Planifier ma vraie première vidéo" onPress={() => router.push('/new')} /> : null}
     </Card>
   )
 }

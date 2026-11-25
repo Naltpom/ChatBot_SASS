@@ -37,7 +37,7 @@ import { Check, DateTimeField, Section } from '../features/planning/ui'
 
 const TIPS = [
   'vous pouvez fermer l’app : l’envoi reprend où il s’est arrêté.',
-  'déposez vos vidéos dans votre dossier Drive : elles arrivent dans la Bibliothèque, prêtes à programmer.',
+  'déposez vos vidéos dans votre dossier Drive : elles arrivent dans la Bibliothèque, prêtes à planifier.',
   'une légende écrite une fois part sur chaque compte ; vous pouvez l’adapter par réseau.',
   'les heures de 18 h à 21 h marchent souvent bien pour les vidéos courtes.',
 ]
@@ -354,7 +354,7 @@ export default function NewPost() {
 
   const go = (to: 1 | 2 | 3) => { Haptics.selectionAsync().catch(() => {}); setStep(to) }
   const pct = Math.round((progress || 0) * 100)
-  const finalTitle = busy ? 'Envoi en cours…' : when === 'now' ? 'Terminer et publier' : 'Terminer et programmer'
+  const finalTitle = busy ? 'Envoi en cours…' : when === 'now' ? 'Terminer et publier' : 'Terminer et planifier'
   const blocking = step === 1 ? sp.content : step === 2 ? [...sp.targets, ...(total === 2 ? sp.options : [])] : sp.options
   const isLast = step === total
   const primary = step === 1
@@ -525,7 +525,7 @@ export default function NewPost() {
             </Section>
 
             <Section title="Quand">
-              <Seg label="Quand" value={when} onChange={v => !busy && setWhen(v)} options={[['at', 'Programmer'], ['now', 'Tout de suite']]} />
+              <Seg label="Quand" value={when} onChange={v => !busy && setWhen(v)} options={[['at', 'Planifier'], ['now', 'Tout de suite']]} />
               {when === 'at' ? (
                 <>
                   {sameTime ? <DateTimeField label="Jour et heure" value={at} onChange={setAt} disabled={busy} minimumDate={new Date()} /> : null}

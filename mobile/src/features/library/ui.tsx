@@ -118,7 +118,7 @@ export function Badge({ label, accent }: { label: string; accent?: boolean }) {
   return (
     <View style={{ position: 'absolute', left: 8, top: 8, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2,
       backgroundColor: accent ? c.accent : 'rgba(0,0,0,0.55)' }}>
-      <Txt size={12} bold color="#fff">{label}</Txt>
+      <Txt size={12} bold color={accent ? c.onPrimary : '#fff'}>{label}</Txt>
     </View>
   )
 }

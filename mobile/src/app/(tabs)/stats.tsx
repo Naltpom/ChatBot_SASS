@@ -163,7 +163,7 @@ export default function Stats() {
 
           {d && !posted ? (
             <Empty title="Vos chiffres arrivent avec la première vidéo" icon="chart"
-              action={<Button kind="primary" icon="plus" title="Programmer une vidéo" onPress={() => router.push('/new')} />}>
+              action={<Button kind="primary" icon="plus" title="Planifier une vidéo" onPress={() => router.push('/new')} />}>
               Ici : les vidéos qui marchent, la part de chaque réseau, les meilleurs moments pour publier. Les chiffres arrivent quelques heures après la publication.
             </Empty>
           ) : null}

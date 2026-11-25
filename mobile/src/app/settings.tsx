@@ -6,6 +6,7 @@ import Constants from 'expo-constants'
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Pressable, Switch, View } from 'react-native'
+import * as Haptics from 'expo-haptics'
 import { call } from '../lib/http'
 import { disablePush, enablePush, getPush, pushUnsupported, setPushPrefs, type PushPrefs, type PushState } from '../lib/push'
 import { fmtAgo } from '../lib/format'
@@ -13,7 +14,8 @@ import { useSession } from '../lib/session'
 import { useLock } from '../lib/lock'
 import { getProfile, patchProfile } from '../lib/api'
 import { Button, Card, Divider, Icon, Label, Msg, Row, Screen, Seg, Txt, Field, type IconName } from '../ui/kit'
-import { radius, space, useTheme, type ThemePref } from '../ui/theme'
+import { PALETTE_PREVIEW, radius, space, useTheme, type Palette, type ThemePref } from '../ui/theme'
+import { Logo } from '../ui/Logo'
 
 interface DeviceRow { id: number; name: string | null; platform: string | null; push: boolean; created_at: string | null; last_used_at: string | null }
 
@@ -26,7 +28,7 @@ const PREF_LABEL: [keyof PushPrefs, string, string][] = [
 ].filter(([k]) => FEATURES.comments || k !== 'comments') as [keyof PushPrefs, string, string][]
 
 export default function Settings() {
-  const { c, pref, setPref } = useTheme()
+  const { c, dark, pref, setPref, palette, setPalette } = useTheme()
   const { me, signOut } = useSession()
   const router = useRouter()
   const [push, setPush] = useState<PushState | null>(null)
@@ -136,6 +138,28 @@ export default function Settings() {
         <Label>Apparence · {themeLabel}</Label>
         <Seg<ThemePref> label="Thème" value={pref} onChange={v => { setPref(v); ok() }}
           options={[['system', 'Comme le téléphone'], ['light', 'Clair'], ['dark', 'Sombre']]} />
+        <Txt small bold muted>Couleur de l’app</Txt>
+        <Row gap={space.sm}>
+          {(Object.keys(PALETTE_PREVIEW) as Palette[]).map(k => {
+            const p = PALETTE_PREVIEW[k], col = dark ? p.dark : p.light, on = palette === k
+            return (
+              <Pressable key={k} onPress={() => { Haptics.selectionAsync().catch(() => {}); setPalette(k); ok() }}
+                accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={`${p.label}${k === 'warm' ? ', par défaut' : ''}`}
+                style={({ pressed }) => ({ flex: 1, gap: space.sm, padding: space.sm, borderRadius: radius.md, backgroundColor: col.bg,
+                  borderWidth: on ? 2 : 1, borderColor: on ? c.primary : c.border, opacity: pressed ? 0.8 : 1 })}>
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  <Logo size={36} bg={col.logo} />
+                  <Txt bold center numberOfLines={1} color={col.text}>{p.label}</Txt>
+                  <Txt size={12} center numberOfLines={1} color={col.muted}>{k === 'warm' ? 'Par défaut' : k === 'ocean' ? 'Comme avant' : 'Nature'}</Txt>
+                </View>
+                <View style={{ height: 28, borderRadius: 8, backgroundColor: col.primary, alignItems: 'center', justifyContent: 'center' }}>
+                  <Txt size={12} bold color={col.onPrimary}>{on ? 'Choisie' : 'Planifier'}</Txt>
+                </View>
+              </Pressable>
+            )
+          })}
+        </Row>
+        <Txt size={12} muted>L’icône de l’app sur l’écran d’accueil reste la même : Android ne permet pas de la changer depuis l’app sans nouvelle version.</Txt>
       </Card>
 
       <Card>
