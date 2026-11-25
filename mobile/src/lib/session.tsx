@@ -43,7 +43,8 @@ interface SessionCtx {
 
 type Capabilities = { can_publish_any: boolean; accounts: Capability[] }
 const Ctx = createContext<SessionCtx | null>(null)
-const SEL_KEY = 'cm.sel'
+// Choix en haut à gauche (espace, groupe, compte) : gardé par personne, jamais repris d'un autre compte.
+const selKey = (userId: number) => `cm.sel.${userId}`
 export const groupToken = (g: { id: number; org_id: number | null }) => g.org_id == null ? `group:${g.id}` : `org:${g.org_id}/group:${g.id}`
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -57,16 +58,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [sel, setSelState] = useState<string[]>(['all'])
   const loaded = useRef(false)
+  const selFor = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
     try {
       if (!loaded.current) {
         loaded.current = true
-        const raw = await AsyncStorage.getItem(SEL_KEY).catch(() => null)
-        try { const v = raw ? JSON.parse(raw) : null; if (Array.isArray(v) && v.length) setSelState(v) } catch { /* ancien format */ }
+        AsyncStorage.removeItem('cm.sel').catch(() => {})       // ancien choix commun à tous les comptes
         if (!(await loadDevice())) { setMe(null); return }
       }
       const m = await getMe()
+      if (selFor.current !== m.id) {
+        // Autre personne (ou premier chargement) : son propre choix, sinon « Tous ».
+        selFor.current = m.id
+        const raw = await AsyncStorage.getItem(selKey(m.id)).catch(() => null)
+        let next = ['all']
+        try { const v = raw ? JSON.parse(raw) : null; if (Array.isArray(v) && v.length) next = v } catch { /* illisible */ }
+        setSelState(next)
+      }
       setMe(m)
       const [c, s] = await Promise.all([getConfig(), getSpaces()])
       setConfig(c)
@@ -88,11 +97,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         getAccounts({ org: null, group: null, sel: ['all'] }).catch(() => [] as Account[]),
       ])
       const all = lists
+      // Espaces pas encore relus (démarrage) : on ne juge pas la sélection, elle sera revue avec la liste.
       setGroups(all)
       setAccounts(a)
       // Sélection qui ne correspond plus à rien (groupe supprimé, partage retiré) : retour à « Tous ».
       setSelState(cur => {
-        const ok = cur.every(t => t === 'all' || t === 'perso' || t.startsWith('org:') && !t.includes('/group:')
+        const ok = cur.every(t => t === 'all' || t === 'perso'
+          || (t.startsWith('org:') && !t.includes('/group:') && (!spaces.length || spaces.some(sp => sp.org_id === Number(t.slice(4)))))
           || all.some(g => groupToken(g) === t) || (t.startsWith('acc:') && a.some(x => `acc:${x.platform}:${x.id}` === t)))
         return ok ? cur : ['all']
       })
@@ -101,7 +112,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { refresh() }, [refresh])
   useEffect(() => { reloadGroups() }, [reloadGroups])
-  useEffect(() => onSignedOut(() => { clearCache(); setMe(null) }), [])
+  // Déconnexion : rien du compte précédent ne doit rester (choix, espaces, groupes, comptes, lectures en mémoire).
+  const forget = useCallback(() => {
+    clearCache(); selFor.current = null
+    setSelState(['all']); setSpaces([]); setGroups([]); setAccounts([]); setCaps(null); setInvitations([])
+    setMe(null)
+  }, [])
+  useEffect(() => onSignedOut(forget), [forget])
   useEffect(() => {
     const sub = AppState.addEventListener('change', st => { if (st === 'active' && me) { refresh() } })
     return () => sub.remove()
@@ -110,7 +127,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const setSel = (v: string[]) => {
     const next = v.length ? v : ['all']
     setSelState(next)
-    AsyncStorage.setItem(SEL_KEY, JSON.stringify(next)).catch(() => {})
+    if (me) AsyncStorage.setItem(selKey(me.id), JSON.stringify(next)).catch(() => {})
   }
   const setOrg = (v: number | null) => setSel([v == null ? 'perso' : `org:${v}`])
   const setGroup = (id: number | null) => {
@@ -118,8 +135,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSel(g ? [groupToken(g)] : ['all'])
   }
   const setAccount = (key: string | null) => setSel(key ? [`acc:${key}`] : ['all'])
-  const signedIn = (m: Me) => { setMe(m); setReady(false); refresh() }
-  const signOut = async () => { await authLogout(); clearCache(); setMe(null) }
+  const signedIn = (m: Me) => { if (selFor.current !== m.id) forget(); setMe(m); setReady(false); refresh() }
+  const signOut = async () => { await authLogout(); forget() }
 
   // Compatibilité avec les écrans : un seul groupe / un seul compte choisi.
   const account = sel.length === 1 && sel[0].startsWith('acc:') ? sel[0].slice(4) : null
@@ -166,8 +183,11 @@ export const clearCache = () => cache.clear()
 /** Charge une ressource liée au périmètre courant ; `reload()` la relit (tirer pour actualiser). */
 export function useLoad<T>(fn: (scope: Scope) => Promise<T>, deps: unknown[] = [], key = '') {
   const { scope, me } = useSession()
-  const k = `${key || fn.toString()}|${JSON.stringify(scope)}|${JSON.stringify(deps)}`
+  // La personne fait partie de la clé : jamais les données d'un autre compte, même en mémoire.
+  const k = `${me?.id ?? 0}|${key || fn.toString()}|${JSON.stringify(scope)}|${JSON.stringify(deps)}`
   const [data, setData] = useState<T | null>(() => (cache.get(k) as T) ?? null)
+  const who = useRef(me?.id)
+  if (who.current !== me?.id) { who.current = me?.id; if (data !== null) setData(null) }
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [tick, setTick] = useState(0)
