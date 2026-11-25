@@ -108,8 +108,11 @@ async def test_feedback_on_abandon(pg_session, cmenv):
 
 @pytest.mark.real_db
 @pytest.mark.asyncio
-async def test_feedback_general(pg_session, cmenv):
-    """« Donner mon avis » : texte libre (2 000 caractères), sans choix proposé."""
+async def test_feedback_general(pg_session, cmenv, monkeypatch):
+    """« Donner mon avis » : texte libre (2 000 caractères), sans choix proposé, copie e-mail aux superadmins."""
+    from src.routers import cm_mobile
+    sent = []
+    monkeypatch.setattr(cm_mobile, "send_account_email", lambda to, subject, body, **kw: sent.append((to, subject, body, kw)))
     a = await _user(pg_session, "a@t.dev")
     admin = await _user(pg_session, "root@t.dev")
     admin.is_superadmin = True
@@ -123,3 +126,7 @@ async def test_feedback_general(pg_session, cmenv):
         assert (await h.post("/api/cm/mobile/feedback", json={"context": "general", "text": long[:1900]})).status_code == 200
         rows = (await c.as_(admin).get("/api/cm/mobile/feedback")).json()
         assert rows[0]["context"] == "general" and len(rows[0]["text"]) > 500
+    assert len(sent) == 1
+    to, subject, body, kw = sent[0]
+    assert to == ["root@t.dev"] and kw["reply_to"] == "a@t.dev"
+    assert "a@t.dev" in body and "Je publie le soir" in body

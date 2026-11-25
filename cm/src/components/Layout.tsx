@@ -4,7 +4,7 @@
 // Mobile : onglets en bas, « Publier » au centre.
 import { StorageGate } from './Storage'
 import { Component, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import FeedbackSheet from './FeedbackSheet'
 import { useSession } from '../session'
 import { getProposalCount, PLATFORM_LABEL, type Account, type Group } from '../api'
@@ -108,7 +108,15 @@ function ScopeBar() {
 function AccountMenu() {
   const { me, appUrl, signOut } = useSession()
   const [open, setOpen] = useState(false)
+  // « Donner mon avis » : depuis ce menu, ou par le lien /avis (page d'accueil, après connexion) → ?avis=1.
+  const { search, pathname } = useLocation()
+  const navigate = useNavigate()
   const [feedback, setFeedback] = useState(false)
+  useEffect(() => { if (new URLSearchParams(search).get('avis') === '1') setFeedback(true) }, [search])
+  const closeFeedback = () => {
+    setFeedback(false)
+    if (new URLSearchParams(search).get('avis') === '1') navigate(pathname, { replace: true })
+  }
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -137,7 +145,7 @@ function AccountMenu() {
           <button type="button" className="menu-item" role="menuitem" onClick={signOut}><Icon name="logout" />Se déconnecter</button>
         </div>
       )}
-      {feedback && <FeedbackSheet onClose={() => setFeedback(false)} />}
+      {feedback && <FeedbackSheet onClose={closeFeedback} />}
     </div>
   )
 }
