@@ -437,3 +437,8 @@ export function inviteToken(text: string): string | null {
 export type AbandonReason = 'no_video' | 'too_complex' | 'when' | 'accounts' | 'other'
 export const sendFeedback = (reason: AbandonReason, text?: string) =>
   send<{ ok: boolean }>('POST', '/api/cm/mobile/feedback', { context: 'new_post_abandon', reason, text: text || undefined })
+
+// Connexion par empreinte (clé d'accès) : enregistrée depuis Réglages, utilisée à la place du code de double authentification.
+export const passkeyRegisterBegin = () => send<{ options: string }>('POST', '/api/cm/mobile/passkey/register/begin')
+export const passkeyRegisterComplete = (credential: unknown, name: string) =>
+  send<{ ok: boolean; name: string; recovery_codes: string[] | null }>('POST', '/api/cm/mobile/passkey/register/complete', { credential, name })

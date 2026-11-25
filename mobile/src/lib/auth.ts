@@ -105,6 +105,16 @@ export async function sendPasswordLink(email: string): Promise<void> {
   await callPublic('/api/auth/password/forgot', { email }, false)
 }
 
+/** Second facteur par l'empreinte (clé d'accès du téléphone), à la place du code. */
+export async function loginWithPasskey(challenge: string): Promise<Me> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Passkey } = require('react-native-passkey') as typeof import('react-native-passkey')
+  const { options } = await callPublic<{ options: string }>('/api/cm/mobile/passkey/login/begin', { challenge })
+  const credential = await Passkey.get(JSON.parse(options))
+  await callPublic<Me>('/api/cm/mobile/passkey/login/complete', { challenge, credential }, true)
+  return finishCookieLogin()
+}
+
 export async function loginWithCode(challenge: string, code: string, recovery = false): Promise<Me> {
   await callPublic<Me>(recovery ? '/api/auth/2fa/login/recovery' : '/api/auth/2fa/login/totp', { challenge, code }, true)
   return finishCookieLogin()
