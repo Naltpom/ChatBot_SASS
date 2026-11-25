@@ -12,7 +12,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SessionProvider, useSession } from '../lib/session'
 import { autoEnablePush, usePushRouting } from '../lib/push'
-import { LockProvider } from '../lib/lock'
 import { laterAt } from '../features/storage'
 import { IdentityProvider, useIdentity } from '../lib/identity'
 import { ShareProvider, useSharedVideo } from '../lib/share'
@@ -130,12 +129,10 @@ export default function RootLayout() {
         <ThemeProvider>
           <ShareProvider>
             <SessionProvider>
-              <LockProvider>
                 <AppearanceSync />
                 <IdentityProvider>
                   <Gate />
                 </IdentityProvider>
-              </LockProvider>
             </SessionProvider>
           </ShareProvider>
         </ThemeProvider>
