@@ -25,7 +25,7 @@ import { Avatar, Button, Card, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg
 import { Missing, StepProgress } from '../ui/Progress'
 import { radius, space, useTheme } from '../ui/theme'
 import {
-  accKey, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, needsOptions, nextHour,
+  accKey, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, needsOptions, earliestSlot,
   stepProblems, tooClose,
   titleFromFile, YT_PRIVACY, type ComposeState, type CreatorState, type InstaOpts, type Opts, type TikTokOpts, type YouTubeOpts,
 } from '../features/planning/compose'
@@ -33,7 +33,7 @@ import { AccountSheet } from '../features/planning/AccountSheet'
 import { LibrarySheet } from '../features/planning/LibrarySheet'
 import { apiUrl, openLink, useAuthHeaders } from '../features/planning/media'
 import { InstaPanel, TikTokPanel, YouTubePanel } from '../features/planning/Panels'
-import { Check, DateTimeField, Section } from '../features/planning/ui'
+import { Check, DateTimeField, Section, TooSoon, useNow } from '../features/planning/ui'
 
 const TIPS = [
   'vous pouvez fermer l’app : l’envoi reprend où il s’est arrêté.',
@@ -92,7 +92,7 @@ export default function NewPost() {
   const [opts, setOpts] = useState<Record<string, Opts>>({})
   const [creators, setCreators] = useState<Record<string, CreatorState>>({})
   const [when, setWhen] = useState<'now' | 'at'>('at')
-  const [at, setAt] = useState(() => nextHour())
+  const [at, setAt] = useState(() => earliestSlot())
   const [sameTime, setSameTime] = useState(true)
   const [times, setTimes] = useState<Record<string, Date>>({})
   const [cover, setCover] = useState<Cover | null>(null)
@@ -166,7 +166,7 @@ export default function NewPost() {
   }, [title, caption, picked, when, at, sameTime, video, rights, rightsNote, step]) // eslint-disable-line react-hooks/exhaustive-deps
   const clearDraft = () => AsyncStorage.removeItem(draftKey).catch(() => {})
   const restart = () => {
-    clearDraft(); setResumed(false); setTitle(''); setCaption(''); setVideo(null); setPicked([]); setRights(''); setRightsNote(''); setWhen('at'); setAt(nextHour()); setStep(1)
+    clearDraft(); setResumed(false); setTitle(''); setCaption(''); setVideo(null); setPicked([]); setRights(''); setRightsNote(''); setWhen('at'); setAt(earliestSlot()); setStep(1)
   }
 
   const add = (list: Account[]) => {
@@ -265,8 +265,9 @@ export default function NewPost() {
     hasVideo: !!video || !!asset, size: video ? video.size : null, duration: video ? video.duration : asset ? asset.duration_sec : null,
     title, chosen, opts, creators, when, at, sameTime, times,
   }
-  const sp = useMemo(() => stepProblems(state, config, Date.now(), fmtSize, fmtDuration),
-    [video, asset, title, chosen.map(accKey).join(), opts, creators, when, at, sameTime, times, config]) // eslint-disable-line react-hooks/exhaustive-deps
+  const now = useNow()
+  const sp = useMemo(() => stepProblems(state, config, now.getTime(), fmtSize, fmtDuration),
+    [video, asset, title, chosen.map(accKey).join(), opts, creators, when, at, sameTime, times, config, now]) // eslint-disable-line react-hooks/exhaustive-deps
   const problems = [...sp.content, ...sp.targets, ...sp.options]
   const count = captionCount(caption)
   const hasTikTok = chosen.some(a => a.platform === 'tiktok')
@@ -528,11 +529,15 @@ export default function NewPost() {
               <Seg label="Quand" value={when} onChange={v => !busy && setWhen(v)} options={[['at', 'Planifier'], ['now', 'Tout de suite']]} />
               {when === 'at' ? (
                 <>
+                  {sameTime ? <TooSoon at={at} now={now} onNext={setAt} onNow={() => setWhen('now')} /> : null}
                   {sameTime ? <DateTimeField label="Jour et heure" value={at} onChange={setAt} disabled={busy} minimumDate={new Date()} /> : null}
                   {n > 1 ? <Check label="Même heure pour tous les comptes" checked={sameTime} onChange={setSameTime} disabled={busy} /> : null}
                   {!sameTime ? chosen.map(a => (
-                    <DateTimeField key={accKey(a)} label={`${a.name || ''} (${PLATFORM_LABEL[a.platform]})`} value={times[accKey(a)] || at} disabled={busy}
+                    <View key={accKey(a)} style={{ gap: 8 }}>
+                    <TooSoon at={times[accKey(a)] || at} now={now} onNext={d => setTimes(t => ({ ...t, [accKey(a)]: d }))} />
+                    <DateTimeField label={`${a.name || ''} (${PLATFORM_LABEL[a.platform]})`} value={times[accKey(a)] || at} disabled={busy}
                       minimumDate={new Date()} onChange={d => setTimes(t => ({ ...t, [accKey(a)]: d }))} />
+                    </View>
                   )) : null}
                   <Txt size={12} muted>Fuseau : {Intl.DateTimeFormat().resolvedOptions().timeZone}.</Txt>
                 </>
@@ -576,6 +581,8 @@ export default function NewPost() {
 
         {step === 3 ? (
           <>
+            {when === 'at' && sameTime ? <TooSoon at={at} now={now} onNext={setAt} onNow={() => setWhen('now')} /> : null}
+            {when === 'at' && !sameTime && sp.targets.length ? <Msg kind="warn">{sp.targets[0]} Revenez à l’étape précédente pour la changer.</Msg> : null}
             {chosen.map(a => {
               const k = accKey(a), o = opts[k]
               if (!o) return null

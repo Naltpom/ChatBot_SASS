@@ -1,12 +1,13 @@
 // Petits composants du planning et de la nouvelle publication (ligne, pastille, cases, date et heure).
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker'
 import * as Haptics from 'expo-haptics'
-import type { ReactNode } from 'react'
-import { Platform as RNPlatform, Pressable, StyleSheet, View } from 'react-native'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { AppState, Platform as RNPlatform, Pressable, ScrollView, StyleSheet, View, type ScrollViewInstance } from 'react-native'
 import { PLATFORM_LABEL, type CalendarItem, type Group } from '../../lib/api'
 import { fmtTime, short } from '../../lib/format'
 import { Card, Icon, PlatformLogo, Row, Txt, groupHex } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
+import { daySlots, earliestSlot, toSlot } from './compose'
 import { pillOf, rowLabel, rowNote, rowSide, shortTitle, type Pill, type PlanGroup } from './calendar'
 
 const label = (p: CalendarItem['platform']) => PLATFORM_LABEL[p]
@@ -116,40 +117,92 @@ const fmtDay = (d: Date) => d.toLocaleDateString('fr-FR', { weekday: 'short', da
 const fmtHour = (d: Date) => d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
 /** Jour et heure : sélecteurs compacts sur iOS, boîtes de dialogue sur Android. */
-export function DateTimeField({ label: text, value, onChange, disabled, minimumDate }:
+/** Jour + créneau de 15 minutes (00, 15, 30, 45). Aujourd'hui : seulement à partir de 15 minutes après maintenant. */
+export function DateTimeField({ label: text, value, onChange, disabled }:
   { label?: string; value: Date; onChange: (d: Date) => void; disabled?: boolean; minimumDate?: Date }) {
   const { c, dark } = useTheme()
-  if (RNPlatform.OS === 'ios') {
-    return (
-      <View style={{ gap: 6 }}>
-        {text ? <Txt small bold>{text}</Txt> : null}
-        <Row gap={8} style={{ opacity: disabled ? 0.45 : 1 }} >
-          <DateTimePicker value={value} mode="date" display="compact" locale="fr-FR" minimumDate={minimumDate} disabled={disabled}
-            themeVariant={dark ? 'dark' : 'light'} accentColor={c.primary} accessibilityLabel={`${text || 'Date'} : jour`}
-            onValueChange={(_, d) => onChange(merge(value, d, 'date'))} />
-          <DateTimePicker value={value} mode="time" display="compact" locale="fr-FR" minuteInterval={5} disabled={disabled}
-            themeVariant={dark ? 'dark' : 'light'} accentColor={c.primary} accessibilityLabel={`${text || 'Date'} : heure`}
-            onValueChange={(_, d) => onChange(merge(value, d, 'time'))} />
-        </Row>
-      </View>
-    )
-  }
-  const open = (mode: 'date' | 'time') => {
-    if (disabled) return
-    DateTimePickerAndroid.open({ value, mode, is24Hour: true, minimumDate: mode === 'date' ? minimumDate : undefined,
-      onValueChange: (_, d) => onChange(merge(value, d, mode)) })
-  }
-  const btn = (mode: 'date' | 'time', txt: string, icon: 'calendar' | 'clock') => (
-    <Pressable onPress={() => open(mode)} disabled={disabled} accessibilityRole="button" accessibilityLabel={`${mode === 'date' ? 'Jour' : 'Heure'} : ${txt}`}
-      style={({ pressed }) => ({ flex: 1, minHeight: 48, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.borderStrong,
+  const [now, setNow] = useState(() => new Date())
+  // Relu chaque minute : un créneau devenu trop proche disparaît, et la valeur passe au suivant.
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60e3); return () => clearInterval(t) }, [])
+  const first = earliestSlot(now)
+  // Heure devenue trop proche (l'écran est resté ouvert) : on ne la change pas en silence, l'écran prévient (voir TooSoon).
+  const slots = useMemo(() => daySlots(value, now), [value.toDateString(), first.getTime()]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pickDay = (d: Date | undefined) => { if (d) onChange(toSlot(merge(value, d, 'date'), now)) }
+  const ref = useRef<ScrollViewInstance>(null)
+  const idx = slots.findIndex(x => x.getTime() === value.getTime())
+  const CHIP = 64
+  useEffect(() => { if (idx >= 0) ref.current?.scrollTo({ x: Math.max(0, idx * (CHIP + 8) - CHIP), animated: false }) }, [idx, value.toDateString()])
+
+  const day = RNPlatform.OS === 'ios' ? (
+    <DateTimePicker value={value} mode="date" display="compact" locale="fr-FR" minimumDate={first} disabled={disabled}
+      themeVariant={dark ? 'dark' : 'light'} accentColor={c.primary} accessibilityLabel={`${text || 'Date'} : jour`}
+      onValueChange={(_, d) => pickDay(d)} />
+  ) : (
+    <Pressable onPress={() => { if (!disabled) DateTimePickerAndroid.open({ value, mode: 'date', minimumDate: first, onValueChange: (_, d) => pickDay(d) }) }}
+      disabled={disabled} accessibilityRole="button" accessibilityLabel={`Jour : ${fmtDay(value)}`}
+      style={({ pressed }) => ({ alignSelf: 'flex-start', minHeight: 44, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.borderStrong,
         backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 })}>
-      <Icon name={icon} size={18} color={c.muted} /><Txt>{txt}</Txt>
+      <Icon name="calendar" size={18} color={c.muted} /><Txt>{fmtDay(value)}</Txt><Icon name="down" size={16} color={c.muted} />
     </Pressable>
   )
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: 8, opacity: disabled ? 0.45 : 1 }}>
       {text ? <Txt small bold>{text}</Txt> : null}
-      <Row gap={8}>{btn('date', fmtDay(value), 'calendar')}{btn('time', fmtHour(value), 'clock')}</Row>
+      {day}
+      <ScrollView ref={ref} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
+        accessibilityLabel={`${text || 'Heure'} : créneaux de 15 minutes`}>
+        {slots.map(t => {
+          const on = t.getTime() === value.getTime()
+          return (
+            <Pressable key={t.getTime()} disabled={disabled} onPress={() => { Haptics.selectionAsync().catch(() => {}); onChange(t) }}
+              accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={fmtHour(t)}
+              style={({ pressed }) => ({ width: CHIP, minHeight: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center',
+                backgroundColor: on ? c.primary : c.surface, borderWidth: on ? 0 : StyleSheet.hairlineWidth * 2, borderColor: c.borderStrong, opacity: pressed ? 0.7 : 1 })}>
+              <Txt bold={on} color={on ? c.onPrimary : c.text}>{fmtHour(t)}</Txt>
+            </Pressable>
+          )
+        })}
+      </ScrollView>
+      {value.toDateString() === now.toDateString() ? <Txt size={12} muted>Aujourd’hui : au plus tôt {fmtHour(first)} (15 minutes d’avance).</Txt> : null}
+    </View>
+  )
+}
+
+/** Heure actuelle, relue chaque minute et au retour dans l'app. */
+export function useNow(): Date {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30e3)
+    const sub = AppState.addEventListener('change', st => { if (st === 'active') setNow(new Date()) })
+    return () => { clearInterval(t); sub.remove() }
+  }, [])
+  return now
+}
+
+/** Heure prévue passée ou à moins de 15 minutes : prévenir, et proposer le prochain créneau ou de publier tout de suite. */
+export function TooSoon({ at, now, onNext, onNow }: { at: Date; now: Date; onNext: (d: Date) => void; onNow?: () => void }) {
+  const { c } = useTheme()
+  const next = earliestSlot(now)
+  if (at.getTime() >= next.getTime()) return null
+  return (
+    <View accessibilityRole="alert" style={{ gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: c.warnBg, borderWidth: 1, borderColor: c.warn }}>
+      <Txt bold color={c.warn}>Attention : il est {fmtHour(now)}</Txt>
+      <Txt small>
+        L’heure prévue ({fmtHour(at)}{at.toDateString() !== now.toDateString() ? `, ${fmtDay(at)}` : ''}) est {at.getTime() <= now.getTime() ? 'déjà passée' : 'trop proche'} :
+        il faut 15 minutes d’avance au minimum.
+      </Txt>
+      <Row gap={space.sm} wrap>
+        <Pressable onPress={() => onNext(next)} accessibilityRole="button"
+          style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: c.primary, justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}>
+          <Txt small bold color={c.onPrimary}>Planifier à {fmtHour(next)}</Txt>
+        </Pressable>
+        {onNow ? (
+          <Pressable onPress={onNow} accessibilityRole="button"
+            style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.borderStrong, backgroundColor: c.surface, justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
+            <Txt small bold>Publier maintenant</Txt>
+          </Pressable>
+        ) : null}
+      </Row>
     </View>
   )
 }

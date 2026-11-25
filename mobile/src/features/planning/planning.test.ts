@@ -6,7 +6,7 @@ import {
 } from './calendar.ts'
 import { diffsOf, editableText, initialOpen, postItems, postWindow, splitCommon, tiktokLinkOk } from './sheet.ts'
 import {
-  buildBody, buildTarget, postOrg, stepProblems, needsOptions, nearbyPosts, tooClose, unavailable, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
+  buildBody, buildTarget, postOrg, earliestSlot, daySlots, toSlot, stepProblems, needsOptions, nearbyPosts, tooClose, unavailable, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
   type ComposeState, type TikTokOpts, type YouTubeOpts,
 } from './compose.ts'
 
@@ -216,4 +216,19 @@ test('compose : problèmes par étape, réglages obligatoires, publications proc
   const near = nearbyPosts(items, [yt], () => at)
   assert.deepEqual(near['youtube:2'].map(x => [x.title, x.minutes]), [['B', 540], ['A', 40]])
   assert.deepEqual(tooClose(near), ['youtube:2'])
+})
+
+test('créneaux de 15 minutes, au moins 15 minutes après maintenant', () => {
+  const at = (h: number, m: number, s = 0) => new Date(2026, 10, 25, h, m, s)
+  const hm = (d: Date) => `${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+  assert.equal(hm(earliestSlot(at(18, 7))), '25 18:30')
+  assert.equal(hm(earliestSlot(at(18, 15))), '25 18:30')
+  assert.equal(hm(earliestSlot(at(18, 15, 20))), '25 18:45')
+  assert.equal(hm(earliestSlot(at(18, 0))), '25 18:15')
+  assert.equal(hm(earliestSlot(at(23, 50))), '26 0:15')
+  const today = daySlots(at(0, 0), at(22, 10))
+  assert.deepEqual(today.map(hm), ['25 22:30', '25 22:45', '25 23:00', '25 23:15', '25 23:30', '25 23:45'])
+  assert.equal(daySlots(new Date(2026, 10, 26), at(22, 10)).length, 96)
+  assert.equal(hm(toSlot(at(9, 0), at(18, 7))), '25 18:30')
+  assert.equal(hm(toSlot(new Date(2026, 10, 26, 9, 5), at(18, 7))), '26 9:15')
 })
