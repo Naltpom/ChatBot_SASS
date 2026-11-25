@@ -52,7 +52,11 @@ function readLook(): Look {
 const sameLook = (a: Look | null, b: Look) =>
   !!a && a.color === b.color && a.colorText === b.colorText && a.theme === b.theme
 
-type WidgetApi = { open: () => void; close: () => void; setAppearance: (l: Look) => void }
+type WidgetApi = {
+  open: () => void; close: () => void; setAppearance: (l: Look) => void
+  setUserTokenProvider?: (fn: (() => Promise<string | null>) | null) => void
+  setAliases?: (map: Record<string, string> | null) => void
+}
 declare global {
   interface Window { ChapoteWidget?: Record<string, WidgetApi> }
 }
@@ -84,7 +88,7 @@ function injectWidget(openNow: boolean) {
 }
 
 /** Bulle de l'assistant (secondaire). `loadOn="click"` : rien n'est chargé avant le clic. */
-export default function ChapoteAssistant({ loadOn = 'idle' }: { loadOn?: 'idle' | 'click' }) {
+export default function ChapoteAssistant({ loadOn = 'idle', signedIn = false }: { loadOn?: 'idle' | 'click'; signedIn?: boolean }) {
   const active = ENABLED && /^pk_[A-Za-z0-9_-]{10,64}$/.test(BOT_KEY)
   const [look, setLook] = useState<Look | null>(null)
   const [ready, setReady] = useState(false)   // widget.js prêt : sa propre bulle remplace la nôtre
@@ -122,6 +126,26 @@ export default function ChapoteAssistant({ loadOn = 'idle' }: { loadOn?: 'idle' 
       window.removeEventListener('chapote-widget-error', onError)
     }
   }, [active])
+
+  // Mode « mes données » (docs/CM_MCP.md) : connecté, la page fournit au widget un jeton court, demandé à cm
+  // juste avant chaque message (204 sans accord IA actif : le bot reste en mode public), et la table
+  // alias -> vrai nom pour l'affichage. Rien n'est gardé ailleurs qu'en mémoire.
+  useEffect(() => {
+    if (!active || !ready) return
+    const api = widgetApi()
+    if (!api?.setUserTokenProvider) return
+    if (!signedIn) { api.setUserTokenProvider(null); api.setAliases?.(null); return }
+    api.setUserTokenProvider(async () => {
+      try {
+        const r = await fetch('/api/cm/assistant/token', { credentials: 'same-origin', headers: { 'X-Chapote-App': 'cm' } })
+        if (r.status !== 200) { api.setAliases?.(null); return null }
+        const j = await r.json() as { token: string; aliases: Record<string, string> }
+        api.setAliases?.(j.aliases || null)
+        return j.token
+      } catch { return null }
+    })
+    return () => { api.setUserTokenProvider?.(null) }
+  }, [active, ready, signedIn])
 
   // Chargement différé : après le premier affichage complet, quand le navigateur est au repos.
   useEffect(() => {

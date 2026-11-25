@@ -587,6 +587,9 @@ async def cleanup(db: AsyncSession) -> None:
     # Historique ancien.
     await db.execute(delete(CmPost).where(CmPost.created_at < now - HISTORY_RETENTION,
                                           CmPost.media_path.is_(None)))
+    # Assistant Chapote CM : conversations « mes données » au-delà de la durée de conservation.
+    from src.services import cm_assistant
+    await cm_assistant.purge_expired(db)
     await db.commit()
 
 

@@ -312,6 +312,9 @@ async def disconnect_account(account_id: int, db: AsyncSession = Depends(get_db)
     yt.clear_tokens(acc)
     acc.revoked_at = utcnow()
     acc.needs_reconnect = False
+    # Assistant Chapote CM : conversations « mes données » de l'espace supprimées tout de suite.
+    from src.services import cm_assistant
+    await cm_assistant.erase_for_account(db, acc)
     await db.commit()
     return {"ok": True, "warning": warning}
 

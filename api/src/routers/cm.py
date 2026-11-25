@@ -1140,6 +1140,9 @@ async def remove_instagram(account_id: int, org_id: Optional[int] = Query(None),
     ))).scalars().all()
     for t in targets:
         t.status = T_CANCELLED
+    # Assistant Chapote CM : conversations « mes données » de l'espace supprimées tout de suite.
+    from src.services import cm_assistant
+    await cm_assistant.erase_for_account(db, acc)
     await db.commit()
     warning = None
     if acc.mode == IG_MODE_API:

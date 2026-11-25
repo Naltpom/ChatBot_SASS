@@ -27,7 +27,8 @@ async def compute_bot_stats(db: AsyncSession, bot_id: int, days: int) -> dict:
         select(
             func.count(func.distinct(Conversation.id)),
             func.count(func.distinct(Conversation.visitor_id)),
-        ).where(Conversation.bot_id == bot_id, Conversation.started_at >= since)
+        ).where(Conversation.bot_id == bot_id, Conversation.started_at >= since,
+                Conversation.data_mode.is_(False))
     )).one()
 
     # Messages visiteurs : whitelist source (exclut les marqueurs systeme
@@ -87,7 +88,8 @@ async def compute_bot_stats(db: AsyncSession, bot_id: int, days: int) -> dict:
     # Pages d'ouverture du widget les plus frequentes
     top_pages = (await db.execute(
         select(Conversation.page_url, func.count(Conversation.id).label("n"))
-        .where(Conversation.bot_id == bot_id, Conversation.started_at >= since, Conversation.page_url.isnot(None))
+        .where(Conversation.bot_id == bot_id, Conversation.started_at >= since, Conversation.page_url.isnot(None),
+               Conversation.data_mode.is_(False))
         .group_by(Conversation.page_url)
         .order_by(func.count(Conversation.id).desc())
         .limit(10)
@@ -121,7 +123,7 @@ async def list_bot_conversations(db: AsyncSession, bot_id: int, limit: int) -> l
     """Dernieres conversations + transcript (cf. GET /api/stats/bots/{id}/conversations)."""
     convs = (await db.execute(
         select(Conversation)
-        .where(Conversation.bot_id == bot_id)
+        .where(Conversation.bot_id == bot_id, Conversation.data_mode.is_(False))
         .order_by(Conversation.started_at.desc())
         .limit(limit)
     )).scalars().all()

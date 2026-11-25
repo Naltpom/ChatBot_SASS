@@ -98,6 +98,10 @@ services:
       # cm.chapote.fr (gestion des réseaux sociaux). Jeton de la routine Claude, clé du
       # nginx de cm (vraie IP), vidéos programmées (volume privé), relevés des chiffres.
       - CM_URL=${CM_URL:-https://cm.chapote.fr}
+      # Assistant Chapote CM, mode « mes données » (docs/CM_MCP.md) : éteint tant que les trois ne sont pas posés.
+      - CM_MCP_ENABLED=${CM_MCP_ENABLED:-false}
+      - CM_ASSISTANT_TOKEN_KEY=${CM_ASSISTANT_TOKEN_KEY:-}
+      - CM_ASSISTANT_BOT_KEY=${CM_ASSISTANT_BOT_KEY:-}
       - CM_SERVICE_TOKEN=${CM_SERVICE_TOKEN:-}
       - CM_SERVICE_USER_EMAIL=${CM_SERVICE_USER_EMAIL:-}
       - CM_PROXY_KEY=${CM_PROXY_KEY:-}

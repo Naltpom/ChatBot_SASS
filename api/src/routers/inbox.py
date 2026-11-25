@@ -47,7 +47,8 @@ async def _get_inbox_conversation(db: AsyncSession, bot: Bot, user: User,
     """Conversation du bot, sous permission 'inbox'."""
     _check_bot_perm(user, membership, bot, "inbox")
     conversation = await db.get(Conversation, cid)
-    if conversation is None or conversation.bot_id != bot.id:
+    # Conversations « mes données » (Assistant Chapote CM) : jamais dans la boîte de réception.
+    if conversation is None or conversation.bot_id != bot.id or conversation.data_mode:
         raise HTTPException(http_status.HTTP_404_NOT_FOUND, "Conversation introuvable")
     return conversation
 
@@ -98,7 +99,7 @@ async def list_conversations(
                             f"Statut inconnu : {status}")
     limit = max(1, min(200, limit))
 
-    where = [Conversation.bot_id == bot.id]
+    where = [Conversation.bot_id == bot.id, Conversation.data_mode.is_(False)]
     if status:
         where.append(Conversation.status == status)
 

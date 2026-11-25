@@ -16,13 +16,16 @@ Ce que fait le script :
   4. remplace la base de connaissances par les textes de scripts/cm_assistant/kb/
      (sources « texte » ; ingestion locale, rien ne part chez un tiers).
 
-Le connecteur MCP n'est PAS configuré ici (étape 4). Le bot n'est branché sur
-aucune page : cm.chapote.fr n'affiche rien tant que le composant n'est pas activé.
+Avec --connect-mcp : règle le connecteur « cm-data » du bot sur le serveur MCP de cm
+(CM_URL/api/cm/mcp, sans jeton fixe : chapote.fr utilise le jeton court de chaque utilisateur,
+voir docs/CM_MCP.md). Remplace une entrée « cm-data » ou une entrée vers le même domaine ; les autres
+connecteurs sont gardés.
 
 Usage (sur le serveur, dans le conteneur api, depuis api/) :
     python -m scripts.create_cm_assistant --owner-email <adresse> --dry-run
     python -m scripts.create_cm_assistant --owner-email <adresse>
     python -m scripts.create_cm_assistant --owner-email <adresse> --activate
+    python -m scripts.create_cm_assistant --owner-email <adresse> --connect-mcp
 """
 import argparse
 import asyncio
@@ -30,6 +33,7 @@ from pathlib import Path
 
 from sqlalchemy import delete, func, select
 
+from src.core.config import settings
 from src.core.constants import MODULE_AI, MODULE_MCP, MODULE_RAG
 from src.core.database import AsyncSessionLocal
 from src.models.bot import DEFAULT_DESIGN, Bot
@@ -84,7 +88,7 @@ def _kb_files() -> list[tuple[str, str]]:
     return out
 
 
-async def run(owner_email: str, dry_run: bool, activate: bool) -> int:
+async def run(owner_email: str, dry_run: bool, activate: bool, connect_mcp: bool = False) -> int:
     system_prompt = (HERE / "system_prompt.md").read_text(encoding="utf-8").strip()
     kb = _kb_files()
     if not kb:
@@ -132,6 +136,14 @@ async def run(owner_email: str, dry_run: bool, activate: bool) -> int:
         bot.design_json = sanitize_design({**DEFAULT_DESIGN, **(bot.design_json or {}), **DESIGN})
         if activate:
             bot.is_active = True
+        if connect_mcp:
+            from urllib.parse import urlparse
+            url = f"{settings.CM_URL.rstrip('/')}/api/cm/mcp"
+            host = urlparse(url).hostname
+            keep = [m for m in (bot.mcp_servers_json or [])
+                    if m.get("name") != "cm-data" and urlparse(str(m.get("url") or "")).hostname != host]
+            bot.mcp_servers_json = (keep + [{"name": "cm-data", "url": url}])[:2]
+            print(f"Connecteur MCP : cm-data -> {url} (jeton de chaque utilisateur, aucun jeton fixe)")
 
         # Override « offert » (étape 1). Inerte si la facturation est éteinte
         # (tout est déjà débloqué), mais posé quand même pour le jour où elle s'allume.
@@ -180,8 +192,9 @@ def main() -> None:
     parser.add_argument("--owner-email", required=True, help="adresse du compte administrateur propriétaire")
     parser.add_argument("--dry-run", action="store_true", help="affiche ce qui serait fait, sans écrire")
     parser.add_argument("--activate", action="store_true", help="active le bot (inactif par défaut)")
+    parser.add_argument("--connect-mcp", action="store_true", help="règle le connecteur cm-data (mode « mes données »)")
     args = parser.parse_args()
-    raise SystemExit(asyncio.run(run(args.owner_email, args.dry_run, args.activate)))
+    raise SystemExit(asyncio.run(run(args.owner_email, args.dry_run, args.activate, args.connect_mcp)))
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ from src.routers.widget_helpers import (
 )
 from src.services import tree_engine
 from src.services.ai_service import AIServiceError, generate_reply
+from src.services.mcp_client import user_token as mcp_user_token
 from src.services.captcha import verify_captcha
 from src.services.entitlement_service import (
     ai_quota_for,
@@ -252,6 +253,34 @@ class MessageRequest(BaseModel):
     # Type permissif (jamais de 422) ; normalisé/borné côté serveur (_preview_history).
     # IGNORÉ hors aperçu (le chemin public lit l'historique persisté en DB).
     history: Optional[Any] = None
+    # Assistant Chapote CM, mode « mes données » (docs/CM_MCP.md) : jeton court délivré par cm à la
+    # page, fourni par la page à widget.js. Jamais stocké ni journalisé ; ignoré pour tout autre bot.
+    user_token: Optional[str] = Field(None, max_length=2000)
+
+
+def _assistant_token(body: "MessageRequest", bot: Bot, conversation: Conversation) -> Optional[str]:
+    """Jeton assistant utilisable pour CE message, ou None (mode public). Seulement pour le bot
+    assistant configuré ; signature, portée, audience, bot, domaine et expiration vérifiés ici
+    (l'accord et le périmètre le sont à chaque appel d'outil). La conversation est liée à
+    l'utilisateur (empreinte) : un autre utilisateur dans la même conversation -> 409, le widget
+    repart sur une nouvelle conversation. Une conversation qui reçoit un jeton passe en « mes données »."""
+    raw = (body.user_token or "").strip()
+    if not raw:
+        return None
+    from src.services import cm_assistant
+    if not cm_assistant.enabled() or bot.public_key != settings.CM_ASSISTANT_BOT_KEY:
+        return None
+    try:
+        claims = cm_assistant.verify_token(raw)
+    except cm_assistant.AssistantDenied:
+        return None
+    uh = cm_assistant.user_hash(int(claims["sub"]))
+    if conversation.user_hash and conversation.user_hash != uh:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            {"code": "user_changed", "message": "Nouvelle conversation nécessaire."})
+    conversation.user_hash = uh
+    conversation.data_mode = True
+    return raw
 
 
 class LeadRequest(BaseModel):
@@ -844,6 +873,7 @@ async def _handle_ai_message(
             "status": conversation.status,
         }, bot, session)
 
+    user_token = _assistant_token(body, bot, conversation)
     db.add(Message(conversation_id=conversation.id, bot_id=bot.id,
                    role="user", source="ai", content=text))
     await db.commit()
@@ -976,10 +1006,15 @@ async def _handle_ai_message(
         # deja valide/tronque au handshake par _sanitize_journey.
         # db + conversation_id : necessaires aux actions IA (capture_lead).
         # locale : 'auto' ajoute la consigne de langue au system prompt.
-        ai = await generate_reply(bot, history, page_url, journey=conversation.journey,
-                                  db=db, conversation_id=conversation.id, has_kb=has_kb,
-                                  locale=(bot.design_json or {}).get("locale"),
-                                  allow_actions=allow_actions, allow_mcp=allow_mcp)
+        # Jeton assistant : visible du client MCP pour CETTE requête seulement (ContextVar).
+        token_ctx = mcp_user_token.set(user_token)
+        try:
+            ai = await generate_reply(bot, history, page_url, journey=conversation.journey,
+                                      db=db, conversation_id=conversation.id, has_kb=has_kb,
+                                      locale=(bot.design_json or {}).get("locale"),
+                                      allow_actions=allow_actions, allow_mcp=allow_mcp)
+        finally:
+            mcp_user_token.reset(token_ctx)
     except AIServiceError:
         # Panne provider : AUCUN credit consomme (ai_quota_consume n'est appele
         # qu'apres ce point). Le compteur Redis ne derive donc pas au-dessus du

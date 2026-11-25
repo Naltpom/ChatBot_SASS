@@ -31,10 +31,11 @@ from src.routers.external import oauth as ext_oauth
 from src.routers.external import onboarding as ext_onboarding
 from src.services import cm_jobs, tiktok_jobs, youtube_jobs
 from src.routers import cm_mobile
+from src.routers import cm_assistant as cm_assistant_router
 from src.routers import cm_invite_links
 from src.routers import cm_account_requests
 from src.services import cm_push
-from src.services import emails_mcp
+from src.services import cm_mcp, emails_mcp
 from src.services.auth_service import ensure_dev_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -88,7 +89,7 @@ async def lifespan(app: FastAPI):
     # Application mobile : notifications (vidéo publiée, échec, brouillon, commentaires).
     cm_push.start_scheduler()
     # emails.chapote.fr : gestionnaire Streamable HTTP du serveur MCP (sans état, /mcp).
-    async with emails_mcp.running():
+    async with emails_mcp.running(), cm_mcp.running():
         yield
     await tiktok_jobs.stop_scheduler()
     await youtube_jobs.stop_scheduler()
@@ -340,6 +341,7 @@ app.include_router(cm_library.router)
 app.include_router(cm_inbox.router)
 app.include_router(cm_team.router)
 app.include_router(cm_mobile.router)
+app.include_router(cm_assistant_router.router)
 app.include_router(cm_invite_links.router)
 app.include_router(cm_account_requests.router)
 app.include_router(music.router)
@@ -366,3 +368,6 @@ app.include_router(ext_onboarding.router)
 app.include_router(emails.router)
 app.include_router(emails_oauth.router)
 app.add_route("/mcp", emails_mcp.endpoint, include_in_schema=False)
+# cm.chapote.fr : serveur MCP « mes données » de l'Assistant Chapote CM (docs/CM_MCP.md), 404 si
+# CM_MCP_ENABLED=false. Sous /api/cm/ : déjà relayé par le nginx de cm.
+app.add_route("/api/cm/mcp", cm_mcp.endpoint, methods=["GET", "POST", "DELETE"], include_in_schema=False)

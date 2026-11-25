@@ -435,3 +435,7 @@ emails_token_limiter = RateLimiter("rl:emtoken:", 30, 60)
 # Appels MCP : par famille de jetons (un connecteur Claude), et requêtes sans jeton par IP.
 emails_mcp_limiter = RateLimiter("rl:emmcp:", 300, 60)
 emails_mcp_anon_limiter = RateLimiter("rl:emmcpanon:", 60, 60)
+
+# Assistant Chapote CM, mode « mes données » (docs/CM_MCP.md) : appels d'outils par utilisateur cm.
+cm_assistant_limiter = RateLimiter("rl:cmassist:", 30, 600)
+cm_assistant_day_limiter = RateLimiter("rl:cmassistday:", 300, 86400)

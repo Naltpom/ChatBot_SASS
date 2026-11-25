@@ -11,6 +11,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import (
     JSON,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -66,6 +67,13 @@ class Conversation(Base):
     human_requested_at = Column(DateTime, nullable=True)
     human_taken_at = Column(DateTime, nullable=True)
     closed_at = Column(DateTime, nullable=True)
+    # --- Assistant Chapote CM, mode « mes données » (docs/CM_MCP.md) ---
+    # data_mode : la conversation a reçu des données de compte cm (jeton assistant). Exclue de la
+    # boîte de réception, des statistiques et des rapports IA du bot ; supprimée après 30 jours.
+    # user_hash : empreinte HMAC de l'utilisateur cm (jamais son id) ; un autre utilisateur dans
+    # la même conversation est refusé, et « Effacer mes conversations » vise cette empreinte.
+    data_mode = Column(Boolean, default=False, server_default=text("false"), nullable=False)
+    user_hash = Column(String(32), nullable=True, index=True)
 
 
 class Message(Base):

@@ -165,6 +165,18 @@ class Settings(BaseSettings):
     # Retour OAuth DIRECT sur cm.chapote.fr (ex. https://cm.chapote.fr/tiktok/callback), à poser
     # seulement si l'URI est déclarée chez TikTok / Google. Vide = la connexion lancée depuis cm
     # revient par l'URI déjà déclarée (chapote.fr/…/callback), dont la page renvoie vers cm.
+    # --- Assistant Chapote CM, mode « mes données » (docs/CM_MCP.md) ---
+    # Désactivé par défaut. Il faut les trois : drapeau, clé de signature des jetons assistant
+    # (dédiée, jamais JWT_SECRET_KEY) et clé publique du bot assistant sur chapote.fr.
+    CM_MCP_ENABLED: bool = False
+    CM_ASSISTANT_TOKEN_KEY: str | None = None
+    CM_ASSISTANT_BOT_KEY: str | None = None
+    # Version de la politique IA : la changer fait repasser les accords « à revoir ».
+    CM_AI_POLICY_VERSION: str = "2026-11"
+    # Plateformes dont les données peuvent partir vers l'IA (toutes par défaut).
+    CM_MCP_PLATFORMS: str = "tiktok,youtube,instagram"
+    # Conservation des conversations « mes données » sur chapote.fr (jours).
+    CM_ASSISTANT_RETENTION_DAYS: int = 30
     TIKTOK_CM_REDIRECT_URI: str = ""
     YOUTUBE_CM_REDIRECT_URI: str = ""
 

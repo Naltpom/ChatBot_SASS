@@ -471,3 +471,24 @@ export const removePasskey = (id: number) => send<unknown>('DELETE', `/api/auth/
 export interface Device { id: number; name: string | null; platform: string | null; push: boolean; created_at: string | null; last_used_at: string | null }
 export const getDevices = () => call<Device[]>('/api/cm/mobile/devices')
 export const removeDevice = (id: number) => send<unknown>('DELETE', `/api/cm/mobile/devices/${id}`)
+
+// Assistant Chapote CM, mode « mes données » (docs/CM_MCP.md). 404 / enabled:false = fonction éteinte.
+export type AiKind = 'stats' | 'planning' | 'captions'
+export interface AiPublic { enabled: boolean; provider?: string | null; policy_version?: string; retention_days?: number; min_age?: number }
+export interface AiConsent { enabled: boolean; stats: boolean; planning: boolean; captions: boolean; excluded_accounts: string[]; policy_version: string | null; provider: string | null }
+export interface AiAccount {
+  key: string; platform: Platform; alias: string; name: string | null; owner: boolean; role: CmRole; groups: string[]
+  permissions: Record<AiKind, boolean> | null; excluded: boolean
+}
+export interface AiStatus {
+  provider: string | null; policy_version: string; consent: AiConsent; active: boolean; needs_review: boolean
+  old_enough: boolean; platforms: Platform[]; accounts: AiAccount[]
+}
+export type AiSource = 'inscription' | 'profil' | 'chat' | 'mobile'
+export const getAiPublic = () => call<AiPublic>('/api/cm/assistant/public')
+export const getAiStatus = () => call<AiStatus>('/api/cm/assistant/status')
+export const putAiConsent = (change: Partial<Pick<AiConsent, 'enabled' | AiKind | 'excluded_accounts'>> & { source?: AiSource }) =>
+  send<AiStatus>('PUT', '/api/cm/assistant/consent', change)
+export const putAiPermissions = (platform: Platform, id: number, perms: Record<AiKind, boolean>) =>
+  send<AiStatus>('PUT', `/api/cm/assistant/accounts/${platform}/${id}/permissions`, perms)
+export const eraseAiConversations = () => send<{ deleted: number }>('POST', '/api/cm/assistant/conversations/erase')

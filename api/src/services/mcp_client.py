@@ -17,6 +17,7 @@ Les tools decouverts sont exposes au modele sous le nom mcp_<server>_<tool>
 a chaque tour de boucle tool-use).
 """
 import asyncio
+import contextvars
 import json
 import logging
 import re
@@ -52,6 +53,32 @@ _conv_cache: dict[str, dict] = {}
 _NEG_TTL_SECONDS = 90.0
 _NEG_MAX_ENTRIES = 500
 _neg_cache: dict[str, float] = {}
+
+
+# Jeton assistant cm (mode « mes données », docs/CM_MCP.md) de la requête widget EN COURS : posé par
+# routers/widget.py autour de generate_reply, propre à la tâche asyncio (jamais global, jamais en
+# cache, jamais journalisé). Absent -> les outils du serveur cm ne sont pas proposés (mode public).
+user_token: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("mcp_user_token", default=None)
+
+
+def _cache_key(conversation_id: str) -> str:
+    # Avec ou sans jeton, la liste des outils diffère : deux entrées de cache distinctes.
+    return f"{conversation_id}|u" if user_token.get() else conversation_id
+
+
+def _assistant_tools(server_name: str) -> tuple[list[dict], dict]:
+    """Outils du serveur cm « mes données », décrits localement (même processus : pas d'appel réseau)."""
+    from src.services import cm_assistant
+    tools, names = [], {}
+    for tool, spec in cm_assistant.TOOLS.items():
+        suffix = _sanitize_tool_name(server_name, tool)
+        if not suffix:
+            continue
+        full = f"mcp_{server_name}_{suffix}"
+        tools.append({"name": full, "description": spec["description"][:_MAX_DESCRIPTION],
+                      "input_schema": spec["schema"]})
+        names[full] = (server_name, tool)
+    return tools, names
 
 
 class McpError(Exception):
@@ -226,10 +253,15 @@ async def list_mcp_tools(bot, conversation_id: str) -> list[dict]:
         return []
     now = time.monotonic()
     _maybe_purge(now)
-    entry = _conv_cache.get(conversation_id)
+    entry = _conv_cache.get(_cache_key(conversation_id))
     if entry is not None:
         return entry["tools"]
 
+    # Serveur cm « mes données » (bot assistant + adresse exacte) : outils locaux, seulement avec un
+    # jeton utilisateur ; sans jeton, rien n'est proposé (le bot reste en mode public).
+    from src.services import cm_assistant
+    local = [s for s in servers if cm_assistant.is_assistant_server(bot, s)]
+    servers = [s for s in servers if s not in local]
     # Cache negatif consulte AVANT de payer le timeout : un serveur durablement
     # mort ne coute la decouverte qu'une fois par fenetre, pas par conversation
     pending = [s for s in servers
@@ -242,6 +274,13 @@ async def list_mcp_tools(bot, conversation_id: str) -> list[dict]:
     tools: list[dict] = []
     sessions: dict[str, str] = {}
     names: dict[str, tuple[str, str]] = {}
+    if user_token.get():
+        for s in local:
+            local_tools, local_names = _assistant_tools(str(s.get("name") or ""))
+            for t in local_tools:
+                if len(tools) < _MAX_TOOLS and t["name"] not in names:
+                    tools.append(t)
+                    names[t["name"]] = local_names[t["name"]]
     for server, result in zip(pending, results):
         name = str(server.get("name") or "")
         if isinstance(result, BaseException):
@@ -271,8 +310,8 @@ async def list_mcp_tools(bot, conversation_id: str) -> list[dict]:
             # tools/call (la sanitisation peut avoir altere le nom, et deux
             # serveurs peuvent etre en relation de prefixe)
             names[full_name] = (name, str(tool.get("name") or ""))
-    _conv_cache[conversation_id] = {"ts": now, "tools": tools,
-                                    "sessions": sessions, "names": names}
+    _conv_cache[_cache_key(conversation_id)] = {"ts": now, "tools": tools,
+                                                "sessions": sessions, "names": names}
     return tools
 
 
@@ -285,7 +324,7 @@ async def call_mcp_tool(bot, conversation_id: str, full_name: str, args: dict) -
     peuvent etre en relation de prefixe (ex. crm / crm_v2) : le premier match
     naif enverrait les arguments et le Bearer au mauvais serveur."""
     servers = (getattr(bot, "mcp_servers_json", None) or [])[:2]
-    entry = _conv_cache.get(conversation_id) or {}
+    entry = _conv_cache.get(_cache_key(conversation_id)) or {}
     cached = (entry.get("names") or {}).get(full_name)
     server = None
     tool_name = None
@@ -303,6 +342,13 @@ async def call_mcp_tool(bot, conversation_id: str, full_name: str, args: dict) -
             return ("Tool MCP inconnu", True)
         tool_name = full_name[best_len:]
     server_name = str(server.get("name"))
+    from src.services import cm_assistant
+    if cm_assistant.is_assistant_server(bot, server):
+        token = user_token.get()
+        if not token:
+            return ("Données de compte indisponibles : l'utilisateur n'est pas connecté ou n'a pas donné "
+                    "son accord IA.", True)
+        return await cm_assistant.run_tool(token, tool_name, args or {})
     try:
         headers = _auth_headers(server)
         sid = (entry.get("sessions") or {}).get(server_name)
