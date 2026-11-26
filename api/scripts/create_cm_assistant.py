@@ -141,12 +141,26 @@ async def sync_on_startup() -> None:
 
 
 def _kb_files() -> list[tuple[str, str]]:
-    """(titre, texte) de chaque fichier de la base, dans l'ordre des noms."""
+    """(titre, texte) des connaissances : UNE source par section (« ## » / « ### ») de chaque fichier de
+    scripts/cm_assistant/kb/, précédée du titre du fichier et de la section. Une question et sa réponse
+    restent ensemble dans le même extrait (la recherche les retrouvait coupées en morceaux de 800 caractères)."""
+    import re
     out = []
     for path in sorted((HERE / "kb").glob("*.md")):
         text = path.read_text(encoding="utf-8").strip()
-        title = text.splitlines()[0].lstrip("# ").strip()[:120]
-        out.append((title, text))
+        doc = text.splitlines()[0].lstrip("# ").strip()
+        parts = re.split(r"(?m)^(?=#{2,3} )", text)
+        intro, sections = parts[0], parts[1:]
+        h2 = ""
+        if intro.strip():
+            out.append((doc[:120], intro.strip()))
+        for sec in sections:
+            head = sec.splitlines()[0].lstrip("# ").strip()
+            body = sec.strip()
+            if sec.startswith("## "):
+                h2 = head
+            ctx = f"# {doc}" + (f" — {h2}" if h2 and not sec.startswith("## ") else "")
+            out.append((f"{doc} — {head}"[:120], f"{ctx}\n\n{body}"))
     return out
 
 
