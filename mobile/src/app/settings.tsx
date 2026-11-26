@@ -3,8 +3,8 @@ import { FEATURES } from '../lib/features'
 // stockage), ce téléphone et les autres appareils, puis la zone sensible tout en bas. Chaque réglage montre son
 // état actuel, et chaque changement affiche « Enregistré ».
 import Constants from 'expo-constants'
-import { useRouter } from 'expo-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Pressable, Switch, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import { call } from '../lib/http'
@@ -40,6 +40,14 @@ export default function Settings() {
   const [pkMsg, setPkMsg] = useState<string | null>(null)
   const [codes, setCodes] = useState<string[] | null>(null)
   useEffect(() => { if (me) passkeyDone(me.id).then(setPasskey) }, [me?.id])
+  // Arrivée depuis la proposition après connexion (« Activer ») : on lance l'activation une fois.
+  const { passkey: autoPk } = useLocalSearchParams<{ passkey?: string }>()
+  const started = useRef(false)
+  useEffect(() => {
+    if (autoPk !== '1' || started.current || !me || !passkeyAvailable) return
+    started.current = true
+    passkeyDone(me.id).then(d => { if (!d) activatePasskey() })
+  }, [autoPk, me?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const activatePasskey = async () => {
     if (!me) return
     setPkBusy(true); setPkMsg(null)
@@ -110,6 +118,7 @@ export default function Settings() {
         <NavRow icon="share" label="Personnes et partage" onPress={() => router.push('/people')} />
         <NavRow icon="folder" label="Stockage Google Drive" value={storageLabel} onPress={() => router.push('/storage')} />
         <NavRow icon="layers" label="Brouillons à valider" onPress={() => router.push('/drafts')} />
+        <NavRow icon="comment" label="Assistant IA" onPress={() => router.push('/assistant-settings')} />
         <Divider />
         <Field label="Nom de mon espace" value={persoName} onChangeText={setPersoName} placeholder="Espace perso"
           onEndEditing={() => patchProfile(persoName.trim()).then(() => { refresh(); ok() }).catch(() => {})} hint="Visible par les personnes avec qui vous partagez un groupe." />

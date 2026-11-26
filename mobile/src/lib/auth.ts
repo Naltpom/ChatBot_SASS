@@ -2,6 +2,7 @@
 // authentification…) ou par le formulaire e-mail / mot de passe. Les deux finissent par un jeton
 // d'appareil gardé dans le coffre du téléphone (voir api/src/routers/cm_mobile.py).
 import { isChallenge } from './session-logic'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Crypto from 'expo-crypto'
 import * as Device from 'expo-device'
 import * as SecureStore from 'expo-secure-store'
@@ -20,8 +21,11 @@ const deviceInfo = () => ({
 
 async function store(out: DeviceOut): Promise<Me> {
   await saveDevice(out.refresh_token, out.session, out.expires_in)
+  // Connexion qui vient d'avoir lieu : l'app propose ensuite l'empreinte (voir offerPasskey).
+  await AsyncStorage.setItem(JUST_SIGNED_IN, String(Date.now())).catch(() => {})
   return out.user
 }
+export const JUST_SIGNED_IN = 'cm.just-signed-in'
 
 /** Navigateur intégré → page « Autoriser » de l'API → retour dans l'app avec un code (PKCE). */
 export async function loginWithBrowser(): Promise<Me | null> {
