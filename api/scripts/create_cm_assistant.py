@@ -78,6 +78,55 @@ DESIGN = {
 }
 
 
+def _kb_ref(title: str, text: str) -> str:
+    """Nom de la source : titre + empreinte du texte (un texte modifié dans le dépôt change de nom)."""
+    import hashlib
+    return f"{title} · {hashlib.sha256(text.encode()).hexdigest()[:10]}"
+
+
+async def sync_on_startup() -> None:
+    """Au démarrage de l'API (production) : consignes et base de connaissances du bot existant remises
+    à jour d'après le dépôt, seulement si elles ont changé (empreinte de chaque texte). Ne crée jamais
+    le bot, ne touche ni à l'apparence, ni aux droits, ni au connecteur. Un seul worker à la fois."""
+    import logging
+    from sqlalchemy import text as sql
+    log = logging.getLogger("cm_assistant_sync")
+    system_prompt = (HERE / "system_prompt.md").read_text(encoding="utf-8").strip()
+    want = {_kb_ref(t, x): (t, x) for t, x in _kb_files()}
+    if not want:
+        return
+    todo = []
+    async with AsyncSessionLocal() as db:
+        if not (await db.execute(sql("SELECT pg_try_advisory_xact_lock(724501)"))).scalar():
+            return
+        bot = (await db.execute(
+            select(Bot).join(User, User.id == Bot.owner_user_id)
+            .where(Bot.name == BOT_NAME, User.is_superadmin.is_(True)).order_by(Bot.id).limit(1)
+        )).scalar_one_or_none()
+        if bot is None:
+            return
+        have = {r: i for i, r in (await db.execute(
+            select(KbSource.id, KbSource.ref).where(KbSource.bot_id == bot.id))).all()}
+        stale = [i for r, i in have.items() if r not in want]
+        missing = [r for r in want if r not in have]
+        prompt_changed = (bot.system_prompt or "").strip() != system_prompt
+        if not stale and not missing and not prompt_changed:
+            return
+        bot.system_prompt = system_prompt
+        if stale:
+            await db.execute(delete(KbSource).where(KbSource.id.in_(stale)))
+        for ref in missing:
+            src = KbSource(bot_id=bot.id, type="text", ref=ref, status="pending")
+            db.add(src)
+            todo.append((src, want[ref][1]))
+        await db.commit()
+        ids = [(src.id, x) for src, x in todo]
+    for sid, x in ids:
+        await ingest_source(sid, text_content=x)
+    log.info("Assistant Chapote CM : consignes %s, %d texte(s) remplacé(s), %d ajouté(s)",
+             "mises à jour" if prompt_changed else "inchangées", len(stale), len(missing))
+
+
 def _kb_files() -> list[tuple[str, str]]:
     """(titre, texte) de chaque fichier de la base, dans l'ordre des noms."""
     out = []
@@ -161,7 +210,7 @@ async def run(owner_email: str, dry_run: bool, activate: bool, connect_mcp: bool
             await db.execute(delete(KbSource).where(KbSource.id.in_(old_ids)))
         sources = []
         for title, text in kb:
-            src = KbSource(bot_id=bot.id, type="text", ref=title, status="pending")
+            src = KbSource(bot_id=bot.id, type="text", ref=_kb_ref(title, text), status="pending")
             db.add(src)
             sources.append((src, text))
         await db.commit()

@@ -90,6 +90,18 @@ async def lifespan(app: FastAPI):
     cm_jobs.start_scheduler()
     # Application mobile : notifications (vidéo publiée, échec, brouillon, commentaires).
     cm_push.start_scheduler()
+    # Assistant Chapote CM : consignes et connaissances du dépôt (api/scripts/cm_assistant/) remises sur le
+    # bot dès qu'elles changent, sans lancer le script à la main. En tâche de fond : jamais bloquant.
+    if settings.is_production:
+        import asyncio
+        from scripts.create_cm_assistant import sync_on_startup
+
+        async def _sync_assistant():
+            try:
+                await sync_on_startup()
+            except Exception:  # noqa: BLE001 - un échec ne doit jamais empêcher l'API de démarrer
+                logger.exception("Synchro de l'assistant Chapote CM impossible")
+        app.state.assistant_sync = asyncio.create_task(_sync_assistant())
     # emails.chapote.fr : gestionnaire Streamable HTTP du serveur MCP (sans état, /mcp).
     async with emails_mcp.running(), cm_mcp.running():
         yield
