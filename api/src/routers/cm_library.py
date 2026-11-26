@@ -319,9 +319,18 @@ async def update_asset(asset_id: int, body: AssetPatch, org_id: Optional[int] = 
 @router.get("/assets/{asset_id}/stream")
 async def stream_asset(asset_id: int, request: Request, org_id: Optional[int] = Query(None),
                        db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    """Lire la vidéo dans cm (lecteur intégré), sans passer par Google Drive."""
-    tenant = await _tenant(db, user, org_id)
-    a, _ = await _asset(db, tenant, asset_id)
+    """Lire la vidéo dans cm (lecteur intégré), sans passer par Google Drive.
+    Sans org_id (lien `stream` de la vidéo, mis tel quel dans <video>) : l'espace se déduit du dossier, comme la miniature."""
+    if org_id is not None:
+        tenant = await _tenant(db, user, org_id)
+        a, _ = await _asset(db, tenant, asset_id)
+    else:
+        row = (await db.execute(select(CmAsset, CmSource).join(CmSource, CmSource.id == CmAsset.source_id)
+                                .where(CmAsset.id == asset_id))).first()
+        t = await _tenant_of(db, user, row[1]) if row is not None and row[1].revoked_at is None else None
+        if t is None or not cm_access.group_allowed(t, row[1].group_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo introuvable")
+        a = row[0]
     try:
         code, headers, body = await gd.open_stream(a.file_id, request.headers.get("range"))
     except gd.DriveError as e:

@@ -20,6 +20,7 @@ export default function VideoSheet() {
   // Lecture sur « Tous » : la fiche s'ouvre quel que soit l'espace du compte.
   const sheet = useLoad(() => getVideoSheet(ALL, Number(id)), [id])
   const [p, setP] = useState<'all' | Platform>('all')
+  const [streamFailed, setStreamFailed] = useState(false)   // vidéo du Drive illisible (retirée…) : lecteur de la plateforme
   const d = sheet.data
   const shown = d ? d.videos.filter(v => p === 'all' || v.platform === p) : []
   const player = shown.find(v => v.embed) || null
@@ -55,9 +56,10 @@ export default function VideoSheet() {
                 ))}
               </div>
             )}
-            {d.asset?.stream ? (
+            {d.asset?.stream && !streamFailed ? (
               // La vidéo d'origine, lue depuis le Drive ; les plateformes ont leurs liens en dessous.
-              <video className="player" src={d.asset.stream} poster={d.asset.thumbnail || undefined} controls preload="metadata" playsInline />
+              <video className="player" src={d.asset.stream} poster={d.asset.thumbnail || undefined} controls preload="metadata" playsInline
+                     onError={() => setStreamFailed(true)} />
             ) : player ? (
               <iframe className="player" src={player.embed!} title={`Lecteur ${PLATFORM_LABEL[player.platform]}`}
                       allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen loading="lazy" />

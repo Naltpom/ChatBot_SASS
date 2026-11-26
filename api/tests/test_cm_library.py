@@ -220,6 +220,32 @@ async def test_folder_shared_by_a_teammate_is_verified(pg_session, cmenv, drive)
         assert r.status_code == 200 and r.json()["verified"] is True and r.json()["shared_by"] == "mo•••••@t.dev"
 
 
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_team_video_stream_link_works_without_org(pg_session, cmenv, drive, monkeypatch):
+    """Le lien `stream` (mis tel quel dans <video>, fiche vidéo, miniature) n'a pas d'org_id : l'espace se déduit du dossier."""
+    owner = await _user(pg_session, "owner@t.dev")
+    member = await _user(pg_session, "membre@t.dev")
+    outsider = await _user(pg_session, "autre@t.dev")
+    org = await _org(pg_session, owner, (member, "member"))
+    await pg_session.commit()
+
+    async def fake_stream(file_id, rng=None):
+        async def body():
+            yield b"video"
+        return 206, {"content-type": "video/mp4", "content-range": "bytes 0-4/5"}, body()
+    monkeypatch.setattr(gd, "open_stream", fake_stream)
+    async with Client(pg_session) as c:
+        r = await c.as_(owner).post("/api/cm/sources", json={"org_id": org.id, "url": _link()})
+        assert r.status_code == 200, r.text
+        clip = next(a for a in (await c.as_(owner).get(f"/api/cm/assets?org_id={org.id}")).json() if a["name"] == "clip-42.mp4")
+        assert "org_id" not in clip["stream"]
+        for u in (owner, member):
+            r = await c.as_(u).get(clip["stream"], headers={"Range": "bytes=0-"})
+            assert r.status_code == 206 and r.content == b"video"
+        assert (await c.as_(outsider).get(clip["stream"])).status_code == 404
+
+
 # --------------------------------------------------------------------------
 # Relecture
 # --------------------------------------------------------------------------
