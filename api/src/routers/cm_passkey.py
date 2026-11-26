@@ -40,8 +40,10 @@ router = APIRouter(prefix="/api/cm/mobile/passkey", tags=["cm-mobile-passkey"])
 logger = logging.getLogger(__name__)
 
 # Empreintes SHA-256 des certificats qui signent l'app Android fr.chapote.cm (les mêmes que dans
-# assetlinks.json) : clé de signature Google Play, ancienne clé Google Play, clé d'envoi (APK de test).
+# assetlinks.json) : clé de signature Google Play, ancienne clé Google Play, clé d'envoi (APK de test),
+# et la clé avec laquelle Google Play signe réellement l'app installée (relevée sur le téléphone, version 6).
 DEFAULT_ANDROID_CERTS = (
+    "68:12:35:F7:AA:02:DB:51:AC:E3:0B:13:E7:D1:4F:9D:3A:B4:43:6F:1B:C5:EC:46:EF:6D:8D:41:5E:49:16:57",
     "9B:9E:DE:01:8C:F0:50:DC:BB:D1:78:BA:AF:9B:7E:43:C0:DC:80:3D:A5:45:EF:E1:5C:E9:2E:1E:D1:11:89:A7",
     "73:38:48:CA:D2:C1:A1:3D:CE:9C:DF:C4:46:AC:F9:EE:58:D8:9C:8B:9B:3C:F8:24:05:93:9A:F1:9C:A8:85:EF",
     "FD:A4:89:EA:4A:B1:B4:CB:E2:7A:F9:17:A9:10:72:33:E6:C6:3B:BE:CD:DF:C4:98:F3:15:5F:D4:73:5F:DE:62",
