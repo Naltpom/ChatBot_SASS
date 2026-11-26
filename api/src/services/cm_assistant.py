@@ -242,6 +242,7 @@ class AccountRef:
     role: str = "viewer"
     perm: Optional[CmAccountAiPermission] = None
     groups: list[str] = field(default_factory=list)
+    group_names: dict = field(default_factory=dict)   # alias de groupe -> vrai nom : JAMAIS envoyé vers l'IA
 
     @property
     def key(self) -> str:
@@ -298,6 +299,7 @@ async def account_scope(db: AsyncSession, user: User) -> list[AccountRef]:
         gnum += 1
         for r in inside:
             r.groups.append(f"Groupe {gnum}")
+            r.group_names[f"Groupe {gnum}"] = g.name
     return out
 
 
@@ -560,7 +562,47 @@ async def tool_my_accounts(db, refs, consent) -> dict:
     return {"comptes": out[:30]}
 
 
+def _fold_txt(s: Optional[str]) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", (s or "").lower())
+    return "".join(c if c.isalnum() else " " for c in s if not unicodedata.combining(c))
+
+
+async def tool_find_accounts(db, refs, consent, text: str = "") -> dict:
+    """La personne nomme un compte ou un groupe par son vrai nom (« naltpom », « mes comptes piano ») : la
+    correspondance se fait ICI, sur le serveur ; l'IA ne reçoit que les alias trouvés, jamais les noms."""
+    words = [w for w in _fold_txt(text).split() if len(w) >= 3]
+    if not words:
+        raise AssistantDenied("`text` : le nom (ou un morceau du nom) du compte ou du groupe.", "invalid")
+    visible = [r for r in refs if any(allowed(r, consent, k) for k in KINDS)]
+
+    def hit(name: Optional[str]) -> bool:
+        n = _fold_txt(name)
+        return bool(n) and any(w in n for w in words)
+
+    comptes = [{"compte": r.alias, "reseau": PLATFORM_LABEL[r.platform]} for r in visible if hit(r.name)]
+    groupes = {}
+    for r in visible:
+        for alias, gname in r.group_names.items():
+            if hit(gname):
+                groupes.setdefault(alias, []).append(r.alias)
+    out = {"recherche": text[:80], "comptes": comptes[:30],
+           "groupes": [{"groupe": a, "comptes": m[:30]} for a, m in sorted(groupes.items())]}
+    if not comptes and not groupes:
+        out["note"] = "Aucun compte ni groupe dont le nom contient ces mots. Proposez la liste de my_accounts."
+    return out
+
+
 TOOLS: dict[str, dict] = {
+    "find_accounts": {
+        "fn": tool_find_accounts, "kind": "accounts",
+        "description": ("Retrouve MES comptes et groupes à partir de leur vrai nom ou d'un morceau (« naltpom », "
+                        "« piano »), tel que je l'écris. La correspondance est faite par Chapote : renvoie leurs alias. "
+                        "À appeler dès que je nomme un compte, un artiste, une chaîne ou un groupe."),
+        "schema": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "Le nom tel que la personne l'a écrit."}},
+            "required": ["text"], "additionalProperties": False},
+    },
     "stats_summary": {
         "fn": tool_stats_summary, "kind": "stats",
         "description": ("Bilan des statistiques de MES comptes sur une période (vues, j'aime, partages, "
@@ -675,7 +717,7 @@ def search_actions(query: str, limit: int = 5) -> list[dict]:
             for _, n, sp in scored[:max(1, min(limit, 8))]]
 
 
-CORE = ("my_accounts", "schedule", "stats_summary", "top_videos")   # montrés d'office (lecture, courants)
+CORE = ("my_accounts", "find_accounts", "schedule", "stats_summary", "top_videos")   # montrés d'office (lecture, courants)
 META: dict[str, dict] = {
     "search_actions": {
         "description": ("Cherche les actions Chapote CM utiles pour une demande (ex. « trouver une vidéo », « proposer "

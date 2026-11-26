@@ -151,6 +151,8 @@ async def get_token(response: Response, db: AsyncSession = Depends(get_db), user
     response.headers["Cache-Control"] = "no-store"
     refs = await ca.account_scope(db, user)
     aliases = {r.alias: r.name for r in refs if r.name}
+    for r in refs:   # groupes aussi : « Groupe 1 » s'affiche sous son vrai nom
+        aliases.update({a: n for a, n in r.group_names.items() if n})
     return {"token": token, "expires_at": exp, "aliases": aliases}
 
 

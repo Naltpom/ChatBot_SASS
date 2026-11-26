@@ -27,7 +27,8 @@ from src.services import cm_assistant
 
 INSTRUCTIONS = (
     "Données Chapote CM de l'utilisateur connecté. Les comptes et groupes sont désignés par des alias "
-    "(« Compte TikTok 1 », « Groupe 1 ») : appelez my_accounts pour les connaître. Aucun outil ne permet de viser "
+    "(« Compte TikTok 1 », « Groupe 1 ») : appelez my_accounts pour les connaître, et find_accounts dès que "
+    "l'utilisateur nomme un compte, un artiste ou un groupe par son vrai nom (Chapote fait la correspondance). Aucun outil ne permet de viser "
     "un autre utilisateur. Pour toute autre action (chercher une vidéo, proposer un créneau, préparer un brouillon "
     "de publication…) : search_actions(« ce que vous voulez faire ») donne les actions utiles et leurs arguments, "
     "puis execute_action(action, arguments). Rien n'est jamais publié directement : un brouillon renvoie deux liens "
@@ -76,6 +77,11 @@ async def top_videos(ctx: Context, period: Period = "30d",
                      metric: Annotated[str, Field(description="views, engagement ou shares.")] = "views",
                      limit: Annotated[int, Field(ge=1, le=10)] = 5, account: Alias = None) -> str:
     return await _run(ctx, "top_videos", {"period": period, "metric": metric, "limit": limit, "account": account})
+
+
+@mcp.tool(annotations=READ, description=cm_assistant.TOOLS["find_accounts"]["description"])
+async def find_accounts(ctx: Context, text: str) -> str:
+    return await _run(ctx, "find_accounts", {"text": text})
 
 
 @mcp.tool(annotations=READ, description=cm_assistant.TOOLS["my_accounts"]["description"])
