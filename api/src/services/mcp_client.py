@@ -70,13 +70,12 @@ def _assistant_tools(server_name: str) -> tuple[list[dict], dict]:
     """Outils du serveur cm « mes données », décrits localement (même processus : pas d'appel réseau)."""
     from src.services import cm_assistant
     tools, names = [], {}
-    for tool, spec in cm_assistant.TOOLS.items():
+    for tool, description, schema in cm_assistant.exposed_tools():
         suffix = _sanitize_tool_name(server_name, tool)
         if not suffix:
             continue
         full = f"mcp_{server_name}_{suffix}"
-        tools.append({"name": full, "description": spec["description"][:_MAX_DESCRIPTION],
-                      "input_schema": spec["schema"]})
+        tools.append({"name": full, "description": description[:_MAX_DESCRIPTION], "input_schema": schema})
         names[full] = (server_name, tool)
     return tools, names
 

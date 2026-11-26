@@ -456,7 +456,8 @@ async def _proposal_out(db: AsyncSession, p: CmProposal, names: dict[str, str]) 
     return {"id": p.id, "org_id": p.organization_id, "status": p.status, "title": p.title, "caption": p.caption,
             "scheduled_at": cm.iso(p.scheduled_at), "when_from": p.when_from,
             "accounts": [{"key": k, "name": names.get(k), "platform": k.split(":")[0]} for k in p.accounts or [] if k in names],
-            "asset": lib.asset_out(a, src) if a else None, "created_at": cm.iso(p.created_at)}
+            "asset": lib.asset_out(a, src) if a else None, "created_at": cm.iso(p.created_at),
+            "options": p.options or {}, "origin": p.origin or "auto"}
 
 
 async def _proposal_scope(db: AsyncSession, tenant: Tenant, group_id: Optional[int]):
@@ -562,6 +563,49 @@ async def archive_proposals(body: ArchiveIn, org_id: Optional[int] = Query(None)
                            .execution_options(synchronize_session=False))
     await db.commit()
     return {"archived": res.rowcount or 0}
+
+
+class LaunchIn(BaseModel):
+    s: str = Field(min_length=10, max_length=100)
+
+
+@router.post("/proposals/{proposal_id}/launch")
+async def launch_proposal(proposal_id: int, body: LaunchIn, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(get_cm_user)):
+    """« Lancer la programmation » depuis le lien donné par l'Assistant : programme le brouillon tel quel.
+    Le lien est signé par le serveur, lié au brouillon et à la personne, et ne vaut plus si le brouillon a changé ;
+    la publication passe par exactement les mêmes vérifications qu'une publication faite à la main."""
+    import hmac as _hmac
+    from src.routers.cm import PostIn, TargetIn, create_post
+    from src.services.cm_assistant_drafts import launch_sig
+    p = await db.get(CmProposal, proposal_id)
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Brouillon introuvable")
+    tenant = await _tenant_of(db, user, p)
+    if tenant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Brouillon introuvable")
+    cm_access.require(tenant, "edit")
+    if not _hmac.compare_digest(body.s, launch_sig(p.id, user.id, p.updated_at)):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Ce lien ne correspond plus au brouillon (il a été modifié) : ouvrez le brouillon pour le vérifier.")
+    if p.status != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce brouillon a déjà été programmé ou écarté.")
+    asset = await db.get(CmAsset, p.asset_id)
+    opts = p.options or {}
+    from datetime import timezone as _tz
+    when = p.scheduled_at.replace(tzinfo=_tz.utc) if p.scheduled_at else None
+    targets = [TargetIn(platform=k.split(":")[0], account_id=int(k.split(":")[1]), scheduled_at=when,
+                        options=opts.get(k) or {}) for k in (p.accounts or [])]
+    if not targets:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ce brouillon ne vise aucun compte : ouvrez-le pour choisir.")
+    body_post = PostIn(org_id=p.organization_id, title=(p.title or (asset.title if asset else None) or "Vidéo")[:200],
+                       caption=p.caption or "", asset_id=p.asset_id, targets=targets)
+    out = await create_post(body_post, db=db, user=user)
+    p = await db.get(CmProposal, proposal_id)
+    if p is not None and p.status == "open":
+        p.status = "used"
+        await db.commit()
+    return out
 
 
 @router.post("/proposals/{proposal_id}/dismiss")

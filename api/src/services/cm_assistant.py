@@ -599,9 +599,114 @@ TOOLS: dict[str, dict] = {
 }
 
 
+# Préparer une publication (brouillon « à valider », jamais de publication directe) : cm_assistant_drafts.
+from src.services import cm_assistant_drafts as drafts  # noqa: E402
+
+_ALIASES = {"type": "array", "items": {"type": "string"}, "maxItems": 10,
+            "description": "Alias des comptes (« Compte TikTok 1 »…), voir my_accounts."}
+TOOLS.update({
+    "library_search": {
+        "fn": drafts.library_search, "kind": "captions", "user": True,
+        "tags": "vidéo fichier bibliothèque drive chercher trouver nom dossier video file library search find",
+        "description": ("Cherche une vidéo dans MA bibliothèque (dossiers Google Drive reliés à Chapote) par mots du "
+                        "nom, du dossier ou de la légende. Renvoie video_id, titre, durée, déjà programmée ou non."),
+        "schema": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Mots à chercher (ex. « paul dream piano »)."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 10}}, "additionalProperties": False},
+    },
+    "suggest_slots": {
+        "fn": drafts.suggest_slots, "kind": "planning", "user": True,
+        "tags": "créneau heure date quand planifier programmer horaire meilleur moment slot time when schedule best",
+        "description": ("Propose des créneaux libres (heure de Paris) pour publier sur des comptes : sans autre vidéo à "
+                        "moins d'une heure, 15 minutes d'avance au minimum, meilleures heures du compte d'abord."),
+        "schema": {"type": "object", "properties": {
+            "accounts": _ALIASES,
+            "start": {"type": "string", "description": "Premier jour, AAAA-MM-JJ (défaut : aujourd'hui)."},
+            "days": {"type": "integer", "minimum": 1, "maximum": 14},
+            "count": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["accounts"],
+            "additionalProperties": False},
+    },
+    "account_style": {
+        "fn": drafts.account_style, "kind": "captions", "user": True,
+        "tags": "style légende hashtags habitude réglages ton caption hashtag style settings usual",
+        "description": ("Style des dernières publications d'un compte : longueur des légendes, hashtags fréquents, "
+                        "exemples, réglages habituels (visibilité TikTok, catégorie YouTube…), pour préparer la suivante."),
+        "schema": {"type": "object", "properties": {"account": {"type": "string", "description": "Alias du compte."}},
+                   "required": ["account"], "additionalProperties": False},
+    },
+    "create_draft": {
+        "fn": drafts.create_draft, "kind": "planning", "user": True,
+        "tags": "brouillon préparer publication programmer créer poster publier draft prepare post create schedule",
+        "description": ("Prépare un brouillon de publication (jamais publié directement) pour une vidéo de la "
+                        "bibliothèque : comptes, date et heure, titre, légende, réglages par compte. Renvoie deux "
+                        "liens à montrer tels quels : « Lancer la programmation » et « Ouvrir le brouillon ». "
+                        "TikTok : privacy_level obligatoire (demandez à l'utilisateur). YouTube : made_for_kids obligatoire."),
+        "schema": {"type": "object", "properties": {
+            "video_id": {"type": "integer", "description": "video_id renvoyé par library_search."},
+            "accounts": _ALIASES,
+            "when": {"type": "string", "description": "Date et heure de Paris, « AAAA-MM-JJ HH:MM »."},
+            "title": {"type": "string", "description": "Titre (nom dans le planning, titre YouTube)."},
+            "caption": {"type": "string", "description": "Légende commune avec hashtags."},
+            "per_account": {"type": "object", "description": (
+                "Réglages propres à un compte, par alias. TikTok : privacy_level (PUBLIC_TO_EVERYONE, "
+                "MUTUAL_FOLLOW_FRIENDS, SELF_ONLY), allow_comment, allow_duet, allow_stitch, caption. YouTube : "
+                "title, description, tags, privacy_status (public, unlisted, private), category_id. Instagram : "
+                "caption, share_to_feed.")},
+            "made_for_kids": {"type": "boolean", "description": "YouTube : vidéo conçue pour les enfants."},
+            "ai_generated": {"type": "boolean", "description": "Contenu réaliste généré ou modifié par IA."}},
+            "required": ["video_id", "accounts", "when"], "additionalProperties": False},
+    },
+})
+
+
+# Deux niveaux d'outils : le modèle ne voit au départ que search_actions et execute_action (et les outils
+# de lecture courants) ; il cherche l'action utile, lit son schéma, puis l'exécute. Le catalogue peut grandir
+# sans alourdir chaque conversation (recherche par mots, sans accents, sur le nom, les mots-clés et la description).
+def search_actions(query: str, limit: int = 5) -> list[dict]:
+    words = [w for w in drafts._fold(query).split() if len(w) > 2]
+    scored = []
+    for name, spec in TOOLS.items():
+        hay = drafts._fold(" ".join((name.replace("_", " "), spec.get("tags", ""), spec["description"])))
+        score = sum(2 if f" {w} " in f" {hay} " else 1 if w in hay else 0 for w in words)
+        if score or not words:
+            scored.append((score, name, spec))
+    scored.sort(key=lambda x: -x[0])
+    return [{"action": n, "description": sp["description"], "arguments": sp["schema"]}
+            for _, n, sp in scored[:max(1, min(limit, 8))]]
+
+
+CORE = ("my_accounts", "schedule", "stats_summary", "top_videos")   # montrés d'office (lecture, courants)
+META: dict[str, dict] = {
+    "search_actions": {
+        "description": ("Cherche les actions Chapote CM utiles pour une demande (ex. « trouver une vidéo », « proposer "
+                        "un créneau », « préparer une publication »). Renvoie leur nom, description et arguments ; "
+                        "puis appelez execute_action."),
+        "schema": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Ce que vous voulez faire, en quelques mots."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 8}}, "required": ["query"], "additionalProperties": False},
+    },
+    "execute_action": {
+        "description": ("Exécute une action trouvée avec search_actions. Mêmes contrôles (accord IA, permissions, "
+                        "comptes autorisés). Un brouillon n'est jamais publié directement."),
+        "schema": {"type": "object", "properties": {
+            "action": {"type": "string", "description": "Nom de l'action (donné par search_actions)."},
+            "arguments": {"type": "object", "description": "Arguments de l'action."}},
+            "required": ["action"], "additionalProperties": False},
+    },
+}
+
+
+def exposed_tools() -> list[tuple[str, str, dict]]:
+    """Ce que voit le modèle au départ : les outils courants + search_actions / execute_action."""
+    return ([(n, TOOLS[n]["description"], TOOLS[n]["schema"]) for n in CORE]
+            + [(n, m["description"], m["schema"]) for n, m in META.items()])
+
+
 def _categories(name: str, result: dict) -> list[str]:
     cats = {"stats_summary": ["stats", "accounts"], "schedule": ["planning", "accounts"],
-            "top_videos": ["stats", "accounts"], "my_accounts": ["accounts"]}[name]
+            "top_videos": ["stats", "accounts"], "my_accounts": ["accounts"], "library_search": ["captions"],
+            "suggest_slots": ["planning", "accounts"], "account_style": ["captions", "accounts"],
+            "create_draft": ["planning", "accounts"]}.get(name, ["accounts"])
     text = json.dumps(result, ensure_ascii=False)
     if '"titre"' in text:
         cats = cats + ["captions"]
@@ -609,7 +714,7 @@ def _categories(name: str, result: dict) -> list[str]:
 
 
 def _count(result: dict) -> int:
-    for k in ("comptes", "publications", "videos"):
+    for k in ("comptes", "publications", "videos", "creneaux"):
         if isinstance(result.get(k), list):
             return len(result[k])
     return 1
@@ -618,6 +723,20 @@ def _count(result: dict) -> int:
 async def run_tool(token: str, name: str, args: Optional[dict]) -> tuple[str, bool]:
     """Point d'entrée unique des outils (serveur MCP HTTP et appel interne depuis chapote.fr).
     Retour (texte JSON borné, is_error). Journalise chaque appel, sans contenu."""
+    args = args if isinstance(args, dict) else {}
+    if name == "search_actions":
+        try:
+            verify_token(token)
+        except AssistantDenied as e:
+            return e.message, True
+        limit = args.get("limit") if isinstance(args.get("limit"), int) and not isinstance(args.get("limit"), bool) else 5
+        return json.dumps({"actions": search_actions(str(args.get("query") or ""), limit)},
+                          ensure_ascii=False, separators=(",", ":")), False
+    if name == "execute_action":
+        name = str(args.get("action") or "")
+        args = args.get("arguments") if isinstance(args.get("arguments"), dict) else {}
+        if name in META:
+            return "Action inconnue.", True
     async with SessionFactory() as db:
         return await _run_tool(db, token, name, args)
 
@@ -637,9 +756,15 @@ async def _run_tool(db: AsyncSession, token: str, name: str, args: Optional[dict
                                   "rate_limited")
         args = args if isinstance(args, dict) else {}
         props = spec["schema"]["properties"]
-        clean = {k: v for k, v in args.items() if k in props and isinstance(v, (str, int)) and not isinstance(v, bool)}
+        kinds = {"string": str, "integer": int, "boolean": bool, "array": list, "object": dict}
+        clean = {k: v for k, v in args.items() if k in props and isinstance(v, kinds.get(props[k].get("type"), str))
+                 and (props[k].get("type") == "boolean" or not isinstance(v, bool))}
         refs = await account_scope(db, user)
-        result = await spec["fn"](db, refs, consent, **clean)
+        try:
+            result = await (spec["fn"](db, user, refs, consent, **clean) if spec.get("user")
+                            else spec["fn"](db, refs, consent, **clean))
+        except drafts.DraftError as e:
+            raise AssistantDenied(e.message, e.code)
         # Repère pour « aujourd'hui », « demain » : l'IA ne connaît pas la date.
         now = _paris(utcnow())
         result = {"maintenant": f"{_jour(now)}/{now.year} {now.strftime('%H:%M')} (heure de Paris)",

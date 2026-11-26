@@ -304,7 +304,7 @@ async def test_mcp_client_exposes_tools_only_with_token(pg_session, assistant, t
     try:
         tools = await mcp_client.list_mcp_tools(assistant, "conv-x")
         names = {t["name"] for t in tools}
-        assert names == {f"mcp_cm-data_{n}" for n in ca.TOOLS}
+        assert names == {f"mcp_cm-data_{n}" for n, _d, _s in ca.exposed_tools()}
         out, err = await mcp_client.call_mcp_tool(assistant, "conv-x", "mcp_cm-data_stats_summary",
                                                   {"period": "30d", "user_id": 999})
         assert not err and "1234" in out and "777777" not in out
