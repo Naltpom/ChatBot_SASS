@@ -153,3 +153,23 @@ async def test_contact_public(pg_session, cmenv, monkeypatch):
     assert len(sent) == 1
     to, subject, body, kw = sent[0]
     assert to == ["root@t.dev"] and kw["reply_to"] == "lea@exemple.fr" and "Léa" in subject and "3 comptes" in body
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_invite_page_language(pg_session, cmenv, tiktok):
+    """Page du lien : anglais si le navigateur ne demande pas le français en premier (ou ?lang=en), sinon français."""
+    a = await _user(pg_session, "a@t.dev")
+    a1 = await _account(pg_session, owner=a, open_id="la1")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        g = (await c.as_(a).post("/api/cm/groups", json={"name": "Contes", "accounts": [{"platform": "tiktok", "account_id": a1.id}]})).json()
+        token = (await c.as_(a).post(f"/api/cm/groups/{g['id']}/invite-link", json={"role": "viewer"})).json()["token"]
+        en = await c.http.get("/api/cm/join", params={"t": token}, headers={"Accept-Language": "en-US,en;q=0.9,fr;q=0.8"})
+        assert en.status_code == 200 and '<html lang="en">' in en.text
+        assert "Join “Contes”" in en.text and "Open in the Chapote CM app" in en.text and "Rejoindre" not in en.text
+        fr = await c.http.get("/api/cm/join", params={"t": token}, headers={"Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"})
+        assert '<html lang="fr">' in fr.text and "Rejoindre « Contes »" in fr.text
+        assert "Join “Contes”" in (await c.http.get("/api/cm/join", params={"t": token, "lang": "en"})).text
+        bad = await c.http.get("/api/cm/join", params={"t": "faux"}, headers={"Accept-Language": "en"})
+        assert bad.status_code == 404 and "Link expired" in bad.text

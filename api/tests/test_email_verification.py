@@ -199,3 +199,27 @@ def test_fingerprint_changes_with_value():
     casse le lien à usage unique."""
     assert account_fingerprint("a@x.dev") != account_fingerprint("b@x.dev")
     assert account_fingerprint("hash-v1") != account_fingerprint("hash-v2")
+
+
+# --------------------------- langue (Chapote CM) ---------------------------
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+@pytest.mark.parametrize("headers, lang, subject, phrase", [
+    ({"X-Chapote-Lang": "en"}, "en", "Confirm your email address", "Thanks for creating your Chapote account."),
+    ({}, "fr", "Confirmez votre adresse email", "Merci d'avoir créé votre compte Chapote."),
+])
+async def test_register_email_in_request_language(pg_session, monkeypatch, headers, lang, subject, phrase):
+    """E-mail d'inscription dans la langue de la requête : anglais avec X-Chapote-Lang: en (site et app cm),
+    français sans (chapote.fr)."""
+    from test_tiktok import Client
+    sent = []
+    monkeypatch.setattr("src.routers.auth.send_account_email",
+                        lambda to, subject, text, **kw: sent.append((to, subject, text, kw)))
+    async with Client(pg_session) as c:
+        r = await c.http.post("/api/auth/register", headers=headers,
+                              json={"email": "new@t.dev", "password": "motdepasse-solide", "name": "Ann"})
+        assert r.status_code == 200, r.text
+    (to, subj, text, kw), = [m for m in sent if m[3].get("kind") == "verify"]
+    assert to == ["new@t.dev"] and subj == subject and phrase in text and kw.get("lang") == lang
+    assert text.startswith("Hi Ann," if lang == "en" else "Bonjour Ann,")

@@ -14,7 +14,7 @@ from datetime import timedelta
 from typing import Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select, update
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.time import utcnow
+from src.i18n import browser_lang, tr, trf
 from src.models.cm import CmGroup, CmGroupShare
 from src.models.cm_mobile import CmGroupInviteLink
 from src.models.user import User
@@ -119,8 +120,8 @@ async def accept(token: str, db: AsyncSession = Depends(get_db), user: User = De
     return {"ok": True, "group_id": g.id, "group_name": g.name, "org_id": g.organization_id, "role": s.role}
 
 
-_JOIN = """<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Invitation Chapote CM</title><style>
+_JOIN = """<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title><style>
 :root{{color-scheme:light dark;--bg:#f5f5f7;--fg:#1d1d1f;--mute:#6e6e73;--card:#fff;--line:#e8e8ed;--accent:#0071e3}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#f5f5f7;--mute:#a1a1a6;--card:#1c1c1e;--line:#2c2c2e;--accent:#0a84ff}}}}
 body{{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,sans-serif}}
@@ -131,20 +132,32 @@ h1{{font-size:26px;line-height:1.2;margin:0}} p{{margin:0;color:var(--mute)}}
 code{{word-break:break-all;font-size:13px}}</style></head><body><main>{body}</main></body></html>"""
 
 
+def _join_html(body: str, lang: str) -> str:
+    return _JOIN.format(body=body, lang=lang, title=html.escape(tr("Invitation Chapote CM", lang)))
+
+
 @router.get("/join", response_class=HTMLResponse)
-async def join_page(t: str = "", db: AsyncSession = Depends(get_db)):
+async def join_page(request: Request, t: str = "", db: AsyncSession = Depends(get_db)):
+    """Page du lien ; langue : `?lang=` ou Accept-Language du navigateur (src.i18n.browser_lang)."""
     headers = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
                "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex"}
+    lang = browser_lang(request)
+
+    def tx(text: str) -> str:
+        return html.escape(tr(text, lang), quote=False)
+
     try:
         _, g = await _valid(db, t)
     except HTTPException:
-        return HTMLResponse(_JOIN.format(body="<h1>Lien expiré</h1><p>Ce lien d'invitation n'est plus valable. Demandez-en un nouveau à la personne qui vous l'a envoyé.</p>"),
+        return HTMLResponse(_join_html("<h1>" + tx("Lien expiré") + "</h1><p>"
+                                       + tx("Ce lien d'invitation n'est plus valable. Demandez-en un nouveau à la personne qui vous l'a envoyé.")
+                                       + "</p>", lang),
                             status_code=404, headers=headers)
     app_link = f"chapotecm://join?t={quote(t)}"
-    body = (f"<h1>Rejoindre « {html.escape(g.name)} »</h1>"
-            "<p>On vous invite à suivre ce groupe de comptes TikTok, YouTube et Instagram dans Chapote CM.</p>"
-            f'<a class="btn" href="{html.escape(app_link)}">Ouvrir dans l\'app Chapote CM</a>'
-            '<div class="card"><strong>L\'app ne s\'ouvre pas ?</strong>'
-            "<p>Installez Chapote CM, connectez-vous, puis sur l'écran « Vos comptes » touchez « J'ai un lien d'invitation » et collez ce lien :</p>"
+    body = ("<h1>" + html.escape(trf("Rejoindre « {} »", lang, g.name), quote=False) + "</h1>"
+            "<p>" + tx("On vous invite à suivre ce groupe de comptes TikTok, YouTube et Instagram dans Chapote CM.") + "</p>"
+            f'<a class="btn" href="{html.escape(app_link)}">' + tx("Ouvrir dans l'app Chapote CM") + "</a>"
+            '<div class="card"><strong>' + tx("L'app ne s'ouvre pas ?") + "</strong>"
+            "<p>" + tx("Installez Chapote CM, connectez-vous, puis sur l'écran « Vos comptes » touchez « J'ai un lien d'invitation » et collez ce lien :") + "</p>"
             f"<code>{html.escape(_public_base())}/api/cm/join?t={html.escape(t)}</code></div>")
-    return HTMLResponse(_JOIN.format(body=body), headers=headers)
+    return HTMLResponse(_join_html(body, lang), headers=headers)

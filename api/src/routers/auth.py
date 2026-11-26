@@ -47,9 +47,11 @@ from src.services.email_service import (
     build_reset_email,
     build_verify_email,
     build_welcome_email,
+    email_languages,
     send_account_email,
     send_org_member_email,
 )
+from src.i18n import LANG
 from src.services.google_oauth import GoogleAuthError, verify_google_id_token
 from src.services.org_service import consume_invitations
 from src.services.rate_limit import auth_limiter, password_reset_email_limiter
@@ -62,21 +64,29 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # le changement de mot de passe (même règle de robustesse partout).
 PASSWORD_MIN_LENGTH = 8
 
+def _request_lang() -> str:
+    """Langue des e-mails envoyés à la personne qui fait la requête : celle demandée par
+    Chapote CM (en-tête X-Chapote-Lang, posé dans src.i18n.LANG) ; chapote.fr : français."""
+    return LANG.get()
+
+
 def _send_verify_email(user: User) -> None:
     """Construit le lien de confirmation et envoie le mail brandé
     (fire-and-forget)."""
     token = create_verify_email_token(user.id, user.email)
     link = f"{settings.APP_URL}/verify-email?token={token}"
-    subject, body = build_verify_email(user, link)
-    send_account_email([user.email], subject, body, kind="verify",
+    lang = _request_lang()
+    subject, body = build_verify_email(user, link, lang)
+    send_account_email([user.email], subject, body, kind="verify", lang=lang,
                        error_label="Envoi e-mail auth échoué")
 
 
 def _send_password_changed(user: User) -> None:
     """Notif de sécurité (fire-and-forget) après un changement de mot de passe.
     Partagée par /password (changement) et /password/reset (réinitialisation)."""
-    subject, mail_body = build_password_changed_email(user, settings.APP_URL)
-    send_account_email([user.email], subject, mail_body, kind="password_changed",
+    lang = _request_lang()
+    subject, mail_body = build_password_changed_email(user, settings.APP_URL, lang)
+    send_account_email([user.email], subject, mail_body, kind="password_changed", lang=lang,
                        error_label="Envoi e-mail sécurité échoué")
 
 
@@ -215,8 +225,11 @@ async def register(body: UserRegister, request: Request, response: Response,
     # jamais si l'envoi (ou le SMTP) échoue.
     _send_verify_email(user)
     # Notifie les personnes invitées/ajoutées à la nouvelle équipe (fire-and-forget).
+    # Langue : compte existant -> sa préférence Chapote CM ; sinon celle de la requête.
+    prefs = await email_languages(db, [m[0] for m in org_member_mails if m[3]])
     for inv_email, org_name, role, existing in org_member_mails:
-        send_org_member_email(inv_email, org_name, role,
+        lang = prefs.get(inv_email.lower()) if existing else _request_lang()
+        send_org_member_email(inv_email, org_name, role, lang=lang,
                               existing=existing, app_url=settings.APP_URL)
     return await _issue_session(db, user, response, request, signup=True)
 
@@ -419,9 +432,14 @@ async def confirm_email_verification(body: TokenBody, db: AsyncSession = Depends
         await db.commit()
         # Bienvenue : envoyé UNE SEULE fois, à la transition False->True (jamais à
         # l'inscription ni sur un confirm idempotent déjà vérifié).
-        subject, body = build_welcome_email(user, settings.APP_URL)
+        # Langue : celle de la requête, sinon la préférence Chapote CM (le lien de
+        # confirmation s'ouvre souvent sur une page qui n'envoie pas X-Chapote-Lang).
+        lang = _request_lang()
+        if lang != "en":
+            lang = (await email_languages(db, [user.email])).get(user.email.lower())
+        subject, body = build_welcome_email(user, settings.APP_URL, lang)
         # Email relationnel -> expéditeur hello@ (meilleur placement Gmail).
-        send_account_email([user.email], subject, body, kind="welcome",
+        send_account_email([user.email], subject, body, kind="welcome", lang=lang,
                            from_addr=HELLO_FROM,
                            reply_to=HELLO_EMAIL,
                            error_label="Envoi e-mail bienvenue échoué")
@@ -447,8 +465,9 @@ async def forgot_password(body: ForgotPasswordBody, request: Request,
             and await password_reset_email_limiter.check(email)):
         token = create_password_reset_token(user.id, user.hashed_password)
         link = f"{settings.APP_URL}/reset-password?token={token}"
-        subject, mail_body = build_reset_email(user, link)
-        send_account_email([user.email], subject, mail_body, kind="reset",
+        lang = _request_lang()
+        subject, mail_body = build_reset_email(user, link, lang)
+        send_account_email([user.email], subject, mail_body, kind="reset", lang=lang,
                            error_label="Envoi e-mail auth échoué")
     return {"message": "Si un compte existe pour cette adresse, un e-mail vient d'être envoyé."}
 

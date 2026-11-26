@@ -37,7 +37,8 @@ from src.services import cm_service as cm
 from src.services import instagram_service as ig
 from src.services import tiktok_service as tt
 from src.services import youtube_service as yt
-from src.services.email_service import send_org_member_email
+from src.i18n import LANG
+from src.services.email_service import email_languages, send_org_member_email
 from src.services.org_service import ensure_not_last_admin
 from src.services.rate_limit import RateLimiter
 
@@ -51,6 +52,14 @@ TRANSFER_TTL = timedelta(days=14)
 # --------------------------------------------------------------------------
 # Équipe
 # --------------------------------------------------------------------------
+
+async def _invitee_lang(db: AsyncSession, email: str, target: Optional[User]) -> Optional[str]:
+    """Langue de l'e-mail d'invitation : sa préférence Chapote CM si la personne a un compte,
+    sinon la langue de la personne qui invite (celle de la requête)."""
+    if target is not None:
+        return (await email_languages(db, [email])).get(email.lower())
+    return LANG.get()
+
 
 async def _org_admin(db: AsyncSession, user: User, org_id: int) -> Membership:
     m = (await db.execute(select(Membership).where(Membership.user_id == user.id,
@@ -157,7 +166,7 @@ async def invite(org_id: int, body: MemberIn, db: AsyncSession = Depends(get_db)
     await _set_role(db, org_id, email, body.role, groups)
     await db.commit()
     send_org_member_email(email, org.name, org_role, existing=target is not None,
-                          app_url=settings.CM_URL or settings.APP_URL)
+                          app_url=settings.CM_URL or settings.APP_URL, lang=await _invitee_lang(db, email, target))
     return {"joined": target is not None}
 
 
@@ -539,7 +548,7 @@ async def share(body: ShareIn, db: AsyncSession = Depends(get_db), user: User = 
     if created:
         org = await db.get(Organization, org_id)
         send_org_member_email(email, org.name, org_role, existing=target is not None,
-                              app_url=settings.CM_URL or settings.APP_URL)
+                              app_url=settings.CM_URL or settings.APP_URL, lang=await _invitee_lang(db, email, target))
     return {"org_id": org_id, "ok": True, "invited": created and target is None}
 
 

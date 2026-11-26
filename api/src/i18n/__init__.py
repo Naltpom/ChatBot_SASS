@@ -77,6 +77,14 @@ def tr(text: str, lang: Optional[str] = None) -> str:
     return text
 
 
+def trf(template: str, lang: Optional[str], *values: Any) -> str:
+    """Modèle français (« Rejoindre « {} » ») traduit puis rempli avec `values` : les valeurs (noms, e-mails, messages
+    écrits par les gens) sont recopiées telles quelles, jamais traduites. `lang` vaut « en » pour l'anglais, sinon français
+    (pas de repli sur la langue de la requête : à passer explicitement)."""
+    text = EN.get(template, template) if lang == "en" else template
+    return text.format(*values)
+
+
 def tr_json(value: Any, lang: Optional[str] = None) -> Any:
     """Toutes les chaînes d'une réponse JSON, traduites (clés inchangées)."""
     if isinstance(value, str):
@@ -92,6 +100,16 @@ def lang_of(headers) -> str:
     """Langue demandée par le client cm : en-tête X-Chapote-Lang (« en » ou « fr »), sinon français."""
     v = (headers.get("x-chapote-lang") or "").strip().lower()
     return "en" if v.startswith("en") else "fr"
+
+
+def browser_lang(request) -> str:
+    """Langue d'une page HTML ouverte dans un navigateur : ``?lang=en|fr`` s'il est donné, sinon la première langue
+    de l'en-tête Accept-Language (anglais si ce n'est pas le français ; sans en-tête : français)."""
+    q = (request.query_params.get("lang") or "").strip().lower()
+    if q[:2] in ("en", "fr"):
+        return q[:2]
+    first = (request.headers.get("accept-language") or "").split(",")[0].split(";")[0].strip().lower()
+    return "en" if first and first != "*" and not first.startswith("fr") else "fr"
 
 
 async def translate_response(request, call_next):

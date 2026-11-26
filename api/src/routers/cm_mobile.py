@@ -46,6 +46,7 @@ from src.core.security import _encode, create_dashboard_token, get_current_user,
 from src.core.time import utcnow
 from src.models.cm_mobile import CmAppOpen, CmFeedback, CmMobileDevice, CmUserIdentity
 from src.models.user import User
+from src.i18n import browser_lang, tr
 from src.services.captcha import verify_turnstile_token
 from src.services.email_service import send_account_email
 from src.services.user_apps import client_ip
@@ -126,7 +127,7 @@ async def _device(db: AsyncSession, token: str) -> CmMobileDevice:
 # Connexion par le navigateur intégré
 # --------------------------------------------------------------------------
 
-_PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
+_PAGE = """<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">{head}<title>Chapote CM</title>
 <style>
 :root{{color-scheme:light dark;--bg:#FAFAF9;--fg:#1C1917;--mute:#57534E;--line:#E7E5E4;--card:#fff;--accent:#1D4ED8}}
@@ -144,13 +145,20 @@ font:inherit;font-weight:600;text-decoration:none;background:var(--accent);color
 GSI = "https://accounts.google.com/gsi/"
 
 
-def _page(body: str, code: int = 200, google: bool = False, head: str = "") -> HTMLResponse:
+def _tx(text: str, lang: str) -> str:
+    """Texte d'une page, dans sa langue (src/i18n/en_pages.py), échappé pour le HTML."""
+    return html.escape(tr(text, lang), quote=False)
+
+
+def _page(body: str, code: int = 200, google: bool = False, head: str = "", lang: str = "fr") -> HTMLResponse:
+    """Page de connexion de l'app ; `lang` (« fr » | « en », voir src.i18n.browser_lang) : <html lang>, textes
+    déjà traduits par l'appelant."""
     # Le nginx de cm ajoute sa propre CSP (form-action 'self') : le retour vers l'app ne passe donc
     # jamais par une redirection de formulaire, mais par un lien (voir connect_confirm).
     csp = ("default-src 'none'; style-src 'unsafe-inline'"
            + (f" {GSI}style; script-src 'self' {GSI}client; frame-src {GSI}; connect-src 'self' {GSI}" if google else "")
            + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
-    return HTMLResponse(_PAGE.format(body=body, head=head), status_code=code,
+    return HTMLResponse(_PAGE.format(body=body, head=head, lang=lang), status_code=code,
                         headers={"Content-Security-Policy": csp, "Cache-Control": "no-store",
                                  "Referrer-Policy": "no-referrer"})
 
@@ -164,13 +172,14 @@ def _check_connect(redirect_uri: str, challenge: str, state: str) -> None:
 # puis code de double authentification si besoin ; la page se recharge connectée.
 _CONNECT_JS = """(function () {
   var box = document.getElementById('g'), msg = document.getElementById('m'), form = document.getElementById('f');
-  var challenge = null;
+  var challenge = null, en = document.documentElement.lang === 'en';
   function say(t) { msg.textContent = t || ''; }
   function post(url, body) {
     return fetch(url, { method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm' }, body: JSON.stringify(body) })
+      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm', 'X-Chapote-Lang': en ? 'en' : 'fr' },
+      body: JSON.stringify(body) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) {
-        if (!r.ok) throw new Error((b && (typeof b.detail === 'string' ? b.detail : b.message)) || ('Erreur ' + r.status));
+        if (!r.ok) throw new Error((b && (typeof b.detail === 'string' ? b.detail : b.message)) || ((en ? 'Error ' : 'Erreur ') + r.status));
         return b; }); });
   }
   function done(b) {
@@ -184,10 +193,10 @@ _CONNECT_JS = """(function () {
   window.addEventListener('load', function () {
     if (!window.google || !box) return;
     google.accounts.id.initialize({ client_id: box.dataset.client, ux_mode: 'popup', callback: function (r) {
-      say('Connexion…');
+      say(en ? 'Signing in…' : 'Connexion…');
       post('/api/auth/google', { credential: r.credential }).then(done, function (err) { say(err.message); });
     } });
-    google.accounts.id.renderButton(box, { theme: 'outline', size: 'large', width: 300, text: 'continue_with', locale: 'fr' });
+    google.accounts.id.renderButton(box, { theme: 'outline', size: 'large', width: 300, text: 'continue_with', locale: en ? 'en' : 'fr' });
   });
 })();
 """
@@ -202,39 +211,44 @@ async def connect_js():
 async def connect_page(request: Request, redirect_uri: str = "", challenge: str = "", state: str = "",
                        db: AsyncSession = Depends(get_db)):
     _check_connect(redirect_uri, challenge, state)
+    lang = browser_lang(request)
     user = await get_optional_user(request, db)
     here = html.escape(str(request.url))
     if user is None:
         site = html.escape(settings.CM_URL.rstrip("/") + "/")
         client = settings.GOOGLE_CLIENT_ID
         google = (f'<div id="g" data-client="{html.escape(client)}" style="display:flex;justify-content:center;min-height:44px"></div>'
-                  '<form id="f" hidden><p>Code de double authentification</p>'
+                  f'<form id="f" hidden><p>{_tx("Code de double authentification", lang)}</p>'
                   '<input name="code" inputmode="numeric" autocomplete="one-time-code" aria-label="Code" '
                   'style="font:inherit;width:100%;box-sizing:border-box;min-height:48px;border-radius:12px;border:1px solid var(--line);padding:0 12px;margin:8px 0">'
-                  '<button class="btn" type="submit">Valider</button></form>'
+                  f'<button class="btn" type="submit">{_tx("Valider", lang)}</button></form>'
                   '<p id="m" role="status"></p>'
                   f'<script src="{GSI}client" async></script><script src="connect.js"></script>') if client else ""
         return _page(
-            "<h1>Connexion</h1>"
-            "<p>Connectez-vous avec votre compte Chapote pour relier l'application.</p>"
-            + google +
-            f'<a class="btn sec" href="{site}">E-mail et mot de passe sur cm.chapote.fr</a>'
-            f'<a class="btn sec" href="{here}">Je suis connecté, continuer</a>', google=bool(client))
+            "<h1>" + _tx("Connexion", lang) + "</h1>"
+            "<p>" + _tx("Connectez-vous avec votre compte Chapote pour relier l'application.", lang) + "</p>"
+            + google
+            + f'<a class="btn sec" href="{site}">' + _tx("E-mail et mot de passe sur cm.chapote.fr", lang) + "</a>"
+            + f'<a class="btn sec" href="{here}">' + _tx("Je suis connecté, continuer", lang) + "</a>",
+            google=bool(client), lang=lang)
     who = html.escape(user.email or user.name or "")
     fields = "".join(f'<input type="hidden" name="{k}" value="{html.escape(v)}">'
                      for k, v in (("redirect_uri", redirect_uri), ("challenge", challenge), ("state", state)))
     return _page(
-        "<h1>Connecter l'application</h1>"
-        f'<div class="card"><p>Compte</p><strong>{who}</strong></div>'
-        "<p>L'application Chapote CM pourra voir et gérer votre planning, vos comptes et vos commentaires, "
-        "comme sur le site. Vous pourrez la déconnecter à tout moment.</p>"
-        f'<form method="post" action="connect">{fields}<button class="btn" type="submit">Autoriser</button></form>')
+        "<h1>" + _tx("Connecter l'application", lang) + "</h1>"
+        '<div class="card"><p>' + _tx("Compte", lang) + f"</p><strong>{who}</strong></div>"
+        "<p>" + _tx("L'application Chapote CM pourra voir et gérer votre planning, vos comptes et vos commentaires, "
+                    "comme sur le site. Vous pourrez la déconnecter à tout moment.", lang) + "</p>"
+        f'<form method="post" action="connect">{fields}<button class="btn" type="submit">'
+        + _tx("Autoriser", lang) + "</button></form>",
+        lang=lang)
 
 
 @router.post("/connect", response_class=HTMLResponse)
 async def connect_confirm(request: Request, redirect_uri: str = Form(""), challenge: str = Form(""),
                           state: str = Form(""), db: AsyncSession = Depends(get_db)):
     _check_connect(redirect_uri, challenge, state)
+    lang = browser_lang(request)
     user = await get_current_user(request, db)
     if not await connect_limiter.check(f"u:{user.id}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de tentatives : réessayez dans une heure.")
@@ -245,10 +259,11 @@ async def connect_confirm(request: Request, redirect_uri: str = Form(""), challe
     # Lien (et rafraîchissement automatique) plutôt qu'une redirection : la CSP form-action du site
     # bloquerait la redirection vers chapotecm:// ou exp://.
     return _page(
-        "<h1>C'est fait</h1><p>Retour dans l'application… Si rien ne se passe, fermez cette page : "
-        "l'application finit la connexion toute seule.</p>"
-        f'<a class="btn" href="{back}">Ouvrir l\'application</a>',
-        head=f'<meta http-equiv="refresh" content="0;url={back}">')
+        "<h1>" + _tx("C'est fait", lang) + "</h1><p>"
+        + _tx("Retour dans l'application… Si rien ne se passe, fermez cette page : "
+              "l'application finit la connexion toute seule.", lang) + "</p>"
+        + f'<a class="btn" href="{back}">' + _tx("Ouvrir l'application", lang) + "</a>",
+        head=f'<meta http-equiv="refresh" content="0;url={back}">', lang=lang)
 
 
 # Le retour automatique dans l'app (lien chapotecm:// ou exp://) n'est pas fiable partout (Expo Go…) :
@@ -478,8 +493,11 @@ async def web_link(body: WebLinkIn, user: User = Depends(get_current_user)):
 
 
 @router.get("/web-session")
-async def web_session(t: str = "", db: AsyncSession = Depends(get_db)):
-    invalid = _page("<h1>Lien expiré</h1><p>Revenez dans l'app Chapote CM et recommencez la connexion du compte.</p>", 400)
+async def web_session(request: Request, t: str = "", db: AsyncSession = Depends(get_db)):
+    lang = browser_lang(request)
+    invalid = _page("<h1>" + _tx("Lien expiré", lang) + "</h1><p>"
+                    + _tx("Revenez dans l'app Chapote CM et recommencez la connexion du compte.", lang) + "</p>",
+                    400, lang=lang)
     try:
         claims = jwt.decode(t, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
     except JWTError:
