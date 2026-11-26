@@ -19,6 +19,7 @@ import { launchUpdateChecked, UpdateBanner, useAppUpdate } from '../lib/app-upda
 import { ThemeProvider, useTheme } from '../ui/theme'
 import { loadFonts } from '../ui/fonts'
 import { takeResume } from '../lib/app-icon'
+import { offerPasskey } from '../lib/passkey'
 import { AppearanceSync } from '../lib/appearance-sync'
 
 loadFonts()
@@ -57,6 +58,13 @@ function Gate() {
   useEffect(() => {
     if (!ready || !me || !onboarded || segments[0] === 'join') return
     AsyncStorage.getItem('cm.pending-join').then(t => { if (t) router.push({ pathname: '/join', params: { t } }) }).catch(() => {})
+  }, [ready, me?.id, onboarded]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Juste après une connexion : proposer l'empreinte (une fois ; « Plus tard » = pas avant 30 jours).
+  useEffect(() => {
+    if (!ready || !me || !onboarded) return
+    const id = me.id
+    const t = setTimeout(() => offerPasskey(id, () => router.push({ pathname: '/settings', params: { passkey: '1' } })), 1200)
+    return () => clearTimeout(t)
   }, [ready, me?.id, onboarded]) // eslint-disable-line react-hooks/exhaustive-deps
   // Changement d'icône : si le téléphone a relancé l'app, on revient sur la page où l'on était (Réglages).
   useEffect(() => {
@@ -106,6 +114,7 @@ function Gate() {
         <Stack.Screen name="drafts" options={{ title: 'Brouillons à valider' }} />
         <Stack.Screen name="videos" options={{ title: 'Vidéos' }} />
         <Stack.Screen name="settings" options={{ title: 'Réglages' }} />
+        <Stack.Screen name="assistant-settings" options={{ title: 'Assistant IA' }} />
         <Stack.Screen name="activity" options={{ title: 'Activité' }} />
         <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
         <Stack.Screen name="storage" options={{ title: 'Stockage' }} />

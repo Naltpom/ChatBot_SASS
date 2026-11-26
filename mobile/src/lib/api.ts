@@ -442,3 +442,21 @@ export const sendFeedback = (reason: AbandonReason, text?: string) =>
 export const passkeyRegisterBegin = () => send<{ options: string }>('POST', '/api/cm/mobile/passkey/register/begin')
 export const passkeyRegisterComplete = (credential: unknown, name: string) =>
   send<{ ok: boolean; name: string; recovery_codes: string[] | null }>('POST', '/api/cm/mobile/passkey/register/complete', { credential, name })
+
+// Assistant Chapote CM, mode « mes données » (docs/CM_MCP.md) : accord IA et permissions par compte. 404 = fonction éteinte.
+export type AiKind = 'stats' | 'planning' | 'captions'
+export interface AiConsent { enabled: boolean; stats: boolean; planning: boolean; captions: boolean; excluded_accounts: string[]; policy_version: string | null; provider: string | null }
+export interface AiAccount {
+  key: string; platform: Platform; alias: string; name: string | null; owner: boolean; role: CmRole; groups: string[]
+  permissions: Record<AiKind, boolean> | null; excluded: boolean
+}
+export interface AiStatus {
+  provider: string | null; policy_version: string; consent: AiConsent; active: boolean; needs_review: boolean
+  old_enough: boolean; platforms: Platform[]; accounts: AiAccount[]
+}
+export const getAiStatus = () => call<AiStatus>('/api/cm/assistant/status')
+export const putAiConsent = (change: Partial<Pick<AiConsent, 'enabled' | AiKind | 'excluded_accounts'>> & { source?: 'mobile' }) =>
+  send<AiStatus>('PUT', '/api/cm/assistant/consent', change)
+export const putAiPermissions = (platform: Platform, id: number, perms: Record<AiKind, boolean>) =>
+  send<AiStatus>('PUT', `/api/cm/assistant/accounts/${platform}/${id}/permissions`, perms)
+export const eraseAiConversations = () => send<{ deleted: number }>('POST', '/api/cm/assistant/conversations/erase')
