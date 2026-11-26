@@ -15,7 +15,10 @@ const files = import.meta.glob('./en/*.ts', { eager: true, import: 'default' }) 
 const EN: Record<string, string> = Object.assign({}, ...Object.values(files))
 
 // Hors navigateur (pré-rendu du build, scripts/prerender.mjs) : français, quelle que soit la langue de la machine.
-const nav = () => (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.language) || 'fr-FR'
+// Robots des moteurs de recherche (Googlebot se présente en en-US) : la version française, celle du HTML pré-rendu.
+const BOT = /bot|crawler|spider|crawling|slurp|lighthouse/i
+const nav = () => (typeof window !== 'undefined' && typeof navigator !== 'undefined' && !BOT.test(navigator.userAgent || '')
+  && navigator.language) || 'fr-FR'
 export const systemLang = (): Lang => (nav().toLowerCase().startsWith('fr') ? 'fr' : 'en')
 export const resolve = (pref: LangPref | undefined | null): Lang => (pref === 'fr' || pref === 'en' ? pref : systemLang())
 
