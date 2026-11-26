@@ -119,13 +119,14 @@ export function Sheet({ title, onClose, children, labelledBy = 'sheet-title' }: 
 
 export type IconName = 'left' | 'right' | 'down' | 'up' | 'upload' | 'refresh' | 'external' | 'home' | 'calendar' | 'chart'
   | 'users' | 'plus' | 'close' | 'video' | 'eye' | 'eye-off' | 'heart' | 'comment' | 'share' | 'bookmark' | 'check'
-  | 'layers' | 'clock' | 'logout' | 'grid' | 'list' | 'trend' | 'edit' | 'trash' | 'bolt' | 'shield' | 'link' | 'menu' | 'search' | 'star' | 'settings' | 'folder'
+  | 'layers' | 'clock' | 'logout' | 'grid' | 'list' | 'trend' | 'edit' | 'trash' | 'bolt' | 'shield' | 'link' | 'menu' | 'search' | 'star' | 'settings' | 'folder' | 'info'
 
 const PATHS: Record<IconName, string> = {
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
   folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
   search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',
   star: 'M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.9 6.75 19.6l1-5.8L3.5 9.7l5.9-.9z',
+  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.5',
   left: 'M15 18l-6-6 6-6',
   right: 'M9 18l6-6-6-6',
   down: 'M6 9l6 6 6-6',

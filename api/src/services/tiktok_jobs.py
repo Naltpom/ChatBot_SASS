@@ -109,6 +109,8 @@ def post_info(post: TikTokPost) -> dict:
         "brand_content_toggle": post.brand_content,
         "brand_organic_toggle": post.brand_organic,
     }
+    if post.is_aigc:
+        info["is_aigc"] = True
     if post.cover_timestamp_ms is not None:
         info["video_cover_timestamp_ms"] = int(post.cover_timestamp_ms)
     return info

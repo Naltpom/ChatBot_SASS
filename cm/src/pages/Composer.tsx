@@ -1,9 +1,11 @@
-// Nouvelle publication : une vidéo, un ou plusieurs comptes, maintenant ou à une heure précise.
+// Nouvelle publication (même parcours que l'app) : 1. la vidéo, puis titre et légende, public, droits, IA ;
+// 2. les comptes et le jour / l'heure ; puis « Planifier » directement, ou « Réglages » (un onglet par compte,
+// carrousel) quand un réseau en demande. Une fenêtre fait valider chaque compte avant l'envoi.
 // TikTok (Content Sharing Guidelines) : options du créateur relues à chaque choix du compte,
 // pseudo affiché, confidentialité SANS valeur présélectionnée, interactions décochées et grisées
 // si coupées chez le créateur, divulgation commerciale, Music Usage Confirmation avant l'envoi.
 // Rien n'est envoyé à une plateforme avant l'heure choisie.
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { AccountPicker } from '../components/AccountPicker'
 import { FramePicker } from '../components/FramePicker'
@@ -13,14 +15,18 @@ import {
   RIGHTS_LABEL, RIGHTS_WARNING, type Account, type Asset, type CreatorInfo, type Platform, type Rights,
   type Proposal,
 } from '../api'
-import { Avatar, GroupDot, Icon, Loading, Msg, Sheet } from '../components/ui'
+import { Avatar, GroupDot, Icon, Loading, Msg, Seg, Sheet } from '../components/ui'
 import { AssetGrid } from './Library'
 import { fmtDuration, fmtSize, TIKTOK_BC_URL, TIKTOK_MUSIC_URL, TIKTOK_PRIVACY, toLocalInput } from '../format'
 import { useLoad, useRole, useSession } from '../session'
-import { useDesktop } from '../hooks'
+import { DateParts } from '../components/DateParts'
+import { AccountPager } from '../components/AccountPager'
+import { ReviewSheet } from '../components/ReviewSheet'
+import { fmtTime as fmtMs } from '../components/FramePicker'
+import { LOCALE } from '../compose'
 
 interface TikTokOpts { mode: 'direct' | 'draft'; privacy: string; comment: boolean; duet: boolean; stitch: boolean
-  commercial: boolean; yourBrand: boolean; branded: boolean; text: string; coverMs?: number | null }
+  commercial: boolean; yourBrand: boolean; branded: boolean; text: string; coverMs?: number | null; aigc?: boolean }
 interface YouTubeOpts { title: string; description: string; privacy: string; kids: '' | 'yes' | 'no'; synthetic: boolean
   category: string; notify: boolean; tags: string }
 interface InstaOpts { text: string; feed: boolean; coverMs?: number | null }
@@ -35,12 +41,7 @@ function defaults(a: Account): Opts {
   return { text: '', feed: true }
 }
 
-const STEP_LABELS = ['Vidéo et texte', 'Comptes et heure', 'Chaque réseau']
-const STEP_INTRO = [
-  'Vidéo, titre et légende : écrits une fois, ils partent sur tous les comptes.',
-  'Choisissez les comptes et l’heure.',
-  'Dernière étape : pour chaque réseau, sa miniature, ses textes (déjà remplis, modifiables) et ses réglages, puis programmez.',
-]
+const STEP_LABELS = ['Votre vidéo', 'Comptes et date', 'Réglages']
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
@@ -79,7 +80,8 @@ export default function Composer() {
   const forgetCovers = () => setOpts(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, 'coverMs' in v ? { ...v, coverMs: null } : v])))
   const [creators, setCreators] = useState<Record<string, CreatorInfo | 'loading' | { error: string }>>({})
   const [when, setWhen] = useState<'now' | 'at'>('at')
-  const [at, setAt] = useState(() => { const d = new Date(Date.now() + 3600000); d.setMinutes(0, 0, 0); return toLocalInput(d) })
+  // Heure proposée : dans une heure au moins, arrondie au quart d'heure suivant.
+  const [at, setAt] = useState(() => { const d = new Date(Date.now() + 3600000); d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0); return toLocalInput(d) })
   const [sameTime, setSameTime] = useState(true)
   const [times, setTimes] = useState<Record<string, string>>({})
   const [progress, setProgress] = useState<number | null>(null)
@@ -92,10 +94,14 @@ export default function Composer() {
   const [asset, setAsset] = useState<Asset | null>(null)
   const [picking, setPicking] = useState(false)
   // Téléphone : en 3 étapes comme l'app (contenu → comptes et heure → réglages par réseau). Ordinateur : tout sur une vue.
-  const desktop = useDesktop()
   const [step, setStep] = useState<1 | 2 | 3>(1)
-  const show = (n: 1 | 2 | 3) => desktop || step === n
   const go = (n: 1 | 2 | 3) => { setStep(n); window.scrollTo(0, 0) }
+  // Communs à tous les comptes (étape 1), recopiés dans les réglages des réseaux qui les connaissent.
+  const [kids, setKids] = useState<'' | 'yes' | 'no'>('')
+  const [ai, setAi] = useState(false)
+  const [review, setReview] = useState(false)
+  const [captionOpen, setCaptionOpen] = useState(false)
+  const textCard = useRef<HTMLElement>(null)
   const [pickQ, setPickQ] = useState('')
   const robot = useLoad(() => getRobot(), [])
   const useAsset = (a: Asset) => {
@@ -153,7 +159,15 @@ export default function Composer() {
     const fresh = list.filter(a => a.can_publish && a.role !== 'viewer' && (a.org_id ?? null) === where && !picked.includes(key(a)))
     if (!fresh.length) return
     setPicked(p => [...p, ...fresh.map(key)])
-    setOpts(o => { const n = { ...o }; for (const a of fresh) if (!n[key(a)]) n[key(a)] = defaults(a); return n })
+    setOpts(o => {
+      const n = { ...o }
+      for (const a of fresh) {
+        if (n[key(a)]) continue
+        const d = defaults(a)
+        n[key(a)] = a.platform === 'youtube' ? { ...d, kids, synthetic: ai } : a.platform === 'tiktok' ? { ...d, aigc: ai } : d
+      }
+      return n
+    })
     for (const a of fresh) {
       if (a.platform !== 'tiktok') continue
       const k = key(a)
@@ -193,39 +207,59 @@ export default function Composer() {
     if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, '').slice(0, 100))
   }
 
-  // Problèmes bloquants, par compte et en général.
-  const problems = useMemo(() => {
+  // Communs → réglages de chaque compte qui les connaît (YouTube : enfants, synthétique ; TikTok : IA).
+  useEffect(() => {
+    setOpts(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k,
+      k.startsWith('youtube:') ? { ...v, kids, synthetic: ai } : k.startsWith('tiktok:') ? { ...v, aigc: ai } : v])))
+  }, [kids, ai])
+  // Vidéo choisie : la carte du titre et de la légende apparaît, la page descend jusqu'à elle.
+  const hasVideo = !!file || !!asset
+  useEffect(() => { if (hasVideo) setTimeout(() => textCard.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150) }, [hasVideo])
+
+  // Problèmes bloquants : contenu (étape 1), comptes et heure (étape 2), puis réglages de chaque compte.
+  const accProblems = (a: Account): string[] => {
+    const k = key(a), o = opts[k], out: string[] = []
+    if (!o) return out
+    if (a.platform === 'tiktok') {
+      const t = o as TikTokOpts, ci = creators[k]
+      if (ci === 'loading') out.push('options du compte en cours de lecture…')
+      else if (!ci || 'error' in ci) out.push('options du compte TikTok illisibles.')
+      else if (!ci.can_post) out.push(ci.message || 'publication impossible sur ce compte.')
+      else {
+        const max = Math.min(ci.creator?.max_video_post_duration_sec || 600, 600)
+        if (duration != null && duration > max) out.push(`vidéo trop longue (${fmtDuration(max)} au plus sur ce compte).`)
+        if (t.mode === 'direct' && !t.privacy) out.push('choisissez qui peut voir la vidéo.')
+        if (t.mode === 'direct' && t.commercial && !t.yourBrand && !t.branded) out.push("indiquez si le contenu fait votre promotion, celle d'un tiers, ou les deux.")
+      }
+    } else if (a.platform === 'youtube') {
+      const y = o as YouTubeOpts
+      if (!y.kids) out.push('indiquez si la vidéo est conçue pour les enfants.')
+      if (duration != null && duration > (config?.youtube_max_duration_sec || 180)) out.push('vidéo trop longue pour un Short (3 min au plus).')
+    } else if (duration != null && (duration < 3 || duration > (config?.instagram_max_duration_sec || 900))) {
+      out.push('un Reel dure de 3 s à 15 min.')
+    }
+    return out
+  }
+  const contentProblems = useMemo(() => {
     const out: string[] = []
     if (!file && !asset) out.push('Choisissez une vidéo.')
     if (!title.trim()) out.push('Donnez un titre à la publication.')
-    if (!chosen.length) out.push('Choisissez au moins un compte.')
     if (file && config && file.size > config.max_upload_bytes) out.push(`Vidéo trop volumineuse (${fmtSize(config.max_upload_bytes)} au plus).`)
-    if (when === 'at' && sameTime && new Date(at).getTime() < Date.now() - 60000) out.push("L'heure choisie est déjà passée.")
-    for (const a of chosen) {
-      const k = key(a), o = opts[k], n = a.name || PLATFORM_LABEL[a.platform]
-      if (!o) continue
-      if (a.platform === 'tiktok') {
-        const t = o as TikTokOpts, ci = creators[k]
-        if (ci === 'loading') out.push(`${n} : options du compte en cours de lecture…`)
-        else if (!ci || 'error' in ci) out.push(`${n} : options du compte TikTok illisibles.`)
-        else if (!ci.can_post) out.push(`${n} : ${ci.message}`)
-        else {
-          const max = Math.min(ci.creator?.max_video_post_duration_sec || 600, 600)
-          if (duration != null && duration > max) out.push(`${n} : vidéo trop longue (${fmtDuration(max)} au plus sur ce compte).`)
-          if (t.mode === 'direct' && !t.privacy) out.push(`${n} : choisissez qui peut voir la vidéo.`)
-          if (t.mode === 'direct' && t.commercial && !t.yourBrand && !t.branded) out.push(`${n} : indiquez si le contenu fait votre promotion, celle d'un tiers, ou les deux.`)
-        }
-      } else if (a.platform === 'youtube') {
-        const y = o as YouTubeOpts
-        if (!y.kids) out.push(`${n} : indiquez si la vidéo est conçue pour les enfants.`)
-        if (duration != null && duration > (config?.youtube_max_duration_sec || 180)) out.push(`${n} : vidéo trop longue pour un Short (3 min au plus).`)
-      } else if (duration != null && (duration < 3 || duration > (config?.instagram_max_duration_sec || 900))) {
-        out.push(`${n} : un Reel dure de 3 s à 15 min.`)
-      }
-      if (when === 'at' && !sameTime && times[k] && new Date(times[k]).getTime() < Date.now() - 60000) out.push(`${n} : l'heure choisie est déjà passée.`)
-    }
     return out
-  }, [file, asset, title, chosen, opts, creators, duration, when, at, sameTime, times, config]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [file, asset, title, config])
+  const soon = (d: string) => new Date(d).getTime() < Date.now() + 14 * 60000
+  const targetProblems = useMemo(() => {
+    const out: string[] = []
+    if (!chosen.length) out.push('Choisissez au moins un compte.')
+    if (when === 'at' && sameTime && soon(at)) out.push('Choisissez une heure au moins 15 minutes plus tard.')
+    if (when === 'at' && !sameTime) for (const a of chosen) if (times[key(a)] && soon(times[key(a)])) out.push(`${a.name} : choisissez une heure au moins 15 minutes plus tard.`)
+    if (chosen.some(a => a.platform === 'youtube') && !kids) out.push('Indiquez la limite d’âge à l’étape 1 (YouTube le demande).')
+    return out
+  }, [chosen, when, at, sameTime, times, kids]) // eslint-disable-line react-hooks/exhaustive-deps
+  const problems = [...contentProblems, ...targetProblems, ...chosen.flatMap(a => accProblems(a).map(p => `${a.name || PLATFORM_LABEL[a.platform]} : ${p}`))]
+  // Réglages compte par compte seulement si un réseau en demande (TikTok direct : visibilité à choisir à la main).
+  const needSettings = chosen.some(a => a.platform === 'tiktok' && (opts[key(a)] as TikTokOpts)?.mode === 'direct')
+    || chosen.some(a => accProblems(a).length > 0)
 
   const buildTarget = (a: Account) => {
     const k = key(a), o = opts[k]
@@ -236,6 +270,7 @@ export default function Composer() {
         mode: t.mode, privacy_level: t.mode === 'direct' ? t.privacy : null, allow_comment: t.comment, allow_duet: t.duet,
         allow_stitch: t.stitch, brand_organic: t.commercial && t.yourBrand, brand_content: t.commercial && t.branded,
         ...(t.mode === 'direct' && t.coverMs != null ? { cover_timestamp_ms: t.coverMs } : {}),
+        ...(t.mode === 'direct' && t.aigc ? { is_aigc: true } : {}),
         ...(t.text.trim() ? { title: t.text } : {}) } }
     }
     if (a.platform === 'youtube') {
@@ -254,7 +289,7 @@ export default function Composer() {
     if ((!file && !asset) || problems.length) return
     if ((rights === 'protected' || rights === 'unknown') && chosen.length
         && !window.confirm(`${RIGHTS_WARNING}\n\nPublier quand même sur ${[...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ')} ?`)) return
-    setErr(''); setProgress(0)
+    setReview(false); setErr(''); setProgress(0)
     const rightsBody = rights ? { rights, rights_note: rightsNote.trim() || undefined } : {}
     try {
       if (asset) {
@@ -283,34 +318,67 @@ export default function Composer() {
   const tiktokBranded = chosen.some(a => a.platform === 'tiktok' && (opts[key(a)] as TikTokOpts)?.mode === 'direct'
     && (opts[key(a)] as TikTokOpts)?.commercial && (opts[key(a)] as TikTokOpts)?.branded)
   const hasTikTok = chosen.some(a => a.platform === 'tiktok')
-  const summary = chosen.length
-    ? `${chosen.length} compte${chosen.length > 1 ? 's' : ''} · ${when === 'now' ? 'dès l’envoi de la vidéo' : sameTime ? new Date(at).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : 'heures par compte'}`
-    : 'Aucun compte choisi'
+  const total = needSettings || step === 3 ? 3 : 2
+  const timeOf = (a: Account) => new Date(sameTime ? at : (times[key(a)] || at))
+  const media: Media = { src: preview || asset?.stream || (asset ? `/api/cm/assets/${asset.id}/stream` : null), duration }
+  const common: Common = { title, caption }
+  const panel = (a: Account) => {
+    const k = key(a), o = opts[k]
+    if (!o) return null
+    if (a.platform === 'tiktok') return <TikTokPanel account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} media={media} common={common} />
+    if (a.platform === 'youtube') return <YouTubePanel account={a} o={o as YouTubeOpts} busy={busy} set={p => set<YouTubeOpts>(k, p)} common={common} />
+    return <InstaPanel account={a} o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} media={media} common={common}
+                       image={{ url: coverUrl, fromDrive: !!asset?.has_cover,
+                                pick: f => { if (coverUrl) URL.revokeObjectURL(coverUrl); setCover(f); setCoverUrl(f ? URL.createObjectURL(f) : null) } }} />
+  }
+  const recap = (a: Account): [string, string][] => {
+    const o = opts[key(a)]
+    const ms = (v: number | null | undefined) => (v == null ? 'choisie par le réseau' : `image à ${fmtMs(v / 1000)}`)
+    const yes = (b: boolean) => (b ? 'oui' : 'non')
+    if (!o) return []
+    if (a.platform === 'tiktok') {
+      const t = o as TikTokOpts
+      if (t.mode === 'draft') return [['Mode', 'brouillon dans l’app TikTok'], ['Légende', 'à écrire dans l’app']]
+      return [['Légende', (t.text || caption || title).trim() || '—'], ['Visibilité', t.privacy ? TIKTOK_PRIVACY[t.privacy] || t.privacy : 'à choisir'],
+        ['Autorisés', [t.comment && 'commentaires', t.duet && 'duos', t.stitch && 'collages'].filter(Boolean).join(', ') || 'rien'],
+        ['Miniature', ms(t.coverMs)], ['Contenu IA', yes(!!t.aigc)],
+        ...(t.commercial ? [['Contenu commercial', [t.yourBrand && 'votre marque', t.branded && 'contenu de marque'].filter(Boolean).join(' + ') || 'à préciser'] as [string, string]] : [])]
+    }
+    if (a.platform === 'youtube') {
+      const y = o as YouTubeOpts
+      return [['Titre', (y.title || title).trim() || '—'], ['Description', (y.description || caption).trim() || '—'],
+        ['Visibilité', ({ public: 'Publique', unlisted: 'Non répertoriée', private: 'Privée' } as Record<string, string>)[y.privacy] || y.privacy],
+        ['Catégorie', YT_CATEGORIES.find(([v]) => v === y.category)?.[1] || y.category],
+        ['Pour les enfants', y.kids ? yes(y.kids === 'yes') : 'à indiquer'], ['Contenu IA', yes(y.synthetic)], ['Miniature', 'choisie par YouTube']]
+    }
+    const i = o as InstaOpts
+    return [['Légende', (i.text || caption).trim() || '—'], ['Fil', i.feed ? 'Reel + fil' : 'Reel seulement'],
+      ['Couverture', cover ? 'image envoyée à part' : ms(i.coverMs)]]
+  }
+  const canPlan = canEdit && !busy && !contentProblems.length && !targetProblems.length
+  const planBtn = (
+    <button type="button" className="btn btn-primary btn-lg" disabled={!canPlan} onClick={() => setReview(true)}>
+      <Icon name={when === 'now' ? 'bolt' : 'clock'} />{when === 'now' ? 'Publier' : 'Planifier'}
+    </button>
+  )
+  const blocking = step === 1 ? contentProblems : step === 2 ? targetProblems : problems
 
   return (
-    <>
-      <div className="page-head only-desktop">
-        <div>
-          <h1>Nouvelle publication</h1>
-          <p>Une vidéo, un ou plusieurs comptes, maintenant ou à l’heure choisie.</p>
-        </div>
+    <div className="compose-flow col" style={{ gap: 16 }}>
+      <div className="steps" aria-label={`Étape ${step} sur ${total} : ${STEP_LABELS[step - 1]}`}>
+        <div className="row between small"><span className="strong">{STEP_LABELS[step - 1]}</span><span className="muted">Étape {step} sur {total}</span></div>
+        <div className="steps-bar" aria-hidden="true">{Array.from({ length: total }, (_, n) => <span key={n} className={n < step ? 'on' : ''} />)}</div>
       </div>
       {!canEdit && <Msg kind="err">Vous êtes en « Lecture seule » sur ces comptes : demandez « Peut publier » à leur propriétaire.</Msg>}
       {accounts.loading && !accounts.data && <Loading />}
       {accounts.data && all.length === 0 && (
         <Msg>Aucun compte connecté. <Link to="/comptes">Connectez TikTok, YouTube ou Instagram</Link> pour publier.</Msg>
       )}
-      {!desktop && (
-        <div className="steps" aria-label={`Étape ${step} sur 3 : ${STEP_LABELS[step - 1]}`}>
-          <div className="row between small"><span className="strong">{STEP_LABELS[step - 1]}</span><span className="muted">Étape {step} sur 3</span></div>
-          <div className="steps-bar" aria-hidden="true">{[1, 2, 3].map(n => <span key={n} className={n <= step ? 'on' : ''} />)}</div>
-          <p className="small muted" style={{ margin: 0 }}>{STEP_INTRO[step - 1]}</p>
-        </div>
-      )}
-      <div className="compose">
-        <div className="side col" style={{ gap: 16 }}>
-          {show(1) && <Section title="Vidéo">
-            {asset ? (
+
+      {step === 1 && (
+        <>
+          <section className="card col" style={{ gap: 12 }} aria-label="Vidéo">
+            {asset && (
               <div className="row-nw" style={{ gap: 12, alignItems: 'flex-start' }}>
                 {asset.thumbnail ? <img src={asset.thumbnail} alt="" width={72} height={104} style={{ width: 72, height: 104, objectFit: 'cover', borderRadius: 10, flex: 'none', background: 'var(--surface-2)' }} />
                   : <span style={{ width: 72, height: 104, borderRadius: 10, background: 'var(--surface-2)', flex: 'none' }} />}
@@ -318,74 +386,83 @@ export default function Composer() {
                   <span className="strong ellipsis">{asset.name}</span>
                   <span className="muted">{fmtDuration(asset.duration_sec)}{asset.size ? ` · ${fmtSize(asset.size)}` : ''}</span>
                   <span className="muted row-nw" style={{ gap: 6 }}><Icon name="layers" size={14} /><span className="ellipsis">{asset.source_name}{asset.folder ? ` / ${asset.folder}` : ''}</span></span>
-                  <span className="tiny muted">Récupérée dans le Drive à l’heure de la publication.</span>
-                  <div className="row" style={{ gap: 6 }}>
-                    <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setPicking(true)}>Changer</button>
-                    <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => { setAsset(null); setDuration(null) }}>Envoyer un fichier à la place</button>
-                  </div>
                 </div>
               </div>
-            ) : (
-              <>
-                <label className="drop">
-                  <span className="drop-ico"><Icon name={file ? 'video' : 'upload'} size={22} /></span>
-                  <span className="strong ellipsis" style={{ maxWidth: '100%' }}>{file ? file.name : 'Choisir une vidéo'}</span>
-                  <span className="tiny muted">{file ? `${fmtSize(file.size)} · ${fmtDuration(duration)}` : `MP4 ou MOV, vertical, ${config ? fmtSize(config.max_upload_bytes) : '1 Go'} au plus`}</span>
-                  <input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" disabled={busy} className="sr-only"
-                         onChange={e => onFile(e.target.files?.[0] || null)} />
-                </label>
-                {robot.data?.enabled && (
-                  <button type="button" className="btn" disabled={busy} onClick={() => setPicking(true)}><Icon name="layers" />Choisir dans la bibliothèque</button>
-                )}
-                {preview && (
-                  <video src={preview} controls muted playsInline preload="metadata" onLoadedMetadata={e => setDuration(e.currentTarget.duration)}
-                         style={{ width: '100%', maxHeight: 420, borderRadius: 12, background: '#000' }} />
-                )}
-              </>
             )}
-            <label className="field">Titre
-              <input className="input" value={title} maxLength={200} disabled={busy} onChange={e => setTitle(e.target.value)} placeholder="Nom de la vidéo (titre YouTube par défaut)" />
-            </label>
-            <label className="field">Légende
-              <textarea className="textarea" value={caption} disabled={busy} onChange={e => setCaption(e.target.value)} maxLength={2200}
-                        placeholder="Reprise sur chaque compte, sauf texte propre à un compte" />
-              <span className="field-hint">{caption.length} / 2 200 · {(caption.match(/#/g) || []).length} hashtag(s)</span>
-            </label>
-            <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
-              <legend>Droits d’auteur de l’œuvre</legend>
-              <div className="seg" role="radiogroup" aria-label="Droits d’auteur">
-                {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
-                  <button key={r} type="button" role="radio" aria-checked={rights === r} aria-pressed={rights === r} disabled={busy}
-                          onClick={() => setRights(rights === r ? '' : r)}>{RIGHTS_LABEL[r]}</button>
-                ))}
-              </div>
-              {(rights === 'protected' || rights === 'unknown') && <div role="alert" className="msg msg-warn">{RIGHTS_WARNING}</div>}
-              {rights && <input className="input" value={rightsNote} maxLength={300} disabled={busy} onChange={e => setRightsNote(e.target.value)}
-                                placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" aria-label="Note sur les droits" />}
-            </fieldset>
-          </Section>}
-
-          {show(2) && <Section title="Quand">
-            <label className="check"><input type="radio" name="when" checked={when === 'now'} onChange={() => setWhen('now')} disabled={busy} />Dès que la vidéo est envoyée</label>
-            <label className="check"><input type="radio" name="when" checked={when === 'at'} onChange={() => setWhen('at')} disabled={busy} />À une heure précise</label>
-            {when === 'at' && (
-              <div className="col" style={{ paddingLeft: 26, gap: 10 }}>
-                {sameTime && <label className="field">Date et heure<input className="input" type="datetime-local" value={at} onChange={e => setAt(e.target.value)} disabled={busy} /></label>}
-                <Check label="Même heure pour tous les comptes" checked={sameTime} onChange={setSameTime} disabled={busy} />
-                {!sameTime && chosen.map(a => (
-                  <label key={key(a)} className="field">{a.name} ({PLATFORM_LABEL[a.platform]})
-                    <input className="input" type="datetime-local" value={times[key(a)] || at} disabled={busy}
-                           onChange={e => setTimes(t => ({ ...t, [key(a)]: e.target.value }))} />
-                  </label>
-                ))}
-                <span className="field-hint">Fuseau : {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
-              </div>
+            {file && <span className="small"><span className="strong">{file.name}</span> <span className="muted">· {fmtSize(file.size)} · {fmtDuration(duration)}</span></span>}
+            {preview && (
+              <video src={preview} controls muted playsInline preload="metadata" onLoadedMetadata={e => setDuration(e.currentTarget.duration)}
+                     style={{ width: '100%', maxHeight: 420, borderRadius: 12, background: '#000' }} />
             )}
-          </Section>}
-        </div>
+            <div className="row-nw" style={{ gap: 8 }}>
+              {robot.data?.enabled && (
+                <button type="button" className="btn" style={{ flex: 1 }} disabled={busy} onClick={() => setPicking(true)}><Icon name="layers" />Bibliothèque</button>
+              )}
+              <label className="btn" style={{ flex: 1 }}>
+                <Icon name="upload" />{file ? 'Autre fichier' : 'Fichier'}
+                <input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" disabled={busy} className="sr-only"
+                       onChange={e => onFile(e.target.files?.[0] || null)} />
+              </label>
+            </div>
+            {!hasVideo && <span className="tiny muted" style={{ textAlign: 'center' }}>MP4 ou MOV, vertical, {config ? fmtSize(config.max_upload_bytes) : '1 Go'} au plus</span>}
+          </section>
 
-        <div className="main col" style={{ gap: 16 }}>
-          {show(2) && <Section title="Où publier" aside={chosen.length ? `${chosen.length} compte${chosen.length > 1 ? 's' : ''}` : undefined}>
+          {hasVideo && (
+            <section className="card col" style={{ gap: 14, scrollMarginTop: 80 }} ref={textCard} aria-label="Titre et légende">
+              <label className="field">
+                <span className="row-nw" style={{ gap: 6 }}>Titre
+                  <button type="button" className="icon-btn btn-ghost" style={{ minHeight: 0, padding: 2 }} aria-label="À quoi sert le titre"
+                          onClick={() => window.alert('Le titre est le nom de la publication dans votre planning. Il est aussi proposé aux réseaux qui acceptent un titre (modifiable pour chacun dans les réglages).')}>
+                    <Icon name="info" size={16} />
+                  </button>
+                </span>
+                <input className="input" value={title} maxLength={200} disabled={busy} onChange={e => setTitle(e.target.value)} placeholder="Ex. : Tuto coiffure en 30 secondes" />
+              </label>
+              <label className="field">
+                <span className="row between">Légende
+                  {caption.length > 120 && <button type="button" className="linkbtn small" onClick={() => setCaptionOpen(o => !o)} aria-expanded={captionOpen}>{captionOpen ? 'Réduire' : 'Tout afficher'}</button>}
+                </span>
+                <textarea className="textarea" value={caption} disabled={busy} onChange={e => setCaption(e.target.value)} maxLength={2200}
+                          rows={captionOpen ? Math.min(30, caption.split('\n').length + Math.ceil(caption.length / 60)) : 4}
+                          placeholder="Le texte sous la vidéo, avec vos #hashtags" />
+                <span className="field-hint">{caption.length.toLocaleString(LOCALE)} / 2 200 · {(caption.match(/#/g) || []).length} hashtag(s)</span>
+              </label>
+            </section>
+          )}
+
+          {hasVideo && (
+            <section className="card col" style={{ gap: 14 }} aria-label="Public, droits et IA">
+              <div className="col" style={{ gap: 6 }}>
+                <span className="small strong">Limite d’âge</span>
+                <Seg<'' | 'yes' | 'no'> label="Vidéo conçue pour les enfants" value={kids} onChange={v => !busy && setKids(v)}
+                     options={[['no', 'Tout public'], ['yes', 'Pour les enfants']]} />
+                <span className="field-hint">« Pour les enfants » : conçue avant tout pour les moins de 13 ans (YouTube le demande à chaque vidéo).</span>
+              </div>
+              <div className="col" role="group" aria-labelledby="t-droits" style={{ gap: 6, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                <span id="t-droits" className="small strong">Droits d’auteur</span>
+                <span className="field-hint">La vidéo reprend-elle une œuvre (musique, chorégraphie, extrait) ?</span>
+                <div className="seg" role="radiogroup" aria-label="Droits d’auteur">
+                  {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
+                    <button key={r} type="button" role="radio" aria-checked={rights === r} aria-pressed={rights === r} disabled={busy}
+                            onClick={() => setRights(rights === r ? '' : r)}>{RIGHTS_LABEL[r]}</button>
+                  ))}
+                </div>
+                {(rights === 'protected' || rights === 'unknown') && <div role="alert" className="msg msg-warn">{RIGHTS_WARNING}</div>}
+                {rights && <input className="input" value={rightsNote} maxLength={300} disabled={busy} onChange={e => setRightsNote(e.target.value)}
+                                  placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" aria-label="Note sur les droits" />}
+              </div>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                <Check label="Contenu généré ou modifié par IA" checked={ai} disabled={busy} onChange={setAi}
+                       hint="Une personne, un lieu ou un événement réaliste créé ou modifié (IA comprise). Signalé à YouTube et TikTok." />
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          <Section title="Comptes" aside={chosen.length ? `${chosen.length} compte${chosen.length > 1 ? 's' : ''}` : undefined}>
             {chosen.length > 0 && (
               <ul className="chosen" aria-label="Comptes choisis">
                 {chosen.map(a => (
@@ -406,62 +483,60 @@ export default function Composer() {
                            }}
                            disabled={why} ownerOf={ownerOf}
                            detail={a => `${PLATFORM_LABEL[a.platform]}${a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}`} />
-          </Section>}
-
-
-          {show(3) && chosen.length === 0 && <Msg>Choisissez d’abord les comptes (étape 2).</Msg>}
-          {show(3) && chosen.map(a => {
-            const k = key(a), o = opts[k]
-            if (!o) return null
-            const media: Media = { src: preview || asset?.stream || (asset ? `/api/cm/assets/${asset.id}/stream` : null), duration }
-            const common: Common = { title, caption }
-            if (a.platform === 'tiktok') return <TikTokPanel key={k} account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} media={media} common={common} />
-            if (a.platform === 'youtube') return <YouTubePanel key={k} account={a} o={o as YouTubeOpts} busy={busy} set={p => set<YouTubeOpts>(k, p)} common={common} />
-            return <InstaPanel key={k} account={a} o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} media={media} common={common}
-                               image={{ url: coverUrl, fromDrive: !!asset?.has_cover,
-                                        pick: f => { if (coverUrl) URL.revokeObjectURL(coverUrl); setCover(f); setCoverUrl(f ? URL.createObjectURL(f) : null) } }} />
-          })}
-
-          {show(3) && hasTikTok && (
-            <p className="tiny muted" style={{ margin: 0 }}>
-              {tiktokBranded
-                ? <>En publiant, vous acceptez la <a href={TIKTOK_BC_URL} target="_blank" rel="noreferrer">Branded Content Policy</a> et la <a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a> de TikTok.</>
-                : <>En publiant, vous acceptez la <a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a> de TikTok.</>}
-              {' '}Le traitement peut prendre quelques minutes avant que la vidéo soit visible.
-            </p>
-          )}
-          {err && <Msg kind="err">{err}</Msg>}
-          {problems.length > 0 && chosen.length > 0 && (file || asset) && (
-            <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{problems.map(p => <li key={p}>{p}</li>)}</ul>
-          )}
-          {!desktop && step < 3 ? (
-            <div className="actionbar">
-              <span className="small muted ellipsis" style={{ flex: 1, minWidth: 0 }}>{step === 1 ? (file || asset ? title.trim() || 'Sans titre' : 'Choisissez une vidéo') : summary}</span>
-              <div className="row-nw" style={{ gap: 8 }}>
-                {step > 1 ? <button type="button" className="btn" onClick={() => go((step - 1) as 1 | 2)}><Icon name="left" />Retour</button>
-                  : <Link className="btn" to="/planning">Annuler</Link>}
-                <button type="button" className="btn btn-primary btn-lg" disabled={step === 1 ? !(file || asset) : chosen.length === 0} onClick={() => go((step + 1) as 2 | 3)}>
-                  Suivant<Icon name="right" />
-                </button>
+          </Section>
+          <Section title="Quand">
+            <Seg<'at' | 'now'> label="Quand" value={when} onChange={v => !busy && setWhen(v)} options={[['at', 'Planifier'], ['now', 'Tout de suite']]} />
+            {when === 'at' ? (
+              <div className="col" style={{ gap: 12 }}>
+                {sameTime && <DateParts value={new Date(at)} onChange={d => setAt(toLocalInput(d))} disabled={busy} />}
+                {chosen.length > 1 && <Check label="Même jour et heure pour tous les comptes" checked={sameTime} onChange={setSameTime} disabled={busy} />}
+                {!sameTime && chosen.map(a => (
+                  <DateParts key={key(a)} label={`${a.name} (${PLATFORM_LABEL[a.platform]})`} value={new Date(times[key(a)] || at)} disabled={busy}
+                             onChange={d => setTimes(t => ({ ...t, [key(a)]: toLocalInput(d) }))} />
+                ))}
               </div>
-            </div>
-          ) : (
-          <div className="actionbar">
-            <div className="col" style={{ gap: 6, flex: 1, minWidth: 0 }}>
-              <span className="small muted ellipsis">{busy ? `Envoi de la vidéo… ${Math.round((progress || 0) * 100)} %` : problems.length && file && chosen.length ? problems[0] : summary}</span>
-              {busy && <div className="progress"><span style={{ width: `${Math.round((progress || 0) * 100)}%` }} /></div>}
-            </div>
-            <div className="row-nw" style={{ gap: 8 }}>
-              {!desktop && <button type="button" className="btn" disabled={busy} onClick={() => go(2)}><Icon name="left" />Retour</button>}
-              <Link className="btn only-desktop" to="/planning">Annuler</Link>
-              <button type="button" className="btn btn-primary btn-lg" disabled={busy || problems.length > 0} onClick={publish}>
-                <Icon name={when === 'now' ? 'bolt' : 'clock'} />{when === 'now' ? 'Publier' : 'Programmer'}
-              </button>
-            </div>
-          </div>
-          )}
+            ) : <span className="small muted">La publication part dès que la vidéo est envoyée.</span>}
+          </Section>
+        </>
+      )}
+
+      {step === 3 && (
+        <AccountPager accounts={chosen} render={panel} problems={a => accProblems(a).length} disabled={busy}
+                      onRemove={a => { toggle(a); if (chosen.length <= 1) go(2) }} />
+      )}
+
+      {step > 1 && hasTikTok && (
+        <p className="tiny muted" style={{ margin: 0 }}>
+          {tiktokBranded
+            ? <>En publiant, vous acceptez la <a href={TIKTOK_BC_URL} target="_blank" rel="noreferrer">Branded Content Policy</a> et la <a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a> de TikTok.</>
+            : <>En publiant, vous acceptez la <a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a> de TikTok.</>}
+          {' '}Le traitement peut prendre quelques minutes avant que la vidéo soit visible.
+        </p>
+      )}
+      {err && <Msg kind="err">{err}</Msg>}
+
+      <div className="actionbar">
+        <div className="col" style={{ gap: 6, flex: 1, minWidth: 0 }}>
+          <span className="small muted ellipsis">{busy ? `Envoi de la vidéo… ${Math.round((progress || 0) * 100)} %` : blocking[0] || (step === 2 && !needSettings && chosen.length
+            ? <button type="button" className="linkbtn" onClick={() => go(3)}>Régler chaque compte (facultatif)</button> : '')}</span>
+          {busy && <div className="progress"><span style={{ width: `${Math.round((progress || 0) * 100)}%` }} /></div>}
+        </div>
+        <div className="row-nw" style={{ gap: 8 }}>
+          {step > 1 ? <button type="button" className="btn" disabled={busy} onClick={() => go((step - 1) as 1 | 2)}><Icon name="left" />Retour</button>
+            : <Link className="btn" to="/planning">Annuler</Link>}
+          {step === 1 && <button type="button" className="btn btn-primary btn-lg" disabled={contentProblems.length > 0} onClick={() => go(2)}>Suivant<Icon name="right" /></button>}
+          {step === 2 && (needSettings
+            ? <button type="button" className="btn btn-primary btn-lg" disabled={targetProblems.length > 0} onClick={() => go(3)}>Suivant · réglages<Icon name="right" /></button>
+            : planBtn)}
+          {step === 3 && planBtn}
         </div>
       </div>
+
+      {review && (
+        <ReviewSheet onClose={() => setReview(false)} accounts={chosen} busy={busy} finalLabel={when === 'now' ? 'Valider et publier' : 'Valider et planifier'}
+                     when={a => (when === 'now' ? null : timeOf(a))} recap={recap} problems={accProblems} renderEdit={panel}
+                     onRemove={a => toggle(a)} onDone={publish} />
+      )}
       {picking && (
         <Sheet title="Choisir dans la bibliothèque" onClose={() => setPicking(false)}>
           <div className="col" style={{ gap: 12 }}>
@@ -472,7 +547,7 @@ export default function Composer() {
           </div>
         </Sheet>
       )}
-    </>
+    </div>
   )
 }
 
@@ -558,6 +633,7 @@ function TikTokPanel({ account, o, ci, busy, set, media, common }: { account: Ac
       ) : (
         <p className="small muted" style={{ margin: 0 }}>La vidéo arrivera dans la boîte de réception TikTok du compte : vous terminerez la légende et la publication dans l'app.</p>
       )}
+      {direct && <Check label="Contenu généré par IA" hint="TikTok affiche l’étiquette « Généré par IA »." checked={!!o.aigc} disabled={busy} onChange={v => set({ aigc: v })} />}
       {direct && <Thumb media={media} value={o.coverMs} onChange={v => set({ coverMs: v })} busy={busy}
                         note="TikTok prend une image de la vidéo : choisissez-la ici (sinon TikTok choisit)." />}
     </Section>

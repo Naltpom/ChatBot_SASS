@@ -5,7 +5,9 @@ import type { Account, Config, CreatorInfo, Group } from '../../lib/api'
 export interface TikTokOpts { mode: 'direct' | 'draft'; privacy: string; comment: boolean; duet: boolean; stitch: boolean
   commercial: boolean; yourBrand: boolean; branded: boolean; text: string
   /** Miniature : instant de la vidéo (ms) ; absent : TikTok choisit. */
-  coverMs?: number | null }
+  coverMs?: number | null
+  /** Contenu généré par IA (étiquette TikTok). */
+  aigc?: boolean }
 export interface YouTubeOpts { title: string; description: string; privacy: string; kids: '' | 'yes' | 'no'; synthetic: boolean
   category: string; notify: boolean; tags: string }
 export interface InstaOpts { text: string; feed: boolean; collaborators: string
@@ -111,6 +113,33 @@ export function problems(s: ComposeState, config: Config | null, now = Date.now(
   return [...p.content.slice(0, 2), ...p.targets.slice(0, 2), ...p.content.slice(2), ...p.targets.slice(2), ...p.options]
 }
 
+/** Problèmes d'un compte (sans son nom), pour la fenêtre de validation et l'étape des réglages. */
+export function accountProblems(a: Account, s: Pick<ComposeState, 'opts' | 'creators' | 'duration'>, config: Config | null,
+  fmtDuration: Fmt = sec => `${sec} s`): string[] {
+  const k = accKey(a), o = s.opts[k], out: string[] = []
+  if (!o) return out
+  if (a.platform === 'tiktok') {
+    const t = o as TikTokOpts, ci = s.creators[k]
+    if (ci === 'loading') out.push(`options du compte en cours de lecture…`)
+    else if (!ci || 'error' in ci) out.push(`options du compte TikTok illisibles.`)
+    else if (!ci.can_post) out.push(`${ci.message || 'publication impossible sur ce compte.'}`)
+    else {
+      const max = Math.min(ci.creator?.max_video_post_duration_sec || 600, 600)
+      if (s.duration != null && s.duration > max) out.push(`vidéo trop longue (${fmtDuration(max)} au plus sur ce compte).`)
+      if (t.mode === 'direct' && !t.privacy) out.push(`choisissez qui peut voir la vidéo.`)
+      if (t.mode === 'direct' && t.commercial && !t.yourBrand && !t.branded) out.push(`indiquez si le contenu fait votre promotion, celle d'un tiers, ou les deux.`)
+    }
+  } else if (a.platform === 'youtube') {
+    const y = o as YouTubeOpts
+    if (!y.kids) out.push(`indiquez si la vidéo est conçue pour les enfants.`)
+    if (s.duration != null && s.duration > (config?.youtube_max_duration_sec || 180)) out.push(`vidéo trop longue pour un Short (3 min au plus).`)
+  } else {
+    if (s.duration != null && (s.duration < 3 || s.duration > (config?.instagram_max_duration_sec || 900))) out.push(`un Reel dure de 3 s à 15 min.`)
+    if (parseCollaborators((o as InstaOpts).collaborators).length > 3) out.push(`3 collaborateurs au plus.`)
+  }
+  return out
+}
+
 /** Problèmes rangés par étape du parcours : 1 contenu, 2 comptes et heure, 3 réglages par réseau. */
 export function stepProblems(s: ComposeState, config: Config | null, now = Date.now(), fmtSize: Fmt = b => `${b} o`,
   fmtDuration: Fmt = sec => `${sec} s`): { content: string[]; targets: string[]; options: string[] } {
@@ -123,42 +152,49 @@ export function stepProblems(s: ComposeState, config: Config | null, now = Date.
   const soon = (d: Date) => (d.getTime() < now - 60000 ? 'déjà passée' : d.getTime() < earliestSlot(new Date(now)).getTime() - 60000 ? 'trop proche (15 minutes d’avance au minimum)' : null)
   if (s.when === 'at' && s.sameTime && soon(s.at)) targets.push(soon(s.at) === 'déjà passée' ? "L'heure choisie est déjà passée." : `L'heure choisie est ${soon(s.at)}.`)
   for (const a of s.chosen) {
-    const k = accKey(a), o = s.opts[k], n = a.name || a.platform
-    if (!o) continue
-    if (a.platform === 'tiktok') {
-      const t = o as TikTokOpts, ci = s.creators[k]
-      if (ci === 'loading') out.push(`${n} : options du compte en cours de lecture…`)
-      else if (!ci || 'error' in ci) out.push(`${n} : options du compte TikTok illisibles.`)
-      else if (!ci.can_post) out.push(`${n} : ${ci.message || 'publication impossible sur ce compte.'}`)
-      else {
-        const max = Math.min(ci.creator?.max_video_post_duration_sec || 600, 600)
-        if (s.duration != null && s.duration > max) out.push(`${n} : vidéo trop longue (${fmtDuration(max)} au plus sur ce compte).`)
-        if (t.mode === 'direct' && !t.privacy) out.push(`${n} : choisissez qui peut voir la vidéo.`)
-        if (t.mode === 'direct' && t.commercial && !t.yourBrand && !t.branded) out.push(`${n} : indiquez si le contenu fait votre promotion, celle d'un tiers, ou les deux.`)
-      }
-    } else if (a.platform === 'youtube') {
-      const y = o as YouTubeOpts
-      if (!y.kids) out.push(`${n} : indiquez si la vidéo est conçue pour les enfants.`)
-      if (s.duration != null && s.duration > (config?.youtube_max_duration_sec || 180)) out.push(`${n} : vidéo trop longue pour un Short (3 min au plus).`)
-    } else {
-      if (s.duration != null && (s.duration < 3 || s.duration > (config?.instagram_max_duration_sec || 900))) out.push(`${n} : un Reel dure de 3 s à 15 min.`)
-      if (parseCollaborators((o as InstaOpts).collaborators).length > 3) out.push(`${n} : 3 collaborateurs au plus.`)
-    }
+    const k = accKey(a), n = a.name || a.platform
+    for (const p of accountProblems(a, s, config, fmtDuration)) out.push(`${n} : ${p}`)
     const own = s.times[k]
     if (s.when === 'at' && !s.sameTime && own && soon(own)) targets.push(`${n} : l'heure choisie est ${soon(own)}.`)
   }
   return { content, targets, options: out }
 }
 
-/** Réglages qu'il faut obligatoirement remplir compte par compte (sinon l'étape 3 est sautée). */
+/** Faut-il passer par l'étape des réglages ? Oui pour TikTok en publication directe (la visibilité se choisit
+ *  toujours à la main, règles TikTok) ou si un compte a un réglage obligatoire à remplir ; sinon « Planifier » direct. */
 export function needsOptions(chosen: Account[], opts: Record<string, Opts>): boolean {
   return chosen.some(a => {
     const o = opts[accKey(a)]
     if (!o) return false
     if (a.platform === 'youtube') return !(o as YouTubeOpts).kids
-    if (a.platform === 'tiktok') return (o as TikTokOpts).mode === 'direct' && !(o as TikTokOpts).privacy
+    if (a.platform === 'tiktok') return (o as TikTokOpts).mode === 'direct'
     return false
   })
+}
+
+/** Ordre des champs de date dans la langue (jour/mois/année) : ex. fr → d m y, en-US → m d y, ja → y m d. */
+export function dateOrder(locale?: string): ('day' | 'month' | 'year')[] {
+  try {
+    const parts = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(new Date(2026, 10, 25))
+    const order = parts.map(p => p.type).filter((t): t is 'day' | 'month' | 'year' => t === 'day' || t === 'month' || t === 'year')
+    if (order.length === 3) return order
+  } catch { /* Intl incomplet */ }
+  return ['day', 'month', 'year']
+}
+
+/** Date complète en toutes lettres, dans la langue : « lundi 30 novembre 2026 à 19:10 ». */
+export function longDate(d: Date, locale?: string): string {
+  try {
+    return new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d)
+  } catch { return d.toString() }
+}
+
+/** Date construite depuis les 5 champs (null si invalide : 31 février, 25 h…). */
+export function fromParts(p: { day: number; month: number; year: number; hour: number; minute: number }): Date | null {
+  const d = new Date(p.year, p.month - 1, p.day, p.hour, p.minute, 0, 0)
+  if ([p.day, p.month, p.year, p.hour, p.minute].some(x => !Number.isFinite(x))) return null
+  if (d.getFullYear() !== p.year || d.getMonth() !== p.month - 1 || d.getDate() !== p.day || d.getHours() !== p.hour || d.getMinutes() !== p.minute) return null
+  return d
 }
 
 /** Publication déjà prévue (ou publiée) sur un compte, vue depuis le calendrier. */
@@ -192,6 +228,7 @@ export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 
       mode: t.mode, privacy_level: t.mode === 'direct' ? t.privacy : null, allow_comment: t.comment, allow_duet: t.duet,
       allow_stitch: t.stitch, brand_organic: t.commercial && t.yourBrand, brand_content: t.commercial && t.branded,
       ...(t.mode === 'direct' && t.coverMs != null ? { cover_timestamp_ms: Math.round(t.coverMs) } : {}),
+      ...(t.mode === 'direct' && t.aigc ? { is_aigc: true } : {}),
       ...(t.text.trim() ? { title: t.text } : {}) } }
   }
   if (a.platform === 'youtube') {
@@ -237,3 +274,43 @@ export function fileNameOf(uri: string, fileName?: string | null, mime?: string 
 
 /** Titre proposé à partir du nom de fichier. */
 export const titleFromFile = (name: string) => name.replace(/\.[^.]+$/, '').slice(0, 100)
+
+/** Ce qui partira sur un compte, ligne par ligne (fenêtre de validation avant de planifier). */
+export function recapOf(a: Pick<Account, 'platform'>, o: Opts, common: { title: string; caption: string },
+  extra: { privacyLabel?: (v: string) => string; coverImage?: boolean; fmtMs?: (ms: number) => string } = {}): [string, string][] {
+  const ms = (v: number | null | undefined) => (v == null ? 'choisie par le réseau' : `image à ${extra.fmtMs ? extra.fmtMs(v) : `${(v / 1000).toFixed(2)} s`}`)
+  const yes = (b: boolean) => (b ? 'oui' : 'non')
+  if (a.platform === 'tiktok') {
+    const t = o as TikTokOpts
+    if (t.mode === 'draft') return [['Mode', 'brouillon dans l’app TikTok'], ['Légende', 'à écrire dans l’app']]
+    const allow = [t.comment && 'commentaires', t.duet && 'duos', t.stitch && 'collages'].filter(Boolean).join(', ')
+    return [
+      ['Légende', (t.text || common.caption || common.title).trim() || '—'],
+      ['Visibilité', t.privacy ? (extra.privacyLabel ? extra.privacyLabel(t.privacy) : t.privacy) : 'à choisir'],
+      ['Autorisés', allow || 'rien'],
+      ['Miniature', ms(t.coverMs)],
+      ['Contenu IA', yes(!!t.aigc)],
+      ...(t.commercial ? [['Contenu commercial', [t.yourBrand && 'votre marque', t.branded && 'contenu de marque'].filter(Boolean).join(' + ') || 'à préciser'] as [string, string]] : []),
+    ]
+  }
+  if (a.platform === 'youtube') {
+    const y = o as YouTubeOpts
+    return [
+      ['Titre', (y.title || common.title).trim() || '—'],
+      ['Description', (y.description || common.caption).trim() || '—'],
+      ['Visibilité', YT_PRIVACY.find(([v]) => v === y.privacy)?.[1] || y.privacy],
+      ['Catégorie', YT_CATEGORIES.find(([v]) => v === y.category)?.[1] || y.category],
+      ['Pour les enfants', y.kids ? yes(y.kids === 'yes') : 'à indiquer'],
+      ['Contenu IA', yes(y.synthetic)],
+      ['Miniature', 'choisie par YouTube'],
+    ]
+  }
+  const i = o as InstaOpts
+  const collab = parseCollaborators(i.collaborators)
+  return [
+    ['Légende', (i.text || common.caption).trim() || '—'],
+    ['Fil', i.feed ? 'Reel + fil' : 'Reel seulement'],
+    ...(collab.length ? [['Collaborateurs', collab.map(x => `@${x}`).join(', ')] as [string, string]] : []),
+    ['Couverture', extra.coverImage ? 'image envoyée à part' : ms(i.coverMs)],
+  ]
+}

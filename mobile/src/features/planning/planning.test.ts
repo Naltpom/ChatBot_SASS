@@ -6,7 +6,7 @@ import {
 } from './calendar.ts'
 import { diffsOf, editableText, initialOpen, postItems, postWindow, splitCommon, tiktokLinkOk } from './sheet.ts'
 import {
-  buildBody, buildTarget, postOrg, earliestSlot, daySlots, toSlot, stepProblems, needsOptions, nearbyPosts, tooClose, unavailable, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
+  buildBody, buildTarget, recapOf, dateOrder, fromParts, postOrg, earliestSlot, daySlots, toSlot, stepProblems, needsOptions, nearbyPosts, tooClose, unavailable, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
   type ComposeState, type TikTokOpts, type YouTubeOpts,
 } from './compose.ts'
 
@@ -236,4 +236,19 @@ test('créneaux de 15 minutes, au moins 15 minutes après maintenant', () => {
   assert.equal(daySlots(new Date(2026, 10, 26), at(22, 10)).length, 96)
   assert.equal(hm(toSlot(at(9, 0), at(18, 7))), '25 18:30')
   assert.equal(hm(toSlot(new Date(2026, 10, 26, 9, 5), at(18, 7))), '26 9:15')
+})
+
+test('récapitulatif par compte et ordre des dates selon la langue', () => {
+  const common = { title: 'Clair de lune', caption: 'Debussy #piano' }
+  const tt = recapOf({ platform: 'tiktok' }, { ...(defaults({ platform: 'tiktok' }) as TikTokOpts), privacy: 'PUBLIC_TO_EVERYONE', comment: true, coverMs: 41500, aigc: true }, common,
+    { privacyLabel: v => (v === 'PUBLIC_TO_EVERYONE' ? 'Tout le monde' : v), fmtMs: ms => `${ms / 1000} s` })
+  assert.deepEqual(Object.fromEntries(tt), { Légende: 'Debussy #piano', Visibilité: 'Tout le monde', Autorisés: 'commentaires', Miniature: 'image à 41.5 s', 'Contenu IA': 'oui' })
+  const ig = Object.fromEntries(recapOf({ platform: 'instagram' }, { text: '', feed: true, collaborators: '@a', coverMs: 2000 }, common, { coverImage: true }))
+  assert.equal(ig.Couverture, 'image envoyée à part')
+  assert.equal(ig.Collaborateurs, '@a')
+  assert.equal(Object.fromEntries(recapOf({ platform: 'youtube' }, defaults({ platform: 'youtube' }), common))['Pour les enfants'], 'à indiquer')
+  assert.deepEqual(dateOrder('fr-FR'), ['day', 'month', 'year'])
+  assert.deepEqual(dateOrder('en-US'), ['month', 'day', 'year'])
+  assert.equal(fromParts({ day: 31, month: 2, year: 2027, hour: 10, minute: 0 }), null)
+  assert.equal(fromParts({ day: 30, month: 11, year: 2026, hour: 19, minute: 10 })?.getHours(), 19)
 })

@@ -262,6 +262,7 @@ async def test_publish_now_everywhere_then_followed_to_published(pg_session, cme
 
         tt_target = _tt_target(tacc.id)
         tt_target["options"]["cover_timestamp_ms"] = 99_000            # après la fin : ramené dans la vidéo
+        tt_target["options"]["is_aigc"] = True
         ig_target = _ig_target(iacc_id)
         ig_target["options"]["thumb_offset_ms"] = "41500"
         post_id, r = await _publish(h, [tt_target, _yt_target(yacc.id), ig_target], data)
@@ -303,6 +304,7 @@ async def test_publish_now_everywhere_then_followed_to_published(pg_session, cme
         await tiktok_jobs.process_post(pg_session, tp)
         init = json.loads(tiktok.last("/v2/post/publish/video/init/").content)
         assert init["post_info"]["video_cover_timestamp_ms"] == 41_950
+        assert init["post_info"]["is_aigc"] is True
         await tiktok_jobs.poll_post(pg_session, tp)
         await youtube_jobs.process_post(pg_session, yp)
         await youtube_jobs.poll_post(pg_session, yp)

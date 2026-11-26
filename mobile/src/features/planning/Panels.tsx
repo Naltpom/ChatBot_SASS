@@ -67,6 +67,7 @@ export function TikTokPanel({ account, o, ci, busy, set, media, common }: { acco
       {direct ? (
         <>
           <OwnText label="Légende TikTok" value={o.text} common={common.caption || common.title} onChange={v => set({ text: v })} busy={busy} max={2200} />
+          <Check label="Contenu généré par IA" hint="TikTok affiche l’étiquette « Généré par IA »." checked={!!o.aigc} disabled={busy} onChange={v => set({ aigc: v })} />
           <Thumb media={media} value={o.coverMs} onChange={v => set({ coverMs: v })} busy={busy}
             note="TikTok prend une image de la vidéo : choisissez-la ci-dessous (sinon TikTok choisit)." />
           <Choice label="Qui peut voir cette vidéo (obligatoire)" value={o.privacy} disabled={busy} onChange={v => set({ privacy: v })}

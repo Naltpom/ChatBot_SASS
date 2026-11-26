@@ -98,6 +98,7 @@ class TikTokPost(Base):
     brand_organic = Column(Boolean, nullable=False, default=False)   # « Votre marque »
     brand_content = Column(Boolean, nullable=False, default=False)   # « Contenu de marque »
     cover_timestamp_ms = Column(Integer, nullable=True)   # miniature : instant de la vidéo (direct uniquement)
+    is_aigc = Column(Boolean, nullable=False, default=False, server_default="false")   # étiquette « Généré par IA »
     # Vidéo (fichier temporaire, supprimé après l'envoi à TikTok)
     file_name = Column(String, nullable=True)
     mime_type = Column(String, nullable=True)
