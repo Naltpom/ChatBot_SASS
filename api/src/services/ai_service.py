@@ -422,6 +422,10 @@ async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
     data_mode = bool(_mcp_user_token.get())
     max_turns = MAX_TOOL_TURNS_DATA if data_mode else MAX_TOOL_TURNS
     exhausted = TOOL_EXHAUSTED_DATA_MESSAGE if data_mode else TOOL_EXHAUSTED_MESSAGE
+    # Garde-fou « mes données » : un lien de brouillon (« Lancer la programmation ») n'est montré que s'il
+    # a été fabriqué par Chapote (résultat d'outil de cette réponse, ou déjà donné plus tôt dans la conversation).
+    seen = [str(m.get("content", "")) for m in history] if data_mode else []
+    guard = (lambda t: _guard_draft_links(t, seen)) if data_mode else (lambda t: t)
     async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
         for turn in range(max_turns):
             res = await adapter.request(
@@ -431,7 +435,7 @@ async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
             if res.text:
                 last_text = res.text
             if not res.tool_calls:
-                return AIResult(content=res.text,
+                return AIResult(content=guard(res.text),
                                 tokens_in=tokens_in, tokens_out=tokens_out)
 
             # Dernier tour autorise : ne PAS executer les tool-calls demandes. Le texte de ce tour
@@ -444,9 +448,31 @@ async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
                 content, is_error = await _dispatch_tool_call(
                     bot, call.name, call.args, db, conversation_id)
                 tool_results.append((call, content, is_error))
+                if data_mode and not is_error:
+                    seen.append(str(content))
             adapter.append_turn(messages, res, tool_results)
-    return AIResult(content=last_text or TOOL_EXHAUSTED_MESSAGE,
+    return AIResult(content=guard(last_text) if last_text else TOOL_EXHAUSTED_MESSAGE,
                     tokens_in=tokens_in, tokens_out=tokens_out)
+
+
+_DRAFT_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)|(https?://[^\s<>()\[\]]+)")
+_DRAFT_PATH_RE = re.compile(r"/(brouillon|draft|drafts|proposals?)(/|\?|$)", re.I)
+_FAKE_LINK_NOTE = "(lien indisponible : le brouillon n'a pas été créé, réessayez)"
+
+
+def _guard_draft_links(text: str, seen: list[str]) -> str:
+    """Retire les liens de brouillon que l'IA aurait écrits elle-même (adresse absente des résultats des outils
+    et de la conversation) : seul Chapote fabrique et signe ces liens."""
+    if not text:
+        return text
+    blob = "\n".join(seen)
+
+    def fix(m: "re.Match") -> str:
+        url = (m.group(2) or m.group(3) or "").rstrip(".,;:!?»")
+        if not _DRAFT_PATH_RE.search(url) or url in blob:
+            return m.group(0)
+        return f"{m.group(1)} {_FAKE_LINK_NOTE}" if m.group(1) else _FAKE_LINK_NOTE
+    return _DRAFT_LINK_RE.sub(fix, text)
 
 
 class _AnthropicAdapter:

@@ -118,6 +118,28 @@ async def library_search(db, user, refs, consent, query: str = "", limit: int = 
         **({"note": "Aucune vidéo n'a tous ces mots : voici les plus proches, à confirmer avec la personne."} if approx else {})}
 
 
+def parse_when(when: str):
+    """« 2026-11-27 18:23 », « demain 18h23 », « aujourd'hui 20:30 », « tomorrow 18:23 » → datetime (Paris)."""
+    import re as _re
+    # Après _fold, seuls lettres, chiffres et espaces restent : « 2026-11-27 18:23 » → « 2026 11 27 18 23 ».
+    w = _re.sub(r"(\d)h(\d)", r"\1 \2", _fold(when or ""))
+    w = _re.sub(r"(\d)t(\d)", r"\1 \2", w)
+    m = _re.fullmatch(r"(\d{4}) (\d{1,2}) (\d{1,2}) (\d{1,2}) (\d{2})(?: \d{2})?", w)
+    try:
+        if m:
+            y, mo, d, hh, mm = map(int, m.groups())
+            return datetime(y, mo, d, hh, mm, tzinfo=PARIS)
+        m = _re.fullmatch(r"(aujourd ?hui|today|demain|tomorrow|apres ?demain)(?: a| at)? (\d{1,2})(?:h| )?(\d{2})?h?", w)
+        if m:
+            today = utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(PARIS).date()
+            plus = {"demain": 1, "tomorrow": 1}.get(m.group(1), 2 if m.group(1).startswith("apres") else 0)
+            day = today + timedelta(days=plus)
+            return datetime(day.year, day.month, day.day, int(m.group(2)), int(m.group(3) or 0), tzinfo=PARIS)
+    except ValueError:
+        return None
+    return None
+
+
 # --------------------------------------------------------------------------
 # Créneaux
 # --------------------------------------------------------------------------
@@ -280,13 +302,16 @@ async def create_draft(db, user, refs, consent, video_id: int = 0, accounts: lis
     if pair is None:
         raise DraftError("Vidéo introuvable dans votre bibliothèque. Cherchez-la avec library_search.", "unknown_video")
     asset, src = pair
-    try:
-        local = datetime.strptime(when.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=PARIS)
-    except ValueError:
-        raise DraftError("Heure attendue au format « AAAA-MM-JJ HH:MM » (heure de Paris).", "bad_date")
+    local = parse_when(when)
+    if local is None:
+        raise DraftError("Heure attendue au format « AAAA-MM-JJ HH:MM » (heure de Paris), ou « demain HH:MM », "
+                         "« aujourd'hui HH:MM ».", "bad_date")
     at = local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
     if at < utcnow() + LEAD:
-        raise DraftError("Heure trop proche ou passée : 15 minutes d'avance au minimum.", "too_soon")
+        now = utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(PARIS)
+        raise DraftError(f"Heure trop proche ou passée : demandé {local.strftime('%Y-%m-%d %H:%M')}, il est "
+                         f"{now.strftime('%Y-%m-%d %H:%M')} (heure de Paris) ; 15 minutes d'avance au minimum. "
+                         f"« Demain » = {(now + timedelta(days=1)).strftime('%Y-%m-%d')}.", "too_soon")
     for r in chosen:
         if await _account_tenant(db, r) != (src.organization_id, src.owner_user_id):
             raise DraftError(f"{r.alias} n'est pas dans le même espace que cette vidéo : une publication par espace.",

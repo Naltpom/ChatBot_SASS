@@ -131,7 +131,7 @@ async def test_read_only_and_link_after_edit(pg_session, assistant, tiktok):
         await ha.put(f"/api/cm/assistant/accounts/tiktok/{a1.id}/permissions",
                      json={"stats": True, "planning": True, "captions": True})
         token = await _token(ha)
-    when = (utcnow() + timedelta(days=3)).strftime("%Y-%m-%d") + " 20:30"
+    when = "demain 20:30"
     args = {"video_id": paul.id, "accounts": ["Compte TikTok 1"], "when": when,
             "per_account": {"Compte TikTok 1": {"privacy_level": "SELF_ONLY"}}}
     out, err = await _run(token, "create_draft", args)
@@ -182,3 +182,17 @@ async def test_find_accounts_by_real_name(pg_session, assistant, tiktok):
     assert not err and json.loads(out)["groupes"] == [{"groupe": "Groupe 1", "comptes": ["Compte TikTok 1"]}]
     out, err = await _run(token, "find_accounts", {"text": "bob"})
     assert not err and json.loads(out)["comptes"] == [] and "bob" not in out.replace(json.loads(out)["recherche"], "")
+
+
+def test_when_and_fake_links():
+    """« demain 18h23 » compris par Chapote ; un lien de brouillon inventé par l'IA est retiré de la réponse."""
+    from src.services.ai_service import _guard_draft_links
+    from src.services.cm_assistant_drafts import parse_when
+    assert parse_when("Demain à 18h23").strftime("%H:%M") == "18:23"
+    assert parse_when("2026-11-27T18:23:00").strftime("%Y-%m-%d %H:%M") == "2026-11-27 18:23"
+    assert parse_when("n'importe quand") is None
+    fake = "[Lancer la programmation](https://cm.chapote.fr/draft/launch/1234567890)"
+    assert "1234567890" not in _guard_draft_links(fake, [])
+    real = "https://cm.chapote.fr/brouillon/95/lancer?s=abc"
+    assert _guard_draft_links(f"[Lancer]({real})", [f'{{"url": "{real}"}}']) == f"[Lancer]({real})"
+    assert _guard_draft_links("Voir https://cm.chapote.fr/stats", []) == "Voir https://cm.chapote.fr/stats"
