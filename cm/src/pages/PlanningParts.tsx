@@ -4,6 +4,7 @@
 // toutes les plateformes (légende petite et repliable, hashtags), puis une carte par plateforme qui se déplie
 // sur place : seulement ce qui diffère, ses chiffres, le lien de la publication et ses actions.
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
   cancelTarget, getAsset, getPost, markPublished, patchPost, patchTarget, publishNow, resendDraft, retryTarget, PLATFORM_LABEL,
@@ -279,22 +280,37 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
   const body = common.replace(HASHTAG, '').replace(/\n{3,}/g, '\n\n').trim()
   const duration = post?.duration_sec ?? video?.duration_sec ?? null
   const thumb = video?.thumbnail_url || asset?.thumbnail || null
-  const stream = asset?.stream || null
+  const stream = asset?.stream || (post?.status === 'READY' ? `/api/cm/posts/${post.id}/video` : null)
+  // Miniature choisie (couverture envoyée, ou image de la vidéo à l'instant choisi) ; sinon celle de la plateforme.
+  const chosen = postId ? `/api/cm/posts/${postId}/thumbnail` : null
+  const [chosenOk, setChosenOk] = useState<boolean | null>(null)
+  const poster = chosen && chosenOk !== false ? chosen : thumb
+  const openPlayer = () => {
+    if (!stream) { if (video?.url) window.open(video.url, '_blank', 'noopener'); return }
+    setPlaying(true)
+    document.documentElement.requestFullscreen?.().catch(() => {})
+  }
+  const closePlayer = () => {
+    setPlaying(false)
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  }
   const fiche = g.items.find(i => i.kind === 'video')
   return (
     <Sheet title={<span className="sr-only">{t('Publication')}</span>} onClose={onClose}>
       <div className="pub" style={group ? { ['--gcolor' as string]: `var(--g-${group.color || 'slate'})` } : undefined}>
         {group && <span className="pub-stripe" aria-hidden="true" />}
         <div className="pub-head">
-          {playing && stream ? (
-            <video className="pub-media" src={stream} poster={thumb || undefined} controls autoPlay playsInline />
-          ) : (
-            <button type="button" className="pub-media" aria-label={stream ? t('Lire la vidéo') : video?.url ? t('Voir la vidéo sur la plateforme') : t('Aperçu indisponible')}
-                    onClick={() => (stream ? setPlaying(true) : video?.url ? window.open(video.url, '_blank', 'noopener') : undefined)}
-                    style={thumb ? { backgroundImage: `url(${thumb})` } : undefined}>
-              {(stream || video?.url) && <span className="pub-play" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg></span>}
-            </button>
-          )}
+          <button type="button" className="pub-media" aria-label={stream ? t('Lire la vidéo en plein écran') : video?.url ? t('Voir la vidéo sur la plateforme') : t('Aperçu indisponible')}
+                  onClick={openPlayer}>
+            {poster && <img src={poster} alt={t('Miniature')} className="pub-poster"
+                            onLoad={() => { if (poster === chosen) setChosenOk(true) }} onError={() => { if (poster === chosen) setChosenOk(false) }} />}
+            {(stream || video?.url) && <span className="pub-play" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg></span>}
+          </button>
+          {playing && stream && createPortal(
+            <div className="vfull" role="dialog" aria-modal="true" aria-label={t('Vidéo')} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closePlayer() } }}>
+              <video src={stream} poster={poster || undefined} controls autoPlay playsInline />
+              <button type="button" className="vfull-x" aria-label={t('Fermer')} onClick={closePlayer} autoFocus><Icon name="close" size={22} /></button>
+            </div>, document.body)}
           <div className="col" style={{ gap: 6, minWidth: 0 }}>
             {group && <span className="row-nw tiny strong" style={{ gap: 6 }}><GroupDot color={group.color} />{group.name}</span>}
             <h2 className="pub-title">{title}</h2>
@@ -302,6 +318,16 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
             {fiche && <Link className="linkbtn" to={`/videos/${fiche.id}`}>{t('Fiche vidéo : stats et commentaires')}</Link>}
             {asset?.folder_url && <a className="linkbtn muted" href={asset.folder_url} target="_blank" rel="noreferrer">{t('Dossier Drive')}</a>}
           </div>
+        </div>
+        <div className="row-nw" style={{ gap: 8 }}>
+          {post?.status === 'READY'
+            ? <a className="btn btn-sm" style={{ flex: 1 }} href={`/api/cm/posts/${post.id}/video`} download><Icon name="download" />{t('Télécharger la vidéo')}</a>
+            : <button type="button" className="btn btn-sm" style={{ flex: 1 }} disabled><Icon name="download" />{t('Télécharger la vidéo')}</button>}
+          {chosen && chosenOk
+            ? <a className="btn btn-sm" style={{ flex: 1 }} href={chosen} download><Icon name="download" />{t('Télécharger la miniature')}</a>
+            : thumb
+              ? <a className="btn btn-sm" style={{ flex: 1 }} href={thumb} target="_blank" rel="noreferrer" download><Icon name="download" />{t('Télécharger la miniature')}</a>
+              : <button type="button" className="btn btn-sm" style={{ flex: 1 }} disabled><Icon name="download" />{t('Télécharger la miniature')}</button>}
         </div>
 
         {post && <RightsBox post={post} onSaved={p => { setPost(p); onChanged() }} />}
@@ -311,7 +337,7 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
             <h3 id="pub-common" className="rx-h">{t('Commun à toutes les plateformes')}</h3>
             {body && shortTitle(body) !== title && <p className={`small${more ? '' : ' clamp3'}`} style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--text-2, inherit)' }}>{body}</p>}
             {body.length > 180 && <button type="button" className="linkbtn" style={{ alignSelf: 'flex-start', minHeight: 32 }} onClick={() => setMore(m => !m)}>{more ? t('Voir moins') : t('Voir plus')}</button>}
-            {tags.length > 0 && <div className="row" style={{ gap: 6 }}>{tags.map(t => <span key={t} className="chip chip-sm">{t}</span>)}</div>}
+            {tags.length > 0 && <div className="tags-line" aria-label={t('Hashtags')}>{tags.map(tag => <span key={tag} className="chip chip-sm">{tag}</span>)}</div>}
           </section>
         )}
 

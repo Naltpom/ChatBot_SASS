@@ -1887,6 +1887,100 @@ async def post_video(post_id: int, db: AsyncSession = Depends(get_db), user: Use
                         filename=f"cm-{post.id}.{'mov' if post.mime_type == 'video/quicktime' else 'mp4'}")
 
 
+def _chosen_ms(targets: list[CmTarget]) -> Optional[int]:
+    """Instant de la miniature choisi dans la vidéo (TikTok cover_timestamp_ms, sinon Instagram thumb_offset_ms)."""
+    for key in ("cover_timestamp_ms", "thumb_offset_ms"):
+        for t in targets:
+            v = (t.options or {}).get(key)
+            if v is not None:
+                try:
+                    return max(0, int(v))
+                except (TypeError, ValueError):
+                    pass
+    return None
+
+
+async def _thumbnail_file(db: AsyncSession, post: CmPost, targets: list[CmTarget]) -> Optional[str]:
+    """Miniature de la publication : la couverture envoyée, sinon l'image de la vidéo à l'instant choisi
+    (extraite par ffmpeg, gardée une heure sur le serveur). None : miniature choisie par la plateforme."""
+    if post.cover_path and os.path.exists(post.cover_path):
+        return post.cover_path
+    ms = _chosen_ms(targets)
+    if ms is None or post.status != POST_READY:
+        return None
+    out = str(cm.media_dir() / f"thumb-{post.id}-{ms}.jpg")
+    if os.path.exists(out):
+        return out
+    if not post.media_path or not os.path.exists(post.media_path):
+        try:
+            post = await cm_library.ensure_media(db, post.id)
+        except cm_library.MediaError:
+            return None
+    import asyncio
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-v", "error", "-y", "-ss", f"{ms / 1000:.3f}", "-i", post.media_path, "-frames:v", "1", "-q:v", "3", out,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        await asyncio.wait_for(proc.wait(), 60)
+    except (OSError, asyncio.TimeoutError):
+        return None
+    return out if os.path.exists(out) and os.path.getsize(out) > 0 else None
+
+
+@router.get("/posts/{post_id}/thumbnail")
+async def post_thumbnail(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Miniature de la publication (image affichée à la place de la vidéo, téléchargeable)."""
+    post, tenant = await _get_post(db, user, post_id)
+    targets = await _visible_targets(db, tenant, post)
+    path = await _thumbnail_file(db, post, targets)
+    if not path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Miniature choisie par la plateforme")
+    return FileResponse(path, media_type="image/png" if path.endswith(".png") else "image/jpeg",
+                        filename=f"cm-{post.id}-miniature.{path.rsplit('.', 1)[-1]}",
+                        headers={"Cache-Control": "private, max-age=300"})
+
+
+def _sign_download(post_id: int, kind: str, exp: int) -> str:
+    msg = f"cm-dl:{post_id}:{kind}:{exp}".encode()
+    return hmac.new(settings.JWT_SECRET_KEY.encode(), msg, "sha256").hexdigest()[:40]
+
+
+@router.post("/posts/{post_id}/download-link")
+async def post_download_link(post_id: int, kind: Literal["video", "thumbnail"] = Query(...),
+                             db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Lien de téléchargement signé (10 minutes) pour l'app : le navigateur du téléphone n'a pas la session."""
+    post, tenant = await _get_post(db, user, post_id)
+    await _visible_targets(db, tenant, post)
+    exp = int((utcnow() + timedelta(minutes=10)).timestamp())
+    return {"url": f"{settings.CM_URL.rstrip('/')}/api/cm/dl/{post.id}/{kind}/{exp}/{_sign_download(post.id, kind, exp)}"}
+
+
+@router.get("/dl/{post_id}/{kind}/{exp}/{sig}")
+async def download_by_link(post_id: int, kind: str, exp: int, sig: str, db: AsyncSession = Depends(get_db)):
+    if kind not in ("video", "thumbnail") or exp < utcnow().timestamp() \
+            or not hmac.compare_digest(sig, _sign_download(post_id, kind, exp)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lien expiré")
+    post = await db.get(CmPost, post_id)
+    if post is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Publication introuvable")
+    if kind == "thumbnail":
+        targets = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
+        path = await _thumbnail_file(db, post, list(targets))
+        if not path:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Miniature choisie par la plateforme")
+        return FileResponse(path, media_type="image/png" if path.endswith(".png") else "image/jpeg",
+                            filename=f"cm-{post.id}-miniature.{path.rsplit('.', 1)[-1]}")
+    if post.status != POST_READY:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Vidéo indisponible")
+    if not post.media_path or not os.path.exists(post.media_path):
+        try:
+            post = await cm_library.ensure_media(db, post.id)
+        except cm_library.MediaError as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, e.message)
+    return FileResponse(post.media_path, media_type=post.mime_type or "video/mp4",
+                        filename=f"cm-{post.id}.{'mov' if post.mime_type == 'video/quicktime' else 'mp4'}")
+
+
 @router.get("/posts/{post_id}/cover")
 async def post_cover(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     post, tenant = await _get_post(db, user, post_id)

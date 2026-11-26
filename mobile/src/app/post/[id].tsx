@@ -2,11 +2,12 @@
 // fiche vidéo, légende commune repliable, une carte par plateforme avec son état et ses actions.
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
-import { Pressable, View } from 'react-native'
-import { getAsset, getCalendar, getPost, type CalendarItem, type Post } from '../../lib/api'
+import { Pressable, ScrollView, View } from 'react-native'
+import { downloadLink, getAsset, getCalendar, getPost, type CalendarItem, type Post } from '../../lib/api'
 import { fmtDateTime, fmtDuration } from '../../lib/format'
 import { useLoad, useRole, useSession } from '../../lib/session'
-import { Chip, GroupDot, Icon, Loading, Msg, Row, Screen, Skeleton, Txt, groupHex } from '../../ui/kit'
+import { Button, Chip, GroupDot, Icon, Loading, Msg, Row, Screen, Skeleton, Txt, groupHex } from '../../ui/kit'
+import { showDialog } from '../../ui/dialog'
 import { space, useTheme } from '../../ui/theme'
 import { groupOf, shortTitle, type VideoItem } from '../../features/planning/calendar'
 import { apiUrl, openLink, PostMedia } from '../../features/planning/media'
@@ -60,13 +61,21 @@ export default function PublicationScreen() {
   const duration = p.duration_sec ?? asset.data?.duration_sec ?? video?.duration_sec ?? null
   const at = items[0]?.at || p.targets[0]?.scheduled_at || p.created_at
   const thumb = video?.thumbnail_url || (asset.data?.thumbnail ? apiUrl(asset.data.thumbnail, org) : null)
+  // Téléchargement : lien signé ouvert dans le navigateur (qui enregistre le fichier) ; miniature choisie par la
+  // plateforme (pas d'image chez Chapote) : celle de la plateforme.
+  const download = async (kind: 'video' | 'thumbnail') => {
+    try { await openLink((await downloadLink(p.id, kind)).url) } catch (e) {
+      if (kind === 'thumbnail' && thumb && !thumb.startsWith(apiUrl('', null))) { openLink(thumb); return }
+      showDialog(t('Téléchargement impossible'), (e as Error).message)
+    }
+  }
   const stream = asset.data?.stream ? apiUrl(asset.data.stream, org) : p.status === 'READY' ? apiUrl(`/api/cm/posts/${p.id}/video`, null) : null
 
   return (
     <Screen onRefresh={refresh} refreshing={pulling}>
       {group ? <View style={{ height: 5, borderRadius: 3, backgroundColor: groupHex(group.color) }} accessibilityElementsHidden /> : null}
       <Row gap={space.lg} style={{ alignItems: 'flex-start' }}>
-        <PostMedia stream={stream} thumb={thumb} externalUrl={video?.url} width={124} />
+        <PostMedia stream={stream} thumb={thumb} poster={apiUrl(`/api/cm/posts/${p.id}/thumbnail`, null)} externalUrl={video?.url} width={124} fullscreen />
         <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
           {group ? <Row gap={6}><GroupDot color={group.color} /><Txt small bold numberOfLines={1}>{group.name}</Txt></Row> : null}
           <Txt bold size={20} accessibilityRole="header" numberOfLines={4}>{title}</Txt>
@@ -86,6 +95,11 @@ export default function PublicationScreen() {
         </View>
       </Row>
 
+      <Row gap={space.sm}>
+        <Button small icon="download" title={t('Télécharger la vidéo')} disabled={p.status !== 'READY'} onPress={() => download('video')} style={{ flex: 1 }} />
+        <Button small icon="download" title={t('Télécharger la miniature')} onPress={() => download('thumbnail')} style={{ flex: 1 }} />
+      </Row>
+
       {post.data ? <RightsBox post={post.data} canEdit={canEdit} onSaved={p => post.setData(p)} /> : null}
 
       {showBody || tags.length ? (
@@ -97,7 +111,11 @@ export default function PublicationScreen() {
               <Txt small bold color={c.accent}>{more ? t('Voir moins') : t('Voir plus')}</Txt>
             </Pressable>
           ) : null}
-          {tags.length ? <Row gap={6} wrap>{tags.map(tag => <Chip key={tag} label={tag} />)}</Row> : null}
+          {tags.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} accessibilityLabel={t('Hashtags')}>
+              {tags.map(tag => <Chip key={tag} label={tag} />)}
+            </ScrollView>
+          ) : null}
         </View>
       ) : null}
 

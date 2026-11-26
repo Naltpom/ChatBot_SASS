@@ -2,7 +2,8 @@
 import { Image } from 'expo-image'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import { useEffect, useState } from 'react'
-import { Linking, Pressable, View, type StyleProp, type ViewStyle } from 'react-native'
+import { Linking, Modal, Pressable, StatusBar, View, type StyleProp, type ViewStyle } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { API_URL, authHeaders } from '../../lib/http'
 import { t } from '../../lib/i18n'
 import { Icon } from '../../ui/kit'
@@ -34,25 +35,52 @@ function Player({ uri, headers, style }: { uri: string; headers: Record<string, 
   return <VideoView player={player} style={style} nativeControls contentFit="contain" fullscreenOptions={{ enable: true }} accessibilityLabel={t('Vidéo')} />
 }
 
-export function PostMedia({ stream, thumb, externalUrl, width = 120 }: { stream: string | null; thumb: string | null; externalUrl?: string | null; width?: number }) {
+/** Vidéo en plein écran (fond noir, commandes du système), fermée par ✕ ou le bouton retour. */
+function FullScreenPlayer({ uri, headers, onClose }: { uri: string; headers: Record<string, string>; onClose: () => void }) {
+  const insets = useSafeAreaInsets()
+  return (
+    <Modal visible animationType="fade" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']} statusBarTranslucent>
+      <StatusBar hidden />
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <Player uri={uri} headers={headers} style={{ flex: 1 }} />
+        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel={t('Fermer')} hitSlop={12}
+          style={{ position: 'absolute', top: insets.top + 8, right: 12, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="close" size={22} color="#fff" />
+        </Pressable>
+      </View>
+    </Modal>
+  )
+}
+
+export function PostMedia({ stream, thumb, poster, externalUrl, width = 120, fullscreen }: {
+  stream: string | null; thumb: string | null; externalUrl?: string | null; width?: number
+  /** Image montrée en premier (miniature choisie) ; si elle ne charge pas : `thumb`. */
+  poster?: string | null
+  /** Lecture en plein écran au lieu de dans la vignette. */
+  fullscreen?: boolean
+}) {
   const { c } = useTheme()
   const headers = useAuthHeaders()
   const [playing, setPlaying] = useState(false)
+  const [posterFailed, setPosterFailed] = useState(false)
   const box: ViewStyle = { width, aspectRatio: 9 / 16, borderRadius: radius.md, overflow: 'hidden', backgroundColor: '#000' }
-  if (playing && stream && headers) return <View style={box}><Player uri={stream} headers={isApi(stream) ? headers : {}} style={{ flex: 1 }} /></View>
+  if (playing && stream && headers && !fullscreen) return <View style={box}><Player uri={stream} headers={isApi(stream) ? headers : {}} style={{ flex: 1 }} /></View>
   const can = !!stream || !!externalUrl
+  const shown = poster && !posterFailed ? poster : thumb
   return (
     <Pressable onPress={() => (stream ? setPlaying(true) : externalUrl ? openLink(externalUrl) : undefined)} disabled={!can}
       accessibilityRole="button" accessibilityLabel={stream ? t('Lire la vidéo') : externalUrl ? t('Voir la vidéo sur la plateforme') : t('Aperçu indisponible')}
       style={({ pressed }) => [box, { backgroundColor: c.surface2, opacity: pressed ? 0.8 : 1, alignItems: 'center', justifyContent: 'center' }]}>
-      {thumb && (!isApi(thumb) || headers)
-        ? <Image source={{ uri: thumb, headers: isApi(thumb) ? headers || undefined : undefined }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover" />
+      {shown && (!isApi(shown) || headers)
+        ? <Image key={shown} source={{ uri: shown, headers: isApi(shown) ? headers || undefined : undefined }} onError={() => { if (shown === poster) setPosterFailed(true) }}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover" accessibilityLabel={t('Miniature')} />
         : <Icon name="video" size={28} color={c.faint} />}
       {can ? (
         <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={stream ? 'right' : 'external'} size={22} color="#fff" strokeWidth={2.4} />
         </View>
       ) : null}
+      {fullscreen && playing && stream && headers ? <FullScreenPlayer uri={stream} headers={isApi(stream) ? headers : {}} onClose={() => setPlaying(false)} /> : null}
     </Pressable>
   )
 }

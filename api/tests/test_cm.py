@@ -784,6 +784,51 @@ async def test_cover_sent_the_day_before_survives_cleanup(pg_session, cmenv):
     assert os.path.exists(post.cover_path) and os.path.exists(post.media_path)
 
 
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_thumbnail_and_download_links(pg_session, cmenv, tmp_path):
+    """Miniature : la couverture envoyée, sinon l'image de la vidéo à l'instant choisi ; liens de téléchargement signés."""
+    import shutil, subprocess
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    when = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        data = mp4_bytes(10_000)
+        target = _ig_target(acc.id, scheduled_at=when)
+        target["options"]["thumb_offset_ms"] = 500
+        post_id, r = await _publish(h, [target], data)
+        assert r.status_code == 200, r.text
+        # Sans couverture ni image extractible (fausse vidéo) : choisie par la plateforme.
+        if not shutil.which("ffmpeg"):
+            assert (await h.get(f"/api/cm/posts/{post_id}/thumbnail")).status_code == 404
+        assert (await h.put(f"/api/cm/posts/{post_id}/cover", content=b"\xff\xd8\xff\xe0" + b"1" * 500)).status_code == 200
+        r = await h.get(f"/api/cm/posts/{post_id}/thumbnail")
+        assert r.status_code == 200 and r.content.startswith(b"\xff\xd8") and "miniature" in r.headers["content-disposition"]
+        # Liens signés (app) : sans session, valables 10 minutes, liés à la publication et au type.
+        link = (await h.post(f"/api/cm/posts/{post_id}/download-link?kind=video")).json()["url"]
+        path = urlparse(link).path
+        anon = httpx.AsyncClient(transport=c.http._transport, base_url="http://test")
+        r = await anon.get(path)
+        assert r.status_code == 200 and r.content == data and "attachment" in r.headers["content-disposition"]
+        assert (await anon.get(path.replace("/video/", "/thumbnail/"))).status_code == 404
+        thumb = (await h.post(f"/api/cm/posts/{post_id}/download-link?kind=thumbnail")).json()["url"]
+        assert (await anon.get(urlparse(thumb).path)).content.startswith(b"\xff\xd8")
+        await anon.aclose()
+    if shutil.which("ffmpeg"):
+        # Vraie vidéo, pas de couverture : l'image à l'instant choisi est extraite.
+        src = tmp_path / "v.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:size=64x112:rate=10", "-t", "2", "-pix_fmt", "yuv420p", str(src)], check=True)
+        post = await pg_session.get(CmPost, post_id)
+        cm.remove_cover(post)
+        shutil.copy(src, post.media_path)
+        await pg_session.commit()
+        async with Client(pg_session) as c:
+            r = await c.as_(u).get(f"/api/cm/posts/{post_id}/thumbnail")
+            assert r.status_code == 200 and r.content.startswith(b"\xff\xd8")
+
+
 def test_media_links_expire_and_are_bound_to_the_target(monkeypatch):
     t = CmTarget(id=7)
     url = cm.media_url(t, "video/mp4")
