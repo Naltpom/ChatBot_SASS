@@ -261,7 +261,9 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
                "brand_content": mode == "direct" and _bool(o.get("brand_content")),
                "fallback_draft": mode == "direct" and _bool(o.get("fallback_draft")),
                # Miniature : instant de la vidéo (ms) dont l'image sert de couverture (publication directe seulement).
-               "cover_timestamp_ms": _cover_ms(o.get("cover_timestamp_ms"), "TikTok") if mode == "direct" else None}
+               "cover_timestamp_ms": _cover_ms(o.get("cover_timestamp_ms"), "TikTok") if mode == "direct" else None,
+               # Contenu généré par IA (étiquette TikTok « Généré par IA »), publication directe seulement.
+               "is_aigc": mode == "direct" and _bool(o.get("is_aigc"))}
         if mode == "direct":
             if not out["privacy_level"]:
                 raise bad("TikTok : choisissez qui peut voir cette vidéo.")

@@ -186,6 +186,7 @@ async def _dispatch_tiktok(db: AsyncSession, t: CmTarget, post: CmPost) -> None:
         disable_stitch=not o.get("allow_stitch") or bool(info.get("stitch_disabled")),
         brand_organic=direct and bool(o.get("brand_organic")), brand_content=direct and bool(o.get("brand_content")),
         cover_timestamp_ms=_cover_in_video(o.get("cover_timestamp_ms"), post.duration_sec) if direct else None,
+        is_aigc=direct and bool(o.get("is_aigc")),
         file_name=post.file_name, mime_type=post.mime_type, video_size=post.video_size,
         received_bytes=post.video_size, duration_sec=post.duration_sec, tmp_path=path,
         status=tk_models.POST_QUEUED,

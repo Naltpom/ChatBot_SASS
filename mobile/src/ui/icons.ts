@@ -1,7 +1,7 @@
 // Icônes du site (cm/src/components/ui.tsx), mêmes tracés.
 export type IconName = 'left' | 'right' | 'down' | 'upload' | 'refresh' | 'external' | 'home' | 'calendar' | 'chart'
   | 'users' | 'plus' | 'close' | 'video' | 'eye' | 'eye-off' | 'heart' | 'comment' | 'share' | 'bookmark' | 'check'
-  | 'settings' | 'copy' | 'more' | 'folder' | 'bell' | 'layers' | 'clock' | 'logout' | 'grid' | 'list' | 'trend' | 'edit' | 'trash' | 'bolt' | 'shield' | 'link' | 'menu' | 'search' | 'star'
+  | 'settings' | 'copy' | 'more' | 'folder' | 'bell' | 'layers' | 'clock' | 'logout' | 'grid' | 'list' | 'trend' | 'edit' | 'trash' | 'bolt' | 'shield' | 'link' | 'menu' | 'search' | 'star' | 'info'
 
 export const PATHS: Record<IconName, string> = {
   search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',
@@ -43,5 +43,6 @@ export const PATHS: Record<IconName, string> = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   folder: 'M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z',
   bell: 'M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0',
+  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.5',
 }
 

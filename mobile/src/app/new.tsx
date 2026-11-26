@@ -1,6 +1,7 @@
-// Nouvelle publication, en étapes : 1. la vidéo et son texte (communs à tous les comptes) ;
-// 2. les comptes et l'heure (avec ce qui est déjà prévu sur chaque compte) ; 3. les réglages propres
-// à un réseau, seulement s'il en manque un obligatoire (ou si on les ouvre). Mêmes règles que cm/src/pages/Composer.tsx.
+// Nouvelle publication, deux grandes étapes : 1. la vidéo, puis (carte qui apparaît) titre et légende, puis public,
+// droits et IA ; 2. les comptes et le jour / l'heure. Ensuite « Planifier » directement, ou « Réglages » (un onglet par
+// compte, on glisse de l'un à l'autre) quand un réseau en demande (TikTok). Avant l'envoi, une fenêtre fait valider
+// chaque compte (modifiable sur place, ou retiré). Mêmes règles que cm/src/pages/Composer.tsx.
 // Paramètres : `asset` (vidéo de la bibliothèque) et `proposal` (brouillon automatique « À valider »).
 import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
@@ -12,7 +13,7 @@ import { StorageBanner } from '../features/storage'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   creatorInfo, createPost, getCalendar, sendFeedback, type AbandonReason, isRisky, RIGHTS_LABEL, RIGHTS_WARNING, type Rights, deletePost, getAccounts, getAsset, getProposal, getRobot, submitPost, PLATFORM_LABEL,
@@ -21,19 +22,24 @@ import {
 import { fmtDuration, fmtSize, TIKTOK_BC_URL, TIKTOK_MUSIC_URL, TIKTOK_PRIVACY } from '../lib/format'
 import { useLoad, useRole, useSession } from '../lib/session'
 import { uploadCover, uploadParts } from '../lib/upload'
-import { Avatar, Button, Card, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg, Sheet, Txt } from '../ui/kit'
+import { Avatar, Button, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg, Sheet, Txt } from '../ui/kit'
 import { Missing, StepProgress } from '../ui/Progress'
+import { LOCALE } from '../lib/locale'
 import { radius, space, useTheme } from '../ui/theme'
 import {
-  accKey, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, earliestSlot,
-  stepProblems, tooClose,
+  accKey, accountProblems, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, earliestSlot,
+  needsOptions, recapOf, stepProblems, tooClose,
   titleFromFile, YT_PRIVACY, type ComposeState, type CreatorState, type InstaOpts, type Opts, type TikTokOpts, type YouTubeOpts,
 } from '../features/planning/compose'
 import { AccountSheet } from '../features/planning/AccountSheet'
 import { LibrarySheet } from '../features/planning/LibrarySheet'
 import { apiUrl, openLink, useAuthHeaders } from '../features/planning/media'
 import { InstaPanel, TikTokPanel, YouTubePanel, type Common, type Media } from '../features/planning/Panels'
-import { Check, DateTimeField, Section, TooSoon, useNow } from '../features/planning/ui'
+import { Check, Section, useNow } from '../features/planning/ui'
+import { DateParts } from '../features/planning/DateParts'
+import { AccountPager } from '../features/planning/AccountPager'
+import { ReviewSheet } from '../features/planning/ReviewSheet'
+import { fmtTime as fmtMs } from '../features/planning/FramePicker'
 import { showDialog } from '../ui/dialog'
 
 const TIPS = [
@@ -133,6 +139,17 @@ export default function NewPost() {
   const chosen = picked.map(k => known[k]).filter(Boolean) as Account[]
   const [rights, setRights] = useState<Rights | ''>('')   // droits d'auteur (vide = non précisés)
   const [rightsNote, setRightsNote] = useState('')
+  // Communs à tous les comptes (étape 1), recopiés dans les réglages de chaque réseau qui les connaît.
+  const [kids, setKids] = useState<'' | 'yes' | 'no'>('')   // YouTube : conçue pour les enfants (à dire explicitement)
+  const [ai, setAi] = useState(false)                        // YouTube « synthétique », TikTok « généré par IA »
+  useEffect(() => {
+    setOpts(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k,
+      k.startsWith('youtube:') ? { ...v, kids, synthetic: ai } : k.startsWith('tiktok:') ? { ...v, aigc: ai } : v])))
+  }, [kids, ai])
+  const [review, setReview] = useState(false)
+  const [captionOpen, setCaptionOpen] = useState(false)
+  const scroll = useRef<ScrollViewInstance>(null)
+  const textY = useRef(0)
 
   // Saisie gardée sur le téléphone (appel, notification, app fermée) : reprise à la réouverture.
   const { me } = useSession()
@@ -140,7 +157,7 @@ export default function NewPost() {
   const fresh = !params.asset && !params.proposal && !params.shared
   const restored = useRef(false)
   const [resumed, setResumed] = useState(false)
-  type Draft = { title: string; caption: string; picked: string[]; when: 'now' | 'at'; at: string; sameTime: boolean; video: PickedVideo | null; rights: Rights | ''; rightsNote: string; savedAt: number; step?: 1 | 2 | 3 }
+  type Draft = { title: string; caption: string; picked: string[]; when: 'now' | 'at'; at: string; sameTime: boolean; video: PickedVideo | null; rights: Rights | ''; rightsNote: string; savedAt: number; step?: 1 | 2 | 3; kids?: '' | 'yes' | 'no'; ai?: boolean }
   useEffect(() => {
     if (!fresh || restored.current || !accounts.data) return
     restored.current = true
@@ -149,6 +166,7 @@ export default function NewPost() {
       const d = JSON.parse(raw) as Draft
       if (Date.now() - d.savedAt > 7 * 864e5 || (!d.title && !d.caption && !d.video)) return
       setTitle(d.title); setCaption(d.caption); setWhen(d.when); setSameTime(d.sameTime); setRights(d.rights); setRightsNote(d.rightsNote)
+      setKids(d.kids || ''); setAi(!!d.ai)
       if (new Date(d.at).getTime() > Date.now()) setAt(new Date(d.at))
       if (d.video) setVideo(d.video)
       if (d.step && d.video) setStep(d.step === 3 ? 2 : d.step)
@@ -159,14 +177,14 @@ export default function NewPost() {
   useEffect(() => {
     if (!fresh || !restored.current || asset) return
     const t = setTimeout(() => {
-      const d: Draft = { title, caption, picked, when, at: at.toISOString(), sameTime, video, rights, rightsNote, savedAt: Date.now(), step }
+      const d: Draft = { title, caption, picked, when, at: at.toISOString(), sameTime, video, rights, rightsNote, savedAt: Date.now(), step, kids, ai }
       AsyncStorage.setItem(draftKey, JSON.stringify(d)).catch(() => {})
     }, 600)
     return () => clearTimeout(t)
-  }, [title, caption, picked, when, at, sameTime, video, rights, rightsNote, step]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [title, caption, picked, when, at, sameTime, video, rights, rightsNote, step, kids, ai]) // eslint-disable-line react-hooks/exhaustive-deps
   const clearDraft = () => AsyncStorage.removeItem(draftKey).catch(() => {})
   const restart = () => {
-    clearDraft(); setResumed(false); setTitle(''); setCaption(''); setVideo(null); setPicked([]); setRights(''); setRightsNote(''); setWhen('at'); setAt(earliestSlot()); setStep(1)
+    clearDraft(); setResumed(false); setTitle(''); setCaption(''); setVideo(null); setPicked([]); setRights(''); setRightsNote(''); setWhen('at'); setAt(earliestSlot()); setStep(1); setKids(''); setAi(false)
   }
 
   const add = (list: Account[]) => {
@@ -174,7 +192,15 @@ export default function NewPost() {
     if (!fresh.length) return
     setKnown(k => ({ ...k, ...Object.fromEntries(fresh.map(a => [accKey(a), a])) }))
     setPicked(p => [...p, ...fresh.map(accKey).filter(k => !p.includes(k))])
-    setOpts(o => { const n = { ...o }; for (const a of fresh) if (!n[accKey(a)]) n[accKey(a)] = defaults(a); return n })
+    setOpts(o => {
+      const n = { ...o }
+      for (const a of fresh) {
+        if (n[accKey(a)]) continue
+        const d = defaults(a)
+        n[accKey(a)] = a.platform === 'youtube' ? { ...d, kids, synthetic: ai } : a.platform === 'tiktok' ? { ...d, aigc: ai } : d
+      }
+      return n
+    })
     for (const a of fresh) {
       if (a.platform !== 'tiktok') continue
       const k = accKey(a)
@@ -277,16 +303,12 @@ export default function NewPost() {
   const hasTikTok = chosen.some(a => a.platform === 'tiktok')
   const tiktokBranded = chosen.some(a => { const o = opts[accKey(a)] as TikTokOpts | undefined; return a.platform === 'tiktok' && o?.mode === 'direct' && o.commercial && o.branded })
   const n = chosen.length
-  // Toujours 3 étapes : la 3ᵉ montre chaque réseau, avec sa miniature et ses textes (déjà remplis avec ceux de l'étape 1).
-  const total: number = 3
+  const hasYouTube = chosen.some(a => a.platform === 'youtube')
+  // Réglages compte par compte seulement si un réseau en demande (TikTok direct : visibilité à choisir à la main).
+  const needSettings = needsOptions(chosen, opts)
+  const total = needSettings || step === 3 ? 3 : 2
   const timeOf = (k: string) => (when === 'now' ? new Date() : sameTime ? at : times[k] || at)
-  const whenTxt = when === 'now' ? 'dès l’envoi de la vidéo'
-    : sameTime ? at.toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'heures par compte'
-  const summary = n ? `${n} compte${n > 1 ? 's' : ''} · ${whenTxt}` : 'Aucun compte choisi'
-  const nets = [...new Set(chosen.filter(a => {
-    const o = opts[accKey(a)]
-    return a.platform === 'youtube' ? !(o as YouTubeOpts)?.kids : a.platform === 'tiktok' && (o as TikTokOpts)?.mode === 'direct' && !(o as TikTokOpts)?.privacy
-  }).map(a => PLATFORM_LABEL[a.platform]))]
+  const kidsMissing = hasYouTube && !kids ? ['Indiquez si la vidéo est conçue pour les enfants (YouTube le demande).'] : []
 
   // Ce qui est déjà prévu sur les comptes choisis, le jour de cette publication.
   const dayKeys = [...new Set(chosen.map(a => timeOf(accKey(a)).toDateString()))].sort().join('|')
@@ -310,7 +332,7 @@ export default function NewPost() {
       ], { cancelable: true, onDismiss: () => res(false) }))
       if (!ok) return
     }
-    setErr(''); setErrCode(null); setProgress(0)
+    setReview(false); setErr(''); setErrCode(null); setProgress(0)
     const s = { ...state, caption, rights: rights || undefined, rightsNote }
     try {
       if (asset) {
@@ -344,7 +366,7 @@ export default function NewPost() {
       if (params.first) {
         // Première vidéo de l'inscription : écran de réussite (et demande de notifications).
         const names = [...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ')
-        const w = when === 'now' ? 'dans quelques minutes' : at.toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+        const w = when === 'now' ? 'dans quelques minutes' : at.toLocaleString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
         router.replace({ pathname: '/setup/done', params: { when: w, accounts: names } })
         return
       }
@@ -359,15 +381,16 @@ export default function NewPost() {
 
   const go = (to: 1 | 2 | 3) => { Haptics.selectionAsync().catch(() => {}); setStep(to) }
   const pct = Math.round((progress || 0) * 100)
-  const finalTitle = busy ? 'Envoi en cours…' : when === 'now' ? 'Terminer et publier' : 'Terminer et planifier'
-  const blocking = step === 1 ? sp.content : step === 2 ? [...sp.targets, ...(total === 2 ? sp.options : [])] : sp.options
-  const isLast = step === total
+  const finalLabel = when === 'now' ? 'Valider et publier' : 'Valider et planifier'
+  const accProblems = (a: Account) => accountProblems(a, state, config, fmtDuration)
+  const openReview = () => { Haptics.selectionAsync().catch(() => {}); setReview(true) }
+  const blocking = step === 1 ? sp.content : step === 2 ? [...sp.targets, ...kidsMissing] : sp.options
+  const toSettings = <Button kind="primary" icon="right" title="Suivant · réglages" disabled={sp.targets.length > 0 || kidsMissing.length > 0} onPress={() => go(3)} style={{ flex: 1 }} />
+  const plan = <Button kind="primary" icon={when === 'now' ? 'bolt' : 'clock'} title={busy ? 'Envoi en cours…' : when === 'now' ? 'Publier' : 'Planifier'} loading={busy}
+    disabled={!canEdit || sp.targets.length > 0 || kidsMissing.length > 0 || sp.content.length > 0} onPress={openReview} style={{ flex: 1 }} />
   const primary = step === 1
     ? <Button kind="primary" icon="right" title="Suivant" disabled={sp.content.length > 0} onPress={() => go(2)} style={{ flex: 1 }} />
-    : !isLast
-      ? <Button kind="primary" icon="right" title={nets.length ? `Suivant · ${nets.join(' et ')}` : 'Suivant · réglages'} disabled={sp.targets.length > 0} onPress={() => go(3)} style={{ flex: 1 }} />
-      : <Button kind="primary" icon={when === 'now' ? 'bolt' : 'clock'} title={finalTitle} loading={busy}
-          disabled={!canEdit || problems.length > 0} onPress={publish} style={{ flex: 1 }} />
+    : step === 2 ? (needSettings ? toSettings : plan) : plan
   const footer = (
     <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: insets.bottom + space.md, gap: space.sm,
       backgroundColor: c.surface, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border }}>
@@ -383,30 +406,53 @@ export default function NewPost() {
           <Txt size={12} faint>Astuce · {TIPS[Math.floor(Date.now() / 6000) % TIPS.length]}</Txt>
           <Txt size={12} faint>Gardez l’app ouverte pendant l’envoi.</Txt>
         </>
-      ) : isLast && step > 1 ? <Txt small muted numberOfLines={2}>{summary}</Txt> : null}
+      ) : null}
       <Row gap={space.sm}>
         {step > 1 ? <Button kind="ghost" icon="left" title="Retour" disabled={busy} onPress={() => go((step - 1) as 1 | 2)} /> : null}
         {primary}
       </Row>
+      {step === 2 && !needSettings && n > 0 && !busy ? (
+        <Button small kind="ghost" icon="settings" title="Régler chaque compte (facultatif)" onPress={() => go(3)} />
+      ) : null}
       {!busy ? <Missing items={blocking.slice(0, 2).map(p => p.replace(/\.$/, '').replace(/^./, x => x.toLowerCase()))} /> : null}
     </View>
   )
 
-  const labels = ['Votre vidéo', 'Où et quand', 'Chaque réseau']
-  const intro = step === 1 ? 'Vidéo, titre et légende : écrits une fois, ils partent sur tous les comptes.'
-    : step === 2 ? (total === 2 ? 'Dernière étape : choisissez les comptes et l’heure, et c’est programmé.' : 'Plus qu’à choisir les comptes et l’heure.')
-    : `Chaque réseau : sa miniature, ses textes (déjà remplis, modifiables) et ses réglages${nets.length ? `. À compléter pour ${nets.join(' et ')}` : ''}.`
-  const thumb = cover?.uri || null
+  const labels = ['Votre vidéo', 'Comptes et date', 'Réglages']
   const media: Media = { duration: state.duration,
     source: video ? video.uri : asset && headers ? { uri: apiUrl(asset.stream || `/api/cm/assets/${asset.id}/stream`, org), headers } : null }
   const common: Common = { title, caption }
+  const hasVideo = !!video || !!asset
+  // Vidéo choisie : la carte du titre et de la légende apparaît, l'écran descend jusqu'à elle.
+  const wasVideo = useRef(hasVideo)
+  useEffect(() => {
+    if (hasVideo && !wasVideo.current) setTimeout(() => scroll.current?.scrollTo({ y: Math.max(0, textY.current - 12), animated: true }), 250)
+    wasVideo.current = hasVideo
+  }, [hasVideo])
+  const panel = (a: Account) => {
+    const k = accKey(a), o = opts[k]
+    if (!o) return null
+    return a.platform === 'tiktok' ? <TikTokPanel account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} media={media} common={common} />
+      : a.platform === 'youtube' ? <YouTubePanel o={o as YouTubeOpts} busy={busy} set={p => set<YouTubeOpts>(k, p)} common={common} />
+      : <InstaPanel o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} media={media} common={common}
+          image={{ uri: cover?.uri || null, pick: pickCover, remove: () => setCover(null), fromDrive: !!asset?.has_cover }} />
+  }
+  const recap = (a: Account) => {
+    const o = opts[accKey(a)]
+    return o ? recapOf(a, o, common, { privacyLabel: v => TIKTOK_PRIVACY[v] || v, coverImage: !!cover, fmtMs: ms => fmtMs(ms / 1000) }) : []
+  }
+  const pickers = (
+    <Row gap={space.sm}>
+      {robot.data?.enabled ? <Button icon="layers" title="Bibliothèque" disabled={busy} onPress={() => setLibrary(true)} style={{ flex: 1 }} /> : null}
+      <Button icon="upload" title={video ? 'Autre fichier' : 'Fichier'} disabled={busy} onPress={pickVideo} style={{ flex: 1 }} />
+    </Row>
+  )
 
   return (
     <>
       <Stack.Screen options={{ title: labels[step - 1], gestureEnabled: !busy }} />
-      <Screen key={step} footer={footer}>
+      <Screen key={step} footer={footer} scrollRef={scroll}>
         <StepProgress step={step} total={total} label={labels[step - 1]} />
-        <Txt muted>{intro}</Txt>
         {step === 1 ? <StorageBanner space={spacesAll.find(x => x.org_id === org)} /> : null}
         {resumed && step === 1 ? (
           <Msg kind="info">Saisie reprise là où vous l’aviez laissée.{' '}
@@ -418,7 +464,7 @@ export default function NewPost() {
 
         {step === 1 ? (
           <>
-            <Section title="Vidéo">
+            <View style={{ backgroundColor: c.surface, borderRadius: radius.lg, padding: space.lg, gap: space.md, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border }}>
               {asset ? (
                 <Row gap={space.md} style={{ alignItems: 'flex-start' }}>
                   <View style={{ width: 72, height: 104, borderRadius: radius.sm, backgroundColor: c.surface2, overflow: 'hidden' }}>
@@ -428,64 +474,73 @@ export default function NewPost() {
                     <Txt bold numberOfLines={2}>{asset.name}</Txt>
                     <Txt small muted>{fmtDuration(asset.duration_sec)}{asset.size ? ` · ${fmtSize(asset.size)}` : ''}</Txt>
                     <Txt small muted numberOfLines={1}>{asset.source_name}{asset.folder ? ` / ${asset.folder}` : ''}</Txt>
-                    <Txt size={12} muted>Récupérée dans le Drive à l’heure de la publication.</Txt>
-                    <Row gap={6} wrap>
-                      <Button small title="Changer" disabled={busy} onPress={() => setLibrary(true)} />
-                      <Button small kind="ghost" title="Envoyer un fichier à la place" disabled={busy} onPress={() => { setAsset(null); pickVideo() }} />
-                    </Row>
                   </View>
                 </Row>
-              ) : (
+              ) : video ? (
                 <>
-                  <Pressable onPress={pickVideo} disabled={busy} accessibilityRole="button" accessibilityLabel={video ? 'Choisir une autre vidéo' : 'Choisir une vidéo dans la galerie'}
-                    style={({ pressed }) => ({ minHeight: 96, borderRadius: radius.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.borderStrong,
-                      alignItems: 'center', justifyContent: 'center', gap: 4, padding: space.md, opacity: pressed ? 0.7 : 1 })}>
-                    <Icon name={video ? 'video' : 'upload'} size={22} color={c.muted} />
-                    <Txt bold numberOfLines={1}>{video ? video.name : 'Choisir une vidéo'}</Txt>
-                    <Txt size={12} muted>{video ? `${video.size ? fmtSize(video.size) : 'taille inconnue'} · ${fmtDuration(video.duration)} · toucher pour changer` : `MP4 ou MOV, vertical, ${config ? fmtSize(config.max_upload_bytes) : '1 Go'} au plus`}</Txt>
-                  </Pressable>
-                  {robot.data?.enabled ? <Button icon="layers" title="Choisir dans la bibliothèque" disabled={busy} onPress={() => setLibrary(true)} /> : null}
-                  {video ? <LocalPreview key={video.uri} uri={video.uri} /> : null}
+                  <Txt bold numberOfLines={1}>{video.name}</Txt>
+                  <Txt size={12} muted>{video.size ? fmtSize(video.size) : 'taille inconnue'} · {fmtDuration(video.duration)}</Txt>
+                  <LocalPreview key={video.uri} uri={video.uri} />
                 </>
-              )}
-            </Section>
+              ) : null}
+              {pickers}
+              {!hasVideo ? <Txt size={12} muted center>MP4 ou MOV, vertical, {config ? fmtSize(config.max_upload_bytes) : '1 Go'} au plus</Txt> : null}
+            </View>
 
-            <Section title="Texte">
-              <Field label="Titre" value={title} maxLength={200} editable={!busy} onChangeText={setTitle}
-                placeholder="Ex. : Tuto coiffure en 30 secondes" hint="Titre sur YouTube et dans votre planning. Pas affiché sur TikTok ni Instagram." />
-              <Field label="Légende" value={caption} maxLength={CAPTION_MAX} editable={!busy} onChangeText={setCaption} multiline
-                placeholder="Le texte sous la vidéo, avec vos #hashtags"
-                hint={`${count.chars.toLocaleString('fr-FR')} / 2 200 · ${count.tags} hashtag${count.tags > 1 ? 's' : ''} · la même sur chaque compte`} />
-            </Section>
+            {hasVideo ? (
+              <View onLayout={e => { textY.current = e.nativeEvent.layout.y }}
+                style={{ backgroundColor: c.surface, borderRadius: radius.lg, padding: space.lg, gap: space.md, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border }}>
+                <View style={{ gap: 6 }}>
+                  <Row gap={6}>
+                    <Txt small bold>Titre</Txt>
+                    <Pressable hitSlop={10} accessibilityRole="button" accessibilityLabel="À quoi sert le titre"
+                      onPress={() => showDialog('Titre', 'Le titre est le nom de la publication dans votre planning. Il est aussi proposé aux réseaux qui acceptent un titre (modifiable pour chacun dans les réglages).')}>
+                      <Icon name="info" size={16} color={c.muted} />
+                    </Pressable>
+                  </Row>
+                  <Field value={title} maxLength={200} editable={!busy} onChangeText={setTitle} accessibilityLabel="Titre" placeholder="Ex. : Tuto coiffure en 30 secondes" />
+                </View>
+                <View style={{ gap: 6 }}>
+                  <Row style={{ justifyContent: 'space-between' }}>
+                    <Txt small bold>Légende</Txt>
+                    {caption.length > 120 ? (
+                      <Pressable hitSlop={10} onPress={() => setCaptionOpen(o => !o)} accessibilityRole="button" accessibilityState={{ expanded: captionOpen }}>
+                        <Txt small bold color={c.accent}>{captionOpen ? 'Réduire' : 'Tout afficher'}</Txt>
+                      </Pressable>
+                    ) : null}
+                  </Row>
+                  <Field value={caption} maxLength={CAPTION_MAX} editable={!busy} onChangeText={setCaption} multiline accessibilityLabel="Légende"
+                    placeholder="Le texte sous la vidéo, avec vos #hashtags" style={captionOpen ? undefined : { maxHeight: 150 }}
+                    hint={`${count.chars.toLocaleString(LOCALE)} / ${CAPTION_MAX.toLocaleString(LOCALE)} · ${count.tags} hashtag${count.tags > 1 ? 's' : ''}`} />
+                </View>
+              </View>
+            ) : null}
 
-
-            <Section title="Droits d’auteur" aside={<Txt small muted>Facultatif</Txt>}>
-              <Txt small muted>La vidéo reprend-elle une œuvre (musique, chorégraphie, extrait) ?</Txt>
-              <Row wrap>
-                {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
-                  <Chip key={r} label={RIGHTS_LABEL[r]} selected={rights === r} onPress={busy ? undefined : () => setRights(rights === r ? '' : r)} />
-                ))}
-              </Row>
-              {isRisky(rights || null) ? <Msg kind="warn">{RIGHTS_WARNING}</Msg> : null}
-              {rights ? <Field value={rightsNote} onChangeText={setRightsNote} maxLength={300} editable={!busy}
-                placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" accessibilityLabel="Note sur les droits" /> : null}
-            </Section>
-
-            {title.trim() || caption.trim() || video || asset ? (
-              <Card style={{ gap: space.sm }}>
-                <Txt small bold muted>Aperçu</Txt>
-                <Row gap={space.md} style={{ alignItems: 'flex-start' }}>
-                  <View style={{ width: 54, height: 96, borderRadius: 8, backgroundColor: c.ink, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
-                    {thumb ? <Image source={{ uri: thumb }} style={{ width: 54, height: 96 }} contentFit="cover" />
-                      : asset?.thumbnail && headers ? <Image source={{ uri: apiUrl(asset.thumbnail, org), headers }} style={{ width: 54, height: 96 }} contentFit="cover" />
-                      : <Icon name="video" size={18} color={c.onInk} />}
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                    <Txt bold numberOfLines={2}>{title.trim() || 'Sans titre'}</Txt>
-                    <Txt small muted numberOfLines={4}>{caption.trim() || 'Pas de légende'}</Txt>
-                  </View>
-                </Row>
-              </Card>
+            {hasVideo ? (
+              <View style={{ backgroundColor: c.surface, borderRadius: radius.lg, padding: space.lg, gap: space.md, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border }}>
+                <View style={{ gap: 6 }}>
+                  <Txt small bold>Limite d’âge</Txt>
+                  <Seg<'' | 'yes' | 'no'> label="Vidéo conçue pour les enfants" value={kids} onChange={v => !busy && setKids(v)}
+                    options={[['no', 'Tout public'], ['yes', 'Pour les enfants']]} />
+                  <Txt size={12} muted>« Pour les enfants » : conçue avant tout pour les moins de 13 ans (YouTube le demande à chaque vidéo).</Txt>
+                </View>
+                <View style={{ gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border, paddingTop: space.md }}>
+                  <Txt small bold>Droits d’auteur</Txt>
+                  <Txt size={12} muted>La vidéo reprend-elle une œuvre (musique, chorégraphie, extrait) ?</Txt>
+                  <Row wrap>
+                    {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
+                      <Chip key={r} label={RIGHTS_LABEL[r]} selected={rights === r} onPress={busy ? undefined : () => setRights(rights === r ? '' : r)} />
+                    ))}
+                  </Row>
+                  {isRisky(rights || null) ? <Msg kind="warn">{RIGHTS_WARNING}</Msg> : null}
+                  {rights ? <Field value={rightsNote} onChangeText={setRightsNote} maxLength={300} editable={!busy}
+                    placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" accessibilityLabel="Note sur les droits" /> : null}
+                </View>
+                <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border, paddingTop: space.md }}>
+                  <Check label="Contenu généré ou modifié par IA" checked={ai} disabled={busy} onChange={setAi}
+                    hint="Une personne, un lieu ou un événement réaliste créé ou modifié (IA comprise). Signalé à YouTube et TikTok." />
+                </View>
+              </View>
             ) : null}
           </>
         ) : null}
@@ -497,12 +552,7 @@ export default function NewPost() {
               <Msg>Aucun compte connecté. Connectez TikTok, YouTube ou Instagram dans Comptes pour publier.</Msg>
             ) : null}
             <Section title={`Comptes${n ? ` · ${n}` : ''}`} aside={n ? <Button small kind="ghost" title="Modifier" disabled={busy} onPress={() => setPicking(true)} /> : undefined}>
-              {!n ? (
-                <>
-                  <Txt small muted>Un ou plusieurs comptes, ou un groupe entier en une fois.</Txt>
-                  <Button kind="secondary" icon="plus" title="Choisir les comptes" onPress={() => setPicking(true)} />
-                </>
-              ) : null}
+              {!n ? <Button kind="secondary" icon="plus" title="Choisir les comptes" onPress={() => setPicking(true)} /> : null}
               {chosen.map(a => {
                 const k = accKey(a)
                 return (
@@ -525,27 +575,21 @@ export default function NewPost() {
               <Seg label="Quand" value={when} onChange={v => !busy && setWhen(v)} options={[['at', 'Planifier'], ['now', 'Tout de suite']]} />
               {when === 'at' ? (
                 <>
-                  {sameTime ? <TooSoon at={at} now={now} onNext={setAt} onNow={() => setWhen('now')} /> : null}
-                  {sameTime ? <DateTimeField label="Jour et heure" value={at} onChange={setAt} disabled={busy} minimumDate={new Date()} /> : null}
-                  {n > 1 ? <Check label="Même heure pour tous les comptes" checked={sameTime} onChange={setSameTime} disabled={busy} /> : null}
+                  {sameTime ? <DateParts value={at} onChange={setAt} disabled={busy} /> : null}
+                  {n > 1 ? <Check label="Même jour et heure pour tous les comptes" checked={sameTime} onChange={setSameTime} disabled={busy} /> : null}
                   {!sameTime ? chosen.map(a => (
-                    <View key={accKey(a)} style={{ gap: 8 }}>
-                    <TooSoon at={times[accKey(a)] || at} now={now} onNext={d => setTimes(t => ({ ...t, [accKey(a)]: d }))} />
-                    <DateTimeField label={`${a.name || ''} (${PLATFORM_LABEL[a.platform]})`} value={times[accKey(a)] || at} disabled={busy}
-                      minimumDate={new Date()} onChange={d => setTimes(t => ({ ...t, [accKey(a)]: d }))} />
-                    </View>
+                    <DateParts key={accKey(a)} label={`${a.name || ''} (${PLATFORM_LABEL[a.platform]})`} value={times[accKey(a)] || at} disabled={busy}
+                      onChange={d => setTimes(t => ({ ...t, [accKey(a)]: d }))} />
                   )) : null}
-                  <Txt size={12} muted>Fuseau : {Intl.DateTimeFormat().resolvedOptions().timeZone}.</Txt>
                 </>
               ) : <Txt small muted>La publication part dès que la vidéo est envoyée.</Txt>}
             </Section>
 
-            {n ? (
+            {n && near.data ? (
               <Section title="Déjà prévu ce jour-là">
                 {close.length ? (
-                  <Msg kind="warn">Attention : cette vidéo sera postée à moins d’1 h d’une autre sur {close.join(', ')}. Les réseaux montrent moins deux vidéos trop proches.</Msg>
+                  <Txt small color={c.warn}>À moins d’1 h d’une autre vidéo sur {close.join(', ')} : les réseaux montrent moins deux vidéos trop proches.</Txt>
                 ) : null}
-                {near.loading && !near.data ? <Txt small muted>Lecture du planning…</Txt> : null}
                 {chosen.map(a => {
                   const k = accKey(a), list = nearby[k] || [], mine = timeOf(k)
                   return (
@@ -556,42 +600,26 @@ export default function NewPost() {
                         .map((x, i) => (
                           <Row key={i} gap={space.sm}>
                             <Txt small bold color={x.me ? c.primary : x.warn ? c.warn : c.muted} style={{ width: 48 }}>
-                              {x.at.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                              {x.at.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' })}
                             </Txt>
                             <Txt small numberOfLines={1} style={{ flex: 1 }} color={x.me ? c.primary : c.text}>{x.me ? `${x.title} (celle-ci)` : x.title}</Txt>
-                            {x.warn ? <Icon name="clock" size={14} color={c.warn} /> : null}
                           </Row>
                         ))}
-                      {!list.length && near.data ? <Txt size={12} muted>Rien d’autre ce jour-là.</Txt> : null}
+                      {!list.length ? <Txt size={12} muted>Rien d’autre ce jour-là.</Txt> : null}
                     </View>
                   )
                 })}
               </Section>
             ) : null}
-
           </>
         ) : null}
 
         {step === 3 ? (
-          <>
-            {when === 'at' && sameTime ? <TooSoon at={at} now={now} onNext={setAt} onNow={() => setWhen('now')} /> : null}
-            {when === 'at' && !sameTime && sp.targets.length ? <Msg kind="warn">{sp.targets[0]} Revenez à l’étape précédente pour la changer.</Msg> : null}
-            {chosen.map(a => {
-              const k = accKey(a), o = opts[k]
-              if (!o) return null
-              return (
-                <Section key={k} title={a.name || PLATFORM_LABEL[a.platform]} aside={<Txt small muted>{PLATFORM_LABEL[a.platform]}</Txt>}>
-                  {a.platform === 'tiktok' ? <TikTokPanel account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} media={media} common={common} />
-                    : a.platform === 'youtube' ? <YouTubePanel o={o as YouTubeOpts} busy={busy} set={p => set<YouTubeOpts>(k, p)} common={common} />
-                    : <InstaPanel o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} media={media} common={common}
-                        image={{ uri: cover?.uri || null, pick: pickCover, remove: () => setCover(null), fromDrive: !!asset?.has_cover }} />}
-                </Section>
-              )
-            })}
-          </>
+          <AccountPager accounts={chosen} render={panel} problems={a => accProblems(a).length} disabled={busy}
+            onRemove={a => { remove(accKey(a)); if (n <= 1) go(2) }} />
         ) : null}
 
-        {isLast && hasTikTok ? (
+        {step > 1 && hasTikTok ? (
           <Txt size={12} muted>
             En publiant, vous acceptez {tiktokBranded ? <><Text style={{ color: c.accent }} onPress={() => openLink(TIKTOK_BC_URL)} accessibilityRole="link">la Branded Content Policy</Text> et </> : null}
             <Text style={{ color: c.accent }} onPress={() => openLink(TIKTOK_MUSIC_URL)} accessibilityRole="link">la Music Usage Confirmation</Text> de TikTok.
@@ -601,16 +629,6 @@ export default function NewPost() {
         {err ? <Msg kind="err">{err}</Msg> : null}
         {errCode === 'storage_required' || errCode === 'storage_full' ? (
           <Button icon="folder" title={errCode === 'storage_full' ? 'Voir le stockage' : 'Relier Google Drive'} onPress={() => router.push('/storage')} />
-        ) : null}
-        {isLast && step === 2 && sp.options.length > 0 && n > 0 ? (
-          <View style={{ gap: 4 }} accessibilityLabel="À corriger avant l’envoi">
-            {sp.options.map(p => <Txt key={p} small muted>• {p}</Txt>)}
-          </View>
-        ) : null}
-        {step === 3 && sp.options.length > 0 ? (
-          <View style={{ gap: 4 }} accessibilityLabel="À corriger avant l’envoi">
-            {sp.options.map(p => <Txt key={p} small muted>• {p}</Txt>)}
-          </View>
         ) : null}
         <Sheet visible={!!ask} title="Une question rapide" onClose={() => answer(null)}>
           <Txt muted>Qu’est-ce qui vous a arrêté ? Facultatif, ça nous aide à simplifier l’app.</Txt>
@@ -623,6 +641,9 @@ export default function NewPost() {
         </Sheet>
       </Screen>
 
+      <ReviewSheet visible={review} onClose={() => setReview(false)} accounts={chosen} busy={busy} finalLabel={finalLabel}
+        when={a => (when === 'now' ? null : timeOf(accKey(a)))} recap={recap} problems={accProblems} renderEdit={panel}
+        onRemove={a => remove(accKey(a))} onDone={publish} />
       <AccountSheet visible={picking} onClose={() => setPicking(false)} picked={picked} detail={detail}
         onChange={(keys, added) => {
           if (busy) return

@@ -1,11 +1,11 @@
 // Composants communs de l'app (équivalents de cm/src/components/ui.tsx), clair et sombre.
 import { Image } from 'expo-image'
 import * as Haptics from 'expo-haptics'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { GestureDetector, GestureHandlerRootView, usePanGesture } from 'react-native-gesture-handler'
 import {
   ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform as RNPlatform, Pressable, RefreshControl, ScrollView,
-  StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
+  StyleSheet, Text, TextInput, View, type ScrollViewInstance, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { PLATFORM_LABEL, type GroupColor, type Platform, type TargetStatus } from '../lib/api'
@@ -296,12 +296,14 @@ export function Sheet({ visible, title, onClose, children, scroll = true, footer
 }
 
 /** Écran défilant avec « tirer pour actualiser » et largeur limitée sur tablette. */
-export function Screen({ children, onRefresh, refreshing = false, padded = true, footer }:
-  { children: ReactNode; onRefresh?: () => void; refreshing?: boolean; padded?: boolean; footer?: ReactNode }) {
+export function Screen({ children, onRefresh, refreshing = false, padded = true, footer, scrollRef }:
+  { children: ReactNode; onRefresh?: () => void; refreshing?: boolean; padded?: boolean; footer?: ReactNode
+    /** Pour faire défiler l'écran depuis la page (ex. vers une carte qui vient d'apparaître). */
+    scrollRef?: Ref<ScrollViewInstance> }) {
   const { c } = useTheme()
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled"
+      <ScrollView ref={scrollRef} contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled"
         refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.muted} /> : undefined}
         contentContainerStyle={{ padding: padded ? space.lg : 0, paddingBottom: 48, gap: space.md, width: '100%', maxWidth: 820, alignSelf: 'center' }}>
         {children}
