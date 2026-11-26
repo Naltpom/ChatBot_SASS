@@ -49,7 +49,7 @@ test('onglet IA → ajout source texte → Prête → recherche hybride/fts → 
   test.setTimeout(220_000)
 
   // Onglet IA → sous-onglet « Connaissances (RAG) » (héberge « Base de connaissances »)
-  await page.locator('.tabs').getByRole('button', { name: 'IA', exact: true }).click()
+  await page.locator('.tabs').getByRole('button', { name: 'IA et actions', exact: true }).click()
   await page.getByRole('button', { name: 'Connaissances (RAG)', exact: true }).click()
   await expect(page.getByText('Base de connaissances')).toBeVisible()
 

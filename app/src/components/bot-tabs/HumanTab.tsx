@@ -67,7 +67,7 @@ export default function HumanTab({
           <div className="row g10" style={{ flexWrap: 'wrap' }}>
             <Btn kind="soft" small onClick={() => switchTab('tree')}>Ouvrir l'arbre</Btn>
             {aiTabRelevant && (
-              <Btn kind="soft" small onClick={() => switchTab('actions')}>Ouvrir les actions</Btn>
+              <Btn kind="soft" small onClick={() => switchTab('ai')}>Ouvrir les actions</Btn>
             )}
           </div>
         </div>

@@ -18,8 +18,8 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('dirty → barre visible à scroll 0, pastille d\'onglet, Annuler restaure', async ({ page }) => {
-  // Rendre l'onglet Sécurité dirty : ajout d'un domaine (non sauvegardé)
-  await page.locator('.tabs').getByRole('button', { name: 'Sécurité', exact: true }).click()
+  // Rendre l'onglet Installation (sécurité) dirty : ajout d'un domaine (non sauvegardé)
+  await page.locator('.tabs').getByRole('button', { name: 'Installation', exact: true }).click()
   await page.getByPlaceholder('autre-domaine.fr').fill('e2e-savebar.fr')
   await page.getByRole('button', { name: 'Ajouter', exact: true }).click()
 
@@ -31,10 +31,10 @@ test('dirty → barre visible à scroll 0, pastille d\'onglet, Annuler restaure'
   await expect(bar).toContainText('Modifications non enregistrées')
 
   // Marqueur dirty sur l'onglet Sécurité (.tab-dot dans la barre d'onglets)
-  await expect(page.locator('.tabs button', { hasText: 'Sécurité' }).locator('.tab-dot')).toBeVisible()
+  await expect(page.locator('.tabs button', { hasText: 'Installation' }).locator('.tab-dot')).toBeVisible()
 
   // Pastille d'onglet dirty DANS la barre (bouton cliquable libellé « Sécurité »)
-  const pill = bar.getByRole('button', { name: 'Sécurité', exact: true })
+  const pill = bar.getByRole('button', { name: 'Installation', exact: true })
   await expect(pill).toBeVisible()
 
   // Depuis un autre onglet, la pastille ramène sur l'onglet dirty
@@ -53,7 +53,7 @@ test('Ctrl+S sauvegarde et la modification persiste après reload', async ({ pag
   // l'UI (pas de dirty) et casserait le retry — tryReuse purge au run suivant.
   const domain = `e2e-ctrls-${Date.now()}.fr`
 
-  await page.locator('.tabs').getByRole('button', { name: 'Sécurité', exact: true }).click()
+  await page.locator('.tabs').getByRole('button', { name: 'Installation', exact: true }).click()
   await page.getByPlaceholder('autre-domaine.fr').fill(domain)
   await page.getByRole('button', { name: 'Ajouter', exact: true }).click()
 
@@ -68,6 +68,6 @@ test('Ctrl+S sauvegarde et la modification persiste après reload', async ({ pag
 
   // Persistance serveur : le domaine est toujours là après reload
   await page.reload()
-  await page.locator('.tabs').getByRole('button', { name: 'Sécurité', exact: true }).click()
+  await page.locator('.tabs').getByRole('button', { name: 'Installation', exact: true }).click()
   await expect(page.locator('.domain-row', { hasText: domain })).toBeVisible()
 })

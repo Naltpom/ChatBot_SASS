@@ -29,14 +29,15 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('.tabs').getByRole('button', { name: 'Apparence', exact: true })).toBeVisible()
 })
 
-test('les onglets de l\'éditeur en mode arbre (Actions masqué, IA visible)', async ({ page }) => {
+test('les 7 onglets de l\'éditeur en mode arbre (IA visible, actions dans IA)', async ({ page }) => {
   const tabs = page.locator('.tabs')
-  // Bot en mode arbre : l'onglet « IA » reste visible (la config IA est
-  // accessible), seul « Actions » est masqué (aiTabRelevant=false).
-  for (const label of ['Apparence', 'Arbre', 'IA', 'Humain', 'Intégration', 'Sécurité']) {
+  // Bot en mode arbre : l'onglet « IA et actions » reste visible (la config IA
+  // est accessible). Actions et Sécurité ne sont plus des onglets à part.
+  for (const label of ['Aperçu', 'Apparence', 'Arbre', 'IA et actions', 'Humain', 'Installation']) {
     await expect(tabs.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
   await expect(tabs.getByRole('button', { name: 'Actions', exact: true })).toHaveCount(0)
+  await expect(tabs.getByRole('button', { name: 'Sécurité', exact: true })).toHaveCount(0)
 })
 
 test('onglet Arbre : ajouter une branche, l\'éditer via l\'inspecteur, enregistrer puis persister', async ({ page }) => {
@@ -101,8 +102,8 @@ test('onglet Arbre : ajouter une branche, l\'éditer via l\'inspecteur, enregist
   await expect(page.locator('input[value="Choix E2E"]')).toBeVisible()
 })
 
-test('onglet Sécurité : domaines autorisés, limites de débit et captcha', async ({ page }) => {
-  await page.locator('.tabs').getByRole('button', { name: 'Sécurité', exact: true }).click()
+test('onglet Installation : domaines autorisés, limites de débit et captcha', async ({ page }) => {
+  await page.locator('.tabs').getByRole('button', { name: 'Installation', exact: true }).click()
   await expect(page.getByText('Domaines autorisés').first()).toBeVisible()
   await expect(page.getByText('Limites de débit')).toBeVisible()
   await expect(page.getByRole('radiogroup', { name: 'Vérification anti-bot (captcha)' })).toBeVisible()

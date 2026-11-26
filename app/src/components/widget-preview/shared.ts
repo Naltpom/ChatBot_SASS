@@ -85,6 +85,18 @@ export interface PreviewStyle {
   optBtn: boolean        // quickReplyStyle === 'button' (option rectangulaire pleine largeur)
   timestamps: boolean    // horodatage sous les bulles
   ts: string             // heure statique HH:MM (placeholder)
+  onBrand: string        // texte posé sur la couleur de marque (onPrimary, défaut blanc)
+}
+
+// Surfaces du panneau : mêmes valeurs que SURFACES dans widget.js (light / dark /
+// neutral = sombre neutre, surfaceTone « neutral », utilisé seulement en mode sombre).
+export const PREVIEW_SURFACES = {
+  light: { panel: '#fff', msgs: '#fafbfb', bot: '#fff', botBorder: '#e6eae8', text: '#1d2b27',
+    line: '#e9edec', input: '#fff', inputBorder: '#dde3e1', muted: '#5f7873' },
+  dark: { panel: '#101816', msgs: '#0c1311', bot: '#1b2624', botBorder: '#233330', text: '#e8efed',
+    line: '#233330', input: '#18221f', inputBorder: '#233330', muted: '#9fb0ab' },
+  neutral: { panel: '#161514', msgs: '#0f0e0d', bot: '#211f1d', botBorder: '#302d2a', text: '#f2efec',
+    line: '#302d2a', input: '#1c1a18', inputBorder: '#3a3632', muted: '#b8b0a8' },
 }
 
 export type T = (k: string) => string

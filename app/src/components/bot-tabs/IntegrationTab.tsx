@@ -1,5 +1,6 @@
 // Onglet « Intégration » de BotPage — purement présentationnel. Reçoit en props
 // l'état/les handlers définis dans BotPage (aucune logique de save ici).
+import { useState } from 'react'
 import { Check, Clipboard } from 'lucide-react'
 import { Btn, Card, InfoBox, SectionTitle } from '../../ui'
 import type { Bot, Integration } from '../../types/bot'
@@ -78,11 +79,11 @@ export default function IntegrationTab({
           <div className="card-title" style={{ marginBottom: 12 }}>Ce qui se passe au chargement</div>
           <div className="col">
             {[
-              ['1', 'Chargement du widget', 'async, < 30 ko'],
-              ['2', 'Handshake POST /session', 'clé publique + jeton Turnstile invisible'],
-              ['3', 'Vérif. Origin + captcha', 'côté serveur, liste de domaines'],
-              ['4', 'Émission du JWT éphémère', '30 min, lié au domaine + conversation'],
-              ['5', 'Chat prêt', '100 % gratuit, sans quota'],
+              ['1', 'Le widget se charge', 'en arrière-plan, sans ralentir la page'],
+              ['2', 'Vérification du site', 'seuls vos domaines autorisés peuvent l\'afficher'],
+              ['3', 'Anti-robot invisible', 'rien à cliquer pour vos visiteurs'],
+              ['4', 'Session sécurisée', 'valable 30 min, liée à votre site'],
+              ['5', 'Le chat est prêt', 'vos visiteurs peuvent écrire'],
             ].map(([n, t, dsc], i, arr) => (
               <div key={n} className="timeline-step">
                 <div className="col" style={{ alignItems: 'center' }}>
@@ -98,6 +99,66 @@ export default function IntegrationTab({
           </div>
         </Card>
       </div>
+
+      <SiteColorsCard publicKey={bot.public_key} design={bot.design_json || {}}
+                      widgetSrc={integrations.map(it => /src="([^"]+\/widget\.js)"/.exec(it.snippet || '')?.[1]).find(Boolean)} />
     </div>
+  )
+}
+
+// Options facultatives de la balise : suivre les couleurs et le thème du site, et
+// n'envoyer que le chemin des pages. Mêmes attributs que widget.js (docs/WIDGET_CM.md).
+function SiteColorsCard({ publicKey, design, widgetSrc }: {
+  publicKey: string
+  design: { primaryColor?: string | null; onPrimary?: string | null }
+  widgetSrc?: string
+}) {
+  const [copied, setCopied] = useState(false)
+  const color = design.primaryColor || '#0d9488'
+  const text = design.onPrimary || '#ffffff'
+  const src = widgetSrc || 'https://chapote.fr/widget.js'
+  const snippet = `<script src="${src}" defer
+  data-bot-key="${publicKey}"
+  data-color="${color}" data-color-text="${text}"
+  data-theme="light"
+  data-url-mode="path"></script>`
+  const js = `// Si votre site change de thème ou de couleur :
+window.ChapoteWidget["${publicKey}"].setAppearance({ color: "${color}", colorText: "${text}", theme: "dark" })`
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(snippet)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch { /* presse-papiers indisponible : l'utilisateur sélectionne à la main */ }
+  }
+
+  const rows: [string, string][] = [
+    ['data-color', 'Couleur de la bulle, de l\'en-tête et des boutons.'],
+    ['data-color-text', 'Couleur du texte posé dessus (blanc ou sombre).'],
+    ['data-theme', '« light » ou « dark » : suit le thème clair ou sombre de votre site.'],
+    ['data-url-mode="path"', 'N\'envoie que le chemin des pages, jamais les paramètres d\'adresse.'],
+  ]
+  return (
+    <Card>
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6, gap: 10, flexWrap: 'wrap' }}>
+        <div className="card-title" style={{ marginBottom: 0 }}>Suivre les couleurs de votre site <span style={{ fontWeight: 600, color: 'var(--faint)', fontSize: 12 }}>· facultatif</span></div>
+        <Btn kind={copied ? 'soft' : 'ghost'} small onClick={copy}>
+          {copied ? <><Check size={13} /> Copié</> : <><Clipboard size={13} /> Copier</>}
+        </Btn>
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--mut)', lineHeight: 1.55, marginBottom: 10 }}>
+        Ces attributs remplacent les couleurs choisies dans Apparence, pour ce site seulement. Utile si votre site a un mode sombre.
+      </div>
+      <pre className="snippet">{snippet}</pre>
+      <div className="col" style={{ gap: 6, marginTop: 10 }}>
+        {rows.map(([k, v]) => (
+          <div key={k} style={{ fontSize: 12, lineHeight: 1.5 }}>
+            <span className="mono" style={{ fontSize: 11 }}>{k}</span> <span style={{ color: 'var(--mut)' }}>— {v}</span>
+          </div>
+        ))}
+      </div>
+      <pre className="snippet" style={{ marginTop: 10 }}>{js}</pre>
+    </Card>
   )
 }

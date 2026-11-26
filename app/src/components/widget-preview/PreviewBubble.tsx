@@ -67,7 +67,7 @@ export default function PreviewBubble({ m, i, st, t, rating, onRate, onReveal }:
         maxWidth: '82%', padding: compact ? '7px 10px' : '9px 12px', fontSize: fontPx, lineHeight: 1.5,
         borderRadius: radius,
         background: m.from === 'user' ? brand : botBg,
-        color: m.from === 'user' ? '#fff' : (m.sys ? mutedText : botText),
+        color: m.from === 'user' ? st.onBrand : (m.sys ? mutedText : botText),
         fontStyle: m.sys ? 'italic' : undefined,
         border: m.from === 'user' ? 'none' : `1px solid ${botBorder}`,
         boxShadow: m.from === 'user' ? 'none' : '0 1px 2px rgba(0,0,0,.04)',

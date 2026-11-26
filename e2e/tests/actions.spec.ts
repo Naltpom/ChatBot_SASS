@@ -24,7 +24,7 @@ test.beforeAll(async ({ request }) => {
 test.beforeEach(async ({ page }) => {
   await authenticate(page, state)
   await page.goto(`/app/bots/${botId}`)
-  await page.locator('.tabs').getByRole('button', { name: 'Actions' }).click()
+  await page.locator('.tabs').getByRole('button', { name: 'IA et actions', exact: true }).click()
   await expect(page.getByText('Actions & MCP')).toBeVisible()
 })
 
