@@ -53,13 +53,14 @@ const manifest = JSON.parse(readFileSync(join(dist, '.vite', 'manifest.json'), '
 const { render, PAGES, FAQ } = await import(pathToFileURL(join(ssr, 'prerender.js')).href)
 
 // Données structurées de l'accueil (Google, moteurs IA). Rien d'inventé : pas d'avis ni de note (aggregateRating)
-// tant qu'il n'y en a pas de réels. ⚠ À compléter : "sameAs" (réseaux officiels de Chapote, fiche Google Play).
+// tant qu'il n'y en a pas de réels. Comptes officiels et fiches d'annuaires : "sameAs" (à compléter : fiche Google Play, AlternativeTo une fois validée).
 function homeJsonLd() {
   const ld = {
     '@context': 'https://schema.org',
     '@graph': [
       { '@type': 'WebSite', '@id': `${SITE}/#website`, url: `${SITE}/`, name: 'Chapote CM', alternateName: 'Chapote Content Manager', inLanguage: 'fr-FR', publisher: { '@id': 'https://chapote.fr/#organization' } },
-      { '@type': 'Organization', '@id': 'https://chapote.fr/#organization', name: 'Chapote', url: 'https://chapote.fr/', logo: 'https://chapote.fr/brand/logo-horizontal.svg', email: 'contact@chapote.fr' },
+      { '@type': 'Organization', '@id': 'https://chapote.fr/#organization', name: 'Chapote', url: 'https://chapote.fr/', logo: 'https://chapote.fr/brand/logo-horizontal.svg', email: 'contact@chapote.fr',
+        sameAs: ['https://www.linkedin.com/company/chapote'] },
       {
         '@type': 'SoftwareApplication', '@id': `${SITE}/#software`, name: 'Chapote CM', alternateName: ['Chapote Content Manager', 'Chapote Community Manager'],
         url: `${SITE}/`, applicationCategory: 'BusinessApplication', applicationSubCategory: 'Planificateur de réseaux sociaux', operatingSystem: 'Web', inLanguage: ['fr-FR', 'en'],
@@ -73,6 +74,14 @@ function homeJsonLd() {
           'Bibliothèque Google Drive : les vidéos restent dans votre Drive',
           'Groupes de comptes et partage en équipe (administrateur, éditeur, lecteur)',
           'Connexion officielle TikTok, Google et Meta',
+        ],
+        image: `${SITE}/logo-800.png`,
+        sameAs: [
+          'https://www.youtube.com/@chapotecm',
+          'https://www.instagram.com/chapote.cm/',
+          'https://www.tiktok.com/@chapote.cm',
+          'https://x.com/chapotecm',
+          'https://www.g2.com/products/chapote-cm/reviews',
         ],
         offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR', availability: 'https://schema.org/InStock' },
       },
