@@ -1,5 +1,16 @@
+# cm.chapote.fr — Chapote CM (planification de vidéos TikTok, YouTube Shorts, Instagram Reels).
+# Tous les robots, y compris ceux des moteurs IA (GPTBot, OAI-SearchBot, ClaudeBot, PerplexityBot,
+# Google-Extended…), peuvent lire les pages publiques. L'app connectée et l'API ne sont pas à indexer.
 User-agent: *
-Allow: /$
-Allow: /privacy
-Allow: /terms
+Allow: /
 Disallow: /api/
+Disallow: /connexion
+Disallow: /inscription
+Disallow: /mot-de-passe-oublie
+Disallow: /brouillon/
+Disallow: /tiktok/callback
+Disallow: /youtube/callback
+Disallow: /instagram/callback
+Disallow: /drive/callback
+
+Sitemap: https://cm.chapote.fr/sitemap.xml

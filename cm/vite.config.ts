@@ -9,6 +9,8 @@ export default defineConfig({
   build: {
     target: 'es2020',
     cssCodeSplit: true,
+    // Lu par scripts/prerender.mjs : CSS et JS de la landing à annoncer dans le HTML prérendu.
+    manifest: true,
     rollupOptions: {
       output: {
         // React et le routeur changent rarement : un fichier à part, gardé en cache d'un déploiement à l'autre.

@@ -19,6 +19,8 @@ export const systemLang = (): Lang => (nav().toLowerCase().startsWith('fr') ? 'f
 export const resolve = (pref: LangPref | undefined | null): Lang => (pref === 'fr' || pref === 'en' ? pref : systemLang())
 
 function initial(): Lang {
+  // Prérendu (Node, pas de navigateur) : le HTML servi aux moteurs de recherche est en français.
+  if (typeof window === 'undefined') return 'fr'
   try { return resolve(JSON.parse(localStorage.getItem('cm.appearance') || 'null')?.language) } catch { return systemLang() }
 }
 let lang: Lang = initial()

@@ -4,17 +4,171 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    
-    <title>Chapote CM</title>
-    <meta name="description" content="Planifiez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois. Statistiques, planning et Google Drive au même endroit. Gratuit." />
+
+    <!-- Référencement : la landing, /privacy et /terms sont prérendues (scripts/prerender.mjs) qui adapte
+         titre, description et canonique par page. Rien d'inventé ici : pas d'avis ni de note (aggregateRating)
+         tant qu'il n'y en a pas de réels, sinon pénalité Google. -->
+    <title>Chapote CM · Planifier ses vidéos TikTok, YouTube Shorts et Instagram Reels (gratuit)</title>
+    <meta name="description" content="Chapote CM, l’outil gratuit du community manager : programmez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois. Planning, statistiques, Google Drive et équipe au même endroit." />
+    <meta name="robots" content="index,follow,max-image-preview:large" />
+    <link rel="canonical" href="https://cm.chapote.fr/" />
+    <meta name="application-name" content="Chapote CM" />
+    <meta name="author" content="Chapote" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Chapote CM" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:url" content="https://cm.chapote.fr/" />
+    <meta property="og:title" content="Chapote CM · Planifier ses vidéos TikTok, YouTube Shorts et Instagram Reels (gratuit)" />
+    <meta property="og:description" content="Programmez vos vidéos sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois. Planning, statistiques et Google Drive. Gratuit." />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Chapote CM · Planifier ses vidéos TikTok, YouTube Shorts et Instagram Reels (gratuit)" />
+    <meta name="twitter:description" content="Programmez vos vidéos sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois. Planning, statistiques et Google Drive. Gratuit." />
+
     <meta name="theme-color" content="#faf8f5" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0b0a09" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
     <!-- Vérification du domaine pour la page Trustpilot de Chapote CM -->
     <meta name="trustpilot-one-time-domain-verification-id" content="385604e8-c986-49f6-b604-dd676d5eabec"/>
+
+    <!-- Données structurées de l'accueil (retirées des autres pages au prérendu). La FAQ reprend MOT POUR MOT
+         celle affichée sur la landing (src/pages/Landing.tsx) : modifier les deux ensemble.
+         ⚠ À compléter quand ils existeront : "sameAs" (LinkedIn, Instagram, TikTok, YouTube de Chapote,
+         fiche Google Play) dans Organization et SoftwareApplication. -->
+    <script type="application/ld+json" data-home>
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://cm.chapote.fr/#website",
+      "url": "https://cm.chapote.fr/",
+      "name": "Chapote CM",
+      "alternateName": "Chapote Content Manager",
+      "inLanguage": "fr-FR",
+      "publisher": {
+        "@id": "https://chapote.fr/#organization"
+      }
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://chapote.fr/#organization",
+      "name": "Chapote",
+      "url": "https://chapote.fr/",
+      "logo": "https://chapote.fr/brand/logo-horizontal.svg",
+      "email": "contact@chapote.fr"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://cm.chapote.fr/#software",
+      "name": "Chapote CM",
+      "alternateName": [
+        "Chapote Content Manager",
+        "Chapote Community Manager"
+      ],
+      "url": "https://cm.chapote.fr/",
+      "applicationCategory": "BusinessApplication",
+      "applicationSubCategory": "Planificateur de réseaux sociaux",
+      "operatingSystem": "Web, Android",
+      "inLanguage": [
+        "fr-FR",
+        "en"
+      ],
+      "publisher": {
+        "@id": "https://chapote.fr/#organization"
+      },
+      "description": "Chapote CM est un outil gratuit de community management : planifiez et publiez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois, avec planning, statistiques, bibliothèque Google Drive et travail en équipe.",
+      "featureList": [
+        "Publication programmée sur TikTok, YouTube Shorts et Instagram Reels",
+        "Plusieurs comptes par réseau, une vidéo envoyée une seule fois",
+        "Planning de la semaine avec le statut de chaque publication",
+        "Statistiques réunies : vues, abonnés, j’aime, partages, engagement",
+        "Bibliothèque Google Drive : les vidéos restent dans votre Drive",
+        "Groupes de comptes et partage en équipe (administrateur, éditeur, lecteur)",
+        "Connexion officielle TikTok, Google et Meta"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR",
+        "availability": "https://schema.org/InStock"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://cm.chapote.fr/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Chapote CM, c’est quoi ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Un planificateur de réseaux sociaux gratuit, pensé pour les community managers, content managers, créateurs et agences : vous programmez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois, puis vous suivez vos statistiques au même endroit."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Mes comptes sont-ils en sécurité ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Vous vous connectez par les pages officielles de TikTok, de Google (YouTube) et de Meta (Instagram). Chapote CM ne voit jamais vos mots de passe. Vous pouvez retirer l’accès à tout moment, depuis Chapote CM ou depuis le réseau."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Où vont mes vidéos ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Dans votre propre Google Drive, dans un dossier créé par Chapote CM. Chapote CM ne voit que les fichiers qu’il y range. Après publication, vous choisissez de les garder ou de les supprimer."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Combien ça coûte ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Chapote CM est gratuit pour l’instant, sans carte bancaire. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Puis-je travailler en équipe ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Oui. Partagez un groupe de comptes avec d’autres personnes. Chacun voit le planning et les statistiques de ce groupe, selon son rôle : administrateur, éditeur ou lecteur."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Quels réseaux sont pris en charge ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "TikTok, YouTube Shorts et Instagram Reels (compte professionnel Créateur ou Entreprise). Plusieurs comptes par réseau."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Faut-il un nouveau compte ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Non si vous en avez déjà un : c’est le même compte Chapote que sur chapote.fr, par e-mail ou avec Google."
+          }
+        }
+      ]
+    }
+  ]
+}
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Session connue sur une page prérendue : l'app s'affiche à la place de la landing, on vide #root
+      // avant le chargement (sinon la landing apparaît un instant). Clé : HINT de src/App.tsx.
+      try { if (localStorage.getItem('cm.session') === '1') document.getElementById('root').innerHTML = '' } catch (e) {}
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

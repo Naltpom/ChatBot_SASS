@@ -2,7 +2,9 @@
 // Partie 4 : le site public (accueil, démo, connexion, inscription, avis, pages légales, politique IA).
 const EN: Record<string, string> = {
   // Accueil
-  'Chapote CM · Planifiez vos vidéos sur TikTok, YouTube et Instagram': 'Chapote CM · Schedule your videos on TikTok, YouTube and Instagram',
+  'Chapote CM, c’est quoi ?': 'What is Chapote CM?',
+  'Un planificateur de réseaux sociaux gratuit, pensé pour les community managers, content managers, créateurs et agences : vous programmez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois, puis vous suivez vos statistiques au même endroit.': 'A free social media scheduler for community managers, content managers, creators and agencies: schedule your short videos on TikTok, YouTube Shorts and Instagram Reels, on all your accounts at once, then follow your stats in one place.',
+  'Chapote CM · Planifier ses vidéos TikTok, YouTube Shorts et Instagram Reels (gratuit)': 'Chapote CM · Schedule your TikTok, YouTube Shorts and Instagram Reels videos (free)',
   'Planifier mes vidéos gratuitement': 'Schedule my videos for free',
   'Aller au contenu': 'Skip to content',
   'Chapote CM, accueil': 'Chapote CM, home',
