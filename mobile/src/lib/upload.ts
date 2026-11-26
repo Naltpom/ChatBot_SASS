@@ -4,6 +4,7 @@ import { fetch as expoFetch } from 'expo/fetch'
 import { File } from 'expo-file-system'
 import { API_URL, ApiError, authHeaders } from './http'
 import { partPlan } from './upload-logic'
+import { t } from './i18n'
 
 async function put(path: string, body: Uint8Array, contentType: string): Promise<void> {
   for (let attempt = 0; ; attempt++) {
@@ -15,11 +16,11 @@ async function put(path: string, body: Uint8Array, contentType: string): Promise
       }) as unknown as Response
     } catch {
       if (attempt < 4) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue }
-      throw new ApiError(0, 'Envoi interrompu : vérifiez votre connexion et relancez.')
+      throw new ApiError(0, t('Envoi interrompu : vérifiez votre connexion et relancez.'))
     }
     if (res.ok) return
     if ((res.status >= 500 || res.status === 401) && attempt < 4) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue }
-    let message = `Envoi refusé (${res.status})`
+    let message = t('Envoi refusé ({status})', { status: res.status })
     try { const b = await res.json(); if (typeof b?.detail === 'string') message = b.detail } catch { /* corps non JSON */ }
     throw new ApiError(res.status, message)
   }
@@ -33,7 +34,7 @@ export async function uploadParts(postId: number, uri: string, size: number, par
   try {
     for (const p of partPlan(size, partSize)) {
       if (p.index < startAt) continue
-      if (isCancelled()) throw new ApiError(0, 'Envoi annulé.')
+      if (isCancelled()) throw new ApiError(0, t('Envoi annulé.'))
       handle.offset = p.start
       const bytes = await handle.readBytes(p.length)
       await put(`/api/cm/posts/${postId}/parts/${p.index}`, bytes, 'application/octet-stream')
@@ -46,6 +47,6 @@ export async function uploadParts(postId: number, uri: string, size: number, par
 
 export async function uploadCover(postId: number, uri: string, mime: string): Promise<void> {
   const bytes = await new File(uri).bytes()
-  if (bytes.length > 8 * 1024 * 1024) throw new ApiError(400, 'Couverture trop lourde (8 Mo au plus).')
+  if (bytes.length > 8 * 1024 * 1024) throw new ApiError(400, t('Couverture trop lourde (8 Mo au plus).'))
   await put(`/api/cm/posts/${postId}/cover`, bytes, mime || 'image/jpeg')
 }

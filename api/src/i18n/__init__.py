@@ -48,7 +48,7 @@ def _compile() -> None:
             pos = m.end()
         parts.append(re.escape(fr[pos:]))
         literal = _PH.sub("", fr).strip()
-        if len(literal) < 4:            # un modèle presque vide traduirait n'importe quoi
+        if len(literal) < 8:            # un modèle court traduirait n'importe quoi
             continue
         prefix = fr[:_PH.search(fr).start()]
         # Traduction : {} successifs = valeurs dans l'ordre du français ; {i} = la i-ème valeur.

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Platform } from '../api'
 import { PlatformLogo } from '../components/PlatformLogo'
 import './demo.css'
+import { getLang, t } from '../i18n'
 
 const NETS: { p: Platform; label: string }[] = [
   { p: 'tiktok', label: 'TikTok' }, { p: 'youtube', label: 'YouTube' }, { p: 'instagram', label: 'Instagram' },
@@ -28,8 +29,10 @@ export function readDemoChoice(): { nets: Platform[]; when: When } | null {
 }
 export function demoChoiceText(c: { nets: Platform[]; when: When }) {
   const names = NETS.filter(n => c.nets.includes(n.p)).map(n => n.label)
-  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} et ${names[names.length - 1]}` : names[0]
-  return `${list}, ${WHEN[c.when].label.toLowerCase()} à ${WHEN[c.when].time.replace(':', ' h ')}`
+  const list = names.length > 1 ? t('{first} et {last}', { first: names.slice(0, -1).join(', '), last: names[names.length - 1] }) : names[0]
+  const W = WHEN[c.when]
+  const time = getLang() === 'en' ? W.time : W.time.replace(':', ' h ')
+  return `${list}, ${t('{when} à {time}', { when: t(W.label).toLowerCase(), time })}`
 }
 
 const reduced = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -107,19 +110,19 @@ export default function Demo({ autoOnly = false }: { autoOnly?: boolean }) {
   const again = () => { reset() }
 
   const ready = nets.length > 0 && when
-  const hint = !nets.length ? 'Choisissez au moins un compte.' : !when ? 'Choisissez l’heure.' : ''
+  const hint = !nets.length ? t('Choisissez au moins un compte.') : !when ? t('Choisissez l’heure.') : ''
   const shown = NETS.filter(n => nets.includes(n.p))
 
   return (
     <div ref={root} className={`dm${autoOnly ? ' dm-auto' : ''}`} onPointerDownCapture={takeOver} onKeyDownCapture={takeOver}
-         role="group" aria-label="Démo : programmez une vidéo de démonstration (rien n’est publié)">
+         role="group" aria-label={t('Démo : programmez une vidéo de démonstration (rien n’est publié)')}>
       <div className={`dm-screen${screen === 'compose' ? ' on' : ''}`} aria-hidden={screen !== 'compose'}>
-        <p className="dm-bar">Nouvelle publication</p>
+        <p className="dm-bar">{t('Nouvelle publication')}</p>
         <div className="dm-video">
           <span className="dm-thumb" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 7.5v9l7.5-4.5z" fill="#fff" /></svg></span>
-          <span><b>{TITLE}</b><small>0:58 · vidéo verticale</small></span>
+          <span><b>{t(TITLE)}</b><small>{t('0:58 · vidéo verticale')}</small></span>
         </div>
-        <p className="dm-label">Sur quels comptes ?</p>
+        <p className="dm-label">{t('Sur quels comptes ?')}</p>
         <div className="dm-chips">
           {NETS.map(n => (
             <button key={n.p} type="button" tabIndex={autoOnly ? -1 : 0} aria-pressed={nets.includes(n.p)}
@@ -128,42 +131,42 @@ export default function Demo({ autoOnly = false }: { autoOnly?: boolean }) {
             </button>
           ))}
         </div>
-        <p className="dm-label">Quand ?</p>
+        <p className="dm-label">{t('Quand ?')}</p>
         <div className="dm-chips">
           {(Object.keys(WHEN) as When[]).map(k => (
             <button key={k} type="button" tabIndex={autoOnly ? -1 : 0} aria-pressed={when === k}
                     className={`dm-chip${tap === k ? ' tap' : ''}`} onClick={() => setWhen(k)}>
-              {WHEN[k].label} · {WHEN[k].time}
+              {t(WHEN[k].label)} · {WHEN[k].time}
             </button>
           ))}
         </div>
         <div className="dm-foot">
           <button type="button" tabIndex={autoOnly ? -1 : 0} className={`dm-go${tap === 'go' ? ' tap' : ''}`} aria-disabled={!ready} onClick={program}>
-            {ready ? `Planifier sur ${nets.length} compte${nets.length > 1 ? 's' : ''}` : 'Planifier'}
+            {ready ? (nets.length > 1 ? t('Planifier sur {n} comptes', { n: nets.length }) : t('Planifier sur {n} compte', { n: nets.length })) : t('Planifier')}
           </button>
           <p className="dm-hint" aria-live="polite">{user ? hint : ''}</p>
         </div>
       </div>
 
       <div className={`dm-screen dm-plan${screen === 'planning' ? ' on' : ''}`} aria-hidden={screen !== 'planning'}>
-        <p className="dm-bar">Planning <span className="dm-clock" aria-hidden="true">{clock}</span></p>
-        <p className="dm-day">{when ? WHEN[when].label : ''}</p>
+        <p className="dm-bar">{t('Planning')} <span className="dm-clock" aria-hidden="true">{clock}</span></p>
+        <p className="dm-day">{when ? t(WHEN[when].label) : ''}</p>
         <ul className="dm-list">
           {shown.map((n, i) => {
             const s = status[n.p] || 'prog'
             return (
               <li key={n.p} style={{ animationDelay: `${i * 120}ms` }}>
                 <span className="dm-time">{when ? WHEN[when].time : ''}</span>
-                <span className="dm-what"><b>{TITLE}</b><span className="dm-net"><PlatformLogo platform={n.p} size={13} />{n.label}</span></span>
-                <span className={`dm-st ${s}`}>{s === 'ok' ? <><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4 8-9" /></svg>Publiée</> : s === 'run' ? 'Envoi…' : 'Programmée'}</span>
+                <span className="dm-what"><b>{t(TITLE)}</b><span className="dm-net"><PlatformLogo platform={n.p} size={13} />{n.label}</span></span>
+                <span className={`dm-st ${s}`}>{s === 'ok' ? <><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4 8-9" /></svg>{t('Publiée')}</> : s === 'run' ? t('Envoi…') : t('Programmée')}</span>
               </li>
             )
           })}
         </ul>
         <div className={`dm-toast${done ? ' on' : ''}`} aria-live={user ? 'polite' : 'off'}>
           {done && <>
-            <b>Publié sur {shown.length} compte{shown.length > 1 ? 's' : ''}, à l’heure.</b>
-            {!autoOnly && user && <button type="button" className="dm-again" onClick={again}>Recommencer</button>}
+            <b>{shown.length > 1 ? t('Publié sur {n} comptes, à l’heure.', { n: shown.length }) : t('Publié sur {n} compte, à l’heure.', { n: shown.length })}</b>
+            {!autoOnly && user && <button type="button" className="dm-again" onClick={again}>{t('Recommencer')}</button>}
           </>}
         </div>
       </div>

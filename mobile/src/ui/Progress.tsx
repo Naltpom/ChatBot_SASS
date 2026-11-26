@@ -2,6 +2,7 @@
 import { View } from 'react-native'
 import { Txt } from './kit'
 import { space, useTheme } from './theme'
+import { t } from '../lib/i18n'
 
 export function StepProgress({ step, total, label }: { step: number; total: number; label?: string }) {
   const { c } = useTheme()
@@ -12,7 +13,7 @@ export function StepProgress({ step, total, label }: { step: number; total: numb
           <View key={i} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: i < step ? c.primary : c.border }} />
         ))}
       </View>
-      <Txt small muted>Étape {step} sur {total}{label ? ` · ${label}` : ''}</Txt>
+      <Txt small muted>{t('Étape {step} sur {total}', { step, total })}{label ? ` · ${label}` : ''}</Txt>
     </View>
   )
 }
@@ -21,5 +22,5 @@ export function StepProgress({ step, total, label }: { step: number; total: numb
 export function Missing({ items }: { items: string[] }) {
   const { c } = useTheme()
   if (!items.length) return null
-  return <Txt small center color={c.muted} style={{ marginTop: -space.xs }}>Il manque : {items.join(', ')}.</Txt>
+  return <Txt small center color={c.muted} style={{ marginTop: -space.xs }}>{t('Il manque : {items}.', { items: items.join(', ') })}</Txt>
 }

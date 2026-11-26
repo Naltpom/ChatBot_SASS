@@ -6,13 +6,14 @@ import { useEffect, useRef, useState } from 'react'
 import { Animated, Easing, Modal, Pressable, View, type AlertButton } from 'react-native'
 import { Button, Txt } from './kit'
 import { radius, space, useTheme } from './theme'
+import { t } from '../lib/i18n'
 
 interface Dialog { title: string; message?: string; buttons: AlertButton[]; cancelable: boolean; onDismiss?: () => void }
 let push: ((d: Dialog) => void) | null = null
 const waiting: Dialog[] = []
 
 export function showDialog(title: string, message?: string, buttons?: AlertButton[], options?: { cancelable?: boolean; onDismiss?: () => void }) {
-  const d: Dialog = { title, message, buttons: buttons?.length ? buttons : [{ text: 'OK' }], cancelable: options?.cancelable ?? true, onDismiss: options?.onDismiss }
+  const d: Dialog = { title, message, buttons: buttons?.length ? buttons : [{ text: t('OK') }], cancelable: options?.cancelable ?? true, onDismiss: options?.onDismiss }
   if (push) push(d)
   else waiting.push(d)
 }
@@ -51,7 +52,7 @@ export function DialogHost() {
     <Modal visible transparent animationType="none" onRequestClose={dismiss} statusBarTranslucent navigationBarTranslucent>
       <Animated.View style={{ flex: 1, opacity: fade }}>
         <Pressable style={{ flex: 1, backgroundColor: c.overlay, alignItems: 'center', justifyContent: 'center', padding: space.xl }}
-          onPress={dismiss} accessibilityRole="button" accessibilityLabel="Fermer">
+          onPress={dismiss} accessibilityRole="button" accessibilityLabel={t('Fermer')}>
           <Animated.View accessibilityViewIsModal accessibilityRole="alert" onStartShouldSetResponder={() => true}
             style={{ width: '100%', maxWidth: 400, backgroundColor: c.surface, borderRadius: radius.lg, padding: space.xl, gap: space.md,
               borderWidth: 1, borderColor: c.border,
@@ -62,7 +63,7 @@ export function DialogHost() {
             </Pressable>
             <View style={{ gap: space.sm, marginTop: space.xs }}>
               {ordered.map((b, i) => (
-                <Button key={`${b.text}-${i}`} title={b.text || 'OK'}
+                <Button key={`${b.text}-${i}`} title={b.text || t('OK')}
                   kind={b.style === 'cancel' ? 'ghost' : b.style === 'destructive' ? 'destructive' : 'primary'}
                   onPress={() => { Haptics.selectionAsync().catch(() => {}); close(b) }} />
               ))}

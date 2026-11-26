@@ -42,7 +42,8 @@ function lookup(fr: string): string | undefined {
   if (!patterns) {
     patterns = []
     for (const [k, v] of Object.entries(EN)) {
-      if (!/\{\w+\}/.test(k) || k.replace(/\{\w+\}/g, '').trim().length < 3) continue
+      // Assez de texte fixe (12 caractères) : un modèle court (« {n} compte ») capterait n'importe quoi.
+      if (!/\{\w+\}/.test(k) || k.replace(/\{\w+\}/g, '').trim().length < 12) continue
       const names: string[] = []
       const rx = k.split(/(\{\w+\})/).map(p => {
         const m = /^\{(\w+)\}$/.exec(p)

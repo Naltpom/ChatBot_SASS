@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Animated, Easing, StyleSheet } from 'react-native'
 import { Logo } from './Logo'
 import { useTheme } from './theme'
+import { t } from '../lib/i18n'
 
 let done = false
 const listeners = new Set<() => void>()
@@ -37,7 +38,7 @@ export function LaunchCover() {
   }, [fade, pulse])
   if (gone || !loaded) return null
   return (
-    <Animated.View pointerEvents="none" accessibilityLabel="Chargement de Chapote CM"
+    <Animated.View pointerEvents="none" accessibilityLabel={t('Chargement de Chapote CM')}
       style={[StyleSheet.absoluteFill, { backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center', opacity: fade }]}>
       <Animated.View style={{ transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] }) }] }}>
         <Logo size={96} bg={c.logo} />

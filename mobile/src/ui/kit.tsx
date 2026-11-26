@@ -14,6 +14,7 @@ import { Icon, type IconName } from './Icon'
 import { PlatformLogo } from './PlatformLogo'
 import { GROUP_HEX, radius, space, useTheme } from './theme'
 import { HEADING, useHeadingFont } from './fonts'
+import { t } from '../lib/i18n'
 
 export { Icon, PlatformLogo }
 export type { IconName }
@@ -166,10 +167,10 @@ export function SearchField({ value, onChangeText, placeholder, autoFocus }: { v
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, borderRadius: radius.md, paddingHorizontal: 12,
       backgroundColor: c.surface2, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border }}>
       <Icon name="search" size={18} color={c.muted} />
-      <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder || 'Rechercher'} placeholderTextColor={c.faint}
-        autoFocus={autoFocus} returnKeyType="search" clearButtonMode="while-editing" autoCorrect={false} accessibilityLabel={placeholder || 'Rechercher'}
+      <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder || t('Rechercher')} placeholderTextColor={c.faint}
+        autoFocus={autoFocus} returnKeyType="search" clearButtonMode="while-editing" autoCorrect={false} accessibilityLabel={placeholder || t('Rechercher')}
         style={{ flex: 1, color: c.text, fontSize: 16, paddingVertical: 8 }} />
-      {value && RNPlatform.OS === 'android' ? <IconButton icon="close" label="Effacer" onPress={() => onChangeText('')} size={36} /> : null}
+      {value && RNPlatform.OS === 'android' ? <IconButton icon="close" label={t('Effacer')} onPress={() => onChangeText('')} size={36} /> : null}
     </View>
   )
 }
@@ -185,9 +186,9 @@ export function Msg({ kind = 'info', children }: { kind?: 'err' | 'info' | 'ok' 
   )
 }
 
-export function Loading({ label = 'Chargement…' }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
   const { c } = useTheme()
-  return <View style={{ padding: space.xl, alignItems: 'center', gap: 8 }} accessibilityLabel={label}><ActivityIndicator color={c.muted} /></View>
+  return <View style={{ padding: space.xl, alignItems: 'center', gap: 8 }} accessibilityLabel={label ?? t('Chargement…')}><ActivityIndicator color={c.muted} /></View>
 }
 
 export function Skeleton({ h = 72, n = 1 }: { h?: number; n?: number }) {
@@ -226,7 +227,7 @@ export function StatusText({ status }: { status: TargetStatus }) {
   const { c } = useTheme()
   const s = STATUS[status]
   const color = { ok: c.ok, warn: c.warn, danger: c.danger, muted: c.muted }[s.tone]
-  return <Txt small bold color={color}>{s.label}</Txt>
+  return <Txt small bold color={color}>{t(s.label)}</Txt>
 }
 
 export function Delta({ value, suffix = '' }: { value: number | null | undefined; suffix?: string }) {
@@ -272,7 +273,7 @@ export function Sheet({ visible, title, onClose, children, scroll = true, footer
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <KeyboardAvoidingView behavior={RNPlatform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <Pressable style={{ flex: 1, backgroundColor: c.overlay }} onPress={onClose} accessibilityLabel="Fermer" accessibilityRole="button" />
+          <Pressable style={{ flex: 1, backgroundColor: c.overlay }} onPress={onClose} accessibilityLabel={t('Fermer')} accessibilityRole="button" />
           <Animated.View accessibilityViewIsModal style={{ backgroundColor: c.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '92%',
             paddingBottom: footer ? 0 : insets.bottom + space.md, width: '100%', maxWidth: 720, alignSelf: 'center', transform: [{ translateY: drag }] }}>
             <GestureDetector gesture={pan}>
@@ -280,7 +281,7 @@ export function Sheet({ visible, title, onClose, children, scroll = true, footer
                 <View style={{ alignItems: 'center', paddingTop: 8, paddingBottom: 4 }}><View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: c.borderStrong }} /></View>
                 <Row style={{ paddingHorizontal: space.lg, paddingBottom: space.sm, justifyContent: 'space-between' }}>
                   <H2 style={{ flex: 1 }}>{title}</H2>
-                  <IconButton icon="close" label="Fermer" onPress={onClose} />
+                  <IconButton icon="close" label={t('Fermer')} onPress={onClose} />
                 </Row>
               </View>
             </GestureDetector>

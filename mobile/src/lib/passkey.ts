@@ -10,6 +10,7 @@ import { Platform } from 'react-native'
 import { bioEnable } from './api'
 import { JUST_SIGNED_IN } from './auth-flag'
 import { showDialog } from '../ui/dialog'
+import { t } from './i18n'
 
 export const passkeyAvailable = (() => {
   if (Platform.OS === 'web') return false
@@ -33,13 +34,13 @@ export async function forgetPasskey(userId: number) {
 /** Active l'empreinte sur ce téléphone. Renvoie les codes de secours s'ils viennent d'être créés. */
 export async function enablePasskey(userId: number): Promise<string[] | null> {
   // L'empreinte est demandée tout de suite : on voit que c'est bien elle qui servira (et on évite une clé inutile).
-  const ok = await LocalAuthentication.authenticateAsync({ promptMessage: 'Activer la connexion par empreinte', cancelLabel: 'Annuler' })
-  if (!ok.success) throw new Error(ok.error === 'user_cancel' || ok.error === 'system_cancel' ? 'cancel' : (ok.error || 'Empreinte non vérifiée.'))
-  const name = (Device.deviceName || Device.modelName || 'Téléphone').slice(0, 80)
+  const ok = await LocalAuthentication.authenticateAsync({ promptMessage: t('Activer la connexion par empreinte'), cancelLabel: t('Annuler') })
+  if (!ok.success) throw new Error(ok.error === 'user_cancel' || ok.error === 'system_cancel' ? 'cancel' : (ok.error || t('Empreinte non vérifiée.')))
+  const name = (Device.deviceName || Device.modelName || t('Téléphone')).slice(0, 80)
   const r = await bioEnable(name)
   const value: Stored = { id: r.id, secret: r.secret }
   await SecureStore.setItemAsync(secretKey(userId), JSON.stringify(value), {
-    requireAuthentication: true, authenticationPrompt: 'Activer la connexion par empreinte',
+    requireAuthentication: true, authenticationPrompt: t('Activer la connexion par empreinte'),
   })
   await AsyncStorage.setItem(doneKey(userId), String(r.id))
   return r.recovery_codes
@@ -47,7 +48,7 @@ export async function enablePasskey(userId: number): Promise<string[] | null> {
 
 /** Lit la clé de ce téléphone : le téléphone demande l'empreinte. */
 export async function readPasskey(userId: number): Promise<Stored> {
-  const raw = await SecureStore.getItemAsync(secretKey(userId), { requireAuthentication: true, authenticationPrompt: 'Connexion à Chapote CM' })
+  const raw = await SecureStore.getItemAsync(secretKey(userId), { requireAuthentication: true, authenticationPrompt: t('Connexion à Chapote CM') })
   if (!raw) { await forgetPasskey(userId); throw new Error('NoKey') }
   return JSON.parse(raw) as Stored
 }
@@ -55,10 +56,10 @@ export async function readPasskey(userId: number): Promise<Stored> {
 /** Message clair pour une erreur d'empreinte. */
 export function passkeyError(e: unknown): string {
   const k = `${(e as { code?: string })?.code || ''} ${(e as Error)?.message || ''}`
-  if (/cancel|annul/i.test(k)) return 'Opération annulée.'
-  if (/NoKey|invalidat|not found|introuvable/i.test(k)) return 'L’empreinte n’est plus active sur ce téléphone (empreintes du téléphone changées ?) : utilisez le code, puis réactivez-la dans Réglages.'
-  if (/lockout|too many/i.test(k)) return 'Trop d’essais : réessayez dans un moment, ou utilisez le code.'
-  return (e as Error)?.message || 'Empreinte non vérifiée.'
+  if (/cancel|annul/i.test(k)) return t('Opération annulée.')
+  if (/NoKey|invalidat|not found|introuvable/i.test(k)) return t('L’empreinte n’est plus active sur ce téléphone (empreintes du téléphone changées ?) : utilisez le code, puis réactivez-la dans Réglages.')
+  if (/lockout|too many/i.test(k)) return t('Trop d’essais : réessayez dans un moment, ou utilisez le code.')
+  return (e as Error)?.message || t('Empreinte non vérifiée.')
 }
 
 /** Numéro du compte contenu dans le défi de double authentification (jeton signé, lu sans le vérifier). */
@@ -80,10 +81,10 @@ export async function offerPasskey(userId: number, onYes: () => void) {
     if (!passkeyAvailable || Date.now() - at > 10 * 60_000 || await passkeyDone(userId)) return
     const asked = Number(await AsyncStorage.getItem(askedKey(userId)))
     if (asked && Date.now() - asked < 30 * 864e5) return
-    showDialog('Se connecter avec l’empreinte ?',
-      'La prochaine fois, votre empreinte ou votre visage remplacera le code de connexion. Rien n’est demandé en dehors de la connexion.', [
-        { text: 'Plus tard', style: 'cancel', onPress: () => { AsyncStorage.setItem(askedKey(userId), String(Date.now())).catch(() => {}) } },
-        { text: 'Activer', onPress: onYes },
+    showDialog(t('Se connecter avec l’empreinte ?'),
+      t('La prochaine fois, votre empreinte ou votre visage remplacera le code de connexion. Rien n’est demandé en dehors de la connexion.'), [
+        { text: t('Plus tard'), style: 'cancel', onPress: () => { AsyncStorage.setItem(askedKey(userId), String(Date.now())).catch(() => {}) } },
+        { text: t('Activer'), onPress: onYes },
       ])
   } catch { /* rien */ }
 }

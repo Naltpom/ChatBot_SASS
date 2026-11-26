@@ -23,6 +23,7 @@ import { loadFonts } from '../ui/fonts'
 import { takeResume } from '../lib/app-icon'
 import { offerPasskey } from '../lib/passkey'
 import { AppearanceSync } from '../lib/appearance-sync'
+import { t } from '../lib/i18n'
 
 loadFonts()
 
@@ -107,21 +108,21 @@ function Gate() {
         <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="welcome" options={{ title: '', headerBackVisible: false, gestureEnabled: false }} />
-        <Stack.Screen name="new" options={{ presentation: 'modal', title: 'Nouvelle publication' }} />
-        <Stack.Screen name="post/[id]" options={{ presentation: 'modal', title: 'Publication' }} />
-        <Stack.Screen name="video/[id]" options={{ title: 'Fiche vidéo' }} />
-        <Stack.Screen name="asset/[id]" options={{ title: 'Vidéo de la bibliothèque' }} />
-        <Stack.Screen name="accounts" options={{ title: 'Comptes' }} />
-        <Stack.Screen name="people" options={{ title: 'Personnes et partage' }} />
-        <Stack.Screen name="drafts" options={{ title: 'Brouillons à valider' }} />
-        <Stack.Screen name="videos" options={{ title: 'Vidéos' }} />
-        <Stack.Screen name="settings" options={{ title: 'Réglages' }} />
-        <Stack.Screen name="assistant-settings" options={{ title: 'Assistant IA' }} />
-        <Stack.Screen name="activity" options={{ title: 'Activité' }} />
-        <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
-        <Stack.Screen name="storage" options={{ title: 'Stockage' }} />
-        <Stack.Screen name="reset-password" options={{ title: 'Mot de passe' }} />
-        <Stack.Screen name="oauth-return" options={{ title: 'Connexion du compte', presentation: 'modal' }} />
+        <Stack.Screen name="new" options={{ presentation: 'modal', title: t('Nouvelle publication') }} />
+        <Stack.Screen name="post/[id]" options={{ presentation: 'modal', title: t('Publication') }} />
+        <Stack.Screen name="video/[id]" options={{ title: t('Fiche vidéo') }} />
+        <Stack.Screen name="asset/[id]" options={{ title: t('Vidéo de la bibliothèque') }} />
+        <Stack.Screen name="accounts" options={{ title: t('Comptes') }} />
+        <Stack.Screen name="people" options={{ title: t('Personnes et partage') }} />
+        <Stack.Screen name="drafts" options={{ title: t('Brouillons à valider') }} />
+        <Stack.Screen name="videos" options={{ title: t('Vidéos') }} />
+        <Stack.Screen name="settings" options={{ title: t('Réglages') }} />
+        <Stack.Screen name="assistant-settings" options={{ title: t('Assistant IA') }} />
+        <Stack.Screen name="activity" options={{ title: t('Activité') }} />
+        <Stack.Screen name="account" options={{ title: t('Mon compte') }} />
+        <Stack.Screen name="storage" options={{ title: t('Stockage') }} />
+        <Stack.Screen name="reset-password" options={{ title: t('Mot de passe') }} />
+        <Stack.Screen name="oauth-return" options={{ title: t('Connexion du compte'), presentation: 'modal' }} />
         <Stack.Screen name="onboarding" options={{ title: '', headerBackVisible: false, gestureEnabled: false }} />
         <Stack.Screen name="blocked" options={{ headerShown: false, gestureEnabled: false }} />
       </Stack>

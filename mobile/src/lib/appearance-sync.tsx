@@ -9,7 +9,7 @@ import { getProfile, patchAppearance, type Profile } from './api'
 import { offerIcon } from './app-icon'
 import { useSession } from './session'
 import { useTheme, type Palette, type ThemePref } from '../ui/theme'
-import type { LangPref } from './i18n'
+import { t, type LangPref } from './i18n'
 
 const revKey = (id: number) => `cm.prefs_rev.${id}`
 
@@ -46,7 +46,7 @@ export function AppearanceSync() {
         if (lp !== local.langPref) setLangPref(lp)
         if (p.palette !== local.palette) {
           setPalette(p.palette)
-          offerIcon(p.palette, '/', undefined, 'La couleur de l’app a changé (choisie sur le site).')
+          offerIcon(p.palette, '/', undefined, t('La couleur de l’app a changé (choisie sur le site).'))
         }
       } else {
         synced.current = { ...local }

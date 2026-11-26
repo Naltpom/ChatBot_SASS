@@ -8,19 +8,20 @@ import { groupToken, useSession } from '../lib/session'
 import { Avatar, Button, Card, Chip, GroupDot, Icon, IconButton, Label, Row, SearchField, Sheet, Txt } from './kit'
 import { space, useTheme } from './theme'
 import { showDialog } from './dialog'
+import { t } from '../lib/i18n'
 
 /** Texte de la sélection : « Tous », nom du groupe, « 3 groupes », nom du compte. */
 function useSelLabel(): string {
   const { sel, groups, accounts } = useSession()
-  if (!sel.length || sel[0] === 'all') return 'Tous'
+  if (!sel.length || sel[0] === 'all') return t('Tous')
   if (sel.length === 1 && sel[0].startsWith('acc:')) {
     const a = accounts.find(x => `acc:${x.platform}:${x.id}` === sel[0])
-    return a ? a.name || a.username || PLATFORM_LABEL[a.platform] : 'Un compte'
+    return a ? a.name || a.username || PLATFORM_LABEL[a.platform] : t('Un compte')
   }
   const gs = groups.filter(g => sel.includes(groupToken(g)))
   if (gs.length === 1) return gs[0].name
-  if (sel[0] === 'perso') return 'Mes comptes'
-  return `${sel.length} groupes`
+  if (sel[0] === 'perso') return t('Mes comptes')
+  return t('{n} groupes', { n: sel.length })
 }
 
 export function ScopeTitle() {
@@ -31,7 +32,7 @@ export function ScopeTitle() {
   const one = sel.length === 1 ? groups.find(g => groupToken(g) === sel[0]) : null
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={`Affiché : ${label}. Changer`}
+      <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={t('Affiché : {label}. Changer', { label })}
         style={{ minHeight: 44, justifyContent: 'center', maxWidth: 260 }}>
         <Row gap={6}>
           {one ? <GroupDot color={one.color} /> : null}
@@ -50,9 +51,9 @@ export function HeaderActions() {
   const router = useRouter()
   return (
     <Row gap={0} style={{ marginRight: 4 }}>
-      <IconButton icon="bell" label="Activité" onPress={() => router.push('/activity')} />
-      <IconButton icon="users" label="Comptes connectés" onPress={() => router.push('/accounts')} />
-      <IconButton icon="settings" label="Réglages" onPress={() => router.push('/settings')} />
+      <IconButton icon="bell" label={t('Activité')} onPress={() => router.push('/activity')} />
+      <IconButton icon="users" label={t('Comptes connectés')} onPress={() => router.push('/accounts')} />
+      <IconButton icon="settings" label={t('Réglages')} onPress={() => router.push('/settings')} />
     </Row>
   )
 }
@@ -64,10 +65,10 @@ export function InvitationCard({ inv }: { inv: Invitation }) {
   return (
     <Card>
       <Row gap={8}><GroupDot color={inv.group_color} /><Txt bold style={{ flex: 1 }}>{inv.group_name}</Txt></Row>
-      <Txt small muted>{inv.invited_by || inv.owner || 'Quelqu’un'} vous invite : {inv.role_label}{n ? ` · ${n} compte${n > 1 ? 's' : ''}` : ''}{inv.owner ? ` · chez ${inv.owner}` : ''}</Txt>
+      <Txt small muted>{t('{who} vous invite : {role}', { who: inv.invited_by || inv.owner || t('Quelqu’un'), role: inv.role_label ? t(inv.role_label) : '' })}{n ? ` · ${n > 1 ? t('{n} comptes', { n }) : t('{n} compte', { n })}` : ''}{inv.owner ? ` · ${t('chez {owner}', { owner: inv.owner })}` : ''}</Txt>
       <Row>
-        <Button flex small kind="primary" title="Accepter" onPress={async () => { try { await acceptInvitation(inv.id); await done() } catch (e: any) { showDialog('Erreur', e?.message || '') } }} />
-        <Button flex small kind="danger" title="Refuser" onPress={async () => { try { await declineInvitation(inv.id); await done() } catch (e: any) { showDialog('Erreur', e?.message || '') } }} />
+        <Button flex small kind="primary" title={t('Accepter')} onPress={async () => { try { await acceptInvitation(inv.id); await done() } catch (e: any) { showDialog(t('Erreur'), e?.message || '') } }} />
+        <Button flex small kind="danger" title={t('Refuser')} onPress={async () => { try { await declineInvitation(inv.id); await done() } catch (e: any) { showDialog(t('Erreur'), e?.message || '') } }} />
       </Row>
     </Card>
   )
@@ -86,17 +87,17 @@ export function ScopeSheet({ visible, onClose }: { visible: boolean; onClose: ()
     setSel(next.length ? next : ['all'])
   }
   return (
-    <Sheet visible={visible} title="Afficher" onClose={onClose}>
+    <Sheet visible={visible} title={t('Afficher')} onClose={onClose}>
       {invitations.length ? (
         <View style={{ gap: space.sm }}>
-          <Label>Invitations</Label>
+          <Label>{t('Invitations')}</Label>
           {invitations.map(inv => <InvitationCard key={inv.id} inv={inv} />)}
         </View>
       ) : null}
-      <Chip label="Tous mes comptes et groupes" selected={isAll} onPress={() => { setSel(['all']); onClose() }} />
+      <Chip label={t('Tous mes comptes et groupes')} selected={isAll} onPress={() => { setSel(['all']); onClose() }} />
       {groups.length ? (
         <View style={{ gap: space.sm }}>
-          <Label>Groupes (plusieurs possibles)</Label>
+          <Label>{t('Groupes (plusieurs possibles)')}</Label>
           <Row wrap>
             {groups.map(g => {
               const t = groupToken(g)
@@ -106,8 +107,8 @@ export function ScopeSheet({ visible, onClose }: { visible: boolean; onClose: ()
         </View>
       ) : null}
       <View style={{ gap: space.sm }}>
-        <Label>Un seul compte</Label>
-        {accounts.length > 6 ? <SearchField value={q} onChangeText={setQ} placeholder="Chercher un compte" /> : null}
+        <Label>{t('Un seul compte')}</Label>
+        {accounts.length > 6 ? <SearchField value={q} onChangeText={setQ} placeholder={t('Chercher un compte')} /> : null}
         {shown.map(a => {
           const key = `acc:${a.platform}:${a.id}`
           const on = sel.length === 1 && sel[0] === key
@@ -117,14 +118,14 @@ export function ScopeSheet({ visible, onClose }: { visible: boolean; onClose: ()
               <Avatar src={a.avatar_url} name={a.name} platform={a.platform} size={36} />
               <View style={{ flex: 1 }}>
                 <Txt numberOfLines={1} bold={on}>{a.name || a.username || PLATFORM_LABEL[a.platform]}</Txt>
-                <Txt small muted numberOfLines={1}>{PLATFORM_LABEL[a.platform]}{a.mine === false && a.owner ? ` · chez ${a.owner}` : ''}{a.role === 'viewer' ? ' · lecture seule' : ''}</Txt>
+                <Txt small muted numberOfLines={1}>{PLATFORM_LABEL[a.platform]}{a.mine === false && a.owner ? ` · ${t('chez {owner}', { owner: a.owner })}` : ''}{a.role === 'viewer' ? ` · ${t('lecture seule')}` : ''}</Txt>
               </View>
               {on ? <Icon name="check" color={c.primary} /> : null}
             </Pressable>
           )
         })}
       </View>
-      {!isAll && groupSel.length ? <Button kind="primary" title="Valider" onPress={onClose} /> : null}
+      {!isAll && groupSel.length ? <Button kind="primary" title={t('Valider')} onPress={onClose} /> : null}
     </Sheet>
   )
 }
