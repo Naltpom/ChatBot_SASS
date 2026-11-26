@@ -14,6 +14,7 @@ import { errText, openApp } from './hooks'
 import { commentActions, personalize, STATUS_DONE, type CommentActionId } from './logic'
 import { ActionMenu, Thumb, type MenuItem } from './parts'
 import { showDialog } from '../../ui/dialog'
+import { t } from '../../lib/i18n'
 
 export function CommentCard({ c, onChanged, canEdit, template }:
   { c: Comment; onChanged: (c: Comment | null) => void; canEdit: boolean; template?: string }) {
@@ -40,7 +41,7 @@ export function CommentCard({ c, onChanged, canEdit, template }:
   }
   const copy = async () => {
     try { await Clipboard.setStringAsync(personal); setCopied(true); setTimeout(() => setCopied(false), 1500) }
-    catch { setErr('Copie impossible.') }
+    catch { setErr(t('Copie impossible.')) }
   }
   const act = (id: CommentActionId) => {
     switch (id) {
@@ -51,19 +52,20 @@ export function CommentCard({ c, onChanged, canEdit, template }:
       case 'dm': if (c.dm_url) openApp(c.dm_url); break
       case 'profile': if (c.profile_url) openApp(c.profile_url); break
       case 'hide':
-        showDialog('Masquer ce commentaire ?', 'Il sera masqué pour tout le monde.', [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Masquer', style: 'destructive', onPress: () => run(() => commentAction(org, c.id, 'hide')) },
+        showDialog(t('Masquer ce commentaire ?'), t('Il sera masqué pour tout le monde.'), [
+          { text: t('Annuler'), style: 'cancel' },
+          { text: t('Masquer'), style: 'destructive', onPress: () => run(() => commentAction(org, c.id, 'hide')) },
         ])
         break
       case 'done': run(() => commentAction(org, c.id, keyword ? 'contacted' : 'ignore')); break
       case 'reopen': run(() => commentAction(org, c.id, 'reopen')); break
     }
   }
-  const items: MenuItem[] = more.map(a => ({ label: a.id === 'copy' && copied ? 'Copié ✓' : a.label, danger: a.danger, onPress: () => act(a.id) }))
-  const who = c.author ? `@${c.author.replace(/^@/, '')}` : 'Anonyme'
-  const meta = `${PLATFORM_LABEL[c.platform]} · ${fmtAgo(c.published_at)}${c.count && c.count > 1 ? ` · ${c.count} commentaires` : ''}`
-  const done = c.status !== 'new' && !c.pending ? STATUS_DONE[c.status] : undefined
+  const items: MenuItem[] = more.map(a => ({ label: a.id === 'copy' && copied ? t('Copié ✓') : t(a.label), danger: a.danger, onPress: () => act(a.id) }))
+  const who = c.author ? `@${c.author.replace(/^@/, '')}` : t('Anonyme')
+  const meta = `${PLATFORM_LABEL[c.platform]} · ${fmtAgo(c.published_at)}${c.count && c.count > 1 ? ` · ${t('{n} commentaires', { n: c.count })}` : ''}`
+  const doneFr = c.status !== 'new' && !c.pending ? STATUS_DONE[c.status] : undefined
+  const done = doneFr ? t(doneFr) : undefined
 
   return (
     <View style={{ flexDirection: 'row', gap: space.md, paddingVertical: space.md }}>
@@ -78,30 +80,30 @@ export function CommentCard({ c, onChanged, canEdit, template }:
         </View>
         {c.reply_text ? (
           <View style={{ backgroundColor: col.surface2, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md, gap: 2 }}>
-            <Txt small bold>Vous</Txt>
+            <Txt small bold>{t('Vous')}</Txt>
             <Txt small selectable>{c.reply_text}</Txt>
           </View>
         ) : null}
         {done ? <Txt small color={col.ok}>{done}</Txt> : null}
-        {c.pending ? <Txt small muted>Envoi en cours par la routine…</Txt> : null}
+        {c.pending ? <Txt small muted>{t('Envoi en cours par la routine…')}</Txt> : null}
         {c.error ? <Msg kind="err">{c.error}</Msg> : null}
         {err ? <Msg kind="err">{err}</Msg> : null}
         {canEdit && !c.pending && (main || items.length) && !mode ? (
           <Row style={{ justifyContent: 'space-between' }}>
             {main ? (
-              <Button small kind="secondary" title={main.id === 'copy' && copied ? 'Copié ✓' : main.label} onPress={() => act(main.id)} loading={busy && !mode} />
+              <Button small kind="secondary" title={main.id === 'copy' && copied ? t('Copié ✓') : t(main.label)} onPress={() => act(main.id)} loading={busy && !mode} />
             ) : <View />}
-            {items.length ? <IconButton icon="more" label="Plus d’actions" onPress={() => setMenu(true)} color={col.muted} /> : null}
+            {items.length ? <IconButton icon="more" label={t('Plus d’actions')} onPress={() => setMenu(true)} color={col.muted} /> : null}
           </Row>
         ) : null}
         {mode ? (
           <View style={{ gap: space.sm }}>
             <Field value={text} onChangeText={setText} multiline maxLength={2200} autoFocus
-              accessibilityLabel={mode === 'reply' ? 'Votre réponse' : 'Message privé'}
-              placeholder={mode === 'reply' ? `Votre réponse à ${who}` : 'Message privé (une fois, dans les 7 jours)'} />
+              accessibilityLabel={mode === 'reply' ? t('Votre réponse') : t('Message privé')}
+              placeholder={mode === 'reply' ? t('Votre réponse à {who}', { who }) : t('Message privé (une fois, dans les 7 jours)')} />
             <Row style={{ justifyContent: 'flex-end' }}>
-              <Button small kind="ghost" title="Annuler" onPress={() => setMode(null)} />
-              <Button small kind="primary" title={mode === 'reply' ? 'Publier' : 'Envoyer en privé'} disabled={!text.trim()} loading={busy}
+              <Button small kind="ghost" title={t('Annuler')} onPress={() => setMode(null)} />
+              <Button small kind="primary" title={mode === 'reply' ? t('Publier') : t('Envoyer en privé')} disabled={!text.trim()} loading={busy}
                 onPress={() => run(() => commentAction(org, c.id, mode === 'reply' ? 'reply' : 'private-reply', text.trim()))} />
             </Row>
           </View>
@@ -127,7 +129,8 @@ export function GroupHead({ title, thumb, sub, onPress }: { title: string; thumb
   )
   if (!onPress) return <Row gap={space.md} style={{ paddingBottom: space.sm }}>{body}</Row>
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${title}, ${sub}. Ouvrir la fiche vidéo`}
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${title}, ${sub}. ${t('Ouvrir la fiche vidéo')}`}
+
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingBottom: space.sm, opacity: pressed ? 0.6 : 1 })}>
       {body}
     </Pressable>

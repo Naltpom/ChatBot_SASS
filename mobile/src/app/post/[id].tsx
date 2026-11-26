@@ -13,6 +13,7 @@ import { apiUrl, openLink, PostMedia } from '../../features/planning/media'
 import { PlatformCard } from '../../features/planning/PlatformCard'
 import { initialOpen, postItems, postWindow, splitCommon } from '../../features/planning/sheet'
 import { RightsBox } from '../../features/planning/RightsBox'
+import { t } from '../../lib/i18n'
 
 export default function PublicationScreen() {
   const { c } = useTheme()
@@ -39,7 +40,7 @@ export default function PublicationScreen() {
   const reload = () => { post.reload(); cal.reload() }
   const refresh = () => { setPulling(true); reload(); setTimeout(() => setPulling(false), 800) }
 
-  if (!Number.isFinite(id) || id <= 0) return <Screen><Msg kind="err">Publication introuvable.</Msg></Screen>
+  if (!Number.isFinite(id) || id <= 0) return <Screen><Msg kind="err">{t('Publication introuvable.')}</Msg></Screen>
   if (!post.data) {
     return (
       <Screen>
@@ -53,7 +54,7 @@ export default function PublicationScreen() {
   const group = groupOf(items, groups)
   const video = items.find(i => i.kind === 'video') as VideoItem | undefined
   const common = p.caption || video?.title || ''
-  const title = shortTitle(p.title) || 'Sans titre'
+  const title = shortTitle(p.title) || t('Sans titre')
   const { body, tags } = splitCommon(common)
   const showBody = !!body && shortTitle(body) !== title
   const duration = p.duration_sec ?? asset.data?.duration_sec ?? video?.duration_sec ?? null
@@ -72,14 +73,14 @@ export default function PublicationScreen() {
           <Txt small muted>{fmtDateTime(at)}{duration ? ` · ${fmtDuration(duration)}` : ''}</Txt>
           {video ? (
             <Pressable onPress={() => router.push({ pathname: '/video/[id]', params: { id: String(video.id) } })} accessibilityRole="link"
-              accessibilityLabel="Fiche vidéo : stats et commentaires" style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Txt small bold color={c.accent}>Stats et commentaires</Txt><Icon name="right" size={16} color={c.accent} />
+              accessibilityLabel={t('Fiche vidéo : stats et commentaires')} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Txt small bold color={c.accent}>{t('Stats et commentaires')}</Txt><Icon name="right" size={16} color={c.accent} />
             </Pressable>
           ) : null}
           {asset.data?.folder_url ? (
-            <Pressable onPress={() => openLink(asset.data!.folder_url!)} accessibilityRole="link" accessibilityLabel="Ouvrir le dossier Drive"
+            <Pressable onPress={() => openLink(asset.data!.folder_url!)} accessibilityRole="link" accessibilityLabel={t('Ouvrir le dossier Drive')}
               style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Txt small color={c.muted}>Dossier Drive</Txt><Icon name="external" size={14} color={c.muted} />
+              <Txt small color={c.muted}>{t('Dossier Drive')}</Txt><Icon name="external" size={14} color={c.muted} />
             </Pressable>
           ) : null}
         </View>
@@ -89,20 +90,20 @@ export default function PublicationScreen() {
 
       {showBody || tags.length ? (
         <View style={{ gap: 6 }}>
-          <Txt small bold muted accessibilityRole="header">Légende commune</Txt>
+          <Txt small bold muted accessibilityRole="header">{t('Légende commune')}</Txt>
           {showBody ? <Txt small numberOfLines={more ? undefined : 3} selectable>{body}</Txt> : null}
           {body.length > 140 ? (
             <Pressable onPress={() => setMore(m => !m)} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' }}>
-              <Txt small bold color={c.accent}>{more ? 'Voir moins' : 'Voir plus'}</Txt>
+              <Txt small bold color={c.accent}>{more ? t('Voir moins') : t('Voir plus')}</Txt>
             </Pressable>
           ) : null}
-          {tags.length ? <Row gap={6} wrap>{tags.map(t => <Chip key={t} label={t} />)}</Row> : null}
+          {tags.length ? <Row gap={6} wrap>{tags.map(tag => <Chip key={tag} label={tag} />)}</Row> : null}
         </View>
       ) : null}
 
       <View style={{ gap: space.sm }}>
-        <Txt small bold muted accessibilityRole="header">Plateformes</Txt>
-        {items.length === 0 ? <Txt small muted>Aucune plateforme (publication annulée).</Txt> : null}
+        <Txt small bold muted accessibilityRole="header">{t('Plateformes')}</Txt>
+        {items.length === 0 ? <Txt small muted>{t('Aucune plateforme (publication annulée).')}</Txt> : null}
         {items.map(i => {
           const k = `${i.kind}-${i.id}`
           return <PlatformCard key={k} item={i} common={common} open={shownKey === k} canEdit={canEdit}
@@ -110,7 +111,8 @@ export default function PublicationScreen() {
         })}
       </View>
       {post.error ? <Msg kind="err">{post.error}</Msg> : null}
-      <Txt size={12} faint>Plein : publiée · pointillé : programmée · orange : brouillon TikTok · rouge : échec. Une notification arrive quand une vidéo part ou échoue.</Txt>
+      <Txt size={12} faint>{t('Plein : publiée · pointillé : programmée · orange : brouillon TikTok · rouge : échec. Une notification arrive quand une vidéo part ou échoue.')}</Txt>
+
     </Screen>
   )
 }

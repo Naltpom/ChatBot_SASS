@@ -7,6 +7,7 @@ import { getPosts } from '../lib/api'
 import { useSession } from '../lib/session'
 import { Icon, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
+import { t } from '../lib/i18n'
 
 export function useAttention() {
   const { scope } = useSession()
@@ -26,15 +27,19 @@ export function AttentionBar() {
   const { c } = useTheme()
   const n = useAttention()
   if (!n || (!n.failed && !n.drafts)) return null
-  const parts = [n.failed && `${n.failed} publication${n.failed > 1 ? 's' : ''} en échec`, n.drafts && `${n.drafts} brouillon${n.drafts > 1 ? 's' : ''} TikTok à valider`].filter(Boolean)
+  const parts = [
+    n.failed && (n.failed > 1 ? t('{n} publications en échec', { n: n.failed }) : t('{n} publication en échec', { n: n.failed })),
+    n.drafts && (n.drafts > 1 ? t('{n} brouillons TikTok à valider', { n: n.drafts }) : t('{n} brouillon TikTok à valider', { n: n.drafts })),
+  ].filter(Boolean)
   const tone = n.failed ? c.danger : c.warn
   return (
-    <Pressable onPress={() => router.push('/activity')} accessibilityRole="button" accessibilityLabel={`${parts.join(', ')}. Voir`}
+    <Pressable onPress={() => router.push('/activity')} accessibilityRole="button" accessibilityLabel={`${parts.join(', ')}. ${t('Voir')}`}
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.md,
         backgroundColor: n.failed ? c.dangerBg : c.warnBg, opacity: pressed ? 0.7 : 1 })}>
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tone }} />
       <Txt bold style={{ flex: 1 }} color={tone}>{parts.join(' · ')}</Txt>
-      <Txt small bold color={tone}>{n.failed ? 'Réessayer' : 'Voir'}</Txt>
+      <Txt small bold color={tone}>{n.failed ? t('Réessayer') : t('Voir')}</Txt>
+
       <Icon name="right" size={16} color={tone} />
     </Pressable>
   )

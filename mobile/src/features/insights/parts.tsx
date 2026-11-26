@@ -9,6 +9,7 @@ import { Chip, Icon, PlatformLogo, Row, Sheet, Txt, type IconName } from '../../
 import { radius, space, useTheme } from '../../ui/theme'
 import type { ListState } from './hooks'
 import { sortLabel } from './logic'
+import { t } from '../../lib/i18n'
 
 /** Rangée de puces qui défile à l'horizontale (filtres, tris). */
 export function ChipRow({ children, label }: { children: ReactNode; label: string }) {
@@ -23,9 +24,9 @@ export function ChipRow({ children, label }: { children: ReactNode; label: strin
 /** Tri : une puce par critère ; toucher le critère choisi inverse le sens. */
 export function SortChips<S extends string>({ list, options }: { list: ListState<S>; options: [S, string][] }) {
   return (
-    <ChipRow label="Trier par">
+    <ChipRow label={t('Trier par')}>
       {options.map(([s, l]) => (
-        <Chip key={s} label={sortLabel(l, list.sort === s, list.order)} selected={list.sort === s} onPress={() => list.pick(s)} />
+        <Chip key={s} label={sortLabel(t(l), list.sort === s, list.order)} selected={list.sort === s} onPress={() => list.pick(s)} />
       ))}
     </ChipRow>
   )
@@ -35,8 +36,8 @@ export function SortChips<S extends string>({ list, options }: { list: ListState
 export function PlatformChips({ value, onChange, platforms }: { value: '' | Platform; onChange: (p: '' | Platform) => void; platforms: Platform[] }) {
   const LABEL: Record<Platform, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
   return (
-    <ChipRow label="Plateforme">
-      <Chip label="Toutes" selected={value === ''} onPress={() => onChange('')} />
+    <ChipRow label={t('Plateforme')}>
+      <Chip label={t('Toutes')} selected={value === ''} onPress={() => onChange('')} />
       {platforms.map(p => <Chip key={p} label={LABEL[p]} selected={value === p} onPress={() => onChange(p)} left={<PlatformLogo platform={p} size={14} />} />)}
     </ChipRow>
   )
@@ -75,10 +76,10 @@ export function Thumb({ uri, w, h }: { uri: string | null | undefined; w: number
 /** Chiffres d'une vidéo en ligne : vues, j'aime, commentaires, partages, enregistrements. */
 export function Metrics({ v }: { v: Pick<Video, 'views' | 'likes' | 'comments' | 'shares' | 'saves'> }) {
   const { c } = useTheme()
-  const parts: [IconName, number | null, string][] = [['eye', v.views, 'vues'], ['heart', v.likes, 'j’aime']]
-  if (v.comments != null) parts.push(['comment', v.comments, 'commentaires'])
-  if (v.shares != null) parts.push(['share', v.shares, 'partages'])
-  if (v.saves != null) parts.push(['bookmark', v.saves, 'enregistrements'])
+  const parts: [IconName, number | null, string][] = [['eye', v.views, t('vues')], ['heart', v.likes, t('j’aime')]]
+  if (v.comments != null) parts.push(['comment', v.comments, t('commentaires')])
+  if (v.shares != null) parts.push(['share', v.shares, t('partages')])
+  if (v.saves != null) parts.push(['bookmark', v.saves, t('enregistrements')])
   return (
     <Row gap={10} wrap>
       {parts.map(([icon, n, what]) => (
@@ -103,7 +104,7 @@ export function VideoRow({ v, onPress, rank }: { v: Video; onPress?: () => void;
     <>
       <Thumb uri={v.thumbnail_url} w={56} h={76} />
       <View style={{ flex: 1, gap: 4 }}>
-        <Txt bold numberOfLines={2}>{rank ? `#${rank} ` : ''}{v.title || 'Sans titre'}</Txt>
+        <Txt bold numberOfLines={2}>{rank ? `#${rank} ` : ''}{v.title || t('Sans titre')}</Txt>
         <Row gap={6}>
           <PlatformDot platform={v.platform} />
           <Txt small muted numberOfLines={1} style={{ flexShrink: 1 }}>{v.account_name}</Txt>
@@ -117,7 +118,8 @@ export function VideoRow({ v, onPress, rank }: { v: Video; onPress?: () => void;
   const style = { flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: space.md, paddingVertical: space.md }
   if (!onPress) return <View style={style}>{body}</View>
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${v.title || 'Sans titre'}, ${v.account_name || ''}, ${short(v.views)} vues`}
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${v.title || t('Sans titre')}, ${v.account_name || ''}, ${t('{n} vues', { n: short(v.views) })}`}
+
       style={({ pressed }) => [style, { opacity: pressed ? 0.6 : 1 }]}>
       {body}
     </Pressable>
