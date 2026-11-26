@@ -65,6 +65,12 @@ async def test_prepare_then_launch_from_chat(pg_session, assistant, tiktok):
     assert not err, out
     vids = json.loads(out)["videos"]
     assert [v["video_id"] for v in vids] == [paul.id] and "Bob" not in out
+    # Faute de frappe et mot en trop : la vidéo est quand même trouvée.
+    out, err = await _run(token, "execute_action", {"action": "library_search", "arguments": {"query": "pauls draem"}})
+    assert not err and [v["video_id"] for v in json.loads(out)["videos"]] == [paul.id], out
+    out, err = await _run(token, "execute_action", {"action": "library_search", "arguments": {"query": "noel paul"}})
+    res = json.loads(out)
+    assert [v["video_id"] for v in res["videos"]] == [paul.id] and "note" in res
 
     # Créneaux : jamais dans le passé, jamais à moins d'une heure d'une autre vidéo du compte.
     out, err = await _run(token, "execute_action", {"action": "suggest_slots",
@@ -144,3 +150,33 @@ async def test_read_only_and_link_after_edit(pg_session, assistant, tiktok):
                      ({**args, "when": "2020-01-01 10:00"}, "trop proche")]:
         out, err = await _run(token, "create_draft", bad)
         assert err and why in out.lower(), out
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_find_accounts_by_real_name(pg_session, assistant, tiktok):
+    """« Tous mes comptes alice » : Chapote fait la correspondance, l'IA ne reçoit que les alias ;
+    la page reçoit la table alias -> vrai nom, groupes compris."""
+    from src.models.cm import CmGroup, CmGroupAccount
+    a, b, a1, paul = await _setup(pg_session)
+    g = CmGroup(owner_user_id=a.id, name="Naltpom Piano")
+    pg_session.add(g)
+    await pg_session.flush()
+    pg_session.add(CmGroupAccount(group_id=g.id, platform="tiktok", account_id=a1.id))
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        ha = c.as_(a)
+        await _consent(ha, captions=True)
+        await ha.put(f"/api/cm/assistant/accounts/tiktok/{a1.id}/permissions",
+                     json={"stats": True, "planning": True, "captions": True})
+        token = await _token(ha)
+        aliases = (await ha.get("/api/cm/assistant/token")).json()["aliases"]
+    assert aliases["Compte TikTok 1"] == "alice.secret" and aliases["Groupe 1"] == "Naltpom Piano"
+    out, err = await _run(token, "find_accounts", {"text": "ALICE"})
+    assert not err and json.loads(out)["comptes"] == [{"compte": "Compte TikTok 1", "reseau": "TikTok"}]
+    assert "alice.secret" not in out
+    out, err = await _run(token, "find_accounts", {"text": "mes comptes naltpom"})
+    res = json.loads(out)
+    assert res["groupes"] == [{"groupe": "Groupe 1", "comptes": ["Compte TikTok 1"]}] and "Naltpom" not in out.replace(res["recherche"], "")
+    out, err = await _run(token, "find_accounts", {"text": "bob"})
+    assert not err and json.loads(out)["comptes"] == [] and "bob" not in out.replace(json.loads(out)["recherche"], "")

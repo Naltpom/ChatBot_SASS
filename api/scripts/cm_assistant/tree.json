@@ -4,46 +4,96 @@
     "root": {
       "message": "Bonjour ! Comment puis-je vous aider ?",
       "options": [
-        {"label": "📅 Planifier une vidéo", "next": "planifier"},
-        {"label": "✏️ Modifier une publication", "next": "modifier"},
-        {"label": "📊 Mes statistiques", "next": "stats"},
-        {"label": "💬 Une question sur Chapote CM", "next": "__ai__"},
-        {"label": "📁 Ma bibliothèque Drive", "next": "drive"},
-        {"label": "🗣️ Donner mon avis", "next": "avis"}
+        {
+          "label": "📅 Planifier une vidéo",
+          "next": "planifier"
+        },
+        {
+          "label": "✏️ Modifier une publication",
+          "next": "modifier"
+        },
+        {
+          "label": "📊 Mes statistiques",
+          "next": "stats"
+        },
+        {
+          "label": "💬 Une question sur Chapote CM",
+          "next": "__ai__"
+        },
+        {
+          "label": "📁 Ma bibliothèque Drive",
+          "next": "drive"
+        },
+        {
+          "label": "🗣️ Donner mon avis",
+          "next": "avis"
+        }
       ]
     },
     "planifier": {
       "message": "Deux façons de faire :\n\n- **Avec moi** : dites-moi la vidéo, les comptes et le moment (par exemple « ma vidéo Paul's Dream sur TikTok demain soir »). Je prépare le brouillon et vous donne un lien pour lancer la programmation. Il faut avoir activé l'assistant : [Réglages → Assistant IA](https://cm.chapote.fr/reglages/assistant-ia).\n- **Vous-même** : [Nouvelle publication](https://cm.chapote.fr/nouvelle), en deux étapes (la vidéo, puis les comptes et l'heure).",
       "options": [
-        {"label": "Préparer avec l'assistant", "next": "__ai__"},
-        {"label": "↩ Retour", "next": "root"}
+        {
+          "label": "Préparer avec l'assistant",
+          "next": "__ai__"
+        },
+        {
+          "label": "↩ Retour",
+          "next": "root"
+        }
       ]
     },
     "modifier": {
       "message": "Ouvrez le [Planning](https://cm.chapote.fr/planning), puis la publication : vous pouvez changer l'heure, la légende, les réglages d'un compte, ou l'annuler, tant qu'elle n'est pas partie. Une publication en échec se relance avec « Réessayer » (la vidéo est gardée 48 heures).",
       "options": [
-        {"label": "Poser une question", "next": "__ai__"},
-        {"label": "↩ Retour", "next": "root"}
+        {
+          "label": "Poser une question",
+          "next": "__ai__"
+        },
+        {
+          "label": "↩ Retour",
+          "next": "root"
+        }
       ]
     },
     "stats": {
       "message": "Les chiffres de tous vos comptes sont dans [Statistiques](https://cm.chapote.fr/stats). Avec l'assistant activé, demandez-moi aussi « mon bilan de la semaine » ou « mes meilleures vidéos du mois ».",
       "options": [
-        {"label": "Demander à l'assistant", "next": "__ai__"},
-        {"label": "↩ Retour", "next": "root"}
+        {
+          "label": "Demander à l'assistant",
+          "next": "__ai__"
+        },
+        {
+          "label": "↩ Retour",
+          "next": "root"
+        }
       ]
     },
     "drive": {
       "message": "La [Bibliothèque](https://cm.chapote.fr/bibliotheque) montre les dossiers Google Drive partagés avec l'adresse du robot de Chapote (indiquée sur la page), rangés comme dans votre Drive. Le reste de votre Drive reste privé. Si elle est vide, vos dossiers sont peut-être reliés à un autre espace (équipe) : la page vous le dit.",
       "options": [
-        {"label": "Poser une question", "next": "__ai__"},
-        {"label": "↩ Retour", "next": "root"}
+        {
+          "label": "Poser une question",
+          "next": "__ai__"
+        },
+        {
+          "label": "↩ Retour",
+          "next": "root"
+        }
       ]
     },
     "avis": {
-      "message": "Merci ! Écrivez-nous sur [Donner mon avis](https://cm.chapote.fr/avis) : Nathan, le créateur de Chapote CM, lit chaque message.",
+      "type": "lead",
+      "fields": [
+        "email",
+        "message"
+      ],
+      "message": "Merci ! Écrivez votre avis ou votre idée ci-dessous : Nathan, le créateur de Chapote CM, lit chaque message et vous répond à cette adresse.",
       "options": [
-        {"label": "↩ Retour", "next": "root"}
+        {
+          "label": "↩ Retour",
+          "next": "root"
+        }
       ]
     }
   }

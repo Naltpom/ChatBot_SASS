@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router'
 import { useRef } from 'react'
 import { Alert, Linking, View } from 'react-native'
 import { assistantToken, launchProposal } from '../../lib/api'
-import { assistantAvailable, assistantHtml, BASE, draftLink, INSIDE, tokenReply } from '../../lib/assistant'
+import { appRoute, assistantAvailable, assistantHtml, BASE, draftLink, INSIDE, tokenReply } from '../../lib/assistant'
 import { Empty } from '../../ui/kit'
 import { space, useTheme } from '../../ui/theme'
 import { t } from '../../lib/i18n'
@@ -18,7 +18,13 @@ export default function Assistant() {
   const launching = useRef(false)
   const openDraft = (url: string) => {
     const d = draftLink(url)
-    if (!d) return false
+    if (!d) {
+      // Autre page de cm citée par l'assistant (statistiques, planning…) : l'écran de l'app, pas le navigateur.
+      const r = appRoute(url)
+      if (!r) return false
+      router.push(r as never)
+      return true
+    }
     if (!d.launch) { router.push({ pathname: '/new', params: { proposal: String(d.id) } }); return true }
     if (launching.current) return true
     launching.current = true

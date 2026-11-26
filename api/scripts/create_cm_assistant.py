@@ -34,7 +34,7 @@ from pathlib import Path
 from sqlalchemy import delete, func, select
 
 from src.core.config import settings
-from src.core.constants import MODULE_AI, MODULE_MCP, MODULE_RAG
+from src.core.constants import MODULE_ACTIONS, MODULE_AI, MODULE_MCP, MODULE_RAG
 from src.core.database import AsyncSessionLocal
 from src.models.bot import DEFAULT_DESIGN, Bot
 from src.models.kb import KbSource
@@ -48,7 +48,7 @@ HERE = Path(__file__).resolve().parent / "cm_assistant"
 BOT_NAME = "Assistant Chapote CM"
 ALLOWED_DOMAINS = ["cm.chapote.fr", "localhost"]
 AI_MONTHLY_QUOTA = 3000
-MODULES = sorted([MODULE_AI, MODULE_RAG, MODULE_MCP])
+MODULES = sorted([MODULE_AI, MODULE_RAG, MODULE_MCP, MODULE_ACTIONS])   # actions : formulaire « Donner mon avis »
 
 # Apparence par défaut (orange clair de cm.chapote.fr). La page transmet ensuite
 # la couleur et le thème choisis (data-color / data-theme, voir docs/WIDGET_CM.md).

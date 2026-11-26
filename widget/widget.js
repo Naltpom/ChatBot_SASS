@@ -739,8 +739,9 @@
       "@keyframes chapoteSpin{to{transform:rotate(360deg)}}",
       "@keyframes chapoteType{0%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-4px);opacity:1}}",
       ".kc-inputrow{border-top:1px solid " + lineBorder + ";padding:10px;display:flex;gap:8px;background:" + panelBg + "}",
-      ".kc-input{flex:1;font-family:inherit;font-size:13.5px;padding:10px 13px;border-radius:99px;border:1px solid " + inputBorder + ";",
-      "outline:none;background:" + inputBg + ";color:" + botText + ";min-width:0}",
+      ".kc-input{flex:1;font-family:inherit;font-size:13.5px;line-height:1.4;padding:10px 13px;border-radius:20px;border:1px solid " + inputBorder + ";",
+      "outline:none;background:" + inputBg + ";color:" + botText + ";min-width:0;resize:none;overflow-y:auto;max-height:120px;display:block}",
+      ".kc-inputrow{align-items:flex-end}",
       ".kc-input:focus{border-color:" + accent + "}",
       ".kc-input:disabled{background:" + (dark ? msgsSolid : "#f4f6f5") + "}",
       // sendStyle=icon (actuel) : bouton plat ; colored : cercle plein teinté accent.
@@ -857,16 +858,28 @@
     ui.panel.appendChild(ui.msgs);
 
     const inputRow = el("div", "kc-inputrow");
-    ui.input = document.createElement("input");
+    // Zone de texte qui grandit (5 lignes au plus). Sur téléphone (écran tactile), « Entrée » va à la
+    // ligne et seul le bouton envoie ; sur ordinateur, Entrée envoie et Maj+Entrée va à la ligne.
+    ui.input = document.createElement("textarea");
     ui.input.className = "kc-input";
+    ui.input.rows = 1;
     ui.input.maxLength = 4000;
     ui.input.placeholder = d.placeholder || t("placeholder");
     // Label accessible stable (le placeholder change selon le mode et n'est pas
     // un nom accessible fiable pour les lecteurs d'écran).
     ui.input.setAttribute("aria-label", t("input_label"));
+    const touch = (function () {
+      try { return window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(any-pointer: fine)").matches; }
+      catch (err) { return false; }
+    })();
+    ui.input.setAttribute("enterkeyhint", touch ? "enter" : "send");
     ui.input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") sendText();
+      if (e.key !== "Enter" || e.isComposing) return;
+      if (touch || e.shiftKey) return;   // retour à la ligne
+      e.preventDefault();
+      sendText();
     });
+    ui.input.addEventListener("input", fitInput);
     ui.send = el("button", "kc-send");
     ui.send.innerHTML = SVG.send;
     ui.send.setAttribute("aria-label", t("send"));
@@ -1566,12 +1579,19 @@
       .finally(function () { setTyping(false); state.busy = false; updateModeUI(); });
   }
 
+  function fitInput() {
+    if (!ui.input) return;
+    ui.input.style.height = "auto";
+    ui.input.style.height = Math.min(ui.input.scrollHeight + 2, 120) + "px";
+  }
+
   function sendText() {
     const text = ui.input.value.trim();
     if (!text || state.busy || ui.input.disabled) return;
     state.busy = true;
     addMsg("user", text);
     ui.input.value = "";
+    fitInput();
     clearOptions();
     // Pas d'indicateur de frappe pendant l'attente humaine (simple accusé)
     if (!isHuman()) setTyping(true);

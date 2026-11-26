@@ -50,6 +50,12 @@ Donner son avis à Nathan : https://cm.chapote.fr/avis.
 
 ## Questions fréquentes
 
+### Pourquoi « CM » ? Que veut dire Chapote CM ?
+CM veut dire « community manager » : la personne qui gère les réseaux sociaux d'une marque ou d'un artiste. Chapote CM fait cette partie du travail à votre place : planifier les vidéos sur tous vos comptes, les publier à l'heure et suivre leurs chiffres au même endroit. Chapote est le nom de la famille d'outils (chapote.fr, Chapote CM, la boutique de partitions).
+
+### D'où vient l'idée de Chapote CM ?
+De Nathan, son créateur : avec 6 comptes sur Instagram, TikTok et YouTube, il avait un planning par compte et les mêmes vidéos partout. Il a fait l'app pour lui, puis l'a ouverte à tous (voir « Pourquoi Chapote CM » plus haut).
+
 ### Mes comptes sont-ils en sécurité ?
 Vous vous connectez par les pages officielles de TikTok, de Google (YouTube) et de Meta (Instagram). Chapote CM ne voit jamais vos mots de passe. Vous pouvez retirer l'accès à tout moment, depuis Chapote CM ou depuis le réseau.
 

@@ -80,14 +80,31 @@ async def library_search(db, user, refs, consent, query: str = "", limit: int = 
     if not getattr(consent, "captions", False):
         raise DraftError("Pour chercher une vidéo par son nom, autorisez les titres et légendes dans les réglages "
                          "de l'assistant (Réglages → Assistant IA).", "no_captions")
+    from difflib import SequenceMatcher
     words = [w for w in _fold(query).split() if len(w) > 1]
-    scored = []
+
+    def points(w: str, hay: str, tokens: list[str]) -> float:
+        if f" {w} " in f" {hay} ":
+            return 3
+        if w in hay:
+            return 1
+        # Faute de frappe (« wondefall » pour « wonderwall ») : mot très proche.
+        if len(w) >= 4 and any(SequenceMatcher(None, w, tok).ratio() >= 0.8 for tok in tokens if abs(len(tok) - len(w)) <= 3):
+            return 0.9
+        return 0
+
+    exact, near = [], []
     for a, src in await _visible_assets(db, user):
         hay = _fold(" ".join(x for x in (a.title, a.name, a.folder_path, src.name, (a.caption or "")[:300]) if x))
-        score = sum(3 if f" {w} " in f" {hay} " else 1 if w in hay else 0 for w in words) if words else 1
-        if words and score < len(words):          # chaque mot doit apparaître
-            continue
-        scored.append((score, a, src))
+        tokens = hay.split()
+        hits = [points(w, hay, tokens) for w in words] if words else [1]
+        if all(hits):                                 # chaque mot (ou un mot très proche) apparaît
+            exact.append((sum(hits), a, src))
+        elif any(hits):
+            near.append((sum(hits), a, src))
+    # Rien avec tous les mots : les vidéos qui en ont au moins un, signalées comme approchantes.
+    approx = not exact and bool(near)
+    scored = exact or near
     scored.sort(key=lambda x: (-x[0], -(x[1].drive_created_at or datetime.min).timestamp()))
     used = {pid for pid in (await db.execute(select(CmPost.asset_id).where(
         CmPost.asset_id.in_([a.id for _, a, _ in scored[:limit]] or [-1])))).scalars()}
@@ -96,7 +113,8 @@ async def library_search(db, user, refs, consent, query: str = "", limit: int = 
         "duree_s": round(a.duration_sec) if a.duration_sec else None,
         "ajoutee": _fmt(a.drive_created_at) if a.drive_created_at else None,
         "deja_programmee": a.id in used, "legende_du_dossier": bool(a.caption)}
-        for _, a, src in scored[:max(1, min(limit, 10))]]}
+        for _, a, src in scored[:max(1, min(limit, 10))]],
+        **({"note": "Aucune vidéo n'a tous ces mots : voici les plus proches, à confirmer avec la personne."} if approx else {})}
 
 
 # --------------------------------------------------------------------------
