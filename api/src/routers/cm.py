@@ -2363,6 +2363,35 @@ class RoutineStatsIn(BaseModel):
     videos: list[RoutineVideoIn] = Field(default_factory=list, max_length=500)
 
 
+class RoutineDayIn(BaseModel):
+    day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    views: Optional[int] = Field(default=None, ge=0)              # vues de ce jour-là
+    followers_gained: Optional[int] = Field(default=None, ge=0)   # nouveaux abonnés ce jour-là
+
+
+class RoutineHistoryIn(BaseModel):
+    org_id: Optional[int] = None
+    username: str = Field(min_length=1, max_length=60)
+    days: list[RoutineDayIn] = Field(default_factory=list, max_length=800)
+
+
+@router.post("/routine/stats/history")
+async def routine_stats_history(body: RoutineHistoryIn, db: AsyncSession = Depends(get_db),
+                                user: User = Depends(get_routine_user)):
+    """Historique d'un compte Instagram « géré par la routine » d'avant le premier relevé de Chapote
+    (chiffres jour par jour d'Instagram) : les courbes de la page Stats remontent jusque-là."""
+    tenant = await _tenant(db, user, body.org_id)
+    username = _clean_username(body.username)
+    acc = (await db.execute(select(InstagramAccount).where(
+        tenant.where(InstagramAccount), InstagramAccount.revoked_at.is_(None),
+        func.lower(InstagramAccount.username) == username.lower(), InstagramAccount.mode == IG_MODE_ROUTINE)
+    )).scalars().first()
+    if acc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Compte Instagram introuvable")
+    added = await cm.backfill_history(db, "instagram", acc.id, [d.model_dump() for d in body.days])
+    return {"added": added}
+
+
 @router.post("/routine/stats")
 async def routine_stats(body: RoutineStatsIn, db: AsyncSession = Depends(get_db),
                         user: User = Depends(get_routine_user)):

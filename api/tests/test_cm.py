@@ -16,7 +16,7 @@ import hashlib
 import hmac
 import json
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -98,6 +98,14 @@ class FakeMeta:
                  "like_count": 300, "comments_count": 12},
                 {"id": "img1", "media_type": "IMAGE", "like_count": 5, "timestamp": "2026-11-01T10:00:00+0000"},
             ]})
+        if path == f"{v}/{IG_ID}/insights":            # chiffres du compte jour par jour (historique)
+            q = parse_qs(req.url.query.decode())
+            if q["metric"] == ["views"]:
+                return httpx.Response(200, json={"data": [{"name": "views", "period": "day", "total_value": {"value": 100}}]})
+            since, until = int(q["since"][0]), int(q["until"][0])
+            ends = range(since + 86400, until + 1, 86400)
+            return httpx.Response(200, json={"data": [{"name": "follower_count", "period": "day", "values": [
+                {"value": 2, "end_time": datetime.utcfromtimestamp(e).strftime("%Y-%m-%dT07:00:00+0000")} for e in ends]}]})
         if path == f"{v}/media9/insights":
             return httpx.Response(200, json={"data": [{"name": "views", "values": [{"value": 15000}]},
                                                       {"name": "shares", "values": [{"value": 40}]},
@@ -563,6 +571,19 @@ async def test_instagram_oauth_publish_reel_and_stats(pg_session, cmenv, meta):
         overview = (await h.get("/api/cm/overview")).json()
         assert overview["totals"]["followers"] == 5400 and overview["totals"]["views"] == 15000
         assert overview["series"][-1]["views"] == 15000 and overview["top_videos"][0]["external_id"] == "media9"
+        # Historique d'avant le 1er relevé, reconstitué depuis les chiffres jour par jour d'Instagram
+        # (1re publication le 1er novembre : rien avant le 31 octobre), puis plus jamais redemandé.
+        hist = {s.day: s for s in (await pg_session.execute(select(CmAccountStat).where(
+            CmAccountStat.platform == "instagram", CmAccountStat.account_id == acc.id))).scalars()}
+        today = utcnow().date()
+        assert min(hist) == datetime(2026, 10, 31).date() and len(hist) == (today - min(hist)).days + 1
+        y = hist[today - timedelta(days=1)]
+        assert (y.views, y.followers) == (15000 - 100, 5400 - 2)
+        await pg_session.refresh(acc)
+        assert acc.history_done is True
+        before = len(meta.calls)
+        await cm.sync_account(pg_session, "instagram", acc)
+        assert not [r for r in meta.calls[before:] if r.url.path.endswith(f"/{IG_ID}/insights")]
 
 
 @pytest.mark.real_db
@@ -827,6 +848,37 @@ async def test_thumbnail_and_download_links(pg_session, cmenv, tmp_path):
         async with Client(pg_session) as c:
             r = await c.as_(u).get(f"/api/cm/posts/{post_id}/thumbnail")
             assert r.status_code == 200 and r.content.startswith(b"\xff\xd8")
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_routine_history_backfills_days_before_first_reading(pg_session, cmenv, monkeypatch):
+    """Historique Instagram envoyé par la routine : jours d'avant le 1er relevé reconstitués à rebours, jamais écrasés."""
+    from datetime import date
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_routine(pg_session, owner=u)
+    pg_session.add(CmAccountStat(platform="instagram", account_id=acc.id, day=date(2026, 11, 23), followers=1000, views=50_000))
+    pg_session.add(CmAccountStat(platform="instagram", account_id=acc.id, day=date(2026, 11, 24), followers=1010, views=52_000))
+    await pg_session.commit()
+    monkeypatch.setattr(settings, "CM_SERVICE_USER_EMAIL", "a@t.dev")
+    async with Client(pg_session) as c:
+        h = c.http
+        _service(h)
+        days = [{"day": "2026-11-23", "views": 3000, "followers_gained": 20},
+                {"day": "2026-11-22", "views": 2000, "followers_gained": 10},
+                {"day": "2026-11-21", "views": 1000, "followers_gained": 5},
+                {"day": "2026-11-24", "views": 999, "followers_gained": 999}]     # après le 1er relevé : ignoré
+        r = await h.post("/api/cm/routine/stats/history", json={"username": "ghosthands.music", "days": days})
+        assert r.status_code == 200, r.text
+        assert r.json()["added"] == 3
+        # Rejouer n'ajoute rien et ne modifie rien.
+        assert (await h.post("/api/cm/routine/stats/history", json={"username": "ghosthands.music", "days": days})).json()["added"] == 0
+    rows = {s.day: (s.followers, s.views) for s in (await pg_session.execute(
+        select(CmAccountStat).where(CmAccountStat.account_id == acc.id))).scalars()}
+    assert rows[date(2026, 11, 22)] == (980, 47_000)
+    assert rows[date(2026, 11, 21)] == (970, 45_000)
+    assert rows[date(2026, 11, 20)] == (965, 44_000)
+    assert rows[date(2026, 11, 24)] == (1010, 52_000)
 
 
 def test_media_links_expire_and_are_bound_to_the_target(monkeypatch):

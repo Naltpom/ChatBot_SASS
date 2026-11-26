@@ -26,7 +26,7 @@ import hashlib
 import hmac
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -229,6 +229,42 @@ async def refresh_token(token: str) -> dict:
 
 async def profile(token: str) -> dict:
     return await _request("GET", _graph("/me"), token=token, params={"fields": PROFILE_FIELDS})
+
+
+async def daily_history(token: str, ig_user_id: str, first: date, last: date) -> list[dict]:
+    """Chiffres du compte jour par jour, de `first` à `last` inclus : {day, views (vues du jour),
+    followers_gained (nouveaux abonnés du jour, Instagram ne les donne que sur ~30 jours)}.
+    Vues : une requête par jour (Instagram ne donne les vues du compte qu'en total sur une période)."""
+    out: dict[date, dict] = {}
+    day = first
+    while day <= last:
+        start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+        try:
+            body = await _request("GET", _graph(f"/{ig_user_id}/insights"), token=token, params={
+                "metric": "views", "period": "day", "metric_type": "total_value",
+                "since": int(start.timestamp()), "until": int((start + timedelta(days=1)).timestamp())})
+            tv = ((body.get("data") or [{}])[0].get("total_value") or {}).get("value")
+        except InstagramError:
+            tv = None
+        out[day] = {"day": day.isoformat(), "views": tv, "followers_gained": None}
+        day += timedelta(days=1)
+    # Nouveaux abonnés : par fenêtres de 30 jours ; la valeur finie à end_time compte pour la veille.
+    w = first
+    while w <= last:
+        end = min(w + timedelta(days=29), last)
+        try:
+            body = await _request("GET", _graph(f"/{ig_user_id}/insights"), token=token, params={
+                "metric": "follower_count", "period": "day",
+                "since": int(datetime(w.year, w.month, w.day, tzinfo=timezone.utc).timestamp()),
+                "until": int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp()) + 86400})
+            for v in (body.get("data") or [{}])[0].get("values") or []:
+                d = (datetime.fromisoformat(v["end_time"].replace("+0000", "+00:00")) - timedelta(days=1)).date()
+                if d in out and v.get("value") is not None:
+                    out[d]["followers_gained"] = int(v["value"])
+        except (InstagramError, KeyError, ValueError):
+            pass
+        w = end + timedelta(days=1)
+    return [out[d] for d in sorted(out)]
 
 
 # --------------------------------------------------------------------------

@@ -90,6 +90,8 @@ class InstagramAccount(Base):
     access_token_expires_at = Column(DateTime, nullable=True)
     needs_reconnect = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     revoked_at = Column(DateTime, nullable=True)
+    # Historique d'avant le 1er relevé (chiffres jour par jour d'Instagram) : récupéré par tranches, fini une fois.
+    history_done = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
