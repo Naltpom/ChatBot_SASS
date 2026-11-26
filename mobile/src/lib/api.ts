@@ -460,3 +460,8 @@ export const putAiConsent = (change: Partial<Pick<AiConsent, 'enabled' | AiKind 
 export const putAiPermissions = (platform: Platform, id: number, perms: Record<AiKind, boolean>) =>
   send<AiStatus>('PUT', `/api/cm/assistant/accounts/${platform}/${id}/permissions`, perms)
 export const eraseAiConversations = () => send<{ deleted: number }>('POST', '/api/cm/assistant/conversations/erase')
+
+// Clés d'accès du compte (les mêmes que sur le site) : lister, retirer.
+export interface PasskeyRow { id: number; name: string | null; created_at: string | null; last_used_at: string | null }
+export const getPasskeys = () => call<PasskeyRow[]>('/api/auth/2fa/webauthn/credentials')
+export const deletePasskey = (id: number) => send<{ ok: boolean }>('DELETE', `/api/auth/2fa/webauthn/credentials/${id}`)

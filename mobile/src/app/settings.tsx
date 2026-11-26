@@ -11,11 +11,11 @@ import { call } from '../lib/http'
 import { disablePush, enablePush, getPush, pushUnsupported, setPushPrefs, type PushPrefs, type PushState } from '../lib/push'
 import { fmtAgo } from '../lib/format'
 import { useSession } from '../lib/session'
-import { getProfile, patchProfile } from '../lib/api'
+import { deletePasskey, getPasskeys, getProfile, patchProfile, type PasskeyRow } from '../lib/api'
 import { Button, Card, Divider, Icon, Label, Msg, Row, Screen, Seg, Sheet, Txt, Field, type IconName } from '../ui/kit'
 import { PALETTE_PREVIEW, radius, space, useTheme, type Palette, type ThemePref } from '../ui/theme'
 import { Logo } from '../ui/Logo'
-import { enablePasskey, passkeyAvailable, passkeyDone, passkeyError } from '../lib/passkey'
+import { enablePasskey, forgetPasskey, passkeyAvailable, passkeyDone, passkeyError } from '../lib/passkey'
 import { currentIcon, iconAvailable, offerIcon } from '../lib/app-icon'
 import { showDialog } from '../ui/dialog'
 
@@ -41,6 +41,20 @@ export default function Settings() {
   const [pkMsg, setPkMsg] = useState<string | null>(null)
   const [codes, setCodes] = useState<string[] | null>(null)
   useEffect(() => { if (me) passkeyDone(me.id).then(setPasskey) }, [me?.id])
+  // Clés d'accès du compte (celles du site comprises) : on peut en retirer une, puis refaire celle de ce téléphone.
+  const [keys, setKeys] = useState<PasskeyRow[] | null>(null)
+  const loadKeys = () => getPasskeys().then(setKeys).catch(() => setKeys(null))
+  useEffect(() => { if (me) loadKeys() }, [me?.id, passkey]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Plus aucune clé sur le compte (retirée ici ou sur le site) : ce téléphone peut la refaire.
+  useEffect(() => { if (me && keys && keys.length === 0 && passkey) { forgetPasskey(me.id); setPasskey(false) } }, [keys]) // eslint-disable-line react-hooks/exhaustive-deps
+  const removeKey = (k: PasskeyRow) => showDialog(`Retirer « ${k.name || 'Clé d’accès'} » ?`,
+    'Elle ne servira plus à vous connecter. Vous pourrez réactiver l’empreinte ensuite. Pour l’effacer aussi du téléphone : Samsung Pass ou Gestionnaire de mots de passe Google.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Retirer', style: 'destructive', onPress: async () => {
+        try { await deletePasskey(k.id); if (me) await forgetPasskey(me.id); setPasskey(false); await loadKeys(); ok() }
+        catch (e) { setPkMsg((e as Error).message) }
+      } },
+    ])
   // Arrivée depuis la proposition après connexion (« Activer ») : on lance l'activation une fois.
   const { passkey: autoPk } = useLocalSearchParams<{ passkey?: string }>()
   const started = useRef(false)
@@ -158,6 +172,20 @@ export default function Settings() {
               {!passkey ? <Button small kind="primary" title="Activer" loading={pkBusy} onPress={activatePasskey} /> : null}
             </Row>
             {pkMsg ? <Msg kind="err">{pkMsg}</Msg> : null}
+            {keys?.length ? (
+              <View style={{ gap: 2 }}>
+                <Txt small bold muted>Clés d’accès de votre compte</Txt>
+                {keys.map(k => (
+                  <Row key={k.id} gap={space.md} style={{ justifyContent: 'space-between', minHeight: 44 }}>
+                    <View style={{ flex: 1 }}>
+                      <Txt numberOfLines={1}>{k.name || 'Clé d’accès'}</Txt>
+                      <Txt size={12} muted>{k.last_used_at ? `Utilisée ${fmtAgo(k.last_used_at)}` : k.created_at ? `Ajoutée ${fmtAgo(k.created_at)}` : 'Jamais utilisée'}</Txt>
+                    </View>
+                    <Button small kind="danger" title="Retirer" onPress={() => removeKey(k)} />
+                  </Row>
+                ))}
+              </View>
+            ) : null}
             <Divider />
           </>
         ) : null}
