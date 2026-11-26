@@ -20,10 +20,10 @@ import { useLoad, useRole, useSession } from '../session'
 import { useDesktop } from '../hooks'
 
 interface TikTokOpts { mode: 'direct' | 'draft'; privacy: string; comment: boolean; duet: boolean; stitch: boolean
-  commercial: boolean; yourBrand: boolean; branded: boolean; text: string }
+  commercial: boolean; yourBrand: boolean; branded: boolean; text: string; coverMs?: number | null }
 interface YouTubeOpts { title: string; description: string; privacy: string; kids: '' | 'yes' | 'no'; synthetic: boolean
   category: string; notify: boolean; tags: string }
-interface InstaOpts { text: string; feed: boolean }
+interface InstaOpts { text: string; feed: boolean; coverMs?: number | null }
 type Opts = TikTokOpts | YouTubeOpts | InstaOpts
 
 const key = (a: Account) => `${a.platform}:${a.id}`
@@ -35,11 +35,11 @@ function defaults(a: Account): Opts {
   return { text: '', feed: true }
 }
 
-const STEP_LABELS = ['Vidéo et texte', 'Comptes et heure', 'Réglages par réseau']
+const STEP_LABELS = ['Vidéo et texte', 'Comptes et heure', 'Chaque réseau']
 const STEP_INTRO = [
   'Vidéo, titre et légende : écrits une fois, ils partent sur tous les comptes.',
   'Choisissez les comptes et l’heure.',
-  'Dernière étape : vérifiez les réglages de chaque réseau, puis programmez.',
+  'Dernière étape : pour chaque réseau, sa miniature, ses textes (déjà remplis, modifiables) et ses réglages, puis programmez.',
 ]
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
@@ -75,6 +75,8 @@ export default function Composer() {
   const [rightsNote, setRightsNote] = useState('')
   const [picked, setPicked] = useState<string[]>([])
   const [opts, setOpts] = useState<Record<string, Opts>>({})
+  // Autre vidéo : les miniatures choisies (instants de l'ancienne vidéo) sont oubliées.
+  const forgetCovers = () => setOpts(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, 'coverMs' in v ? { ...v, coverMs: null } : v])))
   const [creators, setCreators] = useState<Record<string, CreatorInfo | 'loading' | { error: string }>>({})
   const [when, setWhen] = useState<'now' | 'at'>('at')
   const [at, setAt] = useState(() => { const d = new Date(Date.now() + 3600000); d.setMinutes(0, 0, 0); return toLocalInput(d) })
@@ -82,7 +84,6 @@ export default function Composer() {
   const [times, setTimes] = useState<Record<string, string>>({})
   const [progress, setProgress] = useState<number | null>(null)
   const [cover, setCover] = useState<File | null>(null)          // image Instagram à part (facultative)
-  const [coverMs, setCoverMs] = useState<number | null>(null)     // miniature : instant de la vidéo (TikTok, et Instagram sans image)
   const [coverUrl, setCoverUrl] = useState<string | null>(null)
   useEffect(() => () => { if (coverUrl) URL.revokeObjectURL(coverUrl) }, [coverUrl])
   const [err, setErr] = useState('')
@@ -100,7 +101,7 @@ export default function Composer() {
   const useAsset = (a: Asset) => {
     setAsset(a); setPicking(false); setErr('')
     setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null)
-    setDuration(a.duration_sec); setCoverMs(null)
+    setDuration(a.duration_sec); forgetCovers()
     setTitle(a.title.slice(0, 200))
     setCaption(a.caption || '')
     if (a.group_id) add(groupAccounts(a.group_id))
@@ -186,7 +187,7 @@ export default function Composer() {
   const set = <T extends Opts>(k: string, patch: Partial<T>) => setOpts(o => ({ ...o, [k]: { ...(o[k] as T), ...patch } }))
 
   const onFile = (f: File | null) => {
-    setFile(f); setDuration(null); setErr(''); setAsset(null); setCoverMs(null)
+    setFile(f); setDuration(null); setErr(''); setAsset(null); forgetCovers()
     if (preview) URL.revokeObjectURL(preview)
     setPreview(f ? URL.createObjectURL(f) : null)
     if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, '').slice(0, 100))
@@ -234,7 +235,7 @@ export default function Composer() {
       return { platform: a.platform, account_id: a.id, scheduled_at, options: {
         mode: t.mode, privacy_level: t.mode === 'direct' ? t.privacy : null, allow_comment: t.comment, allow_duet: t.duet,
         allow_stitch: t.stitch, brand_organic: t.commercial && t.yourBrand, brand_content: t.commercial && t.branded,
-        ...(t.mode === 'direct' && coverMs != null ? { cover_timestamp_ms: coverMs } : {}),
+        ...(t.mode === 'direct' && t.coverMs != null ? { cover_timestamp_ms: t.coverMs } : {}),
         ...(t.text.trim() ? { title: t.text } : {}) } }
     }
     if (a.platform === 'youtube') {
@@ -246,7 +247,7 @@ export default function Composer() {
     }
     const i = o as InstaOpts
     return { platform: a.platform, account_id: a.id, scheduled_at, options: { share_to_feed: i.feed,
-      ...(coverMs != null && !cover ? { thumb_offset_ms: coverMs } : {}), ...(i.text.trim() ? { caption: i.text } : {}) } }
+      ...(i.coverMs != null && !cover ? { thumb_offset_ms: i.coverMs } : {}), ...(i.text.trim() ? { caption: i.text } : {}) } }
   }
 
   const publish = async () => {
@@ -407,37 +408,18 @@ export default function Composer() {
                            detail={a => `${PLATFORM_LABEL[a.platform]}${a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}`} />
           </Section>}
 
-          {(file || asset) && (desktop ? chosen.some(a => a.platform !== 'youtube') || !chosen.length : step === 1) && (
-            <Section title="Miniature" aside="TikTok · Instagram · facultatif">
-              <span className="field-hint">Choisissez l’image de la vidéo qui sert de miniature. TikTok n’accepte qu’une image de la vidéo ; YouTube choisit lui-même celle des Shorts.</span>
-              <FramePicker src={preview || asset?.stream || (asset ? `/api/cm/assets/${asset.id}/stream` : null)} duration={duration}
-                           value={coverMs} onChange={setCoverMs} disabled={busy} />
-              <div className="col" style={{ gap: 6, borderTop: '1px solid var(--line, var(--surface-2))', paddingTop: 12 }}>
-                <span className="strong small">Instagram : une autre image (facultatif)</span>
-                <div className="row-nw" style={{ gap: 12, alignItems: 'center' }}>
-                  {coverUrl ? <img src={coverUrl} alt="Image Instagram choisie" style={{ width: 54, height: 96, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
-                    : <span aria-hidden="true" style={{ width: 54, height: 96, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
-                  <div className="col grow" style={{ gap: 6 }}>
-                    <label className="btn btn-sm" style={{ alignSelf: 'flex-start' }}>
-                      {cover ? 'Changer l’image' : 'Choisir une image'}
-                      <input type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy}
-                             onChange={e => { const f = e.target.files?.[0] || null; if (coverUrl) URL.revokeObjectURL(coverUrl); setCover(f); setCoverUrl(f ? URL.createObjectURL(f) : null) }} />
-                    </label>
-                    {cover && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => { setCover(null); if (coverUrl) URL.revokeObjectURL(coverUrl); setCoverUrl(null) }}>Retirer</button>}
-                    <span className="field-hint">JPEG ou PNG, 8 Mo max, prioritaire sur l’image de la vidéo pour Instagram. Sinon : l’image à côté de la vidéo dans le Drive{asset?.has_cover ? ' (trouvée)' : ''}, ou l’image choisie ci-dessus.</span>
-                  </div>
-                </div>
-              </div>
-            </Section>
-          )}
 
           {show(3) && chosen.length === 0 && <Msg>Choisissez d’abord les comptes (étape 2).</Msg>}
           {show(3) && chosen.map(a => {
             const k = key(a), o = opts[k]
             if (!o) return null
-            if (a.platform === 'tiktok') return <TikTokPanel key={k} account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} />
-            if (a.platform === 'youtube') return <YouTubePanel key={k} account={a} o={o as YouTubeOpts} busy={busy} set={p => set<YouTubeOpts>(k, p)} />
-            return <InstaPanel key={k} account={a} o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} />
+            const media: Media = { src: preview || asset?.stream || (asset ? `/api/cm/assets/${asset.id}/stream` : null), duration }
+            const common: Common = { title, caption }
+            if (a.platform === 'tiktok') return <TikTokPanel key={k} account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} media={media} common={common} />
+            if (a.platform === 'youtube') return <YouTubePanel key={k} account={a} o={o as YouTubeOpts} busy={busy} set={p => set<YouTubeOpts>(k, p)} common={common} />
+            return <InstaPanel key={k} account={a} o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} media={media} common={common}
+                               image={{ url: coverUrl, fromDrive: !!asset?.has_cover,
+                                        pick: f => { if (coverUrl) URL.revokeObjectURL(coverUrl); setCover(f); setCoverUrl(f ? URL.createObjectURL(f) : null) } }} />
           })}
 
           {show(3) && hasTikTok && (
@@ -494,17 +476,35 @@ export default function Composer() {
   )
 }
 
-function OwnText({ value, onChange, busy, label, max }: { value: string; onChange: (v: string) => void; busy: boolean; label: string; max: number }) {
+type Media = { src: string | null; duration: number | null }
+type Common = { title: string; caption: string }
+
+/** Texte propre à un réseau, déjà rempli avec le texte commun (modifié ici : seulement pour ce réseau). */
+function OwnText({ label, value, common, onChange, busy, max }: { label: string; value: string; common: string; onChange: (v: string) => void; busy: boolean; max: number }) {
+  const shown = value || common
+  const own = !!value && value !== common
   return (
-    <details open={!!value}>
-      <summary className="small" style={{ cursor: 'pointer', color: 'var(--accent)' }}>{label}</summary>
-      <textarea className="textarea" style={{ marginTop: 8 }} value={value} maxLength={max} disabled={busy} onChange={e => onChange(e.target.value)}
-                placeholder="Vide = la légende commune" />
-    </details>
+    <label className="field">{label}
+      <textarea className="textarea" value={shown} maxLength={max} disabled={busy} onChange={e => onChange(e.target.value === common ? '' : e.target.value)}
+                placeholder="Le texte sous la vidéo" />
+      <span className="field-hint">{shown.length.toLocaleString('fr-FR')} / {max.toLocaleString('fr-FR')} · {own ? <>propre à ce réseau · <button type="button" className="linkbtn" onClick={() => onChange('')} disabled={busy}>reprendre le texte commun</button></> : 'le texte commun'}</span>
+    </label>
   )
 }
 
-function TikTokPanel({ account, o, ci, busy, set }: { account: Account; o: TikTokOpts; ci: CreatorInfo | 'loading' | { error: string } | undefined; busy: boolean; set: (p: Partial<TikTokOpts>) => void }) {
+/** Miniature d'un réseau : une image de la vidéo (Instagram : ou une image envoyée à part). */
+function Thumb({ media, value, onChange, busy, note, children }: { media?: Media; value: number | null | undefined; onChange: (ms: number | null) => void; busy: boolean; note: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="col" style={{ gap: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+      <strong className="small">Miniature</strong>
+      <span className="field-hint">{note}</span>
+      {media && <FramePicker src={media.src} duration={media.duration} value={value ?? null} onChange={onChange} disabled={busy} />}
+      {children}
+    </div>
+  )
+}
+
+function TikTokPanel({ account, o, ci, busy, set, media, common }: { account: Account; o: TikTokOpts; ci: CreatorInfo | 'loading' | { error: string } | undefined; busy: boolean; set: (p: Partial<TikTokOpts>) => void; media: Media; common: Common }) {
   if (!ci || ci === 'loading') return <Section title={`TikTok · ${account.name}`}><Loading label="Lecture des options du compte TikTok…" /></Section>
   if ('error' in ci) return <Section title={`TikTok · ${account.name}`}><Msg kind="err">{ci.error}</Msg></Section>
   if (!ci.can_post || !ci.creator) return <Section title={`TikTok · ${account.name}`}><Msg kind="err">{ci.message}</Msg></Section>
@@ -522,7 +522,7 @@ function TikTokPanel({ account, o, ci, busy, set }: { account: Account; o: TikTo
       )}
       {direct ? (
         <>
-          <OwnText label="Légende propre à TikTok" value={o.text} onChange={v => set({ text: v })} busy={busy} max={2200} />
+          <OwnText label="Légende TikTok" value={o.text} common={common.caption || common.title} onChange={v => set({ text: v })} busy={busy} max={2200} />
           <label className="field">Qui peut voir cette vidéo
             <select className="select" value={o.privacy} disabled={busy} onChange={e => set({ privacy: e.target.value })}>
               <option value="" disabled>Choisir…</option>
@@ -558,16 +558,18 @@ function TikTokPanel({ account, o, ci, busy, set }: { account: Account; o: TikTo
       ) : (
         <p className="small muted" style={{ margin: 0 }}>La vidéo arrivera dans la boîte de réception TikTok du compte : vous terminerez la légende et la publication dans l'app.</p>
       )}
+      {direct && <Thumb media={media} value={o.coverMs} onChange={v => set({ coverMs: v })} busy={busy}
+                        note="TikTok prend une image de la vidéo : choisissez-la ici (sinon TikTok choisit)." />}
     </Section>
   )
 }
 
-function YouTubePanel({ account, o, busy, set }: { account: Account; o: YouTubeOpts; busy: boolean; set: (p: Partial<YouTubeOpts>) => void }) {
+function YouTubePanel({ account, o, busy, set, common }: { account: Account; o: YouTubeOpts; busy: boolean; set: (p: Partial<YouTubeOpts>) => void; common: Common }) {
   return (
     <Section title="YouTube" aside={`Short sur ${account.name}`}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <label className="field grow" style={{ flex: '1 1 220px' }}>Titre YouTube
-          <input className="input" value={o.title} maxLength={100} disabled={busy} onChange={e => set({ title: e.target.value })} placeholder="Vide = le titre de la publication" />
+          <input className="input" value={o.title || common.title.slice(0, 100)} maxLength={100} disabled={busy} onChange={e => set({ title: e.target.value === common.title ? '' : e.target.value })} placeholder="Le titre de la vidéo" />
         </label>
         <label className="field" style={{ flex: '1 1 160px' }}>Visibilité
           <select className="select" value={o.privacy} disabled={busy} onChange={e => set({ privacy: e.target.value })}>
@@ -580,7 +582,7 @@ function YouTubePanel({ account, o, busy, set }: { account: Account; o: YouTubeO
           </select>
         </label>
       </div>
-      <OwnText label="Description propre à YouTube" value={o.description} onChange={v => set({ description: v })} busy={busy} max={5000} />
+      <OwnText label="Description YouTube" value={o.description} common={common.caption} onChange={v => set({ description: v })} busy={busy} max={5000} />
       <label className="field">Mots-clés<input className="input" value={o.tags} disabled={busy} onChange={e => set({ tags: e.target.value })} placeholder="piano, debussy, partition" />
         <span className="field-hint">Séparés par des virgules.</span></label>
       <fieldset className="row" style={{ gap: 20 }}>
@@ -590,15 +592,33 @@ function YouTubePanel({ account, o, busy, set }: { account: Account; o: YouTubeO
       </fieldset>
       <Check label="Contenu modifié ou synthétique réaliste" hint="Une personne, un lieu ou un événement réaliste créé ou modifié (IA comprise)." checked={o.synthetic} disabled={busy} onChange={v => set({ synthetic: v })} />
       <Check label="Prévenir les abonnés" checked={o.notify} disabled={busy} onChange={v => set({ notify: v })} />
+      <Thumb busy={busy} value={null} onChange={() => {}} note="YouTube choisit lui-même l’image des Shorts : l’API ne permet pas de la choisir." />
     </Section>
   )
 }
 
-function InstaPanel({ account, o, busy, set }: { account: Account; o: InstaOpts; busy: boolean; set: (p: Partial<InstaOpts>) => void }) {
+function InstaPanel({ account, o, busy, set, media, common, image }: { account: Account; o: InstaOpts; busy: boolean; set: (p: Partial<InstaOpts>) => void
+  media: Media; common: Common; image: { url: string | null; fromDrive: boolean; pick: (f: File | null) => void } }) {
   return (
     <Section title="Instagram" aside={account.mode === 'routine' ? `Reel publié par la routine sur ${account.name}` : `Reel sur ${account.name}`}>
-      <OwnText label="Légende propre à Instagram" value={o.text} onChange={v => set({ text: v })} busy={busy} max={2200} />
+      <OwnText label="Légende Instagram" value={o.text} common={common.caption} onChange={v => set({ text: v })} busy={busy} max={2200} />
       <Check label="Afficher aussi le Reel dans le fil" checked={o.feed} disabled={busy} onChange={v => set({ feed: v })} />
+      <Thumb media={image.url ? undefined : media} value={o.coverMs} onChange={v => set({ coverMs: v })} busy={busy}
+             note={image.url ? 'Image envoyée à part : c’est elle qui sert de couverture.'
+               : `Une image de la vidéo, ou une autre image ci-dessous.${image.fromDrive ? ' Image trouvée à côté de la vidéo dans le Drive : utilisée si vous ne choisissez rien.' : ''}`}>
+        <div className="row-nw" style={{ gap: 12, alignItems: 'center' }}>
+          {image.url ? <img src={image.url} alt="Image de couverture choisie" style={{ width: 54, height: 96, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
+            : <span aria-hidden="true" style={{ width: 54, height: 96, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
+          <div className="col grow" style={{ gap: 6 }}>
+            <label className="btn btn-sm" style={{ alignSelf: 'flex-start' }}>
+              {image.url ? 'Changer l’image' : 'Choisir une autre image'}
+              <input type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy} onChange={e => image.pick(e.target.files?.[0] || null)} />
+            </label>
+            {image.url && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => image.pick(null)}>Retirer</button>}
+            <span className="field-hint">JPEG ou PNG, 8 Mo au plus. Même image pour tous les comptes Instagram de la publication.</span>
+          </div>
+        </div>
+      </Thumb>
     </Section>
   )
 }

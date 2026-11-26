@@ -25,15 +25,14 @@ import { Avatar, Button, Card, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg
 import { Missing, StepProgress } from '../ui/Progress'
 import { radius, space, useTheme } from '../ui/theme'
 import {
-  accKey, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, needsOptions, earliestSlot,
+  accKey, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, earliestSlot,
   stepProblems, tooClose,
   titleFromFile, YT_PRIVACY, type ComposeState, type CreatorState, type InstaOpts, type Opts, type TikTokOpts, type YouTubeOpts,
 } from '../features/planning/compose'
 import { AccountSheet } from '../features/planning/AccountSheet'
 import { LibrarySheet } from '../features/planning/LibrarySheet'
 import { apiUrl, openLink, useAuthHeaders } from '../features/planning/media'
-import { InstaPanel, TikTokPanel, YouTubePanel } from '../features/planning/Panels'
-import { FramePicker } from '../features/planning/FramePicker'
+import { InstaPanel, TikTokPanel, YouTubePanel, type Common, type Media } from '../features/planning/Panels'
 import { Check, DateTimeField, Section, TooSoon, useNow } from '../features/planning/ui'
 import { showDialog } from '../ui/dialog'
 
@@ -98,13 +97,11 @@ export default function NewPost() {
   const [sameTime, setSameTime] = useState(true)
   const [times, setTimes] = useState<Record<string, Date>>({})
   const [cover, setCover] = useState<Cover | null>(null)          // image Instagram à part (facultative)
-  const [coverMs, setCoverMs] = useState<number | null>(null)     // miniature : instant de la vidéo
   const [progress, setProgress] = useState<number | null>(null)
   const [err, setErr] = useState('')
   const [picking, setPicking] = useState(false)
   const [library, setLibrary] = useState(false)
   const [step, setStep] = useState<1 | 2 | 3>(1)
-  const [wantOpts, setWantOpts] = useState(false)
   const busy = progress != null
   const [errCode, setErrCode] = useState<string | null>(null)
   const published = useRef(false)
@@ -264,10 +261,13 @@ export default function NewPost() {
     } catch (e) { showDialog('Galerie indisponible', (e as Error).message) }
   }
 
-  useEffect(() => { setCoverMs(null) }, [video?.uri, asset?.id])
+  // Autre vidéo : les miniatures choisies (instants de l'ancienne vidéo) sont oubliées.
+  useEffect(() => {
+    setOpts(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, 'coverMs' in v ? { ...v, coverMs: null } : v])))
+  }, [video?.uri, asset?.id])
   const state: ComposeState = {
     hasVideo: !!video || !!asset, size: video ? video.size : null, duration: video ? video.duration : asset ? asset.duration_sec : null,
-    title, chosen, opts, creators, when, at, sameTime, times, coverMs, coverImage: !!cover,
+    title, chosen, opts, creators, when, at, sameTime, times, coverImage: !!cover,
   }
   const now = useNow()
   const sp = useMemo(() => stepProblems(state, config, now.getTime(), fmtSize, fmtDuration),
@@ -277,8 +277,8 @@ export default function NewPost() {
   const hasTikTok = chosen.some(a => a.platform === 'tiktok')
   const tiktokBranded = chosen.some(a => { const o = opts[accKey(a)] as TikTokOpts | undefined; return a.platform === 'tiktok' && o?.mode === 'direct' && o.commercial && o.branded })
   const n = chosen.length
-  const needOpts = needsOptions(chosen, opts)
-  const total = needOpts || wantOpts ? 3 : 2
+  // Toujours 3 étapes : la 3ᵉ montre chaque réseau, avec sa miniature et ses textes (déjà remplis avec ceux de l'étape 1).
+  const total: number = 3
   const timeOf = (k: string) => (when === 'now' ? new Date() : sameTime ? at : times[k] || at)
   const whenTxt = when === 'now' ? 'dès l’envoi de la vidéo'
     : sameTime ? at.toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'heures par compte'
@@ -392,11 +392,14 @@ export default function NewPost() {
     </View>
   )
 
-  const labels = ['Votre vidéo', 'Où et quand', 'Réglages par réseau']
+  const labels = ['Votre vidéo', 'Où et quand', 'Chaque réseau']
   const intro = step === 1 ? 'Vidéo, titre et légende : écrits une fois, ils partent sur tous les comptes.'
     : step === 2 ? (total === 2 ? 'Dernière étape : choisissez les comptes et l’heure, et c’est programmé.' : 'Plus qu’à choisir les comptes et l’heure.')
-    : `Encore un détail${nets.length ? ` demandé par ${nets.join(' et ')}` : ''}, et c’est en ligne.`
+    : `Chaque réseau : sa miniature, ses textes (déjà remplis, modifiables) et ses réglages${nets.length ? `. À compléter pour ${nets.join(' et ')}` : ''}.`
   const thumb = cover?.uri || null
+  const media: Media = { duration: state.duration,
+    source: video ? video.uri : asset && headers ? { uri: apiUrl(asset.stream || `/api/cm/assets/${asset.id}/stream`, org), headers } : null }
+  const common: Common = { title, caption }
 
   return (
     <>
@@ -455,24 +458,6 @@ export default function NewPost() {
                 hint={`${count.chars.toLocaleString('fr-FR')} / 2 200 · ${count.tags} hashtag${count.tags > 1 ? 's' : ''} · la même sur chaque compte`} />
             </Section>
 
-            {video || asset ? (
-              <Section title="Miniature" aside={<Txt small muted>Facultatif</Txt>}>
-                <Txt size={12} muted>L’image de la vidéo qui sert de miniature sur TikTok et Instagram. TikTok n’accepte qu’une image de la vidéo ; YouTube choisit lui-même celle des Shorts.</Txt>
-                <FramePicker key={video?.uri || `asset-${asset?.id}`}
-                  source={video ? video.uri : asset && headers ? { uri: apiUrl(asset.stream || `/api/cm/assets/${asset.id}/stream`, org), headers } : null}
-                  duration={state.duration} value={coverMs} onChange={setCoverMs} disabled={busy} />
-                <Txt bold small>Instagram : une autre image (facultatif)</Txt>
-                <Row gap={space.md} style={{ alignItems: 'center' }}>
-                  {cover ? <Image source={{ uri: cover.uri }} style={{ width: 54, height: 96, borderRadius: 8 }} contentFit="cover" accessibilityLabel="Image Instagram choisie" />
-                    : <View style={{ width: 54, height: 96, borderRadius: 8, backgroundColor: c.surface2, alignItems: 'center', justifyContent: 'center' }}><Icon name="upload" size={18} color={c.faint} /></View>}
-                  <View style={{ flex: 1, gap: 6 }}>
-                    <Button small title={cover ? 'Changer l’image' : 'Choisir une image'} disabled={busy} onPress={pickCover} style={{ alignSelf: 'flex-start' }} />
-                    {cover ? <Button small kind="ghost" title="Retirer" disabled={busy} onPress={() => setCover(null)} style={{ alignSelf: 'flex-start' }} /> : null}
-                    <Txt size={12} muted>Prioritaire sur l’image de la vidéo pour Instagram. Sinon : l’image à côté de la vidéo dans le Drive{asset?.has_cover ? ' (trouvée)' : ''}, ou l’image choisie ci-dessus.</Txt>
-                  </View>
-                </Row>
-              </Section>
-            ) : null}
 
             <Section title="Droits d’auteur" aside={<Txt small muted>Facultatif</Txt>}>
               <Txt small muted>La vidéo reprend-elle une œuvre (musique, chorégraphie, extrait) ?</Txt>
@@ -584,9 +569,6 @@ export default function NewPost() {
               </Section>
             ) : null}
 
-            {!needOpts && n && step === total ? (
-              <Button kind="ghost" icon="settings" title="Réglages par réseau (facultatif)" onPress={() => { setWantOpts(true); go(3) }} />
-            ) : null}
           </>
         ) : null}
 
@@ -599,9 +581,10 @@ export default function NewPost() {
               if (!o) return null
               return (
                 <Section key={k} title={a.name || PLATFORM_LABEL[a.platform]} aside={<Txt small muted>{PLATFORM_LABEL[a.platform]}</Txt>}>
-                  {a.platform === 'tiktok' ? <TikTokPanel account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} />
-                    : a.platform === 'youtube' ? <YouTubePanel o={o as YouTubeOpts} busy={busy} set={p => set<YouTubeOpts>(k, p)} />
-                    : <InstaPanel o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} />}
+                  {a.platform === 'tiktok' ? <TikTokPanel account={a} o={o as TikTokOpts} ci={creators[k]} busy={busy} set={p => set<TikTokOpts>(k, p)} media={media} common={common} />
+                    : a.platform === 'youtube' ? <YouTubePanel o={o as YouTubeOpts} busy={busy} set={p => set<YouTubeOpts>(k, p)} common={common} />
+                    : <InstaPanel o={o as InstaOpts} busy={busy} set={p => set<InstaOpts>(k, p)} media={media} common={common}
+                        image={{ uri: cover?.uri || null, pick: pickCover, remove: () => setCover(null), fromDrive: !!asset?.has_cover }} />}
                 </Section>
               )
             })}
