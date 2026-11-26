@@ -24,6 +24,7 @@ import { AccountPager } from '../components/AccountPager'
 import { ReviewSheet } from '../components/ReviewSheet'
 import { fmtTime as fmtMs } from '../components/FramePicker'
 import { LOCALE } from '../compose'
+import { t, locale } from '../i18n'
 
 interface TikTokOpts { mode: 'direct' | 'draft'; privacy: string; comment: boolean; duet: boolean; stitch: boolean
   commercial: boolean; yourBrand: boolean; branded: boolean; text: string; coverMs?: number | null; aigc?: boolean }
@@ -146,9 +147,9 @@ export default function Composer() {
   const org = chosen.length ? chosen[0].org_id ?? null : baseOrg
   const sameOrg = (a: Account) => (a.org_id ?? null) === org
   const why = (a: Account): string | null => {
-    if (!a.can_publish) return `Indisponible${a.needs_reconnect ? ' : à reconnecter' : ''}`
-    if (a.role === 'viewer') return 'Lecture seule'
-    if ((chosen.length || asset || draft) && !sameOrg(a)) return 'Autre propriétaire : publication à part'
+    if (!a.can_publish) return a.needs_reconnect ? t('Indisponible : à reconnecter') : t('Indisponible')
+    if (a.role === 'viewer') return t('Lecture seule')
+    if ((chosen.length || asset || draft) && !sameOrg(a)) return t('Autre propriétaire : publication à part')
     return null
   }
   const busy = progress != null
@@ -221,42 +222,42 @@ export default function Composer() {
     const k = key(a), o = opts[k], out: string[] = []
     if (!o) return out
     if (a.platform === 'tiktok') {
-      const t = o as TikTokOpts, ci = creators[k]
-      if (ci === 'loading') out.push('options du compte en cours de lecture…')
-      else if (!ci || 'error' in ci) out.push('options du compte TikTok illisibles.')
-      else if (!ci.can_post) out.push(ci.message || 'publication impossible sur ce compte.')
+      const tk = o as TikTokOpts, ci = creators[k]
+      if (ci === 'loading') out.push(t('options du compte en cours de lecture…'))
+      else if (!ci || 'error' in ci) out.push(t('options du compte TikTok illisibles.'))
+      else if (!ci.can_post) out.push(ci.message || t('publication impossible sur ce compte.'))
       else {
         const max = Math.min(ci.creator?.max_video_post_duration_sec || 600, 600)
-        if (duration != null && duration > max) out.push(`vidéo trop longue (${fmtDuration(max)} au plus sur ce compte).`)
-        if (t.mode === 'direct' && !t.privacy) out.push('choisissez qui peut voir la vidéo.')
-        if (t.mode === 'direct' && t.commercial && !t.yourBrand && !t.branded) out.push("indiquez si le contenu fait votre promotion, celle d'un tiers, ou les deux.")
+        if (duration != null && duration > max) out.push(t('vidéo trop longue ({max} au plus sur ce compte).', { max: fmtDuration(max) }))
+        if (tk.mode === 'direct' && !tk.privacy) out.push(t('choisissez qui peut voir la vidéo.'))
+        if (tk.mode === 'direct' && tk.commercial && !tk.yourBrand && !tk.branded) out.push(t("indiquez si le contenu fait votre promotion, celle d'un tiers, ou les deux."))
       }
     } else if (a.platform === 'youtube') {
       const y = o as YouTubeOpts
-      if (!y.kids) out.push('indiquez si la vidéo est conçue pour les enfants.')
-      if (duration != null && duration > (config?.youtube_max_duration_sec || 180)) out.push('vidéo trop longue pour un Short (3 min au plus).')
+      if (!y.kids) out.push(t('indiquez si la vidéo est conçue pour les enfants.'))
+      if (duration != null && duration > (config?.youtube_max_duration_sec || 180)) out.push(t('vidéo trop longue pour un Short (3 min au plus).'))
     } else if (duration != null && (duration < 3 || duration > (config?.instagram_max_duration_sec || 900))) {
-      out.push('un Reel dure de 3 s à 15 min.')
+      out.push(t('un Reel dure de 3 s à 15 min.'))
     }
     return out
   }
   const contentProblems = useMemo(() => {
     const out: string[] = []
-    if (!file && !asset) out.push('Choisissez une vidéo.')
-    if (!title.trim()) out.push('Donnez un titre à la publication.')
-    if (file && config && file.size > config.max_upload_bytes) out.push(`Vidéo trop volumineuse (${fmtSize(config.max_upload_bytes)} au plus).`)
+    if (!file && !asset) out.push(t('Choisissez une vidéo.'))
+    if (!title.trim()) out.push(t('Donnez un titre à la publication.'))
+    if (file && config && file.size > config.max_upload_bytes) out.push(t('Vidéo trop volumineuse ({max} au plus).', { max: fmtSize(config.max_upload_bytes) }))
     return out
   }, [file, asset, title, config])
   const soon = (d: string) => new Date(d).getTime() < Date.now() + 14 * 60000
   const targetProblems = useMemo(() => {
     const out: string[] = []
-    if (!chosen.length) out.push('Choisissez au moins un compte.')
-    if (when === 'at' && sameTime && soon(at)) out.push('Choisissez une heure au moins 15 minutes plus tard.')
-    if (when === 'at' && !sameTime) for (const a of chosen) if (times[key(a)] && soon(times[key(a)])) out.push(`${a.name} : choisissez une heure au moins 15 minutes plus tard.`)
-    if (chosen.some(a => a.platform === 'youtube') && !kids) out.push('Indiquez la limite d’âge à l’étape 1 (YouTube le demande).')
+    if (!chosen.length) out.push(t('Choisissez au moins un compte.'))
+    if (when === 'at' && sameTime && soon(at)) out.push(t('Choisissez une heure au moins 15 minutes plus tard.'))
+    if (when === 'at' && !sameTime) for (const a of chosen) if (times[key(a)] && soon(times[key(a)])) out.push(t('{account} : choisissez une heure au moins 15 minutes plus tard.', { account: a.name }))
+    if (chosen.some(a => a.platform === 'youtube') && !kids) out.push(t('Indiquez la limite d’âge à l’étape 1 (YouTube le demande).'))
     return out
   }, [chosen, when, at, sameTime, times, kids]) // eslint-disable-line react-hooks/exhaustive-deps
-  const problems = [...contentProblems, ...targetProblems, ...chosen.flatMap(a => accProblems(a).map(p => `${a.name || PLATFORM_LABEL[a.platform]} : ${p}`))]
+  const problems = [...contentProblems, ...targetProblems, ...chosen.flatMap(a => accProblems(a).map(p => t('{account} : {problem}', { account: a.name || PLATFORM_LABEL[a.platform], problem: p })))]
   // Réglages compte par compte seulement si un réseau en demande (TikTok direct : visibilité à choisir à la main).
   const needSettings = chosen.some(a => a.platform === 'tiktok' && (opts[key(a)] as TikTokOpts)?.mode === 'direct')
     || chosen.some(a => accProblems(a).length > 0)
@@ -288,14 +289,14 @@ export default function Composer() {
   const publish = async () => {
     if ((!file && !asset) || problems.length) return
     if ((rights === 'protected' || rights === 'unknown') && chosen.length
-        && !window.confirm(`${RIGHTS_WARNING}\n\nPublier quand même sur ${[...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ')} ?`)) return
+        && !window.confirm(`${t(RIGHTS_WARNING)}\n\n${t('Publier quand même sur {platforms} ?', { platforms: [...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ') })}`)) return
     setReview(false); setErr(''); setProgress(0)
     const rightsBody = rights ? { rights, rights_note: rightsNote.trim() || undefined } : {}
     try {
       if (asset) {
         const made = await createPost({ org_id: org, title: title.trim(), caption, asset_id: asset.id, ...rightsBody, targets: chosen.map(buildTarget) })
         if (cover) await putCover(made.post_id, cover)
-        nav('/planning', { state: { flash: when === 'now' ? 'Publication lancée depuis la bibliothèque.' : 'Publication programmée : la vidéo sera récupérée dans le Drive à l’heure prévue.' } })
+        nav('/planning', { state: { flash: when === 'now' ? t('Publication lancée depuis la bibliothèque.') : t('Publication programmée : la vidéo sera récupérée dans le Drive à l’heure prévue.') } })
         return
       }
       if (!file) return
@@ -308,7 +309,7 @@ export default function Composer() {
       }
       if (cover) await putCover(plan.post_id, cover)
       await submitPost(plan.post_id)
-      nav('/planning', { state: { flash: when === 'now' ? 'Publication lancée.' : 'Publication programmée.' } })
+      nav('/planning', { state: { flash: when === 'now' ? t('Publication lancée.') : t('Publication programmée.') } })
     } catch (e) {
       setErr((e as Error).message)
       setProgress(null)
@@ -333,51 +334,53 @@ export default function Composer() {
   }
   const recap = (a: Account): [string, string][] => {
     const o = opts[key(a)]
-    const ms = (v: number | null | undefined) => (v == null ? 'choisie par le réseau' : `image à ${fmtMs(v / 1000)}`)
-    const yes = (b: boolean) => (b ? 'oui' : 'non')
+    const ms = (v: number | null | undefined) => (v == null ? t('choisie par le réseau') : t('image à {time}', { time: fmtMs(v / 1000) }))
+    const yes = (b: boolean) => (b ? t('oui') : t('non'))
     if (!o) return []
     if (a.platform === 'tiktok') {
-      const t = o as TikTokOpts
-      if (t.mode === 'draft') return [['Mode', 'brouillon dans l’app TikTok'], ['Légende', 'à écrire dans l’app']]
-      return [['Légende', (t.text || caption || title).trim() || '—'], ['Visibilité', t.privacy ? TIKTOK_PRIVACY[t.privacy] || t.privacy : 'à choisir'],
-        ['Autorisés', [t.comment && 'commentaires', t.duet && 'duos', t.stitch && 'collages'].filter(Boolean).join(', ') || 'rien'],
-        ['Miniature', ms(t.coverMs)], ['Contenu IA', yes(!!t.aigc)],
-        ...(t.commercial ? [['Contenu commercial', [t.yourBrand && 'votre marque', t.branded && 'contenu de marque'].filter(Boolean).join(' + ') || 'à préciser'] as [string, string]] : [])]
+      const tk = o as TikTokOpts
+      if (tk.mode === 'draft') return [[t('Mode'), t('brouillon dans l’app TikTok')], [t('Légende'), t('à écrire dans l’app')]]
+      return [[t('Légende'), (tk.text || caption || title).trim() || '—'], [t('Visibilité'), tk.privacy ? (TIKTOK_PRIVACY[tk.privacy] ? t(TIKTOK_PRIVACY[tk.privacy]) : tk.privacy) : t('à choisir')],
+        [t('Autorisés'), [tk.comment && t('commentaires'), tk.duet && t('duos'), tk.stitch && t('collages')].filter(Boolean).join(', ') || t('rien')],
+        [t('Miniature'), ms(tk.coverMs)], [t('Contenu IA'), yes(!!tk.aigc)],
+        ...(tk.commercial ? [[t('Contenu commercial'), [tk.yourBrand && t('votre marque'), tk.branded && t('contenu de marque')].filter(Boolean).join(' + ') || t('à préciser')] as [string, string]] : [])]
     }
     if (a.platform === 'youtube') {
       const y = o as YouTubeOpts
-      return [['Titre', (y.title || title).trim() || '—'], ['Description', (y.description || caption).trim() || '—'],
-        ['Visibilité', ({ public: 'Publique', unlisted: 'Non répertoriée', private: 'Privée' } as Record<string, string>)[y.privacy] || y.privacy],
-        ['Catégorie', YT_CATEGORIES.find(([v]) => v === y.category)?.[1] || y.category],
-        ['Pour les enfants', y.kids ? yes(y.kids === 'yes') : 'à indiquer'], ['Contenu IA', yes(y.synthetic)], ['Miniature', 'choisie par YouTube']]
+      const yv = ({ public: 'Publique', unlisted: 'Non répertoriée', private: 'Privée' } as Record<string, string>)[y.privacy]
+      const yc = YT_CATEGORIES.find(([v]) => v === y.category)?.[1]
+      return [[t('Titre'), (y.title || title).trim() || '—'], [t('Description'), (y.description || caption).trim() || '—'],
+        [t('Visibilité'), yv ? t(yv) : y.privacy],
+        [t('Catégorie'), yc ? t(yc) : y.category],
+        [t('Pour les enfants'), y.kids ? yes(y.kids === 'yes') : t('à indiquer')], [t('Contenu IA'), yes(y.synthetic)], [t('Miniature'), t('choisie par YouTube')]]
     }
     const i = o as InstaOpts
-    return [['Légende', (i.text || caption).trim() || '—'], ['Fil', i.feed ? 'Reel + fil' : 'Reel seulement'],
-      ['Couverture', cover ? 'image envoyée à part' : ms(i.coverMs)]]
+    return [[t('Légende'), (i.text || caption).trim() || '—'], [t('Fil'), i.feed ? t('Reel + fil') : t('Reel seulement')],
+      [t('Couverture'), cover ? t('image envoyée à part') : ms(i.coverMs)]]
   }
   const canPlan = canEdit && !busy && !contentProblems.length && !targetProblems.length
   const planBtn = (
     <button type="button" className="btn btn-primary btn-lg" disabled={!canPlan} onClick={() => setReview(true)}>
-      <Icon name={when === 'now' ? 'bolt' : 'clock'} />{when === 'now' ? 'Publier' : 'Planifier'}
+      <Icon name={when === 'now' ? 'bolt' : 'clock'} />{when === 'now' ? t('Publier') : t('Planifier')}
     </button>
   )
   const blocking = step === 1 ? contentProblems : step === 2 ? targetProblems : problems
 
   return (
     <div className="compose-flow col" style={{ gap: 16 }}>
-      <div className="steps" aria-label={`Étape ${step} sur ${total} : ${STEP_LABELS[step - 1]}`}>
-        <div className="row between small"><span className="strong">{STEP_LABELS[step - 1]}</span><span className="muted">Étape {step} sur {total}</span></div>
+      <div className="steps" aria-label={t('Étape {step} sur {total} : {label}', { step, total, label: t(STEP_LABELS[step - 1]) })}>
+        <div className="row between small"><span className="strong">{t(STEP_LABELS[step - 1])}</span><span className="muted">{t('Étape {step} sur {total}', { step, total })}</span></div>
         <div className="steps-bar" aria-hidden="true">{Array.from({ length: total }, (_, n) => <span key={n} className={n < step ? 'on' : ''} />)}</div>
       </div>
-      {!canEdit && <Msg kind="err">Vous êtes en « Lecture seule » sur ces comptes : demandez « Peut publier » à leur propriétaire.</Msg>}
+      {!canEdit && <Msg kind="err">{t('Vous êtes en « Lecture seule » sur ces comptes : demandez « Peut publier » à leur propriétaire.')}</Msg>}
       {accounts.loading && !accounts.data && <Loading />}
       {accounts.data && all.length === 0 && (
-        <Msg>Aucun compte connecté. <Link to="/comptes">Connectez TikTok, YouTube ou Instagram</Link> pour publier.</Msg>
+        <Msg>{t('Aucun compte connecté.')} <Link to="/comptes">{t('Connectez TikTok, YouTube ou Instagram')}</Link> {t('pour publier.')}</Msg>
       )}
 
       {step === 1 && (
         <>
-          <section className="card col" style={{ gap: 12 }} aria-label="Vidéo">
+          <section className="card col" style={{ gap: 12 }} aria-label={t('Vidéo')}>
             {asset && (
               <div className="row-nw" style={{ gap: 12, alignItems: 'flex-start' }}>
                 {asset.thumbnail ? <img src={asset.thumbnail} alt="" width={72} height={104} style={{ width: 72, height: 104, objectFit: 'cover', borderRadius: 10, flex: 'none', background: 'var(--surface-2)' }} />
@@ -396,64 +399,64 @@ export default function Composer() {
             )}
             <div className="row-nw" style={{ gap: 8 }}>
               {robot.data?.enabled && (
-                <button type="button" className="btn" style={{ flex: 1 }} disabled={busy} onClick={() => setPicking(true)}><Icon name="layers" />Bibliothèque</button>
+                <button type="button" className="btn" style={{ flex: 1 }} disabled={busy} onClick={() => setPicking(true)}><Icon name="layers" />{t('Bibliothèque')}</button>
               )}
               <label className="btn" style={{ flex: 1 }}>
-                <Icon name="upload" />{file ? 'Autre fichier' : 'Fichier'}
+                <Icon name="upload" />{file ? t('Autre fichier') : t('Fichier')}
                 <input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" disabled={busy} className="sr-only"
                        onChange={e => onFile(e.target.files?.[0] || null)} />
               </label>
             </div>
-            {!hasVideo && <span className="tiny muted" style={{ textAlign: 'center' }}>MP4 ou MOV, vertical, {config ? fmtSize(config.max_upload_bytes) : '1 Go'} au plus</span>}
+            {!hasVideo && <span className="tiny muted" style={{ textAlign: 'center' }}>{t('MP4 ou MOV, vertical, {max} au plus', { max: config ? fmtSize(config.max_upload_bytes) : t('1 Go') })}</span>}
           </section>
 
           {hasVideo && (
-            <section className="card col" style={{ gap: 14, scrollMarginTop: 80 }} ref={textCard} aria-label="Titre et légende">
+            <section className="card col" style={{ gap: 14, scrollMarginTop: 80 }} ref={textCard} aria-label={t('Titre et légende')}>
               <label className="field">
-                <span className="row-nw" style={{ gap: 6 }}>Titre
-                  <button type="button" className="icon-btn btn-ghost" style={{ minHeight: 0, padding: 2 }} aria-label="À quoi sert le titre"
-                          onClick={() => window.alert('Le titre est le nom de la publication dans votre planning. Il est aussi proposé aux réseaux qui acceptent un titre (modifiable pour chacun dans les réglages).')}>
+                <span className="row-nw" style={{ gap: 6 }}>{t('Titre')}
+                  <button type="button" className="icon-btn btn-ghost" style={{ minHeight: 0, padding: 2 }} aria-label={t('À quoi sert le titre')}
+                          onClick={() => window.alert(t('Le titre est le nom de la publication dans votre planning. Il est aussi proposé aux réseaux qui acceptent un titre (modifiable pour chacun dans les réglages).'))}>
                     <Icon name="info" size={16} />
                   </button>
                 </span>
-                <input className="input" value={title} maxLength={200} disabled={busy} onChange={e => setTitle(e.target.value)} placeholder="Ex. : Tuto coiffure en 30 secondes" />
+                <input className="input" value={title} maxLength={200} disabled={busy} onChange={e => setTitle(e.target.value)} placeholder={t('Ex. : Tuto coiffure en 30 secondes')} />
               </label>
               <label className="field">
-                <span className="row between">Légende
-                  {caption.length > 120 && <button type="button" className="linkbtn small" onClick={() => setCaptionOpen(o => !o)} aria-expanded={captionOpen}>{captionOpen ? 'Réduire' : 'Tout afficher'}</button>}
+                <span className="row between">{t('Légende')}
+                  {caption.length > 120 && <button type="button" className="linkbtn small" onClick={() => setCaptionOpen(o => !o)} aria-expanded={captionOpen}>{captionOpen ? t('Réduire') : t('Tout afficher')}</button>}
                 </span>
                 <textarea className="textarea" value={caption} disabled={busy} onChange={e => setCaption(e.target.value)} maxLength={2200}
                           rows={captionOpen ? Math.min(30, caption.split('\n').length + Math.ceil(caption.length / 60)) : 4}
-                          placeholder="Le texte sous la vidéo, avec vos #hashtags" />
-                <span className="field-hint">{caption.length.toLocaleString(LOCALE)} / 2 200 · {(caption.match(/#/g) || []).length} hashtag(s)</span>
+                          placeholder={t('Le texte sous la vidéo, avec vos #hashtags')} />
+                <span className="field-hint">{t('{count} / 2 200 · {n} hashtag(s)', { count: caption.length.toLocaleString(LOCALE), n: (caption.match(/#/g) || []).length })}</span>
               </label>
             </section>
           )}
 
           {hasVideo && (
-            <section className="card col" style={{ gap: 14 }} aria-label="Public, droits et IA">
+            <section className="card col" style={{ gap: 14 }} aria-label={t('Public, droits et IA')}>
               <div className="col" style={{ gap: 6 }}>
-                <span className="small strong">Limite d’âge</span>
-                <Seg<'' | 'yes' | 'no'> label="Vidéo conçue pour les enfants" value={kids} onChange={v => !busy && setKids(v)}
-                     options={[['no', 'Tout public'], ['yes', 'Pour les enfants']]} />
-                <span className="field-hint">« Pour les enfants » : conçue avant tout pour les moins de 13 ans (YouTube le demande à chaque vidéo).</span>
+                <span className="small strong">{t('Limite d’âge')}</span>
+                <Seg<'' | 'yes' | 'no'> label={t('Vidéo conçue pour les enfants')} value={kids} onChange={v => !busy && setKids(v)}
+                     options={[['no', t('Tout public')], ['yes', t('Pour les enfants')]]} />
+                <span className="field-hint">{t('« Pour les enfants » : conçue avant tout pour les moins de 13 ans (YouTube le demande à chaque vidéo).')}</span>
               </div>
               <div className="col" role="group" aria-labelledby="t-droits" style={{ gap: 6, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-                <span id="t-droits" className="small strong">Droits d’auteur</span>
-                <span className="field-hint">La vidéo reprend-elle une œuvre (musique, chorégraphie, extrait) ?</span>
-                <div className="seg" role="radiogroup" aria-label="Droits d’auteur">
+                <span id="t-droits" className="small strong">{t('Droits d’auteur')}</span>
+                <span className="field-hint">{t('La vidéo reprend-elle une œuvre (musique, chorégraphie, extrait) ?')}</span>
+                <div className="seg" role="radiogroup" aria-label={t('Droits d’auteur')}>
                   {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
                     <button key={r} type="button" role="radio" aria-checked={rights === r} aria-pressed={rights === r} disabled={busy}
-                            onClick={() => setRights(rights === r ? '' : r)}>{RIGHTS_LABEL[r]}</button>
+                            onClick={() => setRights(rights === r ? '' : r)}>{t(RIGHTS_LABEL[r])}</button>
                   ))}
                 </div>
-                {(rights === 'protected' || rights === 'unknown') && <div role="alert" className="msg msg-warn">{RIGHTS_WARNING}</div>}
+                {(rights === 'protected' || rights === 'unknown') && <div role="alert" className="msg msg-warn">{t(RIGHTS_WARNING)}</div>}
                 {rights && <input className="input" value={rightsNote} maxLength={300} disabled={busy} onChange={e => setRightsNote(e.target.value)}
-                                  placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" aria-label="Note sur les droits" />}
+                                  placeholder={t('Note (ex. reprise — Wicked, Stephen Schwartz)')} aria-label={t('Note sur les droits')} />}
               </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-                <Check label="Contenu généré ou modifié par IA" checked={ai} disabled={busy} onChange={setAi}
-                       hint="Une personne, un lieu ou un événement réaliste créé ou modifié (IA comprise). Signalé à YouTube et TikTok." />
+                <Check label={t('Contenu généré ou modifié par IA')} checked={ai} disabled={busy} onChange={setAi}
+                       hint={t('Une personne, un lieu ou un événement réaliste créé ou modifié (IA comprise). Signalé à YouTube et TikTok.')} />
               </div>
             </section>
           )}
@@ -462,14 +465,14 @@ export default function Composer() {
 
       {step === 2 && (
         <>
-          <Section title="Comptes" aside={chosen.length ? `${chosen.length} compte${chosen.length > 1 ? 's' : ''}` : undefined}>
+          <Section title={t('Comptes')} aside={chosen.length ? (chosen.length > 1 ? t('{n} comptes', { n: chosen.length }) : t('{n} compte', { n: chosen.length })) : undefined}>
             {chosen.length > 0 && (
-              <ul className="chosen" aria-label="Comptes choisis">
+              <ul className="chosen" aria-label={t('Comptes choisis')}>
                 {chosen.map(a => (
                   <li key={key(a)} className="fchip fchip-acc">
                     <span className="fchip-av"><Avatar src={a.avatar_url} name={a.name} size="sm" /><PlatformLogo platform={a.platform} size={12} /></span>
                     <span className="ellipsis" style={{ maxWidth: 160 }}>{a.name}</span>
-                    <button type="button" className="chosen-x" aria-label={`Retirer ${a.name}`} disabled={busy} onClick={() => toggle(a)}><Icon name="close" size={14} /></button>
+                    <button type="button" className="chosen-x" aria-label={t('Retirer {name}', { name: a.name })} disabled={busy} onClick={() => toggle(a)}><Icon name="close" size={14} /></button>
                   </li>
                 ))}
               </ul>
@@ -484,18 +487,18 @@ export default function Composer() {
                            disabled={why} ownerOf={ownerOf}
                            detail={a => `${PLATFORM_LABEL[a.platform]}${a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}`} />
           </Section>
-          <Section title="Quand">
-            <Seg<'at' | 'now'> label="Quand" value={when} onChange={v => !busy && setWhen(v)} options={[['at', 'Planifier'], ['now', 'Tout de suite']]} />
+          <Section title={t('Quand')}>
+            <Seg<'at' | 'now'> label={t('Quand')} value={when} onChange={v => !busy && setWhen(v)} options={[['at', t('Planifier')], ['now', t('Tout de suite')]]} />
             {when === 'at' ? (
               <div className="col" style={{ gap: 12 }}>
                 {sameTime && <DateParts value={new Date(at)} onChange={d => setAt(toLocalInput(d))} disabled={busy} />}
-                {chosen.length > 1 && <Check label="Même jour et heure pour tous les comptes" checked={sameTime} onChange={setSameTime} disabled={busy} />}
+                {chosen.length > 1 && <Check label={t('Même jour et heure pour tous les comptes')} checked={sameTime} onChange={setSameTime} disabled={busy} />}
                 {!sameTime && chosen.map(a => (
                   <DateParts key={key(a)} label={`${a.name} (${PLATFORM_LABEL[a.platform]})`} value={new Date(times[key(a)] || at)} disabled={busy}
                              onChange={d => setTimes(t => ({ ...t, [key(a)]: toLocalInput(d) }))} />
                 ))}
               </div>
-            ) : <span className="small muted">La publication part dès que la vidéo est envoyée.</span>}
+            ) : <span className="small muted">{t('La publication part dès que la vidéo est envoyée.')}</span>}
           </Section>
         </>
       )}
@@ -508,42 +511,42 @@ export default function Composer() {
       {step > 1 && hasTikTok && (
         <p className="tiny muted" style={{ margin: 0 }}>
           {tiktokBranded
-            ? <>En publiant, vous acceptez la <a href={TIKTOK_BC_URL} target="_blank" rel="noreferrer">Branded Content Policy</a> et la <a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a> de TikTok.</>
-            : <>En publiant, vous acceptez la <a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a> de TikTok.</>}
-          {' '}Le traitement peut prendre quelques minutes avant que la vidéo soit visible.
+            ? <>{t('En publiant, vous acceptez la')} <a href={TIKTOK_BC_URL} target="_blank" rel="noreferrer">Branded Content Policy</a>{t(' et la ')}<a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a>{t(' de TikTok.')}</>
+            : <>{t('En publiant, vous acceptez la')} <a href={TIKTOK_MUSIC_URL} target="_blank" rel="noreferrer">Music Usage Confirmation</a>{t(' de TikTok.')}</>}
+          {' '}{t('Le traitement peut prendre quelques minutes avant que la vidéo soit visible.')}
         </p>
       )}
       {err && <Msg kind="err">{err}</Msg>}
 
       <div className="actionbar">
         <div className="col" style={{ gap: 6, flex: 1, minWidth: 0 }}>
-          <span className="small muted ellipsis">{busy ? `Envoi de la vidéo… ${Math.round((progress || 0) * 100)} %` : blocking[0] || (step === 2 && !needSettings && chosen.length
-            ? <button type="button" className="linkbtn" onClick={() => go(3)}>Régler chaque compte (facultatif)</button> : '')}</span>
+          <span className="small muted ellipsis">{busy ? t('Envoi de la vidéo… {pct} %', { pct: Math.round((progress || 0) * 100) }) : blocking[0] || (step === 2 && !needSettings && chosen.length
+            ? <button type="button" className="linkbtn" onClick={() => go(3)}>{t('Régler chaque compte (facultatif)')}</button> : '')}</span>
           {busy && <div className="progress"><span style={{ width: `${Math.round((progress || 0) * 100)}%` }} /></div>}
         </div>
         <div className="row-nw" style={{ gap: 8 }}>
-          {step > 1 ? <button type="button" className="btn" disabled={busy} onClick={() => go((step - 1) as 1 | 2)}><Icon name="left" />Retour</button>
-            : <Link className="btn" to="/planning">Annuler</Link>}
-          {step === 1 && <button type="button" className="btn btn-primary btn-lg" disabled={contentProblems.length > 0} onClick={() => go(2)}>Suivant<Icon name="right" /></button>}
+          {step > 1 ? <button type="button" className="btn" disabled={busy} onClick={() => go((step - 1) as 1 | 2)}><Icon name="left" />{t('Retour')}</button>
+            : <Link className="btn" to="/planning">{t('Annuler')}</Link>}
+          {step === 1 && <button type="button" className="btn btn-primary btn-lg" disabled={contentProblems.length > 0} onClick={() => go(2)}>{t('Suivant')}<Icon name="right" /></button>}
           {step === 2 && (needSettings
-            ? <button type="button" className="btn btn-primary btn-lg" disabled={targetProblems.length > 0} onClick={() => go(3)}>Suivant · réglages<Icon name="right" /></button>
+            ? <button type="button" className="btn btn-primary btn-lg" disabled={targetProblems.length > 0} onClick={() => go(3)}>{t('Suivant · réglages')}<Icon name="right" /></button>
             : planBtn)}
           {step === 3 && planBtn}
         </div>
       </div>
 
       {review && (
-        <ReviewSheet onClose={() => setReview(false)} accounts={chosen} busy={busy} finalLabel={when === 'now' ? 'Valider et publier' : 'Valider et planifier'}
+        <ReviewSheet onClose={() => setReview(false)} accounts={chosen} busy={busy} finalLabel={when === 'now' ? t('Valider et publier') : t('Valider et planifier')}
                      when={a => (when === 'now' ? null : timeOf(a))} recap={recap} problems={accProblems} renderEdit={panel}
                      onRemove={a => toggle(a)} onDone={publish} />
       )}
       {picking && (
-        <Sheet title="Choisir dans la bibliothèque" onClose={() => setPicking(false)}>
+        <Sheet title={t('Choisir dans la bibliothèque')} onClose={() => setPicking(false)}>
           <div className="col" style={{ gap: 12 }}>
-            <input className="input" type="search" placeholder="Rechercher (nom, légende, dossier)" aria-label="Rechercher une vidéo"
+            <input className="input" type="search" placeholder={t('Rechercher (nom, légende, dossier)')} aria-label={t('Rechercher une vidéo')}
                    value={pickQ} onChange={e => setPickQ(e.target.value)} />
             <AssetGrid state="all" q={pickQ.trim()} onOpen={useAsset} />
-            <Link className="small" to="/bibliotheque">Gérer les dossiers Drive</Link>
+            <Link className="small" to="/bibliotheque">{t('Gérer les dossiers Drive')}</Link>
           </div>
         </Sheet>
       )}
@@ -561,8 +564,8 @@ function OwnText({ label, value, common, onChange, busy, max }: { label: string;
   return (
     <label className="field">{label}
       <textarea className="textarea" value={shown} maxLength={max} disabled={busy} onChange={e => onChange(e.target.value === common ? '' : e.target.value)}
-                placeholder="Le texte sous la vidéo" />
-      <span className="field-hint">{shown.length.toLocaleString('fr-FR')} / {max.toLocaleString('fr-FR')} · {own ? <>propre à ce réseau · <button type="button" className="linkbtn" onClick={() => onChange('')} disabled={busy}>reprendre le texte commun</button></> : 'le texte commun'}</span>
+                placeholder={t('Le texte sous la vidéo')} />
+      <span className="field-hint">{shown.length.toLocaleString(locale())} / {max.toLocaleString(locale())} · {own ? <>{t('propre à ce réseau')} · <button type="button" className="linkbtn" onClick={() => onChange('')} disabled={busy}>{t('reprendre le texte commun')}</button></> : t('le texte commun')}</span>
     </label>
   )
 }
@@ -571,7 +574,7 @@ function OwnText({ label, value, common, onChange, busy, max }: { label: string;
 function Thumb({ media, value, onChange, busy, note, children }: { media?: Media; value: number | null | undefined; onChange: (ms: number | null) => void; busy: boolean; note: ReactNode; children?: ReactNode }) {
   return (
     <div className="col" style={{ gap: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-      <strong className="small">Miniature</strong>
+      <strong className="small">{t('Miniature')}</strong>
       <span className="field-hint">{note}</span>
       {media && <FramePicker src={media.src} duration={media.duration} value={value ?? null} onChange={onChange} disabled={busy} />}
       {children}
@@ -580,95 +583,95 @@ function Thumb({ media, value, onChange, busy, note, children }: { media?: Media
 }
 
 function TikTokPanel({ account, o, ci, busy, set, media, common }: { account: Account; o: TikTokOpts; ci: CreatorInfo | 'loading' | { error: string } | undefined; busy: boolean; set: (p: Partial<TikTokOpts>) => void; media: Media; common: Common }) {
-  if (!ci || ci === 'loading') return <Section title={`TikTok · ${account.name}`}><Loading label="Lecture des options du compte TikTok…" /></Section>
+  if (!ci || ci === 'loading') return <Section title={`TikTok · ${account.name}`}><Loading label={t('Lecture des options du compte TikTok…')} /></Section>
   if ('error' in ci) return <Section title={`TikTok · ${account.name}`}><Msg kind="err">{ci.error}</Msg></Section>
   if (!ci.can_post || !ci.creator) return <Section title={`TikTok · ${account.name}`}><Msg kind="err">{ci.message}</Msg></Section>
   const c = ci.creator
   const direct = o.mode === 'direct'
   const brandedOn = direct && o.commercial && o.branded
   return (
-    <Section title="TikTok" aside={<span className="row" style={{ gap: 8 }}><Avatar src={c.avatar_url} name={c.nickname} />Publié sur {c.nickname || c.username}</span>}>
+    <Section title="TikTok" aside={<span className="row" style={{ gap: 8 }}><Avatar src={c.avatar_url} name={c.nickname} />{t('Publié sur {name}', { name: c.nickname || c.username })}</span>}>
       {account.can_draft && account.can_direct && (
         <fieldset className="row" style={{ gap: 16 }}>
-          <legend>Mode</legend>
-          <label className="check"><input type="radio" checked={direct} onChange={() => set({ mode: 'direct' })} disabled={busy} />Publication directe</label>
-          <label className="check"><input type="radio" checked={!direct} onChange={() => set({ mode: 'draft' })} disabled={busy} />Brouillon dans l'app TikTok</label>
+          <legend>{t('Mode')}</legend>
+          <label className="check"><input type="radio" checked={direct} onChange={() => set({ mode: 'direct' })} disabled={busy} />{t('Publication directe')}</label>
+          <label className="check"><input type="radio" checked={!direct} onChange={() => set({ mode: 'draft' })} disabled={busy} />{t("Brouillon dans l'app TikTok")}</label>
         </fieldset>
       )}
       {direct ? (
         <>
-          <OwnText label="Légende TikTok" value={o.text} common={common.caption || common.title} onChange={v => set({ text: v })} busy={busy} max={2200} />
-          <label className="field">Qui peut voir cette vidéo
+          <OwnText label={t('Légende TikTok')} value={o.text} common={common.caption || common.title} onChange={v => set({ text: v })} busy={busy} max={2200} />
+          <label className="field">{t('Qui peut voir cette vidéo')}
             <select className="select" value={o.privacy} disabled={busy} onChange={e => set({ privacy: e.target.value })}>
-              <option value="" disabled>Choisir…</option>
+              <option value="" disabled>{t('Choisir…')}</option>
               {c.privacy_level_options.map(p => (
-                <option key={p} value={p} disabled={p === 'SELF_ONLY' && brandedOn}>{TIKTOK_PRIVACY[p] || p}</option>
+                <option key={p} value={p} disabled={p === 'SELF_ONLY' && brandedOn}>{TIKTOK_PRIVACY[p] ? t(TIKTOK_PRIVACY[p]) : p}</option>
               ))}
             </select>
-            {brandedOn && <span className="field-hint">La visibilité d'un contenu de marque ne peut pas être privée.</span>}
+            {brandedOn && <span className="field-hint">{t("La visibilité d'un contenu de marque ne peut pas être privée.")}</span>}
           </label>
           <fieldset className="row" style={{ gap: 4, columnGap: 20 }}>
-            <legend>Autoriser</legend>
+            <legend>{t('Autoriser')}</legend>
             {([['Commentaires', 'comment', c.comment_disabled], ['Duos', 'duet', c.duet_disabled], ['Collages', 'stitch', c.stitch_disabled]] as const).map(([l, f, off]) => (
-              <Check key={f} label={l} checked={!off && o[f]} disabled={off || busy} onChange={v => set({ [f]: v } as Partial<TikTokOpts>)} />
+              <Check key={f} label={t(l)} checked={!off && o[f]} disabled={off || busy} onChange={v => set({ [f]: v } as Partial<TikTokOpts>)} />
             ))}
           </fieldset>
-          {(c.comment_disabled || c.duet_disabled || c.stitch_disabled) && <span className="field-hint">Les options grisées sont désactivées dans les paramètres de votre compte TikTok.</span>}
+          {(c.comment_disabled || c.duet_disabled || c.stitch_disabled) && <span className="field-hint">{t('Les options grisées sont désactivées dans les paramètres de votre compte TikTok.')}</span>}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }} className="col">
-            <Check label={<strong>Divulgation de contenu commercial</strong>} checked={o.commercial} disabled={busy}
-                   hint="Activez si cette vidéo fait la promotion de vous-même, d'une marque, d'un produit ou d'un service."
+            <Check label={<strong>{t('Divulgation de contenu commercial')}</strong>} checked={o.commercial} disabled={busy}
+                   hint={t("Activez si cette vidéo fait la promotion de vous-même, d'une marque, d'un produit ou d'un service.")}
                    onChange={v => set(v ? { commercial: true } : { commercial: false, yourBrand: false, branded: false })} />
             {o.commercial && (
               <div className="col" style={{ paddingLeft: 26, gap: 6 }}>
-                <Check label="Votre marque" hint="Vous faites la promotion de vous-même ou de votre propre activité." checked={o.yourBrand} disabled={busy} onChange={v => set({ yourBrand: v })} />
-                <Check label="Contenu de marque" hint="Vous faites la promotion d'une autre marque ou d'un tiers." checked={o.branded} disabled={busy}
+                <Check label={t('Votre marque')} hint={t('Vous faites la promotion de vous-même ou de votre propre activité.')} checked={o.yourBrand} disabled={busy} onChange={v => set({ yourBrand: v })} />
+                <Check label={t('Contenu de marque')} hint={t("Vous faites la promotion d'une autre marque ou d'un tiers.")} checked={o.branded} disabled={busy}
                        onChange={v => set({ branded: v, ...(v && o.privacy === 'SELF_ONLY' ? { privacy: '' } : {}) })} />
-                {o.branded ? <Msg>Votre vidéo sera étiquetée « Partenariat rémunéré ».</Msg>
-                  : o.yourBrand ? <Msg>Votre vidéo sera étiquetée « Contenu promotionnel ».</Msg>
-                  : <span className="field-hint">Vous devez indiquer si votre contenu fait la promotion de vous-même, d'un tiers, ou des deux.</span>}
+                {o.branded ? <Msg>{t('Votre vidéo sera étiquetée « Partenariat rémunéré ».')}</Msg>
+                  : o.yourBrand ? <Msg>{t('Votre vidéo sera étiquetée « Contenu promotionnel ».')}</Msg>
+                  : <span className="field-hint">{t("Vous devez indiquer si votre contenu fait la promotion de vous-même, d'un tiers, ou des deux.")}</span>}
               </div>
             )}
           </div>
         </>
       ) : (
-        <p className="small muted" style={{ margin: 0 }}>La vidéo arrivera dans la boîte de réception TikTok du compte : vous terminerez la légende et la publication dans l'app.</p>
+        <p className="small muted" style={{ margin: 0 }}>{t("La vidéo arrivera dans la boîte de réception TikTok du compte : vous terminerez la légende et la publication dans l'app.")}</p>
       )}
-      {direct && <Check label="Contenu généré par IA" hint="TikTok affiche l’étiquette « Généré par IA »." checked={!!o.aigc} disabled={busy} onChange={v => set({ aigc: v })} />}
+      {direct && <Check label={t('Contenu généré par IA')} hint={t('TikTok affiche l’étiquette « Généré par IA ».')} checked={!!o.aigc} disabled={busy} onChange={v => set({ aigc: v })} />}
       {direct && <Thumb media={media} value={o.coverMs} onChange={v => set({ coverMs: v })} busy={busy}
-                        note="TikTok prend une image de la vidéo : choisissez-la ici (sinon TikTok choisit)." />}
+                        note={t('TikTok prend une image de la vidéo : choisissez-la ici (sinon TikTok choisit).')} />}
     </Section>
   )
 }
 
 function YouTubePanel({ account, o, busy, set, common }: { account: Account; o: YouTubeOpts; busy: boolean; set: (p: Partial<YouTubeOpts>) => void; common: Common }) {
   return (
-    <Section title="YouTube" aside={`Short sur ${account.name}`}>
+    <Section title="YouTube" aside={t('Short sur {name}', { name: account.name })}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
-        <label className="field grow" style={{ flex: '1 1 220px' }}>Titre YouTube
-          <input className="input" value={o.title || common.title.slice(0, 100)} maxLength={100} disabled={busy} onChange={e => set({ title: e.target.value === common.title ? '' : e.target.value })} placeholder="Le titre de la vidéo" />
+        <label className="field grow" style={{ flex: '1 1 220px' }}>{t('Titre YouTube')}
+          <input className="input" value={o.title || common.title.slice(0, 100)} maxLength={100} disabled={busy} onChange={e => set({ title: e.target.value === common.title ? '' : e.target.value })} placeholder={t('Le titre de la vidéo')} />
         </label>
-        <label className="field" style={{ flex: '1 1 160px' }}>Visibilité
+        <label className="field" style={{ flex: '1 1 160px' }}>{t('Visibilité')}
           <select className="select" value={o.privacy} disabled={busy} onChange={e => set({ privacy: e.target.value })}>
-            <option value="public">Publique</option><option value="unlisted">Non répertoriée</option><option value="private">Privée</option>
+            <option value="public">{t('Publique')}</option><option value="unlisted">{t('Non répertoriée')}</option><option value="private">{t('Privée')}</option>
           </select>
         </label>
-        <label className="field" style={{ flex: '1 1 160px' }}>Catégorie
+        <label className="field" style={{ flex: '1 1 160px' }}>{t('Catégorie')}
           <select className="select" value={o.category} disabled={busy} onChange={e => set({ category: e.target.value })}>
-            {YT_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            {YT_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}
           </select>
         </label>
       </div>
-      <OwnText label="Description YouTube" value={o.description} common={common.caption} onChange={v => set({ description: v })} busy={busy} max={5000} />
-      <label className="field">Mots-clés<input className="input" value={o.tags} disabled={busy} onChange={e => set({ tags: e.target.value })} placeholder="piano, debussy, partition" />
-        <span className="field-hint">Séparés par des virgules.</span></label>
+      <OwnText label={t('Description YouTube')} value={o.description} common={common.caption} onChange={v => set({ description: v })} busy={busy} max={5000} />
+      <label className="field">{t('Mots-clés')}<input className="input" value={o.tags} disabled={busy} onChange={e => set({ tags: e.target.value })} placeholder={t('piano, debussy, partition')} />
+        <span className="field-hint">{t('Séparés par des virgules.')}</span></label>
       <fieldset className="row" style={{ gap: 20 }}>
-        <legend>Conçue pour les enfants ? (obligatoire)</legend>
-        <label className="check"><input type="radio" checked={o.kids === 'yes'} onChange={() => set({ kids: 'yes' })} disabled={busy} />Oui</label>
-        <label className="check"><input type="radio" checked={o.kids === 'no'} onChange={() => set({ kids: 'no' })} disabled={busy} />Non</label>
+        <legend>{t('Conçue pour les enfants ? (obligatoire)')}</legend>
+        <label className="check"><input type="radio" checked={o.kids === 'yes'} onChange={() => set({ kids: 'yes' })} disabled={busy} />{t('Oui')}</label>
+        <label className="check"><input type="radio" checked={o.kids === 'no'} onChange={() => set({ kids: 'no' })} disabled={busy} />{t('Non')}</label>
       </fieldset>
-      <Check label="Contenu modifié ou synthétique réaliste" hint="Une personne, un lieu ou un événement réaliste créé ou modifié (IA comprise)." checked={o.synthetic} disabled={busy} onChange={v => set({ synthetic: v })} />
-      <Check label="Prévenir les abonnés" checked={o.notify} disabled={busy} onChange={v => set({ notify: v })} />
-      <Thumb busy={busy} value={null} onChange={() => {}} note="YouTube choisit lui-même l’image des Shorts : l’API ne permet pas de la choisir." />
+      <Check label={t('Contenu modifié ou synthétique réaliste')} hint={t('Une personne, un lieu ou un événement réaliste créé ou modifié (IA comprise).')} checked={o.synthetic} disabled={busy} onChange={v => set({ synthetic: v })} />
+      <Check label={t('Prévenir les abonnés')} checked={o.notify} disabled={busy} onChange={v => set({ notify: v })} />
+      <Thumb busy={busy} value={null} onChange={() => {}} note={t('YouTube choisit lui-même l’image des Shorts : l’API ne permet pas de la choisir.')} />
     </Section>
   )
 }
@@ -676,22 +679,22 @@ function YouTubePanel({ account, o, busy, set, common }: { account: Account; o: 
 function InstaPanel({ account, o, busy, set, media, common, image }: { account: Account; o: InstaOpts; busy: boolean; set: (p: Partial<InstaOpts>) => void
   media: Media; common: Common; image: { url: string | null; fromDrive: boolean; pick: (f: File | null) => void } }) {
   return (
-    <Section title="Instagram" aside={account.mode === 'routine' ? `Reel publié par la routine sur ${account.name}` : `Reel sur ${account.name}`}>
-      <OwnText label="Légende Instagram" value={o.text} common={common.caption} onChange={v => set({ text: v })} busy={busy} max={2200} />
-      <Check label="Afficher aussi le Reel dans le fil" checked={o.feed} disabled={busy} onChange={v => set({ feed: v })} />
+    <Section title="Instagram" aside={account.mode === 'routine' ? t('Reel publié par la routine sur {name}', { name: account.name }) : t('Reel sur {name}', { name: account.name })}>
+      <OwnText label={t('Légende Instagram')} value={o.text} common={common.caption} onChange={v => set({ text: v })} busy={busy} max={2200} />
+      <Check label={t('Afficher aussi le Reel dans le fil')} checked={o.feed} disabled={busy} onChange={v => set({ feed: v })} />
       <Thumb media={image.url ? undefined : media} value={o.coverMs} onChange={v => set({ coverMs: v })} busy={busy}
-             note={image.url ? 'Image envoyée à part : c’est elle qui sert de couverture.'
-               : `Une image de la vidéo, ou une autre image ci-dessous.${image.fromDrive ? ' Image trouvée à côté de la vidéo dans le Drive : utilisée si vous ne choisissez rien.' : ''}`}>
+             note={image.url ? t('Image envoyée à part : c’est elle qui sert de couverture.')
+               : <>{t('Une image de la vidéo, ou une autre image ci-dessous.')}{image.fromDrive ? <> {t('Image trouvée à côté de la vidéo dans le Drive : utilisée si vous ne choisissez rien.')}</> : null}</>}>
         <div className="row-nw" style={{ gap: 12, alignItems: 'center' }}>
-          {image.url ? <img src={image.url} alt="Image de couverture choisie" style={{ width: 54, height: 96, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
+          {image.url ? <img src={image.url} alt={t('Image de couverture choisie')} style={{ width: 54, height: 96, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
             : <span aria-hidden="true" style={{ width: 54, height: 96, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
           <div className="col grow" style={{ gap: 6 }}>
             <label className="btn btn-sm" style={{ alignSelf: 'flex-start' }}>
-              {image.url ? 'Changer l’image' : 'Choisir une autre image'}
+              {image.url ? t('Changer l’image') : t('Choisir une autre image')}
               <input type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy} onChange={e => image.pick(e.target.files?.[0] || null)} />
             </label>
-            {image.url && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => image.pick(null)}>Retirer</button>}
-            <span className="field-hint">JPEG ou PNG, 8 Mo au plus. Même image pour tous les comptes Instagram de la publication.</span>
+            {image.url && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => image.pick(null)}>{t('Retirer')}</button>}
+            <span className="field-hint">{t('JPEG ou PNG, 8 Mo au plus. Même image pour tous les comptes Instagram de la publication.')}</span>
           </div>
         </div>
       </Thumb>
