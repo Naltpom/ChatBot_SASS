@@ -16,6 +16,8 @@ export const passkeyAvailable = (() => {
 })()
 
 const doneKey = (userId: number) => `cm.passkey.${userId}`
+/** Oublie que ce téléphone a une clé (après l'avoir retirée du compte) : on pourra la refaire. */
+export const forgetPasskey = (userId: number) => AsyncStorage.removeItem(doneKey(userId)).catch(() => {})
 export const passkeyDone = async (userId: number) => (await AsyncStorage.getItem(doneKey(userId)).catch(() => null)) === '1'
 
 /** Enregistre l'empreinte de ce téléphone pour le compte. Renvoie les codes de secours s'ils viennent d'être créés. */
