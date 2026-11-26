@@ -166,5 +166,13 @@ const EN: Record<string, string> = {
   'La vidéo partira à l’heure prévue. Vous pouvez la vérifier dans le planning.': 'The video will go out at the planned time. You can check it in the schedule.',
   'Programmation impossible': 'Couldn’t schedule',
   'Ouvrir le brouillon': 'Open the draft',
+  'Affichage': 'View',
+  'Par dossiers': 'By folder',
+  'Toutes les vidéos': 'All videos',
+  'Ouvrir le dossier {name}': 'Open folder {name}',
+  'Aucune vidéo posée directement dans ce dossier : ouvrez un sous-dossier.': 'No video directly in this folder: open a subfolder.',
+  'Aucune vidéo dans cet espace. Vos dossiers Drive sont reliés à un autre espace :': 'No videos in this space. Your Drive folders are linked to another space:',
+  'Ouvrir « {space} » ({n} vidéos)': 'Open “{space}” ({n} videos)',
+  'Seuls les dossiers partagés avec l’adresse du robot de Chapote apparaissent ici : le reste de votre Drive reste privé.': 'Only folders shared with the Chapote robot’s address show up here: the rest of your Drive stays private.',
 }
 export default EN

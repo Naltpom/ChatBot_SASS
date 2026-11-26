@@ -5,7 +5,7 @@ import { StorageCard } from '../components/Storage'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  addIdentity, addSource, getAssetsPage, getIdentities, getRobot, getSources, patchAsset, patchIdentity, patchSource,
+  addIdentity, addSource, getAssetsPage, getFolders, getIdentities, getLibraryElsewhere, getRobot, getSources, patchAsset, patchIdentity, patchSource,
   removeIdentity, removeSource, scanSource, type Asset, type AssetState, type Identities, type Source,
 } from '../api'
 import GoogleButton from '../components/GoogleButton'
@@ -290,16 +290,16 @@ export function AssetCard({ a, onOpen }: { a: Asset; onOpen: (a: Asset) => void 
 
 /** Grille de vidéos de la bibliothèque, chargée au défilement. Recherche et tri par l'API.
  *  Réutilisée par le composeur. */
-export function AssetGrid({ sourceId, state, q, sort = 'recent', order, onOpen, refreshKey = 0 }:
-  { sourceId?: number; state: AssetState; q: string; sort?: AssetSort; order?: Order; onOpen: (a: Asset) => void; refreshKey?: number }) {
+export function AssetGrid({ sourceId, folder, state, q, sort = 'recent', order, onOpen, refreshKey = 0, emptyText }:
+  { sourceId?: number; folder?: string; state: AssetState; q: string; sort?: AssetSort; order?: Order; onOpen: (a: Asset) => void; refreshKey?: number; emptyText?: string }) {
   const { org } = useSession()
-  const opts = { source_id: sourceId, state, q: q || undefined, sort, order, limit: 40 }
-  const first = useLoad(() => getAssetsPage(org, opts), [sourceId, state, q, sort, order, org, refreshKey])
-  const pages = useMorePages(first.data, cursor => getAssetsPage(org, { ...opts, cursor }), [org, sourceId, state, q, sort, order])
+  const opts = { source_id: sourceId, folder, state, q: q || undefined, sort, order, limit: 40 }
+  const first = useLoad(() => getAssetsPage(org, opts), [sourceId, folder, state, q, sort, order, org, refreshKey])
+  const pages = useMorePages(first.data, cursor => getAssetsPage(org, { ...opts, cursor }), [org, sourceId, folder, state, q, sort, order])
   const items = pages.items
   if (first.error) return <Msg kind="err">{first.error}</Msg>
   if (!items) return <div className="vgrid"><Skeleton h={240} n={6} /></div>
-  if (!items.length) return <p className="muted small" style={{ margin: 0 }}>{q ? t('Aucune vidéo ne correspond à « {q} ».', { q }) : state === 'new' ? t('Toutes les vidéos ont déjà été programmées.') : t('Aucune vidéo pour le moment.')}</p>
+  if (!items.length) return <p className="muted small" style={{ margin: 0 }}>{emptyText && !q ? emptyText : q ? t('Aucune vidéo ne correspond à « {q} ».', { q }) : state === 'new' ? t('Toutes les vidéos ont déjà été programmées.') : t('Aucune vidéo pour le moment.')}</p>
   return (
     <>
       <LiveCount n={items.length} more={!!pages.next} what={t('vidéos')} />
@@ -307,6 +307,74 @@ export function AssetGrid({ sourceId, state, q, sort = 'recent', order, onOpen, 
       <div ref={pages.sentinel} />
       {pages.busy && <Skeleton h={60} />}
     </>
+  )
+}
+
+/** Navigation « comme dans le Drive » : fil d'Ariane et sous-dossiers du dossier ouvert. */
+function FolderBrowser({ sources, source, path, onOpen, refreshKey }: {
+  sources: Source[]; source?: number; path: string; onOpen: (source: number | undefined, path: string) => void; refreshKey: number
+}) {
+  const { org } = useSession()
+  const view = useLoad(() => (source != null ? getFolders(org, source, path) : Promise.resolve(null)), [org, source, path, refreshKey])
+  const src = sources.find(x => x.id === source)
+  const parts = path ? path.split('/') : []
+  const tiles: { key: string; name: string; videos: number; go: () => void }[] = source == null
+    ? sources.map(x => ({ key: `s${x.id}`, name: x.name || t('Dossier Drive'), videos: x.videos, go: () => onOpen(x.id, '') }))
+    : (view.data?.folders || []).map(f => ({ key: f.path, name: f.name, videos: f.videos, go: () => onOpen(source, f.path) }))
+  return (
+    <div className="col" style={{ gap: 10 }}>
+      <nav aria-label={t('Dossiers')} className="row" style={{ gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-ghost btn-sm" aria-current={source == null ? 'page' : undefined} onClick={() => onOpen(undefined, '')}>
+          <Icon name="layers" size={14} />{t('Tous les dossiers')}
+        </button>
+        {src && <><span className="muted" aria-hidden>›</span>
+          <button type="button" className="btn btn-ghost btn-sm" aria-current={!parts.length ? 'page' : undefined} onClick={() => onOpen(src.id, '')}>{src.name}</button></>}
+        {parts.map((p, i) => (
+          <span key={i} className="row-nw" style={{ gap: 4 }}>
+            <span className="muted" aria-hidden>›</span>
+            <button type="button" className="btn btn-ghost btn-sm" aria-current={i === parts.length - 1 ? 'page' : undefined}
+              onClick={() => source != null && onOpen(source, parts.slice(0, i + 1).join('/'))}>{p}</button>
+          </span>
+        ))}
+      </nav>
+      {view.error && <Msg kind="err">{view.error}</Msg>}
+      {tiles.length > 0 && (
+        <div className="folder-grid" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
+          {tiles.map(f => (
+            <button key={f.key} type="button" className="card row-nw" onClick={f.go}
+              style={{ gap: 10, padding: '10px 12px', cursor: 'pointer', font: 'inherit', textAlign: 'left', color: 'inherit' }}>
+              <span aria-hidden style={{ fontSize: 22, lineHeight: 1 }}>📁</span>
+              <span className="col" style={{ gap: 0, minWidth: 0 }}>
+                <span className="small strong ellipsis">{f.name}</span>
+                <span className="tiny muted">{f.videos > 1 ? t('{n} vidéos', { n: f.videos }) : t('{n} vidéo', { n: f.videos })}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Espace affiché vide : où sont les vidéos de la personne (souvent l'espace d'équipe). */
+function Elsewhere() {
+  const { org, spaces, setOrg } = useSession()
+  const other = useLoad(() => getLibraryElsewhere(org), [org])
+  if (!other.data?.length) return null
+  return (
+    <Msg>
+      <span className="col" style={{ gap: 8 }}>
+        <span>{t('Aucune vidéo dans cet espace. Vos dossiers Drive sont reliés à un autre espace :')}</span>
+        <span className="row" style={{ gap: 8 }}>
+          {other.data.map(o => (
+            <button key={o.org_id ?? 'perso'} type="button" className="btn btn-sm btn-primary" onClick={() => setOrg(o.org_id)}>
+              <Icon name="layers" size={14} />{t('Ouvrir « {space} » ({n} vidéos)', { space: spaces.find(x => x.org_id === o.org_id)?.name || t('Espace perso'), n: o.videos })}
+            </button>
+          ))}
+        </span>
+        <span className="tiny muted">{t('Seuls les dossiers partagés avec l’adresse du robot de Chapote apparaissent ici : le reste de votre Drive reste privé.')}</span>
+      </span>
+    </Msg>
   )
 }
 
@@ -326,6 +394,9 @@ export default function Library() {
   const [state, setState] = useState<AssetState>('new')
   const lst = useListState<AssetSort>('recent', v => (v === 'name' ? 'asc' : 'desc'))
   const [source, setSource] = useState<number | undefined>(undefined)
+  const [path, setPath] = useState('')
+  const [flat, setFlat] = useState(false)   // « Toutes les vidéos » (sous-dossiers compris) au lieu de la vue par dossiers
+  const browse = (s: number | undefined, p: string) => { setSource(s); setPath(p) }
   const [allFolders, setAllFolders] = useState(false)
   const [open, setOpen] = useState<Asset | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -349,6 +420,7 @@ export default function Library() {
       {!sources.data && sources.loading && <Skeleton h={90} n={2} />}
 
       <StorageCard />
+      {sources.data && (list.length === 0 || list.every(x => !x.videos)) && <Elsewhere />}
       {sources.data && list.length === 0 && enabled && (
         <Empty title={t('Reliez le dossier de vos monteurs')} icon="layers">
           <p style={{ margin: '0 0 14px' }}>{t("Partagez un dossier Google Drive avec le robot de Chapote : chaque vidéo déposée apparaît ici, avec sa légende si un fichier .txt du même nom l'accompagne. Vous n'avez plus qu'à programmer.")}</p>
@@ -378,14 +450,24 @@ export default function Library() {
           <div className="listbar">
             <SearchBox value={lst.input} onChange={lst.setInput} label={t('Rechercher une vidéo (nom, légende, dossier)')} />
             {list.length > 1 && (
-              <select className="select select-sm" aria-label={t('Dossier')} value={source ?? ''} onChange={e => setSource(e.target.value ? Number(e.target.value) : undefined)}>
+              <select className="select select-sm" aria-label={t('Dossier')} value={source ?? ''} onChange={e => browse(e.target.value ? Number(e.target.value) : undefined, '')}>
                 <option value="">{t('Tous les dossiers')}</option>
                 {list.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             )}
             <span className="sortctl"><SortControl list={lst} options={ASSET_SORTS.map(([v, l]) => [v, t(l)] as [AssetSort, string])} /></span>
+            <select className="select select-sm" aria-label={t('Affichage')} value={flat ? 'flat' : 'tree'} onChange={e => setFlat(e.target.value === 'flat')}>
+              <option value="tree">{t('Par dossiers')}</option>
+              <option value="flat">{t('Toutes les vidéos')}</option>
+            </select>
           </div>
-          <AssetGrid sourceId={source} state={state} q={lst.q} sort={lst.sort} order={lst.order} onOpen={setOpen} refreshKey={refreshKey} />
+          {!flat && !lst.q && <FolderBrowser sources={list} source={source} path={path} onOpen={browse} refreshKey={refreshKey} />}
+          {/* Vue par dossiers : seulement les vidéos posées dans le dossier ouvert ; une recherche porte sur tout. */}
+          {(flat || lst.q || source != null) && (
+            <AssetGrid sourceId={source} folder={!flat && !lst.q && source != null ? (path || '/') : undefined} state={state} q={lst.q}
+              sort={lst.sort} order={lst.order} onOpen={setOpen} refreshKey={refreshKey}
+              emptyText={!flat && source != null ? t('Aucune vidéo posée directement dans ce dossier : ouvrez un sous-dossier.') : undefined} />
+          )}
         </>
       )}
 

@@ -355,7 +355,15 @@ export const patchSource = (org: number | null, id: number, body: { group_id?: n
   send<Source>('PATCH', `/api/cm/sources/${id}${q(org)}`, body)
 export const scanSource = (org: number | null, id: number) => send<Source>('POST', `/api/cm/sources/${id}/scan${q(org)}`)
 export const removeSource = (org: number | null, id: number) => send<{ ok: boolean; hint: string }>('DELETE', `/api/cm/sources/${id}${q(org)}`)
-export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; sort?: string; order?: Order; limit?: number; cursor?: string | null }) =>
+/** Sous-dossiers d'un dossier relié (vue « comme dans le Drive »). `path` vide : la racine du dossier relié. */
+export interface FolderView { source_id: number; name: string | null; path: string; videos: number; folders: { name: string; path: string; videos: number }[] }
+export const getFolders = (org: number | null, sourceId: number, path: string) =>
+  call<FolderView>(`/api/cm/sources/${sourceId}/folders${q(org, { path: path || undefined })}`)
+/** Espaces de la personne qui ont des vidéos (bibliothèque vide dans l'espace affiché). */
+export const getLibraryElsewhere = (org: number | null) =>
+  call<{ org_id: number | null; folders: number; videos: number }[]>(`/api/cm/library/elsewhere${q(org)}`)
+/** `folder` : vidéos posées directement dans ce sous-dossier (« / » = à la racine du dossier relié). */
+export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; sort?: string; order?: Order; limit?: number; cursor?: string | null; folder?: string }) =>
   callPage<Asset>(`/api/cm/assets${q(org, { ...opts, cursor: opts.cursor || undefined })}`)
 export const getAsset = (org: number | null, id: number) => call<Asset>(`/api/cm/assets/${id}${q(org)}`)
 export const patchAsset = (org: number | null, id: number, body: { title?: string; caption?: string }) =>

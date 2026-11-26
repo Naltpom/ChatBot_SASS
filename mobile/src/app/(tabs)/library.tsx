@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { FlatList, Pressable, RefreshControl, View } from 'react-native'
 import { t } from '../../lib/i18n'
-import { getAssetsPage, getProposalCount, getRobot, getSources, type Asset, type AssetState, type Order, type Source } from '../../lib/api'
+import { getAssetsPage, getFolders, getLibraryElsewhere, getProposalCount, getRobot, getSources, type Asset, type AssetState, type Order, type Source } from '../../lib/api'
 import { useLoad, useRole, useSession } from '../../lib/session'
 import { Button, Card, Empty, Icon, Msg, Row, SearchField, Seg, Skeleton, Txt } from '../../ui/kit'
 import { Gauge, StorageBanner } from '../../features/storage'
@@ -17,7 +17,7 @@ import { Select, SortBar } from '../../features/library/ui'
 export default function Library() {
   const { c } = useTheme()
   const router = useRouter()
-  const { org, spaces } = useSession()
+  const { org, spaces, setOrg } = useSession()
   const current = spaces.find(x => x.org_id === org)
   const { canAdmin } = useRole()
   const robot = useLoad(() => getRobot(), [], 'library.robot')
@@ -32,15 +32,26 @@ export default function Library() {
   const [order, setOrder] = useState<Order>('desc')
   const [source, setSource] = useState<number | ''>('')
   const [allFolders, setAllFolders] = useState(false)
+  // Vue « comme dans le Drive » (dossiers puis sous-dossiers) ou toutes les vidéos d'un coup.
+  const [view, setView] = useState<'tree' | 'flat'>('tree')
+  const [path, setPath] = useState('')
+  const browse = (s: number | '', p: string) => { setSource(s); setPath(p) }
   const [refreshKey, setRefreshKey] = useState(0)
   const headers = useAuthHeaders()
 
   const list = sources.data || []
   const enabled = !!robot.data?.enabled && canAdmin
   const hasSources = list.length > 0
-  const assets = usePaged<Asset>(cursor => getAssetsPage(org, {
+  const tree = view === 'tree' && !q
+  // Vue par dossiers à la racine (« Tous les dossiers ») : seulement les dossiers, pas encore de vidéos.
+  const showAssets = !tree || source !== ''
+  const assets = usePaged<Asset>(cursor => (showAssets ? getAssetsPage(org, {
     source_id: source === '' ? undefined : source, state, q: q || undefined, sort, order, limit: 40, cursor,
-  }), [org, source, state, q, sort, order, refreshKey])
+    folder: tree && source !== '' ? (path || '/') : undefined,
+  }) : Promise.resolve({ items: [], next: null })), [org, source, path, view, state, q, sort, order, refreshKey])
+  const folders = useLoad(() => (tree && source !== '' ? getFolders(org, source, path) : Promise.resolve(null)), [org, source, path, tree, refreshKey], 'library.folders')
+  const elsewhere = useLoad(() => getLibraryElsewhere(org), [org], 'library.elsewhere')
+  const emptyHere = !!sources.data && (!hasSources || list.every(x => !x.videos))
 
   const changed = (n: Source) => { sources.setData(list.map(x => (x.id === n.id ? { ...x, ...n } : x))); setRefreshKey(k => k + 1) }
   const removed = (s: Source) => { sources.setData(list.filter(x => x.id !== s.id)); setRefreshKey(k => k + 1); if (source === s.id) setSource('') }
@@ -72,6 +83,16 @@ export default function Library() {
       {robot.data?.enabled && !canAdmin && sources.data && !hasSources
         ? <Msg>{t('Aucun dossier Drive relié à cet espace pour l’instant : un administrateur de l’équipe peut en ajouter.')}</Msg> : null}
       {sources.error ? <Msg kind="err">{sources.error}</Msg> : null}
+      {emptyHere && elsewhere.data?.length ? (
+        <Card style={{ gap: space.sm }}>
+          <Txt bold>{t('Aucune vidéo dans cet espace. Vos dossiers Drive sont reliés à un autre espace :')}</Txt>
+          {elsewhere.data.map(o => (
+            <Button key={o.org_id ?? 'perso'} kind="primary" icon="folder" onPress={() => setOrg(o.org_id)}
+              title={t('Ouvrir « {space} » ({n} vidéos)', { space: spaces.find(x => x.org_id === o.org_id)?.name || t('Espace perso'), n: o.videos })} />
+          ))}
+          <Txt small muted>{t('Seuls les dossiers partagés avec l’adresse du robot de Chapote apparaissent ici : le reste de votre Drive reste privé.')}</Txt>
+        </Card>
+      ) : null}
       {!sources.data && sources.loading ? <Skeleton h={90} n={2} /> : null}
       {sources.data && !hasSources && enabled ? (
         <Empty title={t('Reliez le dossier de vos monteurs')} icon="folder"
@@ -105,10 +126,39 @@ export default function Library() {
           ) : null}
           <Seg label={t('Afficher')} value={state} onChange={setState} options={STATE_OPTIONS.map(([v, l]) => [v, t(l)] as [AssetState, string])} />
           <SearchField value={input} onChangeText={setInput} placeholder={t('Rechercher (nom, légende, dossier)')} />
+          <Seg label={t('Affichage')} value={view} onChange={setView} options={[['tree', t('Par dossiers')], ['flat', t('Toutes les vidéos')]]} />
+          {tree ? (
+            <View style={{ gap: space.sm }}>
+              <Row gap={4} wrap>
+                <Button small kind="ghost" icon="folder" title={t('Tous les dossiers')} onPress={() => browse('', '')} />
+                {source !== '' ? <Button small kind="ghost" title={`› ${list.find(x => x.id === source)?.name || t('Dossier Drive')}`} onPress={() => browse(source, '')} /> : null}
+                {(path ? path.split('/') : []).map((p, i, all) => (
+                  <Button key={i} small kind="ghost" title={`› ${p}`} onPress={() => browse(source, all.slice(0, i + 1).join('/'))} />
+                ))}
+              </Row>
+              {folders.error ? <Msg kind="err">{folders.error}</Msg> : null}
+              {(source === ''
+                ? list.map(x => ({ key: `s${x.id}`, name: x.name || t('Dossier Drive'), videos: x.videos, go: () => browse(x.id, '') }))
+                : (folders.data?.folders || []).map(f => ({ key: f.path, name: f.name, videos: f.videos, go: () => browse(source, f.path) }))
+              ).map(f => (
+                <Card key={f.key} onPress={f.go} style={{ paddingVertical: space.sm }}
+                  accessibilityLabel={t('Ouvrir le dossier {name}', { name: f.name })}>
+                  <Row gap={space.md}>
+                    <Txt size={22}>📁</Txt>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Txt bold numberOfLines={1}>{f.name}</Txt>
+                      <Txt small muted>{f.videos > 1 ? t('{n} vidéos', { n: f.videos }) : t('{n} vidéo', { n: f.videos })}</Txt>
+                    </View>
+                    <Icon name="right" size={18} color={c.muted} />
+                  </Row>
+                </Card>
+              ))}
+            </View>
+          ) : null}
           <Row gap={space.sm} wrap>
-            {list.length > 1 ? (
+            {list.length > 1 && !tree ? (
               <View style={{ flexGrow: 1, minWidth: 160 }}>
-                <Select label="" value={source} onChange={setSource}
+                <Select label="" value={source} onChange={v => browse(v, '')}
                   options={[['', t('Tous les dossiers')], ...list.map(s => [s.id, s.name || t('Dossier Drive')] as [number, string])]} />
               </View>
             ) : null}
@@ -148,7 +198,9 @@ export default function Library() {
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={header}
         ListFooterComponent={footer}
-        ListEmptyComponent={hasSources
+        ListEmptyComponent={hasSources && !showAssets ? undefined : hasSources && tree && source !== '' && assets.items && !q && (folders.data?.folders.length || 0) > 0
+          ? <Txt small muted>{t('Aucune vidéo posée directement dans ce dossier : ouvrez un sous-dossier.')}</Txt>
+          : hasSources
           ? (assets.items
             ? (q ? <Empty title={t('Aucun résultat')} icon="search" action={<Button title={t('Effacer la recherche')} onPress={() => setInput('')} />}>{t(emptyAssetsText(q, state))}</Empty>
               : state === 'new' ? <Empty title={t('Tout est programmé')} icon="check" action={<Button title={t('Voir toutes les vidéos')} onPress={() => setState('all')} />}>{t('Aucune vidéo en attente : déposez-en de nouvelles dans vos dossiers Drive, elles apparaîtront ici.')}</Empty>
