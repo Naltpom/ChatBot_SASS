@@ -8,6 +8,7 @@ import {
   cancelTarget, markPublished, patchTarget, publishNow, resendDraft, retryTarget, PLATFORM_LABEL, type CalendarItem,
 } from '../../lib/api'
 import { fmtDateTime, num } from '../../lib/format'
+import { locale, t } from '../../lib/i18n'
 import { Button, Field, Icon, Msg, PlatformLogo, Row, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import { STATE_LABEL, stateOf, type TargetItem } from './calendar'
@@ -19,7 +20,7 @@ import { showDialog } from '../../ui/dialog'
 /** Demande une confirmation (Oui / Non). */
 export const confirm = (title: string, message: string, ok: string, destructive = false) =>
   new Promise<boolean>(resolve => showDialog(title, message, [
-    { text: 'Non', style: 'cancel', onPress: () => resolve(false) },
+    { text: t('Non'), style: 'cancel', onPress: () => resolve(false) },
     { text: ok, style: destructive ? 'destructive' : 'default', onPress: () => resolve(true) },
   ], { cancelable: true, onDismiss: () => resolve(false) }))
 
@@ -44,8 +45,9 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
   const when = item.kind === 'target' ? (item.published_at || item.scheduled_at) : item.at
   const stateColor = inbox ? c.warn : st === 'failed' ? c.danger : st === 'done' ? c.ok : c.muted
   const name = PLATFORM_LABEL[item.platform]
-  const sub = `${item.account_name || name} · ${inbox ? 'brouillon envoyé' : st === 'planned' ? 'prévue' : 'publiée'} ${fmtDateTime(when)}`
-  const stateText = inbox ? 'À publier dans l’app' : STATE_LABEL[st]
+  const sub = t(inbox ? '{account} · brouillon envoyé {date}' : st === 'planned' ? '{account} · prévue {date}' : '{account} · publiée {date}',
+    { account: item.account_name || name, date: fmtDateTime(when) })
+  const stateText = inbox ? t('À publier dans l’app') : t(STATE_LABEL[st])
   return (
     <View style={{ backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: st === 'failed' ? 1.5 : StyleSheet.hairlineWidth * 2,
       borderColor: st === 'failed' ? c.danger : c.border, overflow: 'hidden' }}>
@@ -66,28 +68,28 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
         <View style={{ paddingHorizontal: space.md, paddingBottom: space.md, gap: space.md }}>
           {item.kind === 'target' && item.notice ? <Msg>{item.notice}</Msg> : null}
           {item.url ? (
-            <Pressable onPress={() => openLink(item.url!)} accessibilityRole="link" accessibilityLabel={`Voir sur ${name}`}
+            <Pressable onPress={() => openLink(item.url!)} accessibilityRole="link" accessibilityLabel={t('Voir sur {name}', { name })}
               style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
-              <Txt bold color={c.accent}>Voir sur {name}</Txt><Icon name="external" size={16} color={c.accent} />
+              <Txt bold color={c.accent}>{t('Voir sur {name}', { name })}</Txt><Icon name="external" size={16} color={c.accent} />
             </Pressable>
           ) : null}
           {diffs.length ? (
             <View style={{ gap: space.sm }}>
               {diffs.map(([k, v]) => (
                 <View key={k} style={{ gap: 2 }}>
-                  <Txt small muted>{k}</Txt>
-                  <Txt small numberOfLines={4} selectable>{v}</Txt>
+                  <Txt small muted>{t(k)}</Txt>
+                  <Txt small numberOfLines={4} selectable>{t(v)}</Txt>
                 </View>
               ))}
             </View>
-          ) : item.kind === 'target' && !inbox ? <Txt small muted>Rien de propre à {name} : texte commun.</Txt> : null}
+          ) : item.kind === 'target' && !inbox ? <Txt small muted>{t('Rien de propre à {name} : texte commun.', { name })}</Txt> : null}
           {item.kind === 'video' ? (
             <Row gap={14} wrap>
-              <Txt small><Txt small bold>{num(item.views)}</Txt> vues</Txt>
-              <Txt small><Txt small bold>{num(item.likes)}</Txt> j’aime</Txt>
-              {item.comments != null ? <Txt small><Txt small bold>{num(item.comments)}</Txt> comm.</Txt> : null}
-              {item.shares != null ? <Txt small><Txt small bold>{num(item.shares)}</Txt> partages</Txt> : null}
-              {item.saves != null ? <Txt small><Txt small bold>{num(item.saves)}</Txt> enreg.</Txt> : null}
+              <Txt small><Txt small bold>{num(item.views)}</Txt> {t('vues')}</Txt>
+              <Txt small><Txt small bold>{num(item.likes)}</Txt> {t('j’aime')}</Txt>
+              {item.comments != null ? <Txt small><Txt small bold>{num(item.comments)}</Txt> {t('comm.')}</Txt> : null}
+              {item.shares != null ? <Txt small><Txt small bold>{num(item.shares)}</Txt> {t('partages')}</Txt> : null}
+              {item.saves != null ? <Txt small><Txt small bold>{num(item.saves)}</Txt> {t('enreg.')}</Txt> : null}
             </Row>
           ) : null}
           {err ? <Msg kind="err">{err}</Msg> : null}
@@ -95,19 +97,19 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
           {inbox ? <DraftBox item={item as TargetItem} busy={busy} act={act} canEdit={canEdit} /> : null}
           {item.kind === 'target' && canEdit && !editing && !inbox ? (
             <Row gap={8} wrap>
-              {item.status === 'SCHEDULED' ? <Button small icon="clock" title="Changer l’heure ou le texte" disabled={busy} onPress={() => setEditing(true)} /> : null}
+              {item.status === 'SCHEDULED' ? <Button small icon="clock" title={t('Changer l’heure ou le texte')} disabled={busy} onPress={() => setEditing(true)} /> : null}
               {item.status === 'SCHEDULED' ? (
-                <Button small icon="bolt" title="Publier maintenant" disabled={busy}
-                  onPress={() => act(() => publishNow(item.id), { title: 'Publier maintenant ?', message: `La vidéo part tout de suite sur ${name}.`, ok: 'Publier' })} />
+                <Button small icon="bolt" title={t('Publier maintenant')} disabled={busy}
+                  onPress={() => act(() => publishNow(item.id), { title: t('Publier maintenant ?'), message: t('La vidéo part tout de suite sur {name}.', { name }), ok: t('Publier') })} />
               ) : null}
-              {item.can_retry ? <Button small kind="primary" icon="refresh" title="Réessayer" disabled={busy} onPress={() => act(() => retryTarget(item.id))} /> : null}
+              {item.can_retry ? <Button small kind="primary" icon="refresh" title={t('Réessayer')} disabled={busy} onPress={() => act(() => retryTarget(item.id))} /> : null}
             </Row>
           ) : null}
           {item.kind === 'target' && canEdit && !editing && !inbox && item.can_edit ? (
             // Action destructive à l'écart des actions principales (loi de Fitts) : plus petite, seule, en rouge.
             <View style={{ alignItems: 'flex-end', marginTop: space.sm }}>
-              <Button small kind="danger" title="Annuler cette publication" disabled={busy}
-                onPress={() => act(() => cancelTarget(item.id), { title: 'Annuler la publication ?', message: `Elle ne partira pas sur ${name}.`, ok: 'Annuler la publication', destructive: true })} />
+              <Button small kind="danger" title={t('Annuler cette publication')} disabled={busy}
+                onPress={() => act(() => cancelTarget(item.id), { title: t('Annuler la publication ?'), message: t('Elle ne partira pas sur {name}.', { name }), ok: t('Annuler la publication'), destructive: true })} />
             </View>
           ) : null}
         </View>
@@ -130,31 +132,31 @@ function DraftBox({ item, busy, act, canEdit }: { item: TargetItem; busy: boolea
   const linkOk = tiktokLinkOk(link)
   return (
     <View style={{ gap: space.md }}>
-      <Txt small>La vidéo est dans vos brouillons TikTok, <Txt small bold>sans légende</Txt> : ouvrez l’app, collez la légende, publiez, puis revenez ici.</Txt>
+      <Txt small>{t('La vidéo est dans vos brouillons TikTok,')} <Txt small bold>{t('sans légende')}</Txt>{t(' : ouvrez l’app, collez la légende, publiez, puis revenez ici.')}</Txt>
       {caption ? (
         <View style={{ gap: 6 }}>
-          <Txt small muted>Légende TikTok</Txt>
+          <Txt small muted>{t('Légende TikTok')}</Txt>
           <View style={{ backgroundColor: c.bg, borderRadius: radius.sm, padding: space.md }}><Txt small selectable>{caption}</Txt></View>
-          <Button small icon={copied ? 'check' : 'copy'} title={copied ? 'Légende copiée' : 'Copier la légende'} onPress={copy} style={{ alignSelf: 'flex-start' }} />
+          <Button small icon={copied ? 'check' : 'copy'} title={copied ? t('Légende copiée') : t('Copier la légende')} onPress={copy} style={{ alignSelf: 'flex-start' }} />
         </View>
       ) : null}
       {!canEdit ? null : asking ? (
         <View style={{ gap: space.sm }}>
-          <Field label="Lien de la vidéo TikTok (facultatif)" value={link} onChangeText={setLink} keyboardType="url" autoCapitalize="none" autoCorrect={false}
-            placeholder="https://www.tiktok.com/@compte/video/…" error={linkOk ? null : 'Collez un lien TikTok (ou laissez vide).'} />
+          <Field label={t('Lien de la vidéo TikTok (facultatif)')} value={link} onChangeText={setLink} keyboardType="url" autoCapitalize="none" autoCorrect={false}
+            placeholder="https://www.tiktok.com/@compte/video/…" error={linkOk ? null : t('Collez un lien TikTok (ou laissez vide).')} />
           <Row gap={8}>
-            <Button small kind="primary" icon="check" title="Marquer publiée" disabled={busy || !linkOk} onPress={() => act(() => markPublished(item.id, link.trim() || undefined))} />
-            <Button small kind="ghost" title="Annuler" onPress={() => setAsking(false)} />
+            <Button small kind="primary" icon="check" title={t('Marquer publiée')} disabled={busy || !linkOk} onPress={() => act(() => markPublished(item.id, link.trim() || undefined))} />
+            <Button small kind="ghost" title={t('Annuler')} onPress={() => setAsking(false)} />
           </Row>
         </View>
       ) : (
         <View style={{ gap: space.sm }}>
           <Row gap={8} wrap>
-            <Button small kind="primary" icon="check" title="Publié dans l’app" disabled={busy} onPress={() => setAsking(true)} />
-            <Button small icon="refresh" title="Renvoyer le brouillon" disabled={busy}
-              onPress={() => act(() => resendDraft(item.id), { title: 'Renvoyer le brouillon ?', message: 'À faire seulement si le brouillon a été supprimé dans TikTok.', ok: 'Renvoyer' })} />
+            <Button small kind="primary" icon="check" title={t('Publié dans l’app')} disabled={busy} onPress={() => setAsking(true)} />
+            <Button small icon="refresh" title={t('Renvoyer le brouillon')} disabled={busy}
+              onPress={() => act(() => resendDraft(item.id), { title: t('Renvoyer le brouillon ?'), message: t('À faire seulement si le brouillon a été supprimé dans TikTok.'), ok: t('Renvoyer') })} />
           </Row>
-          <Txt size={12} muted>« Publié dans l’app » : collez le lien de la vidéo si vous l’avez. « Renvoyer » : si le brouillon a été supprimé dans TikTok.</Txt>
+          <Txt size={12} muted>{t('« Publié dans l’app » : collez le lien de la vidéo si vous l’avez. « Renvoyer » : si le brouillon a été supprimé dans TikTok.')}</Txt>
         </View>
       )}
     </View>
@@ -168,22 +170,22 @@ function EditInline({ item, onDone, onCancel }: { item: TargetItem; onDone: () =
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const save = async () => {
-    if (when.getTime() < Date.now() - 60000) { setErr("L'heure choisie est déjà passée."); return }
+    if (when.getTime() < Date.now() - 60000) { setErr(t("L'heure choisie est déjà passée.")); return }
     setBusy(true); setErr('')
     try { await patchTarget(item.id, { scheduled_at: when.toISOString(), ...(edit ? { options: { [edit.key]: text } } : {}) }); onDone() }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   return (
     <View style={{ gap: space.md }}>
-      <DateTimeField label="Nouvelle heure" value={when} onChange={setWhen} minimumDate={new Date()} />
+      <DateTimeField label={t('Nouvelle heure')} value={when} onChange={setWhen} minimumDate={new Date()} />
       {edit ? (
-        <Field label={edit.label} value={text} onChangeText={setText} maxLength={edit.max} multiline={edit.label !== 'Titre YouTube'}
-          hint={`${text.length} / ${edit.max.toLocaleString('fr-FR')}`} />
+        <Field label={t(edit.label)} value={text} onChangeText={setText} maxLength={edit.max} multiline={edit.label !== 'Titre YouTube'}
+          hint={`${text.length.toLocaleString(locale())} / ${edit.max.toLocaleString(locale())}`} />
       ) : null}
       {err ? <Msg kind="err">{err}</Msg> : null}
       <Row gap={8}>
-        <Button small title="Annuler" onPress={onCancel} />
-        <Button small kind="primary" title="Enregistrer" loading={busy} onPress={save} />
+        <Button small title={t('Annuler')} onPress={onCancel} />
+        <Button small kind="primary" title={t('Enregistrer')} loading={busy} onPress={save} />
       </Row>
     </View>
   )

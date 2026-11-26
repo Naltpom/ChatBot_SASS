@@ -6,6 +6,7 @@ import { getAssetsPage, type Asset } from '../../lib/api'
 import { fmtDuration } from '../../lib/format'
 import { useSession } from '../../lib/session'
 import { Icon, Msg, SearchField, Sheet, Skeleton, Txt } from '../../ui/kit'
+import { t } from '../../lib/i18n'
 import { radius, space, useTheme } from '../../ui/theme'
 import { apiUrl, useAuthHeaders } from './media'
 
@@ -30,8 +31,8 @@ export function LibrarySheet({ visible, onClose, onPick }: { visible: boolean; o
   useEffect(() => { if (visible) load(null, true) }, [visible, q, org]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Choisir dans la bibliothèque" scroll={false}>
-      <SearchField value={input} onChangeText={setInput} placeholder="Rechercher (nom, légende, dossier)" />
+    <Sheet visible={visible} onClose={onClose} title={t('Choisir dans la bibliothèque')} scroll={false}>
+      <SearchField value={input} onChangeText={setInput} placeholder={t('Rechercher (nom, légende, dossier)')} />
       {err ? <Msg kind="err">{err}</Msg> : null}
       {!items.length && loading ? <View style={{ gap: space.sm }}><Skeleton h={88} n={3} /></View> : (
         <FlatList
@@ -42,10 +43,10 @@ export function LibrarySheet({ visible, onClose, onPick }: { visible: boolean; o
           onEndReachedThreshold={0.5}
           onEndReached={() => { if (next && !loading) load(next, false) }}
           ListFooterComponent={loading && items.length ? <ActivityIndicator color={c.muted} style={{ padding: space.md }} /> : undefined}
-          ListEmptyComponent={<Txt small muted center style={{ padding: space.lg }}>{q ? `Aucune vidéo pour « ${q} ».` : 'Aucune vidéo dans la bibliothèque.'}</Txt>}
+          ListEmptyComponent={<Txt small muted center style={{ padding: space.lg }}>{q ? t('Aucune vidéo pour « {q} ».', { q }) : t('Aucune vidéo dans la bibliothèque.')}</Txt>}
           ItemSeparatorComponent={() => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.border }} />}
           renderItem={({ item: a }) => (
-            <Pressable onPress={() => onPick(a)} accessibilityRole="button" accessibilityLabel={`Choisir ${a.title || a.name}`}
+            <Pressable onPress={() => onPick(a)} accessibilityRole="button" accessibilityLabel={t('Choisir {name}', { name: a.title || a.name })}
               style={({ pressed }) => ({ flexDirection: 'row', gap: space.md, paddingVertical: space.sm, alignItems: 'center', opacity: pressed ? 0.7 : 1 })}>
               <View style={{ width: 48, height: 72, borderRadius: radius.sm, backgroundColor: c.surface2, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
                 {a.thumbnail && headers ? <Image source={{ uri: apiUrl(a.thumbnail, org), headers }} style={{ width: 48, height: 72 }} contentFit="cover" />
@@ -55,7 +56,7 @@ export function LibrarySheet({ visible, onClose, onPick }: { visible: boolean; o
                 <Txt bold numberOfLines={2}>{a.title || a.name}</Txt>
                 <Txt small muted numberOfLines={1}>{fmtDuration(a.duration_sec)}{a.folder ? ` · ${a.folder}` : a.source_name ? ` · ${a.source_name}` : ''}</Txt>
                 {a.scheduled || a.published ? (
-                  <Txt size={12} color={c.warn}>{a.scheduled ? `Déjà programmée (${a.scheduled})` : `Déjà publiée (${a.published})`}</Txt>
+                  <Txt size={12} color={c.warn}>{a.scheduled ? t('Déjà programmée ({when})', { when: a.scheduled }) : t('Déjà publiée ({when})', { when: a.published })}</Txt>
                 ) : null}
               </View>
             </Pressable>

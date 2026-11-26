@@ -4,6 +4,7 @@ import { useVideoPlayer, VideoView } from 'expo-video'
 import { useEffect, useState } from 'react'
 import { Linking, Pressable, View, type StyleProp, type ViewStyle } from 'react-native'
 import { API_URL, authHeaders } from '../../lib/http'
+import { t } from '../../lib/i18n'
 import { Icon } from '../../ui/kit'
 import { radius, useTheme } from '../../ui/theme'
 import { showDialog } from '../../ui/dialog'
@@ -25,12 +26,12 @@ export function useAuthHeaders(): Record<string, string> | null {
 
 /** Ouvre un lien externe (la publication sur la plateforme, le dossier Drive). */
 export async function openLink(url: string) {
-  try { await Linking.openURL(url) } catch { showDialog('Lien impossible à ouvrir', url) }
+  try { await Linking.openURL(url) } catch { showDialog(t('Lien impossible à ouvrir'), url) }
 }
 
 function Player({ uri, headers, style }: { uri: string; headers: Record<string, string>; style: StyleProp<ViewStyle> }) {
   const player = useVideoPlayer({ uri, headers }, p => { p.play() })
-  return <VideoView player={player} style={style} nativeControls contentFit="contain" fullscreenOptions={{ enable: true }} accessibilityLabel="Vidéo" />
+  return <VideoView player={player} style={style} nativeControls contentFit="contain" fullscreenOptions={{ enable: true }} accessibilityLabel={t('Vidéo')} />
 }
 
 export function PostMedia({ stream, thumb, externalUrl, width = 120 }: { stream: string | null; thumb: string | null; externalUrl?: string | null; width?: number }) {
@@ -42,7 +43,7 @@ export function PostMedia({ stream, thumb, externalUrl, width = 120 }: { stream:
   const can = !!stream || !!externalUrl
   return (
     <Pressable onPress={() => (stream ? setPlaying(true) : externalUrl ? openLink(externalUrl) : undefined)} disabled={!can}
-      accessibilityRole="button" accessibilityLabel={stream ? 'Lire la vidéo' : externalUrl ? 'Voir la vidéo sur la plateforme' : 'Aperçu indisponible'}
+      accessibilityRole="button" accessibilityLabel={stream ? t('Lire la vidéo') : externalUrl ? t('Voir la vidéo sur la plateforme') : t('Aperçu indisponible')}
       style={({ pressed }) => [box, { backgroundColor: c.surface2, opacity: pressed ? 0.8 : 1, alignItems: 'center', justifyContent: 'center' }]}>
       {thumb && (!isApi(thumb) || headers)
         ? <Image source={{ uri: thumb, headers: isApi(thumb) ? headers || undefined : undefined }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover" />

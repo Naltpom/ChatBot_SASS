@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Pressable, ScrollView, StyleSheet, View, type ScrollViewInstance } from 'react-native'
 import { PLATFORM_LABEL, type Account } from '../../lib/api'
+import { t } from '../../lib/i18n'
 import { Avatar, Button, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import { accKey } from './compose'
@@ -40,7 +41,7 @@ export function AccountPager({ accounts, render, problems, onRemove, disabled }:
             <Pressable key={accKey(a)} onLayout={e => { tabX.current[i] = e.nativeEvent.layout.x }}
               onPress={() => { Haptics.selectionAsync().catch(() => {}); go(i) }}
               accessibilityRole="tab" accessibilityState={{ selected: on }}
-              accessibilityLabel={`${a.name || PLATFORM_LABEL[a.platform]}, ${PLATFORM_LABEL[a.platform]}${n ? `, ${n} réglage${n > 1 ? 's' : ''} à compléter` : ''}`}
+              accessibilityLabel={`${a.name || PLATFORM_LABEL[a.platform]}, ${PLATFORM_LABEL[a.platform]}${n ? `, ${n > 1 ? t('{n} réglages à compléter', { n }) : t('{n} réglage à compléter', { n })}` : ''}`}
               style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingLeft: 6, paddingRight: 12,
                 borderRadius: 999, backgroundColor: on ? c.ink : c.surface, borderWidth: StyleSheet.hairlineWidth * 2,
                 borderColor: on ? c.ink : c.borderStrong, opacity: pressed ? 0.75 : 1 })}>
@@ -62,13 +63,13 @@ export function AccountPager({ accounts, render, problems, onRemove, disabled }:
                 <Txt bold>{PLATFORM_LABEL[a.platform]} · {a.name}</Txt>
                 {render(a)}
               </View>
-              <Button kind="danger" icon="close" title="Retirer ce compte de la programmation" disabled={disabled} onPress={() => onRemove(a)} />
+              <Button kind="danger" icon="close" title={t('Retirer ce compte de la programmation')} disabled={disabled} onPress={() => onRemove(a)} />
             </View>
           ))}
         </ScrollView>
       ) : null}
       {accounts.length > 1 ? (
-        <Txt size={12} muted center>{index + 1} / {accounts.length} · glissez pour passer d’un compte à l’autre</Txt>
+        <Txt size={12} muted center>{t('{i} / {n} · glissez pour passer d’un compte à l’autre', { i: index + 1, n: accounts.length })}</Txt>
       ) : null}
     </View>
   )

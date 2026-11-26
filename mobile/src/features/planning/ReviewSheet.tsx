@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics'
 import { useEffect, useState, type ReactNode } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { PLATFORM_LABEL, type Account } from '../../lib/api'
-import { locale } from '../../lib/locale'
+import { locale, t } from '../../lib/i18n'
 import { Avatar, Button, Msg, Row, Sheet, Txt } from '../../ui/kit'
 import { space, useTheme } from '../../ui/theme'
 import { longDate } from './compose'
@@ -40,41 +40,41 @@ export function ReviewSheet({ visible, onClose, accounts, when, recap, problems,
     if (last) onDone(); else { setI(i + 1); setEditing(false) }
   }
   const footer = editing ? (
-    <Button kind="primary" icon="check" title="Enregistrer" onPress={() => { Haptics.selectionAsync().catch(() => {}); setEditing(false) }} />
+    <Button kind="primary" icon="check" title={t('Enregistrer')} onPress={() => { Haptics.selectionAsync().catch(() => {}); setEditing(false) }} />
   ) : (
     <View style={{ gap: space.sm }}>
       <Row gap={space.sm}>
-        <Button icon="edit" title="Modifier" disabled={busy} onPress={() => setEditing(true)} style={{ flex: 1 }} />
-        <Button kind="primary" icon={last ? 'clock' : 'check'} title={last ? finalLabel : 'Valider'} loading={busy && last}
+        <Button icon="edit" title={t('Modifier')} disabled={busy} onPress={() => setEditing(true)} style={{ flex: 1 }} />
+        <Button kind="primary" icon={last ? 'clock' : 'check'} title={last ? finalLabel : t('Valider')} loading={busy && last}
           disabled={busy || errs.length > 0} onPress={validate} style={{ flex: 1.4 }} />
       </Row>
-      <Button kind="danger" icon="close" title="Retirer ce compte" disabled={busy || accounts.length < 2}
+      <Button kind="danger" icon="close" title={t('Retirer ce compte')} disabled={busy || accounts.length < 2}
         onPress={() => { onRemove(a); setEditing(false) }} />
     </View>
   )
   return (
-    <Sheet visible={visible} title={`Vérification · ${i + 1} / ${accounts.length}`} onClose={busy ? () => {} : onClose} footer={footer}>
+    <Sheet visible={visible} title={t('Vérification · {i} / {n}', { i: i + 1, n: accounts.length })} onClose={busy ? () => {} : onClose} footer={footer}>
       <Row gap={space.md}>
         <Avatar src={a.avatar_url} name={a.name} platform={a.platform} size={40} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Txt bold numberOfLines={1}>{a.name || PLATFORM_LABEL[a.platform]}</Txt>
-          <Txt small muted numberOfLines={2}>{PLATFORM_LABEL[a.platform]} · {at ? longDate(at, locale()) : 'tout de suite'}</Txt>
+          <Txt small muted numberOfLines={2}>{PLATFORM_LABEL[a.platform]} · {at ? longDate(at, locale()) : t('tout de suite')}</Txt>
         </View>
       </Row>
-      {errs.length ? <Msg kind="err">À corriger : {errs.join(' ')}</Msg> : null}
+      {errs.length ? <Msg kind="err">{t('À corriger : {list}', { list: errs.map(e => t(e)).join(' ') })}</Msg> : null}
       {editing ? renderEdit(a) : (
         <View style={{ gap: 0 }}>
           {recap(a).map(([k, v]) => (
             <View key={k} style={{ paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.border, gap: 2 }}>
-              <Txt size={12} muted>{k}</Txt>
-              <Txt numberOfLines={6} color={/^à (choisir|indiquer|préciser)/.test(v) ? c.danger : c.text}>{v}</Txt>
+              <Txt size={12} muted>{t(k)}</Txt>
+              <Txt numberOfLines={6} color={/^à (choisir|indiquer|préciser)/.test(v) ? c.danger : c.text}>{t(v)}</Txt>
             </View>
           ))}
         </View>
       )}
-      {accounts.length < 2 && !editing ? <Txt size={12} muted>Dernier compte : pour l’enlever, fermez et changez les comptes.</Txt> : null}
+      {accounts.length < 2 && !editing ? <Txt size={12} muted>{t('Dernier compte : pour l’enlever, fermez et changez les comptes.')}</Txt> : null}
       {accounts.length > 1 ? (
-        <Txt size={12} muted>{accounts.map((_, j) => (j < i ? '✓' : j === i ? '●' : '○')).join('  ')}  ·  {i} validé{i > 1 ? 's' : ''} sur {accounts.length}</Txt>
+        <Txt size={12} muted>{accounts.map((_, j) => (j < i ? '✓' : j === i ? '●' : '○')).join('  ')}  ·  {i > 1 ? t('{i} validés sur {n}', { i, n: accounts.length }) : t('{i} validé sur {n}', { i, n: accounts.length })}</Txt>
       ) : null}
     </Sheet>
   )
