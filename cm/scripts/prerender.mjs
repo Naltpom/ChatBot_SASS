@@ -31,6 +31,8 @@ const META = {
   '/politique-ia': {
     title: 'Politique IA · Chapote CM',
     description: 'Comment l’Assistant Chapote CM utilise l’intelligence artificielle : données envoyées, prestataire, conservation et vos choix.',
+    // Texte encore en brouillon : pas dans le sitemap ni dans Google tant qu'il n'est pas validé.
+    noindex: true,
   },
   '/avis': {
     title: 'Donner mon avis · Chapote CM',
@@ -91,7 +93,7 @@ for (const [route, page] of Object.entries(PAGES)) {
   ].map(x => '    ' + x).join('\n')
   let html = template
   html = replaceOnce(html, /<title>[^<]*<\/title>/, `<title>${esc(m.title)}</title>`, '<title>')
-  html = replaceOnce(html, /<meta name="description" content="[^"]*"\s*\/>/, `<meta name="description" content="${esc(m.description)}" />`, 'meta description')
+  html = replaceOnce(html, /<meta name="description" content="[^"]*"\s*\/>/, `<meta name="description" content="${esc(m.description)}" />${m.noindex ? '\n    <meta name="robots" content="noindex" />' : ''}`, 'meta description')
   html = replaceOnce(html, /\s*<\/head>/, `\n${head}\n  </head>`, "</head>")
   html = replaceOnce(html, /<div id="root"><\/div>/, `<div id="root"><div data-prerender="${route}">${body}</div></div>`, '<div id="root">')
   const out = route === '/' ? join(dist, 'index.html') : join(dist, route.slice(1), 'index.html')
