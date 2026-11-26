@@ -465,3 +465,9 @@ export const eraseAiConversations = () => send<{ deleted: number }>('POST', '/ap
 export interface PasskeyRow { id: number; name: string | null; created_at: string | null; last_used_at: string | null }
 export const getPasskeys = () => call<PasskeyRow[]>('/api/auth/2fa/webauthn/credentials')
 export const deletePasskey = (id: number) => send<{ ok: boolean }>('DELETE', `/api/auth/2fa/webauthn/credentials/${id}`)
+
+// Empreinte gérée par l'app (clé secrète dans la puce sécurisée) : à la place du code de double authentification.
+export interface BioKey { id: number; name: string | null; created_at: string; last_used_at: string | null }
+export const bioEnable = (name: string) => send<BioKey & { secret: string; recovery_codes: string[] | null }>('POST', '/api/cm/mobile/biometric/enable', { name })
+export const getBioKeys = () => call<BioKey[]>('/api/cm/mobile/biometric/keys')
+export const deleteBioKey = (id: number) => send<{ ok: boolean }>('DELETE', `/api/cm/mobile/biometric/keys/${id}`)

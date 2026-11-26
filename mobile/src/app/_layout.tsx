@@ -63,7 +63,7 @@ function Gate() {
   }, [ready, me?.id, onboarded]) // eslint-disable-line react-hooks/exhaustive-deps
   // Juste après une connexion : proposer l'empreinte (une fois ; « Plus tard » = pas avant 30 jours).
   useEffect(() => {
-    if (!ready || !me || !onboarded) return
+    if (!ready || !me || !onboarded || !me.twofa_enabled) return
     const id = me.id
     const t = setTimeout(() => offerPasskey(id, () => router.push({ pathname: '/settings', params: { passkey: '1' } })), 1200)
     return () => clearTimeout(t)
