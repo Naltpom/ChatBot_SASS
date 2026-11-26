@@ -8,6 +8,8 @@ import { Plus, Search } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { brandBg, orgInitials } from '../ui'
 import type { BotSummary } from '../types/bot'
+import { useAuth } from '../AuthContext'
+import { botsInSpace } from '../utils/permissions'
 
 // Statut visuel d'un bot dans l'aside — dérivé des champs réels de BotSummary.
 //   attn (ambre, clignote) : à finaliser / paiement requis / impayé.
@@ -24,7 +26,8 @@ function botDot(b: BotSummary): DotKind {
 
 export default function BotNav() {
   const { data } = useApiResource<BotSummary[]>('/api/bots')
-  const bots = data ?? []
+  const { activeOrg } = useAuth()
+  const bots = useMemo(() => botsInSpace(data ?? [], activeOrg?.id), [data, activeOrg?.id])
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [query, setQuery] = useState('')

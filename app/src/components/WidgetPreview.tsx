@@ -15,7 +15,7 @@ import PreviewTyping from './widget-preview/PreviewTyping'
 import PreviewLeadForm from './widget-preview/PreviewLeadForm'
 import PreviewAppointmentOverlay from './widget-preview/PreviewAppointmentOverlay'
 import PreviewLauncher from './widget-preview/PreviewLauncher'
-import { FONT_STACKS, clampInt, leadFieldsOf, safeHex, TEXT_SCALE, nowHHMM } from './widget-preview/shared'
+import { FONT_STACKS, clampInt, leadFieldsOf, safeHex, TEXT_SCALE, nowHHMM, PREVIEW_SURFACES } from './widget-preview/shared'
 import type { Msg, LeadSim, PreviewStyle } from './widget-preview/shared'
 
 // Sérialisation LOGIQUE du tree pour la dépendance du reset : on OMET node.pos
@@ -182,17 +182,21 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     : d.locale === 'auto' ? ((navigator.language || 'fr').toLowerCase().startsWith('en') ? 'en' : 'fr')
     : 'fr'
   const t = (k: string) => PREVIEW_I18N[lang][k] || PREVIEW_I18N.fr[k] || ''
-  // Surfaces : palette sombre si darkMode, littéraux historiques sinon
-  const panelBg = dark ? '#101816' : '#fff'
-  const msgsBg = dark ? '#0c1311' : '#fafbfb'
-  const botBg = dark ? '#1b2624' : '#fff'
-  const botBorder = dark ? '#233330' : '#e6eae8'
-  const botText = dark ? '#e8efed' : '#1d2b27'
-  const lineBorder = dark ? '#233330' : '#e9edec'
-  const inputBg = dark ? '#18221f' : '#fff'
-  const inputBorder = dark ? '#233330' : '#dde3e1'
-  const mutedText = dark ? '#9fb0ab' : '#5f7873'
-  const headText = soft ? (dark ? '#e8efed' : '#1d2b27') : '#fff'
+  // Surfaces : palette claire, sombre ou sombre neutre (surfaceTone), comme widget.js.
+  const neutral = dark && d.surfaceTone === 'neutral'
+  const P = PREVIEW_SURFACES[dark ? (neutral ? 'neutral' : 'dark') : 'light']
+  const panelBg = P.panel
+  const msgsBg = P.msgs
+  const botBg = P.bot
+  const botBorder = P.botBorder
+  const botText = P.text
+  const lineBorder = P.line
+  const inputBg = P.input
+  const inputBorder = P.inputBorder
+  const mutedText = P.muted
+  // Texte posé sur la couleur de marque (onPrimary) : blanc par défaut.
+  const onBrand = safeHex(d.onPrimary, '#fff')
+  const headText = soft ? botText : onBrand
   // En-tête : soft = surface claire/sombre ; sinon `bg` (brandBg) = dégradé si
   // secondaryColor définie, couleur pleine sinon. C'est le RENDU ACTUEL à l'octet
   // (le header solide utilisait déjà brandBg), donc le défaut reste inchangé.
@@ -473,7 +477,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
   const st: PreviewStyle = {
     brand, bg, r14, compact, square, dark,
     botBg, botBorder, botText, inputBg, inputBorder, mutedText, panelBg, anim,
-    accent, scale, tail, optBtn, timestamps, ts: nowHHMM(),
+    accent, scale, tail, optBtn, timestamps, ts: nowHHMM(), onBrand,
   }
 
   // Style des boutons d'option / réponse rapide (parité .kc-opt) : couleur = accent
@@ -483,7 +487,8 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
     fontSize: compact ? 11.5 : 12.5, fontWeight: 600, padding: compact ? '6px 10px' : '8px 12px',
     whiteSpace: optBtn ? 'normal' : 'nowrap',
     borderRadius: optBtn ? 10 : (square ? 10 : 99),
-    border: `1.5px solid ${accent}`, background: '#fff', color: accent, cursor: 'pointer',
+    border: `1.5px solid ${neutral ? inputBorder : accent}`, background: neutral ? panelBg : '#fff',
+    color: neutral ? botText : accent, cursor: 'pointer',
     ...(optBtn ? { width: '100%', textAlign: 'center' as const } : {}),
   }
 
@@ -495,7 +500,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
           height: windowHeight, maxHeight: `calc(100% - ${bubblePx + oy + 34}px)`,
           background: panelBg, borderRadius: R, boxShadow: PANEL_SHADOW,
           display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 40,
-          border: dark ? '1px solid #233330' : '1px solid rgba(0,0,0,.06)',
+          border: dark ? `1px solid ${lineBorder}` : '1px solid rgba(0,0,0,.06)',
           animation: openAnim, transformOrigin: 'bottom ' + (('left' in side) ? 'left' : 'right'),
         }}>
           {/* Header — solid/gradient : `bg` (brandBg, dégradé ou couleur pleine) ;
@@ -506,7 +511,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
             borderBottom: soft ? `1px solid ${lineBorder}` : 'none',
           }}>
             {headerAvatar && (
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: soft ? bg : 'rgba(255,255,255,.18)', color: '#fff', display: 'grid', placeItems: 'center', overflow: 'hidden', flexShrink: 0 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: soft ? bg : 'rgba(255,255,255,.18)', color: soft ? '#fff' : onBrand, display: 'grid', placeItems: 'center', overflow: 'hidden', flexShrink: 0 }}>
                 <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? 34 : 19} avatarImg={d.avatarImage} />
               </div>
             )}
@@ -592,7 +597,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
             <button onClick={sendAI} disabled={inputDisabled || !input.trim()} aria-label={t('send')} style={{
               width: 40, height: 40, borderRadius: 99, border: 'none', cursor: inputDisabled ? 'default' : 'pointer',
               background: inputDisabled || !input.trim() ? (sendColored ? `${accent}55` : '#e3e8e6') : (sendColored ? accent : brand),
-              color: '#fff',
+              color: inputDisabled || !input.trim() ? '#fff' : (sendColored ? '#fff' : onBrand),
               display: 'grid', placeItems: 'center', flexShrink: 0,
               boxShadow: sendColored && !(inputDisabled || !input.trim()) ? `0 2px 8px ${accent}40` : 'none',
             }}>
@@ -602,7 +607,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
 
           {d.poweredBy !== false && (
             <div style={{ textAlign: 'center', fontSize: 10, color: dark ? '#6b7a76' : '#9aa7a3', padding: '0 0 7px', background: panelBg }}>
-              {t('powered_by')} <span style={{ fontWeight: 700, color: '#0d9488' }}>Chapote</span>
+              {t('powered_by')} <span style={{ fontWeight: 700, color: neutral ? brand : '#0d9488' }}>Chapote</span>
             </div>
           )}
 
@@ -612,7 +617,7 @@ export default function WidgetPreview({ design, mode, tree, botName, defaultOpen
         </div>
       )}
 
-      <PreviewLauncher d={d} bg={bg} bubblePx={bubblePx} oy={oy} side={side}
+      <PreviewLauncher d={d} bg={bg} onBrand={onBrand} bubblePx={bubblePx} oy={oy} side={side}
                        launcherText={launcherText} open={open} t={t}
                        onToggle={() => setOpen(o => !o)} />
     </div>

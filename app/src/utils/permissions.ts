@@ -84,3 +84,11 @@ export function botOwnerLabel(user: User | null | undefined, bot: BotLike): stri
   const org = user?.organizations.find(o => o.id === bot.organization_id)
   return org?.name || 'Équipe'
 }
+
+// Bots de l'espace affiché : les bots perso de l'utilisateur (toujours visibles)
+// + ceux de l'équipe active. Sans équipe active : tout ce que renvoie /api/bots.
+// Évite de voir les bots de TOUTES ses équipes mélangés après un changement d'espace.
+export function botsInSpace<T extends BotLike>(bots: T[], activeOrgId: number | null | undefined): T[] {
+  if (activeOrgId == null) return bots
+  return bots.filter(b => isPersonalBot(b) || b.organization_id === activeOrgId)
+}

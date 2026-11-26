@@ -39,25 +39,27 @@ import WidgetPreview from '../components/WidgetPreview'
 import type { Bot } from '../types/bot'
 import type { BotConfig, ModuleKey } from '../types/billing'
 
-// perm = permission par bot requise pour un MEMBER (admins : tout). Libellés
-// EXACTS de la charte Chapote. L'onglet 'appearance' reste PREMIER (fallback
-// activeTab).
+// 7 onglets au plus, regroupés par intention (au-delà, on ne s'y retrouve plus) :
+// Aperçu, Apparence, Arbre, IA (+ actions et connecteurs), Humain, Installation
+// (+ domaines, captcha, équipe, zone sensible), Facturation. Chaque onglet regroupe
+// une ou plusieurs SECTIONS d'édition (useBotEditor suit le « sale » par section).
+// perm = permission par bot requise pour un MEMBER (admins : tout) ; un onglet est
+// visible si au moins une de ses sections l'est.
 const TABS = [
-  // Aperçu : landing de suivi du bot. Réutilise la perm 'appearance' (visible
-  // par tout le monde qui voit le bot) et reste PREMIER -> atterrissage par défaut.
-  { id: 'overview', label: 'Aperçu', perm: 'appearance' },
-  { id: 'appearance', label: 'Apparence', perm: 'appearance' },
-  { id: 'tree', label: 'Arbre', perm: 'context' },
-  { id: 'ai', label: 'IA', perm: 'context' },           // si aiTabRelevant
-  { id: 'human', label: 'Humain', perm: 'context' },     // relais / handoff
-  { id: 'actions', label: 'Actions', perm: 'context' },  // si aiTabRelevant
-  { id: 'install', label: 'Intégration', perm: 'copy' },
-  { id: 'security', label: 'Sécurité', perm: 'security' },
-  // Facturation : réutilise la perm 'security' (PAS de nouvelle BOT_PERMS), mais
-  // en plus gardé OWNER-ONLY (isBotBillingOwner) dans visibleTabs, et masqué si
-  // le billing est désactivé (is_billing_enabled). Détail produit § BotPage.
-  { id: 'billing', label: 'Facturation', perm: 'security' },
+  // Aperçu : landing de suivi du bot (perm 'appearance' : visible par tous).
+  { id: 'overview', label: 'Aperçu', perm: 'appearance', sections: ['overview'] },
+  { id: 'appearance', label: 'Apparence', perm: 'appearance', sections: ['appearance'] },
+  { id: 'tree', label: 'Arbre', perm: 'context', sections: ['tree'] },
+  { id: 'ai', label: 'IA et actions', perm: 'context', sections: ['ai', 'actions'] },
+  { id: 'human', label: 'Humain', perm: 'context', sections: ['human'] },     // relais / handoff
+  { id: 'install', label: 'Installation', perm: 'copy', sections: ['install', 'security'] },
+  // Facturation : perm 'security', OWNER-ONLY (isBotBillingOwner), masqué si le
+  // billing est désactivé (is_billing_enabled).
+  { id: 'billing', label: 'Facturation', perm: 'security', sections: ['billing'] },
 ]
+// Anciens liens (?tab=actions, ?tab=security) : vers l'onglet qui les contient.
+const TAB_ALIASES: Record<string, string> = { actions: 'ai', security: 'install', integration: 'install' }
+const tabOfSection = (section: string) => TABS.find(t => t.sections.includes(section))?.id || section
 
 export default function BotPage() {
   const { id } = useParams()
@@ -90,7 +92,10 @@ export default function BotPage() {
     updateTrigger, updateTriggerType, addTrigger, removeTrigger,
   } = editor
 
-  const [tab, setTab] = useState(params.get('tab') || 'overview')
+  const [tab, setTab] = useState(() => {
+    const t = params.get('tab') || 'overview'
+    return TAB_ALIASES[t] || t
+  })
 
   // Domaine FACTURATION (entitlement + 5 flux d'abonnement + catalogue) : tout
   // l'état/les handlers vivent dans useBotBilling. `botBilling` alimente aussi les
@@ -180,14 +185,14 @@ export default function BotPage() {
   // White-label. Recalculé via moduleLocked pour la cohérence (même règle que les
   // autres modules ; le garde is_billing_enabled est retiré, cf. moduleLocked).
   const whiteLabelLocked = moduleLocked('white_label')
+  // Onglet Installation : visible avec la perm « copy » OU « security » (domaines, captcha).
   const visibleTabs = TABS.filter(t =>
-    hasPerm(t.perm)
-    // IA toujours visible (on y active/désactive l'IA = mode hybride). Actions
-    // n'a de sens qu'avec l'IA active (mode != tree).
-    && (t.id !== 'actions' || aiTabRelevant)
+    (hasPerm(t.perm) || (t.id === 'install' && hasPerm('security')))
     && (t.id !== 'billing' || billingTabVisible),
   )
   const activeTab = visibleTabs.some(t => t.id === tab) ? tab : (visibleTabs[0]?.id || 'appearance')
+  // Sections modifiées -> onglets qui les contiennent (pastille sur l'onglet, liens de la save bar).
+  const dirtyGroups = useMemo(() => [...new Set(dirtyTabs.map(tabOfSection))], [dirtyTabs])
 
   // Bot à activer : entitlement chargé (owner) ET non actif/essai -> bandeau qui
   // pousse vers le paiement. Billing OFF => status 'active' (tout débloqué) => pas
@@ -201,7 +206,8 @@ export default function BotPage() {
     if (bot && !bot.tree_variant_json && treeView === 'b') setTreeView('a')
   }, [bot, treeView])
 
-  function switchTab(t: string) {
+  function switchTab(target: string) {
+    const t = TAB_ALIASES[target] || target
     setTab(t)
     params.set('tab', t)
     setParams(params, { replace: true })
@@ -351,7 +357,7 @@ export default function BotPage() {
             <button className={activeTab === t.id ? 'active' : ''} onClick={() => switchTab(t.id)}
                     style={isMobile ? { flexShrink: 0 } : undefined}>
               {t.label}
-              {dirtyTabs.includes(t.id) && <span className="tab-dot" aria-hidden="true" />}
+              {dirtyGroups.includes(t.id) && <span className="tab-dot" aria-hidden="true" />}
             </button>
           </Fragment>
         ))}
@@ -419,11 +425,11 @@ export default function BotPage() {
                   locked={moduleLocked('inbox')} onUpgrade={() => switchTab('billing')} />
       )}
 
-      {/* ================= ACTIONS IA ================= */}
+      {/* ================= ACTIONS ET CONNECTEURS (dans l'onglet IA) ================= */}
       {/* Deux modules distincts : actionsLocked → 'actions' (sans IA) ; mcpLocked →
           'mcp' (outils appelés par l'IA). aiActive masque/verrouille la section MCP
-          quand l'IA est OFF (mode arbre). */}
-      {activeTab === 'actions' && (
+          quand l'IA est OFF (mode arbre). Sans IA : rien à brancher, section masquée. */}
+      {activeTab === 'ai' && aiTabRelevant && (
         <ActionsTab bot={bot} savedBot={savedBot} patch={patch} actions={actions} mcpServers={mcpServers}
                     actionSecrets={actionSecrets} setActionSecretAt={setActionSecretAt}
                     mcpTokens={mcpTokens} setMcpTokenAt={setMcpTokenAt}
@@ -435,15 +441,15 @@ export default function BotPage() {
       )}
 
       {/* ================= INTÉGRATION ================= */}
-      {activeTab === 'install' && (
+      {activeTab === 'install' && hasPerm('copy') && (
         <IntegrationTab bot={bot} integrations={integrations} integType={integType}
                         setIntegType={setIntegType} currentInteg={currentInteg}
                         copied={copied} copySnippet={copySnippet} hasPerm={hasPerm}
                         activateBot={activateBot} isMobile={isMobile} />
       )}
 
-      {/* ================= SÉCURITÉ ================= */}
-      {activeTab === 'security' && (
+      {/* ================= SÉCURITÉ (dans l'onglet Installation) ================= */}
+      {activeTab === 'install' && hasPerm('security') && (
         <SecurityTab bot={bot} patch={patch} newDomain={newDomain} setNewDomain={setNewDomain}
                      addDomain={addDomain} captchaSecret={captchaSecret} setCaptchaSecret={setCaptchaSecret}
                      canMoveToTeam={canMoveToTeam} myTeams={myTeams} moveTarget={moveTarget}
@@ -492,7 +498,7 @@ export default function BotPage() {
       {/* ================= SAVE BAR SOMBRE (fixée bas, left:248px) ================= */}
       {(dirty || saved || error) && (
         <SaveBar saveBarRef={saveBarRef} isMobile={isMobile} dirty={dirty} saved={saved} error={error}
-                 dirtyTabs={dirtyTabs} visibleTabs={visibleTabs} switchTab={switchTab}
+                 dirtyTabs={dirtyGroups} visibleTabs={visibleTabs} switchTab={switchTab}
                  cancelChanges={cancelChanges} save={save} />
       )}
     </div>

@@ -28,6 +28,9 @@ interface Props {
   onUpgrade: () => void
 }
 
+// Texte sombre posé sur une couleur de marque claire (même encre que les textes du widget).
+const DARK_ON_PRIMARY = '#1d2b27'
+
 function ColorDots({ colors, value, onPick }: { colors: string[]; value: string; onPick: (c: string) => void }) {
   return (
     <div className="color-dots">
@@ -129,6 +132,11 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
             <Field label="Couleur de marque" hint="Une pastille, ou la pipette pour une teinte personnalisée.">
               <ColorDots colors={WIDGET_BRAND_COLORS} value={d.primaryColor || ''} onPick={c => onChange({ primaryColor: c })} />
             </Field>
+            <Field label="Texte sur la couleur" hint="Choisissez « Sombre » si votre couleur est claire (jaune, orange clair…).">
+              <Seg small value={d.onPrimary && d.onPrimary.toLowerCase() !== '#fff' && d.onPrimary.toLowerCase() !== '#ffffff' ? 'dark' : 'light'}
+                   onChange={v => onChange({ onPrimary: v === 'dark' ? DARK_ON_PRIMARY : null })}
+                   options={[{ value: 'light', label: 'Blanc' }, { value: 'dark', label: 'Sombre' }]} />
+            </Field>
             <div className="toggle-row">
               <div className="tl">Dégradé</div>
               <Toggle label="Dégradé" on={!!d.secondaryColor} onChange={v => onChange({ secondaryColor: v ? '#7c2d92' : null })} />
@@ -145,6 +153,13 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
               </div>
               <Toggle label="Mode sombre" on={d.darkMode === true} onChange={v => onChange({ darkMode: v })} />
             </div>
+            {d.darkMode === true && (
+              <Field label="Teinte du mode sombre" hint="« Neutre » : gris foncé, mieux sur les sites aux tons chauds.">
+                <Seg small value={d.surfaceTone === 'neutral' ? 'neutral' : 'classic'}
+                     onChange={v => onChange({ surfaceTone: v as DesignJson['surfaceTone'] })}
+                     options={[{ value: 'classic', label: 'Classique' }, { value: 'neutral', label: 'Neutre' }]} />
+              </Field>
+            )}
           </div>
         </Card>
 
@@ -251,6 +266,13 @@ export default function AppearanceForm({ design, botName, section, onChange, onN
               <input type="text" maxLength={40} value={d.launcherText || ''} placeholder="ex. Une question ?"
                      onChange={e => onChange({ launcherText: e.target.value })} />
             </Field>
+            <div className="toggle-row">
+              <div>
+                <div className="tl">Pastille « 1 »</div>
+                <div className="ts">Petit rond rouge sur la bulle fermée, pour attirer l'œil</div>
+              </div>
+              <Toggle label="Pastille « 1 »" on={d.launcherBadge !== false} onChange={v => onChange({ launcherBadge: v })} />
+            </div>
             <div className="toggle-row">
               <div>
                 <div className="tl">Liseré</div>

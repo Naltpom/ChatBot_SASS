@@ -7,7 +7,7 @@ import { useAuth } from '../AuthContext'
 import { useApiResource } from '../hooks/useApiResource'
 import { ErrorRetry } from '../components/ErrorRetry'
 import { Btn, BubbleIcon, Card, Chip, billingChip, brandBg, orgInitials, statusChip } from '../ui'
-import { botOwnerLabel, canAccessBotPerm } from '../utils/permissions'
+import { botOwnerLabel, canAccessBotPerm, botsInSpace } from '../utils/permissions'
 import { BotSummary, Integration } from '../types/bot'
 
 // Copie presse-papiers ROBUSTE : navigator.clipboard peut être absent (contexte
@@ -230,10 +230,11 @@ function botLandingPriority(b: BotSummary): number {
 }
 
 export default function BotList() {
-  const { user } = useAuth()
+  const { user, activeOrg } = useAuth()
   const navigate = useNavigate()
   const { data, loading, error, reload } = useApiResource<BotSummary[]>('/api/bots')
-  const bots = data ?? []
+  // Espace affiché uniquement (bots perso + équipe active).
+  const bots = botsInSpace(data ?? [], activeOrg?.id)
 
   if (loading) return <div className="center-page">Chargement…</div>
 

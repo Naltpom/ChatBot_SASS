@@ -7,9 +7,10 @@ import { BubbleIcon } from '../../ui'
 import type { DesignJson } from '../../types/bot'
 import type { T } from './shared'
 
-export default function PreviewLauncher({ d, bg, bubblePx, oy, side, launcherText, open, t, onToggle }: {
+export default function PreviewLauncher({ d, bg, onBrand = '#fff', bubblePx, oy, side, launcherText, open, t, onToggle }: {
   d: DesignJson
   bg: string
+  onBrand?: string
   bubblePx: number
   oy: number
   side: { left: number } | { right: number }
@@ -60,7 +61,7 @@ export default function PreviewLauncher({ d, bg, bubblePx, oy, side, launcherTex
       <button onClick={onToggle} aria-label={t('open_chat')} style={{
         position: 'absolute', bottom: oy, ...side, height: bubblePx, borderRadius: radius, width,
         border: d.bordered ? '3px solid rgba(255,255,255,.95)' : 'none', cursor: 'pointer',
-        background: bg, color: '#fff', boxShadow: '0 8px 26px rgba(10,30,25,.3)',
+        background: bg, color: onBrand, boxShadow: '0 8px 26px rgba(10,30,25,.3)',
         zIndex: 41, transform: open ? 'scale(.92)' : 'scale(1)', transition: 'transform .18s ease',
         animation,
         // Teinte du halo pour l'animation pulse (50% d'opacité, dérivée du brand).
@@ -75,6 +76,14 @@ export default function PreviewLauncher({ d, bg, bubblePx, oy, side, launcherTex
             <>
               <BubbleIcon kind={d.icon} size={d.icon === 'image' && d.avatarImage ? bubblePx * .58 : bubblePx * .44} avatarImg={d.avatarImage} />
               {launcherText && <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{launcherText}</span>}
+              {/* Pastille « 1 » (launcherBadge, défaut affichée) : parité .kc-badge de widget.js. */}
+              {d.launcherBadge !== false && (
+                <span aria-hidden="true" style={{
+                  position: 'absolute', top: -2, right: -2, width: 19, height: 19, borderRadius: 99,
+                  background: '#e74c3c', color: '#fff', fontSize: 11, fontWeight: 700,
+                  display: 'grid', placeItems: 'center', border: '2px solid #fff',
+                }}>1</span>
+              )}
             </>
           )}
       </button>

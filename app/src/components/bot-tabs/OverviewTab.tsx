@@ -102,7 +102,7 @@ export default function OverviewTab({
       key: 'domain', label: 'Déclarer un domaine autorisé',
       sub: "Le widget ne s'affichera nulle part tant qu'aucun domaine n'est validé.",
       done: bot.allowed_domains.length > 0, doneHint: bot.allowed_domains[0],
-      cta: bot.allowed_domains.length > 0 ? undefined : { label: 'Ajouter →', onClick: () => switchTab('security'), tone: 'soft' },
+      cta: bot.allowed_domains.length > 0 ? undefined : { label: 'Ajouter →', onClick: () => switchTab('install'), tone: 'soft' },
     },
   ]
   if (billingTabVisible) {
@@ -131,7 +131,7 @@ export default function OverviewTab({
   const bannerCta = paymentRequired
     ? { label: subscribeBusy ? 'Redirection…' : 'Finaliser le paiement', onClick: subscribeNow, tone: 'danger' as const }
     : bot.allowed_domains.length === 0 && canSecurity
-      ? { label: 'Déclarer un domaine', onClick: () => switchTab('security'), tone: 'primary' as const }
+      ? { label: 'Déclarer un domaine', onClick: () => switchTab('install'), tone: 'primary' as const }
       : !bot.is_active && canSecurity
         ? { label: 'Activer le bot', onClick: activateBot, tone: 'primary' as const }
         : null
