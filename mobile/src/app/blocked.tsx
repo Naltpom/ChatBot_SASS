@@ -4,28 +4,30 @@ import { useIdentity } from '../lib/identity'
 import { useSession } from '../lib/session'
 import { Button, Card, H1, Screen, Txt } from '../ui/kit'
 import { space } from '../ui/theme'
+import { t, locale } from '../lib/i18n'
 
 export default function Blocked() {
   const { identity } = useIdentity()
   const { me, signOut } = useSession()
   const until = identity?.blocked_until ? new Date(`${identity.blocked_until}T12:00:00`) : null
-  const mail = `mailto:contact@chapote.fr?subject=${encodeURIComponent('Erreur de date de naissance')}&body=${encodeURIComponent(
-    `Bonjour,\n\nMa date de naissance est mal enregistrée sur Chapote CM (${me?.email || ''}).\nLa bonne date est : \n\nMerci.`)}`
+  const mail = `mailto:contact@chapote.fr?subject=${encodeURIComponent(t('Erreur de date de naissance'))}&body=${encodeURIComponent(
+    t('Bonjour,\n\nMa date de naissance est mal enregistrée sur Chapote CM ({email}).\nLa bonne date est : \n\nMerci.', { email: me?.email || '' }))}`
   return (
     <Screen>
       <View style={{ gap: space.sm, paddingTop: space.xl }}>
-        <H1>Inscription réussie</H1>
+        <H1>{t('Inscription réussie')}</H1>
         <Txt muted>
-          Chapote CM est réservé aux personnes de {identity?.min_age ?? 15} ans et plus. Votre compte est créé et s’ouvrira
-          {until ? ` le ${until.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}` : ' à cet âge'}.
+          {until
+            ? t('Chapote CM est réservé aux personnes de {age} ans et plus. Votre compte est créé et s’ouvrira le {date}.', { age: identity?.min_age ?? 15, date: until.toLocaleDateString(locale(), { day: 'numeric', month: 'long', year: 'numeric' }) })
+            : t('Chapote CM est réservé aux personnes de {age} ans et plus. Votre compte est créé et s’ouvrira à cet âge.', { age: identity?.min_age ?? 15 })}
         </Txt>
       </View>
       <Card>
-        <Txt bold>Une erreur sur votre date de naissance ?</Txt>
-        <Txt small muted>Écrivez-nous : nous la corrigerons.</Txt>
-        <Button icon="external" title="Nous contacter" onPress={() => Linking.openURL(mail).catch(() => {})} />
+        <Txt bold>{t('Une erreur sur votre date de naissance ?')}</Txt>
+        <Txt small muted>{t('Écrivez-nous : nous la corrigerons.')}</Txt>
+        <Button icon="external" title={t('Nous contacter')} onPress={() => Linking.openURL(mail).catch(() => {})} />
       </Card>
-      <Button kind="ghost" icon="logout" title="Se déconnecter" onPress={() => { signOut() }} />
+      <Button kind="ghost" icon="logout" title={t('Se déconnecter')} onPress={() => { signOut() }} />
     </Screen>
   )
 }

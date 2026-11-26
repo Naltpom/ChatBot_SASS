@@ -21,6 +21,7 @@ import {
 import { useDebounced } from '../features/library/hooks'
 import { SortBar } from '../features/library/ui'
 import { showDialog } from '../ui/dialog'
+import { t } from '../lib/i18n'
 
 type Flash = { kind: 'err' | 'ok' | 'info'; text: string } | null
 
@@ -81,7 +82,7 @@ export default function Accounts() {
       return false
     } finally { setBusy(null) }
   }
-  const spaceName = spaces.find(s => s.org_id === org)?.name || 'Espace perso'
+  const spaceName = spaces.find(s => s.org_id === org)?.name || t('Espace perso')
   // Compte relié à l'espace de quelqu'un d'autre : on lui DEMANDE (il accepte ou refuse) ; en cas de litige, le support tranche.
   const askOwner = async () => {
     if (!claim) return
@@ -92,41 +93,41 @@ export default function Accounts() {
   }
   const addRoutine = async () => {
     if (!routineName.trim()) return
-    if (await run('routine', () => addRoutineAccount(org, routineName.trim()), 'Compte ajouté : la routine publiera les Reels programmés et enverra les chiffres.')) setRoutineName('')
+    if (await run('routine', () => addRoutineAccount(org, routineName.trim()), t('Compte ajouté : la routine publiera les Reels programmés et enverra les chiffres.'))) setRoutineName('')
   }
-  const removeGroup = (g: Group) => showDialog(`Supprimer le groupe « ${g.name} » ?`, 'Les comptes restent connectés.', [
-    { text: 'Annuler', style: 'cancel' },
-    { text: 'Supprimer', style: 'destructive', onPress: () => run(`g${g.id}`, async () => { await deleteGroup((g as Group & { org_id?: number | null }).org_id ?? null, g.id); if (current?.id === g.id) setGroup(null) }, 'Groupe supprimé.') },
+  const removeGroup = (g: Group) => showDialog(t('Supprimer le groupe « {nom} » ?', { nom: g.name }), t('Les comptes restent connectés.'), [
+    { text: t('Annuler'), style: 'cancel' },
+    { text: t('Supprimer'), style: 'destructive', onPress: () => run(`g${g.id}`, async () => { await deleteGroup((g as Group & { org_id?: number | null }).org_id ?? null, g.id); if (current?.id === g.id) setGroup(null) }, t('Groupe supprimé.')) },
   ])
-  const removeAccount = (a: Account) => showDialog(`${a.mode === 'routine' ? 'Retirer' : 'Déconnecter'} ${a.name || PLATFORM_LABEL[a.platform]} ?`,
-    'Les publications à venir sur ce compte ne partiront plus.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: a.mode === 'routine' ? 'Retirer' : 'Déconnecter', style: 'destructive', onPress: () => run(`d${a.platform}${a.id}`, () => disconnect(org, a)) },
+  const removeAccount = (a: Account) => showDialog(a.mode === 'routine' ? t('Retirer {nom} ?', { nom: a.name || PLATFORM_LABEL[a.platform] }) : t('Déconnecter {nom} ?', { nom: a.name || PLATFORM_LABEL[a.platform] }),
+    t('Les publications à venir sur ce compte ne partiront plus.'), [
+      { text: t('Annuler'), style: 'cancel' },
+      { text: a.mode === 'routine' ? t('Retirer') : t('Déconnecter'), style: 'destructive', onPress: () => run(`d${a.platform}${a.id}`, () => disconnect(org, a)) },
     ])
 
   return (
     <Screen refreshing={refreshing} onRefresh={async () => { setRefreshing(true); reloadAll(); setTimeout(() => setRefreshing(false), 600) }}>
-      <Txt muted>Les comptes et les groupes de cet espace ne sont visibles que dans cet espace.</Txt>
+      <Txt muted>{t('Les comptes et les groupes de cet espace ne sont visibles que dans cet espace.')}</Txt>
       <Row gap={space.sm}>
-        <Button small icon="users" title="Personnes" flex onPress={() => router.push('/people')} />
-        <Button small icon="folder" title="Bibliothèque" flex onPress={() => router.navigate('/library')} />
+        <Button small icon="users" title={t('Personnes')} flex onPress={() => router.push('/people')} />
+        <Button small icon="folder" title={t('Bibliothèque')} flex onPress={() => router.navigate('/library')} />
       </Row>
       {msg ? <Msg kind={msg.kind}>{msg.text}</Msg> : null}
       {claim ? (
         <Card>
-          <H2>Ce compte est déjà relié à l’espace de quelqu’un d’autre</H2>
-          <Txt small muted>Vous venez de vous y connecter : nous pouvons demander à cet espace de vous le céder. Le compte arrivera dans « {spaceName} » avec ses publications à venir, seulement s’il accepte. En cas de refus ou sans réponse, vous pourrez faire une réclamation au support de Chapote.</Txt>
-          <Field label="Un mot pour la personne (facultatif)" value={claimNote} onChangeText={setClaimNote} maxLength={500} placeholder="Ex. : je gère ce compte pour la marque depuis janvier" />
-          <Button kind="primary" title="Envoyer la demande" onPress={askOwner} />
-          <Button kind="ghost" title="Laisser tomber" onPress={() => { setClaim(null); setClaimNote('') }} />
-          <Txt small faint>Valable 15 minutes. Votre nom et votre e-mail seront montrés aux administrateurs de l’autre espace.</Txt>
+          <H2>{t('Ce compte est déjà relié à l’espace de quelqu’un d’autre')}</H2>
+          <Txt small muted>{t('Vous venez de vous y connecter : nous pouvons demander à cet espace de vous le céder. Le compte arrivera dans « {espace} » avec ses publications à venir, seulement s’il accepte. En cas de refus ou sans réponse, vous pourrez faire une réclamation au support de Chapote.', { espace: spaceName })}</Txt>
+          <Field label={t('Un mot pour la personne (facultatif)')} value={claimNote} onChangeText={setClaimNote} maxLength={500} placeholder={t('Ex. : je gère ce compte pour la marque depuis janvier')} />
+          <Button kind="primary" title={t('Envoyer la demande')} onPress={askOwner} />
+          <Button kind="ghost" title={t('Laisser tomber')} onPress={() => { setClaim(null); setClaimNote('') }} />
+          <Txt small faint>{t('Valable 15 minutes. Votre nom et votre e-mail seront montrés aux administrateurs de l’autre espace.')}</Txt>
         </Card>
       ) : null}
       <AccountRequests data={requests.data} onChanged={(text, err) => {
         setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: text || '' })
         reloadAll()
       }} />
-      {!canAdmin ? <Msg>{`Votre rôle dans cette équipe (${role === 'viewer' ? 'lecteur' : 'éditeur'}) ne permet pas de connecter, retirer ou transférer des comptes.`}</Msg> : null}
+      {!canAdmin ? <Msg>{role === 'viewer' ? t('Votre rôle dans cette équipe (lecteur) ne permet pas de connecter, retirer ou transférer des comptes.') : t('Votre rôle dans cette équipe (éditeur) ne permet pas de connecter, retirer ou transférer des comptes.')}</Msg> : null}
       <Transfers data={transfers.data} onChanged={(text, err) => {
         setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: text || '' })
         if (!err) reloadAll()
@@ -134,13 +135,13 @@ export default function Accounts() {
       {accounts.error ? <Msg kind="err">{accounts.error}</Msg> : null}
 
       <Row style={{ justifyContent: 'space-between', marginTop: space.sm }}>
-        <H2>Groupes</H2>
-        {canAdmin ? <Button small icon="plus" title="Nouveau groupe" onPress={() => setEditing('new')} /> : null}
+        <H2>{t('Groupes')}</H2>
+        {canAdmin ? <Button small icon="plus" title={t('Nouveau groupe')} onPress={() => setEditing('new')} /> : null}
       </Row>
-      <Txt small muted>Par artiste, client, langue… Filtrez l’accueil, le planning et les stats, et publiez sur un groupe en un geste.</Txt>
+      <Txt small muted>{t('Par artiste, client, langue… Filtrez l’accueil, le planning et les stats, et publiez sur un groupe en un geste.')}</Txt>
       {groups.length === 0 ? (
-        <Empty title="Créer un premier groupe" icon="layers" action={canAdmin ? <Button small icon="plus" title="Nouveau groupe" onPress={() => setEditing('new')} /> : undefined}>
-          Ex. « Ghost Hands » = TikTok + YouTube + Instagram de l’artiste.
+        <Empty title={t('Créer un premier groupe')} icon="layers" action={canAdmin ? <Button small icon="plus" title={t('Nouveau groupe')} onPress={() => setEditing('new')} /> : undefined}>
+          {t('Ex. « Ghost Hands » = TikTok + YouTube + Instagram de l’artiste.')}
         </Empty>
       ) : groups.map(g => {
         const members = groupMembers(g, all)
@@ -151,19 +152,19 @@ export default function Accounts() {
             <Row gap={space.sm}>
               <GroupDot color={g.color} size={12} />
               <Txt bold size={16} numberOfLines={1} style={{ flex: 1 }}>{g.name}</Txt>
-              {manages(g) ? <IconButton icon="users" label={`Partager ${g.name}`} onPress={() => setSharing({ what: { group_id: g.id }, label: `le groupe « ${g.name} »`, org: g.org_id ?? null })} /> : null}
-              {manages(g) ? <IconButton icon="edit" label={`Modifier ${g.name}`} onPress={() => setEditing(g)} /> : null}
-              {manages(g) ? <IconButton icon="trash" color={c.danger} label={`Supprimer ${g.name}`} onPress={() => removeGroup(g)} /> : null}
+              {manages(g) ? <IconButton icon="users" label={t('Partager {nom}', { nom: g.name })} onPress={() => setSharing({ what: { group_id: g.id }, label: t('le groupe « {nom} »', { nom: g.name }), org: g.org_id ?? null })} /> : null}
+              {manages(g) ? <IconButton icon="edit" label={t('Modifier {nom}', { nom: g.name })} onPress={() => setEditing(g)} /> : null}
+              {manages(g) ? <IconButton icon="trash" color={c.danger} label={t('Supprimer {nom}', { nom: g.name })} onPress={() => removeGroup(g)} /> : null}
             </Row>
-            {!manages(g) ? <Txt small muted>Partagé avec vous{members[0]?.owner ? ` par ${members[0].owner}` : ''}{members[0]?.role ? ` · ${members[0].role === 'admin' ? 'Admin' : members[0].role === 'editor' ? 'Peut publier' : 'Lecture seule'}` : ''}</Txt> : null}
+            {!manages(g) ? <Txt small muted>{members[0]?.owner ? t('Partagé avec vous par {nom}', { nom: members[0].owner }) : t('Partagé avec vous')}{members[0]?.role ? ` · ${members[0].role === 'admin' ? t('Admin') : members[0].role === 'editor' ? t('Peut publier') : t('Lecture seule')}` : ''}</Txt> : null}
             <Row gap={6} wrap>
-              {members.length === 0 ? <Txt small muted>Aucun compte</Txt>
+              {members.length === 0 ? <Txt small muted>{t('Aucun compte')}</Txt>
                 : members.map(a => <Avatar key={akey(a.platform, a.id)} src={a.avatar_url} name={a.name} platform={a.platform} size={32} />)}
             </Row>
             <Row style={{ justifyContent: 'space-between' }}>
-              <Txt small muted>{members.length} compte{members.length > 1 ? 's' : ''}{followers ? ` · ${short(followers)} abonnés` : ''}</Txt>
-              <Button small kind="ghost" icon={on ? 'check' : undefined} title={on ? 'Affiché' : 'Afficher'} onPress={() => setGroup(on ? null : g.id)}
-                accessibilityLabel={on ? `${g.name} affiché. Tout afficher` : `Afficher seulement ${g.name}`} />
+              <Txt small muted>{members.length > 1 ? t('{n} comptes', { n: members.length }) : t('{n} compte', { n: members.length })}{followers ? t(' · {n} abonnés', { n: short(followers) }) : ''}</Txt>
+              <Button small kind="ghost" icon={on ? 'check' : undefined} title={on ? t('Affiché') : t('Afficher')} onPress={() => setGroup(on ? null : g.id)}
+                accessibilityLabel={on ? t('{nom} affiché. Tout afficher', { nom: g.name }) : t('Afficher seulement {nom}', { nom: g.name })} />
             </Row>
           </Card>
         )
@@ -171,12 +172,12 @@ export default function Accounts() {
 
       {all.length > 4 ? (
         <View style={{ gap: space.sm, marginTop: space.sm }}>
-          <SearchField value={input} onChangeText={setInput} placeholder="Rechercher un compte" />
-          <SortBar sort={sort} order={order} options={ACCOUNT_SORTS} onSort={s => { setSort(s); setOrder(accountNaturalOrder(s)) }} onOrder={setOrder} />
+          <SearchField value={input} onChangeText={setInput} placeholder={t('Rechercher un compte')} />
+          <SortBar sort={sort} order={order} options={ACCOUNT_SORTS.map(([v, l]) => [v, t(l)] as [AccountSort, string])} onSort={s => { setSort(s); setOrder(accountNaturalOrder(s)) }} onOrder={setOrder} />
         </View>
       ) : null}
       {!accounts.data && accounts.loading ? <Skeleton h={120} n={3} /> : null}
-      {browserHint ? <Msg>{BROWSER_HINT}</Msg> : null}
+      {browserHint ? <Msg>{t(BROWSER_HINT)}</Msg> : null}
       {accounts.data ? PLATFORMS.map(p => {
         const list = ((filtered && shown.data) || all).filter(a => a.platform === p)
         if (filtered && q && !list.length) return null
@@ -186,46 +187,46 @@ export default function Accounts() {
             <Row style={{ justifyContent: 'space-between' }}>
               <Row gap={space.sm}><PlatformLogo platform={p} size={22} /><H2>{PLATFORM_LABEL[p]}</H2></Row>
               {!canAdmin ? null : enabled
-                ? <Button small icon="plus" title={list.length ? 'Autre compte' : 'Connecter'} loading={busy === p} onPress={() => connect(p)}
-                    accessibilityLabel={`Connecter un compte ${PLATFORM_LABEL[p]}`} />
+                ? <Button small icon="plus" title={list.length ? t('Autre compte') : t('Connecter')} loading={busy === p} onPress={() => connect(p)}
+                    accessibilityLabel={t('Connecter un compte {plateforme}', { plateforme: PLATFORM_LABEL[p] })} />
                 : null}
             </Row>
-            {canAdmin && !enabled ? <Txt small muted>{p === 'instagram' ? 'Connexion officielle bientôt (validation Meta)' : 'Module indisponible'}</Txt> : null}
-            {list.length === 0 ? <Txt small muted>Aucun compte. {enabled ? CONNECT_HINT[p] : ''}</Txt> : null}
+            {canAdmin && !enabled ? <Txt small muted>{p === 'instagram' ? t('Connexion officielle bientôt (validation Meta)') : t('Module indisponible')}</Txt> : null}
+            {list.length === 0 ? <Txt small muted>{t('Aucun compte.')} {enabled ? t(CONNECT_HINT[p]) : ''}</Txt> : null}
             {list.map(a => (
               <AccountRow key={`${a.platform}${a.id}`} a={a} groups={groupsOf(groups, a)} busy={busy} canAdmin={a.role ? a.role === 'admin' : canAdmin}
                 onTransfer={() => setTransferring(a)}
                 onShare={() => setSharing({ what: { platform: a.platform, account_id: a.id }, label: a.name || PLATFORM_LABEL[a.platform] })}
-                onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? org, a), 'Chiffres actualisés.')}
+                onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? org, a), t('Chiffres actualisés.'))}
                 onRemove={() => removeAccount(a)}
                 onReconnect={() => connect(p)}
                 onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(org, a.id, { public_domain_only: v }),
-                  v ? 'Cette chaîne n’accepte plus que des œuvres du domaine public.' : 'Réglage « domaine public seulement » retiré.')} />
+                  v ? t('Cette chaîne n’accepte plus que des œuvres du domaine public.') : t('Réglage « domaine public seulement » retiré.'))} />
             ))}
             {p === 'instagram' && canAdmin ? (
               <View style={{ gap: space.sm, borderTopWidth: 1, borderColor: c.border, paddingTop: space.md }}>
-                <Field label="Compte géré par la routine Claude" value={routineName} onChangeText={setRoutineName} placeholder="@nom.du.compte"
+                <Field label={t('Compte géré par la routine Claude')} value={routineName} onChangeText={setRoutineName} placeholder={t('@nom.du.compte')}
                   autoCapitalize="none" autoCorrect={false} returnKeyType="done" onSubmitEditing={addRoutine}
-                  hint="Sans connexion officielle : la routine publie les Reels programmés et envoie les chiffres." />
-                <Button title="Ajouter" loading={busy === 'routine'} disabled={!routineName.trim()} onPress={addRoutine} style={{ alignSelf: 'flex-start' }} />
+                  hint={t('Sans connexion officielle : la routine publie les Reels programmés et envoie les chiffres.')} />
+                <Button title={t('Ajouter')} loading={busy === 'routine'} disabled={!routineName.trim()} onPress={addRoutine} style={{ alignSelf: 'flex-start' }} />
               </View>
             ) : null}
           </Card>
         )
       }) : null}
       {config && !config.tiktok_stats
-        ? <Txt small muted>Statistiques TikTok : elles s’afficheront après la validation de l’accès aux chiffres par TikTok, puis une reconnexion des comptes.</Txt> : null}
+        ? <Txt small muted>{t('Statistiques TikTok : elles s’afficheront après la validation de l’accès aux chiffres par TikTok, puis une reconnexion des comptes.')}</Txt> : null}
 
       {transferring ? (
         <TransferSheet a={transferring} onClose={() => setTransferring(null)}
-          onDone={t => { setTransferring(null); setMsg({ kind: 'ok', text: t }); reloadAll() }} />
+          onDone={txt => { setTransferring(null); setMsg({ kind: 'ok', text: txt }); reloadAll() }} />
       ) : null}
       {sharing ? <ShareSheet what={sharing.what} label={sharing.label} org={sharing.org} onClose={() => setSharing(null)} /> : null}
       {editing ? (
         <GroupEditor group={editing === 'new' ? null : editing} org={editing === 'new' ? null : (editing as Group & { org_id?: number | null }).org_id ?? null}
           accounts={all.filter(a => (a.org_id ?? null) === (editing === 'new' ? null : (editing as Group & { org_id?: number | null }).org_id ?? null) && a.role !== 'viewer')}
           onClose={() => setEditing(null)}
-          onSaved={g => { setEditing(null); reloadGroups(); setMsg({ kind: 'ok', text: `Groupe « ${g.name} » enregistré.` }) }} />
+          onSaved={g => { setEditing(null); reloadGroups(); setMsg({ kind: 'ok', text: t('Groupe « {nom} » enregistré.', { nom: g.name }) }) }} />
       ) : null}
     </Screen>
   )

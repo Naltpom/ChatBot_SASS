@@ -3,6 +3,10 @@ import type { Analysis, Asset, AssetState, DatePattern, Order, Proposal, Recipe,
 
 export const plural = (n: number, word: string, pl = `${word}s`) => `${n} ${n > 1 ? pl : word}`
 
+/** Traducteur passé par l'écran (t de lib/i18n) ; par défaut, le français avec ses {valeurs} remplies. */
+export type Tr = (fr: string, vars?: Record<string, string | number>) => string
+export const fill: Tr = (fr, vars) => (vars ? fr.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : fr)
+
 /** Adresse complète d'un média de l'API (« /api/cm/assets/12/stream »), avec l'espace si besoin. */
 export function mediaUrl(base: string, path: string | null | undefined, org: number | null = null): string | null {
   if (!path) return null
@@ -24,12 +28,12 @@ export function assetBadge(a: Pick<Asset, 'published' | 'scheduled' | 'kind'>): 
 }
 
 /** Ligne d'infos d'un dossier Drive (sans la date de dernière lecture, ajoutée par l'écran). */
-export function sourceLine(s: Pick<Source, 'videos' | 'new' | 'role' | 'can_upload'>): string {
-  const parts = [plural(s.videos, 'vidéo')]
-  if (s.new) parts.push(`${s.new} à publier`)
-  parts.push(s.role === 'writer' ? 'Éditeur' : 'Lecteur')
-  if (s.role === 'writer' && s.can_upload === false) parts.push('dépôt de fichiers refusé par Google')
-  if (s.can_upload === true) parts.push('archivage direct')
+export function sourceLine(s: Pick<Source, 'videos' | 'new' | 'role' | 'can_upload'>, tr: Tr = fill): string {
+  const parts = [s.videos > 1 ? tr('{n} vidéos', { n: s.videos }) : tr('{n} vidéo', { n: s.videos })]
+  if (s.new) parts.push(tr('{n} à publier', { n: s.new }))
+  parts.push(s.role === 'writer' ? tr('Éditeur') : tr('Lecteur'))
+  if (s.role === 'writer' && s.can_upload === false) parts.push(tr('dépôt de fichiers refusé par Google'))
+  if (s.can_upload === true) parts.push(tr('archivage direct'))
   return parts.join(' · ')
 }
 
@@ -54,9 +58,12 @@ export function captionHint(from: Asset['caption_from']): string {
 }
 
 /** « Publiée 2 fois, dernière le … · 1 à venir » ; `date` met une date en forme. */
-export function usageText(a: Pick<Asset, 'published' | 'scheduled' | 'last_published_at'>, date: (iso: string) => string): string {
-  let t = a.published ? `Publiée ${a.published} fois${a.last_published_at ? `, dernière le ${date(a.last_published_at)}` : ''}` : 'Jamais publiée'
-  if (a.scheduled) t += ` · ${a.scheduled} à venir`
+export function usageText(a: Pick<Asset, 'published' | 'scheduled' | 'last_published_at'>, date: (iso: string) => string, tr: Tr = fill): string {
+  const n = a.published
+  let t = !n ? tr('Jamais publiée')
+    : a.last_published_at ? (n === 1 ? tr('Publiée 1 fois, dernière le {date}', { date: date(a.last_published_at) }) : tr('Publiée {n} fois, dernière le {date}', { n, date: date(a.last_published_at) }))
+    : (n === 1 ? tr('Publiée 1 fois') : tr('Publiée {n} fois', { n }))
+  if (a.scheduled) t += ` · ${tr('{n} à venir', { n: a.scheduled })}`
   return t
 }
 
@@ -86,19 +93,20 @@ export const TITLE_FROM: Record<Recipe['title']['from'], string> = { folder: 'le
 export const LEVELS: [number, string][] = [[1, 'Directement dans le dossier partagé'], [2, 'Un niveau plus bas'], [3, 'Deux niveaux plus bas']]
 
 type Targets = Pick<Analysis, 'accounts' | 'groups'> | null
-export function recipeTargets(an: Targets): { key: string; name: string }[] {
-  return [...(an?.groups || []).map(g => ({ ...g, name: `Groupe ${g.name}` })), ...(an?.accounts || [])]
+export function recipeTargets(an: Targets, tr: Tr = fill): { key: string; name: string }[] {
+  return [...(an?.groups || []).map(g => ({ ...g, name: tr('Groupe {name}', { name: g.name }) })), ...(an?.accounts || [])]
 }
-const nameOf = (an: Targets, k: string) => recipeTargets(an).find(t => t.key === k)?.name || k
-const names = (an: Targets, ks: string[]) =>
-  (ks.length > 2 ? `${ks.slice(0, 2).map(k => nameOf(an, k)).join(', ')} +${ks.length - 2}` : ks.map(k => nameOf(an, k)).join(', '))
+const nameOf = (an: Targets, k: string, tr: Tr) => recipeTargets(an, tr).find(t => t.key === k)?.name || k
+const names = (an: Targets, ks: string[], tr: Tr) =>
+  (ks.length > 2 ? `${ks.slice(0, 2).map(k => nameOf(an, k, tr)).join(', ')} +${ks.length - 2}` : ks.map(k => nameOf(an, k, tr)).join(', '))
 
-export function accountSummary(r: Recipe, an: Targets): string {
+export function accountSummary(r: Recipe, an: Targets, tr: Tr = fill): string {
   if (r.account.from === 'folder') {
-    const pairs = Object.entries(r.account.map).filter(([f]) => f !== '*').map(([f, k]) => `${f} → ${names(an, k)}`)
-    return `Selon le dossier : ${pairs.join(' · ') || 'à associer'}`
+    const pairs = Object.entries(r.account.map).filter(([f]) => f !== '*').map(([f, k]) => `${f} → ${names(an, k, tr)}`)
+    return pairs.length ? tr('Selon le dossier : {pairs}', { pairs: pairs.join(' · ') }) : tr('Selon le dossier : à associer')
   }
-  return `Toujours : ${(r.account.map['*'] || []).map(k => nameOf(an, k)).join(', ') || 'les comptes proposés par défaut pour ce dossier'}`
+  const all = (r.account.map['*'] || []).map(k => nameOf(an, k, tr)).join(', ')
+  return all ? tr('Toujours : {names}', { names: all }) : tr('Toujours : les comptes proposés par défaut pour ce dossier')
 }
 export function whenSummary(r: Recipe, an: Pick<Analysis, 'patterns'> | null): string {
   if (r.when.pattern === 'none') return 'Je choisis l’heure en validant.'

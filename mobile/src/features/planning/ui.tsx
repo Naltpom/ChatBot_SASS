@@ -5,10 +5,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AppState, Platform as RNPlatform, Pressable, ScrollView, StyleSheet, View, type ScrollViewInstance } from 'react-native'
 import { PLATFORM_LABEL, type CalendarItem, type Group } from '../../lib/api'
 import { fmtTime, short } from '../../lib/format'
+import { locale, t } from '../../lib/i18n'
 import { Card, Icon, PlatformLogo, Row, Txt, groupHex } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import { daySlots, earliestSlot, toSlot } from './compose'
-import { pillOf, rowLabel, rowNote, rowSide, shortTitle, type Pill, type PlanGroup } from './calendar'
+import { PILL_LABEL, pillOf, rowNote, rowSide, shortTitle, type Pill, type PlanGroup } from './calendar'
 
 const label = (p: CalendarItem['platform']) => PLATFORM_LABEL[p]
 
@@ -29,15 +30,21 @@ export function PlatformPill({ item, pill, withLabel = true }: { item: CalendarI
 /** Œuvre protégée ou droits inconnus sur une des publications de la ligne. */
 const risky = (g: PlanGroup) => g.items.some(i => i.kind === 'target' && (i.rights === 'protected' || i.rights === 'unknown'))
 
+/** Libellé accessible d'une ligne (comme rowLabel de calendar.ts, traduit). */
+function rowA11y(g: PlanGroup, time: string, title: string, groupName?: string | null): string {
+  const list = g.items.map(i => `${label(i.platform)} ${t(PILL_LABEL[pillOf(i)])}`).join(', ')
+  return groupName ? t('{time}, {title}, groupe {group} : {list}', { time, title, group: groupName, list }) : t('{time}, {title} : {list}', { time, title, list })
+}
+
 /** Une ligne du planning : heure, titre, pastilles, bordure gauche à la couleur du groupe. */
 export function PlanRow({ g, group, onPress }: { g: PlanGroup; group: Group | null; onPress: () => void }) {
   const { c } = useTheme()
-  const title = shortTitle(g.title) || 'Sans titre'
+  const title = shortTitle(g.title) || t('Sans titre')
   const side = rowSide(g, short)
   const note = rowNote(g, label)
   return (
     <Pressable onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress() }} accessibilityRole="button"
-      accessibilityLabel={rowLabel(g, fmtTime(g.at), label, group?.name)} accessibilityHint="Ouvre le détail"
+      accessibilityLabel={rowA11y(g, fmtTime(g.at), title, group?.name)} accessibilityHint={t('Ouvre le détail')}
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 64, paddingVertical: space.md,
         paddingLeft: space.md, paddingRight: space.md, backgroundColor: pressed ? c.surface2 : c.surface, borderRadius: radius.md,
         borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border, borderLeftWidth: 5, borderLeftColor: group ? groupHex(group.color) : c.borderStrong })}>
@@ -45,9 +52,9 @@ export function PlanRow({ g, group, onPress }: { g: PlanGroup; group: Group | nu
       <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
         <Txt bold numberOfLines={1}>{risky(g) ? '⚠️ ' : ''}{title}</Txt>
         <Row gap={5} wrap>{g.items.map(i => <PlatformPill key={`${i.kind}-${i.id}`} item={i} />)}</Row>
-        {note ? <Txt size={12} color={note.tone === 'danger' ? c.danger : c.warn} numberOfLines={2}>{note.text}</Txt> : null}
+        {note ? <Txt size={12} color={note.tone === 'danger' ? c.danger : c.warn} numberOfLines={2}>{t(note.text)}</Txt> : null}
       </View>
-      {side.text ? <Txt size={12} bold={side.err} color={side.err ? c.danger : c.muted} style={{ maxWidth: 84, textAlign: 'right' }}>{side.text}</Txt> : null}
+      {side.text ? <Txt size={12} bold={side.err} color={side.err ? c.danger : c.muted} style={{ maxWidth: 84, textAlign: 'right' }}>{t(side.text)}</Txt> : null}
       <Icon name="right" size={16} color={c.faint} />
     </Pressable>
   )
@@ -113,8 +120,8 @@ export function Choice<T extends string>({ label: text, value, options, onChange
   )
 }
 
-const fmtDay = (d: Date) => d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
-const fmtHour = (d: Date) => d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const fmtDay = (d: Date) => d.toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
+const fmtHour = (d: Date) => d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
 
 /** Jour et heure : sélecteurs compacts sur iOS, boîtes de dialogue sur Android. */
 /** Jour + créneau de 15 minutes (00, 15, 30, 45). Aujourd'hui : seulement à partir de 15 minutes après maintenant. */
@@ -134,12 +141,12 @@ export function DateTimeField({ label: text, value, onChange, disabled }:
   useEffect(() => { if (idx >= 0) ref.current?.scrollTo({ x: Math.max(0, idx * (CHIP + 8) - CHIP), animated: false }) }, [idx, value.toDateString()])
 
   const day = RNPlatform.OS === 'ios' ? (
-    <DateTimePicker value={value} mode="date" display="compact" locale="fr-FR" minimumDate={first} disabled={disabled}
-      themeVariant={dark ? 'dark' : 'light'} accentColor={c.primary} accessibilityLabel={`${text || 'Date'} : jour`}
+    <DateTimePicker value={value} mode="date" display="compact" locale={locale()} minimumDate={first} disabled={disabled}
+      themeVariant={dark ? 'dark' : 'light'} accentColor={c.primary} accessibilityLabel={t('{label} : jour', { label: text || t('Date') })}
       onValueChange={(_, d) => pickDay(d)} />
   ) : (
     <Pressable onPress={() => { if (!disabled) DateTimePickerAndroid.open({ value, mode: 'date', minimumDate: first, onValueChange: (_, d) => pickDay(d) }) }}
-      disabled={disabled} accessibilityRole="button" accessibilityLabel={`Jour : ${fmtDay(value)}`}
+      disabled={disabled} accessibilityRole="button" accessibilityLabel={t('Jour : {day}', { day: fmtDay(value) })}
       style={({ pressed }) => ({ alignSelf: 'flex-start', minHeight: 44, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.borderStrong,
         backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 })}>
       <Icon name="calendar" size={18} color={c.muted} /><Txt>{fmtDay(value)}</Txt><Icon name="down" size={16} color={c.muted} />
@@ -150,7 +157,7 @@ export function DateTimeField({ label: text, value, onChange, disabled }:
       {text ? <Txt small bold>{text}</Txt> : null}
       {day}
       <ScrollView ref={ref} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
-        accessibilityLabel={`${text || 'Heure'} : créneaux de 15 minutes`}>
+        accessibilityLabel={t('{label} : créneaux de 15 minutes', { label: text || t('Heure') })}>
         {slots.map(t => {
           const on = t.getTime() === value.getTime()
           return (
@@ -163,7 +170,7 @@ export function DateTimeField({ label: text, value, onChange, disabled }:
           )
         })}
       </ScrollView>
-      {value.toDateString() === now.toDateString() ? <Txt size={12} muted>Aujourd’hui : au plus tôt {fmtHour(first)} (15 minutes d’avance).</Txt> : null}
+      {value.toDateString() === now.toDateString() ? <Txt size={12} muted>{t('Aujourd’hui : au plus tôt {time} (15 minutes d’avance).', { time: fmtHour(first) })}</Txt> : null}
     </View>
   )
 }
@@ -186,20 +193,22 @@ export function TooSoon({ at, now, onNext, onNow }: { at: Date; now: Date; onNex
   if (at.getTime() >= next.getTime()) return null
   return (
     <View accessibilityRole="alert" style={{ gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: c.warnBg, borderWidth: 1, borderColor: c.warn }}>
-      <Txt bold color={c.warn}>Attention : il est {fmtHour(now)}</Txt>
+      <Txt bold color={c.warn}>{t('Attention : il est {time}', { time: fmtHour(now) })}</Txt>
       <Txt small>
-        L’heure prévue ({fmtHour(at)}{at.toDateString() !== now.toDateString() ? `, ${fmtDay(at)}` : ''}) est {at.getTime() <= now.getTime() ? 'déjà passée' : 'trop proche'} :
-        il faut 15 minutes d’avance au minimum.
+        {t(at.getTime() <= now.getTime()
+          ? 'L’heure prévue ({when}) est déjà passée : il faut 15 minutes d’avance au minimum.'
+          : 'L’heure prévue ({when}) est trop proche : il faut 15 minutes d’avance au minimum.',
+        { when: `${fmtHour(at)}${at.toDateString() !== now.toDateString() ? `, ${fmtDay(at)}` : ''}` })}
       </Txt>
       <Row gap={space.sm} wrap>
         <Pressable onPress={() => onNext(next)} accessibilityRole="button"
           style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: c.primary, justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}>
-          <Txt small bold color={c.onPrimary}>Planifier à {fmtHour(next)}</Txt>
+          <Txt small bold color={c.onPrimary}>{t('Planifier à {time}', { time: fmtHour(next) })}</Txt>
         </Pressable>
         {onNow ? (
           <Pressable onPress={onNow} accessibilityRole="button"
             style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.borderStrong, backgroundColor: c.surface, justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
-            <Txt small bold>Publier maintenant</Txt>
+            <Txt small bold>{t('Publier maintenant')}</Txt>
           </Pressable>
         ) : null}
       </Row>

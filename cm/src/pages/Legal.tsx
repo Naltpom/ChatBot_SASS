@@ -6,28 +6,31 @@ import { Link } from 'react-router-dom'
 import { BrandMark } from '../components/ui'
 import privacy from '../legal/privacy.md?raw'
 import terms from '../legal/terms.md?raw'
+import privacyEn from '../legal/privacy.en.md?raw'
+import termsEn from '../legal/terms.en.md?raw'
+import { getLang, t } from '../i18n'
 
 const DOCS = {
-  privacy: { md: privacy, title: 'Politique de confidentialité' },
-  terms: { md: terms, title: 'Conditions d’utilisation' },
+  privacy: { md: privacy, en: privacyEn, title: 'Politique de confidentialité' },
+  terms: { md: terms, en: termsEn, title: 'Conditions d’utilisation' },
 }
 
 export default function Legal({ doc }: { doc: keyof typeof DOCS }) {
   const d = DOCS[doc]
-  useEffect(() => { document.title = `${d.title} · Chapote CM`; window.scrollTo(0, 0) }, [d])
+  useEffect(() => { document.title = `${t(d.title)} · Chapote CM`; window.scrollTo(0, 0) }, [d])
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <header style={{ maxWidth: 760, margin: '0 auto', padding: '16px 16px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Link to="/" className="row-nw" style={{ gap: 8, color: 'var(--text)', fontWeight: 700 }} aria-label="Chapote CM, accueil"><BrandMark size={28} />Chapote CM</Link>
+        <Link to="/" className="row-nw" style={{ gap: 8, color: 'var(--text)', fontWeight: 700 }} aria-label={t('Chapote CM, accueil')}><BrandMark size={28} />Chapote CM</Link>
       </header>
       <main className="legal" style={{ maxWidth: 760, margin: '0 auto', padding: '8px 16px 48px', lineHeight: 1.6, overflowWrap: 'anywhere' }}>
         <ReactMarkdown components={{
           a: ({ href, children }) => href?.startsWith('/') ? <Link to={href}>{children}</Link>
             : <a href={href} target="_blank" rel="noreferrer">{children}</a>,
-        }}>{d.md}</ReactMarkdown>
+        }}>{getLang() === 'en' ? d.en : d.md}</ReactMarkdown>
       </main>
       <footer style={{ maxWidth: 760, margin: '0 auto', padding: '0 16px 32px', display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13 }}>
-        <Link to="/">Accueil</Link><Link to="/privacy">Confidentialité</Link><Link to="/terms">Conditions d’utilisation</Link>
+        <Link to="/">{t('Accueil')}</Link><Link to="/privacy">{t('Confidentialité')}</Link><Link to="/terms">{t('Conditions d’utilisation')}</Link>
       </footer>
     </div>
   )

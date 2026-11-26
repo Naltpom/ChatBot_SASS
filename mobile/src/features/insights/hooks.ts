@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Linking } from 'react-native'
 import type { Order, Page, Scope } from '../../lib/api'
 import { useLoad, useSession } from '../../lib/session'
+import { t } from '../../lib/i18n'
 
 /** Valeur recopiée après `ms` sans changement (recherche envoyée à l'API). */
 export function useDebounced<T>(value: T, ms = 300): T {
@@ -73,4 +74,5 @@ export const openWeb = (url: string) => { WebBrowser.openBrowserAsync(url).catch
 /** Lien vers une app (profil ou message Instagram, TikTok) : l'app si installée, sinon le navigateur. */
 export const openApp = (url: string) => { Linking.openURL(url).catch(() => openWeb(url)) }
 
-export const errText = (e: unknown) => (e as { data?: { message?: string } })?.data?.message || (e as Error)?.message || 'Erreur'
+export const errText = (e: unknown) => (e as { data?: { message?: string } })?.data?.message || (e as Error)?.message || t('Erreur')
+

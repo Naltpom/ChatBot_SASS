@@ -11,6 +11,7 @@ import { PlatformLogo } from './PlatformLogo'
 import { useDesktop } from '../hooks'
 import { AccountPicker, accKey, usePins, type PinKey } from './AccountPicker'
 import { Avatar, Brand, GroupDot, Icon, Sheet, type IconName } from './ui'
+import { t } from '../i18n'
 
 // Pages « suivi » : filtrées par la barre de comptes. Pages « gestion » : tout l'espace.
 // Mêmes onglets que l'app mobile, dans le même ordre (« + » au centre sur téléphone).
@@ -63,20 +64,20 @@ function ScopeBar() {
     else if (v.group != null) { toggleGroup(v.group); touch(`g:${v.group}`) }
     else { setGroup(null); setAccount(null); setOpen(false) }
   }
-  const label = account ? null : picked.length > 1 ? `${picked.length} groupes` : null
+  const label = account ? null : picked.length > 1 ? t('{n} groupes', { n: picked.length }) : null
   const picker = (
     <AccountPicker mode="single" accounts={accounts} groups={groups} pins={pins} onTogglePin={togglePin} ownerOf={ownerOf}
                    value={{ group: null, account, groups: picked }} onPick={pick}
                    initialTab={account || !groups.length ? 'accounts' : 'groups'}
-                   footer={<p className="tiny muted" style={{ margin: 0 }}>Cochez plusieurs groupes pour les voir ensemble, ou un compte pour le voir seul.</p>} />
+                   footer={<p className="tiny muted" style={{ margin: 0 }}>{t('Cochez plusieurs groupes pour les voir ensemble, ou un compte pour le voir seul.')}</p>} />
   )
   return (
     <div className="scopebar" ref={box} onKeyDown={e => { if (e.key === 'Escape' && open) { setOpen(false) } }}>
-      <div className="scopebar-in" role="toolbar" aria-label="Filtrer par groupe ou compte"
+      <div className="scopebar-in" role="toolbar" aria-label={t('Filtrer par groupe ou compte')}
            onWheel={e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY }}>
         <button type="button" className="fchip" aria-pressed={all} onClick={() => pick({ group: null, account: null })}
-                title="Mes comptes et les groupes partagés avec moi">
-          Tous <span className="fchip-n">{accounts.length}</span>
+                title={t('Mes comptes et les groupes partagés avec moi')}>
+          {t('Tous')} <span className="fchip-n">{accounts.length}</span>
         </button>
         {shown.map(k => {
           const r = resolve(k)!
@@ -84,23 +85,23 @@ function ScopeBar() {
           const owner = ownerOf(r.g || r.a!)
           return r.g ? (
             <button key={k} type="button" className="fchip" aria-pressed={on} onClick={() => pick({ group: r.g.id, account: null })}
-                    title={`Groupe · ${r.g.accounts.length} compte${r.g.accounts.length > 1 ? 's' : ''}${owner ? ` · partagé par ${owner}` : ''}`}>
-              <GroupDot color={r.g.color} />{r.g.name}{pins.includes(k) && <span className="sr-only"> (épinglé)</span>}
+                    title={`${r.g.accounts.length > 1 ? t('Groupe · {n} comptes', { n: r.g.accounts.length }) : t('Groupe · {n} compte', { n: r.g.accounts.length })}${owner ? t(' · partagé par {owner}', { owner }) : ''}`}>
+              <GroupDot color={r.g.color} />{r.g.name}{pins.includes(k) && <span className="sr-only"> {t('(épinglé)')}</span>}
             </button>
           ) : (
             <button key={k} type="button" className="fchip fchip-acc" aria-pressed={on} onClick={() => pick({ group: null, account: accKey(r.a) })}
-                    title={`${PLATFORM_LABEL[r.a.platform]}${owner ? ` · de ${owner}` : ''}`}>
+                    title={`${PLATFORM_LABEL[r.a.platform]}${owner ? t(' · de {owner}', { owner }) : ''}`}>
               <span className="fchip-av"><Avatar src={r.a.avatar_url} name={r.a.name} size="sm" /><PlatformLogo platform={r.a.platform} size={12} /></span>
               {r.a.name || PLATFORM_LABEL[r.a.platform]}
             </button>
           )
         })}
         <button type="button" className="fchip fchip-more" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(o => !o)}>
-          <Icon name="search" size={16} />{label || 'Choisir…'}
+          <Icon name="search" size={16} />{label || t('Choisir…')}
         </button>
       </div>
-      {open && desktop && <div className="scope-pop" role="dialog" aria-label="Choisir les groupes ou le compte affichés">{picker}</div>}
-      {open && !desktop && <Sheet title="Groupes et comptes affichés" onClose={() => setOpen(false)}>{picker}</Sheet>}
+      {open && desktop && <div className="scope-pop" role="dialog" aria-label={t('Choisir les groupes ou le compte affichés')}>{picker}</div>}
+      {open && !desktop && <Sheet title={t('Groupes et comptes affichés')} onClose={() => setOpen(false)}>{picker}</Sheet>}
     </div>
   )
 }
@@ -109,9 +110,9 @@ function ScopeBar() {
 function HeaderActions({ badge }: { badge: number }) {
   return (
     <span className="row-nw" style={{ gap: 2 }}>
-      <NavLink to="/comptes" className="btn btn-ghost icon-btn" aria-label="Comptes connectés" title="Comptes connectés"><Icon name="users" /></NavLink>
-      <NavLink to="/reglages" className="btn btn-ghost icon-btn" style={{ position: 'relative' }} title="Réglages"
-               aria-label={badge ? `Réglages (${badge} à voir)` : 'Réglages'}>
+      <NavLink to="/comptes" className="btn btn-ghost icon-btn" aria-label={t('Comptes connectés')} title={t('Comptes connectés')}><Icon name="users" /></NavLink>
+      <NavLink to="/reglages" className="btn btn-ghost icon-btn" style={{ position: 'relative' }} title={t('Réglages')}
+               aria-label={badge ? t('Réglages ({n} à voir)', { n: badge }) : t('Réglages')}>
         <Icon name="settings" />
         {badge > 0 && <span className="nav-badge" style={{ position: 'absolute', top: 2, right: 0, transform: 'scale(.8)' }} aria-hidden="true">{badge > 99 ? '99+' : badge}</span>}
       </NavLink>
@@ -128,9 +129,9 @@ class PageBoundary extends Component<{ children: ReactNode; path: string }, { fa
     if (!this.state.failed) return this.props.children
     return (
       <div className="card col" role="alert" style={{ gap: 10, alignItems: 'flex-start' }}>
-        <h2 style={{ margin: 0 }}>Nouvelle version disponible</h2>
-        <p className="small muted" style={{ margin: 0 }}>Chapote CM vient d’être mis à jour. Rechargez la page pour continuer.</p>
-        <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>Recharger</button>
+        <h2 style={{ margin: 0 }}>{t('Nouvelle version disponible')}</h2>
+        <p className="small muted" style={{ margin: 0 }}>{t('Chapote CM vient d’être mis à jour. Rechargez la page pour continuer.')}</p>
+        <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>{t('Recharger')}</button>
       </div>
     )
   }
@@ -142,8 +143,9 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
   const { canEdit } = useRole()
   const composing = pathname === '/nouvelle'
   const filtered = FILTERED(pathname)
-  const title = composing ? 'Nouvelle publication'
+  const rawTitle = composing ? 'Nouvelle publication'
     : TITLES.find(([p]) => pathname.startsWith(p))?.[1] || [...NAV, ...MANAGE].find(n => pathname.startsWith(n.to))?.label
+  const title = rawTitle ? t(rawTitle) : rawTitle
   useEffect(() => { window.scrollTo(0, 0) }, [pathname])
   // Brouillons à valider (pastille ; onglet caché s'il n'y en a aucun pour ce qui est affiché) : relu à chaque changement de page.
   const [drafts, setDrafts] = useState<number | null>(null)
@@ -152,33 +154,33 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
 
   return (
     <div className="app">
-      <a href="#contenu" className="skip">Aller au contenu</a>
-      <aside className="sidebar" aria-label="Navigation">
+      <a href="#contenu" className="skip">{t('Aller au contenu')}</a>
+      <aside className="sidebar" aria-label={t('Navigation')}>
         <Brand to="/planning" />
-        <Link to="/nouvelle" className="btn btn-primary btn-block" style={{ margin: '8px 0 10px' }}><Icon name="plus" />Nouvelle publication</Link>
-        <nav className="side-nav" aria-label="Navigation principale">
+        <Link to="/nouvelle" className="btn btn-primary btn-block" style={{ margin: '8px 0 10px' }}><Icon name="plus" />{t('Nouvelle publication')}</Link>
+        <nav className="side-nav" aria-label={t('Navigation principale')}>
           {NAV.map(n => (
-            <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} />{n.label}</NavLink>
+            <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} />{t(n.label)}</NavLink>
           ))}
           {(!!drafts || pathname.startsWith('/a-valider')) && (
-            <NavLink to="/a-valider"><Icon name="check" />À valider
-              {!!drafts && <span className="nav-badge" aria-label={`${drafts} à valider`}>{drafts > 99 ? '99+' : drafts}</span>}
+            <NavLink to="/a-valider"><Icon name="check" />{t('À valider')}
+              {!!drafts && <span className="nav-badge" aria-label={t('{n} à valider', { n: drafts })}>{drafts > 99 ? '99+' : drafts}</span>}
             </NavLink>
           )}
-          <div className="side-label">Mon espace</div>
-          {MANAGE.map(n => <NavLink key={n.to} to={n.to}><Icon name={n.icon} />{n.label}
-            {n.to === '/partage' && invitations > 0 && <span className="nav-badge" aria-label={`${invitations} invitation${invitations > 1 ? 's' : ''}`}>{invitations}</span>}
+          <div className="side-label">{t('Mon espace')}</div>
+          {MANAGE.map(n => <NavLink key={n.to} to={n.to}><Icon name={n.icon} />{t(n.label)}
+            {n.to === '/partage' && invitations > 0 && <span className="nav-badge" aria-label={invitations > 1 ? t('{n} invitations', { n: invitations }) : t('{n} invitation', { n: invitations })}>{invitations}</span>}
           </NavLink>)}
         </nav>
         <div className="side-foot small muted" style={{ padding: '12px 12px 0' }}>
-          Même compte que chapote.fr
+          {t('Même compte que chapote.fr')}
         </div>
       </aside>
 
       <div style={{ minWidth: 0 }}>
         <header className="appbar">
           {composing
-            ? <Link to="/planning" className="btn btn-ghost icon-btn only-mobile" aria-label="Retour au planning"><Icon name="left" /></Link>
+            ? <Link to="/planning" className="btn btn-ghost icon-btn only-mobile" aria-label={t('Retour au planning')}><Icon name="left" /></Link>
             : <span className="only-mobile row-nw" style={{ gap: 8, minWidth: 0 }}><Brand to="/planning" /></span>}
           <span className={`appbar-title${composing ? '' : ' only-desktop'}`}>{title}</span>
           <span className="grow" />
@@ -192,10 +194,10 @@ export default function Layout({ fallback }: { fallback?: ReactNode }) {
       </div>
 
       {!composing && (
-        <nav className="tabbar" aria-label="Navigation principale">
-          {NAV.slice(0, 2).map(n => <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} size={22} />{n.label}</NavLink>)}
-          {canEdit && <Link to="/nouvelle" className="fab" aria-label="Nouvelle publication"><Icon name="plus" size={26} /></Link>}
-          {NAV.slice(2).map(n => <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} size={22} />{n.label}</NavLink>)}
+        <nav className="tabbar" aria-label={t('Navigation principale')}>
+          {NAV.slice(0, 2).map(n => <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} size={22} />{t(n.label)}</NavLink>)}
+          {canEdit && <Link to="/nouvelle" className="fab" aria-label={t('Nouvelle publication')}><Icon name="plus" size={26} /></Link>}
+          {NAV.slice(2).map(n => <NavLink key={n.to} to={n.to} className={() => (isOn(pathname, n) ? 'active' : '')}><Icon name={n.icon} size={22} />{t(n.label)}</NavLink>)}
         </nav>
       )}
     </div>

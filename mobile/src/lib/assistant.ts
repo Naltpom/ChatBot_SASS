@@ -1,6 +1,9 @@
 // Assistant Chapote CM (le chatbot de chapote.fr) : affiché dans une WebView, module natif présent à partir de
 // la version 5 de l'app (et dans Expo Go). Avant, l'onglet est caché. Voir docs/WIDGET_CM.md, section 7.
 import { Platform, TurboModuleRegistry } from 'react-native'
+import { t } from './i18n'
+
+const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 
 export const assistantAvailable = (() => {
   if (Platform.OS === 'web') return false
@@ -23,5 +26,5 @@ export function assistantHtml(color: string, text: string, theme: 'light' | 'dar
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <style>html,body,iframe{margin:0;border:0;width:100%;height:100%;background:${bg}}</style>
-</head><body><iframe src="${src}" title="Assistant Chapote CM"></iframe></body></html>`
+</head><body><iframe src="${src}" title="${escapeAttr(t('Assistant Chapote CM'))}"></iframe></body></html>`
 }

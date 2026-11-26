@@ -11,9 +11,10 @@ import { StepHeader, useOwnAccounts } from '../features/steps'
 import { Missing, StepProgress } from '../ui/Progress'
 import { Button, Card, Field, H1, Icon, Msg, Row, Screen, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
+import { t, locale } from '../lib/i18n'
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-const fr = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+const fr = (d: Date) => d.toLocaleDateString(locale(), { day: 'numeric', month: 'long', year: 'numeric' })
 
 function Check({ checked, onToggle, children }: { checked: boolean; onToggle: () => void; children: React.ReactNode }) {
   const { c } = useTheme()
@@ -56,7 +57,7 @@ export default function Onboarding() {
     DateTimePickerAndroid.open({ value: born || new Date(2000, 0, 1), mode: 'date', maximumDate: new Date(),
       onValueChange: (_, d) => { if (d) setBorn(d) } })
   }
-  const missing = [!first.trim() && 'le prénom', !last.trim() && 'le nom', !born && 'la date de naissance', !ok && 'l’accord sur les conditions'].filter(Boolean) as string[]
+  const missing = [!first.trim() && t('le prénom'), !last.trim() && t('le nom'), !born && t('la date de naissance'), !ok && t('l’accord sur les conditions')].filter(Boolean) as string[]
   const valid = missing.length === 0
 
   const save = async () => {
@@ -66,45 +67,45 @@ export default function Onboarding() {
       const i = await putIdentity({ first_name: first.trim(), last_name: last.trim(), birth_date: iso(born), accept_terms: true })
       set(i)
       router.replace(i.blocked_until ? '/blocked' : own.length ? '/' : '/welcome')
-    } catch (e: any) { setErr(e?.message || 'Enregistrement impossible') } finally { setBusy(false) }
+    } catch (e: any) { setErr(e?.message || t('Enregistrement impossible')) } finally { setBusy(false) }
   }
 
   return (
     <Screen>
       <StepHeader n={1} />
       <View style={{ gap: space.md }}>
-        <StepProgress step={1} total={STEPS} label="Vos informations" />
-        <H1>Faisons connaissance</H1>
-        <Txt muted>Trois informations, puis on connecte vos comptes.</Txt>
+        <StepProgress step={1} total={STEPS} label={t('Vos informations')} />
+        <H1>{t('Faisons connaissance')}</H1>
+        <Txt muted>{t('Trois informations, puis on connecte vos comptes.')}</Txt>
       </View>
       {err ? <Msg kind="err">{err}</Msg> : null}
       <Card>
-        <Field label="Prénom" value={first} onChangeText={setFirst} onBlur={() => setTouched(true)} error={touched && !first.trim() ? 'Indiquez votre prénom.' : null} autoComplete="given-name" textContentType="givenName" maxLength={80} />
-        <Field label="Nom" value={last} onChangeText={setLast} error={touched && first.trim() && !last.trim() ? 'Indiquez votre nom.' : null} autoComplete="family-name" textContentType="familyName" maxLength={80} />
+        <Field label={t('Prénom')} value={first} onChangeText={setFirst} onBlur={() => setTouched(true)} error={touched && !first.trim() ? t('Indiquez votre prénom.') : null} autoComplete="given-name" textContentType="givenName" maxLength={80} />
+        <Field label={t('Nom')} value={last} onChangeText={setLast} error={touched && first.trim() && !last.trim() ? t('Indiquez votre nom.') : null} autoComplete="family-name" textContentType="familyName" maxLength={80} />
         <View style={{ gap: 6 }}>
-          <Txt small bold>Date de naissance</Txt>
+          <Txt small bold>{t('Date de naissance')}</Txt>
           {RNPlatform.OS === 'ios' && !fixedBirth ? (
-            <DateTimePicker value={born || new Date(2000, 0, 1)} mode="date" display="compact" locale="fr-FR" maximumDate={new Date()}
-              themeVariant={dark ? 'dark' : 'light'} accentColor={c.primary} accessibilityLabel="Date de naissance"
+            <DateTimePicker value={born || new Date(2000, 0, 1)} mode="date" display="compact" locale={locale()} maximumDate={new Date()}
+              themeVariant={dark ? 'dark' : 'light'} accentColor={c.primary} accessibilityLabel={t('Date de naissance')}
               onValueChange={(_, d) => { if (d) setBorn(d) }} />
           ) : (
-            <Pressable onPress={pickDate} disabled={fixedBirth} accessibilityRole="button" accessibilityLabel="Date de naissance"
+            <Pressable onPress={pickDate} disabled={fixedBirth} accessibilityRole="button" accessibilityLabel={t('Date de naissance')}
               style={{ minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surface,
                 flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, opacity: fixedBirth ? 0.6 : 1 }}>
               <Icon name="calendar" size={18} color={c.muted} />
-              <Txt muted={!born}>{born ? fr(born) : 'Choisir la date'}</Txt>
+              <Txt muted={!born}>{born ? fr(born) : t('Choisir la date')}</Txt>
             </Pressable>
           )}
-          {fixedBirth ? <Txt small muted>Déjà enregistrée. Une erreur ? Écrivez à contact@chapote.fr.</Txt> : null}
+          {fixedBirth ? <Txt small muted>{t('Déjà enregistrée. Une erreur ? Écrivez à contact@chapote.fr.')}</Txt> : null}
         </View>
       </Card>
       <Check checked={ok} onToggle={() => setOk(v => !v)}>
-        <Txt>J’accepte les <Txt bold color={c.primary} onPress={() => open(legal.cgu)}>conditions d’utilisation</Txt>, les{' '}
-          <Txt bold color={c.primary} onPress={() => open(legal.cgv)}>conditions de vente</Txt> et la{' '}
-          <Txt bold color={c.primary} onPress={() => open(legal.privacy)}>politique de confidentialité</Txt>.</Txt>
+        <Txt>{t('J’accepte les ')}<Txt bold color={c.primary} onPress={() => open(legal.cgu)}>{t('conditions d’utilisation')}</Txt>{t(', les')}{' '}
+          <Txt bold color={c.primary} onPress={() => open(legal.cgv)}>{t('conditions de vente')}</Txt>{t(' et la')}{' '}
+          <Txt bold color={c.primary} onPress={() => open(legal.privacy)}>{t('politique de confidentialité')}</Txt>.</Txt>
       </Check>
-      <Txt small muted>Chapote CM est réservé aux 15 ans et plus. Votre date de naissance ne sert qu’à le vérifier.</Txt>
-      <Button kind="primary" title="Continuer : connecter mes comptes" loading={busy} disabled={!valid} onPress={save} style={{ minHeight: 52 }} />
+      <Txt small muted>{t('Chapote CM est réservé aux 15 ans et plus. Votre date de naissance ne sert qu’à le vérifier.')}</Txt>
+      <Button kind="primary" title={t('Continuer : connecter mes comptes')} loading={busy} disabled={!valid} onPress={save} style={{ minHeight: 52 }} />
       <Missing items={missing} />
     </Screen>
   )

@@ -19,10 +19,11 @@ import {
   shiftKey, weekKeys, weekRange, type PlanGroup,
 } from '../../features/planning/calendar'
 import { PlanRow } from '../../features/planning/ui'
+import { t, locale } from '../../lib/i18n'
 
 type ListRow = { type: 'head'; day: string } | { type: 'row'; g: PlanGroup }
 
-const longDay = (k: string) => fromKey(k).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+const longDay = (k: string) => fromKey(k).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })
 
 export default function Planning() {
   const { c } = useTheme()
@@ -117,19 +118,19 @@ export default function Planning() {
     : dayGroups.map(g => ({ type: 'row' as const, g }))
   const isPast = selected < today
   const dayStats = stats.get(selected)
-  const title = selected === today ? `Aujourd’hui ${fromKey(selected).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
-    : fromKey(selected).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }).replace(/^./, x => x.toUpperCase())
+  const title = selected === today ? t('Aujourd’hui {date}', { date: fromKey(selected).toLocaleDateString(locale(), { day: 'numeric', month: 'short' }) })
+    : fromKey(selected).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'short' }).replace(/^./, x => x.toUpperCase())
 
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.sm }}>
       {flash ? (
-        <Msg kind="ok">{flash}{canEdit ? <Txt bold color={c.primary} onPress={() => router.push('/new')}>{'  '}Planifier la suivante →</Txt> : null}</Msg>
+        <Msg kind="ok">{t(flash)}{canEdit ? <Txt bold color={c.primary} onPress={() => router.push('/new')}>{'  '}{t('Planifier la suivante →')}</Txt> : null}</Msg>
       ) : null}
       {!search ? <AttentionBar /> : null}
       {!search ? <StartChecklist /> : null}
-      <SearchField value={input} onChangeText={setInput} placeholder="Rechercher (titre, légende)" />
+      <SearchField value={input} onChangeText={setInput} placeholder={t('Rechercher (titre, légende)')} />
       {connected.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} accessibilityLabel="Réseaux">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} accessibilityLabel={t('Réseaux')}>
           {connected.map(p => (
             <Chip key={p} label={PLATFORM_LABEL[p]} selected={platforms.includes(p)} onPress={() => togglePlatform(p)}
               left={<PlatformLogo platform={p} size={14} />} />
@@ -144,22 +145,24 @@ export default function Planning() {
             <View style={{ flex: 1, gap: 2 }}>
               <Txt bold size={18} accessibilityRole="header">{title}</Txt>
               <Row gap={10} wrap>
-                <Txt small muted>{dayGroups.length ? `${dayGroups.length} vidéo${dayGroups.length > 1 ? 's' : ''}` : isPast ? 'Aucune publication' : 'Rien de prévu'}</Txt>
-                {dayStats?.followers_delta ? <Row gap={4}><Delta value={dayStats.followers_delta} /><Txt small muted>abonnés</Txt></Row> : null}
+                <Txt small muted>{dayGroups.length ? (dayGroups.length > 1 ? t('{n} vidéos', { n: dayGroups.length }) : t('{n} vidéo', { n: dayGroups.length })) : isPast ? t('Aucune publication') : t('Rien de prévu')}</Txt>
+                {dayStats?.followers_delta ? <Row gap={4}><Delta value={dayStats.followers_delta} /><Txt small muted>{t('abonnés')}</Txt></Row> : null}
               </Row>
             </View>
-            {selected !== today ? <Button small kind="ghost" icon="calendar" title="Aujourd’hui" onPress={() => setSelected(today)} /> : null}
+            {selected !== today ? <Button small kind="ghost" icon="calendar" title={t('Aujourd’hui')} onPress={() => setSelected(today)} /> : null}
           </Row>
           {cal.data ? (
             <Txt small muted>
-              Semaine : {summary.done} publiée{summary.done > 1 ? 's' : ''}{summary.views ? ` · ${short(summary.views)} vues` : ''}
-              {weekFollowers ? ` · ${weekFollowers > 0 ? '+' : ''}${short(weekFollowers)} abonnés` : ''} · {summary.planned} programmée{summary.planned > 1 ? 's' : ''}
+              {summary.done > 1 ? t('Semaine : {n} publiées', { n: summary.done }) : t('Semaine : {n} publiée', { n: summary.done })}
+              {summary.views ? ` · ${t('{n} vues', { n: short(summary.views) })}` : ''}
+              {weekFollowers ? ` · ${t('{n} abonnés', { n: `${weekFollowers > 0 ? '+' : ''}${short(weekFollowers)}` })}` : ''}
+              {' · '}{summary.planned > 1 ? t('{n} programmées', { n: summary.planned }) : t('{n} programmée', { n: summary.planned })}
             </Txt>
           ) : null}
         </>
       ) : (
         <Txt small muted accessibilityRole="text">
-          {found.data ? (results.length ? `${results.reduce((n, s) => n + s.groups.length, 0)} vidéo(s) pour « ${search} »` : `Aucune vidéo pour « ${search} »`) : 'Recherche…'}
+          {found.data ? (results.length ? t('{n} vidéo(s) pour « {search} »', { n: results.reduce((n, s) => n + s.groups.length, 0), search }) : t('Aucune vidéo pour « {search} »', { search })) : t('Recherche…')}
         </Txt>
       )}
       {cal.error && !search ? <Msg kind="err">{cal.error}</Msg> : null}
@@ -172,9 +175,9 @@ export default function Planning() {
     : !cal.data && cal.loading ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View>
     : !isPast && canEdit && summary.planned + summary.done === 0 ? <ExampleWeek canEdit={canEdit} /> : (
       <Animated.View style={[{ flex: 1, minHeight: 260, justifyContent: 'center', borderRadius: radius.lg, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.borderStrong }, face]}>
-      <Empty bare title={isPast ? 'Aucune publication ce jour-là' : 'Rien de prévu ce jour-là'} icon="calendar"
-        action={!isPast && canEdit ? <Button kind="primary" icon="plus" title="Planifier une vidéo" onPress={() => router.push('/new')} /> : undefined}>
-        {isPast ? 'Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.' : 'Planifiez une vidéo : elle partira toute seule à l’heure choisie, sur chaque compte.'}
+      <Empty bare title={isPast ? t('Aucune publication ce jour-là') : t('Rien de prévu ce jour-là')} icon="calendar"
+        action={!isPast && canEdit ? <Button kind="primary" icon="plus" title={t('Planifier une vidéo')} onPress={() => router.push('/new')} /> : undefined}>
+        {isPast ? t('Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres.') : t('Planifiez une vidéo : elle partira toute seule à l’heure choisie, sur chaque compte.')}
       </Empty>
       </Animated.View>
     )
@@ -187,7 +190,7 @@ export default function Planning() {
           keyExtractor={r => (r.type === 'head' ? `h-${r.day}` : r.g.key)}
           renderItem={({ item: r }) => r.type === 'head'
             ? <Txt bold size={15} style={{ marginTop: space.sm }} accessibilityRole="header">
-                {fromKey(r.day).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
+                {fromKey(r.day).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
               </Txt>
             : search ? <PlanRow g={r.g} group={groupOf(r.g.items, groups)} onPress={() => open(r.g)} />
             : <Animated.View style={face}><PlanRow g={r.g} group={groupOf(r.g.items, groups)} onPress={() => open(r.g)} /></Animated.View>}
@@ -228,7 +231,7 @@ function WeekStrip({ touchRef, selected, today, counts, onSelect }: {
     onSelect(shiftKey(pages[i], day))
   }
   return (
-    <View onLayout={e => setW(e.nativeEvent.layout.width)} accessibilityLabel="Jours de la semaine"
+    <View onLayout={e => setW(e.nativeEvent.layout.width)} accessibilityLabel={t('Jours de la semaine')}
       onTouchStart={() => { touchRef.current = true }}>
       <ScrollView ref={ref} horizontal pagingEnabled showsHorizontalScrollIndicator={false} decelerationRate="fast"
         contentOffset={{ x: w, y: 0 }} onMomentumScrollEnd={onEnd}>
@@ -238,10 +241,11 @@ function WeekStrip({ touchRef, selected, today, counts, onSelect }: {
               const d = fromKey(k), on = k === selected, n = counts(k)
               return (
                 <Pressable key={k} onPress={() => onSelect(k)} accessibilityRole="button" accessibilityState={{ selected: on }}
-                  accessibilityLabel={`${longDay(k)}, ${n ? `${n} vidéo${n > 1 ? 's' : ''}` : 'rien'}${k === today ? ', aujourd’hui' : ''}`}
+                  accessibilityLabel={`${longDay(k)}, ${n ? (n > 1 ? t('{n} vidéos', { n }) : t('{n} vidéo', { n })) : t('rien')}${k === today ? `, ${t('aujourd’hui')}` : ''}`}
                   style={{ flex: 1, minHeight: 58, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', gap: 1,
                     backgroundColor: on ? c.ink : 'transparent', borderWidth: k === today && !on ? 1.5 : 0, borderColor: c.primary }}>
-                  <Txt size={12} color={on ? c.onInk : c.muted}>{d.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')}</Txt>
+                  <Txt size={12} color={on ? c.onInk : c.muted}>{d.toLocaleDateString(locale(), { weekday: 'short' })
+.replace('.', '')}</Txt>
                   <Txt bold size={17} color={on ? c.onInk : c.text}>{d.getDate()}</Txt>
                   <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: n ? (on ? c.onInk : c.primary) : 'transparent' }} />
                 </Pressable>

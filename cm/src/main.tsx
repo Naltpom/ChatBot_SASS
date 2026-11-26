@@ -7,6 +7,7 @@ import { BrandMark, Skeleton } from './components/ui'
 import { SessionProvider, useSession } from './session'
 import './styles.css'
 import { applyAppearance, getAppearance, syncAppearance } from './palette'
+import { t } from './i18n'
 
 // Apparence (couleur, clair / sombre) : copie locale avant le premier affichage ; celle du compte ensuite.
 applyAppearance(getAppearance())
@@ -62,7 +63,7 @@ const HINT = 'cm.session'
 const hadSession = () => { try { return localStorage.getItem(HINT) === '1' } catch { return false } }
 
 function Splash() {
-  return <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }} role="status" aria-label="Chargement"><BrandMark size={40} /></div>
+  return <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }} role="status" aria-label={t('Chargement')}><BrandMark size={40} /></div>
 }
 function PageLoading() {
   return <div className="col" aria-busy="true"><Skeleton h={40} style={{ maxWidth: 260 }} /><div className="kpis"><Skeleton h={104} n={4} /></div><Skeleton h={220} /></div>
@@ -92,7 +93,7 @@ function Shell() {
   const { pathname } = useLocation()
   useEffect(() => {
     if ((pathname === '/' && !me) || pathname === '/privacy' || pathname === '/terms') return   // la landing et les pages légales posent leur titre
-    document.title = `${TITLES[pathname] ? TITLES[pathname] + ' · ' : ''}Chapote CM`
+    document.title = `${TITLES[pathname] ? t(TITLES[pathname]) + ' · ' : ''}Chapote CM`
   }, [pathname, me])
 
   // Apparence du compte (modifiable sur le site ou dans l'app) : relue à la connexion et au retour sur l'onglet.
@@ -171,7 +172,7 @@ function Pages({ me, ready }: { me: boolean; ready: boolean }) {
         <Route path="/youtube/callback" element={<Callback platform="youtube" />} />
         <Route path="/instagram/callback" element={<Callback platform="instagram" />} />
         <Route path="/drive/callback" element={<DriveCallback />} />
-        <Route path="*" element={<div className="col"><h1>Page introuvable</h1><Link to="/">Retour à l’accueil</Link></div>} />
+        <Route path="*" element={<div className="col"><h1>{t('Page introuvable')}</h1><Link to="/">{t('Retour à l’accueil')}</Link></div>} />
       </Route>
     </Routes>
   )

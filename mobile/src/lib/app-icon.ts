@@ -3,6 +3,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { Palette } from '../ui/theme'
 import { showDialog } from '../ui/dialog'
+import { t } from './i18n'
 
 type Mod = typeof import('expo-alternate-app-icons')
 let mod: Mod | null = null
@@ -50,9 +51,9 @@ const LABEL: Record<Palette, string> = { warm: 'orange', ocean: 'bleu océan', f
 /** Propose l'icône assortie à la couleur (rien si elle l'est déjà, ou si ce téléphone ne le permet pas). */
 export function offerIcon(p: Palette, resumeTo: string, done?: () => void, intro?: string) {
   if (!iconAvailable() || currentIcon() === p) return
-  showDialog(`Icône ${LABEL[p]} ?`,
-    `${intro ? `${intro}\n\n` : ''}Sur certains téléphones, l’app redémarre pour changer d’icône : vous reviendrez ici. L’icône peut mettre quelques secondes à changer sur l’écran d’accueil.`, [
-      { text: 'Non, garder l’icône actuelle', style: 'cancel' },
-      { text: 'Oui, changer', onPress: () => { setIcon(p, resumeTo).then(() => done?.()).catch(() => {}) } },
+  showDialog(t('Icône {color} ?', { color: t(LABEL[p]) }),
+    `${intro ? `${intro}\n\n` : ''}${t('Sur certains téléphones, l’app redémarre pour changer d’icône : vous reviendrez ici. L’icône peut mettre quelques secondes à changer sur l’écran d’accueil.')}`, [
+      { text: t('Non, garder l’icône actuelle'), style: 'cancel' },
+      { text: t('Oui, changer'), onPress: () => { setIcon(p, resumeTo).then(() => done?.()).catch(() => {}) } },
     ])
 }

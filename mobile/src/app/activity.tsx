@@ -7,14 +7,15 @@ import { getPosts, PLATFORM_LABEL, type Post, type Target } from '../lib/api'
 import { useSession } from '../lib/session'
 import { Button, Empty, Icon, Msg, PlatformLogo, Seg, Skeleton, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
+import { t, locale } from '../lib/i18n'
 
 type Ev = { key: string; post: Post; t: Target; at: string; kind: 'published' | 'failed' | 'draft' }
 const ago = (iso: string) => {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
-  if (m < 60) return `il y a ${Math.max(m, 1)} min`
+  if (m < 60) return t('il y a {n} min', { n: Math.max(m, 1) })
   const h = Math.round(m / 60)
-  if (h < 24) return `il y a ${h} h`
-  return new Date(iso).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
+  if (h < 24) return t('il y a {n} h', { n: h })
+  return new Date(iso).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
 export default function Activity() {
@@ -37,26 +38,26 @@ export default function Activity() {
       }
       ev.sort((a, b) => b.at.localeCompare(a.at))
       setItems(ev)
-    }).catch(e => setErr(e?.message || 'Chargement impossible'))
+    }).catch(e => setErr(e?.message || t('Chargement impossible')))
   }, [scope])
   useFocusEffect(load)
 
   const look = {
-    published: { icon: 'check', color: c.ok, title: 'Vidéo publiée' },
-    failed: { icon: 'close', color: c.danger, title: 'Échec de publication' },
-    draft: { icon: 'clock', color: c.warn, title: 'Brouillon TikTok à publier' },
+    published: { icon: 'check', color: c.ok, title: t('Vidéo publiée') },
+    failed: { icon: 'close', color: c.danger, title: t('Échec de publication') },
+    draft: { icon: 'clock', color: c.warn, title: t('Brouillon TikTok à publier') },
   } as const
   const todo = (items || []).filter(i => i.kind !== 'published').length
   for (const sp of spaces) {
     const st = sp.storage?.state
     if (st === 'full' || st === 'almost_full' || (st === 'missing' && sp.accounts)) system.push({ key: `s${sp.org_id}`, icon: 'folder', tone: st === 'almost_full' ? c.warn : c.danger,
-      title: st === 'missing' ? 'Google Drive à relier' : st === 'full' ? 'Stockage Drive plein' : 'Stockage Drive presque plein',
-      text: `${sp.name} · ${st === 'missing' ? 'obligatoire pour publier' : 'les nouvelles vidéos risquent d’être refusées'}`, cta: st === 'missing' ? 'Relier' : 'Voir', go: () => router.push('/storage') })
+      title: st === 'missing' ? t('Google Drive à relier') : st === 'full' ? t('Stockage Drive plein') : t('Stockage Drive presque plein'),
+      text: `${sp.name} · ${st === 'missing' ? t('obligatoire pour publier') : t('les nouvelles vidéos risquent d’être refusées')}`, cta: st === 'missing' ? t('Relier') : t('Voir'), go: () => router.push('/storage') })
   }
   for (const a of accounts.filter(x => x.needs_reconnect)) system.push({ key: `a${a.platform}${a.id}`, icon: 'refresh', tone: c.danger,
-    title: `${PLATFORM_LABEL[a.platform]} à reconnecter`, text: `${a.name || a.handle || ''} · les publications sur ce compte sont en pause`, cta: 'Reconnecter', go: () => router.push('/accounts') })
+    title: t('{platform} à reconnecter', { platform: PLATFORM_LABEL[a.platform] }), text: `${a.name || a.handle || ''} · ${t('les publications sur ce compte sont en pause')}`, cta: t('Reconnecter'), go: () => router.push('/accounts') })
   for (const i of invitations) system.push({ key: `i${i.id}`, icon: 'users', tone: c.primary,
-    title: `Invitation : ${i.group_name}`, text: `${i.invited_by || i.owner || 'Une équipe'} vous invite · ${i.role_label}`, cta: 'Voir', go: () => router.push('/accounts') })
+    title: t('Invitation : {group}', { group: i.group_name }), text: `${t('{who} vous invite', { who: i.invited_by || i.owner || t('Une équipe') })} · ${t(i.role_label)}`, cta: t('Voir'), go: () => router.push('/accounts') })
 
   return (
     <FlatList
@@ -67,9 +68,9 @@ export default function Activity() {
       refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={c.muted} />}
       ListHeaderComponent={
         <View style={{ gap: space.sm, paddingBottom: space.sm }}>
-          <Seg label="Type d’activité" value={tab} onChange={setTab} options={[['posts', `Publications${todo ? ` (${todo})` : ''}`], ['system', `Système${system.length ? ` (${system.length})` : ''}`]]} />
+          <Seg label={t('Type d’activité')} value={tab} onChange={setTab} options={[['posts', `${t('Publications')}${todo ? ` (${todo})` : ''}`], ['system', `${t('Système')}${system.length ? ` (${system.length})` : ''}`]]} />
           {err ? <Msg kind="err">{err}</Msg> : null}
-          {tab === 'posts' && items ? <Txt small muted>{todo ? `${todo} à regarder · ` : ''}14 derniers jours</Txt> : null}
+          {tab === 'posts' && items ? <Txt small muted>{todo ? `${t('{n} à regarder', { n: todo })} · ` : ''}{t('14 derniers jours')}</Txt> : null}
           {tab === 'system' ? (system.length ? system.map(x => (
             <View key={x.key} style={{ flexDirection: 'row', gap: space.md, padding: space.md, borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center' }}>
               <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.surface2, alignItems: 'center', justifyContent: 'center' }}>
@@ -78,11 +79,12 @@ export default function Activity() {
               <View style={{ flex: 1, gap: 2 }}><Txt bold>{x.title}</Txt><Txt small muted numberOfLines={2}>{x.text}</Txt></View>
               <Button small title={x.cta} onPress={x.go} />
             </View>
-          )) : <Empty title="Tout va bien" icon="check">Drive, comptes et invitations : rien à faire pour l’instant.</Empty>) : null}
+          )) : <Empty title={t('Tout va bien')} icon="check">{t('Drive, comptes et invitations : rien à faire pour l’instant.')}</Empty>) : null}
         </View>
       }
       ListEmptyComponent={tab === 'system' ? undefined : !items ? <View style={{ gap: space.sm }}><Skeleton h={64} n={5} /></View>
-        : <Empty title="Rien de neuf" icon="bell">Les vidéos publiées, les échecs et les brouillons TikTok à valider apparaîtront ici.</Empty>}
+        : <Empty title={t('Rien de neuf')} icon="bell">{t('Les vidéos publiées, les échecs et les brouillons TikTok à valider apparaîtront ici.')}</Empty>}
+
       renderItem={({ item: i }) => {
         const l = look[i.kind]
         return (

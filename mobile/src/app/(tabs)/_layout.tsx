@@ -7,6 +7,7 @@ import { Icon, type IconName } from '../../ui/kit'
 import { useTheme } from '../../ui/theme'
 import { useRole } from '../../lib/session'
 import { assistantAvailable } from '../../lib/assistant'
+import { t } from '../../lib/i18n'
 
 const icon = (name: IconName) => ({ color }: { color: unknown }) => <Icon name={name} size={24} color={String(color)} />
 
@@ -23,14 +24,14 @@ export default function TabsLayout() {
       tabBarStyle: { backgroundColor: c.surface, borderTopColor: c.border, height: 58 + insets.bottom, paddingTop: 6 },
       tabBarLabelStyle: { fontSize: 11, fontWeight: '600' }, sceneStyle: { backgroundColor: c.bg },
     }}>
-      <Tabs.Screen name="index" options={{ title: 'Planning', tabBarIcon: icon('calendar') }} />
-      <Tabs.Screen name="comments" options={{ title: 'Commentaires', tabBarIcon: icon('comment'), href: FEATURES.comments ? undefined : null }} />
-      <Tabs.Screen name="stats" options={{ title: 'Stats', tabBarIcon: icon('chart') }} />
+      <Tabs.Screen name="index" options={{ title: t('Planning'), tabBarIcon: icon('calendar') }} />
+      <Tabs.Screen name="comments" options={{ title: t('Commentaires'), tabBarIcon: icon('comment'), href: FEATURES.comments ? undefined : null }} />
+      <Tabs.Screen name="stats" options={{ title: t('Stats'), tabBarIcon: icon('chart') }} />
       <Tabs.Screen name="publish" options={{
-        title: 'Planifier', tabBarAccessibilityLabel: 'Nouvelle publication',
+        title: t('Planifier'), tabBarAccessibilityLabel: t('Nouvelle publication'),
         // Lecture seule : pas de bouton « + » (le rôle vient de l'espace affiché).
         tabBarButton: () => !canEdit ? null : (
-          <Pressable onPress={() => router.push('/new')} accessibilityRole="button" accessibilityLabel="Nouvelle publication"
+          <Pressable onPress={() => router.push('/new')} accessibilityRole="button" accessibilityLabel={t('Nouvelle publication')}
             style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <View style={{ width: 52, height: 40, borderRadius: 14, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' }}>
               <Icon name="plus" size={24} color={c.onPrimary} strokeWidth={2.4} />
@@ -38,8 +39,8 @@ export default function TabsLayout() {
           </Pressable>
         ),
       }} />
-      <Tabs.Screen name="library" options={{ title: 'Bibliothèque', tabBarIcon: icon('folder') }} />
-      <Tabs.Screen name="assistant" options={{ title: 'Assistant', tabBarIcon: icon('comment'), href: assistantAvailable ? undefined : null }} />
+      <Tabs.Screen name="library" options={{ title: t('Bibliothèque'), tabBarIcon: icon('folder') }} />
+      <Tabs.Screen name="assistant" options={{ title: t('Assistant'), tabBarIcon: icon('comment'), href: assistantAvailable ? undefined : null }} />
     </Tabs>
   )
 }

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Pressable, View } from 'react-native'
 import { getPosts } from '../lib/api'
 import { call } from '../lib/http'
+import { t } from '../lib/i18n'
 import { enablePush, getPush, pushUnsupported } from '../lib/push'
 import { useSession } from '../lib/session'
 import { useOwnAccounts, useSetupOrg, useSharedAccounts } from './steps'
@@ -36,18 +37,18 @@ export function StartChecklist() {
 
   const storage = spaces.find(s => (s.org_id ?? null) === org)?.storage
   const items: Item[] = [
-    { key: 'account', title: 'Compte Chapote créé', done: true },
-    { key: 'connect', title: 'Connecter un compte TikTok, YouTube ou Instagram', done: own.length > 0 || shared.length > 0, run: () => router.push('/accounts') },
+    { key: 'account', title: t('Compte Chapote créé'), done: true },
+    { key: 'connect', title: t('Connecter un compte TikTok, YouTube ou Instagram'), done: own.length > 0 || shared.length > 0, run: () => router.push('/accounts') },
     ...(own.length ? [
-      { key: 'drive', title: 'Relier Google Drive', done: !!storage && storage.state !== 'missing', run: () => router.push('/storage') },
-      { key: 'video', title: 'Planifier une première vidéo', done: !!hasPost, run: () => router.push('/new') },
+      { key: 'drive', title: t('Relier Google Drive'), done: !!storage && storage.state !== 'missing', run: () => router.push('/storage') },
+      { key: 'video', title: t('Planifier une première vidéo'), done: !!hasPost, run: () => router.push('/new') },
     ] : []),
     // Vérification de l'e-mail demandée après la 1re victoire, pas à l'inscription.
-    ...(hasPost && me && me.email_verified === false ? [{ key: 'email', title: mailSent ? `E-mail envoyé à ${me.email} : ouvrez le lien` : 'Confirmer mon adresse e-mail', done: false,
+    ...(hasPost && me && me.email_verified === false ? [{ key: 'email', title: mailSent ? t('E-mail envoyé à {email} : ouvrez le lien', { email: me.email }) : t('Confirmer mon adresse e-mail'), done: false,
       run: () => { call('/api/auth/verify-email/request', { method: 'POST', body: '{}' }).then(() => setMailSent(true)).catch(() => setMailSent(true)) } }] : []),
-    ...(pushUnsupported() ? [] : [{ key: 'push', title: 'Être prévenu quand une vidéo part', done: !!push, run: () => { enablePush().then(r => { if (typeof r !== 'string') setPush(r.enabled) }) } }]),
-    ...(own.length >= 2 ? [{ key: 'groups', title: 'Ranger vos comptes en groupes', done: groups.length > 0, run: () => router.push('/setup/groups') }] : []),
-    { key: 'invite', title: 'Inviter quelqu’un de l’équipe (facultatif)', done: false, run: () => router.push('/people') },
+    ...(pushUnsupported() ? [] : [{ key: 'push', title: t('Être prévenu quand une vidéo part'), done: !!push, run: () => { enablePush().then(r => { if (typeof r !== 'string') setPush(r.enabled) }) } }]),
+    ...(own.length >= 2 ? [{ key: 'groups', title: t('Ranger vos comptes en groupes'), done: groups.length > 0, run: () => router.push('/setup/groups') }] : []),
+    { key: 'invite', title: t('Inviter quelqu’un de l’équipe (facultatif)'), done: false, run: () => router.push('/people') },
   ]
   const total = items.length - 1  // l'invitation reste facultative
   const count = items.filter(i => i.done && i.key !== 'invite').length
@@ -57,16 +58,16 @@ export function StartChecklist() {
   return (
     <Card>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Txt bold size={17}>Bien démarrer</Txt>
-        <Pressable onPress={hide} accessibilityRole="button" accessibilityLabel="Masquer Bien démarrer" hitSlop={8}>
-          <Txt small color={c.muted}>Masquer</Txt>
+        <Txt bold size={17}>{t('Bien démarrer')}</Txt>
+        <Pressable onPress={hide} accessibilityRole="button" accessibilityLabel={t('Masquer Bien démarrer')} hitSlop={8}>
+          <Txt small color={c.muted}>{t('Masquer')}</Txt>
         </Pressable>
       </View>
       <View style={{ height: 6, borderRadius: 3, backgroundColor: c.border, overflow: 'hidden' }} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: total, now: count }}>
         <View style={{ width: `${Math.round((count / total) * 100)}%`, height: 6, backgroundColor: c.ok }} />
       </View>
-      <Txt small muted>{count} sur {total} · plus que {total - count} pour tout avoir en place</Txt>
-      <Txt small color={c.ok}>✓ {items.filter(i => i.done).map(i => i.title.replace(/ \(facultatif\)/, '')).join(' · ')}</Txt>
+      <Txt small muted>{t('{count} sur {total} · plus que {left} pour tout avoir en place', { count, total, left: total - count })}</Txt>
+      <Txt small color={c.ok}>✓ {items.filter(i => i.done).map(i => i.title.replace(/ \((facultatif|optional)\)/, '')).join(' · ')}</Txt>
       <View style={{ gap: 2 }}>
         {items.filter(i => !i.done).map(i => (
           <Pressable key={i.key} onPress={i.done ? undefined : i.run} disabled={i.done || !i.run} accessibilityRole="button"

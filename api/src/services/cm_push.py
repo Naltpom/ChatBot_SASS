@@ -21,7 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import AsyncSessionLocal
 from src.core.time import utcnow
-from src.models.cm import T_FAILED, T_INBOX, T_PUBLISHED, CmComment, CmDriveLink, CmPost, CmTarget
+from src.i18n import tr
+from src.models.cm import T_FAILED, T_INBOX, T_PUBLISHED, CmComment, CmDriveLink, CmPost, CmProfile, CmTarget
 from src.models.cm_mobile import CmMobileDevice, CmPushEvent
 from src.models.user import Membership, User
 from src.services.rate_limit import SingleUseTokens
@@ -43,6 +44,24 @@ _transport: Optional[httpx.AsyncBaseTransport] = None
 def _short(text: Optional[str], n: int) -> str:
     text = " ".join((text or "").split())
     return text if len(text) <= n else text[: n - 1] + "…"
+
+
+async def _languages(db: AsyncSession, user_ids: Iterable[int]) -> dict[int, str]:
+    """Langue choisie par chaque destinataire (cm_profiles.language) : une requête pour tout le lot."""
+    ids = set(user_ids)
+    if not ids:
+        return {}
+    rows = await db.execute(select(CmProfile.user_id, CmProfile.language).where(CmProfile.user_id.in_(ids)))
+    return {uid: lang for uid, lang in rows if lang}
+
+
+def _t(text: str, lang: Optional[str]) -> str:
+    """Texte français, traduit en anglais si le destinataire a choisi « en »."""
+    return tr(text, "en") if lang == "en" else text
+
+
+def _colon(a: str, b: str, lang: Optional[str]) -> str:
+    return f"{a}: {b}" if lang == "en" else f"{a} : {b}"
 
 
 async def _reserve(db: AsyncSession, kind: str, ref_id: int) -> bool:
@@ -103,15 +122,17 @@ async def idle_messages(db: AsyncSession) -> list[dict]:
     rows = (await db.execute(select(CmMobileDevice).where(
         CmMobileDevice.push_token.is_not(None), CmMobileDevice.revoked_at.is_(None),
         CmMobileDevice.last_used_at.is_not(None), CmMobileDevice.last_used_at <= now - IDLE_WARN))).scalars().all()
+    langs = await _languages(db, (d.user_id for d in rows))
     for d in rows:
+        lang = langs.get(d.user_id)
         if now - d.last_used_at > IDLE_LIMIT:
-            out.append({"to": d.push_token, "title": "Déconnecté de Chapote CM",
-                        "body": "7 jours sans ouvrir l’app : reconnectez-vous pour recevoir à nouveau les notifications.",
+            out.append({"to": d.push_token, "title": _t("Déconnecté de Chapote CM", lang),
+                        "body": _t("7 jours sans ouvrir l’app : reconnectez-vous pour recevoir à nouveau les notifications.", lang),
                         "data": {"type": "idle_logout"}, "sound": "default", "_device": d.id})
             d.revoked_at, d.push_token = now, None
         elif await _reserve(db, "idle", d.id):
-            out.append({"to": d.push_token, "title": "Ouvrez Chapote CM",
-                        "body": "Sans ouverture d’ici demain, cet appareil sera déconnecté et ne recevra plus de notifications.",
+            out.append({"to": d.push_token, "title": _t("Ouvrez Chapote CM", lang),
+                        "body": _t("Sans ouverture d’ici demain, cet appareil sera déconnecté et ne recevra plus de notifications.", lang),
                         "data": {"type": "idle_warning"}, "sound": "default", "_device": d.id})
     await db.commit()
     return out
@@ -131,15 +152,19 @@ async def _collect_events(db: AsyncSession) -> list[dict]:
     by_user: dict[int, list[CmMobileDevice]] = {}
     for d in devices:
         by_user.setdefault(d.user_id, []).append(d)
+    langs = await _languages(db, by_user)
     audience = _Audience(db)
     since = utcnow() - WINDOW
     messages: list[dict] = []
 
-    def _send(uids: Iterable[int], pref: str, title: str, body: str, data: dict):
+    def _send(uids: Iterable[int], pref: str, title: str, body, data: dict):
+        """`title` et `body` en français ; `body` peut être une fonction de la langue (texte composé)."""
         for uid in uids:
+            lang = langs.get(uid)
             for d in by_user.get(uid, []):
                 if (d.push_prefs or {}).get(pref, True):
-                    messages.append({"to": d.push_token, "title": title, "body": body, "data": data,
+                    messages.append({"to": d.push_token, "title": _t(title, lang),
+                                     "body": body(lang) if callable(body) else _t(body, lang), "data": data,
                                      "sound": "default", "_device": d.id})
 
     rows = (await db.execute(select(CmTarget, CmPost).join(CmPost, CmPost.id == CmTarget.post_id).where(
@@ -158,9 +183,11 @@ async def _collect_events(db: AsyncSession) -> list[dict]:
                   f"{title} · {label} : surveillez les réclamations de droits d'auteur (son coupé, vidéo bloquée).",
                   {**data, "url": t.url, "rights": post.rights})
         elif kind == "published":
-            _send(uids, "published", "Vidéo publiée", f"{title} · {label}", {**data, "url": t.url})
+            _send(uids, "published", "Vidéo publiée", lambda lang: f"{title} · {label}", {**data, "url": t.url})
         elif kind == "failed":
-            _send(uids, "failed", f"Échec sur {label}", f"{title} : {_short(t.error_message, 120) or 'voir le planning'}", data)
+            err = t.error_message
+            _send(uids, "failed", f"Échec sur {label}",
+                  lambda lang: _colon(title, _short(_t(err or "", lang), 120) or _t("voir le planning", lang), lang), data)
         else:
             _send(uids, "draft", "Brouillon TikTok à publier", f"{title} : copiez la légende et publiez dans TikTok.", data)
 
@@ -198,9 +225,11 @@ async def _collect_events(db: AsyncSession) -> list[dict]:
     for dev_id, items in per_device.items():
         n = len(items)
         first = items[0]
-        title = "Nouveau commentaire" if n == 1 else f"{n} nouveaux commentaires"
-        body = f"{first.author or 'Quelqu’un'} : {_short(first.text, 110)}" if n == 1 else \
-            f"{first.author or 'Quelqu’un'} : {_short(first.text, 70)} (et {n - 1} autre{'s' if n > 2 else ''})"
+        lang = langs.get(dev_by_id[dev_id].user_id)
+        title = _t("Nouveau commentaire" if n == 1 else f"{n} nouveaux commentaires", lang)
+        body = _colon(first.author or _t("Quelqu’un", lang), _short(first.text, 110 if n == 1 else 70), lang)
+        if n > 1:
+            body += " " + _t(f"(et {n - 1} autre{'s' if n > 2 else ''})", lang)
         messages.append({"to": dev_by_id[dev_id].push_token, "title": title, "body": body,
                          "data": {"type": "comment", "comment_id": first.id}, "sound": "default", "_device": dev_id})
     await db.commit()

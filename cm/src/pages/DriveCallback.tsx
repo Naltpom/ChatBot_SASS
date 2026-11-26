@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { exchangeDriveOAuth } from '../api'
 import { Loading, Msg } from '../components/ui'
 import { useSession } from '../session'
+import { t } from '../i18n'
 
 export default function DriveCallback() {
   const { setOrg } = useSession()
@@ -17,8 +18,8 @@ export default function DriveCallback() {
     window.history.replaceState(null, '', window.location.pathname)
     const code = p.get('code'), state = p.get('state')
     if (p.get('error') || !code || !state) {
-      setErr(p.get('error') === 'access_denied' ? 'Vous avez refusé l’accès : le Drive n’a pas été connecté.'
-        : `Connexion Google Drive interrompue (${p.get('error') || 'réponse incomplète'}).`)
+      setErr(p.get('error') === 'access_denied' ? t('Vous avez refusé l’accès : le Drive n’a pas été connecté.')
+        : t('Connexion Google Drive interrompue ({reason}).', { reason: p.get('error') || t('réponse incomplète') }))
       return
     }
     exchangeDriveOAuth(code, state)
@@ -27,9 +28,9 @@ export default function DriveCallback() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="col" style={{ maxWidth: 560, margin: '24px auto', width: '100%' }}>
-      <h1>Connexion Google Drive</h1>
-      {!err && <Loading label="Connexion du Drive…" />}
-      {err && <><Msg kind="err">{err}</Msg><Link to="/bibliotheque">Retour à la Bibliothèque</Link></>}
+      <h1>{t('Connexion Google Drive')}</h1>
+      {!err && <Loading label={t('Connexion du Drive…')} />}
+      {err && <><Msg kind="err">{err}</Msg><Link to="/bibliotheque">{t('Retour à la Bibliothèque')}</Link></>}
     </div>
   )
 }

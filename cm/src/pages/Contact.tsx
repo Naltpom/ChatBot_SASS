@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { ApiError, getContactConfig, sendContact } from '../api'
 import { Msg } from '../components/ui'
 import AuthLayout from './auth/AuthLayout'
+import { getLang, t } from '../i18n'
 
 const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const TURNSTILE_JS = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
@@ -47,7 +48,7 @@ export default function Contact() {
     loadTurnstile().then(t => {
       if (cancelled || !box.current || widget.current) return
       widget.current = t.render(box.current, {
-        sitekey: key, language: 'fr', theme: 'auto', action: 'cm-contact',
+        sitekey: key, language: getLang(), theme: 'auto', action: 'cm-contact',
         callback: (v: string) => { setToken(v); setCaptchaErr(false) },
         'expired-callback': () => setToken(null),
         'error-callback': () => { setToken(null); setCaptchaErr(true) },
@@ -59,66 +60,66 @@ export default function Contact() {
   const needCaptcha = !!cfg?.turnstile_site_key
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr('')
-    if (!EMAIL_OK.test(email.trim())) { setEmailErr('Adresse incomplète (ex. vous@exemple.fr).'); document.getElementById('c-email')?.focus(); return }
-    if (message.trim().length < 5) { setErr('Écrivez votre message.'); return }
-    if (needCaptcha && !token) { setErr('Cochez la vérification « Je suis humain » juste au-dessus.'); return }
+    if (!EMAIL_OK.test(email.trim())) { setEmailErr(t('Adresse incomplète (ex. vous@exemple.fr).')); document.getElementById('c-email')?.focus(); return }
+    if (message.trim().length < 5) { setErr(t('Écrivez votre message.')); return }
+    if (needCaptcha && !token) { setErr(t('Cochez la vérification « Je suis humain » juste au-dessus.')); return }
     setState('busy')
     try {
       await sendContact({ name: name.trim(), email: email.trim(), message: message.trim(), website, elapsed_ms: Date.now() - started.current, turnstile_token: token })
       setState('done')
     } catch (e) {
-      setErr((e as ApiError).message || 'L’envoi n’a pas marché. Réessayez.')
+      setErr((e as ApiError).message || t('L’envoi n’a pas marché. Réessayez.'))
       setState('idle'); setToken(null)
       if (widget.current) window.turnstile?.reset(widget.current)
     }
   }
 
   return (
-    <AuthLayout aside={<h2>Votre avis<br /><span className="em">décide de la suite.</span></h2>}>
+    <AuthLayout aside={<h2>{t('Votre avis')}<br /><span className="em">{t('décide de la suite.')}</span></h2>}>
       <div className="col" style={{ gap: 6 }}>
-        <h1>Donner mon avis</h1>
-        <p className="muted">Nathan lit chaque message et répond par e-mail.</p>
+        <h1>{t('Donner mon avis')}</h1>
+        <p className="muted">{t('Nathan lit chaque message et répond par e-mail.')}</p>
       </div>
       {state === 'done' ? (
         <div className="col" style={{ gap: 14 }}>
-          <Msg kind="ok">Merci ! Votre message est bien parti. Vous aurez une réponse à l’adresse indiquée.</Msg>
-          <Link to="/" className="btn btn-ghost btn-block">Retour à l’accueil</Link>
+          <Msg kind="ok">{t('Merci ! Votre message est bien parti. Vous aurez une réponse à l’adresse indiquée.')}</Msg>
+          <Link to="/" className="btn btn-ghost btn-block">{t('Retour à l’accueil')}</Link>
         </div>
       ) : cfg && !cfg.enabled ? (
         <div className="col" style={{ gap: 14 }}>
-          <Msg kind="info">Pour donner votre avis, connectez-vous ou créez un compte gratuit.</Msg>
-          <Link to="/connexion?suite=%2Favis" className="btn btn-primary btn-block">Se connecter</Link>
-          <Link to="/inscription?suite=%2Favis" className="btn btn-ghost btn-block">Créer un compte</Link>
+          <Msg kind="info">{t('Pour donner votre avis, connectez-vous ou créez un compte gratuit.')}</Msg>
+          <Link to="/connexion?suite=%2Favis" className="btn btn-primary btn-block">{t('Se connecter')}</Link>
+          <Link to="/inscription?suite=%2Favis" className="btn btn-ghost btn-block">{t('Créer un compte')}</Link>
         </div>
       ) : (
         <form className="col" style={{ gap: 16 }} onSubmit={submit} noValidate>
-          <label className="field" htmlFor="c-name">Votre prénom (facultatif)
+          <label className="field" htmlFor="c-name">{t('Votre prénom (facultatif)')}
             <input id="c-name" className="input" value={name} onChange={e => setName(e.target.value)} maxLength={80} autoComplete="given-name" />
           </label>
-          <label className="field" htmlFor="c-email">E-mail, pour vous répondre
+          <label className="field" htmlFor="c-email">{t('E-mail, pour vous répondre')}
             <input id="c-email" className="input" type="email" value={email} required aria-invalid={!!emailErr} aria-describedby={emailErr ? 'c-email-err' : undefined}
                    onChange={e => { setEmail(e.target.value); if (emailErr && EMAIL_OK.test(e.target.value.trim())) setEmailErr('') }}
-                   onBlur={() => email && setEmailErr(EMAIL_OK.test(email.trim()) ? '' : 'Adresse incomplète (ex. vous@exemple.fr).')}
-                   autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} placeholder="vous@exemple.fr" />
+                   onBlur={() => email && setEmailErr(EMAIL_OK.test(email.trim()) ? '' : t('Adresse incomplète (ex. vous@exemple.fr).'))}
+                   autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} placeholder={t('vous@exemple.fr')} />
             {emailErr && <span id="c-email-err" className="field-err" role="alert">{emailErr}</span>}
           </label>
-          <label className="field" htmlFor="c-msg">Votre message
+          <label className="field" htmlFor="c-msg">{t('Votre message')}
             <textarea id="c-msg" className="input" rows={6} maxLength={2000} required value={message} onChange={e => setMessage(e.target.value)}
-                      placeholder={'Comment publiez-vous vos vidéos aujourd’hui ?\nQu’est-ce qui vous bloque, ou vous manque ?'} />
+                      placeholder={t('Comment publiez-vous vos vidéos aujourd’hui ?\nQu’est-ce qui vous bloque, ou vous manque ?')} />
           </label>
           {/* Piège à robots : invisible et hors du parcours clavier ; un humain ne le remplit jamais. */}
           <div className="hp" aria-hidden="true">
-            <label htmlFor="c-website">Site web</label>
+            <label htmlFor="c-website">{t('Site web')}</label>
             <input id="c-website" tabIndex={-1} autoComplete="off" value={website} onChange={e => setWebsite(e.target.value)} />
           </div>
           {needCaptcha && <div ref={box} className="captcha" />}
-          {captchaErr && <Msg kind="err">La vérification anti-robot ne s’est pas chargée. Rechargez la page, ou <Link to="/connexion?suite=%2Favis">connectez-vous</Link> pour donner votre avis.</Msg>}
+          {captchaErr && <Msg kind="err">{t('La vérification anti-robot ne s’est pas chargée. Rechargez la page, ou')} <Link to="/connexion?suite=%2Favis">{t('connectez-vous')}</Link> {t('pour donner votre avis.')}</Msg>}
           {err && <Msg kind="err">{err}</Msg>}
           <button className="btn btn-primary btn-lg btn-block" disabled={state === 'busy' || !cfg}>
-            {state === 'busy' ? <><span className="spin" aria-hidden="true" />Envoi…</> : 'Envoyer mon avis'}
+            {state === 'busy' ? <><span className="spin" aria-hidden="true" />{t('Envoi…')}</> : t('Envoyer mon avis')}
           </button>
           <p className="muted small" style={{ textAlign: 'center' }}>
-            Vous avez un compte ? <Link to="/connexion?suite=%2Favis" style={{ fontWeight: 600 }}>Connectez-vous</Link> pour envoyer votre avis depuis l’app.
+            {t('Vous avez un compte ?')} <Link to="/connexion?suite=%2Favis" style={{ fontWeight: 600 }}>{t('Connectez-vous')}</Link> {t('pour envoyer votre avis depuis l’app.')}
           </p>
         </form>
       )}

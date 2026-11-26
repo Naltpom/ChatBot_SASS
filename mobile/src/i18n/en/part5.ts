@@ -1,0 +1,166 @@
+// Traductions anglaises (clé = texte français exact passé à t()).
+const EN: Record<string, string> = {
+  // Titres d'écrans et onglets (app/_layout.tsx, app/(tabs)/_layout.tsx)
+  'Nouvelle publication': 'New post',
+  'Publication': 'Post',
+  'Fiche vidéo': 'Video details',
+  'Vidéo de la bibliothèque': 'Library video',
+  'Comptes': 'Accounts',
+  'Personnes et partage': 'People and sharing',
+  'Brouillons à valider': 'Drafts to review',
+  'Vidéos': 'Videos',
+  'Réglages': 'Settings',
+  'Assistant IA': 'AI assistant',
+  'Activité': 'Activity',
+  'Mon compte': 'My account',
+  'Stockage': 'Storage',
+  'Mot de passe': 'Password',
+  'Connexion du compte': 'Connecting account',
+  'Planning': 'Schedule',
+  'Commentaires': 'Comments',
+  'Stats': 'Stats',
+  'Planifier': 'Schedule',
+  'Bibliothèque': 'Library',
+  'Assistant': 'Assistant',
+
+  // ui/ErrorScreen.tsx, ui/LaunchCover.tsx, ui/Progress.tsx, ui/dialog.tsx, ui/kit.tsx
+  'Oups, un problème': 'Oops, something went wrong',
+  'L’app a rencontré une erreur. Envoyez ce message pour qu’on la corrige :': 'The app ran into an error. Send us this message so we can fix it:',
+  'Copier le message': 'Copy message',
+  'Réessayer': 'Retry',
+  'Chargement de Chapote CM': 'Loading Chapote CM',
+  'Étape {step} sur {total}': 'Step {step} of {total}',
+  'Il manque : {items}.': 'Missing: {items}.',
+  'OK': 'OK',
+  'Fermer': 'Close',
+  'Rechercher': 'Search',
+  'Effacer': 'Clear',
+  'Chargement…': 'Loading…',
+
+  // ui/ScopeBar.tsx
+  'Tous': 'All',
+  'Un compte': 'One account',
+  'Mes comptes': 'My accounts',
+  '{n} groupes': '{n} groups',
+  'Affiché : {label}. Changer': 'Showing: {label}. Change',
+  'Comptes connectés': 'Connected accounts',
+  'Quelqu’un': 'Someone',
+  '{who} vous invite : {role}': '{who} invited you: {role}',
+  '{n} compte': '{n} account',
+  '{n} comptes': '{n} accounts',
+  'chez {owner}': 'owned by {owner}',
+  'Accepter': 'Accept',
+  'Refuser': 'Decline',
+  'Erreur': 'Error',
+  'Afficher': 'Show',
+  'Invitations': 'Invitations',
+  'Tous mes comptes et groupes': 'All my accounts and groups',
+  'Groupes (plusieurs possibles)': 'Groups (you can pick several)',
+  'Un seul compte': 'A single account',
+  'Chercher un compte': 'Search for an account',
+  'lecture seule': 'read-only',
+  'Valider': 'Confirm',
+  // Rôles renvoyés par l'API (role_label)
+  'Lecture seule': 'Read-only',
+  'Peut publier': 'Can post',
+  'Admin': 'Admin',
+
+  // ui/theme.tsx (PALETTE_PREVIEW) et lib/app-icon.ts (LABEL)
+  'Orange': 'Orange',
+  'Bleu océan': 'Ocean blue',
+  'Vert forêt': 'Forest green',
+  'orange': 'orange',
+  'bleu océan': 'ocean blue',
+  'vert forêt': 'forest green',
+
+  // lib/format.ts
+  '{n} Go': '{n} GB',
+  '{n} Mo': '{n} MB',
+  "aujourd'hui": 'today',
+  'demain': 'tomorrow',
+  'hier': 'yesterday',
+  'Bonjour': 'Good morning',
+  'Bonsoir': 'Good evening',
+  'à l’instant': 'just now',
+  'il y a {n} min': '{n} min ago',
+  'il y a {n} h': '{n} h ago',
+  // STATUS (libellés traduits à l'affichage)
+  'Envoi de la vidéo…': 'Uploading video…',
+  'Programmée': 'Scheduled',
+  'Envoi en cours': 'Sending',
+  'Publication en cours': 'Posting',
+  'À publier par la routine': 'To be posted by the routine',
+  'Routine en cours': 'Routine running',
+  'Publiée': 'Posted',
+  'Brouillon TikTok': 'TikTok draft',
+  'Échec': 'Failed',
+  'Annulée': 'Cancelled',
+  // TIKTOK_PRIVACY
+  'Tout le monde': 'Everyone',
+  'Amis': 'Friends',
+  'Abonnés': 'Followers',
+  'Moi uniquement': 'Only me',
+  // METRIC_LABEL
+  'Vues': 'Views',
+  "J'aime": 'Likes',
+  'Partages': 'Shares',
+  'Enregistrements': 'Saves',
+
+  // lib/api.ts (RIGHTS_LABEL, RIGHTS_WARNING)
+  'Domaine public': 'Public domain',
+  'Œuvre protégée': 'Copyrighted work',
+  'Droits inconnus': 'Unknown rights',
+  '⚠️ Œuvre protégée : risque de réclamation de droits d’auteur (Content ID, son coupé, vidéo bloquée).': '⚠️ Copyrighted work: risk of a copyright claim (Content ID, muted audio, blocked video).',
+
+  // lib/http.ts et messages de repli de lib/session-logic.ts (errorMessage)
+  'Connectez-vous.': 'Please sign in.',
+  'Connexion impossible : vérifiez votre réseau.': 'Can’t connect: check your network.',
+  'Session terminée : reconnectez-vous.': 'Session ended: please sign in again.',
+  'Erreur {status}': 'Error {status}',
+  'Champ invalide : {msg}': 'Invalid field: {msg}',
+  'Trop de tentatives : réessayez dans un moment.': 'Too many attempts: try again in a moment.',
+  'Le serveur ne répond pas : réessayez dans un moment.': 'The server isn’t responding: try again in a moment.',
+
+  // lib/push.ts
+  'Les notifications ne marchent que sur un vrai téléphone.': 'Notifications only work on a real phone.',
+  'Sur Android, Expo Go ne reçoit pas les notifications : il faudra l’app installée (build de développement).': 'On Android, Expo Go can’t receive notifications: you’ll need the installed app (development build).',
+  'Réglage des notifications impossible': 'Couldn’t update notification settings',
+  'Publications et commentaires': 'Posts and comments',
+  'Notifications refusées : autorisez-les dans les réglages du téléphone.': 'Notifications denied: allow them in your phone’s settings.',
+  'Impossible d’obtenir le jeton de notifications pour ce téléphone{detail}.': 'Couldn’t get a notification token for this phone{detail}.',
+
+  // lib/passkey.ts
+  'Activer la connexion par empreinte': 'Turn on fingerprint sign-in',
+  'Annuler': 'Cancel',
+  'Empreinte non vérifiée.': 'Fingerprint not verified.',
+  'Téléphone': 'Phone',
+  'Connexion à Chapote CM': 'Sign in to Chapote CM',
+  'Opération annulée.': 'Cancelled.',
+  'L’empreinte n’est plus active sur ce téléphone (empreintes du téléphone changées ?) : utilisez le code, puis réactivez-la dans Réglages.': 'Fingerprint sign-in is no longer active on this phone (did your phone’s fingerprints change?): use the code, then turn it back on in Settings.',
+  'Trop d’essais : réessayez dans un moment, ou utilisez le code.': 'Too many tries: try again in a moment, or use the code.',
+  'Se connecter avec l’empreinte ?': 'Sign in with your fingerprint?',
+  'La prochaine fois, votre empreinte ou votre visage remplacera le code de connexion. Rien n’est demandé en dehors de la connexion.': 'Next time, your fingerprint or face will replace the sign-in code. It’s only asked for when you sign in.',
+  'Plus tard': 'Later',
+  'Activer': 'Turn on',
+
+  // lib/app-update.tsx
+  'Nouvelle version prête': 'New version ready',
+  'Redémarrer': 'Restart',
+
+  // lib/app-icon.ts, lib/appearance-sync.tsx
+  'Icône {color} ?': 'Use the {color} icon?',
+  'Sur certains téléphones, l’app redémarre pour changer d’icône : vous reviendrez ici. L’icône peut mettre quelques secondes à changer sur l’écran d’accueil.': 'On some phones, the app restarts to change its icon: you’ll come back here. The icon may take a few seconds to update on the home screen.',
+  'Non, garder l’icône actuelle': 'No, keep the current icon',
+  'Oui, changer': 'Yes, change it',
+  'La couleur de l’app a changé (choisie sur le site).': 'The app color changed (picked on the website).',
+
+  // lib/upload.ts
+  'Envoi interrompu : vérifiez votre connexion et relancez.': 'Upload interrupted: check your connection and try again.',
+  'Envoi refusé ({status})': 'Upload rejected ({status})',
+  'Envoi annulé.': 'Upload cancelled.',
+  'Couverture trop lourde (8 Mo au plus).': 'Cover too large (8 MB max).',
+
+  // lib/assistant.ts
+  'Assistant Chapote CM': 'Chapote CM Assistant',
+}
+export default EN

@@ -14,6 +14,7 @@ import { PlatformLogo } from '../components/PlatformLogo'
 import { GroupDot, Icon, Msg, Sheet } from '../components/ui'
 import { fmtDateTime, fmtDuration, fmtTime, num, short, toLocalInput } from '../format'
 import { useSession } from '../session'
+import { t } from '../i18n'
 
 export interface Group_ { key: string; items: CalendarItem[]; at: string; title: string | null }
 type State = 'done' | 'planned' | 'failed'
@@ -41,21 +42,21 @@ export function PlanRow({ g, group, onOpen }: { g: Group_; group: Group | null; 
   const failed = states.filter(s => s === 'failed').length
   const planned = states.every(s => s === 'planned')
   const views = g.items.reduce((s, i) => s + (i.kind === 'video' ? i.views || 0 : 0), 0)
-  const title = shortTitle(g.title) || 'Sans titre'
+  const title = shortTitle(g.title) || t('Sans titre')
   const risky = g.items.some(i => i.kind === 'target' && (i.rights === 'protected' || i.rights === 'unknown'))
   return (
     <button type="button" className="prow" onClick={() => onOpen(g)}
             style={{ borderLeftColor: group ? `var(--g-${group.color || 'slate'})` : 'var(--border)' }}
-            aria-label={`${fmtTime(g.at)}, ${title}${group ? `, groupe ${group.name}` : ''} : ${g.items.map((i, n) => `${PLATFORM_LABEL[i.platform]} ${STATE_LABEL[states[n]].toLowerCase()}`).join(', ')}`}>
+            aria-label={`${fmtTime(g.at)}, ${title}${group ? `, ${t('groupe {name}', { name: group.name })}` : ''} : ${g.items.map((i, n) => `${PLATFORM_LABEL[i.platform]} ${t(STATE_LABEL[states[n]]).toLowerCase()}`).join(', ')}`}>
       <span className="prow-time">{fmtTime(g.at)}</span>
       <span className="prow-main">
-        <span className="prow-title">{risky && <span role="img" aria-label="Œuvre protégée" title="Œuvre protégée : risque de réclamation de droits d’auteur">⚠️ </span>}{title}</span>
+        <span className="prow-title">{risky && <span role="img" aria-label={t('Œuvre protégée')} title={t('Œuvre protégée : risque de réclamation de droits d’auteur')}>⚠️ </span>}{title}</span>
         <span className="prow-plats" aria-hidden="true">
           {g.items.map((i, n) => <span key={`${i.kind}-${i.id}`} className={`ppill ${states[n]}`}><PlatformLogo platform={i.platform} size={14} /></span>)}
         </span>
       </span>
       <span className={`prow-side${failed ? ' err' : ''}`}>
-        {failed ? `${failed} échec${failed > 1 ? 's' : ''}` : planned ? 'programmée' : views ? `${short(views)} vues` : ''}
+        {failed ? (failed > 1 ? t('{n} échecs', { n: failed }) : t('{n} échec', { n: failed })) : planned ? t('programmée') : views ? t('{n} vues', { n: short(views) }) : ''}
       </span>
     </button>
   )
@@ -81,12 +82,12 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
   const diffs: [string, string][] = []
   if (item.kind === 'target') {
     const own = item.platform === 'instagram' ? o.caption : item.platform === 'tiktok' ? o.title : o.description
-    if (own && item.status !== 'INBOX' && String(own).trim() !== common.trim()) diffs.push([item.platform === 'youtube' ? 'Description' : 'Légende', String(own)])
-    if (item.platform === 'youtube' && o.title) diffs.push(['Titre YouTube', String(o.title)])
-    if (item.platform === 'youtube' && Array.isArray(o.tags) && o.tags.length) diffs.push(['Tags', o.tags.join(', ')])
-    if (item.platform === 'youtube' && o.privacy_status) diffs.push(['Visibilité', `${o.privacy_status === 'public' ? 'Publique' : o.privacy_status === 'unlisted' ? 'Non répertoriée' : 'Privée'}${o.made_for_kids ? ' · pour enfants' : ''}`])
-    if (item.platform === 'tiktok' && o.mode === 'draft' && item.status !== 'INBOX') diffs.push(['Envoi', 'Brouillon dans l’app TikTok'])
-    if (item.platform === 'instagram' && Array.isArray(o.collaborators) && o.collaborators.length) diffs.push(['Collaborateurs', o.collaborators.map((c: string) => `@${c}`).join(', ')])
+    if (own && item.status !== 'INBOX' && String(own).trim() !== common.trim()) diffs.push([item.platform === 'youtube' ? t('Description') : t('Légende'), String(own)])
+    if (item.platform === 'youtube' && o.title) diffs.push([t('Titre YouTube'), String(o.title)])
+    if (item.platform === 'youtube' && Array.isArray(o.tags) && o.tags.length) diffs.push([t('Tags'), o.tags.join(', ')])
+    if (item.platform === 'youtube' && o.privacy_status) diffs.push([t('Visibilité'), `${o.privacy_status === 'public' ? t('Publique') : o.privacy_status === 'unlisted' ? t('Non répertoriée') : t('Privée')}${o.made_for_kids ? ` · ${t('pour enfants')}` : ''}`])
+    if (item.platform === 'tiktok' && o.mode === 'draft' && item.status !== 'INBOX') diffs.push([t('Envoi'), t('Brouillon dans l’app TikTok')])
+    if (item.platform === 'instagram' && Array.isArray(o.collaborators) && o.collaborators.length) diffs.push([t('Collaborateurs'), o.collaborators.map((c: string) => `@${c}`).join(', ')])
   }
   const url = item.kind === 'video' ? item.url : item.url
   const when = item.kind === 'target' ? (item.published_at || item.scheduled_at) : item.at
@@ -96,25 +97,25 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
         <PlatformLogo platform={item.platform} size={22} />
         <span className="grow col" style={{ minWidth: 0, gap: 0, textAlign: 'left' }}>
           <span className="strong">{PLATFORM_LABEL[item.platform]}</span>
-          <span className="small muted ellipsis">{item.account_name} · {inbox ? 'brouillon envoyé' : st === 'planned' ? 'prévue' : 'publiée'} {fmtDateTime(when)}</span>
+          <span className="small muted ellipsis">{item.account_name} · {inbox ? t('brouillon envoyé {date}', { date: fmtDateTime(when) }) : st === 'planned' ? t('prévue {date}', { date: fmtDateTime(when) }) : t('publiée {date}', { date: fmtDateTime(when) })}</span>
         </span>
-        <span className={`small strong pstate ${st}`}>{inbox ? 'À publier dans l’app' : STATE_LABEL[st]}</span>
+        <span className={`small strong pstate ${st}`}>{inbox ? t('À publier dans l’app') : t(STATE_LABEL[st])}</span>
         <Icon name="down" size={16} />
       </button>
       {item.kind === 'target' && item.status === 'FAILED' && item.error_message && <p className="pcard-err">{item.error_message}</p>}
       {open && (
         <div className="pcard-body">
           {item.kind === 'target' && item.notice && <Msg>{item.notice}</Msg>}
-          {url && <a className="linkbtn" href={url} target="_blank" rel="noreferrer">Voir sur {PLATFORM_LABEL[item.platform]} <Icon name="external" size={14} /></a>}
+          {url && <a className="linkbtn" href={url} target="_blank" rel="noreferrer">{t('Voir sur {platform}', { platform: PLATFORM_LABEL[item.platform] })} <Icon name="external" size={14} /></a>}
           {diffs.length > 0 ? (
             <dl className="rx-dl pdl">{diffs.flatMap(([k, v]) => [<dt key={`${k}t`}>{k}</dt>, <dd key={`${k}d`} className="clamp3" style={{ whiteSpace: 'pre-wrap' }}>{v}</dd>])}</dl>
-          ) : item.kind === 'target' ? <p className="small muted" style={{ margin: 0 }}>Rien de propre à {PLATFORM_LABEL[item.platform]} : texte commun.</p> : null}
+          ) : item.kind === 'target' ? <p className="small muted" style={{ margin: 0 }}>{t('Rien de propre à {platform} : texte commun.', { platform: PLATFORM_LABEL[item.platform] })}</p> : null}
           {item.kind === 'video' && (
             <div className="row small" style={{ gap: 14 }}>
-              <span><b>{num(item.views)}</b> vues</span><span><b>{num(item.likes)}</b> j’aime</span>
-              {item.comments != null && <span><b>{num(item.comments)}</b> comm.</span>}
-              {item.shares != null && <span><b>{num(item.shares)}</b> partages</span>}
-              {item.saves != null && <span><b>{num(item.saves)}</b> enreg.</span>}
+              <span><b>{num(item.views)}</b> {t('vues')}</span><span><b>{num(item.likes)}</b> {t('j’aime')}</span>
+              {item.comments != null && <span><b>{num(item.comments)}</b> {t('comm.')}</span>}
+              {item.shares != null && <span><b>{num(item.shares)}</b> {t('partages')}</span>}
+              {item.saves != null && <span><b>{num(item.saves)}</b> {t('enreg.')}</span>}
             </div>
           )}
           {err && <Msg kind="err">{err}</Msg>}
@@ -122,11 +123,11 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
           {inbox && <DraftBox item={item as Extract<CalendarItem, { kind: 'target' }>} busy={busy} act={act} />}
           {item.kind === 'target' && !editing && !inbox && (
             <div className="row" style={{ gap: 8 }}>
-              {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setEditing(true)}>Changer l’heure ou le texte</button>}
-              {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => publishNow(item.id), `Publier maintenant sur ${PLATFORM_LABEL[item.platform]} ?`)}>Publier maintenant</button>}
-              {item.can_retry && <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act(() => retryTarget(item.id))}>Réessayer</button>}
-              {item.can_edit && <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy} onClick={() => act(() => cancelTarget(item.id), `Annuler la publication sur ${PLATFORM_LABEL[item.platform]} ?`)}>Annuler</button>}
-              {!item.can_edit && item.can_cancel && <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy} onClick={() => act(() => cancelTarget(item.id), `Retirer cette publication en échec sur ${PLATFORM_LABEL[item.platform]} du planning ? Vous pourrez rajouter la plateforme ensuite.`)}>Retirer</button>}
+              {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setEditing(true)}>{t('Changer l’heure ou le texte')}</button>}
+              {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => publishNow(item.id), t('Publier maintenant sur {platform} ?', { platform: PLATFORM_LABEL[item.platform] }))}>{t('Publier maintenant')}</button>}
+              {item.can_retry && <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act(() => retryTarget(item.id))}>{t('Réessayer')}</button>}
+              {item.can_edit && <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy} onClick={() => act(() => cancelTarget(item.id), t('Annuler la publication sur {platform} ?', { platform: PLATFORM_LABEL[item.platform] }))}>{t('Annuler')}</button>}
+              {!item.can_edit && item.can_cancel && <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy} onClick={() => act(() => cancelTarget(item.id), t('Retirer cette publication en échec sur {platform} du planning ? Vous pourrez rajouter la plateforme ensuite.', { platform: PLATFORM_LABEL[item.platform] }))}>{t('Retirer')}</button>}
             </div>
           )}
         </div>
@@ -150,33 +151,33 @@ function DraftBox({ item, busy, act }: {
   }
   return (
     <div className="col" style={{ gap: 10 }}>
-      <p className="small" style={{ margin: 0 }}>La vidéo est dans vos brouillons TikTok, <b>sans légende</b> : ouvrez l’app, collez la légende, publiez, puis revenez ici.</p>
+      <p className="small" style={{ margin: 0 }}>{t('La vidéo est dans vos brouillons TikTok,')} <b>{t('sans légende')}</b>{t(' : ouvrez l’app, collez la légende, publiez, puis revenez ici.')}</p>
       {caption && (
         <div className="col" style={{ gap: 6 }}>
-          <span className="tiny muted">Légende TikTok</span>
+          <span className="tiny muted">{t('Légende TikTok')}</span>
           <p className="small" style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: 'var(--bg)', borderRadius: 10, padding: '10px 12px' }}>{caption}</p>
           <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={copy} aria-live="polite">
-            <Icon name="check" size={14} />{copied ? 'Copiée' : 'Copier la légende'}
+            <Icon name="check" size={14} />{copied ? t('Copiée') : t('Copier la légende')}
           </button>
         </div>
       )}
       {asking ? (
         <form className="col" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); act(() => markPublished(item.id, link.trim() || undefined)) }}>
           <label className="col" style={{ gap: 4 }}>
-            <span className="small">Lien de la vidéo TikTok <span className="muted">(facultatif)</span></span>
-            <input className="input" type="url" inputMode="url" placeholder="https://www.tiktok.com/@compte/video/…" value={link} onChange={e => setLink(e.target.value)} />
+            <span className="small">{t('Lien de la vidéo TikTok')} <span className="muted">{t('(facultatif)')}</span></span>
+            <input className="input" type="url" inputMode="url" placeholder={t('https://www.tiktok.com/@compte/video/…')} value={link} onChange={e => setLink(e.target.value)} />
           </label>
           <div className="row" style={{ gap: 8 }}>
-            <button type="submit" className="btn btn-sm btn-primary" disabled={busy}>Marquer publiée</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAsking(false)}>Annuler</button>
+            <button type="submit" className="btn btn-sm btn-primary" disabled={busy}>{t('Marquer publiée')}</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAsking(false)}>{t('Annuler')}</button>
           </div>
         </form>
       ) : (
         <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => setAsking(true)}>Publié dans l’app</button>
-          <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => resendDraft(item.id), 'Renvoyer la vidéo dans vos brouillons TikTok ? (à faire seulement si le brouillon a été supprimé)')}>Renvoyer le brouillon</button>
+          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => setAsking(true)}>{t('Publié dans l’app')}</button>
+          <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => resendDraft(item.id), t('Renvoyer la vidéo dans vos brouillons TikTok ? (à faire seulement si le brouillon a été supprimé)'))}>{t('Renvoyer le brouillon')}</button>
           <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy}
-                  onClick={() => act(() => cancelTarget(item.id), 'Retirer ce brouillon du planning ? Il reste dans vos brouillons TikTok : supprimez-le vous-même dans l’app.')}>Retirer</button>
+                  onClick={() => act(() => cancelTarget(item.id), t('Retirer ce brouillon du planning ? Il reste dans vos brouillons TikTok : supprimez-le vous-même dans l’app.'))}>{t('Retirer')}</button>
         </div>
       )}
     </div>
@@ -195,27 +196,27 @@ function RightsBox({ post, onSaved }: { post: Post; onSaved: (p: Post) => void }
     try { onSaved({ ...(await patchPost(post.id, { rights, rights_note: note })) }); setEditing(false) } catch (e) { setErr((e as Error).message) }
   }
   return (
-    <section className="col" style={{ gap: 8 }} aria-label="Droits d’auteur">
-      {risky && <div role="alert" className="msg msg-warn" style={{ margin: 0 }}>{RIGHTS_WARNING}</div>}
+    <section className="col" style={{ gap: 8 }} aria-label={t('Droits d’auteur')}>
+      {risky && <div role="alert" className="msg msg-warn" style={{ margin: 0 }}>{t(RIGHTS_WARNING)}</div>}
       {!editing ? (
         <div className="row small" style={{ gap: 8, alignItems: 'center' }}>
-          <span className="muted">Droits :</span>
-          <b>{post.rights ? RIGHTS_LABEL[post.rights] : 'Non précisés'}</b>
+          <span className="muted">{t('Droits :')}</span>
+          <b>{post.rights ? t(RIGHTS_LABEL[post.rights]) : t('Non précisés')}</b>
           {post.rights_note && <span className="muted ellipsis" style={{ minWidth: 0 }}>· {post.rights_note}</span>}
-          <button type="button" className="linkbtn" onClick={() => setEditing(true)}>Modifier</button>
+          <button type="button" className="linkbtn" onClick={() => setEditing(true)}>{t('Modifier')}</button>
         </div>
       ) : (
         <div className="col" style={{ gap: 8 }}>
-          <div className="seg" role="radiogroup" aria-label="Droits d’auteur">
+          <div className="seg" role="radiogroup" aria-label={t('Droits d’auteur')}>
             {(['public_domain', 'protected', 'unknown'] as Rights[]).map(r => (
-              <button key={r} type="button" role="radio" aria-checked={rights === r} aria-pressed={rights === r} onClick={() => setRights(r)}>{RIGHTS_LABEL[r]}</button>
+              <button key={r} type="button" role="radio" aria-checked={rights === r} aria-pressed={rights === r} onClick={() => setRights(r)}>{t(RIGHTS_LABEL[r])}</button>
             ))}
           </div>
-          <input className="input" value={note} maxLength={300} onChange={e => setNote(e.target.value)} placeholder="Note (ex. reprise — Wicked, Stephen Schwartz)" aria-label="Note sur les droits" />
+          <input className="input" value={note} maxLength={300} onChange={e => setNote(e.target.value)} placeholder={t('Note (ex. reprise — Wicked, Stephen Schwartz)')} aria-label={t('Note sur les droits')} />
           {err && <Msg kind="err">{err}</Msg>}
           <div className="row" style={{ gap: 8 }}>
-            <button type="button" className="btn btn-sm btn-primary" onClick={save}>Enregistrer</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditing(false)}>Annuler</button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={save}>{t('Enregistrer')}</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditing(false)}>{t('Annuler')}</button>
           </div>
         </div>
       )}
@@ -237,17 +238,17 @@ function EditInline({ item, onDone, onCancel }: { item: Extract<CalendarItem, { 
   }
   return (
     <div className="col" style={{ gap: 10 }}>
-      <label className="field">Date et heure<input className="input" type="datetime-local" value={when} onChange={e => setWhen(e.target.value)} /></label>
+      <label className="field">{t('Date et heure')}<input className="input" type="datetime-local" value={when} onChange={e => setWhen(e.target.value)} /></label>
       {editText && (
-        <label className="field">{item.platform === 'youtube' ? 'Titre YouTube' : 'Légende'}
+        <label className="field">{item.platform === 'youtube' ? t('Titre YouTube') : t('Légende')}
           {item.platform === 'youtube' ? <input className="input" value={text} maxLength={100} onChange={e => setText(e.target.value)} />
             : <textarea className="textarea" value={text} onChange={e => setText(e.target.value)} />}
         </label>
       )}
       {err && <Msg kind="err">{err}</Msg>}
       <div className="row-nw" style={{ gap: 8 }}>
-        <button type="button" className="btn btn-sm" onClick={onCancel}>Annuler</button>
-        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={save}>Enregistrer</button>
+        <button type="button" className="btn btn-sm" onClick={onCancel}>{t('Annuler')}</button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={save}>{t('Enregistrer')}</button>
       </div>
     </div>
   )
@@ -273,7 +274,7 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
   }, [postId]) // eslint-disable-line react-hooks/exhaustive-deps
   const video = g.items.find(i => i.kind === 'video') as Extract<CalendarItem, { kind: 'video' }> | undefined
   const common = post?.caption || video?.title || ''
-  const title = shortTitle(post?.title || g.title) || 'Sans titre'
+  const title = shortTitle(post?.title || g.title) || t('Sans titre')
   const tags = [...new Set(common.match(HASHTAG) || [])]
   const body = common.replace(HASHTAG, '').replace(/\n{3,}/g, '\n\n').trim()
   const duration = post?.duration_sec ?? video?.duration_sec ?? null
@@ -281,14 +282,14 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
   const stream = asset?.stream || null
   const fiche = g.items.find(i => i.kind === 'video')
   return (
-    <Sheet title={<span className="sr-only">Publication</span>} onClose={onClose}>
+    <Sheet title={<span className="sr-only">{t('Publication')}</span>} onClose={onClose}>
       <div className="pub" style={group ? { ['--gcolor' as string]: `var(--g-${group.color || 'slate'})` } : undefined}>
         {group && <span className="pub-stripe" aria-hidden="true" />}
         <div className="pub-head">
           {playing && stream ? (
             <video className="pub-media" src={stream} poster={thumb || undefined} controls autoPlay playsInline />
           ) : (
-            <button type="button" className="pub-media" aria-label={stream ? 'Lire la vidéo' : video?.url ? 'Voir la vidéo sur la plateforme' : 'Aperçu indisponible'}
+            <button type="button" className="pub-media" aria-label={stream ? t('Lire la vidéo') : video?.url ? t('Voir la vidéo sur la plateforme') : t('Aperçu indisponible')}
                     onClick={() => (stream ? setPlaying(true) : video?.url ? window.open(video.url, '_blank', 'noopener') : undefined)}
                     style={thumb ? { backgroundImage: `url(${thumb})` } : undefined}>
               {(stream || video?.url) && <span className="pub-play" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg></span>}
@@ -298,8 +299,8 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
             {group && <span className="row-nw tiny strong" style={{ gap: 6 }}><GroupDot color={group.color} />{group.name}</span>}
             <h2 className="pub-title">{title}</h2>
             <span className="small muted">{fmtDateTime(g.at)}{duration ? ` · ${fmtDuration(duration)}` : ''}</span>
-            {fiche && <Link className="linkbtn" to={`/videos/${fiche.id}`}>Fiche vidéo : stats et commentaires</Link>}
-            {asset?.folder_url && <a className="linkbtn muted" href={asset.folder_url} target="_blank" rel="noreferrer">Dossier Drive</a>}
+            {fiche && <Link className="linkbtn" to={`/videos/${fiche.id}`}>{t('Fiche vidéo : stats et commentaires')}</Link>}
+            {asset?.folder_url && <a className="linkbtn muted" href={asset.folder_url} target="_blank" rel="noreferrer">{t('Dossier Drive')}</a>}
           </div>
         </div>
 
@@ -307,21 +308,21 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
 
         {((body && shortTitle(body) !== title) || tags.length > 0) && (
           <section className="col" style={{ gap: 6 }} aria-labelledby="pub-common">
-            <h3 id="pub-common" className="rx-h">Commun à toutes les plateformes</h3>
+            <h3 id="pub-common" className="rx-h">{t('Commun à toutes les plateformes')}</h3>
             {body && shortTitle(body) !== title && <p className={`small${more ? '' : ' clamp3'}`} style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--text-2, inherit)' }}>{body}</p>}
-            {body.length > 180 && <button type="button" className="linkbtn" style={{ alignSelf: 'flex-start', minHeight: 32 }} onClick={() => setMore(m => !m)}>{more ? 'Voir moins' : 'Voir plus'}</button>}
+            {body.length > 180 && <button type="button" className="linkbtn" style={{ alignSelf: 'flex-start', minHeight: 32 }} onClick={() => setMore(m => !m)}>{more ? t('Voir moins') : t('Voir plus')}</button>}
             {tags.length > 0 && <div className="row" style={{ gap: 6 }}>{tags.map(t => <span key={t} className="chip chip-sm">{t}</span>)}</div>}
           </section>
         )}
 
         <section className="col" style={{ gap: 10 }} aria-labelledby="pub-plats">
-          <h3 id="pub-plats" className="rx-h">Plateformes</h3>
+          <h3 id="pub-plats" className="rx-h">{t('Plateformes')}</h3>
           {g.items.map(i => {
             const k = `${i.kind}-${i.id}`
             return <PlatformCard key={k} item={i} common={common} open={openKey === k} onToggle={() => setOpenKey(openKey === k ? null : k)} onChanged={onChanged} />
           })}
         </section>
-        <p className="tiny muted" style={{ margin: 0 }}>Trait plein : publiée · pointillé : programmée · rouge : échec.</p>
+        <p className="tiny muted" style={{ margin: 0 }}>{t('Trait plein : publiée · pointillé : programmée · rouge : échec.')}</p>
       </div>
     </Sheet>
   )

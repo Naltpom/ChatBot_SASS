@@ -15,6 +15,7 @@ import { challengeUser, passkeyAvailable, passkeyDone, passkeyError } from '../l
 import { Missing } from '../ui/Progress'
 import { Button, Field, Msg, PlatformLogo, Seg, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
+import { t } from '../lib/i18n'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -58,7 +59,7 @@ export default function Login() {
   const compact = !!challenge || mode === 'email'
   const run = async (fn: () => Promise<void>) => {
     setError(null); setInfo(null)
-    try { await fn() } catch (e: any) { setError(e?.message || 'Connexion impossible') }
+    try { await fn() } catch (e: any) { setError(e?.message || t('Connexion impossible')) }
   }
   const viaBrowser = () => run(async () => { const me = await loginWithBrowser(); if (me) signedIn(me) })
   // Google natif ; si Google refuse la configuration de l'app (DEVELOPER_ERROR, ex. signature pas encore
@@ -79,7 +80,7 @@ export default function Login() {
     : viaBrowser
   const emailOk = EMAIL_RE.test(email.trim())
   const pwOk = tab === 'in' ? password.length > 0 : password.length >= 8
-  const missing = [!emailOk && 'une adresse e-mail valide', !pwOk && (tab === 'up' ? 'un mot de passe de 8 caractères' : 'le mot de passe')].filter(Boolean) as string[]
+  const missing = [!emailOk && t('une adresse e-mail valide'), !pwOk && (tab === 'up' ? t('un mot de passe de 8 caractères') : t('le mot de passe'))].filter(Boolean) as string[]
   const submit = () => run(async () => {
     if (missing.length) { setTouched({ email: true, password: true }); return }
     if (tab === 'up') { signedIn(await signUpWithPassword(email.trim(), password)); return }
@@ -88,9 +89,9 @@ export default function Login() {
     else signedIn(r)
   })
   const forgot = () => run(async () => {
-    if (!emailOk) { setTouched(t => ({ ...t, email: true })); setError('Entrez d’abord votre adresse e-mail.'); return }
+    if (!emailOk) { setTouched(prev => ({ ...prev, email: true })); setError(t('Entrez d’abord votre adresse e-mail.')); return }
     await sendPasswordLink(email.trim())
-    setInfo(`Si un compte existe pour ${email.trim()}, un lien vient d’être envoyé. Il ouvre l’app pour choisir un nouveau mot de passe.`)
+    setInfo(t('Si un compte existe pour {email}, un lien vient d’être envoyé. Il ouvre l’app pour choisir un nouveau mot de passe.', { email: email.trim() }))
   })
   const viaCode = () => run(async () => { if (challenge) signedIn(await loginWithCode(challenge.challenge, code.trim(), recovery)) })
   // Empreinte (clé d'accès) à la place du code : proposée d'office si le compte en a une et le téléphone le permet.
@@ -127,8 +128,8 @@ export default function Login() {
           {/* Étape du code ou de l'empreinte : seulement l'essentiel, pour que le clavier ne cache rien. */}
           {!compact ? (
             <>
-              <Txt size={32} bold style={{ lineHeight: 38, letterSpacing: -0.6 }} accessibilityRole="header">Vos vidéos courtes, programmées et suivies.</Txt>
-              <Txt muted size={16}>Un seul planning pour TikTok, YouTube Shorts et Instagram Reels. Vos chiffres au même endroit.</Txt>
+              <Txt size={32} bold style={{ lineHeight: 38, letterSpacing: -0.6 }} accessibilityRole="header">{t('Vos vidéos courtes, programmées et suivies.')}</Txt>
+              <Txt muted size={16}>{t('Un seul planning pour TikTok, YouTube Shorts et Instagram Reels. Vos chiffres au même endroit.')}</Txt>
               <View style={{ flexDirection: 'row', gap: space.sm }}>
                 {(['tiktok', 'youtube', 'instagram'] as const).map(p => (
                   <View key={p} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' }}>
@@ -145,62 +146,62 @@ export default function Login() {
           {info ? <Msg kind="ok">{info}</Msg> : null}
           {challenge && canPasskey && !useCode ? (
             <>
-              <Txt bold size={18}>Confirmez avec votre empreinte</Txt>
-              <Txt small muted>Votre empreinte ou votre visage remplace le code à 6 chiffres.</Txt>
-              <Button kind="primary" icon="shield" title="Utiliser mon empreinte" onPress={viaPasskey} />
+              <Txt bold size={18}>{t('Confirmez avec votre empreinte')}</Txt>
+              <Txt small muted>{t('Votre empreinte ou votre visage remplace le code à 6 chiffres.')}</Txt>
+              <Button kind="primary" icon="shield" title={t('Utiliser mon empreinte')} onPress={viaPasskey} />
               {challenge.methods.totp || challenge.methods.recovery ? (
-                <Button kind="ghost" title={challenge.methods.totp ? 'Utiliser un code à la place' : 'Utiliser un code de secours'}
+                <Button kind="ghost" title={challenge.methods.totp ? t('Utiliser un code à la place') : t('Utiliser un code de secours')}
                   onPress={() => { setUseCode(true); setRecovery(!challenge.methods.totp) }} />
               ) : null}
-              <Button kind="ghost" title="Retour" onPress={() => { setChallenge(null); setCode('') }} />
+              <Button kind="ghost" title={t('Retour')} onPress={() => { setChallenge(null); setCode('') }} />
             </>
           ) : challenge ? (
             <>
-              <Txt bold size={22} accessibilityRole="header">{recovery ? 'Code de secours' : 'Code de connexion'}</Txt>
-              <Txt muted>{recovery ? 'Entrez un de vos codes de secours.' : 'Le code à 6 chiffres de votre application d’authentification.'}</Txt>
+              <Txt bold size={22} accessibilityRole="header">{recovery ? t('Code de secours') : t('Code de connexion')}</Txt>
+              <Txt muted>{recovery ? t('Entrez un de vos codes de secours.') : t('Le code à 6 chiffres de votre application d’authentification.')}</Txt>
               <CodeInput value={code} recovery={recovery} onChange={v => {
                 setCode(v)
                 // 6 chiffres tapés : validé tout de suite, sans chercher le bouton.
                 if (!recovery && /^\d{6}$/.test(v) && challenge) run(async () => { signedIn(await loginWithCode(challenge.challenge, v, false)) })
               }} onSubmit={viaCode} />
-              <Button kind="primary" title="Valider" onPress={viaCode} disabled={!code.trim()} />
-              {!code.trim() ? <Missing items={['le code']} /> : null}
-              {challenge.methods.recovery ? <Button kind="ghost" title={recovery ? 'Utiliser le code de l’application' : 'Utiliser un code de secours'} onPress={() => setRecovery(!recovery)} /> : null}
-              {canPasskey ? <Button kind="ghost" icon="shield" title="Utiliser mon empreinte" onPress={() => { setUseCode(false); viaPasskey() }} /> : null}
-              <Button kind="ghost" title="Retour" onPress={() => { setChallenge(null); setCode('') }} />
+              <Button kind="primary" title={t('Valider')} onPress={viaCode} disabled={!code.trim()} />
+              {!code.trim() ? <Missing items={[t('le code')]} /> : null}
+              {challenge.methods.recovery ? <Button kind="ghost" title={recovery ? t('Utiliser le code de l’application') : t('Utiliser un code de secours')} onPress={() => setRecovery(!recovery)} /> : null}
+              {canPasskey ? <Button kind="ghost" icon="shield" title={t('Utiliser mon empreinte')} onPress={() => { setUseCode(false); viaPasskey() }} /> : null}
+              <Button kind="ghost" title={t('Retour')} onPress={() => { setChallenge(null); setCode('') }} />
             </>
           ) : mode === 'choose' ? (
             <>
-              <Pressable onPress={viaGoogle} accessibilityRole="button" accessibilityLabel="Continuer avec Google"
+              <Pressable onPress={viaGoogle} accessibilityRole="button" accessibilityLabel={t('Continuer avec Google')}
                 style={({ pressed }) => ({ minHeight: 52, borderRadius: radius.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.borderStrong,
                   flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: pressed ? 0.7 : 1 })}>
-                <GoogleG /><Txt bold size={16}>Continuer avec Google</Txt>
+                <GoogleG /><Txt bold size={16}>{t('Continuer avec Google')}</Txt>
               </Pressable>
-              <Button kind="primary" icon="bolt" title="Continuer avec un e-mail" onPress={() => setMode('email')} style={{ minHeight: 52 }} />
-              <Txt small muted center>Nouveau ? Le compte se crée en continuant. Gratuit, sans carte bancaire.</Txt>
+              <Button kind="primary" icon="bolt" title={t('Continuer avec un e-mail')} onPress={() => setMode('email')} style={{ minHeight: 52 }} />
+              <Txt small muted center>{t('Nouveau ? Le compte se crée en continuant. Gratuit, sans carte bancaire.')}</Txt>
             </>
           ) : (
             <>
-              <Seg label="Se connecter ou créer un compte" value={tab} onChange={v => { setTab(v); setError(null); setInfo(null) }} options={[['in', 'Se connecter'], ['up', 'Créer un compte']]} />
-              <Field label="E-mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="nom@exemple.fr"
-                autoComplete="email" textContentType="username" onBlur={() => setTouched(t => ({ ...t, email: true }))}
-                error={touched.email && !emailOk ? 'Adresse incomplète : vérifiez le @ et la fin (.fr, .com…).' : null} />
-              <Field label="Mot de passe" value={password} onChangeText={setPassword} secureTextEntry
+              <Seg label={t('Se connecter ou créer un compte')} value={tab} onChange={v => { setTab(v); setError(null); setInfo(null) }} options={[['in', t('Se connecter')], ['up', t('Créer un compte')]]} />
+              <Field label={t('E-mail')} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder={t('nom@exemple.fr')}
+                autoComplete="email" textContentType="username" onBlur={() => setTouched(prev => ({ ...prev, email: true }))}
+                error={touched.email && !emailOk ? t('Adresse incomplète : vérifiez le @ et la fin (.fr, .com…).') : null} />
+              <Field label={t('Mot de passe')} value={password} onChangeText={setPassword} secureTextEntry
                 autoComplete={tab === 'up' ? 'new-password' : 'current-password'} textContentType={tab === 'up' ? 'newPassword' : 'password'}
-                onBlur={() => setTouched(t => ({ ...t, password: true }))} onSubmitEditing={submit}
-                hint={tab === 'up' ? (password.length >= 8 ? '✓ 8 caractères ou plus' : `8 caractères au moins (${password.length}/8)`) : undefined}
-                error={tab === 'in' && touched.password && !pwOk ? 'Entrez votre mot de passe.' : null} />
-              <Button kind="primary" title={tab === 'up' ? 'Créer mon compte' : 'Se connecter'} onPress={submit} disabled={missing.length > 0} style={{ minHeight: 52 }} />
+                onBlur={() => setTouched(prev => ({ ...prev, password: true }))} onSubmitEditing={submit}
+                hint={tab === 'up' ? (password.length >= 8 ? t('✓ 8 caractères ou plus') : t('8 caractères au moins ({n}/8)', { n: password.length })) : undefined}
+                error={tab === 'in' && touched.password && !pwOk ? t('Entrez votre mot de passe.') : null} />
+              <Button kind="primary" title={tab === 'up' ? t('Créer mon compte') : t('Se connecter')} onPress={submit} disabled={missing.length > 0} style={{ minHeight: 52 }} />
               <Missing items={touched.email || touched.password ? missing : []} />
-              {tab === 'in' ? <Button kind="ghost" title="Mot de passe oublié ? Recevoir un lien" onPress={forgot} /> : null}
-              <Button kind="ghost" icon="left" title="Autres façons de continuer" onPress={() => { setMode('choose'); setError(null) }} />
+              {tab === 'in' ? <Button kind="ghost" title={t('Mot de passe oublié ? Recevoir un lien')} onPress={forgot} /> : null}
+              <Button kind="ghost" icon="left" title={t('Autres façons de continuer')} onPress={() => { setMode('choose'); setError(null) }} />
             </>
           )}
         </View>
         <Txt small muted center>
-          <Txt small color={c.muted} onPress={() => WebBrowser.openBrowserAsync('https://chapote.fr/legal/confidentialite').catch(() => {})}>Confidentialité</Txt>
+          <Txt small color={c.muted} onPress={() => WebBrowser.openBrowserAsync('https://chapote.fr/legal/confidentialite').catch(() => {})}>{t('Confidentialité')}</Txt>
           {'  ·  '}
-          <Txt small color={c.muted} onPress={() => WebBrowser.openBrowserAsync('https://chapote.fr/legal/cgu').catch(() => {})}>Conditions</Txt>
+          <Txt small color={c.muted} onPress={() => WebBrowser.openBrowserAsync('https://chapote.fr/legal/cgu').catch(() => {})}>{t('Conditions')}</Txt>
         </Txt>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -211,7 +212,7 @@ export default function Login() {
 function CodeInput({ value, recovery, onChange, onSubmit }: { value: string; recovery: boolean; onChange: (v: string) => void; onSubmit: () => void }) {
   const { c } = useTheme()
   return (
-    <TextInput value={value} autoFocus onSubmitEditing={onSubmit} accessibilityLabel={recovery ? 'Code de secours' : 'Code à 6 chiffres'}
+    <TextInput value={value} autoFocus onSubmitEditing={onSubmit} accessibilityLabel={recovery ? t('Code de secours') : t('Code à 6 chiffres')}
       onChangeText={v => onChange(recovery ? v : v.replace(/\D/g, '').slice(0, 6))}
       keyboardType={recovery ? 'default' : 'number-pad'} textContentType="oneTimeCode" autoComplete="one-time-code" autoCapitalize="characters"
       placeholder={recovery ? 'XXXX-XXXX' : '••••••'} placeholderTextColor={c.faint} maxLength={recovery ? 20 : 6}

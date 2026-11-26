@@ -8,6 +8,7 @@ import { Msg } from '../../components/ui'
 import { useSession } from '../../session'
 import AuthLayout from './AuthLayout'
 import { PasswordInput } from './fields'
+import { t } from '../../i18n'
 
 export function useAuthDone() {
   const { refresh } = useSession()
@@ -29,37 +30,37 @@ export function TwoFactor({ challenge, onDone, onBack }: { challenge: TwoFAChall
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(''); setBusy(true)
     try { await onDone(await totpLogin(challenge.challenge, code.replace(/\s/g, ''), recovery)) }
-    catch (e) { setErr((e as ApiError).status === 401 ? 'Code incorrect ou expiré.' : (e as Error).message) }
+    catch (e) { setErr((e as ApiError).status === 401 ? t('Code incorrect ou expiré.') : (e as Error).message) }
     finally { setBusy(false) }
   }
   if (challenge.methods.passkey && !challenge.methods.totp && !challenge.methods.recovery) {
     return (
       <>
-        <h1>Clé d’accès requise</h1>
-        <Msg>Ce compte se connecte avec une passkey. <a href={`${appUrl.replace(/\/$/, '')}/login`}>Connectez-vous sur chapote.fr</a> : la session vaudra aussi ici.</Msg>
-        <button type="button" className="btn btn-ghost" onClick={onBack}>← Retour</button>
+        <h1>{t('Clé d’accès requise')}</h1>
+        <Msg>{t('Ce compte se connecte avec une passkey.')} <a href={`${appUrl.replace(/\/$/, '')}/login`}>{t('Connectez-vous sur chapote.fr')}</a>{t(' : la session vaudra aussi ici.')}</Msg>
+        <button type="button" className="btn btn-ghost" onClick={onBack}>← {t('Retour')}</button>
       </>
     )
   }
   return (
     <form className="col" style={{ gap: 18 }} onSubmit={submit}>
       <div className="col" style={{ gap: 6 }}>
-        <h1>Vérification</h1>
-        <p className="muted">{recovery ? 'Saisissez un de vos codes de secours.' : 'Saisissez le code à 6 chiffres de votre application d’authentification.'}</p>
+        <h1>{t('Vérification')}</h1>
+        <p className="muted">{recovery ? t('Saisissez un de vos codes de secours.') : t('Saisissez le code à 6 chiffres de votre application d’authentification.')}</p>
       </div>
-      <label className="field">{recovery ? 'Code de secours' : 'Code'}
+      <label className="field">{recovery ? t('Code de secours') : t('Code')}
         <input className={`input${recovery ? '' : ' otp'}`} value={code} onChange={e => setCode(e.target.value)} autoFocus required
                inputMode={recovery ? 'text' : 'numeric'} autoComplete="one-time-code" maxLength={recovery ? 32 : 7}
                pattern={recovery ? undefined : '[0-9 ]{6,7}'} />
       </label>
       {err && <Msg kind="err">{err}</Msg>}
-      <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? 'Vérification…' : 'Valider'}</button>
+      <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? t('Vérification…') : t('Valider')}</button>
       {challenge.methods.totp && challenge.methods.recovery && (
         <button type="button" className="btn btn-ghost" onClick={() => { setRecovery(r => !r); setCode('') }}>
-          {recovery ? 'Utiliser le code de l’application' : 'Utiliser un code de secours'}
+          {recovery ? t('Utiliser le code de l’application') : t('Utiliser un code de secours')}
         </button>
       )}
-      <button type="button" className="btn btn-ghost small" onClick={onBack}>← Changer de compte</button>
+      <button type="button" className="btn btn-ghost small" onClick={onBack}>← {t('Changer de compte')}</button>
     </form>
   )
 }
@@ -78,7 +79,7 @@ export default function Login() {
     try { await done(await login(email.trim(), password)) }
     catch (e) {
       const ae = e as ApiError
-      setErr(ae.status === 401 ? 'E-mail ou mot de passe incorrect.' : ae.status === 429 ? 'Trop d’essais : patientez quelques minutes.' : ae.message)
+      setErr(ae.status === 401 ? t('E-mail ou mot de passe incorrect.') : ae.status === 429 ? t('Trop d’essais : patientez quelques minutes.') : ae.message)
     } finally { setBusy(false) }
   }
 
@@ -87,32 +88,32 @@ export default function Login() {
       {challenge ? <TwoFactor challenge={challenge} onDone={done} onBack={() => setChallenge(null)} /> : (
         <>
           <div className="col" style={{ gap: 6 }}>
-            <h1>Bon retour</h1>
-            <p className="muted">Connectez-vous pour retrouver votre planning et vos chiffres.</p>
+            <h1>{t('Bon retour')}</h1>
+            <p className="muted">{t('Connectez-vous pour retrouver votre planning et vos chiffres.')}</p>
           </div>
           {googleClientId && (
             <>
               <GoogleButton clientId={googleClientId} onResult={done} text="continue_with" />
-              <div className="divider">ou avec votre e-mail</div>
+              <div className="divider">{t('ou avec votre e-mail')}</div>
             </>
           )}
           <form className="col" style={{ gap: 16 }} onSubmit={submit} noValidate={false}>
-            <label className="field" htmlFor="email">E-mail
+            <label className="field" htmlFor="email">{t('E-mail')}
               <input id="email" className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} required
-                     autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} placeholder="vous@exemple.fr" />
+                     autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} placeholder={t('vous@exemple.fr')} />
             </label>
             <div className="field">
               <div className="field-row">
-                <label htmlFor="password">Mot de passe</label>
-                <Link to="/mot-de-passe-oublie" className="small" style={{ fontWeight: 500 }}>Oublié ?</Link>
+                <label htmlFor="password">{t('Mot de passe')}</label>
+                <Link to="/mot-de-passe-oublie" className="small" style={{ fontWeight: 500 }}>{t('Oublié ?')}</Link>
               </div>
               <PasswordInput id="password" value={password} onChange={setPassword} autoComplete="current-password" />
             </div>
             {err && <Msg kind="err">{err}</Msg>}
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? 'Connexion…' : 'Se connecter'}</button>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? t('Connexion…') : t('Se connecter')}</button>
           </form>
           <p className="muted" style={{ textAlign: 'center' }}>
-            Pas encore de compte ? <Link to={`/inscription${suite}`} style={{ fontWeight: 600 }}>Créer un compte</Link>
+            {t('Pas encore de compte ?')} <Link to={`/inscription${suite}`} style={{ fontWeight: 600 }}>{t('Créer un compte')}</Link>
           </p>
         </>
       )}

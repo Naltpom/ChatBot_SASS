@@ -7,8 +7,8 @@ import { getVideosPage, PLATFORMS, type Platform } from '../lib/api'
 import { Divider, Empty, Msg, SearchField, Skeleton, Txt } from '../ui/kit'
 import { space, useTheme } from '../ui/theme'
 import { useListState, usePages } from '../features/insights/hooks'
-import { plural } from '../features/insights/logic'
 import { PlatformChips, SortChips, VideoRow } from '../features/insights/parts'
+import { t } from '../lib/i18n'
 
 type Sort = 'recent' | 'views' | 'likes' | 'comments' | 'shares' | 'engagement' | 'title'
 const SORTS: [Sort, string][] = [['recent', 'Date'], ['views', 'Vues'], ['engagement', 'Interactions'],
@@ -36,22 +36,23 @@ export default function Videos() {
       renderItem={({ item }) => <VideoRow v={item} onPress={item.id ? () => router.push(`/video/${item.id}`) : undefined} />}
       ListHeaderComponent={
         <View style={{ gap: space.md, paddingBottom: space.sm }}>
-          <Txt small muted>Relevées chez les plateformes, publiées ou non depuis Chapote.</Txt>
-          <SearchField value={list.input} onChangeText={list.setInput} placeholder="Rechercher une vidéo (titre)" />
+          <Txt small muted>{t('Relevées chez les plateformes, publiées ou non depuis Chapote.')}</Txt>
+          <SearchField value={list.input} onChangeText={list.setInput} placeholder={t('Rechercher une vidéo (titre)')} />
           <PlatformChips value={platform} onChange={setPlatform} platforms={PLATFORMS} />
           <SortChips list={list} options={SORTS} />
-          {items ? <Txt small muted>{plural(items.length, 'vidéo')}{pages.next ? ' et plus' : ''}</Txt> : null}
+          {items ? <Txt small muted>{items.length > 1 ? t('{n} vidéos', { n: items.length }) : t('{n} vidéo', { n: items.length })}{pages.next ? ` ${t('et plus')}` : ''}</Txt> : null}
           {pages.error ? <Msg kind="err">{pages.error}</Msg> : null}
         </View>
       }
       ListEmptyComponent={
         !items ? <View style={{ gap: space.md }}><Skeleton h={86} n={5} /></View>
-          : list.q ? <Empty title="Aucune vidéo trouvée" icon="search">{`Aucun titre ne contient « ${list.q} ».`}</Empty>
-          : <Empty title="Aucune vidéo pour l’instant" icon="video">Les vidéos de vos comptes apparaissent ici après le premier relevé des chiffres.</Empty>
+          : list.q ? <Empty title={t('Aucune vidéo trouvée')} icon="search">{t('Aucun titre ne contient « {q} ».', { q: list.q })}</Empty>
+          : <Empty title={t('Aucune vidéo pour l’instant')} icon="video">{t('Les vidéos de vos comptes apparaissent ici après le premier relevé des chiffres.')}</Empty>
       }
       ListFooterComponent={
         pages.busy ? <View style={{ paddingTop: space.md }}><Skeleton h={72} n={1} /></View>
-          : items && !pages.next && items.length > 30 ? <Txt small muted center style={{ paddingTop: space.md }}>{items.length} vidéos · fin de la liste</Txt>
+          : items && !pages.next && items.length > 30 ? <Txt small muted center style={{ paddingTop: space.md }}>{t('{n} vidéos · fin de la liste', { n: items.length })}</Txt>
+
           : undefined
       }
     />

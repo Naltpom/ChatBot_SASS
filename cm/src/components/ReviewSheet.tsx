@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { PLATFORM_LABEL, type Account } from '../api'
 import { longDate } from '../compose'
 import { Avatar, Icon, Msg, Sheet } from './ui'
+import { t } from '../i18n'
 
 export function ReviewSheet({ onClose, accounts, when, recap, problems, renderEdit, onRemove, onDone, busy, finalLabel }: {
   onClose: () => void; accounts: Account[]; when: (a: Account) => Date | null
@@ -19,42 +20,42 @@ export function ReviewSheet({ onClose, accounts, when, recap, problems, renderEd
   const at = when(a)
   const last = i === accounts.length - 1
   return (
-    <Sheet title={`Vérification · ${i + 1} / ${accounts.length}`} onClose={busy ? () => {} : onClose}>
+    <Sheet title={t('Vérification · {n} / {total}', { n: i + 1, total: accounts.length })} onClose={busy ? () => {} : onClose}>
       <div className="col" style={{ gap: 12 }}>
         <div className="row-nw" style={{ gap: 12 }}>
           <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
           <div className="col" style={{ minWidth: 0 }}>
             <span className="strong ellipsis">{a.name || PLATFORM_LABEL[a.platform]}</span>
-            <span className="small muted">{PLATFORM_LABEL[a.platform]} · {at ? longDate(at) : 'tout de suite'}</span>
+            <span className="small muted">{PLATFORM_LABEL[a.platform]} · {at ? longDate(at) : t('tout de suite')}</span>
           </div>
         </div>
-        {errs.length > 0 && <Msg kind="err">À corriger : {errs.join(' ')}</Msg>}
+        {errs.length > 0 && <Msg kind="err">{t('À corriger : {problems}', { problems: errs.join(' ') })}</Msg>}
         {editing ? renderEdit(a) : (
           <div>
             {recap(a).map(([k, v]) => (
               <div key={k} className="review-row">
                 <span className="tiny muted">{k}</span>
-                <span className={`v${/^à (choisir|indiquer|préciser)/.test(v) ? ' todo' : ''}`}>{v}</span>
+                <span className={`v${[t('à choisir'), t('à indiquer'), t('à préciser')].includes(v) ? ' todo' : ''}`}>{v}</span>
               </div>
             ))}
           </div>
         )}
         {accounts.length > 1 && (
-          <span className="small muted">{accounts.map((_, j) => (j < i ? '✓' : j === i ? '●' : '○')).join('  ')}  ·  {i} validé{i > 1 ? 's' : ''} sur {accounts.length}</span>
+          <span className="small muted">{accounts.map((_, j) => (j < i ? '✓' : j === i ? '●' : '○')).join('  ')}  ·  {i > 1 ? t('{n} validés sur {total}', { n: i, total: accounts.length }) : t('{n} validé sur {total}', { n: i, total: accounts.length })}</span>
         )}
         {editing ? (
-          <button type="button" className="btn btn-primary btn-lg" onClick={() => setEditing(false)}><Icon name="check" />Enregistrer</button>
+          <button type="button" className="btn btn-primary btn-lg" onClick={() => setEditing(false)}><Icon name="check" />{t('Enregistrer')}</button>
         ) : (
           <div className="col" style={{ gap: 8 }}>
             <div className="row-nw" style={{ gap: 8 }}>
-              <button type="button" className="btn btn-lg" style={{ flex: 1 }} disabled={busy} onClick={() => setEditing(true)}><Icon name="edit" />Modifier</button>
+              <button type="button" className="btn btn-lg" style={{ flex: 1 }} disabled={busy} onClick={() => setEditing(true)}><Icon name="edit" />{t('Modifier')}</button>
               <button type="button" className="btn btn-primary btn-lg" style={{ flex: 1.4 }} disabled={busy || errs.length > 0}
                       onClick={() => { if (last) onDone(); else { setI(i + 1); setEditing(false) } }}>
-                <Icon name={last ? 'clock' : 'check'} />{last ? finalLabel : 'Valider'}
+                <Icon name={last ? 'clock' : 'check'} />{last ? finalLabel : t('Valider')}
               </button>
             </div>
             <button type="button" className="btn btn-ghost btn-danger" disabled={busy || accounts.length < 2} onClick={() => { onRemove(a); setEditing(false) }}>
-              <Icon name="close" />Retirer ce compte
+              <Icon name="close" />{t('Retirer ce compte')}
             </button>
           </div>
         )}

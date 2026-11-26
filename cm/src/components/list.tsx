@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Order, Page } from '../api'
 import { Icon } from './ui'
+import { t } from '../i18n'
 
 export interface ListState<S extends string> {
   q: string            // recherche envoyée à l'API (après la pause de frappe)
@@ -55,7 +56,7 @@ export function SearchBox({ value, onChange, label, placeholder }: { value: stri
       <Icon name="search" size={16} />
       <input className="input" type="search" value={value} onChange={e => onChange(e.target.value)} aria-label={label}
              placeholder={placeholder || label} autoComplete="off" enterKeyHint="search" />
-      {value && <button type="button" className="searchbox-clear" aria-label="Effacer la recherche" onClick={() => onChange('')}><Icon name="close" size={16} /></button>}
+      {value && <button type="button" className="searchbox-clear" aria-label={t('Effacer la recherche')} onClick={() => onChange('')}><Icon name="close" size={16} /></button>}
     </div>
   )
 }
@@ -74,14 +75,14 @@ export function SortTh<S extends string>({ col, list, children, right }: { col: 
 }
 
 /** Tri sur mobile (et là où il n'y a pas de tableau) : choix du critère + sens. */
-export function SortControl<S extends string>({ list, options, label = 'Trier par' }: { list: ListState<S>; options: [S, string][]; label?: string }) {
+export function SortControl<S extends string>({ list, options, label = t('Trier par') }: { list: ListState<S>; options: [S, string][]; label?: string }) {
   return (
     <div className="row-nw sortctl" style={{ gap: 6 }}>
       <select className="select select-sm" aria-label={label} value={list.sort} onChange={e => list.setSort(e.target.value as S)}>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
       <button type="button" className="btn btn-sm icon-btn" onClick={() => list.setOrder(list.order === 'asc' ? 'desc' : 'asc')}
-              aria-label={list.order === 'asc' ? 'Ordre croissant (inverser)' : 'Ordre décroissant (inverser)'} title={list.order === 'asc' ? 'Croissant' : 'Décroissant'}>
+              aria-label={list.order === 'asc' ? t('Ordre croissant (inverser)') : t('Ordre décroissant (inverser)')} title={list.order === 'asc' ? t('Croissant') : t('Décroissant')}>
         <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{list.order === 'asc' ? '↑' : '↓'}</span>
       </button>
     </div>

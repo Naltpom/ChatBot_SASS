@@ -9,6 +9,7 @@ import { ApiError, requestAccount, exchangeDriveOAuth, exchangeOAuth, PLATFORM_L
 import { useSession } from '../lib/session'
 import { Button, H1, Msg, Screen, Txt } from '../ui/kit'
 import { space } from '../ui/theme'
+import { t } from '../lib/i18n'
 
 type P = Platform | 'drive'
 const LABEL = (p: P) => (p === 'drive' ? 'Google Drive' : PLATFORM_LABEL[p])
@@ -45,8 +46,8 @@ export default function OAuthReturn() {
     try { Promise.resolve(WebBrowser.dismissBrowser() as unknown).catch(() => {}) } catch { /* pas de navigateur ouvert */ }
     const { code, state, error } = q
     if (error || !code || !state) {
-      setErr(error === 'access_denied' ? 'Vous avez refusé l’accès : aucun compte n’a été connecté.'
-        : `Connexion ${LABEL(p)} interrompue (${q.error_description || error || 'réponse incomplète'}).`)
+      setErr(error === 'access_denied' ? t('Vous avez refusé l’accès : aucun compte n’a été connecté.')
+        : t('Connexion {plateforme} interrompue ({raison}).', { plateforme: LABEL(p), raison: q.error_description || error || t('réponse incomplète') }))
       return
     }
     const c = stateClaims(state)
@@ -56,7 +57,7 @@ export default function OAuthReturn() {
     run.then(async r => { setOrg(r.org_id ?? null); await refresh(); setDone(true) })
       .catch(e => {
         const ae = e as ApiError & { data?: any }
-        setErr(ae.message || 'Connexion impossible')
+        setErr(ae.message || t('Connexion impossible'))
         if (ae.data?.code === 'account_taken' && ae.data.claim_token) setClaim(ae.data.claim_token)
       })
   }, [me]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -72,19 +73,19 @@ export default function OAuthReturn() {
   return (
     <Screen>
       <View style={{ gap: space.sm, paddingTop: space.lg }}>
-        <H1>Connexion {LABEL(p)}</H1>
-        {!err && !done ? <Row><ActivityIndicator /><Txt muted>Connexion du compte…</Txt></Row> : null}
+        <H1>{t('Connexion {plateforme}', { plateforme: LABEL(p) })}</H1>
+        {!err && !done ? <Row><ActivityIndicator /><Txt muted>{t('Connexion du compte…')}</Txt></Row> : null}
       </View>
-      {done ? <Msg kind="ok">{p === 'drive' ? 'Google Drive connecté.' : `Compte ${LABEL(p)} connecté.`}</Msg> : null}
+      {done ? <Msg kind="ok">{p === 'drive' ? t('Google Drive connecté.') : t('Compte {plateforme} connecté.', { plateforme: LABEL(p) })}</Msg> : null}
       {err ? <Msg kind="err">{err}</Msg> : null}
       {asked ? <Msg kind="ok">{asked}</Msg> : null}
       {claim ? (
         <View style={{ gap: space.sm }}>
-          <Txt muted>Ce compte est déjà relié à l’espace de quelqu’un d’autre. Vous venez de vous y connecter : nous pouvons lui demander de vous le céder. Il accepte ou refuse ; en cas de litige, le support de Chapote tranche.</Txt>
-          <Button kind="primary" title="Demander ce compte" onPress={askOwner} />
+          <Txt muted>{t('Ce compte est déjà relié à l’espace de quelqu’un d’autre. Vous venez de vous y connecter : nous pouvons lui demander de vous le céder. Il accepte ou refuse ; en cas de litige, le support de Chapote tranche.')}</Txt>
+          <Button kind="primary" title={t('Demander ce compte')} onPress={askOwner} />
         </View>
       ) : null}
-      {done || err || asked ? <Button kind={done ? 'primary' : 'ghost'} title="Continuer" onPress={back} /> : null}
+      {done || err || asked ? <Button kind={done ? 'primary' : 'ghost'} title={t('Continuer')} onPress={back} /> : null}
     </Screen>
   )
 }

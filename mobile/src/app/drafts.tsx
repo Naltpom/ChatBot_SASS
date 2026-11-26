@@ -6,11 +6,12 @@ import { useState } from 'react'
 import { FlatList, RefreshControl, View } from 'react-native'
 import { archiveProposals, dismissProposal, getProposalCount, getProposalsPage, getSources, type Proposal, type Source } from '../lib/api'
 import { fmtDateTime, fmtDuration } from '../lib/format'
+import { t } from '../lib/i18n'
 import { useLoad, useRole, useSession } from '../lib/session'
 import { Button, Card, Empty, Icon, Label, Msg, PlatformTag, Row, Skeleton, Txt } from '../ui/kit'
 import { space, useTheme } from '../ui/theme'
 import { useAuthHeaders, usePaged } from '../features/library/hooks'
-import { archivedNote, plural, proposalWhen, recipeSavedNote } from '../features/library/logic'
+import { archivedNote, proposalWhen, recipeSavedNote } from '../features/library/logic'
 import { RecipeSheet } from '../features/library/RecipeSheet'
 import { AuthImage } from '../features/library/ui'
 import { showDialog } from '../ui/dialog'
@@ -20,7 +21,7 @@ function ProposalCard({ p, canEdit, headers, onDismiss }: { p: Proposal; canEdit
   const router = useRouter()
   const a = p.asset
   const when = proposalWhen(p, fmtDateTime)
-  const title = p.title || a?.title || 'Sans titre'
+  const title = p.title || a?.title || t('Sans titre')
   return (
     <Card>
       <Row gap={space.md} style={{ alignItems: 'flex-start' }}>
@@ -29,12 +30,12 @@ function ProposalCard({ p, canEdit, headers, onDismiss }: { p: Proposal; canEdit
           <Txt bold size={16} numberOfLines={2} accessibilityRole="header">{title}</Txt>
           <Row gap={4} wrap>
             <Icon name="clock" size={14} color={when.warn ? c.warn : c.muted} />
-            <Txt small color={when.warn ? c.warn : c.muted}>{when.text}{a?.duration_sec ? ` · ${fmtDuration(a.duration_sec)}` : ''}</Txt>
+            <Txt small color={when.warn ? c.warn : c.muted}>{t(when.text)}{a?.duration_sec ? ` · ${fmtDuration(a.duration_sec)}` : ''}</Txt>
           </Row>
           <View style={{ gap: 4 }}>
             {p.accounts.slice(0, 4).map(x => <PlatformTag key={x.key} platform={x.platform} label={x.name} />)}
             {p.accounts.length > 4 ? <Txt small muted>+{p.accounts.length - 4}</Txt> : null}
-            {!p.accounts.length ? <Txt small color={c.warn}>Aucun compte : à choisir</Txt> : null}
+            {!p.accounts.length ? <Txt small color={c.warn}>{t('Aucun compte : à choisir')}</Txt> : null}
           </View>
           {p.caption ? <Txt small muted numberOfLines={2}>{p.caption}</Txt> : null}
           {a?.folder ? <Txt small faint numberOfLines={1}>{a.source_name} / {a.folder}</Txt> : null}
@@ -42,9 +43,9 @@ function ProposalCard({ p, canEdit, headers, onDismiss }: { p: Proposal; canEdit
       </Row>
       {canEdit ? (
         <Row gap={space.sm}>
-          <Button kind="primary" small icon="check" title="Vérifier et planifier" flex
+          <Button kind="primary" small icon="check" title={t('Vérifier et planifier')} flex
             onPress={() => router.push({ pathname: '/new', params: { proposal: String(p.id), ...((p as { org_id?: number | null }).org_id != null ? { org: String((p as { org_id?: number | null }).org_id) } : {}) } })} />
-          <Button kind="ghost" small title="Écarter" onPress={onDismiss} accessibilityLabel={`Écarter ${title}`} />
+          <Button kind="ghost" small title={t('Écarter')} onPress={onDismiss} accessibilityLabel={t('Écarter {title}', { title })} />
         </Row>
       ) : null}
     </Card>
@@ -58,19 +59,19 @@ function AutoDrafts({ sources, onChanged }: { sources: Source[]; onChanged: (s: 
   if (!sources.length) return null
   return (
     <View style={{ gap: space.sm, marginTop: space.lg }}>
-      <Label>Préparation automatique</Label>
+      <Label>{t('Préparation automatique')}</Label>
       <Card style={{ gap: 0, paddingVertical: space.sm }}>
         {sources.map((s, i) => (
           <Row key={s.id} gap={space.md} style={{ minHeight: 56, borderTopWidth: i ? 1 : 0, borderColor: c.border, paddingVertical: space.sm }}>
             <View style={{ flex: 1 }}>
-              <Txt bold numberOfLines={1}>{s.name || 'Dossier Drive'}</Txt>
+              <Txt bold numberOfLines={1}>{s.name || t('Dossier Drive')}</Txt>
               <Row gap={6}>
                 {s.auto_drafts ? <Icon name="bolt" size={14} color={c.primary} /> : null}
-                <Txt small color={s.auto_drafts ? c.primary : c.muted}>{s.auto_drafts ? 'Activée' : 'Désactivée'} · {plural(s.videos, 'vidéo')}</Txt>
+                <Txt small color={s.auto_drafts ? c.primary : c.muted}>{s.auto_drafts ? t('Activée') : t('Désactivée')} · {s.videos > 1 ? t('{n} vidéos', { n: s.videos }) : t('{n} vidéo', { n: s.videos })}</Txt>
               </Row>
             </View>
-            <Button small title={s.auto_drafts ? 'Réglages' : 'Activer…'} onPress={() => setEditing(s)}
-              accessibilityLabel={`${s.auto_drafts ? 'Réglages' : 'Activer'} : préparation automatique de ${s.name || 'ce dossier'}`} />
+            <Button small title={s.auto_drafts ? t('Réglages') : t('Activer…')} onPress={() => setEditing(s)}
+              accessibilityLabel={s.auto_drafts ? t('Réglages : préparation automatique de {name}', { name: s.name || t('ce dossier') }) : t('Activer : préparation automatique de {name}', { name: s.name || t('ce dossier') })} />
           </Row>
         ))}
       </Card>
@@ -99,9 +100,9 @@ export default function Drafts() {
   const refresh = () => { pages.refresh(); count.reload(); sources.reload() }
   const archiveAll = () => {
     const n = open || items.length
-    showDialog(`Ranger les ${n} brouillons en archive ?`, 'Rien n’est publié ; les vidéos restent dans la bibliothèque et ne seront plus proposées.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Ranger', style: 'destructive', onPress: async () => {
+    showDialog(n > 1 ? t('Ranger les {n} brouillons en archive ?', { n }) : t('Ranger le brouillon en archive ?'), t('Rien n’est publié ; les vidéos restent dans la bibliothèque et ne seront plus proposées.'), [
+      { text: t('Annuler'), style: 'cancel' },
+      { text: t('Ranger'), style: 'destructive', onPress: async () => {
         setErr('')
         try { const r = await archiveProposals(scope); setNote(archivedNote(r.archived)); pages.reload(); count.reload() }
         catch (e) { setErr((e as Error).message) }
@@ -119,12 +120,12 @@ export default function Drafts() {
 
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.md }}>
-      <Txt muted>Brouillons préparés depuis vos dossiers Drive. Rien ne part sans vous.</Txt>
-      {canEdit && open > 0 ? <Button small title={`Tout ranger en archive (${open})`} style={{ alignSelf: 'flex-start' }} onPress={archiveAll} /> : null}
-      {note ? <Msg kind="ok">{note}</Msg> : null}
+      <Txt muted>{t('Brouillons préparés depuis vos dossiers Drive. Rien ne part sans vous.')}</Txt>
+      {canEdit && open > 0 ? <Button small title={t('Tout ranger en archive ({n})', { n: open })} style={{ alignSelf: 'flex-start' }} onPress={archiveAll} /> : null}
+      {note ? <Msg kind="ok">{t(note)}</Msg> : null}
       {err ? <Msg kind="err">{err}</Msg> : null}
       {pages.error ? <Msg kind="err">{pages.error}</Msg> : null}
-      {items.length ? <Txt small muted>{plural(items.length, 'brouillon')}{pages.next ? ' (et plus)' : ''}</Txt> : null}
+      {items.length ? <Txt small muted>{items.length > 1 ? t('{n} brouillons', { n: items.length }) : t('{n} brouillon', { n: items.length })}{pages.next ? ` ${t('(et plus)')}` : ''}</Txt> : null}
     </View>
   )
 
@@ -137,9 +138,9 @@ export default function Drafts() {
         contentInsetAdjustmentBehavior="automatic"
         ListHeaderComponent={header}
         ListEmptyComponent={pages.items ? (
-          <Empty title="Rien à valider" icon="check"
-            action={canAdmin ? undefined : <Button small title="Ouvrir la bibliothèque" onPress={() => router.navigate('/library')} />}>
-            Activez la préparation automatique sur un dossier de la Bibliothèque : chaque nouvelle vidéo y arrivera prête à vérifier.
+          <Empty title={t('Rien à valider')} icon="check"
+            action={canAdmin ? undefined : <Button small title={t('Ouvrir la bibliothèque')} onPress={() => router.navigate('/library')} />}>
+            {t('Activez la préparation automatique sur un dossier de la Bibliothèque : chaque nouvelle vidéo y arrivera prête à vérifier.')}
           </Empty>
         ) : <View style={{ gap: space.md }}><Skeleton h={150} n={3} /></View>}
         renderItem={({ item }) => <ProposalCard p={item} canEdit={canEdit} headers={headers} onDismiss={() => dismiss(item)} />}

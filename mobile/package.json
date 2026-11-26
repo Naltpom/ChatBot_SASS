@@ -56,7 +56,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\""
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
+    "i18n:check": "node scripts/i18n-check.mjs"
   },
   "private": true
 }

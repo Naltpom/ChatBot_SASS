@@ -13,6 +13,7 @@ import imgStats from '../landing/stats.webp'
 import imgBibliotheque from '../landing/bibliotheque.webp'
 import imgGroupes from '../landing/groupes.webp'
 import Demo from '../landing/Demo'
+import { t } from '../i18n'
 
 const CTA = 'Planifier mes vidéos gratuitement'
 // « Donner mon avis » : le formulaire de l'app (connexion ou inscription d'abord) : on sait qui écrit.
@@ -62,7 +63,7 @@ const FAQ: [string, string][] = [
 
 export default function Landing() {
   const { appUrl } = useSession()
-  useEffect(() => { document.title = 'Chapote CM · Planifiez vos vidéos sur TikTok, YouTube et Instagram' }, [])
+  useEffect(() => { document.title = t('Chapote CM · Planifiez vos vidéos sur TikTok, YouTube et Instagram') }, [])
   // Apparition au défilement : un seul observateur pour toute la page. Sans lui, tout reste visible.
   const page = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -78,14 +79,14 @@ export default function Landing() {
 
   return (
     <div className="lp" ref={page}>
-      <a className="lp-skip" href="#contenu">Aller au contenu</a>
+      <a className="lp-skip" href="#contenu">{t('Aller au contenu')}</a>
       <header className="lp-top">
         <div className="lp-wrap lp-top-row">
-          <Link to="/" className="lp-brand" aria-label="Chapote CM, accueil"><BrandMark size={32} /><span>Chapote CM</span></Link>
-          <nav className="lp-nav" aria-label="Sections">
-            <a href="#produit">Fonctionnalités</a><a href="#etapes">Comment ça marche</a><a href="#faq">Questions</a>
+          <Link to="/" className="lp-brand" aria-label={t('Chapote CM, accueil')}><BrandMark size={32} /><span>Chapote CM</span></Link>
+          <nav className="lp-nav" aria-label={t('Sections')}>
+            <a href="#produit">{t('Fonctionnalités')}</a><a href="#etapes">{t('Comment ça marche')}</a><a href="#faq">{t('Questions')}</a>
           </nav>
-          <Link to="/connexion" className="lp-login">Se connecter</Link>
+          <Link to="/connexion" className="lp-login">{t('Se connecter')}</Link>
         </div>
       </header>
 
@@ -93,35 +94,35 @@ export default function Landing() {
         <section className="lp-hero" aria-labelledby="lp-titre">
           <div className="lp-wrap lp-hero-in">
             <div>
-              <ul className="lp-plats" aria-label="Réseaux pris en charge">
+              <ul className="lp-plats" aria-label={t('Réseaux pris en charge')}>
                 <li><i className="lp-dot tt" />TikTok</li><li><i className="lp-dot yt" />YouTube</li><li><i className="lp-dot ig" />Instagram</li>
               </ul>
-              <h1 id="lp-titre">Planifiez une fois. <em>Publiez partout.</em></h1>
-              <p className="lp-lead">Vos vidéos courtes sur TikTok, YouTube et Instagram, à l’heure choisie, sur tous vos comptes. Et toutes vos statistiques au même endroit.</p>
+              <h1 id="lp-titre">{t('Planifiez une fois.')} <em>{t('Publiez partout.')}</em></h1>
+              <p className="lp-lead">{t('Vos vidéos courtes sur TikTok, YouTube et Instagram, à l’heure choisie, sur tous vos comptes. Et toutes vos statistiques au même endroit.')}</p>
               <div className="lp-act">
-                <Link to="/inscription" className="lp-cta">{CTA}<span aria-hidden="true" className="lp-arrow">→</span></Link>
+                <Link to="/inscription" className="lp-cta">{t(CTA)}<span aria-hidden="true" className="lp-arrow">→</span></Link>
                 <ul className="lp-proof">
-                  <li><Check />Gratuit, sans carte bancaire</li>
-                  <li><Check />Connexion officielle TikTok, Google et Meta</li>
-                  <li><Check />Vos vidéos restent dans votre Google Drive</li>
+                  <li><Check />{t('Gratuit, sans carte bancaire')}</li>
+                  <li><Check />{t('Connexion officielle TikTok, Google et Meta')}</li>
+                  <li><Check />{t('Vos vidéos restent dans votre Google Drive')}</li>
                 </ul>
               </div>
             </div>
             <figure className="lp-shot lp-hero-shot">
               <div className="lp-phone"><Demo /></div>
-              <figcaption>Essayez : c’est l’écran de l’app, avec une vidéo de démonstration. Rien n’est publié.</figcaption>
+              <figcaption>{t('Essayez : c’est l’écran de l’app, avec une vidéo de démonstration. Rien n’est publié.')}</figcaption>
             </figure>
           </div>
         </section>
 
         <section id="produit" className="lp-sec lp-alt" aria-labelledby="lp-produit">
           <div className="lp-wrap">
-            <h2 id="lp-produit">Ce que fait Chapote CM</h2>
-            <p className="lp-sub">Tout ce qu’il faut pour publier régulièrement, sans jongler entre trois applications.</p>
+            <h2 id="lp-produit">{t('Ce que fait Chapote CM')}</h2>
+            <p className="lp-sub">{t('Tout ce qu’il faut pour publier régulièrement, sans jongler entre trois applications.')}</p>
             {FEATURES.map((f, i) => (
               <div key={f.k} className={`lp-feat lp-rv${i % 2 ? ' rev' : ''}`}>
-                <div className="lp-ft"><p className="lp-k">{f.k}</p><h3>{f.title}</h3><p>{f.text}</p></div>
-                <div className="lp-shot"><Phone src={f.img} alt={f.alt} /></div>
+                <div className="lp-ft"><p className="lp-k">{t(f.k)}</p><h3>{t(f.title)}</h3><p>{t(f.text)}</p></div>
+                <div className="lp-shot"><Phone src={f.img} alt={t(f.alt)} /></div>
               </div>
             ))}
           </div>
@@ -129,11 +130,11 @@ export default function Landing() {
 
         <section id="etapes" className="lp-sec" aria-labelledby="lp-etapes">
           <div className="lp-wrap">
-            <h2 id="lp-etapes">Prêt en trois étapes</h2>
+            <h2 id="lp-etapes">{t('Prêt en trois étapes')}</h2>
             <ol className="lp-steps lp-rv">
-              <li><b aria-hidden="true">1</b><h3>Connectez vos comptes</h3><p>Par les connexions officielles de TikTok, Google et Meta.</p></li>
-              <li><b aria-hidden="true">2</b><h3>Planifiez</h3><p>Une vidéo, les comptes ou un groupe, et l’heure.</p></li>
-              <li><b aria-hidden="true">3</b><h3>Suivez les résultats</h3><p>Le statut de chaque publication, puis vos statistiques.</p></li>
+              <li><b aria-hidden="true">1</b><h3>{t('Connectez vos comptes')}</h3><p>{t('Par les connexions officielles de TikTok, Google et Meta.')}</p></li>
+              <li><b aria-hidden="true">2</b><h3>{t('Planifiez')}</h3><p>{t('Une vidéo, les comptes ou un groupe, et l’heure.')}</p></li>
+              <li><b aria-hidden="true">3</b><h3>{t('Suivez les résultats')}</h3><p>{t('Le statut de chaque publication, puis vos statistiques.')}</p></li>
             </ol>
           </div>
         </section>
@@ -141,22 +142,22 @@ export default function Landing() {
         <section className="lp-sec lp-why" aria-labelledby="lp-pourquoi">
           <div className="lp-wrap">
             <figure className="lp-founder lp-rv">
-              <h2 id="lp-pourquoi">Pourquoi Chapote CM</h2>
+              <h2 id="lp-pourquoi">{t('Pourquoi Chapote CM')}</h2>
               <blockquote>
-                <p>Au départ, j’avais un compte Instagram, puis un deuxième. Publier régulièrement demandait de planifier, et l’app ne le permettait pas. Ensuite, pour plus de visibilité, TikTok et YouTube… Je me suis retrouvé avec 6 comptes, un planning pour chacun et les mêmes vidéos partout : une vraie galère. En automatisant, je perdais le visuel, la cohérence et le suivi des stats.</p>
-                <p>Alors j’ai fait l’app, pour moi. Elle est maintenant ouverte à tous, en version 1 : publier des vidéos courtes verticales sur TikTok, Instagram et YouTube, le plus simplement possible. Elle est gratuite pour l’instant : vos retours et votre façon de faire comptent plus que tout pour la suite. Et si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.</p>
+                <p>{t('Au départ, j’avais un compte Instagram, puis un deuxième. Publier régulièrement demandait de planifier, et l’app ne le permettait pas. Ensuite, pour plus de visibilité, TikTok et YouTube… Je me suis retrouvé avec 6 comptes, un planning pour chacun et les mêmes vidéos partout : une vraie galère. En automatisant, je perdais le visuel, la cohérence et le suivi des stats.')}</p>
+                <p>{t('Alors j’ai fait l’app, pour moi. Elle est maintenant ouverte à tous, en version 1 : publier des vidéos courtes verticales sur TikTok, Instagram et YouTube, le plus simplement possible. Elle est gratuite pour l’instant : vos retours et votre façon de faire comptent plus que tout pour la suite. Et si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.')}</p>
               </blockquote>
-              <figcaption><BrandMark size={36} /><span><b>Nathan</b><small>Créateur de Chapote</small></span></figcaption>
-              <Link className="lp-link lp-fb" to={FEEDBACK}>Donner mon avis à Nathan</Link>
+              <figcaption><BrandMark size={36} /><span><b>Nathan</b><small>{t('Créateur de Chapote')}</small></span></figcaption>
+              <Link className="lp-link lp-fb" to={FEEDBACK}>{t('Donner mon avis à Nathan')}</Link>
             </figure>
           </div>
         </section>
 
         <section id="faq" className="lp-sec lp-alt" aria-labelledby="lp-faq">
           <div className="lp-wrap">
-            <h2 id="lp-faq">Questions fréquentes</h2>
+            <h2 id="lp-faq">{t('Questions fréquentes')}</h2>
             <div className="lp-faq">
-              {FAQ.map(([q, a], i) => <details key={q} open={i === 0}><summary>{q}</summary><p>{a}</p></details>)}
+              {FAQ.map(([q, a], i) => <details key={q} open={i === 0}><summary>{t(q)}</summary><p>{t(a)}</p></details>)}
             </div>
           </div>
         </section>
@@ -164,12 +165,12 @@ export default function Landing() {
         <section className="lp-sec" aria-labelledby="lp-fin">
           <div className="lp-wrap">
             <div className="lp-final lp-rv">
-              <h2 id="lp-fin">Votre prochaine vidéo part à l’heure, partout.</h2>
+              <h2 id="lp-fin">{t('Votre prochaine vidéo part à l’heure, partout.')}</h2>
               <div className="lp-act center">
-                <Link to="/inscription" className="lp-cta">{CTA}<span aria-hidden="true" className="lp-arrow">→</span></Link>
-                <Link to="/connexion" className="lp-link">J’ai déjà un compte</Link>
+                <Link to="/inscription" className="lp-cta">{t(CTA)}<span aria-hidden="true" className="lp-arrow">→</span></Link>
+                <Link to="/connexion" className="lp-link">{t('J’ai déjà un compte')}</Link>
               </div>
-              {PLAY_STORE_URL && <a className="lp-store" href={PLAY_STORE_URL} rel="noopener">Disponible sur Google Play</a>}
+              {PLAY_STORE_URL && <a className="lp-store" href={PLAY_STORE_URL} rel="noopener">{t('Disponible sur Google Play')}</a>}
             </div>
           </div>
         </section>
@@ -177,10 +178,10 @@ export default function Landing() {
 
       <footer className="lp-foot">
         <div className="lp-wrap lp-foot-in">
-          <div><p className="lp-foot-brand"><BrandMark size={24} />Chapote CM</p><p>Planification et statistiques pour TikTok, YouTube et Instagram.</p></div>
-          <div><h2>Chapote</h2><ul><li><a href={chapote}>chapote.fr</a></li><li><Link to="/connexion">Se connecter</Link></li><li><Link to={FEEDBACK}>Donner mon avis</Link></li></ul></div>
-          <div><h2>Légal</h2><ul><li><Link to="/privacy">Confidentialité</Link></li><li><Link to="/terms">Conditions d’utilisation</Link></li><li><a href={`${chapote}/legal/mentions-legales`}>Mentions légales</a></li></ul></div>
-          <div><h2>Plateformes</h2><ul><li><a href={`${chapote}/legal/tiktok-confidentialite`}>TikTok</a></li><li><a href={`${chapote}/legal/youtube-confidentialite`}>YouTube</a></li><li><a href={`${chapote}/legal/instagram-confidentialite`}>Instagram</a></li></ul></div>
+          <div><p className="lp-foot-brand"><BrandMark size={24} />Chapote CM</p><p>{t('Planification et statistiques pour TikTok, YouTube et Instagram.')}</p></div>
+          <div><h2>Chapote</h2><ul><li><a href={chapote}>chapote.fr</a></li><li><Link to="/connexion">{t('Se connecter')}</Link></li><li><Link to={FEEDBACK}>{t('Donner mon avis')}</Link></li></ul></div>
+          <div><h2>{t('Légal')}</h2><ul><li><Link to="/privacy">{t('Confidentialité')}</Link></li><li><Link to="/terms">{t('Conditions d’utilisation')}</Link></li><li><a href={`${chapote}/legal/mentions-legales`}>{t('Mentions légales')}</a></li></ul></div>
+          <div><h2>{t('Plateformes')}</h2><ul><li><a href={`${chapote}/legal/tiktok-confidentialite`}>TikTok</a></li><li><a href={`${chapote}/legal/youtube-confidentialite`}>YouTube</a></li><li><a href={`${chapote}/legal/instagram-confidentialite`}>Instagram</a></li></ul></div>
         </div>
       </footer>
     </div>

@@ -10,6 +10,7 @@ import { AppState, Pressable, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Icon, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
+import { t } from './i18n'
 
 const LAUNCH_WAIT_MS = 4000
 const enabled = !__DEV__ && Updates.isEnabled
@@ -60,12 +61,12 @@ export function UpdateBanner({ visible }: { visible: boolean }) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: c.ink, borderRadius: radius.lg,
         paddingLeft: space.md, paddingRight: 6, paddingVertical: 6, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, elevation: 6 }}>
         <Icon name="refresh" size={16} color={c.onInk} />
-        <Txt small color={c.onInk}>Nouvelle version prête</Txt>
+        <Txt small color={c.onInk}>{t('Nouvelle version prête')}</Txt>
         <Pressable onPress={() => { Updates.reloadAsync().catch(() => {}) }} accessibilityRole="button"
           style={{ backgroundColor: c.primary, borderRadius: radius.md, paddingHorizontal: 12, minHeight: 36, justifyContent: 'center' }}>
-          <Txt small bold color={c.onPrimary}>Redémarrer</Txt>
+          <Txt small bold color={c.onPrimary}>{t('Redémarrer')}</Txt>
         </Pressable>
-        <Pressable onPress={() => setHidden(true)} accessibilityRole="button" accessibilityLabel="Plus tard" hitSlop={8} style={{ padding: 6 }}>
+        <Pressable onPress={() => setHidden(true)} accessibilityRole="button" accessibilityLabel={t('Plus tard')} hitSlop={8} style={{ padding: 6 }}>
           <Icon name="close" size={16} color={c.onInk} />
         </Pressable>
       </View>

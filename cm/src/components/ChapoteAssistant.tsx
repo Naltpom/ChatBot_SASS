@@ -14,6 +14,7 @@
 //
 // Données : le widget n'envoie que le chemin de la page (data-url-mode="path" : jamais les
 // paramètres ni le fragment) et le parcours sur le site (chemins seulement). Aucune donnée de compte (nom, e-mail, téléphone, jetons) n'est transmise.
+import { getLang, t } from '../i18n'
 import { useEffect, useState } from 'react'
 import type { Palette } from '../palette'
 
@@ -137,7 +138,7 @@ export default function ChapoteAssistant({ loadOn = 'idle', signedIn = false }: 
     if (!signedIn) { api.setUserTokenProvider(null); api.setAliases?.(null); return }
     api.setUserTokenProvider(async () => {
       try {
-        const r = await fetch('/api/cm/assistant/token', { credentials: 'same-origin', headers: { 'X-Chapote-App': 'cm' } })
+        const r = await fetch('/api/cm/assistant/token', { credentials: 'same-origin', headers: { 'X-Chapote-App': 'cm', 'X-Chapote-Lang': getLang() } })
         if (r.status !== 200) { api.setAliases?.(null); return null }
         const j = await r.json() as { token: string; aliases: Record<string, string> }
         api.setAliases?.(j.aliases || null)
@@ -175,7 +176,7 @@ export default function ChapoteAssistant({ loadOn = 'idle', signedIn = false }: 
       type="button"
       className="cm-assistant-bubble"
       onClick={onClick}
-      aria-label="Poser une question à l’assistant"
+      aria-label={t('Poser une question à l’assistant')}
       aria-busy={loading || undefined}
       style={{ background: look.color, color: look.colorText }}
     >

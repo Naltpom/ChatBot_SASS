@@ -9,6 +9,7 @@ import { useEffect } from 'react'
 import { Platform } from 'react-native'
 import { API_URL, ApiError, currentDevice } from './http'
 import { FEATURES } from './features'
+import { t } from './i18n'
 
 export type PushPrefs = { published: boolean; failed: boolean; draft: boolean; comments: boolean; storage?: boolean }
 export interface PushState { enabled: boolean; prefs: PushPrefs }
@@ -18,21 +19,21 @@ Notifications.setNotificationHandler({
 })
 
 export const pushUnsupported = (): string | null => {
-  if (!Device.isDevice) return 'Les notifications ne marchent que sur un vrai téléphone.'
+  if (!Device.isDevice) return t('Les notifications ne marchent que sur un vrai téléphone.')
   if (Platform.OS === 'android' && Constants.executionEnvironment === ExecutionEnvironment.StoreClient)
-    return 'Sur Android, Expo Go ne reçoit pas les notifications : il faudra l’app installée (build de développement).'
+    return t('Sur Android, Expo Go ne reçoit pas les notifications : il faudra l’app installée (build de développement).')
   return null
 }
 
 async function api<T>(method: 'GET' | 'PUT', body?: Record<string, unknown>): Promise<T> {
   const token = currentDevice()
-  if (!token) throw new ApiError(401, 'Connectez-vous.')
+  if (!token) throw new ApiError(401, t('Connectez-vous.'))
   const url = `${API_URL}/api/cm/mobile/push` + (method === 'GET' ? `?refresh_token=${encodeURIComponent(token)}` : '')
   const res = await fetch(url, {
     method, credentials: 'omit', headers: { 'Content-Type': 'application/json' },
     body: method === 'PUT' ? JSON.stringify({ refresh_token: token, ...body }) : undefined,
   })
-  if (!res.ok) throw new ApiError(res.status, 'Réglage des notifications impossible')
+  if (!res.ok) throw new ApiError(res.status, t('Réglage des notifications impossible'))
   return await res.json() as T
 }
 
@@ -45,17 +46,17 @@ export async function enablePush(): Promise<PushState | string> {
   const why = pushUnsupported()
   if (why) return why
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', { name: 'Publications et commentaires', importance: Notifications.AndroidImportance.DEFAULT })
+    await Notifications.setNotificationChannelAsync('default', { name: t('Publications et commentaires'), importance: Notifications.AndroidImportance.DEFAULT })
   }
   let { status } = await Notifications.getPermissionsAsync()
   if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status
-  if (status !== 'granted') return 'Notifications refusées : autorisez-les dans les réglages du téléphone.'
+  if (status !== 'granted') return t('Notifications refusées : autorisez-les dans les réglages du téléphone.')
   const projectId = (Constants.expoConfig?.extra as any)?.eas?.projectId ?? Constants.easConfig?.projectId
   try {
     const token = (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data
     return await api<PushState>('PUT', { push_token: token })
   } catch (e: any) {
-    return `Impossible d’obtenir le jeton de notifications pour ce téléphone${e?.message ? ` (${String(e.message).slice(0, 160)})` : ''}.`
+    return t('Impossible d’obtenir le jeton de notifications pour ce téléphone{detail}.', { detail: e?.message ? ` (${String(e.message).slice(0, 160)})` : '' })
   }
 }
 

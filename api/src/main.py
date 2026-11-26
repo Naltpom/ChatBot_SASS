@@ -112,6 +112,10 @@ app = FastAPI(title="ChatBot SaaS API", lifespan=lifespan, **_docs_kwargs)
 # {detail, code, message}. `detail` reste inchangé (rétrocompat). Voir core/errors.py.
 install_error_handlers(app)
 
+# Langue de cm (site et app) : X-Chapote-Lang: en → réponses JSON traduites (src/i18n). Sans l'en-tête : français.
+from src.i18n import translate_response  # noqa: E402
+app.middleware("http")(translate_response)
+
 # CORS dashboard (strict). Les /api/widget/* sont geres par le middleware dedie.
 dashboard_origins = [settings.APP_URL]
 if not settings.is_production:

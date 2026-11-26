@@ -19,8 +19,9 @@ import {
 import { radius, space, useTheme } from '../../ui/theme'
 import { CommentCard, GroupHead } from '../../features/insights/CommentCard'
 import { errText, openApp, useDebounced, useListState, usePages, useStored } from '../../features/insights/hooks'
-import { applyChanges, byVideo, plural, type CommentGroup } from '../../features/insights/logic'
+import { applyChanges, byVideo, type CommentGroup } from '../../features/insights/logic'
 import { ChipRow, SortChips } from '../../features/insights/parts'
+import { t } from '../../lib/i18n'
 
 type Tab = 'todo' | 'keyword' | 'messages'
 const STATUS: [string, string][] = [['todo', 'À traiter'], ['replied', 'Répondus'], ['contacted', 'Contactés'], ['hidden', 'Masqués'], ['ignored', 'Ignorés'], ['all', 'Tous']]
@@ -38,11 +39,11 @@ function Notices({ accounts }: { accounts: InboxAccount[] }) {
     <Pressable onPress={() => setOpen(o => !o)} accessibilityRole="button" accessibilityState={{ expanded: open }}
       style={{ backgroundColor: c.warnBg, borderRadius: radius.md, padding: space.md, gap: space.sm }}>
       <Row style={{ justifyContent: 'space-between' }}>
-        <Txt small bold color={c.warn} style={{ flex: 1 }}>{by.size === 1 ? 'Une permission' : 'Des permissions'} en attente pour certains comptes</Txt>
+        <Txt small bold color={c.warn} style={{ flex: 1 }}>{by.size === 1 ? t('Une permission en attente pour certains comptes') : t('Des permissions en attente pour certains comptes')}</Txt>
         <Icon name={open ? 'down' : 'right'} size={16} color={c.warn} />
       </Row>
       {open ? [...by.entries()].map(([n, names]) => (
-        <Txt key={n} small><Txt small bold>{names.join(', ')}</Txt> : {n}</Txt>
+        <Txt key={n} small><Txt small bold>{names.join(', ')}</Txt> : {t(n)}</Txt>
       )) : null}
     </Pressable>
   )
@@ -52,10 +53,10 @@ function Notices({ accounts }: { accounts: InboxAccount[] }) {
 function VideoGroup({ g, canEdit, template, onChanged }: { g: CommentGroup; canEdit: boolean; template?: string; onChanged: (id: number, c: Comment | null) => void }) {
   const router = useRouter()
   const plats = g.platforms.map(p => PLATFORM_NAME[p]).join(', ')
-  const sub = `${g.fresh ? `${g.fresh} nouveau${g.fresh > 1 ? 'x' : ''} · ` : ''}${plats}`
+  const sub = `${g.fresh ? `${g.fresh > 1 ? t('{n} nouveaux', { n: g.fresh }) : t('{n} nouveau', { n: g.fresh })} · ` : ''}${plats}`
   return (
     <Card style={{ paddingVertical: space.md, gap: 0 }}>
-      <GroupHead title={g.title || 'Vidéo'} thumb={g.thumb} sub={sub}
+      <GroupHead title={g.title || t('Vidéo')} thumb={g.thumb} sub={sub}
         onPress={g.videoId ? () => router.push(`/video/${g.videoId}`) : undefined} />
       {g.items.map(c => (
         <View key={c.id}>
@@ -88,20 +89,20 @@ function Todo({ top, canEdit, onRefresh }: { top: ReactElement; canEdit: boolean
       ListHeaderComponent={
         <View style={{ gap: space.md }}>
           {top}
-          <SearchField value={list.input} onChangeText={list.setInput} placeholder="Rechercher (texte, pseudo, vidéo)" />
-          <ChipRow label="Afficher">
-            {STATUS.map(([v, l]) => <Chip key={v} label={l} selected={st === v} onPress={() => { setSt(v); setChanged({}) }} />)}
+          <SearchField value={list.input} onChangeText={list.setInput} placeholder={t('Rechercher (texte, pseudo, vidéo)')} />
+          <ChipRow label={t('Afficher')}>
+            {STATUS.map(([v, l]) => <Chip key={v} label={t(l)} selected={st === v} onPress={() => { setSt(v); setChanged({}) }} />)}
           </ChipRow>
           <SortChips list={list} options={[['recent', 'Date'], ['likes', 'J’aime']]} />
-          {pages.items ? <Txt small muted accessibilityRole="text">{plural(shown.length, 'commentaire')}{pages.next ? ' et plus' : ''}</Txt> : null}
+          {pages.items ? <Txt small muted accessibilityRole="text">{shown.length > 1 ? t('{n} commentaires', { n: shown.length }) : t('{n} commentaire', { n: shown.length })}{pages.next ? ` ${t('et plus')}` : ''}</Txt> : null}
           {pages.error ? <Msg kind="err">{pages.error}</Msg> : null}
         </View>
       }
       ListEmptyComponent={
         !pages.items ? <View style={{ gap: space.md }}><Skeleton h={90} n={4} /></View>
-          : list.q ? <Empty title="Aucun résultat" icon="search">{`Rien ne correspond à « ${list.q} ». Essayez un autre mot ou un autre filtre.`}</Empty>
-          : st === 'todo' ? <Empty title="Tout est traité" icon="check">Aucun commentaire en attente. Les nouveaux arrivent ici, avec une notification si vous l’avez activée.</Empty>
-          : <Empty title="Aucun commentaire" icon="comment">Les commentaires de vos vidéos arrivent ici dès leur relevé.</Empty>
+          : list.q ? <Empty title={t('Aucun résultat')} icon="search">{t('Rien ne correspond à « {q} ». Essayez un autre mot ou un autre filtre.', { q: list.q })}</Empty>
+          : st === 'todo' ? <Empty title={t('Tout est traité')} icon="check">{t('Aucun commentaire en attente. Les nouveaux arrivent ici, avec une notification si vous l’avez activée.')}</Empty>
+          : <Empty title={t('Aucun commentaire')} icon="comment">{t('Les commentaires de vos vidéos arrivent ici dès leur relevé.')}</Empty>
       }
       ListFooterComponent={pages.busy ? <Skeleton h={70} /> : undefined}
     />
@@ -133,20 +134,19 @@ function Keyword({ top, canEdit, onRefresh }: { top: ReactElement; canEdit: bool
         <View style={{ gap: space.md }}>
           {top}
           <Card>
-            <Field label="Mot écrit en commentaire" value={word} onChangeText={setWord} maxLength={40} placeholder="SHEET" autoCapitalize="characters" autoCorrect={false} />
-            <Field label="Message à envoyer ({pseudo} = la personne)" value={tpl} onChangeText={setTpl} maxLength={1000} multiline />
+            <Field label={t('Mot écrit en commentaire')} value={word} onChangeText={setWord} maxLength={40} placeholder="SHEET" autoCapitalize="characters" autoCorrect={false} />
+            <Field label={t('Message à envoyer ({pseudo} = la personne)')} value={tpl} onChangeText={setTpl} maxLength={1000} multiline />
             <Txt small muted>
-              Instagram ne donne pas la liste des personnes qui aiment un commentaire : la liste vient de celles qui ont
-              écrit le mot. Réponse privée possible 7 jours après le commentaire ; sinon copiez le message et ouvrez Instagram.
+              {t('Instagram ne donne pas la liste des personnes qui aiment un commentaire : la liste vient de celles qui ont écrit le mot. Réponse privée possible 7 jours après le commentaire ; sinon copiez le message et ouvrez Instagram.')}
             </Txt>
           </Card>
-          {people.data ? <Txt small muted>{plural(rows.length, 'personne')}</Txt> : null}
+          {people.data ? <Txt small muted>{rows.length > 1 ? t('{n} personnes', { n: rows.length }) : t('{n} personne', { n: rows.length })}</Txt> : null}
           {people.error ? <Msg kind="err">{people.error}</Msg> : null}
         </View>
       }
       ListEmptyComponent={
         !people.data ? <View style={{ gap: space.md }}><Skeleton h={80} n={3} /></View>
-          : <Empty title="Personne à contacter" icon="check">{w.length < 2 ? 'Écrivez un mot d’au moins 2 lettres.' : `Aucun nouveau commentaire contenant « ${w} ».`}</Empty>
+          : <Empty title={t('Personne à contacter')} icon="check">{w.length < 2 ? t('Écrivez un mot d’au moins 2 lettres.') : t('Aucun nouveau commentaire contenant « {word} ».', { word: w })}</Empty>
       }
     />
   )
@@ -170,15 +170,15 @@ function Thread({ acc, conv, onBack }: { acc: InboxAccount; conv: Conversation; 
     <KeyboardAvoidingView behavior={RNPlatform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={100} style={{ flex: 1 }}>
       <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm }}>
         <Row>
-          <Button small kind="ghost" icon="left" title="Conversations" onPress={onBack} />
+          <Button small kind="ghost" icon="left" title={t('Conversations')} onPress={onBack} />
           <Txt bold numberOfLines={1} style={{ flex: 1, textAlign: 'right' }}>@{conv.with}</Txt>
         </Row>
       </View>
-      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.sm }} accessibilityLabel={`Conversation avec @${conv.with}`}>
+      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.sm }} accessibilityLabel={t('Conversation avec @{name}', { name: conv.with })}>
         {err ? <Msg kind="err">{err}</Msg> : null}
         {!thread ? <Skeleton h={60} n={2} /> : null}
         {(thread?.messages || []).slice().reverse().map(m => (
-          <View key={m.id} accessible accessibilityLabel={`${m.from_me ? 'Vous' : `@${conv.with}`} : ${m.text || ''}`}
+          <View key={m.id} accessible accessibilityLabel={`${m.from_me ? t('Vous') : `@${conv.with}`} : ${m.text || ''}`}
             style={{ alignSelf: m.from_me ? 'flex-end' : 'flex-start', maxWidth: '82%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8,
               backgroundColor: m.from_me ? c.primary : c.surface2 }}>
             <Txt selectable color={m.from_me ? c.onPrimary : c.text}>{m.text}</Txt>
@@ -189,13 +189,13 @@ function Thread({ acc, conv, onBack }: { acc: InboxAccount; conv: Conversation; 
         <View style={{ padding: space.lg, paddingTop: space.sm, borderTopWidth: 1, borderColor: c.border, backgroundColor: c.surface }}>
           {thread.can_write ? (
             <Row>
-              <Field value={text} onChangeText={setText} placeholder="Message" accessibilityLabel="Message" maxLength={1000} style={{ flex: 1 }} />
-              <Button kind="primary" title="Envoyer" disabled={!text.trim()} onPress={send} />
+              <Field value={text} onChangeText={setText} placeholder={t('Message')} accessibilityLabel={t('Message')} maxLength={1000} style={{ flex: 1 }} />
+              <Button kind="primary" title={t('Envoyer')} disabled={!text.trim()} onPress={send} />
             </Row>
           ) : (
             <View style={{ gap: space.sm }}>
-              <Txt small muted>Instagram n’autorise une réponse que dans les 24 h qui suivent le dernier message de la personne.</Txt>
-              {conv.with ? <Button small title="Écrire depuis Instagram" icon="external" onPress={() => openApp(`https://ig.me/m/${conv.with}`)} /> : null}
+              <Txt small muted>{t('Instagram n’autorise une réponse que dans les 24 h qui suivent le dernier message de la personne.')}</Txt>
+              {conv.with ? <Button small title={t('Écrire depuis Instagram')} icon="external" onPress={() => openApp(`https://ig.me/m/${conv.with}`)} /> : null}
             </View>
           )}
         </View>
@@ -222,7 +222,7 @@ function Messages({ top, accounts, onRefresh }: { top: ReactElement; accounts: I
       refreshControl={<RefreshControl refreshing={convs.loading && !!convs.data} onRefresh={() => { convs.reload(); onRefresh() }} tintColor={c.muted} />}
       renderItem={({ item }) => (
         <Pressable onPress={() => setOpen(item)} accessibilityRole="button"
-          accessibilityLabel={`@${item.with}. ${item.last_from_me ? 'Vous : ' : ''}${item.last || ''}`}
+          accessibilityLabel={`@${item.with}. ${item.last_from_me ? t('Vous : ') : ''}${item.last || ''}`}
           style={({ pressed }) => ({ backgroundColor: c.surface, borderRadius: radius.md, padding: space.md, minHeight: 56,
             flexDirection: 'row', alignItems: 'center', gap: space.md, opacity: pressed ? 0.6 : 1 })}>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -230,7 +230,7 @@ function Messages({ top, accounts, onRefresh }: { top: ReactElement; accounts: I
               <Txt bold numberOfLines={1} style={{ flex: 1 }}>@{item.with}</Txt>
               <Txt small faint>{fmtAgo(item.updated_at)}</Txt>
             </Row>
-            <Txt small muted numberOfLines={1}>{item.last_from_me ? 'Vous : ' : ''}{item.last}</Txt>
+            <Txt small muted numberOfLines={1}>{item.last_from_me ? t('Vous : ') : ''}{item.last}</Txt>
           </View>
           <Icon name="right" size={18} color={c.faint} />
         </Pressable>
@@ -239,19 +239,19 @@ function Messages({ top, accounts, onRefresh }: { top: ReactElement; accounts: I
         <View style={{ gap: space.md }}>
           {top}
           {ig.length > 1 ? (
-            <ChipRow label="Compte Instagram">
+            <ChipRow label={t('Compte Instagram')}>
               {ig.map(a => <Chip key={a.id} label={a.name || 'Instagram'} selected={a.id === acc} onPress={() => { setAcc(a.id); setOpen(null) }} />)}
             </ChipRow>
           ) : null}
           {current && !current.messages
-            ? <Msg>{current.source === 'routine' ? 'Les messages de ce compte (géré par la routine) se lisent dans Instagram.' : current.notice || 'Messages indisponibles pour ce compte.'}</Msg>
+            ? <Msg>{current.source === 'routine' ? t('Les messages de ce compte (géré par la routine) se lisent dans Instagram.') : current.notice ? t(current.notice) : t('Messages indisponibles pour ce compte.')}</Msg>
             : null}
           {convs.error ? <Msg kind="err">{convs.error}</Msg> : null}
         </View>
       }
       ListEmptyComponent={
-        !ig.length ? <Empty title="Aucun compte Instagram" icon="comment">Les messages privés concernent Instagram.</Empty>
-          : current?.messages ? (convs.data ? <Txt small muted>Aucune conversation.</Txt> : <View style={{ gap: space.md }}><Skeleton h={56} n={4} /></View>)
+        !ig.length ? <Empty title={t('Aucun compte Instagram')} icon="comment">{t('Les messages privés concernent Instagram.')}</Empty>
+          : current?.messages ? (convs.data ? <Txt small muted>{t('Aucune conversation.')}</Txt> : <View style={{ gap: space.md }}><Skeleton h={56} n={4} /></View>)
           : undefined
       }
     />
@@ -272,7 +272,8 @@ export default function Comments() {
       const orgs = [...new Set((accounts.data || []).map(a => orgOf(a.platform, a.id)))]
       const all = await Promise.all((orgs.length ? orgs : [org]).map(o => syncInbox(o)))
       const r = { comments: all.reduce((n, x) => n + x.comments, 0), notices: all.flatMap(x => x.notices || []) }
-      setSyncMsg({ kind: 'info', text: `${r.comments} commentaire${r.comments > 1 ? 's' : ''} relu${r.comments > 1 ? 's' : ''}.${r.notices?.length ? ` ${r.notices.join(' ')}` : ''}` })
+      const head = r.comments > 1 ? t('{n} commentaires relus.', { n: r.comments }) : t('{n} commentaire relu.', { n: r.comments })
+      setSyncMsg({ kind: 'info', text: `${head}${r.notices?.length ? ` ${r.notices.map(x => t(x)).join(' ')}` : ''}` })
       accounts.reload()
     } catch (e) { setSyncMsg({ kind: 'err', text: errText(e) }) }
   }
@@ -281,15 +282,16 @@ export default function Comments() {
     <View style={{ gap: space.md }}>
       <Row style={{ justifyContent: 'space-between' }}>
         <View style={{ flex: 1 }}>
-          <Txt size={26} bold accessibilityRole="header">Commentaires</Txt>
-          <Txt small muted>{fresh ? `${plural(fresh, 'nouveau', 'nouveaux')} · ` : ''}Tous vos comptes au même endroit.</Txt>
+          <Txt size={26} bold accessibilityRole="header">{t('Commentaires')}</Txt>
+          <Txt small muted>{fresh ? `${fresh > 1 ? t('{n} nouveaux', { n: fresh }) : t('{n} nouveau', { n: fresh })} · ` : ''}{t('Tous vos comptes au même endroit.')}</Txt>
         </View>
-        <Button small icon="refresh" title="Relire" onPress={sync} accessibilityLabel="Relire les commentaires" />
+        <Button small icon="refresh" title={t('Relire')} onPress={sync} accessibilityLabel={t('Relire les commentaires')} />
       </Row>
       {syncMsg ? <Msg kind={syncMsg.kind}>{syncMsg.text}</Msg> : null}
       {accounts.error ? <Msg kind="err">{accounts.error}</Msg> : null}
       {accounts.data ? <Notices accounts={accounts.data} /> : null}
-      <Seg<Tab> value={tab} onChange={setTab} label="Vue" options={[['todo', 'À traiter'], ['keyword', 'Mot-clé'], ['messages', 'Messages']]} />
+      <Seg<Tab> value={tab} onChange={setTab} label={t('Vue')} options={[['todo', t('À traiter')], ['keyword', t('Mot-clé')], ['messages', t('Messages')]]} />
+
     </View>
   )
   return (

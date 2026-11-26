@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { googleLogin } from '../api'
 import { Msg } from './ui'
+import { getLang, t } from '../i18n'
 
 declare global {
   interface Window { google?: any; __gsiLoading?: Promise<void> }
@@ -52,7 +53,7 @@ export default function GoogleButton({ clientId, onResult, onCredential, text = 
       slot.current.innerHTML = ''
       window.google.accounts.id.renderButton(slot.current, {
         type: 'standard', theme: dark() ? 'filled_black' : 'outline', size: 'large', text,
-        shape: 'pill', logo_alignment: 'center', width, locale: 'fr',
+        shape: 'pill', logo_alignment: 'center', width, locale: getLang(),
       })
       setReady(true)
     }
@@ -72,7 +73,7 @@ export default function GoogleButton({ clientId, onResult, onCredential, text = 
         },
       })
       render()
-    }).catch(() => alive && setErr('Connexion Google indisponible pour le moment : utilisez votre e-mail.'))
+    }).catch(() => alive && setErr(t('Connexion Google indisponible pour le moment : utilisez votre e-mail.')))
     const ro = new ResizeObserver(() => render())
     if (wrap.current) ro.observe(wrap.current)
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)')

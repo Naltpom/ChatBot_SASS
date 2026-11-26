@@ -4,13 +4,15 @@ import { Linking, View } from 'react-native'
 import { assistantAvailable, assistantHtml, BASE, INSIDE } from '../../lib/assistant'
 import { Empty } from '../../ui/kit'
 import { space, useTheme } from '../../ui/theme'
+import { t } from '../../lib/i18n'
 
 export default function Assistant() {
   const { c, dark, palette } = useTheme()
   if (!assistantAvailable) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg, padding: space.lg, justifyContent: 'center' }}>
-        <Empty title="Assistant bientôt disponible" icon="comment">Mettez l’app à jour depuis le Play Store pour discuter avec l’assistant.</Empty>
+        <Empty title={t('Assistant bientôt disponible')} icon="comment">{t('Mettez l’app à jour depuis le Play Store pour discuter avec l’assistant.')}</Empty>
+
       </View>
     )
   }

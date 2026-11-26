@@ -4,6 +4,7 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PLATFORM_LABEL, type GroupColor, type Platform, type TargetStatus } from '../api'
 import { STATUS, signed } from '../format'
+import { t } from '../i18n'
 
 /** Chapeau Chapote (même marque que chapote.fr). */
 /** Logo Chapote CM : trois cartes de vidéos verticales empilées, la première avec le bouton lecture,
@@ -22,7 +23,7 @@ export function BrandMark({ size = 32 }: { size?: number }) {
 
 export function Brand({ to }: { to?: string }) {
   const inner = <><BrandMark size={28} /><span>Chapote CM</span></>
-  return to !== undefined ? <Link to={to} className="brand" aria-label="Chapote CM, accueil">{inner}</Link> : <span className="brand">{inner}</span>
+  return to !== undefined ? <Link to={to} className="brand" aria-label={t('Chapote CM, accueil')}>{inner}</Link> : <span className="brand">{inner}</span>
 }
 
 export function PlatformTag({ platform, label }: { platform: Platform; label?: string | null }) {
@@ -35,7 +36,7 @@ export function GroupDot({ color }: { color: GroupColor | null | undefined }) {
 
 export function StatusText({ status }: { status: TargetStatus }) {
   const s = STATUS[status]
-  return <span className={`status status-${s.tone}`}>{s.label}</span>
+  return <span className={`status status-${s.tone}`}>{t(s.label)}</span>
 }
 
 export function Delta({ value, suffix = '' }: { value: number | null | undefined; suffix?: string }) {
@@ -47,7 +48,7 @@ export function Msg({ kind = 'info', children }: { kind?: 'err' | 'info' | 'ok';
   return <div className={`msg msg-${kind}`} role={kind === 'err' ? 'alert' : 'status'}>{children}</div>
 }
 
-export function Loading({ label = 'Chargement…' }: { label?: string }) {
+export function Loading({ label = t('Chargement…') }: { label?: string }) {
   return <p className="muted small" role="status">{label}</p>
 }
 
@@ -108,7 +109,7 @@ export function Sheet({ title, onClose, children, labelledBy = 'sheet-title' }: 
       <div className="sheet" role="dialog" aria-modal="true" aria-labelledby={labelledBy} ref={box} tabIndex={-1} onClick={e => e.stopPropagation()}>
         <div className="sheet-head">
           <h2 id={labelledBy}>{title}</h2>
-          <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label="Fermer" onClick={onClose}><Icon name="close" /></button>
+          <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={t('Fermer')} onClick={onClose}><Icon name="close" /></button>
         </div>
         {children}
       </div>

@@ -16,9 +16,23 @@ import {
 import { radius, space, useTheme } from '../../ui/theme'
 import { Heatmap } from '../../features/insights/Heatmap'
 import { useListState } from '../../features/insights/hooks'
-import { accountState, periodSentence, plural, share } from '../../features/insights/logic'
+import { accountState, share } from '../../features/insights/logic'
 import { ChipRow, Metrics, SectionHead, SortChips, Thumb } from '../../features/insights/parts'
 import { ViewsChart } from '../../features/insights/ViewsChart'
+import { t } from '../../lib/i18n'
+
+const videosText = (n: number) => (n > 1 ? t('{n} vidéos', { n }) : t('{n} vidéo', { n }))
+
+/** Phrase de résumé de la période (comme periodSentence de logic.ts, dans la langue choisie). */
+function periodText(days: number, tot: { posts: number; views: number | null; followers_delta: number | null }, networks: number): string {
+  const head = days === 365 ? t('Cette année') : t('Ces {n} derniers jours', { n: days })
+  if (!tot.posts) return t('{head} : aucune vidéo publiée pour l’instant.', { head })
+  const first = tot.posts > 1 ? t('{n} vidéos publiées', { n: tot.posts }) : t('{n} vidéo publiée', { n: tot.posts })
+  const parts = [networks > 1 ? `${first} ${t('sur {n} réseaux', { n: networks })}` : first]
+  if (tot.views != null) parts.push(t('{n} vues', { n: short(tot.views) }))
+  if (tot.followers_delta) parts.push(t('{n} abonnés', { n: `${tot.followers_delta > 0 ? '+' : '−'}${short(Math.abs(tot.followers_delta))}` }))
+  return t('{head} : {parts}.', { head, parts: parts.join(', ') })
+}
 
 type AccSort = 'views' | 'posts' | 'engagement_rate' | 'followers' | 'followers_delta' | 'likes' | 'name'
 const ACC_SORTS: [AccSort, string][] = [['views', 'Vues'], ['followers', 'Abonnés'], ['followers_delta', 'Abonnés gagnés'],
@@ -30,7 +44,7 @@ const TOP_SORTS: [TopSort, string][] = [['views', 'Les plus vues'], ['engagement
 /** Un chiffre dans une rangée (pas de carte vide autour). */
 function Figure({ label, value, sub }: { label: string; value: string; sub?: ReactNode }) {
   return (
-    <View style={{ flex: 1, minWidth: 0, gap: 2 }} accessible accessibilityLabel={`${label} : ${value}`}>
+    <View style={{ flex: 1, minWidth: 0, gap: 2 }} accessible accessibilityLabel={t('{label} : {value}', { label, value })}>
       <Txt size={22} bold numberOfLines={1}>{value}</Txt>
       <Txt small muted numberOfLines={1}>{label}</Txt>
       {typeof sub === 'string' ? <Txt size={12} muted numberOfLines={1}>{sub}</Txt> : sub}
@@ -44,11 +58,11 @@ function PlatformLine({ p, totalViews }: { p: PlatformStats; totalViews: number 
   const part = share(p.views, totalViews)
   return (
     <View style={{ gap: 6, paddingVertical: space.sm }} accessible
-      accessibilityLabel={`${PLATFORM_LABEL[p.platform]} : ${short(p.views)} vues${totalViews ? `, ${part} % du total` : ''}, ${plural(p.posts, 'vidéo')}, engagement ${pct(p.engagement_rate)}`}>
+      accessibilityLabel={`${PLATFORM_LABEL[p.platform]} : ${t('{n} vues', { n: short(p.views) })}${totalViews ? `, ${t('{n} % du total', { n: part })}` : ''}, ${videosText(p.posts)}, ${t('engagement {rate}', { rate: pct(p.engagement_rate) })}`}>
       <Row gap={space.sm}>
         <PlatformLogo platform={p.platform} size={22} />
         <Txt bold style={{ flex: 1 }} numberOfLines={1}>{PLATFORM_LABEL[p.platform]}</Txt>
-        <Txt bold>{short(p.views)}</Txt><Txt small muted>vues</Txt>
+        <Txt bold>{short(p.views)}</Txt><Txt small muted>{t('vues')}</Txt>
       </Row>
       {totalViews ? (
         <View style={{ height: 6, borderRadius: 3, backgroundColor: c.surface2, overflow: 'hidden' }}>
@@ -56,7 +70,7 @@ function PlatformLine({ p, totalViews }: { p: PlatformStats; totalViews: number 
         </View>
       ) : null}
       <Txt small muted numberOfLines={1}>
-        {plural(p.posts, 'vidéo')} · {pct(p.engagement_rate)} d’engagement{p.followers_delta != null ? ` · ${signed(p.followers_delta)} abonnés` : ''}
+        {videosText(p.posts)} · {t('{rate} d’engagement', { rate: pct(p.engagement_rate) })}{p.followers_delta != null ? ` · ${t('{n} abonnés', { n: signed(p.followers_delta) })}` : ''}
       </Txt>
     </View>
   )
@@ -67,17 +81,17 @@ function AccountRow({ a, state }: { a: AccountStats; state?: Account }) {
   const st = state ? accountState(state) : null
   const tone = st ? { ok: c.ok, warn: c.warn, danger: c.danger, muted: c.muted }[st.tone] : c.muted
   return (
-    <View accessible accessibilityLabel={`${a.name || PLATFORM_LABEL[a.platform]}${st ? `, ${st.label}` : ''}. ${short(a.views)} vues, ${plural(a.posts, 'vidéo')}, engagement ${pct(a.engagement_rate)}. ${a.stats_available ? `${short(a.followers)} abonnés` : 'abonnés non fournis'}${a.followers_delta != null ? `, ${signed(a.followers_delta)}` : ''}.`}
+    <View accessible accessibilityLabel={`${a.name || PLATFORM_LABEL[a.platform]}${st ? `, ${t(st.label)}` : ''}. ${t('{n} vues', { n: short(a.views) })}, ${videosText(a.posts)}, ${t('engagement {rate}', { rate: pct(a.engagement_rate) })}. ${a.stats_available ? t('{n} abonnés', { n: short(a.followers) }) : t('abonnés non fournis')}${a.followers_delta != null ? `, ${signed(a.followers_delta)}` : ''}.`}
       style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md }}>
       <Avatar src={a.avatar_url} name={a.name} platform={a.platform} />
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <Txt bold numberOfLines={1}>{a.name || PLATFORM_LABEL[a.platform]}</Txt>
-        {st && st.tone !== 'ok' ? <Txt small color={tone}>{st.label}</Txt> : null}
-        <Txt small muted numberOfLines={1}>{short(a.views)} vues · {plural(a.posts, 'vidéo')} · {pct(a.engagement_rate)}</Txt>
+        {st && st.tone !== 'ok' ? <Txt small color={tone}>{t(st.label)}</Txt> : null}
+        <Txt small muted numberOfLines={1}>{t('{n} vues', { n: short(a.views) })} · {videosText(a.posts)} · {pct(a.engagement_rate)}</Txt>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <Txt bold>{a.stats_available ? short(a.followers) : '—'}</Txt>
-        {a.followers_delta != null ? <Delta value={a.followers_delta} /> : <Txt small muted>abonnés</Txt>}
+        {a.followers_delta != null ? <Delta value={a.followers_delta} /> : <Txt small muted>{t('abonnés')}</Txt>}
       </View>
     </View>
   )
@@ -108,8 +122,10 @@ export default function Stats() {
         setSyncing(`${i + 1}/${list.length}`)
         try { await syncAccount(list[i].org_id ?? scope.org, list[i]); ok++ } catch { later++ }
       }
-      setSyncMsg(`${ok} compte${ok > 1 ? 's' : ''} actualisé${ok > 1 ? 's' : ''}${later ? ` · ${later} déjà actualisé${later > 1 ? 's' : ''} il y a peu` : ''}.`)
-    } catch (e) { setSyncMsg((e as Error)?.message || 'Erreur') }
+      const head = ok > 1 ? t('{n} comptes actualisés', { n: ok }) : t('{n} compte actualisé', { n: ok })
+      const rest = later ? ` · ${later > 1 ? t('{n} déjà actualisés il y a peu', { n: later }) : t('{n} déjà actualisé il y a peu', { n: later })}` : ''
+      setSyncMsg(`${head}${rest}.`)
+    } catch (e) { setSyncMsg((e as Error)?.message || t('Erreur')) }
     setSyncing(null)
     ov.reload(); st.reload(); top.reload()
   }
@@ -120,20 +136,20 @@ export default function Stats() {
 
   const [allAccounts, setAllAccounts] = useState(false)
   const posted = d?.totals.posts ?? 0
-  const sentence = d ? periodSentence(days, d.totals, d.platforms.filter(p => p.posts > 0).length, short) : null
+  const sentence = d ? periodText(days, d.totals, d.platforms.filter(p => p.posts > 0).length) : null
 
   return (
     <Screen onRefresh={reloadAll} refreshing={(ov.loading && !!o) || (st.loading && !!d)}>
-      <Txt size={26} bold accessibilityRole="header">Statistiques</Txt>
-      <Seg label="Période" value={days} onChange={setDays} options={[[7, '7 j'], [30, '30 j'], [90, '90 j'], [365, '1 an']]} />
+      <Txt size={26} bold accessibilityRole="header">{t('Statistiques')}</Txt>
+      <Seg label={t('Période')} value={days} onChange={setDays} options={[[7, t('7 j')], [30, t('30 j')], [90, t('90 j')], [365, t('1 an')]]} />
       {ov.error ? <Msg kind="err">{ov.error}</Msg> : null}
       {st.error ? <Msg kind="err">{st.error}</Msg> : null}
       {!o && !d && (ov.loading || st.loading) ? <View style={{ gap: space.md }}><Skeleton h={120} /><Skeleton h={220} /><Skeleton h={160} /></View> : null}
 
       {noAccount ? (
-        <Empty title={group ? 'Aucun compte dans ce groupe' : 'Connectez votre premier compte'} icon="users"
-          action={<Button kind="primary" title={group ? 'Gérer les comptes' : 'Connecter un compte'} onPress={() => router.push('/accounts')} />}>
-          {group ? 'Ajoutez des comptes à ce groupe depuis Comptes.' : 'TikTok, YouTube ou Instagram : vos chiffres apparaîtront ici.'}
+        <Empty title={group ? t('Aucun compte dans ce groupe') : t('Connectez votre premier compte')} icon="users"
+          action={<Button kind="primary" title={group ? t('Gérer les comptes') : t('Connecter un compte')} onPress={() => router.push('/accounts')} />}>
+          {group ? t('Ajoutez des comptes à ce groupe depuis Comptes.') : t('TikTok, YouTube ou Instagram : vos chiffres apparaîtront ici.')}
         </Empty>
       ) : (
         <>
@@ -142,29 +158,29 @@ export default function Stats() {
             <Card style={{ gap: space.md }}>
               <Txt bold size={17} accessibilityRole="header">{sentence}</Txt>
               <Row gap={space.md} style={{ alignItems: 'flex-start' }}>
-                <Figure label="vues" value={short(d.totals.views ?? o?.totals.views)}
-                  sub={d.totals.avg_views != null && posted ? `${short(d.totals.avg_views)} par vidéo` : undefined} />
-                <Figure label="abonnés" value={short(d.totals.followers ?? o?.totals.followers)}
+                <Figure label={t('vues')} value={short(d.totals.views ?? o?.totals.views)}
+                  sub={d.totals.avg_views != null && posted ? t('{n} par vidéo', { n: short(d.totals.avg_views) }) : undefined} />
+                <Figure label={t('abonnés')} value={short(d.totals.followers ?? o?.totals.followers)}
                   sub={d.totals.followers_delta != null ? <Row gap={4}><Delta value={d.totals.followers_delta} /></Row> : undefined} />
-                <Figure label="engagement" value={pct(d.totals.engagement_rate)} />
+                <Figure label={t('engagement')} value={pct(d.totals.engagement_rate)} />
               </Row>
             </Card>
           ) : null}
           {o && o.totals.failed_recent > 0 ? (
             <Pressable onPress={() => router.push('/')} accessibilityRole="link">
-              <Msg kind="err">{`${plural(o.totals.failed_recent, 'publication')} en échec ces 7 derniers jours. Voir le planning.`}</Msg>
+              <Msg kind="err">{o.totals.failed_recent > 1 ? t('{n} publications en échec ces 7 derniers jours. Voir le planning.', { n: o.totals.failed_recent }) : t('{n} publication en échec ces 7 derniers jours. Voir le planning.', { n: o.totals.failed_recent })}</Msg>
             </Pressable>
           ) : null}
           {reconnect ? (
             <Pressable onPress={() => router.push('/accounts')} accessibilityRole="link">
-              <Msg kind="warn">{`${plural(reconnect, 'compte')} à reconnecter. Ouvrir Comptes.`}</Msg>
+              <Msg kind="warn">{reconnect > 1 ? t('{n} comptes à reconnecter. Ouvrir Comptes.', { n: reconnect }) : t('{n} compte à reconnecter. Ouvrir Comptes.', { n: reconnect })}</Msg>
             </Pressable>
           ) : null}
 
           {d && !posted ? (
-            <Empty title="Vos chiffres arrivent avec la première vidéo" icon="chart"
-              action={<Button kind="primary" icon="plus" title="Planifier une vidéo" onPress={() => router.push('/new')} />}>
-              Ici : les vidéos qui marchent, la part de chaque réseau, les meilleurs moments pour publier. Les chiffres arrivent quelques heures après la publication.
+            <Empty title={t('Vos chiffres arrivent avec la première vidéo')} icon="chart"
+              action={<Button kind="primary" icon="plus" title={t('Planifier une vidéo')} onPress={() => router.push('/new')} />}>
+              {t('Ici : les vidéos qui marchent, la part de chaque réseau, les meilleurs moments pour publier. Les chiffres arrivent quelques heures après la publication.')}
             </Empty>
           ) : null}
 
@@ -172,9 +188,9 @@ export default function Stats() {
           {o ? (
             <Card>
               <Row style={{ justifyContent: 'space-between' }} wrap>
-                <Txt size={18} bold accessibilityRole="header">Audience</Txt>
+                <Txt size={18} bold accessibilityRole="header">{t('Audience')}</Txt>
                 <View style={{ width: 180 }}>
-                  <Seg label="Mesure" value={metric} onChange={setMetric} options={[['views', 'Vues'], ['followers', 'Abonnés']]} />
+                  <Seg label={t('Mesure')} value={metric} onChange={setMetric} options={[['views', t('Vues')], ['followers', t('Abonnés')]]} />
                 </View>
               </Row>
               <ViewsChart series={o.series} metric={metric} />
@@ -184,9 +200,9 @@ export default function Stats() {
           {/* 3. Ce qui marche. */}
           {posted ? (
             <View style={{ gap: space.sm }}>
-              <SectionHead title="Vidéos qui marchent" action="Toutes" onAction={() => router.push('/videos')} />
-              <ChipRow label="Classer par">
-                {TOP_SORTS.map(([s, l]) => <Chip key={s} label={l} selected={topSort === s} onPress={() => setTopSort(s)} />)}
+              <SectionHead title={t('Vidéos qui marchent')} action={t('Toutes')} onAction={() => router.push('/videos')} />
+              <ChipRow label={t('Classer par')}>
+                {TOP_SORTS.map(([s, l]) => <Chip key={s} label={t(l)} selected={topSort === s} onPress={() => setTopSort(s)} />)}
               </ChipRow>
               {top.error ? <Msg kind="err">{top.error}</Msg> : null}
               {!top.data && top.loading ? <Skeleton h={190} /> : null}
@@ -194,7 +210,7 @@ export default function Stats() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.md, paddingVertical: 2 }}>
                   {top.data.map((v, i) => (
                     <Pressable key={v.id} onPress={() => router.push(`/video/${v.id}`)} accessibilityRole="button"
-                      accessibilityLabel={`Numéro ${i + 1} : ${v.title || 'Sans titre'}, ${v.account_name || ''}, ${short(v.views)} vues`}
+                      accessibilityLabel={`${t('Numéro {n}', { n: i + 1 })} : ${v.title || t('Sans titre')}, ${v.account_name || ''}, ${t('{n} vues', { n: short(v.views) })}`}
                       style={({ pressed }) => ({ width: 140, gap: 6, opacity: pressed ? 0.6 : 1 })}>
                       <View>
                         <Thumb uri={v.thumbnail_url} w={140} h={186} />
@@ -202,7 +218,7 @@ export default function Stats() {
                           <Txt small bold color={c.onInk}>#{i + 1}</Txt>
                         </View>
                       </View>
-                      <Txt small bold numberOfLines={1}>{v.title || 'Sans titre'}</Txt>
+                      <Txt small bold numberOfLines={1}>{v.title || t('Sans titre')}</Txt>
                       <Row gap={6}><PlatformLogo platform={v.platform} size={12} /><Txt small muted numberOfLines={1} style={{ flex: 1 }}>{v.account_name}</Txt></Row>
                       <Metrics v={v} />
                     </Pressable>
@@ -214,14 +230,14 @@ export default function Stats() {
 
           {d && d.platforms.length > 1 && posted ? (
             <Card style={{ gap: 0 }}>
-              <Txt size={18} bold accessibilityRole="header">Par réseau</Txt>
+              <Txt size={18} bold accessibilityRole="header">{t('Par réseau')}</Txt>
               {d.platforms.map((p, i) => <View key={p.platform}>{i ? <Divider /> : null}<PlatformLine p={p} totalViews={d.totals.views} /></View>)}
             </Card>
           ) : null}
 
           {d && posted ? (
             <Card>
-              <Txt size={18} bold accessibilityRole="header">Meilleurs moments pour publier</Txt>
+              <Txt size={18} bold accessibilityRole="header">{t('Meilleurs moments pour publier')}</Txt>
               <Heatmap posts={d.posts} />
             </Card>
           ) : null}
@@ -229,23 +245,23 @@ export default function Stats() {
           {/* 4. Publications : la fiabilité, à part de l'audience. */}
           {o ? (
             <Card style={{ gap: space.md }}>
-              <Txt size={18} bold accessibilityRole="header">Publications</Txt>
+              <Txt size={18} bold accessibilityRole="header">{t('Publications')}</Txt>
               <Row gap={space.md} style={{ alignItems: 'flex-start' }}>
-                <Figure label={`publiées (${days} j)`} value={num(o.totals.published)} />
-                <Figure label="programmées" value={num(o.totals.upcoming)} />
-                <Figure label="en échec (7 j)" value={num(o.totals.failed_recent)} />
+                <Figure label={t('publiées ({n} j)', { n: days })} value={num(o.totals.published)} />
+                <Figure label={t('programmées')} value={num(o.totals.upcoming)} />
+                <Figure label={t('en échec (7 j)')} value={num(o.totals.failed_recent)} />
               </Row>
-              <Button small kind="ghost" icon="calendar" title="Voir le planning" onPress={() => router.push('/')} style={{ alignSelf: 'flex-start' }} />
+              <Button small kind="ghost" icon="calendar" title={t('Voir le planning')} onPress={() => router.push('/')} style={{ alignSelf: 'flex-start' }} />
             </Card>
           ) : null}
 
           {/* 5. Le détail par compte : les 5 premiers, le reste sur demande. */}
           {d && d.accounts.length ? (
             <Card style={{ gap: space.sm }}>
-              <SectionHead title={`Par compte · ${d.accounts.length}`} action="Gérer" onAction={() => router.push('/accounts')} />
+              <SectionHead title={t('Par compte · {n}', { n: d.accounts.length })} action={t('Gérer')} onAction={() => router.push('/accounts')} />
               {allAccounts || d.accounts.length > 5 ? (
                 <>
-                  {allAccounts ? <SearchField value={acc.input} onChangeText={acc.setInput} placeholder="Rechercher un compte" /> : null}
+                  {allAccounts ? <SearchField value={acc.input} onChangeText={acc.setInput} placeholder={t('Rechercher un compte')} /> : null}
                   <SortChips list={acc} options={ACC_SORTS} />
                 </>
               ) : null}
@@ -257,19 +273,20 @@ export default function Stats() {
                   </View>
                 ))}
               </View>
-              {d.accounts.length > 5 && !allAccounts ? <Button small kind="ghost" title={`Voir les ${d.accounts.length} comptes`} onPress={() => setAllAccounts(true)} /> : null}
+              {d.accounts.length > 5 && !allAccounts ? <Button small kind="ghost" title={t('Voir les {n} comptes', { n: d.accounts.length })} onPress={() => setAllAccounts(true)} /> : null}
             </Card>
-          ) : d && acc.q ? <Txt small muted>Aucun compte ne correspond à « {acc.q} ».</Txt> : null}
+          ) : d && acc.q ? <Txt small muted>{t('Aucun compte ne correspond à « {q} ».', { q: acc.q })}</Txt> : null}
 
           <View style={{ gap: space.sm }}>
             <Button small kind="ghost" icon="refresh" disabled={syncing !== null}
-              title={syncing ? `Actualisation… ${syncing}` : 'Actualiser les chiffres maintenant'} onPress={syncAll} style={{ alignSelf: 'flex-start' }} />
+              title={syncing ? t('Actualisation… {progress}', { progress: syncing }) : t('Actualiser les chiffres maintenant')} onPress={syncAll} style={{ alignSelf: 'flex-start' }} />
             {syncMsg ? <Msg>{syncMsg}</Msg> : null}
             {d ? (
               <Row gap={6} style={{ alignItems: 'flex-start' }}>
                 <Icon name="chart" size={14} color={c.faint} />
                 <Txt small faint style={{ flex: 1 }}>
-                  Chiffres relevés plusieurs fois par jour, via les API officielles : {(Object.entries(d.metrics) as [Platform, Metric[]][]).map(([p, ms]) => `${PLATFORM_LABEL[p]} (${ms.map(m => METRIC_LABEL[m].toLowerCase()).join(', ')})`).join(' · ')}.
+                  {t('Chiffres relevés plusieurs fois par jour, via les API officielles :')} {(Object.entries(d.metrics) as [Platform, Metric[]][]).map(([p, ms]) => `${PLATFORM_LABEL[p]} (${ms.map(m => t(METRIC_LABEL[m]).toLowerCase()).join(', ')})`).join(' · ')}.
+
                 </Txt>
               </Row>
             ) : null}

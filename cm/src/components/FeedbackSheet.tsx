@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import { sendFeedback } from '../api'
 import { Msg, Sheet } from './ui'
+import { t } from '../i18n'
 
 const QUESTIONS: [string, string, string][] = [
   ['how', 'Comment publiez-vous vos vidéos aujourd’hui ?', 'Ex. 4 comptes, je publie le soir depuis mon téléphone…'],
@@ -18,31 +19,31 @@ export default function FeedbackSheet({ onClose }: { onClose: () => void }) {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr('')
-    if (empty) { setErr('Répondez à au moins une question.'); return }
+    if (empty) { setErr(t('Répondez à au moins une question.')); return }
     const text = QUESTIONS.filter(([k]) => (answers[k] || '').trim()).map(([k, q]) => `${q}\n${answers[k].trim()}`).join('\n\n').slice(0, 2000)
     setState('busy')
     try { await sendFeedback(text); setState('done') }
-    catch { setErr('L’envoi n’a pas marché. Réessayez dans un instant.'); setState('idle') }
+    catch { setErr(t('L’envoi n’a pas marché. Réessayez dans un instant.')); setState('idle') }
   }
 
   return (
-    <Sheet title="Donner mon avis" onClose={onClose} labelledBy="feedback-title">
+    <Sheet title={t('Donner mon avis')} onClose={onClose} labelledBy="feedback-title">
       {state === 'done' ? (
         <div className="col" style={{ gap: 14 }}>
-          <Msg kind="ok">Merci ! Votre avis est bien arrivé. C’est ce qui décide de la suite de Chapote CM.</Msg>
-          <button type="button" className="btn btn-primary btn-block" onClick={onClose}>Fermer</button>
+          <Msg kind="ok">{t('Merci ! Votre avis est bien arrivé. C’est ce qui décide de la suite de Chapote CM.')}</Msg>
+          <button type="button" className="btn btn-primary btn-block" onClick={onClose}>{t('Fermer')}</button>
         </div>
       ) : (
         <form className="col" style={{ gap: 14 }} onSubmit={submit}>
-          <p className="muted small">Trois questions, toutes facultatives. Vos réponses sont lues une par une.</p>
+          <p className="muted small">{t('Trois questions, toutes facultatives. Vos réponses sont lues une par une.')}</p>
           {QUESTIONS.map(([k, q, ph]) => (
-            <label key={k} className="field" htmlFor={`fb-${k}`}>{q}
-              <textarea id={`fb-${k}`} className="input" rows={3} maxLength={600} placeholder={ph}
+            <label key={k} className="field" htmlFor={`fb-${k}`}>{t(q)}
+              <textarea id={`fb-${k}`} className="input" rows={3} maxLength={600} placeholder={ph ? t(ph) : ''}
                         value={answers[k] || ''} onChange={e => setAnswers(a => ({ ...a, [k]: e.target.value }))} />
             </label>
           ))}
           {err && <Msg kind="err">{err}</Msg>}
-          <button className="btn btn-primary btn-block" disabled={state === 'busy'}>{state === 'busy' ? 'Envoi…' : 'Envoyer mon avis'}</button>
+          <button className="btn btn-primary btn-block" disabled={state === 'busy'}>{state === 'busy' ? t('Envoi…') : t('Envoyer mon avis')}</button>
         </form>
       )}
     </Sheet>

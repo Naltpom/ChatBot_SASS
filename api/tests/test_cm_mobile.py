@@ -16,7 +16,7 @@ from sqlalchemy import select
 from src.core.config import settings
 from src.core.security import AUTH_COOKIE_NAME
 from src.core.time import utcnow
-from src.models.cm import CmComment, CmMemberRole, CmPost, CmTarget
+from src.models.cm import CmComment, CmMemberRole, CmPost, CmProfile, CmTarget
 from src.models.cm_mobile import CmMobileDevice, CmPushEvent
 from src.services import cm_push
 
@@ -251,6 +251,51 @@ async def test_push_collect_and_send(pg_session, cmenv):
     await db.refresh(db_)
     await db.refresh(da)
     assert db_.push_token is None and da.push_token is not None
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_push_in_recipient_language(pg_session, cmenv):
+    """Chaque destinataire reçoit les notifications dans la langue choisie (cm_profiles.language) : 'en' → anglais,
+    sinon (fr, system, rien) → français."""
+    db = pg_session
+    a = await _user(db, "a@t.dev")
+    b = await _user(db, "b@t.dev")
+    org = await _org(db, a, (b, "member"))
+    acc = await _tt_account(db, org=org, by=a, open_id="oid-1")
+    db.add(CmProfile(user_id=a.id, language="en"))
+    db.add(CmProfile(user_id=b.id, language="system"))
+    da = await _device(db, a, "ExponentPushToken[aaaaaaaaaaaa]")
+    dbb = await _device(db, b, "ExponentPushToken[bbbbbbbbbbbb]")
+    post = CmPost(organization_id=org.id, user_id=a.id, title="Clair de lune", video_size=1, status="READY")
+    db.add(post)
+    await db.flush()
+    await _target(db, post, acc, "PUBLISHED", url="https://www.tiktok.com/@x/video/1")
+    await _target(db, post, acc, "FAILED", error_message="Publication refusée par TikTok.")
+    for i in range(2):
+        db.add(CmComment(organization_id=org.id, platform="tiktok", account_id=acc.id, external_id=f"c{i}",
+                         author=None, text=f"Bravo {i}", status="new"))
+    await db.commit()
+
+    msgs = await cm_push.collect(db)
+    en = {m["data"]["type"]: m for m in msgs if m["to"] == da.push_token}
+    fr = {m["data"]["type"]: m for m in msgs if m["to"] == dbb.push_token}
+    assert en["published"]["title"] == "Video posted" and en["published"]["body"] == "Clair de lune · TikTok"
+    assert en["failed"]["title"] == "Failed on TikTok"
+    assert en["failed"]["body"] == "Clair de lune: Post rejected by TikTok."
+    assert en["comment"]["title"] == "2 new comments" and en["comment"]["body"] == "Someone: Bravo 0 (and 1 more)"
+    assert fr["published"]["title"] == "Vidéo publiée"
+    assert fr["failed"]["title"] == "Échec sur TikTok"
+    assert fr["failed"]["body"] == "Clair de lune : Publication refusée par TikTok."
+    assert fr["comment"]["title"] == "2 nouveaux commentaires"
+    assert fr["comment"]["body"] == "Quelqu’un : Bravo 0 (et 1 autre)"
+
+    # Appareil inutilisé depuis 6 jours : l'avertissement suit aussi la langue.
+    da.last_used_at = dbb.last_used_at = utcnow() - timedelta(days=6, hours=1)
+    await db.commit()
+    idle = {m["to"]: m for m in await cm_push.collect(db)}
+    assert idle[da.push_token]["title"] == "Open Chapote CM"
+    assert idle[dbb.push_token]["title"] == "Ouvrez Chapote CM"
 
 
 @pytest.mark.real_db

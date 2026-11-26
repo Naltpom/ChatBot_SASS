@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react'
 import { Switch, View } from 'react-native'
 import { addStorageFolder, assignStorage, createGroup, getGroups, getStorages, GROUP_COLORS, PLATFORM_LABEL,
   type DriveStorage, type Group } from '../../lib/api'
+import { t } from '../../lib/i18n'
 import { useSession } from '../../lib/session'
 import { akey, groupBody } from '../../features/accounts/logic'
 import { useOwnAccounts, useSetupOrg } from '../../features/steps'
@@ -38,7 +39,7 @@ export default function SetupGroups() {
     try {
       const color = GROUP_COLORS[groups.length % GROUP_COLORS.length]
       const g = await createGroup(org, groupBody(name, color, picked))
-      let text = `Groupe « ${g.name} » créé.`
+      let text = t('Groupe « {name} » créé.', { name: g.name })
       let kind: 'ok' | 'warn' = 'ok'
       if (ownFolder && storages[0]) {
         try {
@@ -46,21 +47,21 @@ export default function SetupGroups() {
           const r = await addStorageFolder(org, storages[0].id, (folder || name).trim())
           const added = (r.storages || []).find(s => !before.has(s.id))
           if (added) await assignStorage(org, added.id, { groups: [g.id] })
-          text += ' Ses vidéos iront dans son propre dossier du Drive.'
-        } catch (e: any) { kind = 'warn'; text += ` Dossier Drive non créé : ${e?.message || 'erreur'}.` }
+          text += ` ${t('Ses vidéos iront dans son propre dossier du Drive.')}`
+        } catch (e: any) { kind = 'warn'; text += ` ${t('Dossier Drive non créé : {error}.', { error: e?.message || t('erreur') })}` }
       }
       setMsg({ kind, text })
       setName(''); setPicked([]); setFolder('')
       load(); refresh()
-    } catch (e: any) { setMsg({ kind: 'err', text: e?.message || 'Groupe non créé' }) } finally { setBusy(false) }
+    } catch (e: any) { setMsg({ kind: 'err', text: e?.message || t('Groupe non créé') }) } finally { setBusy(false) }
   }
 
   return (
     <Screen onRefresh={load}>
-      <Stack.Screen options={{ title: 'Groupes de comptes' }} />
+      <Stack.Screen options={{ title: t('Groupes de comptes') }} />
       <View style={{ gap: space.sm, paddingTop: space.md }}>
-        <H1>Ranger vos comptes en groupes</H1>
-        <Txt muted>Vous avez {own.length} comptes. Un groupe (par exemple un par client ou par chaîne) se filtre d’un geste, peut avoir son dossier dans le Drive et se partage plus tard avec d’autres personnes.</Txt>
+        <H1>{t('Ranger vos comptes en groupes')}</H1>
+        <Txt muted>{t('Vous avez {n} comptes. Un groupe (par exemple un par client ou par chaîne) se filtre d’un geste, peut avoir son dossier dans le Drive et se partage plus tard avec d’autres personnes.', { n: own.length })}</Txt>
       </View>
       {groups.length ? (
         <Card>
@@ -68,16 +69,16 @@ export default function SetupGroups() {
             <Row key={g.id} gap={space.sm}>
               <GroupDot color={g.color} />
               <Txt bold style={{ flex: 1 }}>{g.name}</Txt>
-              <Txt small muted>{g.accounts.length} compte{g.accounts.length > 1 ? 's' : ''}</Txt>
+              <Txt small muted>{g.accounts.length > 1 ? t('{n} comptes', { n: g.accounts.length }) : t('{n} compte', { n: g.accounts.length })}</Txt>
             </Row>
           ))}
         </Card>
       ) : null}
       {msg ? <Msg kind={msg.kind}>{msg.text}</Msg> : null}
       <Card>
-        <Txt bold>{groups.length ? 'Nouveau groupe' : 'Créer un groupe'}</Txt>
-        <Field label="Nom du groupe" value={name} onChangeText={setName} maxLength={60} placeholder="Ex. Ghost Hands, Clients, Piano FR" />
-        <Txt small bold>Comptes · {picked.length} choisi{picked.length > 1 ? 's' : ''}</Txt>
+        <Txt bold>{groups.length ? t('Nouveau groupe') : t('Créer un groupe')}</Txt>
+        <Field label={t('Nom du groupe')} value={name} onChangeText={setName} maxLength={60} placeholder={t('Ex. Ghost Hands, Clients, Piano FR')} />
+        <Txt small bold>{picked.length > 1 ? t('Comptes · {n} choisis', { n: picked.length }) : t('Comptes · {n} choisi', { n: picked.length })}</Txt>
         <Row wrap>
           {own.map(a => {
             const k = akey(a.platform, a.id)
@@ -89,18 +90,18 @@ export default function SetupGroups() {
           <>
             <Row style={{ justifyContent: 'space-between', minHeight: 48 }}>
               <View style={{ flex: 1 }}>
-                <Txt bold>Dossier à part dans le Drive</Txt>
-                <Txt small muted>Dans {storages[0].email || 'votre Drive'}</Txt>
+                <Txt bold>{t('Dossier à part dans le Drive')}</Txt>
+                <Txt small muted>{storages[0].email ? t('Dans {email}', { email: storages[0].email }) : t('Dans votre Drive')}</Txt>
               </View>
-              <Switch value={ownFolder} onValueChange={setOwnFolder} accessibilityLabel="Dossier à part dans le Drive" trackColor={{ true: c.primary }} />
+              <Switch value={ownFolder} onValueChange={setOwnFolder} accessibilityLabel={t('Dossier à part dans le Drive')} trackColor={{ true: c.primary }} />
             </Row>
-            {ownFolder ? <Field label="Nom du dossier" value={folder} onChangeText={setFolder} maxLength={60}
-              placeholder={name.trim() || 'Nom du groupe'} hint={`Créé par Chapote : « cm.chapote.fr — ${(folder || name).trim() || '…'} ».`} /> : null}
+            {ownFolder ? <Field label={t('Nom du dossier')} value={folder} onChangeText={setFolder} maxLength={60}
+              placeholder={name.trim() || t('Nom du groupe')} hint={t('Créé par Chapote : « cm.chapote.fr — {name} ».', { name: (folder || name).trim() || '…' })} /> : null}
           </>
-        ) : <Txt small muted>Sans Drive relié (étape 3), les vidéos du groupe iront dans le stockage de l’espace dès qu’il sera connecté.</Txt>}
-        <Button kind="primary" icon="plus" title="Créer le groupe" loading={busy} disabled={!name.trim() || !picked.length} onPress={save} />
+        ) : <Txt small muted>{t('Sans Drive relié (étape 3), les vidéos du groupe iront dans le stockage de l’espace dès qu’il sera connecté.')}</Txt>}
+        <Button kind="primary" icon="plus" title={t('Créer le groupe')} loading={busy} disabled={!name.trim() || !picked.length} onPress={save} />
       </Card>
-      <Button kind={groups.length ? 'primary' : 'ghost'} title={groups.length ? 'Terminé' : 'Plus tard'} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
+      <Button kind={groups.length ? 'primary' : 'ghost'} title={groups.length ? t('Terminé') : t('Plus tard')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
     </Screen>
   )
 }

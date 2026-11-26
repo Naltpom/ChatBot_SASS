@@ -15,6 +15,7 @@ import { Delta, Empty, Icon, Msg, PlatformTag, Seg, Sheet, Skeleton, StatusText 
 import { addDays, dayKey, fmtDateTime, fmtTime, num, sameDay, short, startOfWeek, toLocalInput } from '../format'
 import { useDesktop } from '../hooks'
 import { useLoad, useSession } from '../session'
+import { t, locale } from '../i18n'
 
 type View = 'agenda' | 'day' | 'week' | 'month'
 type Kind = 'all' | 'done' | 'planned'
@@ -56,7 +57,7 @@ function groupItems(list: CalendarItem[]): Group[] {
 }
 function DayStats({ d }: { d: CalendarDay | undefined }) {
   if (!d || d.followers_delta == null || d.followers_delta === 0) return null
-  return <span className="tiny strong"><Delta value={d.followers_delta} /> abonnés</span>
+  return <span className="tiny strong"><Delta value={d.followers_delta} /> {t('abonnés')}</span>
 }
 
 export default function Planning() {
@@ -113,10 +114,10 @@ export default function Planning() {
     if (view !== 'month') setSelected(k => dayKey(addDays(new Date(`${k}T12:00:00`), 7 * n)))   // même jour, autre semaine
   }
   const label = view === 'day'
-    ? new Date(`${selected}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+    ? new Date(`${selected}T12:00:00`).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })
     : view === 'month'
-    ? anchor.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
-    : `${week[0].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} – ${week[6].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
+    ? anchor.toLocaleDateString(locale(), { month: 'long', year: 'numeric' })
+    : `${week[0].toLocaleDateString(locale(), { day: 'numeric', month: 'short' })} – ${week[6].toLocaleDateString(locale(), { day: 'numeric', month: 'short' })}`
   const isCurrent = view === 'day' ? selected === dayKey(today) : view === 'month' ? anchor.getMonth() === today.getMonth() && anchor.getFullYear() === today.getFullYear()
     : sameDay(startOfWeek(anchor), startOfWeek(today))
   const goToday = () => { setAnchor(new Date()); setSelected(dayKey(new Date())) }
@@ -148,13 +149,13 @@ export default function Planning() {
   const dayList = (k: string, date: Date) => {
     const list = byDay.get(k) || []
     return (
-      <section key={k} id={`jour-${k}`} className="agenda-day" aria-label={date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}>
+      <section key={k} id={`jour-${k}`} className="agenda-day" aria-label={date.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })}>
         <div className={`agenda-day-head${sameDay(date, today) ? ' today' : ''}`}>
-          <h2>{date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' })}</h2>
+          <h2>{date.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'short' })}</h2>
           <DayStats d={stats.get(k)} />
         </div>
         {list.length === 0
-          ? <p className="tiny muted" style={{ padding: '2px 2px 4px' }}>{date < today && !sameDay(date, today) ? 'Aucune publication' : 'Rien de prévu'}</p>
+          ? <p className="tiny muted" style={{ padding: '2px 2px 4px' }}>{date < today && !sameDay(date, today) ? t('Aucune publication') : t('Rien de prévu')}</p>
           : groupItems(list).map(gx => <PlanRow key={gx.key} g={gx} group={groupOf(gx.items)} onOpen={setOpenGroup} />)}
       </section>
     )
@@ -164,29 +165,29 @@ export default function Planning() {
     <>
       <div className="page-head">
         <div>
-          <h1>Planning</h1>
-          <p>Ce qui est parti, avec ses chiffres, et ce qui va partir.</p>
+          <h1>{t('Planning')}</h1>
+          <p>{t('Ce qui est parti, avec ses chiffres, et ce qui va partir.')}</p>
         </div>
-        <Seg label="Affichage" value={view} onChange={setView}
-             options={desktop ? [['day', 'Jour'], ['week', 'Semaine'], ['month', 'Mois']] : [['agenda', 'Agenda'], ['month', 'Mois']]} />
+        <Seg label={t('Affichage')} value={view} onChange={setView}
+             options={desktop ? [['day', t('Jour')], ['week', t('Semaine')], ['month', t('Mois')]] : [['agenda', t('Agenda')], ['month', t('Mois')]]} />
       </div>
 
       {flash && <Msg kind="ok">{flash}</Msg>}
 
       <div className="cal-toolbar">
         <div className="cal-nav">
-          <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? 'Mois précédent' : view === 'day' ? 'Jour précédent' : 'Semaine précédente'} onClick={() => shift(-1)}><Icon name="left" /></button>
-          <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? 'Mois suivant' : view === 'day' ? 'Jour suivant' : 'Semaine suivante'} onClick={() => shift(1)}><Icon name="right" /></button>
+          <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? t('Mois précédent') : view === 'day' ? t('Jour précédent') : t('Semaine précédente')} onClick={() => shift(-1)}><Icon name="left" /></button>
+          <button type="button" className="btn icon-btn btn-sm" aria-label={view === 'month' ? t('Mois suivant') : view === 'day' ? t('Jour suivant') : t('Semaine suivante')} onClick={() => shift(1)}><Icon name="right" /></button>
           <span className="label">{label}</span>
-          {(!isCurrent || selected !== dayKey(today)) && <button type="button" className="btn btn-sm" onClick={goToday}><Icon name="calendar" size={14} />Aujourd’hui</button>}
+          {(!isCurrent || selected !== dayKey(today)) && <button type="button" className="btn btn-sm" onClick={goToday}><Icon name="calendar" size={14} />{t('Aujourd’hui')}</button>}
         </div>
-        <div className="cal-search"><SearchBox value={input} onChange={setInput} label="Rechercher une vidéo" placeholder="Rechercher (titre, légende)" /></div>
+        <div className="cal-search"><SearchBox value={input} onChange={setInput} label={t('Rechercher une vidéo')} placeholder={t('Rechercher (titre, légende)')} /></div>
         <div className="row" style={{ gap: 8 }}>
-          <Seg label="Type" value={kind} onChange={setKind} options={[['all', 'Tout'], ['done', 'Publié'], ['planned', 'Programmé']]} />
-          <button type="button" className="btn icon-btn btn-sm only-desktop" aria-label="Actualiser" onClick={cal.reload}><Icon name="refresh" /></button>
+          <Seg label={t('Type')} value={kind} onChange={setKind} options={[['all', t('Tout')], ['done', t('Publié')], ['planned', t('Programmé')]]} />
+          <button type="button" className="btn icon-btn btn-sm only-desktop" aria-label={t('Actualiser')} onClick={cal.reload}><Icon name="refresh" /></button>
         </div>
       </div>
-      <div className="chips" role="group" aria-label="Plateformes">
+      <div className="chips" role="group" aria-label={t('Plateformes')}>
         {PLATFORMS.map(p => (
           <button key={p} type="button" className="chip" aria-pressed={platforms.includes(p)} onClick={() => togglePlatform(p)}>
             <PlatformLogo platform={p} size={14} />{PLATFORM_LABEL[p]}
@@ -194,17 +195,17 @@ export default function Planning() {
         ))}
       </div>
       {search && (
-        <section className="col" style={{ gap: 12 }} aria-label="Résultats de la recherche" aria-busy={found.loading}>
+        <section className="col" style={{ gap: 12 }} aria-label={t('Résultats de la recherche')} aria-busy={found.loading}>
           {found.error && <Msg kind="err">{found.error}</Msg>}
           {!found.data && found.loading && <Skeleton h={84} n={3} />}
           {found.data && (
             <p className="tiny muted" role="status" style={{ margin: 0 }}>
-              {results.length ? `${results.reduce((n, [, l]) => n + groupItems(l).length, 0)} vidéo(s) pour « ${search} »` : `Aucune vidéo pour « ${search} »`}
+              {results.length ? t('{n} vidéo(s) pour « {search} »', { n: results.reduce((n, [, l]) => n + groupItems(l).length, 0), search }) : t('Aucune vidéo pour « {search} »', { search })}
             </p>
           )}
           {results.map(([k, list]) => (
-            <section key={k} className="agenda-day" aria-label={new Date(`${k}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}>
-              <div className="agenda-day-head"><h2>{new Date(`${k}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}</h2></div>
+            <section key={k} className="agenda-day" aria-label={new Date(`${k}T12:00:00`).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}>
+              <div className="agenda-day-head"><h2>{new Date(`${k}T12:00:00`).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}</h2></div>
               {groupItems(list).map(gx => <PlanRow key={gx.key} g={gx} group={groupOf(gx.items)} onOpen={setOpenGroup} />)}
             </section>
           ))}
@@ -212,10 +213,10 @@ export default function Planning() {
       )}
       {!search && cal.data && (
           <span className="tiny muted row" style={{ gap: '4px 14px' }}>
-            <span><b className="num" style={{ color: 'var(--text)' }}>{done.length}</b> publiée{done.length > 1 ? 's' : ''}</span>
-            {periodViews > 0 && <span><b className="num" style={{ color: 'var(--text)' }}>{short(periodViews)}</b> vues</span>}
-            {periodFollowers !== 0 && <span><Delta value={periodFollowers} /> abonnés</span>}
-            <span><b className="num" style={{ color: 'var(--text)' }}>{planned.length}</b> programmée{planned.length > 1 ? 's' : ''}</span>
+            <span><b className="num" style={{ color: 'var(--text)' }}>{done.length}</b> {done.length > 1 ? t('publiées') : t('publiée')}</span>
+            {periodViews > 0 && <span><b className="num" style={{ color: 'var(--text)' }}>{short(periodViews)}</b> {t('vues')}</span>}
+            {periodFollowers !== 0 && <span><Delta value={periodFollowers} /> {t('abonnés')}</span>}
+            <span><b className="num" style={{ color: 'var(--text)' }}>{planned.length}</b> {planned.length > 1 ? t('programmées') : t('programmée')}</span>
           </span>
         )}
 
@@ -224,14 +225,14 @@ export default function Planning() {
 
       {!search && cal.data && view === 'agenda' && (
         <>
-          <div className="daystrip" role="group" aria-label="Jours de la semaine">
+          <div className="daystrip" role="group" aria-label={t('Jours de la semaine')}>
             {week.map(d => {
               const k = dayKey(d)
               const ps = [...new Set((byDay.get(k) || []).map(i => i.platform))]
               return (
                 <button key={k} type="button" aria-pressed={selected === k} className={sameDay(d, today) ? 'today' : ''} onClick={() => jump(k)}
-                        aria-label={d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric' })}>
-                  {d.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')}
+                        aria-label={d.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric' })}>
+                  {d.toLocaleDateString(locale(), { weekday: 'short' }).replace('.', '')}
                   <b>{d.getDate()}</b>
                   <span className="marks">{ps.map(p => <span key={p} className={`dot dot-${p}`} />)}</span>
                 </button>
@@ -241,8 +242,8 @@ export default function Planning() {
           <div className="agenda" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
             {dayList(selected, new Date(`${selected}T12:00:00`))}
             <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => goDay(-1)}><Icon name="left" size={16} />Jour précédent</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => goDay(1)}>Jour suivant<Icon name="right" size={16} /></button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => goDay(-1)}><Icon name="left" size={16} />{t('Jour précédent')}</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => goDay(1)}>{t('Jour suivant')}<Icon name="right" size={16} /></button>
             </div>
           </div>
         </>
@@ -260,14 +261,14 @@ export default function Planning() {
             const past = d < today && !sameDay(d, today)
             return (
               <section key={k} className={`week-col${sameDay(d, today) ? ' today' : ''}${past ? ' past' : ''}`}
-                       aria-label={d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric' })}>
+                       aria-label={d.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric' })}>
                 <div className="week-head">
-                  <h2>{d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })}</h2>
+                  <h2>{d.toLocaleDateString(locale(), { weekday: 'short', day: 'numeric' })}</h2>
                   <DayStats d={stats.get(k)} />
                 </div>
-                {list.length === 0 ? <p className="tiny faint">{past ? 'Aucune publication' : 'Rien de prévu'}</p>
+                {list.length === 0 ? <p className="tiny faint">{past ? t('Aucune publication') : t('Rien de prévu')}</p>
                   : groupItems(list).map(gx => <PlanRow key={gx.key} g={gx} group={groupOf(gx.items)} onOpen={setOpenGroup} />)}
-                {!past && <Link to="/nouvelle" className="btn btn-sm btn-ghost" style={{ marginTop: 'auto', color: 'var(--muted)' }}><Icon name="plus" size={16} />Programmer</Link>}
+                {!past && <Link to="/nouvelle" className="btn btn-sm btn-ghost" style={{ marginTop: 'auto', color: 'var(--muted)' }}><Icon name="plus" size={16} />{t('Programmer')}</Link>}
               </section>
             )
           })}
@@ -278,7 +279,7 @@ export default function Planning() {
         <div className="grid-2">
           <div className="col" style={{ gap: 6 }}>
             <div className="month" aria-hidden="true">
-              {week.map(d => <div key={d.getDay()} className="month-dow">{d.toLocaleDateString('fr-FR', { weekday: desktop ? 'long' : 'narrow' })}</div>)}
+              {week.map(d => <div key={d.getDay()} className="month-dow">{d.toLocaleDateString(locale(), { weekday: desktop ? 'long' : 'narrow' })}</div>)}
             </div>
             <div className="month" role="grid" aria-label={label}>
               {Array.from({ length: 42 }, (_, i) => addDays(start, i)).map(d => {
@@ -289,10 +290,10 @@ export default function Planning() {
                 return (
                   <button key={k} type="button" role="gridcell" aria-pressed={selected === k}
                           className={`month-cell${d.getMonth() !== anchor.getMonth() ? ' out' : ''}${sameDay(d, today) ? ' today' : ''}`}
-                          onClick={() => setSelected(k)} aria-label={`${d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} : ${list.length} élément(s)`}>
+                          onClick={() => setSelected(k)} aria-label={t('{day} : {n} élément(s)', { day: d.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' }), n: list.length })}>
                     <span className="d">{d.getDate()}</span>
                     <span className="marks">{groupItems(list).slice(0, desktop ? 12 : 6).map(gx => <span key={gx.key} className="dot" style={{ background: 'var(--primary)', ...(gx.items.every(isPlanned) ? { opacity: .45 } : {}) }} />)}</span>
-                    {desktop && views > 0 && <span className="mini">{short(views)} vues</span>}
+                    {desktop && views > 0 && <span className="mini">{t('{n} vues', { n: short(views) })}</span>}
                     {desktop && dl != null && dl !== 0 && <span className="mini"><Delta value={dl} /></span>}
                   </button>
                 )
@@ -306,13 +307,13 @@ export default function Planning() {
       )}
 
       {!search && cal.data && items.length === 0 && view !== 'month' && (
-        <Empty title="Rien sur cette période" icon="calendar">
-          <p style={{ marginBottom: 14 }}>Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres ; programmez la suite depuis Chapote.</p>
-          <Link className="btn btn-primary" to="/nouvelle"><Icon name="plus" size={16} />Nouvelle publication</Link>
+        <Empty title={t('Rien sur cette période')} icon="calendar">
+          <p style={{ marginBottom: 14 }}>{t('Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres ; programmez la suite depuis Chapote.')}</p>
+          <Link className="btn btn-primary" to="/nouvelle"><Icon name="plus" size={16} />{t('Nouvelle publication')}</Link>
         </Empty>
       )}
 
-      <p className="tiny muted">Heures dans votre fuseau ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Une ligne par vidéo : ses plateformes sont en logos ; touchez-la pour le détail de chaque compte.</p>
+      <p className="tiny muted">{t('Heures dans votre fuseau ({zone}). Une ligne par vidéo : ses plateformes sont en logos ; touchez-la pour le détail de chaque compte.', { zone: Intl.DateTimeFormat().resolvedOptions().timeZone })}</p>
       {openGroup && <PublicationSheet g={openGroup} group={groupOf(openGroup.items)} onClose={() => setOpenGroup(null)}
                                       onChanged={() => { setOpenGroup(null); cal.reload() }} />}
     </>

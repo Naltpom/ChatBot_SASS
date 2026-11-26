@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router'
 import { View } from 'react-native'
 import { openAuthorize, startDriveOAuth, type Space, type Storage } from '../lib/api'
 import { fmtSize } from '../lib/format'
+import { t } from '../lib/i18n'
 import { Button, Msg, Txt } from '../ui/kit'
 import { radius, useTheme } from '../ui/theme'
 
@@ -27,13 +28,14 @@ export function Gauge({ s }: { s: Storage }) {
   const { c } = useTheme()
   const r = usedRatio(s)
   const color = s.state === 'full' ? c.danger : s.state === 'almost_full' ? c.warn : c.primary
-  const cap = s.quota_gb != null ? `${s.quota_gb} Go réservés` : s.drive_free_bytes != null ? `${fmtSize(s.drive_free_bytes)} libres sur le Drive` : ''
+  const cap = s.quota_gb != null ? t('{n} Go réservés', { n: s.quota_gb }) : s.drive_free_bytes != null ? t('{size} libres sur le Drive', { size: fmtSize(s.drive_free_bytes) }) : ''
+  const used = s.used_bytes != null ? fmtSize(s.used_bytes) : '—'
   return (
-    <View style={{ gap: 6 }} accessible accessibilityLabel={`Stockage : ${s.used_bytes != null ? fmtSize(s.used_bytes) : '—'} utilisés${cap ? `, ${cap}` : ''}`}>
+    <View style={{ gap: 6 }} accessible accessibilityLabel={`${t('Stockage : {used} utilisés', { used })}${cap ? `, ${cap}` : ''}`}>
       <View style={{ height: 10, borderRadius: radius.sm, backgroundColor: c.surface2, overflow: 'hidden' }}>
         <View style={{ width: `${Math.round((r ?? 0) * 100)}%`, height: '100%', backgroundColor: color }} />
       </View>
-      <Txt small muted>{s.used_bytes != null ? fmtSize(s.used_bytes) : '—'} utilisés par Chapote{cap ? ` · ${cap}` : ''}</Txt>
+      <Txt small muted>{t('{used} utilisés par Chapote', { used })}{cap ? ` · ${cap}` : ''}</Txt>
     </View>
   )
 }
@@ -43,13 +45,13 @@ export function StorageBanner({ space }: { space: Space | undefined }) {
   const router = useRouter()
   const st = space?.storage?.state
   if (!st || st === 'ok') return null
-  const text = st === 'missing' ? 'Connectez un Google Drive à cet espace pour publier.'
-    : st === 'full' ? 'Stockage Drive plein : libérez de la place ou augmentez le quota pour publier.'
-    : 'Stockage Drive presque plein (90 %).'
+  const text = st === 'missing' ? t('Connectez un Google Drive à cet espace pour publier.')
+    : st === 'full' ? t('Stockage Drive plein : libérez de la place ou augmentez le quota pour publier.')
+    : t('Stockage Drive presque plein (90 %).')
   return (
     <Msg kind={st === 'almost_full' ? 'warn' : 'err'}>
       <Txt small>{text}</Txt>
-      <Button small kind="ghost" title="Voir le stockage" onPress={() => router.push('/storage')} style={{ alignSelf: 'flex-start' }} />
+      <Button small kind="ghost" title={t('Voir le stockage')} onPress={() => router.push('/storage')} style={{ alignSelf: 'flex-start' }} />
     </Msg>
   )
 }

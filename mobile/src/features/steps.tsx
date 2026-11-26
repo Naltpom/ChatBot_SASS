@@ -5,6 +5,7 @@ import { View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { space, useTheme } from '../ui/theme'
 import { useSession } from '../lib/session'
+import { t } from '../lib/i18n'
 import { IconButton } from '../ui/kit'
 
 /** Mes propres comptes (pas ceux des groupes partagés avec moi). */
@@ -29,7 +30,7 @@ export function StepHeader({ n, backTo }: { n: number; backTo?: string }) {
   const router = useRouter()
   const back = () => (backTo ? router.replace(backTo as never) : router.canGoBack() ? router.back() : router.replace('/'))
   return <Stack.Screen options={{ title: '', headerShadowVisible: false, headerBackVisible: false, gestureEnabled: false,
-    headerLeft: n > 1 ? () => <IconButton icon="left" label={`Revenir à l’étape ${n - 1}`} onPress={back} /> : () => null }} />
+    headerLeft: n > 1 ? () => <IconButton icon="left" label={t('Revenir à l’étape {n}', { n: n - 1 })} onPress={back} /> : () => null }} />
 }
 
 /** Bouton principal en bas de l'écran, à portée du pouce. */

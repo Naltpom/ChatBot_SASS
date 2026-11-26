@@ -6,6 +6,7 @@ import { ApiError, commentAction, PLATFORM_LABEL, type Comment } from '../api'
 import { fmtAgo } from '../format'
 import { useSession } from '../session'
 import { Icon, Msg } from './ui'
+import { t } from '../i18n'
 
 const TINTS = [['#DBEAFE', '#1E3A8A'], ['#FFEDD5', '#9A3412'], ['#DCFCE7', '#166534'], ['#F3E8FF', '#6B21A8'], ['#FCE7F3', '#9D174D']]
 function tint(name: string | null) {
@@ -13,7 +14,7 @@ function tint(name: string | null) {
   for (const ch of name || '?') h = (h * 31 + ch.charCodeAt(0)) >>> 0
   return TINTS[h % TINTS.length]
 }
-const errText = (e: unknown) => (e as ApiError)?.data?.message || (e as Error)?.message || 'Erreur'
+const errText = (e: unknown) => (e as ApiError)?.data?.message || (e as Error)?.message || t('Erreur')
 const STATUS_LABEL: Record<string, string> = { replied: 'Répondu', contacted: 'Contacté', hidden: 'Masqué', ignored: 'Traité' }
 
 function MoreMenu({ items }: { items: { label: string; onClick?: () => void; href?: string; danger?: boolean }[] }) {
@@ -29,7 +30,7 @@ function MoreMenu({ items }: { items: { label: string; onClick?: () => void; hre
   if (!items.length) return null
   return (
     <div ref={box} style={{ position: 'relative' }}>
-      <button type="button" className="btn btn-ghost icon-btn" aria-label="Plus d’actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+      <button type="button" className="btn btn-ghost icon-btn" aria-label={t('Plus d’actions')} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}>
         <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
       </button>
       {open && (
@@ -63,49 +64,49 @@ export function CommentCard({ c, onChanged, canEdit, template }:
   }
   const copy = async () => {
     try { await navigator.clipboard.writeText(personal); setCopied(true); window.setTimeout(() => setCopied(false), 1500) }
-    catch { setErr('Copie impossible : sélectionnez le message à la main.') }
+    catch { setErr(t('Copie impossible : sélectionnez le message à la main.')) }
   }
   const more = [
-    ...(c.status === 'new' && c.platform !== 'tiktok' ? [{ label: 'Masquer le commentaire', danger: true, onClick: () => { if (window.confirm('Masquer ce commentaire pour tout le monde ?')) run(() => commentAction(org, c.id, 'hide')) } }] : []),
-    ...(c.status === 'new' ? [{ label: keyword ? 'Marquer comme contacté' : 'Marquer comme traité', onClick: () => run(() => commentAction(org, c.id, keyword ? 'contacted' : 'ignore')) }] : []),
-    ...(c.status !== 'new' ? [{ label: 'Remettre à traiter', onClick: () => run(() => commentAction(org, c.id, 'reopen')) }] : []),
-    ...(c.profile_url ? [{ label: 'Ouvrir le profil', href: c.profile_url }] : []),
+    ...(c.status === 'new' && c.platform !== 'tiktok' ? [{ label: t('Masquer le commentaire'), danger: true, onClick: () => { if (window.confirm(t('Masquer ce commentaire pour tout le monde ?'))) run(() => commentAction(org, c.id, 'hide')) } }] : []),
+    ...(c.status === 'new' ? [{ label: keyword ? t('Marquer comme contacté') : t('Marquer comme traité'), onClick: () => run(() => commentAction(org, c.id, keyword ? 'contacted' : 'ignore')) }] : []),
+    ...(c.status !== 'new' ? [{ label: t('Remettre à traiter'), onClick: () => run(() => commentAction(org, c.id, 'reopen')) }] : []),
+    ...(c.profile_url ? [{ label: t('Ouvrir le profil'), href: c.profile_url }] : []),
   ]
   return (
     <article className="ccard">
       <span className="ccard-av" aria-hidden="true" style={{ background: bg, color: fg }}>{(c.author || '?').replace('@', '').slice(0, 1).toUpperCase()}</span>
       <div className="ccard-body">
         <div className="ccard-head">
-          {c.profile_url ? <a className="strong" href={c.profile_url} target="_blank" rel="noreferrer">@{c.author}</a> : <span className="strong">{c.author || 'Anonyme'}</span>}
-          <span className="muted">{PLATFORM_LABEL[c.platform]} · {fmtAgo(c.published_at)}{c.count && c.count > 1 ? ` · ${c.count} commentaires` : ''}</span>
+          {c.profile_url ? <a className="strong" href={c.profile_url} target="_blank" rel="noreferrer">@{c.author}</a> : <span className="strong">{c.author || t('Anonyme')}</span>}
+          <span className="muted">{PLATFORM_LABEL[c.platform]} · {fmtAgo(c.published_at)}{c.count && c.count > 1 ? ` · ${t('{n} commentaires', { n: c.count })}` : ''}</span>
         </div>
         <p className="ccard-text">{c.text}</p>
-        {c.reply_text && <div className="ccard-reply"><b>Vous</b><span>{c.reply_text}</span></div>}
-        {c.status !== 'new' && STATUS_LABEL[c.status] && !c.pending && <span className="tiny" style={{ color: 'var(--ok, #166534)' }}>{STATUS_LABEL[c.status]}</span>}
-        {c.pending && <span className="tiny muted">Envoi en cours par la routine…</span>}
+        {c.reply_text && <div className="ccard-reply"><b>{t('Vous')}</b><span>{c.reply_text}</span></div>}
+        {c.status !== 'new' && STATUS_LABEL[c.status] && !c.pending && <span className="tiny" style={{ color: 'var(--ok, #166534)' }}>{t(STATUS_LABEL[c.status])}</span>}
+        {c.pending && <span className="tiny muted">{t('Envoi en cours par la routine…')}</span>}
         {c.error && <Msg kind="err">{c.error}</Msg>}
         {err && <Msg kind="err">{err}</Msg>}
         {canEdit && !c.pending && (
           <div className="ccard-actions">
             {c.platform !== 'tiktok' && c.status !== 'replied' && !keyword &&
-              <button type="button" className="linkbtn" aria-expanded={mode === 'reply'} onClick={() => { setMode(mode === 'reply' ? null : 'reply'); setText('') }}>Répondre</button>}
+              <button type="button" className="linkbtn" aria-expanded={mode === 'reply'} onClick={() => { setMode(mode === 'reply' ? null : 'reply'); setText('') }}>{t('Répondre')}</button>}
             {canPrivate && c.status !== 'contacted' &&
-              <button type="button" className={keyword ? 'linkbtn' : 'linkbtn muted'} aria-expanded={mode === 'private'} onClick={() => { setMode(mode === 'private' ? null : 'private'); setText(personal) }}>Réponse privée</button>}
-            {c.platform === 'tiktok' && c.video_url && <a className="linkbtn muted" href={c.video_url} target="_blank" rel="noreferrer">Répondre dans TikTok</a>}
-            {keyword && <button type="button" className="linkbtn muted" onClick={copy}>{copied ? 'Copié ✓' : 'Copier le message'}</button>}
-            {keyword && c.dm_url && <a className="linkbtn muted" href={c.dm_url} target="_blank" rel="noreferrer">Écrire sur Instagram</a>}
+              <button type="button" className={keyword ? 'linkbtn' : 'linkbtn muted'} aria-expanded={mode === 'private'} onClick={() => { setMode(mode === 'private' ? null : 'private'); setText(personal) }}>{t('Réponse privée')}</button>}
+            {c.platform === 'tiktok' && c.video_url && <a className="linkbtn muted" href={c.video_url} target="_blank" rel="noreferrer">{t('Répondre dans TikTok')}</a>}
+            {keyword && <button type="button" className="linkbtn muted" onClick={copy}>{copied ? t('Copié ✓') : t('Copier le message')}</button>}
+            {keyword && c.dm_url && <a className="linkbtn muted" href={c.dm_url} target="_blank" rel="noreferrer">{t('Écrire sur Instagram')}</a>}
             <span className="grow" />
             <MoreMenu items={more} />
           </div>
         )}
         {mode && (
           <form className="col" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); run(() => commentAction(org, c.id, mode === 'reply' ? 'reply' : 'private-reply', text.trim())) }}>
-            <label className="sr-only" htmlFor={`r${c.id}`}>{mode === 'reply' ? 'Votre réponse' : 'Message privé'}</label>
+            <label className="sr-only" htmlFor={`r${c.id}`}>{mode === 'reply' ? t('Votre réponse') : t('Message privé')}</label>
             <textarea id={`r${c.id}`} className="input" rows={3} value={text} onChange={e => setText(e.target.value)} maxLength={2200} autoFocus
-                      placeholder={mode === 'reply' ? `Votre réponse à @${c.author || ''}` : 'Message privé (une fois, dans les 7 jours)'} />
+                      placeholder={mode === 'reply' ? t('Votre réponse à @{author}', { author: c.author || '' }) : t('Message privé (une fois, dans les 7 jours)')} />
             <div className="row-nw" style={{ gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMode(null)}>Annuler</button>
-              <button className="btn btn-primary btn-sm" disabled={busy || !text.trim()}>{mode === 'reply' ? 'Publier' : 'Envoyer en privé'}</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMode(null)}>{t('Annuler')}</button>
+              <button className="btn btn-primary btn-sm" disabled={busy || !text.trim()}>{mode === 'reply' ? t('Publier') : t('Envoyer en privé')}</button>
             </div>
           </form>
         )}

@@ -6,6 +6,7 @@ import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { getAccounts, PLATFORM_LABEL, PLATFORMS, type Account, type Group, type Platform } from '../../lib/api'
 import { useLoad, useSession } from '../../lib/session'
 import { Avatar, Button, Chip, GroupDot, Icon, Msg, PlatformLogo, SearchField, Sheet, Skeleton, Txt } from '../../ui/kit'
+import { t } from '../../lib/i18n'
 import { space, useTheme } from '../../ui/theme'
 import { accKey, groupAccounts, unavailable } from './compose'
 
@@ -61,11 +62,11 @@ export function AccountSheet({ visible, onClose, picked, onChange, detail }: {
 
   const n = picked.length
   return (
-    <Sheet visible={visible} onClose={onClose} title={`Comptes · ${n} choisi${n > 1 ? 's' : ''}`} scroll={false}
-      footer={<Button kind="primary" title={n ? `Valider (${n})` : 'Choisir au moins un compte'} onPress={onClose} />}>
-      <SearchField value={input} onChangeText={setInput} placeholder="Rechercher un compte" />
+    <Sheet visible={visible} onClose={onClose} title={n > 1 ? t('Comptes · {n} choisis', { n }) : t('Comptes · {n} choisi', { n })} scroll={false}
+      footer={<Button kind="primary" title={n ? t('Valider ({n})', { n }) : t('Choisir au moins un compte')} onPress={onClose} />}>
+      <SearchField value={input} onChangeText={setInput} placeholder={t('Rechercher un compte')} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ flexGrow: 0 }}>
-        <Chip label="Tous" selected={!platform} onPress={() => setPlatform('')} />
+        <Chip label={t('Tous')} selected={!platform} onPress={() => setPlatform('')} />
         {PLATFORMS.map(p => (
           <Chip key={p} label={PLATFORM_LABEL[p]} selected={platform === p} onPress={() => setPlatform(platform === p ? '' : p)}
             left={<PlatformLogo platform={p} size={14} />} />
@@ -78,9 +79,9 @@ export function AccountSheet({ visible, onClose, picked, onChange, detail }: {
           style={{ flexShrink: 1, minHeight: 200 }}
           keyboardShouldPersistTaps="handled"
           keyExtractor={(r, i) => (r.type === 'group' ? `g${r.g.id}` : r.type === 'other' ? 'other' : `${r.in}-${accKey(r.a)}-${i}`)}
-          ListEmptyComponent={<Txt muted small center style={{ padding: space.lg }}>{q ? `Rien ne correspond à « ${q} ».` : 'Aucun compte connecté.'}</Txt>}
+          ListEmptyComponent={<Txt muted small center style={{ padding: space.lg }}>{q ? t('Rien ne correspond à « {q} ».', { q }) : t('Aucun compte connecté.')}</Txt>}
           renderItem={({ item: r }) => {
-            if (r.type === 'other') return <Txt small bold muted style={{ paddingTop: space.md, paddingBottom: 4 }}>Autres comptes</Txt>
+            if (r.type === 'other') return <Txt small bold muted style={{ paddingTop: space.md, paddingBottom: 4 }}>{t('Autres comptes')}</Txt>
             if (r.type === 'group') {
               const ok = r.members.filter(a => !unavailable(a))
               const full = ok.length > 0 && ok.every(a => picked.includes(accKey(a)))
@@ -88,14 +89,14 @@ export function AccountSheet({ visible, onClose, picked, onChange, detail }: {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: space.md, paddingBottom: 4 }}>
                   <GroupDot color={r.g.color} />
                   <Txt bold style={{ flex: 1 }} numberOfLines={1}>{r.g.name}</Txt>
-                  <Button small kind="ghost" title={full ? 'Retirer le groupe' : 'Tout le groupe'} disabled={!ok.length} onPress={() => toggleGroup(r.members)} />
+                  <Button small kind="ghost" title={full ? t('Retirer le groupe') : t('Tout le groupe')} disabled={!ok.length} onPress={() => toggleGroup(r.members)} />
                 </View>
               )
             }
             const a = r.a, why = unavailable(a), on = picked.includes(accKey(a))
             return (
               <Pressable onPress={() => toggle(a)} disabled={!!why} accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled: !!why }}
-                accessibilityLabel={`${a.name || PLATFORM_LABEL[a.platform]}, ${why || detail(a)}`}
+                accessibilityLabel={`${a.name || PLATFORM_LABEL[a.platform]}, ${why ? t(why) : detail(a)}`}
                 style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 56, paddingVertical: 6,
                   borderBottomWidth: StyleSheet.hairlineWidth, borderColor: c.border, opacity: why ? 0.5 : pressed ? 0.7 : 1 })}>
                 <View style={{ width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: on ? c.primary : c.borderStrong,
@@ -105,7 +106,7 @@ export function AccountSheet({ visible, onClose, picked, onChange, detail }: {
                 <Avatar src={a.avatar_url} name={a.name} platform={a.platform} size={36} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Txt bold numberOfLines={1}>{a.name || PLATFORM_LABEL[a.platform]}</Txt>
-                  <Txt small color={why ? c.danger : c.muted} numberOfLines={1}>{why || detail(a)}</Txt>
+                  <Txt small color={why ? c.danger : c.muted} numberOfLines={1}>{why ? t(why) : detail(a)}</Txt>
                 </View>
               </Pressable>
             )

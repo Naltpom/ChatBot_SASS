@@ -508,5 +508,6 @@ class CmProfile(Base):
     perso_name = Column(String(80), nullable=True)
     palette = Column(String(10), nullable=True)          # warm (défaut) | ocean | forest
     theme = Column(String(10), nullable=True)            # system (défaut) | light | dark
+    language = Column(String(10), nullable=True)         # system (défaut : langue de l'appareil) | fr | en
     prefs_rev = Column(Integer, nullable=False, default=0, server_default=text("0"))
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

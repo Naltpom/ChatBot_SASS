@@ -8,6 +8,7 @@ import {
   ALL, getAccounts, getCapabilities, getConfig, getGroups, getInvitations, getMe, getSpaces, logout as apiLogout, publicConfig,
   type Account, type Capabilities, type CmRole, type Config, type Group, type Me, type Scope, type Space,
 } from './api'
+import { t } from './i18n'
 
 interface SessionCtx {
   me: Me | null
@@ -207,11 +208,11 @@ export function useLoad<T>(fn: (scope: Scope) => Promise<T>, deps: unknown[] = [
     setLoading(true)
     if (cache.has(key)) setData(cache.get(key) as T)
     fn(scope).then(d => { cache.set(key, d); if (alive) { setData(d); setError(null) } })
-      .catch(e => { if (alive) setError(e?.message || 'Erreur') })
+      .catch(e => { if (alive) setError(e?.message || t('Erreur')) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [key, tick]) // eslint-disable-line react-hooks/exhaustive-deps
-  return { data, error, loading, reload: () => setTick(t => t + 1), setData }
+  return { data, error, loading, reload: () => setTick(n => n + 1), setData }
 }
 
 /** Vide le cache (déconnexion). */

@@ -1,32 +1,34 @@
 // Mise en forme (français) et libellés communs.
 import type { TargetStatus } from './api'
+import { locale, t } from './i18n'
 
-const nf = new Intl.NumberFormat('fr-FR')
-const compact = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 })
+// Langue fixée au chargement : changer de langue recharge la page.
+const nf = new Intl.NumberFormat(locale())
+const compact = new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 })
 
 export const num = (v: number | null | undefined) => (v == null ? '—' : nf.format(v))
 export const short = (v: number | null | undefined) => (v == null ? '—' : v < 10000 ? nf.format(v) : compact.format(v))
 export const signed = (v: number | null | undefined) => (v == null ? '—' : (v > 0 ? '+' : '') + nf.format(v))
 
-export const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
+export const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
+export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
 export const fmtDateTime = (iso: string) =>
-  new Date(iso).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  new Date(iso).toLocaleString(locale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 export const fmtDuration = (s: number | null | undefined) => {
   if (s == null) return '—'
   const m = Math.floor(s / 60), r = Math.round(s % 60)
-  return m ? `${m} min ${String(r).padStart(2, '0')}` : `${r} s`
+  return m ? t('{m} min {s}', { m, s: String(r).padStart(2, '0') }) : t('{s} s', { s: r })
 }
-export const fmtSize = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} Go` : `${Math.max(1, Math.round(b / 1024 ** 2))} Mo`)
+export const fmtSize = (b: number) => (b >= 1024 ** 3 ? t('{n} Go', { n: (b / 1024 ** 3).toFixed(1) }) : t('{n} Mo', { n: Math.max(1, Math.round(b / 1024 ** 2)) }))
 
 export function relDay(iso: string): string {
   const d = new Date(iso), today = new Date()
   const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const diff = Math.round((start(d) - start(today)) / 86400000)
-  if (diff === 0) return "aujourd'hui"
-  if (diff === 1) return 'demain'
-  if (diff === -1) return 'hier'
-  return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
+  if (diff === 0) return t("aujourd'hui")
+  if (diff === 1) return t('demain')
+  if (diff === -1) return t('hier')
+  return d.toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
 /** Valeur d'un <input type="datetime-local"> (heure locale) pour une date. */
@@ -58,7 +60,7 @@ export const TIKTOK_MUSIC_URL = 'https://www.tiktok.com/legal/page/global/music-
 export const TIKTOK_BC_URL = 'https://www.tiktok.com/legal/page/global/bc-policy/en'
 
 export const pct = (v: number | null | undefined, digits = 1) =>
-  v == null ? '—' : `${(v * 100).toLocaleString('fr-FR', { maximumFractionDigits: digits, minimumFractionDigits: v < 0.1 ? digits : 0 })} %`
+  v == null ? '—' : t('{n} %', { n: (v * 100).toLocaleString(locale(), { maximumFractionDigits: digits, minimumFractionDigits: v < 0.1 ? digits : 0 }) })
 
 export const METRIC_LABEL: Record<string, string> = {
   followers: 'Abonnés', views: 'Vues', likes: "J'aime", comments: 'Commentaires', shares: 'Partages', saves: 'Enregistrements',
@@ -76,14 +78,14 @@ export function startOfWeek(d: Date): Date {
 }
 export const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
 export const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString()
-export const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Bonsoir' : h < 18 ? 'Bonjour' : 'Bonsoir' }
+export const greeting = () => { const h = new Date().getHours(); return h < 5 ? t('Bonsoir') : h < 18 ? t('Bonjour') : t('Bonsoir') }
 /** « à l'instant », « il y a 2 h », « hier », puis la date. */
 export const fmtAgo = (iso: string | null | undefined) => {
   if (!iso) return ''
   const s = (Date.now() - new Date(iso).getTime()) / 1000
-  if (s < 60) return 'à l’instant'
-  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`
-  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`
-  if (s < 172800) return 'hier'
-  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+  if (s < 60) return t('à l’instant')
+  if (s < 3600) return t('il y a {n} min', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('il y a {n} h', { n: Math.floor(s / 3600) })
+  if (s < 172800) return t('hier')
+  return new Date(iso).toLocaleDateString(locale(), { day: 'numeric', month: 'short' })
 }

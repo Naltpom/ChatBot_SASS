@@ -9,6 +9,7 @@ import {
 } from './api'
 import { loadDevice, onSignedOut } from './http'
 import { logout as authLogout } from './auth'
+import { t } from './i18n'
 
 interface SessionCtx {
   me: Me | null
@@ -197,7 +198,7 @@ export function useLoad<T>(fn: (scope: Scope) => Promise<T>, deps: unknown[] = [
     setLoading(true)
     if (cache.has(k)) setData(cache.get(k) as T)
     fn(scope).then(d => { cache.set(k, d); if (alive) { setData(d); setError(null) } })
-      .catch(e => { if (alive) setError(e?.message || 'Erreur') })
+      .catch(e => { if (alive) setError(e?.message || t('Erreur')) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [k, tick, me]) // eslint-disable-line react-hooks/exhaustive-deps

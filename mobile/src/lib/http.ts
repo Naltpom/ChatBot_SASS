@@ -1,6 +1,7 @@
 // Transport HTTP de l'app : URL de l'API, session mobile (cookie `chapote_session` d'une heure obtenu
 // avec le jeton de l'appareil, voir api/src/routers/cm_mobile.py), nouvel essai après un 401,
 // erreurs lisibles en français.
+import { getLang, t } from './i18n'
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
 import { errorMessage, sessionIsFresh } from './session-logic'
@@ -50,19 +51,19 @@ export async function forgetDevice() {
 
 async function refresh(): Promise<string> {
   if (!deviceToken && (globalThis as { __CM_DEMO__?: { signedIn: boolean } }).__CM_DEMO__?.signedIn) deviceToken = 'demo'
-  if (!deviceToken) throw new ApiError(401, 'Connectez-vous.')
+  if (!deviceToken) throw new ApiError(401, t('Connectez-vous.'))
   let res: Response
   try {
     res = await fetch(`${API_URL}/api/cm/mobile/refresh`, {
       method: 'POST', credentials: 'omit',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Chapote-Lang': getLang() },
       body: JSON.stringify({ refresh_token: deviceToken }),
     })
   } catch {
-    throw new ApiError(0, 'Connexion impossible : vérifiez votre réseau.')
+    throw new ApiError(0, t('Connexion impossible : vérifiez votre réseau.'))
   }
-  if (res.status === 401) { await forgetDevice(); throw new ApiError(401, 'Session terminée : reconnectez-vous.') }
-  if (!res.ok) throw new ApiError(res.status, `Erreur ${res.status}`)
+  if (res.status === 401) { await forgetDevice(); throw new ApiError(401, t('Session terminée : reconnectez-vous.')) }
+  if (!res.ok) throw new ApiError(res.status, t('Erreur {status}', { status: res.status }))
   const body = await res.json() as { session: string; expires_in: number }
   session = { token: body.session, until: Date.now() + body.expires_in * 1000 }
   return body.session
@@ -77,14 +78,15 @@ export async function sessionCookie(force = false): Promise<string> {
 
 /** En-têtes d'une requête authentifiée (aussi pour les envois de fichiers et le lecteur vidéo). */
 export async function authHeaders(force = false): Promise<Record<string, string>> {
-  return { Cookie: `chapote_session=${await sessionCookie(force)}`, 'X-Chapote-App': 'cm-mobile' }
+  return { Cookie: `chapote_session=${await sessionCookie(force)}`, 'X-Chapote-App': 'cm-mobile', 'X-Chapote-Lang': getLang() }
 }
 
 async function readError(res: Response): Promise<ApiError> {
   let body: unknown = null
   try { body = await res.json() } catch { /* corps non JSON */ }
   const { message, data } = errorMessage(res.status, body)
-  return new ApiError(res.status, message, data)
+  // Messages de repli (en français, session-logic) : traduits ici ; ceux du serveur arrivent déjà dans la langue.
+  return new ApiError(res.status, t(message), data)
 }
 
 export async function callRaw<T>(path: string, init?: RequestInit): Promise<{ body: T; res: Response }> {
@@ -98,7 +100,7 @@ export async function callRaw<T>(path: string, init?: RequestInit): Promise<{ bo
       })
     } catch (e) {
       if (e instanceof ApiError) throw e
-      throw new ApiError(0, 'Connexion impossible : vérifiez votre réseau.')
+      throw new ApiError(0, t('Connexion impossible : vérifiez votre réseau.'))
     }
     if (res.status === 401 && attempt === 0 && deviceToken) continue
     if (!res.ok) throw await readError(res)
@@ -123,11 +125,11 @@ export async function callPublic<T>(path: string, body: unknown, include = false
   try {
     res = await fetch(url(path), {
       method: 'POST', credentials: include ? 'include' : 'omit',
-      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm-mobile' },
+      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm-mobile', 'X-Chapote-Lang': getLang() },
       body: JSON.stringify(body),
     })
   } catch {
-    throw new ApiError(0, 'Connexion impossible : vérifiez votre réseau.')
+    throw new ApiError(0, t('Connexion impossible : vérifiez votre réseau.'))
   }
   if (!res.ok) throw await readError(res)
   return await res.json() as T
