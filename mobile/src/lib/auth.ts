@@ -114,7 +114,9 @@ export async function loginWithPasskey(challenge: string): Promise<Me> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Passkey } = require('react-native-passkey') as typeof import('react-native-passkey')
   const { options } = await callPublic<{ options: string }>('/api/cm/mobile/passkey/login/begin', { challenge })
-  const credential = await Passkey.get(JSON.parse(options))
+  // Sans liste de clés : le téléphone propose ses clés chapote.fr (Google, Samsung Pass…). Avec la liste,
+  // Samsung Pass ne retrouvait pas la clé. Le serveur vérifie de toute façon qu'elle appartient à ce compte.
+  const credential = await Passkey.get({ ...JSON.parse(options), allowCredentials: [] })
   await callPublic<Me>('/api/cm/mobile/passkey/login/complete', { challenge, credential }, true)
   return finishCookieLogin()
 }
