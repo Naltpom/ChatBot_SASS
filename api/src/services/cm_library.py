@@ -541,6 +541,33 @@ async def ensure_media(db: AsyncSession, post_id: int) -> CmPost:
     return post
 
 
+async def ensure_cover(db: AsyncSession, post: CmPost) -> None:
+    """Couverture rangée dans le Drive par cm (archive) mais plus sur le serveur : recopiée avant l'envoi
+    à Instagram. Sans effet si le fichier est là, s'il n'y a pas de couverture archivée ou si le Drive refuse."""
+    if post.cover_path and os.path.exists(post.cover_path):
+        return
+    file_id = (post.archive or {}).get("cover_id")
+    if not file_id or not gd.is_enabled():
+        return
+    cover = str(cm.media_dir() / f"{uuid.uuid4().hex}.jpg")
+    try:
+        await gd.download(file_id, cover, cm.COVER_MAX_BYTES)
+        with open(cover, "rb") as f:
+            kind = cm.image_kind(f.read(16))
+        if kind is None:
+            _unlink(cover)
+            return
+        if kind == "png":
+            os.replace(cover, cover[:-4] + ".png")
+            cover = cover[:-4] + ".png"
+        os.chmod(cover, 0o600)
+        post.cover_path = cover
+        await db.commit()
+    except Exception as e:   # la couverture ne doit jamais bloquer la publication
+        _unlink(cover)
+        logger.info("cm : couverture archivée %s illisible (%s)", file_id, getattr(e, "code", e))
+
+
 def _set_media(post: CmPost, path: str, size: int, video) -> None:
     post.media_path = path
     post.video_size = post.received_bytes = size

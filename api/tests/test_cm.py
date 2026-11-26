@@ -744,6 +744,34 @@ async def test_abandoned_upload_is_cleaned(pg_session, cmenv, tiktok):
     assert post.status == "CANCELLED" and post.media_path is None and os.listdir(settings.CM_MEDIA_DIR) == []
 
 
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_cover_sent_the_day_before_survives_cleanup(pg_session, cmenv):
+    """Couverture envoyée la veille (routines) : le nettoyage des fichiers orphelins ne l'efface pas."""
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    when = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        data = mp4_bytes(10_000)
+        r = await h.post("/api/cm/posts", json={"title": "x", "file_name": "clip.mp4", "video_size": len(data),
+                                                "targets": [_ig_target(acc.id, scheduled_at=when)]})
+        post_id = r.json()["post_id"]
+        await _send(h, post_id, data)
+        r = await h.put(f"/api/cm/posts/{post_id}/cover", content=b"\xff\xd8\xff\xe0" + b"0" * 2000)
+        assert r.status_code == 200, r.text
+        r = await h.post(f"/api/cm/posts/{post_id}/submit")
+        assert r.status_code == 200, r.text
+    post = await pg_session.get(CmPost, post_id)
+    await pg_session.refresh(post)
+    old = utcnow().timestamp() - 5 * 3600
+    for f in (post.cover_path, post.media_path):
+        os.utime(f, (old, old))
+    await cm_jobs.cleanup(pg_session)
+    assert os.path.exists(post.cover_path) and os.path.exists(post.media_path)
+
+
 def test_media_links_expire_and_are_bound_to_the_target(monkeypatch):
     t = CmTarget(id=7)
     url = cm.media_url(t, "video/mp4")

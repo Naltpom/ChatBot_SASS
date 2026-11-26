@@ -242,6 +242,7 @@ async def _dispatch_instagram(db: AsyncSession, t: CmTarget, post: CmPost) -> No
         # Le conteneur est créé avec le lien signé : Meta télécharge la vidéo.
         t.status = T_PUBLISHING
         await db.commit()
+        await cm_library.ensure_cover(db, post)
         cover = cm.cover_url(t) if post.cover_path and os.path.exists(post.cover_path) else None
         container = await ig.create_reel_container(
             token, acc.ig_user_id, cm.media_url(t, post.mime_type), o.get("caption") or "",
@@ -565,7 +566,10 @@ async def cleanup(db: AsyncSession) -> None:
     await db.commit()
 
     # Fichiers orphelins.
+    # Vidéos ET couvertures encore rattachées à une publication : une couverture envoyée la veille au soir
+    # (routines) doit survivre jusqu'à l'heure de publication, sinon Instagram prend une image de la vidéo.
     live = {p for p in (await db.execute(select(CmPost.media_path).where(CmPost.media_path.is_not(None)))).scalars()}
+    live |= {p for p in (await db.execute(select(CmPost.cover_path).where(CmPost.cover_path.is_not(None)))).scalars()}
     for f in cm.media_dir().iterdir():
         if str(f) not in live and time.time() - f.stat().st_mtime > 3600:
             f.unlink(missing_ok=True)
