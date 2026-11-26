@@ -53,7 +53,7 @@ et stable du compte : `instagram:@ghosthands.music`, `tiktok:@ghosthands.music`,
      | Instagram | `collaborators` | 3 pseudos au plus (invitation de collaboration) | aucun |
      | Instagram | `share_to_feed` | booléen | `true` |
 2. `PUT /posts/{id}/parts/{n}` (octets bruts, morceaux de `part_size`, dans l'ordre ; renvoyer un morceau déjà reçu est sans effet)
-3. `PUT /posts/{id}/cover` (facultatif ; JPEG/PNG ≤ 8 Mo) → couverture Instagram (`cover_url`)
+3. `PUT /posts/{id}/cover` (facultatif ; JPEG/PNG ≤ 8 Mo) → couverture Instagram (`cover_url`) ; gardée sur le serveur jusqu'à la publication (`GET /posts/{id}` → `has_cover`), renvoyable tant que la cible Instagram n'est pas partie
 4. `POST /posts/{id}/submit` → vérifie la vidéo pour chaque compte, puis programme.
 
 ## 3. Suivre

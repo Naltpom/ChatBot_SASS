@@ -763,6 +763,7 @@ async def test_cover_sent_the_day_before_survives_cleanup(pg_session, cmenv):
         assert r.status_code == 200, r.text
         r = await h.post(f"/api/cm/posts/{post_id}/submit")
         assert r.status_code == 200, r.text
+        assert (await h.get(f"/api/cm/posts/{post_id}")).json()["has_cover"] is True
     post = await pg_session.get(CmPost, post_id)
     await pg_session.refresh(post)
     old = utcnow().timestamp() - 5 * 3600

@@ -1254,7 +1254,8 @@ def _post_out(post: CmPost, targets: list[CmTarget], names: dict) -> dict:
         "rights": post.rights, "rights_note": post.rights_note,
         "rights_warning": RIGHTS_WARNING if post.rights in ("protected", "unknown") else None, "caption": post.caption, "file_name": post.file_name,
         "video_size": post.video_size, "duration_sec": post.duration_sec, "status": post.status,
-        "has_media": bool(post.media_path), "asset_id": post.asset_id, "created_at": cm.iso(post.created_at),
+        "has_media": bool(post.media_path), "has_cover": bool(post.cover_path and os.path.exists(post.cover_path)),
+        "asset_id": post.asset_id, "created_at": cm.iso(post.created_at),
         "archive": cm_archive.archive_out(post),
         "targets": [_target_out(t, names) for t in sorted(targets, key=lambda x: (x.scheduled_at, x.id))],
     }
