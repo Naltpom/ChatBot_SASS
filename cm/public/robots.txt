@@ -2,4 +2,8 @@ User-agent: *
 Allow: /$
 Allow: /privacy
 Allow: /terms
+Allow: /politique-ia
+Allow: /avis
 Disallow: /api/
+
+Sitemap: https://cm.chapote.fr/sitemap.xml
