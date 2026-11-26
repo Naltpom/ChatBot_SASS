@@ -76,7 +76,8 @@ async def _visible_assets(db: AsyncSession, user) -> list[tuple[CmAsset, CmSourc
 
 
 async def library_search(db, user, refs, consent, query: str = "", limit: int = 5) -> dict:
-    """Vidéos de la bibliothèque dont le nom, le dossier ou la légende contient les mots demandés."""
+    """Vidéos de la bibliothèque dont le nom, le dossier ou la légende contient les mots demandés (sans mots :
+    les dernières ajoutées)."""
     if not getattr(consent, "captions", False):
         raise DraftError("Pour chercher une vidéo par son nom, autorisez les titres et légendes dans les réglages "
                          "de l'assistant (Réglages → Assistant IA).", "no_captions")

@@ -959,7 +959,8 @@
       : (ai ? t("online_ai") : t("online_tree"));
     ui.modeBadge.textContent = human ? "LIVE" : (ai ? "IA" : "TREE");
     // Mode humain : saisie toujours active, même sur un bot tree
-    const canType = human || (ai && state.config.mode !== "tree");
+    // Hybride : on peut écrire à tout moment, même au menu (le texte libre part vers l'IA).
+    const canType = human || state.config.mode === "hybrid" || (ai && state.config.mode !== "tree");
     ui.input.disabled = !canType;
     ui.input.placeholder = human
       ? t("placeholder_advisor")
@@ -1014,18 +1015,20 @@
   // nœuds DOM (JAMAIS innerHTML) -> anti-XSS. Les \n restent en texte (rendus par
   // white-space:pre-wrap). Un texte sans token markdown ressort à l'identique
   // (les sélecteurs e2e toHaveText exact restent valides).
-  var MD_RE = /\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_|\[([^\]]+)\]\(([^)\s]+)\)/g;
+  // + adresse nue https://… rendue en lien (l'IA ne met pas toujours le markdown) ; ponctuation finale exclue.
+  var MD_RE = /(https?:\/\/[^\s<>()\[\]]*[^\s<>()\[\].,;:!?»"'’])|\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_|\[([^\]]+)\]\(([^)\s]+)\)/g;
   function renderMd(parent, text) {
     text = String(text == null ? "" : text);
     MD_RE.lastIndex = 0;
     var last = 0, m;
     while ((m = MD_RE.exec(text)) !== null) {
       if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
-      if (m[1] != null) { var b = document.createElement("strong"); b.textContent = m[1]; parent.appendChild(b); }
-      else if (m[2] != null || m[3] != null) { var it = document.createElement("em"); it.textContent = m[2] != null ? m[2] : m[3]; parent.appendChild(it); }
-      else if (m[4] != null) {
-        if (/^https?:\/\//i.test(m[5])) { var a = document.createElement("a"); a.href = m[5]; a.target = "_blank"; a.rel = "noopener nofollow"; a.textContent = m[4]; parent.appendChild(a); }
-        else parent.appendChild(document.createTextNode(m[4]));
+      if (m[1] != null) { var u = document.createElement("a"); u.href = m[1]; u.target = "_blank"; u.rel = "noopener nofollow"; u.textContent = m[1]; parent.appendChild(u); }
+      else if (m[2] != null) { var b = document.createElement("strong"); b.textContent = m[2]; parent.appendChild(b); }
+      else if (m[3] != null || m[4] != null) { var it = document.createElement("em"); it.textContent = m[3] != null ? m[3] : m[4]; parent.appendChild(it); }
+      else if (m[5] != null) {
+        if (/^https?:\/\//i.test(m[6])) { var a = document.createElement("a"); a.href = m[6]; a.target = "_blank"; a.rel = "noopener nofollow"; a.textContent = m[5]; parent.appendChild(a); }
+        else parent.appendChild(document.createTextNode(m[5]));
       }
       last = MD_RE.lastIndex;
     }
@@ -1506,7 +1509,11 @@
         .finally(function () { state.busy = false; });
     });
     form.appendChild(submit);
-    ui.msgs.appendChild(form);
+    // Les choix du nœud (« ↩ Retour »…) restent proposés SOUS le formulaire : on peut en sortir sans
+    // l'envoyer (cliquer un choix retire le formulaire, comme les autres options).
+    addOptions(options);
+    const opts = ui.msgs.querySelector(".kc-opts");
+    if (opts) ui.msgs.insertBefore(form, opts); else ui.msgs.appendChild(form);
     ui.msgs.scrollTop = ui.msgs.scrollHeight;
   }
 
@@ -1593,6 +1600,8 @@
     ui.input.value = "";
     fitInput();
     clearOptions();
+    // Hybride : écrire au menu bascule la conversation sur l'IA (le bouton « menu » permet d'y revenir).
+    if (state.config.mode === "hybrid" && !state.aiMode && !isHuman()) { state.aiMode = true; updateModeUI(); }
     // Pas d'indicateur de frappe pendant l'attente humaine (simple accusé)
     if (!isHuman()) setTyping(true);
 

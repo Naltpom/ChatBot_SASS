@@ -559,7 +559,13 @@ async def tool_my_accounts(db, refs, consent) -> dict:
         out.append({"compte": r.alias, "reseau": PLATFORM_LABEL[r.platform], "groupes": r.groups[:5],
                     "donnees_autorisees": kinds, "videos_suivies": int(n),
                     "dernier_releve": last.isoformat() if last else None})
-    return {"comptes": out[:30]}
+    groups: dict[str, list[str]] = {}
+    for r in refs:
+        if any(allowed(r, consent, k) for k in KINDS):
+            for g in r.groups:
+                groups.setdefault(g, []).append(r.alias)
+    return {"comptes": out[:30], "groupes": [{"groupe": g, "comptes": m[:30]} for g, m in sorted(groups.items())],
+            "note": "Les alias s'affichent chez la personne sous leurs vrais noms : listez-les tels quels."}
 
 
 def _fold_txt(s: Optional[str]) -> str:
@@ -635,7 +641,8 @@ TOOLS: dict[str, dict] = {
     },
     "my_accounts": {
         "fn": tool_my_accounts, "kind": "accounts",
-        "description": "MES comptes et groupes autorisés pour l'assistant, sous leurs alias.",
+        "description": ("MES comptes (réseau, groupes) et MES groupes (avec leurs comptes) autorisés pour l'assistant, "
+                        "sous leurs alias. Pour « mes groupes », « mes comptes », « quels comptes ai-je »."),
         "schema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
 }
@@ -651,9 +658,11 @@ TOOLS.update({
         "fn": drafts.library_search, "kind": "captions", "user": True,
         "tags": "vidéo fichier bibliothèque drive chercher trouver nom dossier video file library search find",
         "description": ("Cherche une vidéo dans MA bibliothèque (dossiers Google Drive reliés à Chapote) par mots du "
-                        "nom, du dossier ou de la légende. Renvoie video_id, titre, durée, déjà programmée ou non."),
+                        "nom, du dossier ou de la légende, fautes de frappe tolérées. Renvoie video_id, le VRAI titre, "
+                        "le dossier, la durée, déjà programmée ou non. Vous POUVEZ voir ma bibliothèque avec cet outil."),
         "schema": {"type": "object", "properties": {
-            "query": {"type": "string", "description": "Mots à chercher (ex. « paul dream piano »)."},
+            "query": {"type": "string", "description": ("Mots à chercher, tels que la personne les écrit, fautes comprises (ex. « paul dream piano », « wondefall ») ; "
+                                                   "vide : les dernières vidéos ajoutées (« qu'est-ce que j'ai ? »).")},
             "limit": {"type": "integer", "minimum": 1, "maximum": 10}}, "additionalProperties": False},
     },
     "suggest_slots": {
@@ -717,7 +726,7 @@ def search_actions(query: str, limit: int = 5) -> list[dict]:
             for _, n, sp in scored[:max(1, min(limit, 8))]]
 
 
-CORE = ("my_accounts", "find_accounts", "schedule", "stats_summary", "top_videos")   # montrés d'office (lecture, courants)
+CORE = ("my_accounts", "find_accounts", "library_search", "create_draft", "schedule", "stats_summary", "top_videos")   # montrés d'office (lecture, courants)
 META: dict[str, dict] = {
     "search_actions": {
         "description": ("Cherche les actions Chapote CM utiles pour une demande (ex. « trouver une vidéo », « proposer "
