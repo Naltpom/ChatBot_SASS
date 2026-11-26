@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { AccountPicker } from '../components/AccountPicker'
+import { FramePicker } from '../components/FramePicker'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ALL, creatorInfo, createPost, getAccounts, getAsset, getProposal, getRobot, putCover, putPart, submitPost, PLATFORM_LABEL,
@@ -80,7 +81,8 @@ export default function Composer() {
   const [sameTime, setSameTime] = useState(true)
   const [times, setTimes] = useState<Record<string, string>>({})
   const [progress, setProgress] = useState<number | null>(null)
-  const [cover, setCover] = useState<File | null>(null)
+  const [cover, setCover] = useState<File | null>(null)          // image Instagram à part (facultative)
+  const [coverMs, setCoverMs] = useState<number | null>(null)     // miniature : instant de la vidéo (TikTok, et Instagram sans image)
   const [coverUrl, setCoverUrl] = useState<string | null>(null)
   useEffect(() => () => { if (coverUrl) URL.revokeObjectURL(coverUrl) }, [coverUrl])
   const [err, setErr] = useState('')
@@ -98,7 +100,7 @@ export default function Composer() {
   const useAsset = (a: Asset) => {
     setAsset(a); setPicking(false); setErr('')
     setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null)
-    setDuration(a.duration_sec)
+    setDuration(a.duration_sec); setCoverMs(null)
     setTitle(a.title.slice(0, 200))
     setCaption(a.caption || '')
     if (a.group_id) add(groupAccounts(a.group_id))
@@ -184,7 +186,7 @@ export default function Composer() {
   const set = <T extends Opts>(k: string, patch: Partial<T>) => setOpts(o => ({ ...o, [k]: { ...(o[k] as T), ...patch } }))
 
   const onFile = (f: File | null) => {
-    setFile(f); setDuration(null); setErr(''); setAsset(null)
+    setFile(f); setDuration(null); setErr(''); setAsset(null); setCoverMs(null)
     if (preview) URL.revokeObjectURL(preview)
     setPreview(f ? URL.createObjectURL(f) : null)
     if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, '').slice(0, 100))
@@ -232,6 +234,7 @@ export default function Composer() {
       return { platform: a.platform, account_id: a.id, scheduled_at, options: {
         mode: t.mode, privacy_level: t.mode === 'direct' ? t.privacy : null, allow_comment: t.comment, allow_duet: t.duet,
         allow_stitch: t.stitch, brand_organic: t.commercial && t.yourBrand, brand_content: t.commercial && t.branded,
+        ...(t.mode === 'direct' && coverMs != null ? { cover_timestamp_ms: coverMs } : {}),
         ...(t.text.trim() ? { title: t.text } : {}) } }
     }
     if (a.platform === 'youtube') {
@@ -242,7 +245,8 @@ export default function Composer() {
         synthetic_media: y.synthetic, category_id: y.category, notify_subscribers: y.notify } }
     }
     const i = o as InstaOpts
-    return { platform: a.platform, account_id: a.id, scheduled_at, options: { share_to_feed: i.feed, ...(i.text.trim() ? { caption: i.text } : {}) } }
+    return { platform: a.platform, account_id: a.id, scheduled_at, options: { share_to_feed: i.feed,
+      ...(coverMs != null && !cover ? { thumb_offset_ms: coverMs } : {}), ...(i.text.trim() ? { caption: i.text } : {}) } }
   }
 
   const publish = async () => {
@@ -403,19 +407,25 @@ export default function Composer() {
                            detail={a => `${PLATFORM_LABEL[a.platform]}${a.platform === 'youtube' ? ' · Short' : a.platform === 'instagram' ? ` · Reel${a.mode === 'routine' ? ' · routine' : ''}` : ''}`} />
           </Section>}
 
-          {(desktop ? chosen.some(a => a.platform === 'instagram') : step === 1) && (
-            <Section title="Couverture" aside="Instagram · facultatif">
-              <div className="row-nw" style={{ gap: 12, alignItems: 'center' }}>
-                {coverUrl ? <img src={coverUrl} alt="Couverture choisie" style={{ width: 54, height: 96, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
-                  : <span aria-hidden="true" style={{ width: 54, height: 96, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
-                <div className="col grow" style={{ gap: 6 }}>
-                  <label className="btn btn-sm" style={{ alignSelf: 'flex-start' }}>
-                    {cover ? 'Changer l’image' : 'Choisir une image'}
-                    <input type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy}
-                           onChange={e => { const f = e.target.files?.[0] || null; if (coverUrl) URL.revokeObjectURL(coverUrl); setCover(f); setCoverUrl(f ? URL.createObjectURL(f) : null) }} />
-                  </label>
-                  {cover && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => { setCover(null); if (coverUrl) URL.revokeObjectURL(coverUrl); setCoverUrl(null) }}>Retirer</button>}
-                  <span className="field-hint">JPEG ou PNG, 8 Mo max. Sinon : l’image à côté de la vidéo dans le Drive{asset?.has_cover ? ' (trouvée)' : ''}, ou celle choisie par Instagram.</span>
+          {(file || asset) && (desktop ? chosen.some(a => a.platform !== 'youtube') || !chosen.length : step === 1) && (
+            <Section title="Miniature" aside="TikTok · Instagram · facultatif">
+              <span className="field-hint">Choisissez l’image de la vidéo qui sert de miniature. TikTok n’accepte qu’une image de la vidéo ; YouTube choisit lui-même celle des Shorts.</span>
+              <FramePicker src={preview || asset?.stream || (asset ? `/api/cm/assets/${asset.id}/stream` : null)} duration={duration}
+                           value={coverMs} onChange={setCoverMs} disabled={busy} />
+              <div className="col" style={{ gap: 6, borderTop: '1px solid var(--line, var(--surface-2))', paddingTop: 12 }}>
+                <span className="strong small">Instagram : une autre image (facultatif)</span>
+                <div className="row-nw" style={{ gap: 12, alignItems: 'center' }}>
+                  {coverUrl ? <img src={coverUrl} alt="Image Instagram choisie" style={{ width: 54, height: 96, objectFit: 'cover', borderRadius: 8, flex: 'none' }} />
+                    : <span aria-hidden="true" style={{ width: 54, height: 96, borderRadius: 8, background: 'var(--surface-2)', flex: 'none' }} />}
+                  <div className="col grow" style={{ gap: 6 }}>
+                    <label className="btn btn-sm" style={{ alignSelf: 'flex-start' }}>
+                      {cover ? 'Changer l’image' : 'Choisir une image'}
+                      <input type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy}
+                             onChange={e => { const f = e.target.files?.[0] || null; if (coverUrl) URL.revokeObjectURL(coverUrl); setCover(f); setCoverUrl(f ? URL.createObjectURL(f) : null) }} />
+                    </label>
+                    {cover && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => { setCover(null); if (coverUrl) URL.revokeObjectURL(coverUrl); setCoverUrl(null) }}>Retirer</button>}
+                    <span className="field-hint">JPEG ou PNG, 8 Mo max, prioritaire sur l’image de la vidéo pour Instagram. Sinon : l’image à côté de la vidéo dans le Drive{asset?.has_cover ? ' (trouvée)' : ''}, ou l’image choisie ci-dessus.</span>
+                  </div>
                 </div>
               </div>
             </Section>

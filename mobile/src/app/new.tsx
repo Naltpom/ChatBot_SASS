@@ -33,6 +33,7 @@ import { AccountSheet } from '../features/planning/AccountSheet'
 import { LibrarySheet } from '../features/planning/LibrarySheet'
 import { apiUrl, openLink, useAuthHeaders } from '../features/planning/media'
 import { InstaPanel, TikTokPanel, YouTubePanel } from '../features/planning/Panels'
+import { FramePicker } from '../features/planning/FramePicker'
 import { Check, DateTimeField, Section, TooSoon, useNow } from '../features/planning/ui'
 import { showDialog } from '../ui/dialog'
 
@@ -96,7 +97,8 @@ export default function NewPost() {
   const [at, setAt] = useState(() => earliestSlot())
   const [sameTime, setSameTime] = useState(true)
   const [times, setTimes] = useState<Record<string, Date>>({})
-  const [cover, setCover] = useState<Cover | null>(null)
+  const [cover, setCover] = useState<Cover | null>(null)          // image Instagram à part (facultative)
+  const [coverMs, setCoverMs] = useState<number | null>(null)     // miniature : instant de la vidéo
   const [progress, setProgress] = useState<number | null>(null)
   const [err, setErr] = useState('')
   const [picking, setPicking] = useState(false)
@@ -262,9 +264,10 @@ export default function NewPost() {
     } catch (e) { showDialog('Galerie indisponible', (e as Error).message) }
   }
 
+  useEffect(() => { setCoverMs(null) }, [video?.uri, asset?.id])
   const state: ComposeState = {
     hasVideo: !!video || !!asset, size: video ? video.size : null, duration: video ? video.duration : asset ? asset.duration_sec : null,
-    title, chosen, opts, creators, when, at, sameTime, times,
+    title, chosen, opts, creators, when, at, sameTime, times, coverMs, coverImage: !!cover,
   }
   const now = useNow()
   const sp = useMemo(() => stepProblems(state, config, now.getTime(), fmtSize, fmtDuration),
@@ -452,17 +455,24 @@ export default function NewPost() {
                 hint={`${count.chars.toLocaleString('fr-FR')} / 2 200 · ${count.tags} hashtag${count.tags > 1 ? 's' : ''} · la même sur chaque compte`} />
             </Section>
 
-            <Section title="Couverture" aside={<Txt small muted>Facultatif</Txt>}>
-              <Row gap={space.md} style={{ alignItems: 'center' }}>
-                {cover ? <Image source={{ uri: cover.uri }} style={{ width: 54, height: 96, borderRadius: 8 }} contentFit="cover" accessibilityLabel="Couverture choisie" />
-                  : <View style={{ width: 54, height: 96, borderRadius: 8, backgroundColor: c.surface2, alignItems: 'center', justifyContent: 'center' }}><Icon name="upload" size={18} color={c.faint} /></View>}
-                <View style={{ flex: 1, gap: 6 }}>
-                  <Button small title={cover ? 'Changer l’image' : 'Choisir une image'} disabled={busy} onPress={pickCover} style={{ alignSelf: 'flex-start' }} />
-                  {cover ? <Button small kind="ghost" title="Retirer" disabled={busy} onPress={() => setCover(null)} style={{ alignSelf: 'flex-start' }} /> : null}
-                  <Txt size={12} muted>Utilisée pour Instagram. Sinon : l’image à côté de la vidéo dans le Drive{asset?.has_cover ? ' (trouvée)' : ''}, ou celle choisie par le réseau.</Txt>
-                </View>
-              </Row>
-            </Section>
+            {video || asset ? (
+              <Section title="Miniature" aside={<Txt small muted>Facultatif</Txt>}>
+                <Txt size={12} muted>L’image de la vidéo qui sert de miniature sur TikTok et Instagram. TikTok n’accepte qu’une image de la vidéo ; YouTube choisit lui-même celle des Shorts.</Txt>
+                <FramePicker key={video?.uri || `asset-${asset?.id}`}
+                  source={video ? video.uri : asset && headers ? { uri: apiUrl(asset.stream || `/api/cm/assets/${asset.id}/stream`, org), headers } : null}
+                  duration={state.duration} value={coverMs} onChange={setCoverMs} disabled={busy} />
+                <Txt bold small>Instagram : une autre image (facultatif)</Txt>
+                <Row gap={space.md} style={{ alignItems: 'center' }}>
+                  {cover ? <Image source={{ uri: cover.uri }} style={{ width: 54, height: 96, borderRadius: 8 }} contentFit="cover" accessibilityLabel="Image Instagram choisie" />
+                    : <View style={{ width: 54, height: 96, borderRadius: 8, backgroundColor: c.surface2, alignItems: 'center', justifyContent: 'center' }}><Icon name="upload" size={18} color={c.faint} /></View>}
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Button small title={cover ? 'Changer l’image' : 'Choisir une image'} disabled={busy} onPress={pickCover} style={{ alignSelf: 'flex-start' }} />
+                    {cover ? <Button small kind="ghost" title="Retirer" disabled={busy} onPress={() => setCover(null)} style={{ alignSelf: 'flex-start' }} /> : null}
+                    <Txt size={12} muted>Prioritaire sur l’image de la vidéo pour Instagram. Sinon : l’image à côté de la vidéo dans le Drive{asset?.has_cover ? ' (trouvée)' : ''}, ou l’image choisie ci-dessus.</Txt>
+                  </View>
+                </Row>
+              </Section>
+            ) : null}
 
             <Section title="Droits d’auteur" aside={<Txt small muted>Facultatif</Txt>}>
               <Txt small muted>La vidéo reprend-elle une œuvre (musique, chorégraphie, extrait) ?</Txt>

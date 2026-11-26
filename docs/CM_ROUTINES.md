@@ -31,10 +31,12 @@ et stable du compte : `instagram:@ghosthands.music`, `tiktok:@ghosthands.music`,
    - options TikTok : `{mode: "direct"|"draft", privacy_level: "PUBLIC_TO_EVERYONE"|…, allow_comment, allow_duet,
      allow_stitch, brand_organic, brand_content, caption? (= title), hashtags?: [], fallback_draft?}` — `fallback_draft: true` = le repli de
      `tiktok.py` : si TikTok refuse la visibilité (application pas encore auditée), la vidéo repart en brouillon
-     dans l'app TikTok (`notice` de la cible l'indique) au lieu d'échouer.
+     dans l'app TikTok (`notice` de la cible l'indique) au lieu d'échouer. `cover_timestamp_ms?` : miniature = l'image de
+     la vidéo à cet instant (ms ; publication directe seulement, TikTok n'accepte pas d'image à part).
    - options YouTube : `{title?, description?, tags: [], privacy_status: "public"|"unlisted"|"private",
      made_for_kids: false, synthetic_media: false, category_id: "10", notify_subscribers: true, default_language?: "fr"}`
-   - options Instagram : `{caption?, hashtags?: [], collaborators?: ["pseudo"], share_to_feed: true}`
+   - options Instagram : `{caption?, hashtags?: [], collaborators?: ["pseudo"], share_to_feed: true, thumb_offset_ms?}` —
+     `thumb_offset_ms` : couverture = l'image de la vidéo à cet instant, si aucune image n'est envoyée par `PUT /cover`
    - Champs propres à chaque plateforme, limites et replis (champ absent = repli) :
 
      | Plateforme | Champ | Limite | Si absent |

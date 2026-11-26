@@ -94,6 +94,10 @@ export interface ComposeState {
   at: Date
   sameTime: boolean
   times: Record<string, Date | undefined>
+  /** Miniature : instant de la vidéo en ms (TikTok, et Instagram sans image à part). null/absent : choix du réseau. */
+  coverMs?: number | null
+  /** Une image Instagram est envoyée à part (prioritaire sur coverMs pour Instagram). */
+  coverImage?: boolean
 }
 
 type Fmt = (n: number) => string
@@ -177,7 +181,7 @@ export function nearbyPosts(items: { kind: string; platform: string; account_id:
 export const tooClose = (near: Record<string, Nearby[]>) => Object.keys(near).filter(k => near[k].some(x => x.minutes < 60))
 
 /** Une cible de POST /posts. */
-export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 'at' | 'sameTime' | 'times'>) {
+export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 'at' | 'sameTime' | 'times' | 'coverMs' | 'coverImage'>) {
   const k = accKey(a)
   const scheduled_at = s.when === 'now' ? null : (s.sameTime ? s.at : (s.times[k] || s.at)).toISOString()
   if (a.platform === 'tiktok') {
@@ -185,6 +189,7 @@ export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 
     return { platform: a.platform, account_id: a.id, scheduled_at, options: {
       mode: t.mode, privacy_level: t.mode === 'direct' ? t.privacy : null, allow_comment: t.comment, allow_duet: t.duet,
       allow_stitch: t.stitch, brand_organic: t.commercial && t.yourBrand, brand_content: t.commercial && t.branded,
+      ...(t.mode === 'direct' && s.coverMs != null ? { cover_timestamp_ms: Math.round(s.coverMs) } : {}),
       ...(t.text.trim() ? { title: t.text } : {}) } }
   }
   if (a.platform === 'youtube') {
@@ -197,7 +202,8 @@ export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 
   const i = o as InstaOpts
   const collaborators = parseCollaborators(i.collaborators)
   return { platform: a.platform, account_id: a.id, scheduled_at, options: {
-    share_to_feed: i.feed, ...(i.text.trim() ? { caption: i.text } : {}), ...(collaborators.length ? { collaborators } : {}) } }
+    share_to_feed: i.feed, ...(s.coverMs != null && !s.coverImage ? { thumb_offset_ms: Math.round(s.coverMs) } : {}),
+    ...(i.text.trim() ? { caption: i.text } : {}), ...(collaborators.length ? { collaborators } : {}) } }
 }
 
 /** Corps de POST /api/cm/posts : vidéo du téléphone (file_name + video_size) ou de la bibliothèque (asset_id). */
