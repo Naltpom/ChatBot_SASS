@@ -17,8 +17,9 @@ const SITE = 'https://cm.chapote.fr'
 
 const META = {
   '/': {
-    title: 'Chapote CM · Planifiez vos vidéos sur TikTok, YouTube et Instagram',
-    description: 'Planifiez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois. Statistiques, planning et Google Drive au même endroit. Gratuit.',
+    // Mots des recherches visées : planifier / programmer, TikTok, YouTube Shorts, Instagram Reels, community manager, gratuit.
+    title: 'Chapote CM · Planifier ses vidéos TikTok, YouTube Shorts et Instagram Reels (gratuit)',
+    description: 'Chapote CM, l’outil gratuit du community manager : programmez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois. Planning, statistiques, Google Drive et équipe au même endroit.',
   },
   '/privacy': {
     title: 'Politique de confidentialité · Chapote CM',
@@ -49,7 +50,37 @@ function replaceOnce(html, from, to, what) {
 
 const template = readFileSync(join(dist, 'index.html'), 'utf8')
 const manifest = JSON.parse(readFileSync(join(dist, '.vite', 'manifest.json'), 'utf8'))
-const { render, PAGES } = await import(pathToFileURL(join(ssr, 'prerender.js')).href)
+const { render, PAGES, FAQ } = await import(pathToFileURL(join(ssr, 'prerender.js')).href)
+
+// Données structurées de l'accueil (Google, moteurs IA). Rien d'inventé : pas d'avis ni de note (aggregateRating)
+// tant qu'il n'y en a pas de réels. ⚠ À compléter : "sameAs" (réseaux officiels de Chapote, fiche Google Play).
+function homeJsonLd() {
+  const ld = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'WebSite', '@id': `${SITE}/#website`, url: `${SITE}/`, name: 'Chapote CM', alternateName: 'Chapote Content Manager', inLanguage: 'fr-FR', publisher: { '@id': 'https://chapote.fr/#organization' } },
+      { '@type': 'Organization', '@id': 'https://chapote.fr/#organization', name: 'Chapote', url: 'https://chapote.fr/', logo: 'https://chapote.fr/brand/logo-horizontal.svg', email: 'contact@chapote.fr' },
+      {
+        '@type': 'SoftwareApplication', '@id': `${SITE}/#software`, name: 'Chapote CM', alternateName: ['Chapote Content Manager', 'Chapote Community Manager'],
+        url: `${SITE}/`, applicationCategory: 'BusinessApplication', applicationSubCategory: 'Planificateur de réseaux sociaux', operatingSystem: 'Web', inLanguage: ['fr-FR', 'en'],
+        publisher: { '@id': 'https://chapote.fr/#organization' },
+        description: META['/'].description,
+        featureList: [
+          'Publication programmée sur TikTok, YouTube Shorts et Instagram Reels',
+          'Plusieurs comptes par réseau, une vidéo envoyée une seule fois',
+          'Planning de la semaine avec le statut de chaque publication',
+          'Statistiques réunies : vues, abonnés, j’aime, partages, engagement',
+          'Bibliothèque Google Drive : les vidéos restent dans votre Drive',
+          'Groupes de comptes et partage en équipe (administrateur, éditeur, lecteur)',
+          'Connexion officielle TikTok, Google et Meta',
+        ],
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR', availability: 'https://schema.org/InStock' },
+      },
+      { '@type': 'FAQPage', '@id': `${SITE}/#faq`, mainEntity: FAQ.map(([name, text]) => ({ '@type': 'Question', name, acceptedAnswer: { '@type': 'Answer', text } })) },
+    ],
+  }
+  return `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`
+}
 
 /** CSS et morceau JS d'une page chargée à la demande (et de ses imports statiques), hors point d'entrée. */
 function assetsOf(src) {
@@ -85,6 +116,10 @@ for (const [route, page] of Object.entries(PAGES)) {
     `<meta property="og:description" content="${esc(m.description)}" />`,
     `<meta property="og:url" content="${url}" />`,
     `<meta property="og:locale" content="fr_FR" />`,
+    `<meta name="twitter:card" content="summary" />`,
+    `<meta name="twitter:title" content="${esc(m.title)}" />`,
+    `<meta name="twitter:description" content="${esc(m.description)}" />`,
+    ...(route === '/' ? [homeJsonLd()] : []),
     ...css.map(f => `<link rel="stylesheet" crossorigin href="/${f}" />`),
     `<link rel="modulepreload" crossorigin href="/${js}" />`,
     // Session connue sur l'accueil : la landing pré-rendue reste cachée (l'app s'ouvre comme avant).
