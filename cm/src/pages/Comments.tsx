@@ -14,6 +14,7 @@ import {
 import { LiveCount, SearchBox, SortControl, useListState, useMorePages } from '../components/list'
 import { Empty, Icon, Msg, Seg, Skeleton } from '../components/ui'
 import { useLoad, useRole, useSession } from '../session'
+import { t } from '../i18n'
 
 type Tab = 'todo' | 'keyword' | 'messages'
 const STATUS: [string, string][] = [['todo', 'À traiter'], ['replied', 'Répondus'], ['contacted', 'Contactés'], ['hidden', 'Masqués'], ['ignored', 'Ignorés'], ['all', 'Tous']]
@@ -26,7 +27,7 @@ function store(key: string, fallback: string): [string, (v: string) => void] {
 
 function errText(e: unknown) {
   const ae = e as ApiError
-  return ae?.data?.message || ae?.message || 'Erreur'
+  return ae?.data?.message || ae?.message || t('Erreur')
 }
 
 function VideoGroup({ g, canEdit, onChanged, template }: {
@@ -38,14 +39,14 @@ function VideoGroup({ g, canEdit, onChanged, template }: {
     <>
       {g.thumb ? <img className="cgroup-thumb" src={g.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="cgroup-thumb" aria-hidden="true" />}
       <span className="grow col" style={{ minWidth: 0, gap: 0 }}>
-        <span className="strong ellipsis">{g.title || 'Vidéo'}</span>
-        <span className="tiny muted">{fresh ? `${fresh} nouveau${fresh > 1 ? 'x' : ''} · ` : ''}{plats}</span>
+        <span className="strong ellipsis">{g.title || t('Vidéo')}</span>
+        <span className="tiny muted">{fresh ? `${fresh > 1 ? t('{n} nouveaux', { n: fresh }) : t('{n} nouveau', { n: fresh })} · ` : ''}{plats}</span>
       </span>
       {g.videoId && <Icon name="right" />}
     </>
   )
   return (
-    <section className="cgroup" aria-label={`Commentaires de « ${g.title || 'la vidéo'} »`}>
+    <section className="cgroup" aria-label={g.title ? t('Commentaires de « {title} »', { title: g.title }) : t('Commentaires de la vidéo')}>
       {g.videoId ? <Link className="cgroup-head" to={`/videos/${g.videoId}`}>{head}</Link> : <div className="cgroup-head">{head}</div>}
       {g.items.map(c => <CommentCard key={c.id} c={c} canEdit={canEdit} template={template} onChanged={n => onChanged(c.id, n)} />)}
     </section>
@@ -58,7 +59,7 @@ function Notices({ accounts }: { accounts: InboxAccount[] }) {
   if (!by.size) return null
   return (
     <details className="card notice">
-      <summary className="small strong">{by.size === 1 ? 'Une permission' : 'Des permissions'} en attente pour certains comptes</summary>
+      <summary className="small strong">{by.size === 1 ? t('Une permission en attente pour certains comptes') : t('Des permissions en attente pour certains comptes')}</summary>
       {[...by.entries()].map(([n, names]) => <p key={n} className="small" style={{ margin: '8px 0 0' }}><b>{names.join(', ')}</b> : {n}</p>)}
     </details>
   )
@@ -77,18 +78,18 @@ function Todo({ canEdit }: { canEdit: boolean }) {
   return (
     <>
       <div className="listbar">
-        <SearchBox value={list.input} onChange={list.setInput} label="Rechercher (texte, pseudo, vidéo)" />
-        <select className="select select-sm" aria-label="Afficher" value={st} onChange={e => setSt(e.target.value)}>
-          {STATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        <SearchBox value={list.input} onChange={list.setInput} label={t('Rechercher (texte, pseudo, vidéo)')} />
+        <select className="select select-sm" aria-label={t('Afficher')} value={st} onChange={e => setSt(e.target.value)}>
+          {STATUS.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}
         </select>
-        <span className="sortctl"><SortControl list={list} options={[['recent', 'Date'], ['likes', 'J’aime']]} /></span>
+        <span className="sortctl"><SortControl list={list} options={[['recent', t('Date')], ['likes', t('J’aime')]]} /></span>
       </div>
-      <LiveCount n={shown.length} more={!!pages.next} what="commentaires" />
+      <LiveCount n={shown.length} more={!!pages.next} what={t('commentaires')} />
       {first.error && <Msg kind="err">{first.error}</Msg>}
       {!first.data && first.loading && <Skeleton h={90} n={4} />}
       {first.data && shown.length === 0 && (
-        <Empty title={st === 'todo' ? 'Rien à traiter' : 'Aucun commentaire'} icon="comment">
-          {list.q ? `Rien ne correspond à « ${list.q} ».` : 'Les nouveaux commentaires de vos vidéos arrivent ici.'}
+        <Empty title={st === 'todo' ? t('Rien à traiter') : t('Aucun commentaire')} icon="comment">
+          {list.q ? t('Rien ne correspond à « {q} ».', { q: list.q }) : t('Les nouveaux commentaires de vos vidéos arrivent ici.')}
         </Empty>
       )}
       <div className="col" style={{ gap: 14 }}>
@@ -113,21 +114,20 @@ function Keyword({ canEdit }: { canEdit: boolean }) {
   return (
     <>
       <div className="card col" style={{ gap: 10 }}>
-        <label className="field">Mot écrit en commentaire
+        <label className="field">{t('Mot écrit en commentaire')}
           <input className="input" value={word} onChange={e => setWord(e.target.value)} maxLength={40} placeholder="SHEET" />
         </label>
-        <label className="field">Message à envoyer ({'{pseudo}'} = la personne)
+        <label className="field">{t('Message à envoyer ({pseudo} = la personne)')}
           <textarea className="input" rows={3} value={tpl} onChange={e => { setTpl(e.target.value); saveTpl(e.target.value) }} maxLength={1000} />
         </label>
         <p className="tiny muted" style={{ margin: 0 }}>
-          Instagram ne donne pas la liste des personnes qui aiment un commentaire (seulement leur nombre) : la liste vient de
-          celles qui ont <b>écrit</b> le mot. Réponse privée possible 7 jours après le commentaire ; sinon copiez le message et
-          ouvrez la conversation Instagram.
+          {t('Instagram ne donne pas la liste des personnes qui aiment un commentaire (seulement leur nombre) : la liste vient de celles qui ont')}{' '}
+          <b>{t('écrit')}</b> {t('le mot. Réponse privée possible 7 jours après le commentaire ; sinon copiez le message et ouvrez la conversation Instagram.')}
         </p>
       </div>
-      <LiveCount n={rows.length} what="personnes" />
+      <LiveCount n={rows.length} what={t('personnes')} />
       {people.loading && !people.data && <Skeleton h={80} n={3} />}
-      {people.data && rows.length === 0 && <Empty title="Personne à contacter" icon="check">Aucun nouveau commentaire contenant « {w} ».</Empty>}
+      {people.data && rows.length === 0 && <Empty title={t('Personne à contacter')} icon="check">{t('Aucun nouveau commentaire contenant « {w} ».', { w })}</Empty>}
       <div className="col" style={{ gap: 14 }}>
         {byVideo(rows).map(g => <VideoGroup key={g.key} g={g} canEdit={canEdit} template={tpl}
           onChanged={(id, n) => { if (!n || n.status !== 'new' || n.private_replied_at) setDone(d => [...d, id]) }} />)}
@@ -151,15 +151,15 @@ function Messages({ accounts }: { accounts: InboxAccount[] }) {
     setThread(null)
     if (open && current) getConversation(org, current.id, open.id).then(setThread).catch(e => setErr(errText(e)))
   }, [open?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (!ig.length) return <Empty title="Aucun compte Instagram" icon="comment">Les messages privés concernent Instagram.</Empty>
+  if (!ig.length) return <Empty title={t('Aucun compte Instagram')} icon="comment">{t('Les messages privés concernent Instagram.')}</Empty>
   return (
     <div className="col" style={{ gap: 12 }}>
       {ig.length > 1 && (
-        <select className="select" aria-label="Compte Instagram" value={acc ?? ''} onChange={e => { setAcc(Number(e.target.value)); setOpen(null) }}>
+        <select className="select" aria-label={t('Compte Instagram')} value={acc ?? ''} onChange={e => { setAcc(Number(e.target.value)); setOpen(null) }}>
           {ig.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       )}
-      {current && !current.messages && <Msg>{current.source === 'routine' ? 'Les messages de ce compte (géré par la routine) se lisent dans Instagram.' : current.notice}</Msg>}
+      {current && !current.messages && <Msg>{current.source === 'routine' ? t('Les messages de ce compte (géré par la routine) se lisent dans Instagram.') : current.notice}</Msg>}
       {convs.error && <Msg kind="err">{convs.error}</Msg>}
       {current?.messages && !open && (
         <ul className="list card card-flush list-pad">
@@ -168,18 +168,18 @@ function Messages({ accounts }: { accounts: InboxAccount[] }) {
               <button type="button" className="menu-item grow" style={{ textAlign: 'left' }} onClick={() => setOpen(c)}>
                 <span className="grow col" style={{ minWidth: 0, gap: 0 }}>
                   <span className="strong ellipsis">@{c.with}</span>
-                  <span className="tiny muted ellipsis">{c.last_from_me ? 'Vous : ' : ''}{c.last}</span>
+                  <span className="tiny muted ellipsis">{c.last_from_me ? t('Vous : ') : ''}{c.last}</span>
                 </span>
                 <Icon name="right" />
               </button>
             </li>
           ))}
-          {convs.data && !convs.data.length && <li className="muted small">Aucune conversation.</li>}
+          {convs.data && !convs.data.length && <li className="muted small">{t('Aucune conversation.')}</li>}
         </ul>
       )}
       {open && current && (
-        <section className="card col" style={{ gap: 10 }} aria-label={`Conversation avec @${open.with}`}>
-          <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(null)}><Icon name="left" />Conversations</button>
+        <section className="card col" style={{ gap: 10 }} aria-label={t('Conversation avec @{name}', { name: open.with })}>
+          <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(null)}><Icon name="left" />{t('Conversations')}</button>
           {err && <Msg kind="err">{err}</Msg>}
           {!thread && <Skeleton h={60} n={2} />}
           <div className="dm">
@@ -191,12 +191,12 @@ function Messages({ accounts }: { accounts: InboxAccount[] }) {
               try { await sendDm(org, current.id, open.id, open.with_id || '', text.trim()); setText(''); setThread(await getConversation(org, current.id, open.id)) }
               catch (ex) { setErr(errText(ex)) }
             }}>
-              <input className="input grow" value={text} onChange={e => setText(e.target.value)} placeholder="Message" aria-label="Message" maxLength={1000} />
-              <button className="btn btn-primary" disabled={!text.trim()}>Envoyer</button>
+              <input className="input grow" value={text} onChange={e => setText(e.target.value)} placeholder={t('Message')} aria-label={t('Message')} maxLength={1000} />
+              <button className="btn btn-primary" disabled={!text.trim()}>{t('Envoyer')}</button>
             </form>
           ) : (
-            <p className="small muted" style={{ margin: 0 }}>Instagram n’autorise une réponse que dans les 24 h qui suivent le dernier message de la personne.
-              {open.with && <> <a href={`https://ig.me/m/${open.with}`} target="_blank" rel="noreferrer">Écrire depuis Instagram</a></>}</p>
+            <p className="small muted" style={{ margin: 0 }}>{t('Instagram n’autorise une réponse que dans les 24 h qui suivent le dernier message de la personne.')}
+              {open.with && <> <a href={`https://ig.me/m/${open.with}`} target="_blank" rel="noreferrer">{t('Écrire depuis Instagram')}</a></>}</p>
           ))}
         </section>
       )}
@@ -218,19 +218,19 @@ export default function Comments() {
       let n = 0
       for (const o of orgs.length ? orgs : [null]) n += (await syncInbox(o)).comments
       const r = { comments: n }
-      setSyncMsg(`${r.comments} commentaire${r.comments > 1 ? 's' : ''} relu${r.comments > 1 ? 's' : ''}.`)
+      setSyncMsg(r.comments > 1 ? t('{n} commentaires relus.', { n: r.comments }) : t('{n} commentaire relu.', { n: r.comments }))
     } catch (e) { setSyncMsg(errText(e)) }
   }
   return (
     <>
       <div className="page-head">
-        <div><h1>Commentaires</h1><p>Tous vos comptes au même endroit : répondre, remercier, envoyer la partition.</p></div>
-        <button type="button" className="btn btn-sm" onClick={sync}><Icon name="refresh" size={16} />Relire</button>
+        <div><h1>{t('Commentaires')}</h1><p>{t('Tous vos comptes au même endroit : répondre, remercier, envoyer la partition.')}</p></div>
+        <button type="button" className="btn btn-sm" onClick={sync}><Icon name="refresh" size={16} />{t('Relire')}</button>
       </div>
       {syncMsg && <Msg>{syncMsg}</Msg>}
       {accounts.data && <Notices accounts={accounts.data} />}
-      <Seg<Tab> value={tab} onChange={setTab} label="Vue"
-           options={[['todo', 'À traiter'], ['keyword', 'Mot-clé'], ['messages', 'Messages']]} />
+      <Seg<Tab> value={tab} onChange={setTab} label={t('Vue')}
+           options={[['todo', t('À traiter')], ['keyword', t('Mot-clé')], ['messages', t('Messages')]]} />
       {tab === 'todo' && <Todo canEdit={canEdit} />}
       {tab === 'keyword' && <Keyword canEdit={canEdit} />}
       {tab === 'messages' && accounts.data && <Messages accounts={accounts.data} />}

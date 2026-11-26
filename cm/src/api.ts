@@ -1,4 +1,4 @@
-import { getLang } from './i18n'
+import { getLang, t } from './i18n'
 // Appels à l'API, sur la même origine (cm.chapote.fr) : /api/cm/... (planning, chiffres,
 // Instagram), /api/tiktok/... et /api/youtube/... (comptes, options du créateur), /api/auth/...
 // (compte partagé avec chapote.fr). Le cookie de session est posé par l'API (httpOnly).
@@ -119,17 +119,17 @@ async function callRaw<T>(path: string, init?: RequestInit): Promise<{ body: T; 
       headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm', 'X-Chapote-Lang': getLang(), ...(init?.headers || {}) },
     })
   } catch {
-    throw new ApiError(0, 'Connexion impossible : vérifiez votre réseau.')
+    throw new ApiError(0, t('Connexion impossible : vérifiez votre réseau.'))
   }
   if (!res.ok) {
-    let message = `Erreur ${res.status}`
+    let message = t('Erreur {status}', { status: res.status })
     let data: Record<string, any> | undefined
     try {
       const body = await res.json()
       const d = body?.detail
       if (typeof d === 'string') message = d
       else if (d && typeof d === 'object' && !Array.isArray(d) && d.message) { message = d.message; data = d }
-      else if (Array.isArray(d) && d[0]?.msg) message = 'Champ invalide : ' + d[0].msg
+      else if (Array.isArray(d) && d[0]?.msg) message = t('Champ invalide : {detail}', { detail: d[0].msg })
       else if (body?.message) message = body.message
     } catch { /* corps non JSON */ }
     throw new ApiError(res.status, message, data)
@@ -229,7 +229,7 @@ export async function putCover(postId: number, image: File): Promise<void> {
     headers: { 'Content-Type': image.type || 'application/octet-stream', 'X-Chapote-App': 'cm', 'X-Chapote-Lang': getLang() },
   })
   if (!res.ok) {
-    let msg = `Couverture refusée (${res.status})`
+    let msg = t('Couverture refusée ({status})', { status: res.status })
     try { const b = await res.json(); if (typeof b?.detail === 'string') msg = b.detail } catch { /* corps non JSON */ }
     throw new ApiError(res.status, msg)
   }
@@ -245,11 +245,11 @@ export async function putPart(postId: number, index: number, bytes: Blob): Promi
       })
     } catch {
       if (attempt < 3) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue }
-      throw new ApiError(0, 'Envoi interrompu : vérifiez votre connexion et relancez.')
+      throw new ApiError(0, t('Envoi interrompu : vérifiez votre connexion et relancez.'))
     }
     if (res.ok) return
     if (res.status >= 500 && attempt < 3) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue }
-    let message = `Envoi refusé (${res.status})`
+    let message = t('Envoi refusé ({status})', { status: res.status })
     try { const b = await res.json(); if (typeof b?.detail === 'string') message = b.detail } catch { /* */ }
     throw new ApiError(res.status, message)
   }

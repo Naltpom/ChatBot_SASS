@@ -14,7 +14,7 @@
 //
 // Données : le widget n'envoie que le chemin de la page (data-url-mode="path" : jamais les
 // paramètres ni le fragment) et le parcours sur le site (chemins seulement). Aucune donnée de compte (nom, e-mail, téléphone, jetons) n'est transmise.
-import { getLang } from '../i18n'
+import { getLang, t } from '../i18n'
 import { useEffect, useState } from 'react'
 import type { Palette } from '../palette'
 
@@ -176,7 +176,7 @@ export default function ChapoteAssistant({ loadOn = 'idle', signedIn = false }: 
       type="button"
       className="cm-assistant-bubble"
       onClick={onClick}
-      aria-label="Poser une question à l’assistant"
+      aria-label={t('Poser une question à l’assistant')}
       aria-busy={loading || undefined}
       style={{ background: look.color, color: look.colorText }}
     >

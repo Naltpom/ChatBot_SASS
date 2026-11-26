@@ -1,4 +1,4 @@
-// État d'un compte (Comptes, Stats). L'ancienne page Accueil est fusionnée dans Stats (comme l'app mobile).
+// État d'un compte (Comptes, Stats). Libellés en français, traduits à l'affichage (t(st.label)). L'ancienne page Accueil est fusionnée dans Stats (comme l'app mobile).
 import type { Account } from '../api'
 
 export function accountState(a: Account): { label: string; tone: string } {
