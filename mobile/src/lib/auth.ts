@@ -10,6 +10,8 @@ import * as WebBrowser from 'expo-web-browser'
 import { Platform } from 'react-native'
 import { API_URL, ApiError, callPublic, currentDevice, forgetDevice, saveDevice } from './http'
 import { base64url, parseReturn } from './session-logic'
+import { JUST_SIGNED_IN } from './auth-flag'
+export { JUST_SIGNED_IN }
 import type { Me, TwoFAChallenge } from './api'
 
 interface DeviceOut { refresh_token: string; session: string; expires_in: number; user: Me }
@@ -25,7 +27,7 @@ async function store(out: DeviceOut): Promise<Me> {
   await AsyncStorage.setItem(JUST_SIGNED_IN, String(Date.now())).catch(() => {})
   return out.user
 }
-export const JUST_SIGNED_IN = 'cm.just-signed-in'
+
 
 /** Navigateur intégré → page « Autoriser » de l'API → retour dans l'app avec un code (PKCE). */
 export async function loginWithBrowser(): Promise<Me | null> {
@@ -109,15 +111,14 @@ export async function sendPasswordLink(email: string): Promise<void> {
   await callPublic('/api/auth/password/forgot', { email }, false)
 }
 
-/** Second facteur par l'empreinte (clé d'accès du téléphone), à la place du code. */
+/** Second facteur par l'empreinte (clé de ce téléphone, lue après l'empreinte), à la place du code. */
 export async function loginWithPasskey(challenge: string): Promise<Me> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Passkey } = require('react-native-passkey') as typeof import('react-native-passkey')
-  const { options } = await callPublic<{ options: string }>('/api/cm/mobile/passkey/login/begin', { challenge })
-  // Sans liste de clés : le téléphone propose ses clés chapote.fr (Google, Samsung Pass…). Avec la liste,
-  // Samsung Pass ne retrouvait pas la clé. Le serveur vérifie de toute façon qu'elle appartient à ce compte.
-  const credential = await Passkey.get({ ...JSON.parse(options), allowCredentials: [] })
-  await callPublic<Me>('/api/cm/mobile/passkey/login/complete', { challenge, credential }, true)
+  const { challengeUser, readPasskey } = require('./passkey') as typeof import('./passkey')
+  const uid = challengeUser(challenge)
+  if (!uid) throw new Error('NoKey')
+  const key = await readPasskey(uid)
+  await callPublic<Me>('/api/cm/mobile/biometric/login', { challenge, key_id: key.id, secret: key.secret }, true)
   return finishCookieLogin()
 }
 

@@ -11,11 +11,11 @@ import { call } from '../lib/http'
 import { disablePush, enablePush, getPush, pushUnsupported, setPushPrefs, type PushPrefs, type PushState } from '../lib/push'
 import { fmtAgo } from '../lib/format'
 import { useSession } from '../lib/session'
-import { deletePasskey, getPasskeys, getProfile, patchProfile, type PasskeyRow } from '../lib/api'
+import { deleteBioKey, deletePasskey, getBioKeys, getPasskeys, getProfile, patchProfile, type BioKey, type PasskeyRow } from '../lib/api'
 import { Button, Card, Divider, Icon, Label, Msg, Row, Screen, Seg, Sheet, Txt, Field, type IconName } from '../ui/kit'
 import { PALETTE_PREVIEW, radius, space, useTheme, type Palette, type ThemePref } from '../ui/theme'
 import { Logo } from '../ui/Logo'
-import { enablePasskey, forgetPasskey, passkeyAvailable, passkeyDone, passkeyError } from '../lib/passkey'
+import { enablePasskey, forgetPasskey, passkeyAvailable, passkeyDone, passkeyError, passkeyIdHere } from '../lib/passkey'
 import { currentIcon, iconAvailable, offerIcon } from '../lib/app-icon'
 import { showDialog } from '../ui/dialog'
 
@@ -41,18 +41,37 @@ export default function Settings() {
   const [pkMsg, setPkMsg] = useState<string | null>(null)
   const [codes, setCodes] = useState<string[] | null>(null)
   useEffect(() => { if (me) passkeyDone(me.id).then(setPasskey) }, [me?.id])
-  // Clés d'accès du compte (celles du site comprises) : on peut en retirer une, puis refaire celle de ce téléphone.
-  const [keys, setKeys] = useState<PasskeyRow[] | null>(null)
-  const loadKeys = () => getPasskeys().then(setKeys).catch(() => setKeys(null))
+  // Téléphones qui se connectent avec l'empreinte (clé dans la puce sécurisée), et anciennes clés d'accès.
+  const [keys, setKeys] = useState<BioKey[] | null>(null)
+  const [oldKeys, setOldKeys] = useState<PasskeyRow[]>([])
+  const [hereId, setHereId] = useState<number | null>(null)
+  const loadKeys = () => {
+    getBioKeys().then(setKeys).catch(() => setKeys(null))
+    getPasskeys().then(setOldKeys).catch(() => setOldKeys([]))
+    if (me) passkeyIdHere(me.id).then(setHereId)
+  }
   useEffect(() => { if (me) loadKeys() }, [me?.id, passkey]) // eslint-disable-line react-hooks/exhaustive-deps
-  // Plus aucune clé sur le compte (retirée ici ou sur le site) : ce téléphone peut la refaire.
-  useEffect(() => { if (me && keys && keys.length === 0 && passkey) { forgetPasskey(me.id); setPasskey(false) } }, [keys]) // eslint-disable-line react-hooks/exhaustive-deps
-  const removeKey = (k: PasskeyRow) => showDialog(`Retirer « ${k.name || 'Clé d’accès'} » ?`,
-    'Elle ne servira plus à vous connecter. Vous pourrez réactiver l’empreinte ensuite. Pour l’effacer aussi du téléphone : Samsung Pass ou Gestionnaire de mots de passe Google.', [
+  // La clé de ce téléphone n'est plus sur le compte (retirée ailleurs) : on peut la refaire.
+  useEffect(() => {
+    if (me && keys && passkey && hereId && !keys.some(k => k.id === hereId)) { forgetPasskey(me.id); setPasskey(false); setHereId(null) }
+  }, [keys, hereId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const removeKey = (k: BioKey) => showDialog(`Retirer « ${k.name || 'Téléphone'} » ?`,
+    k.id === hereId ? 'Ce téléphone ne pourra plus se connecter avec l’empreinte. Vous pourrez la réactiver ensuite.'
+      : 'Ce téléphone ne pourra plus se connecter avec l’empreinte.', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Retirer', style: 'destructive', onPress: async () => {
-        try { await deletePasskey(k.id); if (me) await forgetPasskey(me.id); setPasskey(false); await loadKeys(); ok() }
-        catch (e) { setPkMsg((e as Error).message) }
+        try {
+          await deleteBioKey(k.id)
+          if (me && k.id === hereId) { await forgetPasskey(me.id); setPasskey(false) }
+          loadKeys(); ok()
+        } catch (e) { setPkMsg((e as Error).message) }
+      } },
+    ])
+  const removeOld = (k: PasskeyRow) => showDialog(`Retirer « ${k.name || 'Clé d’accès'} » ?`,
+    'Ancienne clé d’accès (Dashlane, Samsung Pass, Google…) : elle ne servira plus. Vous pouvez aussi l’effacer de ce gestionnaire.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Retirer', style: 'destructive', onPress: async () => {
+        try { await deletePasskey(k.id); loadKeys(); ok() } catch (e) { setPkMsg((e as Error).message) }
       } },
     ])
   // Arrivée depuis la proposition après connexion (« Activer ») : on lance l'activation une fois.
@@ -169,19 +188,34 @@ export default function Settings() {
                 <Txt small muted>{passkey ? 'Activé sur ce téléphone. À la connexion, l’empreinte remplace le code à 6 chiffres.'
                   : 'À la connexion, après le mot de passe ou Google, votre empreinte ou votre visage remplace le code à 6 chiffres. Rien n’est redemandé ensuite.'}</Txt>
               </View>
-              {!passkey ? <Button small kind="primary" title="Activer" loading={pkBusy} onPress={activatePasskey} /> : null}
+              {!passkey && me?.twofa_enabled ? <Button small kind="primary" title="Activer" loading={pkBusy} onPress={activatePasskey} /> : null}
             </Row>
+            {!me?.twofa_enabled ? <Txt size={12} muted>Activez d’abord la double authentification (ci-dessous) : l’empreinte remplace son code à 6 chiffres.</Txt> : null}
             {pkMsg ? <Msg kind="err">{pkMsg}</Msg> : null}
             {keys?.length ? (
               <View style={{ gap: 2 }}>
-                <Txt small bold muted>Clés d’accès de votre compte</Txt>
+                <Txt small bold muted>Téléphones qui se connectent avec l’empreinte</Txt>
                 {keys.map(k => (
+                  <Row key={k.id} gap={space.md} style={{ justifyContent: 'space-between', minHeight: 44 }}>
+                    <View style={{ flex: 1 }}>
+                      <Txt numberOfLines={1}>{k.name || 'Téléphone'}{k.id === hereId ? ' (ce téléphone)' : ''}</Txt>
+                      <Txt size={12} muted>{k.last_used_at ? `Utilisée ${fmtAgo(k.last_used_at)}` : `Ajoutée ${fmtAgo(k.created_at)}`}</Txt>
+                    </View>
+                    <Button small kind="danger" title="Retirer" onPress={() => removeKey(k)} />
+                  </Row>
+                ))}
+              </View>
+            ) : null}
+            {oldKeys.length ? (
+              <View style={{ gap: 2 }}>
+                <Txt small bold muted>Anciennes clés d’accès</Txt>
+                {oldKeys.map(k => (
                   <Row key={k.id} gap={space.md} style={{ justifyContent: 'space-between', minHeight: 44 }}>
                     <View style={{ flex: 1 }}>
                       <Txt numberOfLines={1}>{k.name || 'Clé d’accès'}</Txt>
                       <Txt size={12} muted>{k.last_used_at ? `Utilisée ${fmtAgo(k.last_used_at)}` : k.created_at ? `Ajoutée ${fmtAgo(k.created_at)}` : 'Jamais utilisée'}</Txt>
                     </View>
-                    <Button small kind="danger" title="Retirer" onPress={() => removeKey(k)} />
+                    <Button small kind="danger" title="Retirer" onPress={() => removeOld(k)} />
                   </Row>
                 ))}
               </View>

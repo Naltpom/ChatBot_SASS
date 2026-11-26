@@ -1,51 +1,74 @@
-// Clé d'accès (« passkey ») : se connecter avec l'empreinte ou le visage, à la place du code de double authentification.
-// Module natif présent à partir de la version 6 de l'app ; avant, ces options n'apparaissent pas.
+// Se connecter avec l'empreinte ou le visage, à la place du code de double authentification.
+// Sans gestionnaire de clés (Google, Samsung Pass, Dashlane) : le serveur donne une clé secrète, rangée dans la puce
+// sécurisée du téléphone et protégée par l'empreinte (expo-secure-store, requireAuthentication). À la connexion, le
+// téléphone demande l'empreinte pour la lire, et l'app l'envoie au serveur (qui n'en garde que l'empreinte SHA-256).
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Device from 'expo-device'
-import { NativeModules, Platform } from 'react-native'
-import { JUST_SIGNED_IN } from './auth'
-import { passkeyRegisterBegin, passkeyRegisterComplete } from './api'
+import * as SecureStore from 'expo-secure-store'
+import { Platform } from 'react-native'
+import { bioEnable } from './api'
+import { JUST_SIGNED_IN } from './auth-flag'
 import { showDialog } from '../ui/dialog'
 
 export const passkeyAvailable = (() => {
-  if (Platform.OS === 'web' || !NativeModules.Passkey) return false
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return (require('react-native-passkey') as typeof import('react-native-passkey')).Passkey.isSupported()
-  } catch { return false }
+  if (Platform.OS === 'web') return false
+  try { return SecureStore.canUseBiometricAuthentication() } catch { return false }
 })()
 
-const doneKey = (userId: number) => `cm.passkey.${userId}`
-/** Oublie que ce téléphone a une clé (après l'avoir retirée du compte) : on pourra la refaire. */
-export const forgetPasskey = (userId: number) => AsyncStorage.removeItem(doneKey(userId)).catch(() => {})
-export const passkeyDone = async (userId: number) => (await AsyncStorage.getItem(doneKey(userId)).catch(() => null)) === '1'
+const secretKey = (userId: number) => `cm.bio.${userId}`
+const doneKey = (userId: number) => `cm.bio.on.${userId}`
+interface Stored { id: number; secret: string }
 
-/** Enregistre l'empreinte de ce téléphone pour le compte. Renvoie les codes de secours s'ils viennent d'être créés. */
+/** Ce téléphone a une empreinte active pour ce compte (sans demander l'empreinte). */
+export const passkeyDone = async (userId: number) => (await AsyncStorage.getItem(doneKey(userId)).catch(() => null)) != null
+/** Numéro de la clé de ce téléphone (pour la reconnaître dans la liste). */
+export const passkeyIdHere = async (userId: number) => Number(await AsyncStorage.getItem(doneKey(userId)).catch(() => null)) || null
+/** Oublie la clé de ce téléphone (retirée du compte, ou empreinte du téléphone changée). */
+export async function forgetPasskey(userId: number) {
+  await AsyncStorage.removeItem(doneKey(userId)).catch(() => {})
+  await SecureStore.deleteItemAsync(secretKey(userId)).catch(() => {})
+}
+
+/** Active l'empreinte sur ce téléphone. Renvoie les codes de secours s'ils viennent d'être créés. */
 export async function enablePasskey(userId: number): Promise<string[] | null> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Passkey } = require('react-native-passkey') as typeof import('react-native-passkey')
-  const { options } = await passkeyRegisterBegin()
-  const credential = await Passkey.create(JSON.parse(options))
-  const name = (Device.deviceName || Device.modelName || 'Téléphone').slice(0, 60)
-  const r = await passkeyRegisterComplete(credential, name)
-  await AsyncStorage.setItem(doneKey(userId), '1').catch(() => {})
+  const name = (Device.deviceName || Device.modelName || 'Téléphone').slice(0, 80)
+  const r = await bioEnable(name)
+  const value: Stored = { id: r.id, secret: r.secret }
+  await SecureStore.setItemAsync(secretKey(userId), JSON.stringify(value), {
+    requireAuthentication: true, authenticationPrompt: 'Activer la connexion par empreinte',
+  })
+  await AsyncStorage.setItem(doneKey(userId), String(r.id))
   return r.recovery_codes
 }
 
-/** Message clair pour une erreur de clé d'accès (annulée, pas d'empreinte enregistrée, etc.). */
+/** Lit la clé de ce téléphone : le téléphone demande l'empreinte. */
+export async function readPasskey(userId: number): Promise<Stored> {
+  const raw = await SecureStore.getItemAsync(secretKey(userId), { requireAuthentication: true, authenticationPrompt: 'Connexion à Chapote CM' })
+  if (!raw) { await forgetPasskey(userId); throw new Error('NoKey') }
+  return JSON.parse(raw) as Stored
+}
+
+/** Message clair pour une erreur d'empreinte. */
 export function passkeyError(e: unknown): string {
-  const err = e as { error?: string; message?: string }
-  const k = `${err?.error || ''} ${err?.message || ''}`
-  if (/cancel/i.test(k)) return 'Opération annulée.'
-  if (/NoCredentials|no credential/i.test(k)) return 'Aucune empreinte enregistrée pour ce compte sur ce téléphone : utilisez le code.'
-  if (/NotSupported|not supported/i.test(k)) return 'Ce téléphone ne permet pas les clés d’accès.'
-  return err?.message || 'Empreinte non vérifiée.'
+  const k = `${(e as { code?: string })?.code || ''} ${(e as Error)?.message || ''}`
+  if (/cancel|annul/i.test(k)) return 'Opération annulée.'
+  if (/NoKey|invalidat|not found|introuvable/i.test(k)) return 'L’empreinte n’est plus active sur ce téléphone (empreintes du téléphone changées ?) : utilisez le code, puis réactivez-la dans Réglages.'
+  if (/lockout|too many/i.test(k)) return 'Trop d’essais : réessayez dans un moment, ou utilisez le code.'
+  return (e as Error)?.message || 'Empreinte non vérifiée.'
+}
+
+/** Numéro du compte contenu dans le défi de double authentification (jeton signé, lu sans le vérifier). */
+export function challengeUser(challenge: string): number | null {
+  try {
+    const part = challenge.split('.')[1]
+    const json = JSON.parse(globalThis.atob(part.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (part.length % 4)) % 4)))
+    return Number(json.sub) || null
+  } catch { return null }
 }
 
 const askedKey = (userId: number) => `cm.passkey.asked.${userId}`
 
-/** Juste après une connexion (mot de passe, Google…) : propose une fois l'empreinte, comme iOS propose une clé d'accès.
- *  « Plus tard » : reproposé au plus tôt dans 30 jours. `onYes` ouvre l'activation (avec les codes de secours). */
+/** Juste après une connexion : propose une fois l'empreinte. « Plus tard » : reproposé au plus tôt dans 30 jours. */
 export async function offerPasskey(userId: number, onYes: () => void) {
   try {
     const at = Number(await AsyncStorage.getItem(JUST_SIGNED_IN))

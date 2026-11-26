@@ -11,7 +11,7 @@ import { loginWithBrowser, loginWithCode, loginWithGoogle, loginWithPasskey, log
 import { nativeGoogleAvailable } from '../lib/google'
 import { useSession } from '../lib/session'
 import { Logo } from '../ui/Logo'
-import { passkeyAvailable, passkeyError } from '../lib/passkey'
+import { challengeUser, passkeyAvailable, passkeyDone, passkeyError } from '../lib/passkey'
 import { Missing } from '../ui/Progress'
 import { Button, Field, Msg, PlatformLogo, Seg, Txt } from '../ui/kit'
 import { radius, space, useTheme } from '../ui/theme'
@@ -92,7 +92,13 @@ export default function Login() {
   })
   const viaCode = () => run(async () => { if (challenge) signedIn(await loginWithCode(challenge.challenge, code.trim(), recovery)) })
   // Empreinte (clé d'accès) à la place du code : proposée d'office si le compte en a une et le téléphone le permet.
-  const canPasskey = !!challenge?.methods.passkey && passkeyAvailable
+  // Empreinte : seulement si ce téléphone a une clé active pour ce compte.
+  const [canPasskey, setCanPasskey] = useState(false)
+  useEffect(() => {
+    const uid = challenge ? challengeUser(challenge.challenge) : null
+    if (!challenge || !uid || !passkeyAvailable) { setCanPasskey(false); return }
+    passkeyDone(uid).then(setCanPasskey)
+  }, [challenge?.challenge])
   const [useCode, setUseCode] = useState(false)
   const viaPasskey = () => run(async () => {
     if (!challenge) return
@@ -101,7 +107,7 @@ export default function Login() {
   const asked = useRef<string | null>(null)
   useEffect(() => {
     if (canPasskey && challenge && asked.current !== challenge.challenge) { asked.current = challenge.challenge; setUseCode(false); viaPasskey() }
-  }, [challenge?.challenge]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [challenge?.challenge, canPasskey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: c.bg }}>
