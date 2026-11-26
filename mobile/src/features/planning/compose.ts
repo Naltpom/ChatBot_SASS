@@ -3,10 +3,14 @@
 import type { Account, Config, CreatorInfo, Group } from '../../lib/api'
 
 export interface TikTokOpts { mode: 'direct' | 'draft'; privacy: string; comment: boolean; duet: boolean; stitch: boolean
-  commercial: boolean; yourBrand: boolean; branded: boolean; text: string }
+  commercial: boolean; yourBrand: boolean; branded: boolean; text: string
+  /** Miniature : instant de la vidéo (ms) ; absent : TikTok choisit. */
+  coverMs?: number | null }
 export interface YouTubeOpts { title: string; description: string; privacy: string; kids: '' | 'yes' | 'no'; synthetic: boolean
   category: string; notify: boolean; tags: string }
-export interface InstaOpts { text: string; feed: boolean; collaborators: string }
+export interface InstaOpts { text: string; feed: boolean; collaborators: string
+  /** Couverture : instant de la vidéo (ms), sauf image envoyée à part ; absent : Instagram choisit. */
+  coverMs?: number | null }
 export type Opts = TikTokOpts | YouTubeOpts | InstaOpts
 export type CreatorState = CreatorInfo | 'loading' | { error: string }
 
@@ -94,6 +98,8 @@ export interface ComposeState {
   at: Date
   sameTime: boolean
   times: Record<string, Date | undefined>
+  /** Une image Instagram est envoyée à part (prioritaire sur l'instant choisi pour Instagram). */
+  coverImage?: boolean
 }
 
 type Fmt = (n: number) => string
@@ -177,7 +183,7 @@ export function nearbyPosts(items: { kind: string; platform: string; account_id:
 export const tooClose = (near: Record<string, Nearby[]>) => Object.keys(near).filter(k => near[k].some(x => x.minutes < 60))
 
 /** Une cible de POST /posts. */
-export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 'at' | 'sameTime' | 'times'>) {
+export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 'at' | 'sameTime' | 'times' | 'coverImage'>) {
   const k = accKey(a)
   const scheduled_at = s.when === 'now' ? null : (s.sameTime ? s.at : (s.times[k] || s.at)).toISOString()
   if (a.platform === 'tiktok') {
@@ -185,6 +191,7 @@ export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 
     return { platform: a.platform, account_id: a.id, scheduled_at, options: {
       mode: t.mode, privacy_level: t.mode === 'direct' ? t.privacy : null, allow_comment: t.comment, allow_duet: t.duet,
       allow_stitch: t.stitch, brand_organic: t.commercial && t.yourBrand, brand_content: t.commercial && t.branded,
+      ...(t.mode === 'direct' && t.coverMs != null ? { cover_timestamp_ms: Math.round(t.coverMs) } : {}),
       ...(t.text.trim() ? { title: t.text } : {}) } }
   }
   if (a.platform === 'youtube') {
@@ -197,7 +204,8 @@ export function buildTarget(a: Account, o: Opts, s: Pick<ComposeState, 'when' | 
   const i = o as InstaOpts
   const collaborators = parseCollaborators(i.collaborators)
   return { platform: a.platform, account_id: a.id, scheduled_at, options: {
-    share_to_feed: i.feed, ...(i.text.trim() ? { caption: i.text } : {}), ...(collaborators.length ? { collaborators } : {}) } }
+    share_to_feed: i.feed, ...(i.coverMs != null && !s.coverImage ? { thumb_offset_ms: Math.round(i.coverMs) } : {}),
+    ...(i.text.trim() ? { caption: i.text } : {}), ...(collaborators.length ? { collaborators } : {}) } }
 }
 
 /** Corps de POST /api/cm/posts : vidéo du téléphone (file_name + video_size) ou de la bibliothèque (asset_id). */

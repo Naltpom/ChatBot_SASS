@@ -100,7 +100,7 @@ def _fail(post: TikTokPost, code: str, message: str) -> None:
 # --------------------------------------------------------------------------
 
 def post_info(post: TikTokPost) -> dict:
-    return {
+    info = {
         "title": post.title or "",
         "privacy_level": post.privacy_level,
         "disable_comment": post.disable_comment,
@@ -109,6 +109,9 @@ def post_info(post: TikTokPost) -> dict:
         "brand_content_toggle": post.brand_content,
         "brand_organic_toggle": post.brand_organic,
     }
+    if post.cover_timestamp_ms is not None:
+        info["video_cover_timestamp_ms"] = int(post.cover_timestamp_ms)
+    return info
 
 
 async def process_post(db: AsyncSession, post: TikTokPost) -> None:

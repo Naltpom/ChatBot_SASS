@@ -260,7 +260,11 @@ async def test_publish_now_everywhere_then_followed_to_published(pg_session, cme
         accounts = (await h.get("/api/cm/accounts")).json()
         assert {(a["platform"], a["id"]) for a in accounts} == {("tiktok", tacc.id), ("youtube", yacc.id), ("instagram", iacc_id)}
 
-        post_id, r = await _publish(h, [_tt_target(tacc.id), _yt_target(yacc.id), _ig_target(iacc_id)], data)
+        tt_target = _tt_target(tacc.id)
+        tt_target["options"]["cover_timestamp_ms"] = 99_000            # après la fin : ramené dans la vidéo
+        ig_target = _ig_target(iacc_id)
+        ig_target["options"]["thumb_offset_ms"] = "41500"
+        post_id, r = await _publish(h, [tt_target, _yt_target(yacc.id), ig_target], data)
         assert r.status_code == 200, r.text
         out = r.json()
         assert out["status"] == "READY" and out["duration_sec"] == 42.0
@@ -271,6 +275,8 @@ async def test_publish_now_everywhere_then_followed_to_published(pg_session, cme
         assert targets["youtube"]["options"]["title"] == "Clair de lune"
         assert targets["youtube"]["options"]["description"] == "Debussy au piano #piano"
         assert targets["tiktok"]["options"]["title"] == "Debussy au piano #piano"
+        assert targets["tiktok"]["options"]["cover_timestamp_ms"] == 99_000
+        assert targets["instagram"]["options"]["thumb_offset_ms"] == 41_500
         assert not any("init" in p for p in tiktok.paths())                  # rien n'est parti avant l'envoi
 
         post = await pg_session.get(CmPost, post_id)
@@ -293,7 +299,10 @@ async def test_publish_now_everywhere_then_followed_to_published(pg_session, cme
         assert ig_t.status == "AWAITING_ROUTINE"
 
         # Les modules TikTok et YouTube font l'envoi ; cm suit jusqu'à « publié ».
+        assert tp.cover_timestamp_ms == 41_950
         await tiktok_jobs.process_post(pg_session, tp)
+        init = json.loads(tiktok.last("/v2/post/publish/video/init/").content)
+        assert init["post_info"]["video_cover_timestamp_ms"] == 41_950
         await tiktok_jobs.poll_post(pg_session, tp)
         await youtube_jobs.process_post(pg_session, yp)
         await youtube_jobs.poll_post(pg_session, yp)

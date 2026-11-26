@@ -162,6 +162,11 @@ test('nouvelle publication : corps envoyé', () => {
   assert.deepEqual(buildTarget(yt, y, state()).options, { tags: ['a', 'b', 'c'], privacy_status: 'public', made_for_kids: false,
     synthetic_media: false, category_id: '10', notify_subscribers: true })
   assert.deepEqual(buildTarget(ig, { text: '', feed: false, collaborators: '@x, y' }, state()).options, { share_to_feed: false, collaborators: ['x', 'y'] })
+  // Miniature : instant de la vidéo choisi par compte (TikTok direct, Instagram sauf image envoyée à part).
+  assert.equal(buildTarget(tt, { ...t, coverMs: 41500.4 }, state()).options.cover_timestamp_ms, 41500)
+  assert.equal('cover_timestamp_ms' in buildTarget(tt, { ...t, mode: 'draft', coverMs: 1000 }, state()).options, false)
+  assert.equal(buildTarget(ig, { text: '', feed: true, collaborators: '', coverMs: 2000 }, state()).options.thumb_offset_ms, 2000)
+  assert.equal('thumb_offset_ms' in buildTarget(ig, { text: '', feed: true, collaborators: '', coverMs: 2000 }, { ...state(), coverImage: true }).options, false)
   assert.equal(buildTarget(ig, defaults(ig), state({ when: 'now' })).scheduled_at, null)
   const own = new Date('2026-12-02T08:00:00Z')
   assert.equal(buildTarget(ig, defaults(ig), state({ sameTime: false, times: { 'instagram:3': own } })).scheduled_at, own.toISOString())

@@ -228,6 +228,16 @@ def _with_hashtags(text: str, tags) -> str:
     return f"{text.rstrip()}\n\n{' '.join(add)}".strip() if add else text
 
 
+def _cover_ms(v, label: str) -> Optional[int]:
+    """Instant de la miniature dans la vidéo, en millisecondes (None : choix de la plateforme)."""
+    if v is None or v == "":
+        return None
+    try:
+        return max(0, int(v))
+    except (TypeError, ValueError):
+        raise bad(f"{label} : position de la miniature invalide.")
+
+
 def normalize_options(platform: str, acc, options: dict, post_title: str, post_caption: str) -> dict:
     """Options validées d'une cible (lève HTTPException 400 en français). Champ propre absent : la
     légende commune du post (`caption`), sinon son titre."""
@@ -249,7 +259,9 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
                "allow_stitch": _bool(o.get("allow_stitch")),
                "brand_organic": mode == "direct" and _bool(o.get("brand_organic")),
                "brand_content": mode == "direct" and _bool(o.get("brand_content")),
-               "fallback_draft": mode == "direct" and _bool(o.get("fallback_draft"))}
+               "fallback_draft": mode == "direct" and _bool(o.get("fallback_draft")),
+               # Miniature : instant de la vidéo (ms) dont l'image sert de couverture (publication directe seulement).
+               "cover_timestamp_ms": _cover_ms(o.get("cover_timestamp_ms"), "TikTok") if mode == "direct" else None}
         if mode == "direct":
             if not out["privacy_level"]:
                 raise bad("TikTok : choisissez qui peut voir cette vidéo.")
@@ -297,12 +309,7 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
         raise bad(f"Instagram : légende trop longue ({ig.CAPTION_MAX} caractères maximum).")
     if caption.count("#") > 30:
         raise bad("Instagram : 30 hashtags au plus.")
-    thumb = o.get("thumb_offset_ms")
-    if thumb is not None:
-        try:
-            thumb = max(0, int(thumb))
-        except (TypeError, ValueError):
-            raise bad("Instagram : position de la couverture invalide.")
+    thumb = _cover_ms(o.get("thumb_offset_ms"), "Instagram")
     return {"caption": caption, "share_to_feed": _bool(o.get("share_to_feed"), True), "thumb_offset_ms": thumb,
             "collaborators": collab}
 

@@ -133,6 +133,16 @@ async def _active_count(db: AsyncSession, model, tenant) -> int:
     )).scalar() or 0
 
 
+def _cover_in_video(ms, duration_sec) -> Optional[int]:
+    """Instant de la miniature ramené dans la vidéo (TikTok refuse un instant après la fin)."""
+    if ms is None:
+        return None
+    ms = max(0, int(ms))
+    if duration_sec:
+        ms = min(ms, max(0, int(duration_sec * 1000) - 50))
+    return ms
+
+
 async def _dispatch_tiktok(db: AsyncSession, t: CmTarget, post: CmPost) -> None:
     from src.routers import tiktok as tiktok_router
     if not tt.is_enabled():
@@ -175,6 +185,7 @@ async def _dispatch_tiktok(db: AsyncSession, t: CmTarget, post: CmPost) -> None:
         disable_duet=not o.get("allow_duet") or bool(info.get("duet_disabled")),
         disable_stitch=not o.get("allow_stitch") or bool(info.get("stitch_disabled")),
         brand_organic=direct and bool(o.get("brand_organic")), brand_content=direct and bool(o.get("brand_content")),
+        cover_timestamp_ms=_cover_in_video(o.get("cover_timestamp_ms"), post.duration_sec) if direct else None,
         file_name=post.file_name, mime_type=post.mime_type, video_size=post.video_size,
         received_bytes=post.video_size, duration_sec=post.duration_sec, tmp_path=path,
         status=tk_models.POST_QUEUED,
