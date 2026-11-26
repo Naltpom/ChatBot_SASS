@@ -1,3 +1,4 @@
+import { t, type LangPref } from '../lib/i18n'
 import { FEATURES } from '../lib/features'
 // Réglages, rangés par portée : moi (profil, notifications, sécurité, apparence), mon espace (comptes, personnes,
 // stockage), ce téléphone et les autres appareils, puis la zone sensible tout en bas. Chaque réglage montre son
@@ -30,7 +31,7 @@ const PREF_LABEL: [keyof PushPrefs, string, string][] = [
 ].filter(([k]) => FEATURES.comments || k !== 'comments') as [keyof PushPrefs, string, string][]
 
 export default function Settings() {
-  const { c, dark, pref, setPref, palette, setPalette } = useTheme()
+  const { c, dark, pref, setPref, palette, setPalette, langPref, setLangPref } = useTheme()
   // Icône de l'app : proposée assortie à la couleur choisie (version 4 et plus).
   const [icon, setIconState] = useState(() => currentIcon())
   const askIcon = (p: Palette) => offerIcon(p, '/settings', () => { setIconState(p); ok() })
@@ -234,6 +235,9 @@ export default function Settings() {
         <Label>Apparence · {themeLabel}</Label>
         <Seg<ThemePref> label="Thème" value={pref} onChange={v => { setPref(v); ok() }}
           options={[['system', 'Comme le téléphone'], ['light', 'Clair'], ['dark', 'Sombre']]} />
+        <Txt small bold muted>{t('Langue')}</Txt>
+        <Seg<LangPref> label={t('Langue')} value={langPref} onChange={v => { setLangPref(v); ok() }}
+          options={[['system', t('Comme le téléphone')], ['fr', 'Français'], ['en', 'English']]} />
         <Txt small bold muted>Couleur de l’app</Txt>
         <Row gap={space.sm}>
           {(Object.keys(PALETTE_PREVIEW) as Palette[]).map(k => {

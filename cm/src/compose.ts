@@ -1,7 +1,9 @@
 // Nouvelle publication : petites règles pures, les mêmes que l'app (mobile/src/features/planning/compose.ts).
 
-/** Langue d'affichage des dates : celle du navigateur (le réglage « Langue » viendra la remplacer). */
-export const LOCALE = (typeof navigator !== 'undefined' && navigator.language) || 'fr-FR'
+import { locale } from './i18n'
+
+/** Locale des dates (langue choisie dans Réglages, sinon celle du navigateur). */
+export const LOCALE = locale()
 
 /** Ordre des champs de date dans la langue (jour/mois/année) : fr → d m y, en-US → m d y, ja → y m d. */
 export function dateOrder(locale: string = LOCALE): ('day' | 'month' | 'year')[] {

@@ -1,6 +1,7 @@
 // Réglages, comme dans l'app mobile, rangés par portée : moi (profil, sécurité, apparence), mon espace
 // (comptes, partage, stockage, brouillons, nom de l'espace), les appareils où l'app est ouverte, puis la zone
 // sensible. L'apparence (couleur, clair / sombre) est enregistrée sur le compte : le site et l'app la partagent.
+import { LANGS, t, type LangPref } from '../i18n'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { get2fa, getAiPublic, getDevices, getProfile, getProposalCount, removeDevice, saveProfile, ALL, type Device, type TwoFAStatus } from '../api'
@@ -48,7 +49,7 @@ export default function Settings() {
   }, [])
   useEffect(() => { if (!saved) return; const t = setTimeout(() => setSaved(0), 1800); return () => clearTimeout(t) }, [saved])
   const ok = () => setSaved(Date.now())
-  const pick = (change: { palette?: Palette; theme?: ThemePref }) => { setLook(l => ({ ...l, ...change })); setAppearance(change).then(ok) }
+  const pick = (change: { palette?: Palette; theme?: ThemePref; language?: LangPref }) => { setLook(l => ({ ...l, ...change })); setAppearance(change).then(ok) }
   const savePerso = () => saveProfile(persoName.trim()).then(() => { refresh(); ok() }).catch(e => setErr((e as Error).message))
   const disconnect = async (d: Device) => {
     if (!window.confirm(`Déconnecter « ${d.name || 'Appareil'} » ? L’app y demandera de se reconnecter.`)) return
@@ -92,7 +93,9 @@ export default function Settings() {
 
         <section className="card col set-card" aria-labelledby="t-look">
           <h2 id="t-look">Apparence</h2>
-          <Seg<ThemePref> label="Thème" value={look.theme} onChange={v => pick({ theme: v })} options={THEMES.map(t => [t.id, t.label])} />
+          <Seg<ThemePref> label="Thème" value={look.theme} onChange={v => pick({ theme: v })} options={THEMES.map(th => [th.id, th.label])} />
+          <div className="small strong muted">{t('Langue')}</div>
+          <Seg<LangPref> label={t('Langue')} value={look.language} onChange={v => pick({ language: v })} options={LANGS.map(l => [l.id, t(l.label)])} />
           <div className="small strong muted">Couleur de l’app</div>
           <div className="look-pick" role="radiogroup" aria-label="Couleur de l’app">
             {PALETTES.map(p => (

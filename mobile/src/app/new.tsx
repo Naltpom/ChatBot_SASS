@@ -24,7 +24,7 @@ import { useLoad, useRole, useSession } from '../lib/session'
 import { uploadCover, uploadParts } from '../lib/upload'
 import { Avatar, Button, Chip, Field, Icon, Loading, Msg, Row, Screen, Seg, Sheet, Txt } from '../ui/kit'
 import { Missing, StepProgress } from '../ui/Progress'
-import { LOCALE } from '../lib/locale'
+import { locale } from '../lib/locale'
 import { radius, space, useTheme } from '../ui/theme'
 import {
   accKey, accountProblems, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, earliestSlot,
@@ -366,7 +366,7 @@ export default function NewPost() {
       if (params.first) {
         // Première vidéo de l'inscription : écran de réussite (et demande de notifications).
         const names = [...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ')
-        const w = when === 'now' ? 'dans quelques minutes' : at.toLocaleString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+        const w = when === 'now' ? 'dans quelques minutes' : at.toLocaleString(locale(), { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
         router.replace({ pathname: '/setup/done', params: { when: w, accounts: names } })
         return
       }
@@ -511,7 +511,7 @@ export default function NewPost() {
                   </Row>
                   <Field value={caption} maxLength={CAPTION_MAX} editable={!busy} onChangeText={setCaption} multiline accessibilityLabel="Légende"
                     placeholder="Le texte sous la vidéo, avec vos #hashtags" style={captionOpen ? undefined : { maxHeight: 150 }}
-                    hint={`${count.chars.toLocaleString(LOCALE)} / ${CAPTION_MAX.toLocaleString(LOCALE)} · ${count.tags} hashtag${count.tags > 1 ? 's' : ''}`} />
+                    hint={`${count.chars.toLocaleString(locale())} / ${CAPTION_MAX.toLocaleString(locale())} · ${count.tags} hashtag${count.tags > 1 ? 's' : ''}`} />
                 </View>
               </View>
             ) : null}
@@ -600,7 +600,7 @@ export default function NewPost() {
                         .map((x, i) => (
                           <Row key={i} gap={space.sm}>
                             <Txt small bold color={x.me ? c.primary : x.warn ? c.warn : c.muted} style={{ width: 48 }}>
-                              {x.at.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' })}
+                              {x.at.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}
                             </Txt>
                             <Txt small numberOfLines={1} style={{ flex: 1 }} color={x.me ? c.primary : c.text}>{x.me ? `${x.title} (celle-ci)` : x.title}</Txt>
                           </Row>

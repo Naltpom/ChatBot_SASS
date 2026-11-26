@@ -4,7 +4,7 @@ import { Stack, useRouter, useSegments } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import * as SystemUI from 'expo-system-ui'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment, type ReactNode } from 'react'
 import type { ErrorBoundaryProps } from 'expo-router'
 import { installCrashHandler, onCrash, remember } from '../lib/crash'
 import { ErrorScreen } from '../ui/ErrorScreen'
@@ -130,6 +130,12 @@ function Gate() {
   )
 }
 
+/** Autre langue choisie : tous les écrans se réaffichent dans la nouvelle langue. */
+function ByLanguage({ children }: { children: ReactNode }) {
+  const { lang } = useTheme()
+  return <Fragment key={lang}>{children}</Fragment>
+}
+
 export default function RootLayout() {
   const [fatal, setFatal] = useState<{ message: string; stack?: string } | null>(null)
   useEffect(() => onCrash(e => { launchDone(); setFatal(e) }), [])
@@ -142,8 +148,10 @@ export default function RootLayout() {
             <SessionProvider>
                 <AppearanceSync />
                 <IdentityProvider>
-                  <Gate />
-                  <DialogHost />
+                  <ByLanguage>
+                    <Gate />
+                    <DialogHost />
+                  </ByLanguage>
                 </IdentityProvider>
             </SessionProvider>
           </ShareProvider>

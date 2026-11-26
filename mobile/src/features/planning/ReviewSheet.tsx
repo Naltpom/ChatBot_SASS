@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics'
 import { useEffect, useState, type ReactNode } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { PLATFORM_LABEL, type Account } from '../../lib/api'
-import { LOCALE } from '../../lib/locale'
+import { locale } from '../../lib/locale'
 import { Avatar, Button, Msg, Row, Sheet, Txt } from '../../ui/kit'
 import { space, useTheme } from '../../ui/theme'
 import { longDate } from './compose'
@@ -58,7 +58,7 @@ export function ReviewSheet({ visible, onClose, accounts, when, recap, problems,
         <Avatar src={a.avatar_url} name={a.name} platform={a.platform} size={40} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Txt bold numberOfLines={1}>{a.name || PLATFORM_LABEL[a.platform]}</Txt>
-          <Txt small muted numberOfLines={2}>{PLATFORM_LABEL[a.platform]} · {at ? longDate(at, LOCALE) : 'tout de suite'}</Txt>
+          <Txt small muted numberOfLines={2}>{PLATFORM_LABEL[a.platform]} · {at ? longDate(at, locale()) : 'tout de suite'}</Txt>
         </View>
       </Row>
       {errs.length ? <Msg kind="err">À corriger : {errs.join(' ')}</Msg> : null}

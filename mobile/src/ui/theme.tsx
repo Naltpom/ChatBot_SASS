@@ -1,6 +1,10 @@
 // Couleurs du site (cm/src/styles.css), en clair et en sombre. Par défaut : réglage du téléphone ;
 // modifiable dans Réglages (gardé sur le téléphone).
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { getLocales } from 'expo-localization'
+import { resolve, setDeviceTag, setLang, type Lang, type LangPref } from '../lib/i18n'
+
+try { setDeviceTag(getLocales()[0]?.languageTag) } catch { /* langue du téléphone inconnue : français */ }
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useColorScheme } from 'react-native'
 
@@ -60,27 +64,37 @@ export const PALETTE_PREVIEW: Record<Palette, { label: string; light: Colors; da
   warm: { label: 'Orange', ...PALETTES.warm }, ocean: { label: 'Bleu océan', ...PALETTES.ocean }, forest: { label: 'Vert forêt', ...PALETTES.forest },
 }
 interface ThemeCtx { c: Colors; dark: boolean; pref: ThemePref; setPref: (p: ThemePref) => void; palette: Palette; setPalette: (p: Palette) => void
+  /** Langue choisie (« system » : celle du téléphone) et langue affichée. */
+  langPref: LangPref; setLangPref: (p: LangPref) => void; lang: Lang
   /** Choix du téléphone relus (sinon on verrait les valeurs par défaut). */
   loaded: boolean }
-const Ctx = createContext<ThemeCtx>({ c: light, dark: false, pref: 'system', setPref: () => {}, palette: 'warm', setPalette: () => {}, loaded: false })
+const Ctx = createContext<ThemeCtx>({ c: light, dark: false, pref: 'system', setPref: () => {}, palette: 'warm', setPalette: () => {}, loaded: false,
+  langPref: 'system', setLangPref: () => {}, lang: 'fr' })
 const KEY = 'cm.theme'
 const PALETTE_KEY = 'cm.palette'
+const LANG_KEY = 'cm.language'
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const system = useColorScheme()
   const [pref, setPrefState] = useState<ThemePref>('system')
   const [palette, setPaletteState] = useState<Palette>('warm')
   const [loaded, setLoaded] = useState(false)
+  const [langPref, setLangPrefState] = useState<LangPref>('system')
   useEffect(() => {
     Promise.all([
       AsyncStorage.getItem(KEY).then(v => { if (v === 'light' || v === 'dark' || v === 'system') setPrefState(v) }),
       AsyncStorage.getItem(PALETTE_KEY).then(v => { if (v === 'warm' || v === 'ocean' || v === 'forest') setPaletteState(v) }),
+      AsyncStorage.getItem(LANG_KEY).then(v => { if (v === 'system' || v === 'fr' || v === 'en') setLangPrefState(v) }),
     ]).catch(() => {}).finally(() => setLoaded(true))
   }, [])
   const setPref = (p: ThemePref) => { setPrefState(p); AsyncStorage.setItem(KEY, p).catch(() => {}) }
   const setPalette = (p: Palette) => { setPaletteState(p); AsyncStorage.setItem(PALETTE_KEY, p).catch(() => {}) }
+  const setLangPref = (p: LangPref) => { setLangPrefState(p); AsyncStorage.setItem(LANG_KEY, p).catch(() => {}) }
+  const lang = resolve(langPref)
+  setLang(lang)      // avant le rendu des écrans : t() lit déjà la bonne langue
   const isDark = pref === 'system' ? system === 'dark' : pref === 'dark'
-  const value = useMemo(() => ({ c: PALETTES[palette][isDark ? 'dark' : 'light'], dark: isDark, pref, setPref, palette, setPalette, loaded }), [isDark, pref, palette, loaded])
+  const value = useMemo(() => ({ c: PALETTES[palette][isDark ? 'dark' : 'light'], dark: isDark, pref, setPref, palette, setPalette, loaded, langPref, setLangPref, lang }),
+    [isDark, pref, palette, loaded, langPref, lang]) // eslint-disable-line react-hooks/exhaustive-deps
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

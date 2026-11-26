@@ -784,11 +784,13 @@ class ProfileIn(BaseModel):
     perso_name: Optional[str] = Field(None, max_length=80)
     palette: Optional[Literal["warm", "ocean", "forest"]] = None
     theme: Optional[Literal["system", "light", "dark"]] = None
+    language: Optional[Literal["system", "fr", "en"]] = None
 
 
 def _profile_out(p: Optional[CmProfile]) -> dict:
     return {"perso_name": (p.perso_name if p else None) or "Espace perso",
             "palette": (p.palette if p else None) or "warm", "theme": (p.theme if p else None) or "system",
+            "language": (p.language if p else None) or "system",
             "prefs_rev": p.prefs_rev if p else 0}
 
 
@@ -810,7 +812,7 @@ async def set_profile(body: ProfileIn, db: AsyncSession = Depends(get_db), user:
     if "perso_name" in sent:
         p.perso_name = (body.perso_name or "").strip() or None
     changed = False
-    for k in ("palette", "theme"):
+    for k in ("palette", "theme", "language"):
         if k in sent and getattr(body, k) is not None and getattr(body, k) != getattr(p, k):
             setattr(p, k, getattr(body, k))
             changed = True

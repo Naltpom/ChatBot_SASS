@@ -2,7 +2,7 @@
 // (fr : 30 / 11 / 2026, en-US : 11 / 30 / 2026), et au-dessus la date en toutes lettres : « lundi 30 novembre 2026 à 19:10 ».
 import { useEffect, useState } from 'react'
 import { TextInput, View } from 'react-native'
-import { LOCALE } from '../../lib/locale'
+import { locale as appLocale } from '../../lib/locale'
 import { Row, Txt } from '../../ui/kit'
 import { radius, useTheme } from '../../ui/theme'
 import { dateOrder, fromParts, longDate } from './compose'
@@ -14,7 +14,7 @@ const partsOf = (d: Date): Record<Part, string> => ({
   day: pad(d.getDate()), month: pad(d.getMonth() + 1), year: String(d.getFullYear()), hour: pad(d.getHours()), minute: pad(d.getMinutes()),
 })
 
-export function DateParts({ value, onChange, disabled, label, locale = LOCALE }: {
+export function DateParts({ value, onChange, disabled, label, locale = appLocale() }: {
   value: Date; onChange: (d: Date) => void; disabled?: boolean; label?: string; locale?: string
 }) {
   const { c } = useTheme()

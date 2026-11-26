@@ -106,7 +106,7 @@ async def test_decline_profile_and_counts(pg_session, cmenv, tiktok):
         assert (await ha.post(f"/api/cm/invitations/{inv['id']}/accept")).status_code == 404
         # Nom de l'espace perso.
         assert (await ha.get("/api/cm/profile")).json() == {"perso_name": "Espace perso", "palette": "warm",
-                                                            "theme": "system", "prefs_rev": 0}
+                                                            "theme": "system", "language": "system", "prefs_rev": 0}
         assert (await ha.patch("/api/cm/profile", json={"perso_name": "Studio Nathan"})).json()["perso_name"] == "Studio Nathan"
         # Apparence partagée site / app : le numéro n'augmente que si la couleur ou le thème change.
         r = (await ha.patch("/api/cm/profile", json={"palette": "forest", "theme": "dark"})).json()
@@ -114,6 +114,13 @@ async def test_decline_profile_and_counts(pg_session, cmenv, tiktok):
         assert (await ha.patch("/api/cm/profile", json={"palette": "forest"})).json()["prefs_rev"] == 1
         assert (await ha.patch("/api/cm/profile", json={"theme": "light"})).json()["prefs_rev"] == 2
         assert (await ha.patch("/api/cm/profile", json={"palette": "rose"})).status_code == 422
+        # Langue, comme le thème ; réponses en anglais quand le client le demande (X-Chapote-Lang).
+        r = (await ha.patch("/api/cm/profile", json={"language": "en"})).json()
+        assert (r["language"], r["prefs_rev"]) == ("en", 3)
+        assert (await ha.patch("/api/cm/profile", json={"language": "de"})).status_code == 422
+        en = await ha.get("/api/cm/posts/999999", headers={"X-Chapote-Lang": "en"})
+        assert en.status_code == 404 and en.json()["message"] == en.json()["detail"] == "Post not found"
+        assert (await ha.get("/api/cm/posts/999999")).json()["message"] == "Publication introuvable"
         assert (await ha.get("/api/cm/spaces")).json()[0]["name"] == "Studio Nathan"
         # « À valider » : total et par groupe.
         cnt = (await ha.get("/api/cm/proposals/count?scope=all")).json()

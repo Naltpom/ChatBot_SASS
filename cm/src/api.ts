@@ -1,3 +1,4 @@
+import { getLang } from './i18n'
 // Appels à l'API, sur la même origine (cm.chapote.fr) : /api/cm/... (planning, chiffres,
 // Instagram), /api/tiktok/... et /api/youtube/... (comptes, options du créateur), /api/auth/...
 // (compte partagé avec chapote.fr). Le cookie de session est posé par l'API (httpOnly).
@@ -115,7 +116,7 @@ async function callRaw<T>(path: string, init?: RequestInit): Promise<{ body: T; 
     res = await fetch(path, {
       ...init,
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm', ...(init?.headers || {}) },
+      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm', 'X-Chapote-Lang': getLang(), ...(init?.headers || {}) },
     })
   } catch {
     throw new ApiError(0, 'Connexion impossible : vérifiez votre réseau.')
@@ -225,7 +226,7 @@ export const resendDraft = (id: number) => send<Target>('POST', `/api/cm/targets
 export async function putCover(postId: number, image: File): Promise<void> {
   const res = await fetch(`/api/cm/posts/${postId}/cover`, {
     method: 'PUT', body: image, credentials: 'same-origin',
-    headers: { 'Content-Type': image.type || 'application/octet-stream', 'X-Chapote-App': 'cm' },
+    headers: { 'Content-Type': image.type || 'application/octet-stream', 'X-Chapote-App': 'cm', 'X-Chapote-Lang': getLang() },
   })
   if (!res.ok) {
     let msg = `Couverture refusée (${res.status})`
@@ -240,7 +241,7 @@ export async function putPart(postId: number, index: number, bytes: Blob): Promi
     try {
       res = await fetch(`/api/cm/posts/${postId}/parts/${index}`, {
         method: 'PUT', body: bytes, credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-Chapote-App': 'cm' },
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Chapote-App': 'cm', 'X-Chapote-Lang': getLang() },
       })
     } catch {
       if (attempt < 3) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue }

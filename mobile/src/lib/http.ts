@@ -1,6 +1,7 @@
 // Transport HTTP de l'app : URL de l'API, session mobile (cookie `chapote_session` d'une heure obtenu
 // avec le jeton de l'appareil, voir api/src/routers/cm_mobile.py), nouvel essai après un 401,
 // erreurs lisibles en français.
+import { getLang } from './i18n'
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
 import { errorMessage, sessionIsFresh } from './session-logic'
@@ -55,7 +56,7 @@ async function refresh(): Promise<string> {
   try {
     res = await fetch(`${API_URL}/api/cm/mobile/refresh`, {
       method: 'POST', credentials: 'omit',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Chapote-Lang': getLang() },
       body: JSON.stringify({ refresh_token: deviceToken }),
     })
   } catch {
@@ -77,7 +78,7 @@ export async function sessionCookie(force = false): Promise<string> {
 
 /** En-têtes d'une requête authentifiée (aussi pour les envois de fichiers et le lecteur vidéo). */
 export async function authHeaders(force = false): Promise<Record<string, string>> {
-  return { Cookie: `chapote_session=${await sessionCookie(force)}`, 'X-Chapote-App': 'cm-mobile' }
+  return { Cookie: `chapote_session=${await sessionCookie(force)}`, 'X-Chapote-App': 'cm-mobile', 'X-Chapote-Lang': getLang() }
 }
 
 async function readError(res: Response): Promise<ApiError> {
@@ -123,7 +124,7 @@ export async function callPublic<T>(path: string, body: unknown, include = false
   try {
     res = await fetch(url(path), {
       method: 'POST', credentials: include ? 'include' : 'omit',
-      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm-mobile' },
+      headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm-mobile', 'X-Chapote-Lang': getLang() },
       body: JSON.stringify(body),
     })
   } catch {

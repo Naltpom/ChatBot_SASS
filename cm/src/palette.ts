@@ -3,9 +3,10 @@
 // une copie locale l'applique avant le premier affichage. `rev` = numéro de l'apparence sur le compte :
 // au chargement, si le compte a un autre numéro, on reprend ses valeurs ; sinon rien ne change.
 // Appliquée sur <html data-palette data-theme> ; l'icône d'onglet suit la couleur.
+import { applyLang, getLang, resolve, type LangPref } from './i18n'
 export type Palette = 'warm' | 'ocean' | 'forest'
 export type ThemePref = 'system' | 'light' | 'dark'
-export interface Appearance { palette: Palette; theme: ThemePref; rev: number }
+export interface Appearance { palette: Palette; theme: ThemePref; language: LangPref; rev: number }
 
 export const PALETTES: { id: Palette; label: string; color: string }[] = [
   { id: 'warm', label: 'Orange', color: '#F05A28' },
@@ -19,15 +20,16 @@ const KEY = 'cm.appearance'
 const OLD_KEY = 'cm.palette'          // ancien choix, gardé dans le navigateur seulement
 const isPalette = (v: unknown): v is Palette => v === 'warm' || v === 'ocean' || v === 'forest'
 const isTheme = (v: unknown): v is ThemePref => v === 'system' || v === 'light' || v === 'dark'
+const isLang = (v: unknown): v is LangPref => v === 'system' || v === 'fr' || v === 'en'
 
 /** Copie locale (ou valeurs par défaut ; rev -1 = jamais synchronisée). */
 export function getAppearance(): Appearance {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || 'null')
-    if (v && isPalette(v.palette) && isTheme(v.theme) && typeof v.rev === 'number') return v
+    if (v && isPalette(v.palette) && isTheme(v.theme) && typeof v.rev === 'number') return { ...v, language: isLang(v.language) ? v.language : 'system' }
     const old = localStorage.getItem(OLD_KEY)
-    return { palette: isPalette(old) ? old : 'warm', theme: 'system', rev: -1 }
-  } catch { return { palette: 'warm', theme: 'system', rev: -1 } }
+    return { palette: isPalette(old) ? old : 'warm', theme: 'system', language: 'system', rev: -1 }
+  } catch { return { palette: 'warm', theme: 'system', language: 'system', rev: -1 } }
 }
 export const getPalette = (): Palette => getAppearance().palette
 
@@ -52,10 +54,10 @@ export function applyAppearance(a: Pick<Appearance, 'palette' | 'theme'>) {
 /** Compatibilité : ancien appel au démarrage. */
 export const applyPalette = (p: Palette) => applyAppearance({ palette: p, theme: getAppearance().theme })
 
-interface ServerProfile { palette: Palette; theme: ThemePref; prefs_rev: number }
+interface ServerProfile { palette: Palette; theme: ThemePref; language?: LangPref; prefs_rev: number }
 const call = async (init?: RequestInit): Promise<ServerProfile> => {
   const r = await fetch('/api/cm/profile', { credentials: 'same-origin', ...init,
-    headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm' } })
+    headers: { 'Content-Type': 'application/json', 'X-Chapote-App': 'cm', 'X-Chapote-Lang': getLang() } })
   if (!r.ok) throw new Error(String(r.status))
   return r.json()
 }
@@ -67,23 +69,25 @@ export async function syncAppearance(): Promise<void> {
   let srv: ServerProfile
   try { srv = await call() } catch { return }
   if (srv.prefs_rev === local.rev) return
-  if (local.rev === -1 && srv.prefs_rev === 0 && (local.palette !== 'warm' || local.theme !== 'system')) {
-    try { srv = await call({ method: 'PATCH', body: JSON.stringify({ palette: local.palette, theme: local.theme }) }) } catch { return }
+  if (local.rev === -1 && srv.prefs_rev === 0 && (local.palette !== 'warm' || local.theme !== 'system' || local.language !== 'system')) {
+    try { srv = await call({ method: 'PATCH', body: JSON.stringify({ palette: local.palette, theme: local.theme, language: local.language }) }) } catch { return }
   }
-  const next = { palette: srv.palette, theme: srv.theme, rev: srv.prefs_rev }
+  const next = { palette: srv.palette, theme: srv.theme, language: isLang(srv.language) ? srv.language : 'system', rev: srv.prefs_rev }
   save(next)
   applyAppearance(next)
+  applyLang(resolve(next.language))
 }
 
 /** Choix fait ici : appliqué tout de suite, puis enregistré sur le compte (le site et l'app le reprennent). */
-export async function setAppearance(change: Partial<Pick<Appearance, 'palette' | 'theme'>>): Promise<void> {
+export async function setAppearance(change: Partial<Pick<Appearance, 'palette' | 'theme' | 'language'>>): Promise<void> {
   const cur = getAppearance()
   const next = { ...cur, ...change }
   save(next)
   applyAppearance(next)
   try {
     const srv = await call({ method: 'PATCH', body: JSON.stringify(change) })
-    save({ palette: srv.palette, theme: srv.theme, rev: srv.prefs_rev })
+    save({ palette: srv.palette, theme: srv.theme, language: isLang(srv.language) ? srv.language : next.language, rev: srv.prefs_rev })
   } catch { /* hors ligne : gardé ici, renvoyé au prochain choix */ }
+  if (change.language) applyLang(resolve(change.language))
 }
 export const setPalette = (p: Palette) => setAppearance({ palette: p })
