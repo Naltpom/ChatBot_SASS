@@ -2,6 +2,7 @@
 // en-têtes de session pour les médias (miniatures, lecteur vidéo).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { authHeaders, type Page } from '../../lib/http'
+import { t } from '../../lib/i18n'
 import { mergeById } from './logic'
 
 export function useDebounced<T>(value: T, ms = 300): T {
@@ -32,7 +33,7 @@ export function usePaged<T extends { id: number }>(fetchPage: (cursor: string | 
       if (g !== gen.current) return
       setItems(p.items); setNext(p.next); setError(null)
     } catch (e) {
-      if (g === gen.current) setError((e as Error).message || 'Erreur')
+      if (g === gen.current) setError((e as Error).message || t('Erreur'))
     } finally {
       if (g === gen.current) setRefreshing(false)
     }
@@ -49,7 +50,7 @@ export function usePaged<T extends { id: number }>(fetchPage: (cursor: string | 
       if (g !== gen.current) return
       setItems(cur => mergeById(cur || [], p.items)); setNext(p.next)
     } catch (e) {
-      if (g === gen.current) setError((e as Error).message || 'Erreur')
+      if (g === gen.current) setError((e as Error).message || t('Erreur'))
     } finally {
       setLoadingMore(false)
     }

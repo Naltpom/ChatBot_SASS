@@ -3,6 +3,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Platform as RNPlatform, View } from 'react-native'
+import { t } from '../../lib/i18n'
 import { enablePush } from '../../lib/push'
 import { StickyFooter } from '../../features/steps'
 import { Card, H1, Icon, Msg, Screen, Txt, Button } from '../../ui/kit'
@@ -29,8 +30,8 @@ export default function Done() {
   return (
     <Screen footer={
       <StickyFooter>
-        <Button kind="primary" icon="bell" title={RNPlatform.OS === 'ios' ? 'Continuer' : 'Me prévenir quand elle part'} onPress={notify} style={{ minHeight: 52 }} />
-        {RNPlatform.OS === 'ios' ? null : <Button kind="ghost" title="Plus tard" onPress={finish} />}
+        <Button kind="primary" icon="bell" title={RNPlatform.OS === 'ios' ? t('Continuer') : t('Me prévenir quand elle part')} onPress={notify} style={{ minHeight: 52 }} />
+        {RNPlatform.OS === 'ios' ? null : <Button kind="ghost" title={t('Plus tard')} onPress={finish} />}
       </StickyFooter>
     }>
       <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
@@ -38,12 +39,15 @@ export default function Done() {
         <Animated.View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: c.okBg, alignItems: 'center', justifyContent: 'center', transform: [{ scale: pop }] }}>
           <Icon name="check" size={48} color={c.ok} strokeWidth={2.6} />
         </Animated.View>
-        <H1>C’est programmé !</H1>
-        <Txt muted center>{when ? `Votre vidéo partira ${when}` : 'Votre vidéo est dans le planning'}{accounts ? ` sur ${accounts}` : ''}. Chapote s’occupe de la suite, même téléphone éteint.</Txt>
+        <H1>{t('C’est programmé !')}</H1>
+        <Txt muted center>{when
+          ? (accounts ? t('Votre vidéo partira {when} sur {accounts}.', { when, accounts }) : t('Votre vidéo partira {when}.', { when }))
+          : (accounts ? t('Votre vidéo est dans le planning sur {accounts}.', { accounts }) : t('Votre vidéo est dans le planning.'))}
+          {' '}{t('Chapote s’occupe de la suite, même téléphone éteint.')}</Txt>
       </View>
       <Card style={{ borderRadius: radius.lg }}>
-        <Txt bold>Être prévenu quand elle est en ligne ?</Txt>
-        <Txt small muted>Une notification quand la vidéo est publiée, si un envoi échoue, ou quand un brouillon TikTok attend votre validation. Réglable par type dans Réglages.</Txt>
+        <Txt bold>{t('Être prévenu quand elle est en ligne ?')}</Txt>
+        <Txt small muted>{t('Une notification quand la vidéo est publiée, si un envoi échoue, ou quand un brouillon TikTok attend votre validation. Réglable par type dans Réglages.')}</Txt>
       </Card>
       {err ? <Msg kind="err">{err}</Msg> : null}
     </Screen>

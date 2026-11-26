@@ -6,6 +6,7 @@ import * as WebBrowser from 'expo-web-browser'
 import { useCallback, useState } from 'react'
 import { View } from 'react-native'
 import { getStorages, type DriveStorage } from '../../lib/api'
+import { t } from '../../lib/i18n'
 import { STEPS } from '../../lib/onboarding'
 import { useRole, useSession } from '../../lib/session'
 import { connectDrive } from '../../features/storage'
@@ -29,7 +30,7 @@ export default function SetupDrive() {
   useFocusEffect(load)
   const connect = async () => {
     setErr(null)
-    try { await connectDrive(org, name.trim() || undefined); await refresh(); load() } catch (e: any) { setErr(e?.message || 'Connexion impossible') }
+    try { await connectDrive(org, name.trim() || undefined); await refresh(); load() } catch (e: any) { setErr(e?.message || t('Connexion impossible')) }
   }
   const main = list?.[0]
   const folder = name.trim() ? `${ROOT} — ${name.trim()}` : ROOT
@@ -37,35 +38,35 @@ export default function SetupDrive() {
   return (
     <Screen onRefresh={load} footer={
       <StickyFooter>
-        {main ? <Button kind="primary" title="Continuer : ma première vidéo" onPress={() => router.push('/setup/first-video')} style={{ minHeight: 52 }} />
-          : canAdmin ? <Button kind="primary" icon="folder" title="Connecter Google Drive" onPress={connect} style={{ minHeight: 52 }} />
-          : <Msg>Un administrateur de l’équipe doit connecter le Drive.</Msg>}
+        {main ? <Button kind="primary" title={t('Continuer : ma première vidéo')} onPress={() => router.push('/setup/first-video')} style={{ minHeight: 52 }} />
+          : canAdmin ? <Button kind="primary" icon="folder" title={t('Connecter Google Drive')} onPress={connect} style={{ minHeight: 52 }} />
+          : <Msg>{t('Un administrateur de l’équipe doit connecter le Drive.')}</Msg>}
       </StickyFooter>
     }>
       <StepHeader n={3} />
       <View style={{ gap: space.md }}>
         <StepProgress step={3} total={STEPS} label="Google Drive" />
-        <H1>Où ranger vos vidéos ?</H1>
-        <Txt muted>Dans votre Google Drive, le temps de la publication. Chapote n’y voit que son propre dossier, et vous choisissez ce qui est gardé après.</Txt>
+        <H1>{t('Où ranger vos vidéos ?')}</H1>
+        <Txt muted>{t('Dans votre Google Drive, le temps de la publication. Chapote n’y voit que son propre dossier, et vous choisissez ce qui est gardé après.')}</Txt>
       </View>
       {err ? <Msg kind="err">{err}</Msg> : null}
       {main ? (
         <Card>
-          <Row gap={space.sm}><Icon name="check" size={20} color={c.ok} /><Txt bold>Google Drive connecté</Txt></Row>
+          <Row gap={space.sm}><Icon name="check" size={20} color={c.ok} /><Txt bold>{t('Google Drive connecté')}</Txt></Row>
           <Txt small muted>{main.email}</Txt>
           <Row gap={space.sm}><Icon name="folder" size={18} color={c.muted} /><Txt>{main.name || ROOT}</Txt></Row>
-          {main.folder_url ? <Button small icon="external" title="Ouvrir le dossier dans Drive" onPress={() => WebBrowser.openBrowserAsync(main.folder_url!).catch(() => {})} /> : null}
+          {main.folder_url ? <Button small icon="external" title={t('Ouvrir le dossier dans Drive')} onPress={() => WebBrowser.openBrowserAsync(main.folder_url!).catch(() => {})} /> : null}
         </Card>
       ) : (
         <Card>
-          <Field label="Nom du dossier (facultatif)" value={name} onChangeText={setName} maxLength={60} placeholder="Ex. Mes vidéos, Client Lumen"
-            hint={`Il sera créé à la racine de votre Drive : « ${folder} ». Vous pourrez le déplacer.`} />
+          <Field label={t('Nom du dossier (facultatif)')} value={name} onChangeText={setName} maxLength={60} placeholder={t('Ex. Mes vidéos, Client Lumen')}
+            hint={t('Il sera créé à la racine de votre Drive : « {folder} ». Vous pourrez le déplacer.', { folder })} />
         </Card>
       )}
       <Card>
-        <Row gap={space.sm}><Icon name="layers" size={20} color={c.primary} /><Txt bold>Vos vidéos sont déjà dans Drive ?</Txt></Row>
-        <Txt small muted>Glissez leur dossier dans « {main?.name || folder} » : Chapote le voit tout seul, et ses vidéos apparaissent dans la Bibliothèque en quelques minutes, prêtes à planifier.</Txt>
-        <Txt small muted>Un dossier d’un Drive partagé d’entreprise ? Ajoutez-le depuis la Bibliothèque → « Ajouter un dossier Drive ».</Txt>
+        <Row gap={space.sm}><Icon name="layers" size={20} color={c.primary} /><Txt bold>{t('Vos vidéos sont déjà dans Drive ?')}</Txt></Row>
+        <Txt small muted>{t('Glissez leur dossier dans « {folder} » : Chapote le voit tout seul, et ses vidéos apparaissent dans la Bibliothèque en quelques minutes, prêtes à planifier.', { folder: main?.name || folder })}</Txt>
+        <Txt small muted>{t('Un dossier d’un Drive partagé d’entreprise ? Ajoutez-le depuis la Bibliothèque → « Ajouter un dossier Drive ».')}</Txt>
       </Card>
     </Screen>
   )

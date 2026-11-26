@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { View } from 'react-native'
 import { analyzeSource, previewRecipe, saveRecipe, type Analysis, type DatePattern, type Recipe, type RecipeExample, type Source } from '../../lib/api'
 import { fmtDateTime } from '../../lib/format'
+import { t } from '../../lib/i18n'
 import { useSession } from '../../lib/session'
 import { Button, Field, Icon, Label, Loading, Msg, Row, Sheet, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
@@ -16,11 +17,11 @@ import { Choice, Select } from './ui'
 function Example({ x }: { x: RecipeExample }) {
   const { c } = useTheme()
   const rows: [string, ReactNode][] = [
-    ['Titre', <Txt small bold>{x.title}</Txt>],
-    ['Quand', x.scheduled_at ? <Txt small>{fmtDateTime(x.scheduled_at)}</Txt> : <Txt small muted>à choisir en validant</Txt>],
-    ['Où', x.accounts.length ? <Txt small>{x.accounts.join(', ')}</Txt> : <Txt small color={c.warn}>aucun compte : à choisir</Txt>],
-    ['Légende', x.caption ? <Txt small numberOfLines={2}>{x.caption}</Txt> : <Txt small muted>aucune</Txt>],
-    ['Couverture', x.cover ? <Txt small>l’image du dossier</Txt> : <Txt small muted>choisie par la plateforme</Txt>],
+    [t('Titre'), <Txt small bold>{x.title}</Txt>],
+    [t('Quand'), x.scheduled_at ? <Txt small>{fmtDateTime(x.scheduled_at)}</Txt> : <Txt small muted>{t('à choisir en validant')}</Txt>],
+    [t('Où'), x.accounts.length ? <Txt small>{x.accounts.join(', ')}</Txt> : <Txt small color={c.warn}>{t('aucun compte : à choisir')}</Txt>],
+    [t('Légende'), x.caption ? <Txt small numberOfLines={2}>{x.caption}</Txt> : <Txt small muted>{t('aucune')}</Txt>],
+    [t('Couverture'), x.cover ? <Txt small>{t('l’image du dossier')}</Txt> : <Txt small muted>{t('choisie par la plateforme')}</Txt>],
   ]
   return (
     <View style={{ borderRadius: radius.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, padding: space.md, gap: space.sm }}>
@@ -28,7 +29,7 @@ function Example({ x }: { x: RecipeExample }) {
         <Icon name="folder" size={16} color={c.muted} />
         <Txt small muted style={{ flex: 1 }}>{x.path.split('/').join(' / ')}</Txt>
       </Row>
-      <Txt small faint>devient</Txt>
+      <Txt small faint>{t('devient')}</Txt>
       {rows.map(([k, v]) => (
         <Row key={k} gap={space.sm} style={{ alignItems: 'flex-start' }}>
           <Txt small muted style={{ width: 86 }}>{k}</Txt>
@@ -46,9 +47,9 @@ function Question({ title, summary, open, onToggle, children }: { title: string;
       <Row gap={space.md}>
         <View style={{ flex: 1 }}>
           <Txt bold>{title}</Txt>
-          <Txt small muted>{summary}</Txt>
+          <Txt small muted>{t(summary)}</Txt>
         </View>
-        <Button small title={open ? 'OK' : 'Changer'} onPress={onToggle} accessibilityLabel={open ? `Fermer : ${title}` : `Changer : ${title}`} />
+        <Button small title={open ? t('OK') : t('Changer')} onPress={onToggle} accessibilityLabel={open ? t('Fermer : {title}', { title }) : t('Changer : {title}', { title })} />
       </Row>
       {open ? <View style={{ gap: space.sm }}>{children}</View> : null}
     </View>
@@ -92,76 +93,76 @@ export function RecipeSheet({ s, visible, onClose, onSaved }: { s: Source; visib
     try { const r = await saveRecipe(org, s.id, recipe, active, backlog); onSaved(r.source, r.proposed) }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
-  const targets = recipeTargets(an).map(t => [t.key, t.name] as [string, string])
+  const targets = recipeTargets(an, t).map(x => [x.key, x.name] as [string, string])
   const level = String(recipe?.account.level || 1) as '1' | '2' | '3'
   const folders = an?.folders[level] || []
   const commitTime = () => {
-    const t = normalizeTime(time)
-    if (t) { setTime(t); set(r => { r.when.default_time = t }) } else setTime(recipe?.when.default_time || '18:00')
+    const v = normalizeTime(time)
+    if (v) { setTime(v); set(r => { r.when.default_time = v }) } else setTime(recipe?.when.default_time || '18:00')
   }
 
   return (
-    <Sheet visible={visible} title="Préparer les publications toutes seules" onClose={onClose}
+    <Sheet visible={visible} title={t('Préparer les publications toutes seules')} onClose={onClose}
       footer={an && recipe ? (
         <View style={{ gap: space.sm }}>
-          <Button kind="primary" title={s.auto_drafts ? 'Enregistrer' : 'Activer'} disabled={busy} onPress={() => save(true)} />
-          {s.auto_drafts ? <Button kind="ghost" title="Désactiver" disabled={busy} onPress={() => save(false)} /> : null}
-          <Txt small muted center>Rien ne part sans votre validation, dans « À valider ».</Txt>
+          <Button kind="primary" title={s.auto_drafts ? t('Enregistrer') : t('Activer')} disabled={busy} onPress={() => save(true)} />
+          {s.auto_drafts ? <Button kind="ghost" title={t('Désactiver')} disabled={busy} onPress={() => save(false)} /> : null}
+          <Txt small muted center>{t('Rien ne part sans votre validation, dans « À valider ».')}</Txt>
         </View>
       ) : undefined}>
-      <Txt small muted>Quand votre équipe dépose une vidéo dans « {s.name} », Chapote prépare la publication. Vous la vérifiez avant qu’elle parte.</Txt>
-      {!an && busy ? <Loading label="Lecture du rangement du dossier…" /> : null}
-      {!an && busy ? <Txt small muted center>Lecture du rangement du dossier…</Txt> : null}
+      <Txt small muted>{t('Quand votre équipe dépose une vidéo dans « {name} », Chapote prépare la publication. Vous la vérifiez avant qu’elle parte.', { name: s.name })}</Txt>
+      {!an && busy ? <Loading label={t('Lecture du rangement du dossier…')} /> : null}
+      {!an && busy ? <Txt small muted center>{t('Lecture du rangement du dossier…')}</Txt> : null}
       {err ? <Msg kind="err">{err}</Msg> : null}
-      {!an && !busy && err ? <Button title="Réessayer" icon="refresh" onPress={analyze} /> : null}
+      {!an && !busy && err ? <Button title={t('Réessayer')} icon="refresh" onPress={analyze} /> : null}
       {an && recipe ? (
         <>
-          <Label>Exemple avec une de vos vidéos</Label>
-          {examples[0] ? <Example x={examples[0]} /> : <Txt small muted>Aucune vidéo dans le dossier pour l’instant.</Txt>}
+          <Label>{t('Exemple avec une de vos vidéos')}</Label>
+          {examples[0] ? <Example x={examples[0]} /> : <Txt small muted>{t('Aucune vidéo dans le dossier pour l’instant.')}</Txt>}
           {examples.length > 1 ? (
             <Button kind="ghost" small style={{ alignSelf: 'flex-start' }} onPress={() => setMore(m => !m)}
-              title={more ? 'Masquer les autres exemples' : `Voir ${examples.length - 1} autre${examples.length > 2 ? 's' : ''} exemple${examples.length > 2 ? 's' : ''}`} />
+              title={more ? t('Masquer les autres exemples') : examples.length > 2 ? t('Voir {n} autres exemples', { n: examples.length - 1 }) : t('Voir 1 autre exemple')} />
           ) : null}
           {more ? examples.slice(1).map(x => <Example key={x.asset_id} x={x} />) : null}
 
-          <Label>C’est juste ? Sinon, corrigez</Label>
-          <Question title="Sur quels comptes ?" summary={accountSummary(recipe, an)} open={open === 'acc'} onToggle={() => setOpen(open === 'acc' ? null : 'acc')}>
-            <Choice radio label="Toujours les mêmes comptes" checked={recipe.account.from === 'source'} onPress={() => set(r => { r.account.from = 'source' })} />
+          <Label>{t('C’est juste ? Sinon, corrigez')}</Label>
+          <Question title={t('Sur quels comptes ?')} summary={accountSummary(recipe, an, t)} open={open === 'acc'} onToggle={() => setOpen(open === 'acc' ? null : 'acc')}>
+            <Choice radio label={t('Toujours les mêmes comptes')} checked={recipe.account.from === 'source'} onPress={() => set(r => { r.account.from = 'source' })} />
             {recipe.account.from === 'source' ? (
-              <Select label="Comptes" value={(recipe.account.map['*'] || [])[0] || ''}
-                options={[['', 'Les comptes proposés par défaut pour ce dossier'], ...targets]}
+              <Select label={t('Comptes')} value={(recipe.account.map['*'] || [])[0] || ''}
+                options={[['', t('Les comptes proposés par défaut pour ce dossier')], ...targets]}
                 onChange={v => setRecipe(r => (r ? setMapping(r, '*', v) : r))} />
             ) : null}
-            <Choice radio label="Ça dépend du sous-dossier (un dossier par compte ou par client)" checked={recipe.account.from === 'folder'}
+            <Choice radio label={t('Ça dépend du sous-dossier (un dossier par compte ou par client)')} checked={recipe.account.from === 'folder'}
               onPress={() => set(r => { r.account.from = 'folder' })} />
             {recipe.account.from === 'folder' ? (
               <>
                 {folders.map(f => (
-                  <Select key={f} label={`Dossier « ${f} »`} value={(recipe.account.map[f] || [])[0] || ''}
-                    options={[['', 'Ne rien préparer'], ...targets]} onChange={v => setRecipe(r => (r ? setMapping(r, f, v) : r))} />
+                  <Select key={f} label={t('Dossier « {name} »', { name: f })} value={(recipe.account.map[f] || [])[0] || ''}
+                    options={[['', t('Ne rien préparer')], ...targets]} onChange={v => setRecipe(r => (r ? setMapping(r, f, v) : r))} />
                 ))}
-                <Select label="Les comptes sont rangés plus profond ?" value={recipe.account.level} options={LEVELS}
+                <Select label={t('Les comptes sont rangés plus profond ?')} value={recipe.account.level} options={LEVELS.map(([v, l]) => [v, t(l)] as [number, string])}
                   onChange={v => set(r => { r.account.level = v })} />
               </>
             ) : null}
           </Question>
-          <Question title="Quand publier ?" summary={whenSummary(recipe, an)} open={open === 'when'} onToggle={() => setOpen(open === 'when' ? null : 'when')}>
-            <Select<DatePattern> label="Où lire la date" value={recipe.when.pattern} options={PATTERNS.map(p => [p, patternLabel(p, an)])}
+          <Question title={t('Quand publier ?')} summary={whenSummary(recipe, an)} open={open === 'when'} onToggle={() => setOpen(open === 'when' ? null : 'when')}>
+            <Select<DatePattern> label={t('Où lire la date')} value={recipe.when.pattern} options={PATTERNS.map(p => [p, t(patternLabel(p, an))])}
               onChange={v => set(r => { r.when.pattern = v })} />
             {recipe.when.pattern !== 'none' ? (
-              <Field label="Heure si le nom n’en donne pas" value={time} onChangeText={setTime} onBlur={commitTime} onSubmitEditing={commitTime}
-                placeholder="18:00" keyboardType="numbers-and-punctuation" maxLength={5} hint="Au format 18:00." />
+              <Field label={t('Heure si le nom n’en donne pas')} value={time} onChangeText={setTime} onBlur={commitTime} onSubmitEditing={commitTime}
+                placeholder="18:00" keyboardType="numbers-and-punctuation" maxLength={5} hint={t('Au format 18:00.')} />
             ) : null}
           </Question>
-          <Question title="Titre et légende ?" summary={textSummary(recipe)} open={open === 'text'} onToggle={() => setOpen(open === 'text' ? null : 'text')}>
-            <Select label="Le titre vient de" value={recipe.title.from} options={(Object.keys(TITLE_FROM) as Recipe['title']['from'][]).map(k => [k, TITLE_FROM[k]])}
+          <Question title={t('Titre et légende ?')} summary={textSummary(recipe)} open={open === 'text'} onToggle={() => setOpen(open === 'text' ? null : 'text')}>
+            <Select label={t('Le titre vient de')} value={recipe.title.from} options={(Object.keys(TITLE_FROM) as Recipe['title']['from'][]).map(k => [k, t(TITLE_FROM[k])])}
               onChange={v => set(r => { r.title.from = v })} />
-            <Choice label="Légende : le fichier .txt posé à côté de la vidéo" checked={recipe.caption.from === 'txt'}
+            <Choice label={t('Légende : le fichier .txt posé à côté de la vidéo')} checked={recipe.caption.from === 'txt'}
               onPress={() => set(r => { r.caption.from = r.caption.from === 'txt' ? 'none' : 'txt' })} />
-            <Choice label="Couverture : l’image posée à côté de la vidéo" checked={recipe.cover.from === 'image'}
+            <Choice label={t('Couverture : l’image posée à côté de la vidéo')} checked={recipe.cover.from === 'image'}
               onPress={() => set(r => { r.cover.from = r.cover.from === 'image' ? 'none' : 'image' })} />
           </Question>
-          {!s.auto_drafts ? <Choice label="Préparer aussi les vidéos déjà dans le dossier" checked={backlog} onPress={() => setBacklog(b => !b)} /> : null}
+          {!s.auto_drafts ? <Choice label={t('Préparer aussi les vidéos déjà dans le dossier')} checked={backlog} onPress={() => setBacklog(b => !b)} /> : null}
         </>
       ) : null}
     </Sheet>

@@ -5,6 +5,7 @@ import { useState, type ReactNode } from 'react'
 import { Pressable, StyleSheet, Switch, View } from 'react-native'
 import type { Order } from '../../lib/api'
 import { API_URL } from '../../lib/http'
+import { t } from '../../lib/i18n'
 import { Icon, Row, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import { mediaUrl } from './logic'
@@ -14,12 +15,12 @@ export function Select<T extends string | number>({ label, value, options, onCha
   { label: string; value: T | null; options: [T, string][]; onChange: (v: T) => void; disabled?: boolean; placeholder?: string }) {
   const { c } = useTheme()
   const [open, setOpen] = useState(false)
-  const current = options.find(o => o[0] === value)?.[1] ?? placeholder ?? 'Choisir'
+  const current = options.find(o => o[0] === value)?.[1] ?? placeholder ?? t('Choisir')
   return (
     <View style={{ gap: 6 }}>
       {label ? <Txt small bold>{label}</Txt> : null}
       <Pressable onPress={() => setOpen(o => !o)} disabled={disabled} accessibilityRole="button"
-        accessibilityLabel={`${label} : ${current}`} accessibilityState={{ expanded: open, disabled: !!disabled }}
+        accessibilityLabel={label ? t('{label} : {value}', { label, value: current }) : current} accessibilityState={{ expanded: open, disabled: !!disabled }}
         style={({ pressed }) => ({ minHeight: 48, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.borderStrong,
           backgroundColor: c.surface, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 })}>
         <Txt style={{ flex: 1 }} numberOfLines={1}>{current}</Txt>
@@ -92,9 +93,9 @@ export function SortBar<S extends string>({ sort, order, options, onSort, onOrde
 
 function OrderButton({ order, onPress }: { order: Order; onPress: () => void }) {
   const { c } = useTheme()
-  const label = order === 'asc' ? 'Ordre croissant' : 'Ordre décroissant'
+  const label = order === 'asc' ? t('Ordre croissant') : t('Ordre décroissant')
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}. Inverser`}
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={t('{label}. Inverser', { label })}
       style={({ pressed }) => ({ width: 48, height: 48, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.borderStrong,
         backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
       <View style={{ transform: [{ rotate: order === 'asc' ? '180deg' : '0deg' }] }}><Icon name="down" size={20} /></View>
