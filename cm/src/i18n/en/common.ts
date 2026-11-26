@@ -2,6 +2,11 @@
 const EN: Record<string, string> = {
   'Comme l’appareil': 'Same as device',
   'Langue': 'Language',
+  'Programmation': 'Scheduling',
+  'Programmation du brouillon…': 'Scheduling the draft…',
+  'C’est programmé. Vous pouvez la vérifier ou la modifier dans le planning jusqu’à l’heure de publication.': 'It’s scheduled. You can check or edit it in the schedule until it goes out.',
+  'Voir le planning': 'View schedule',
+  'Ouvrir le brouillon': 'Open draft',
   'Chiffres relevés par Chapote depuis le {day} : rien avant cette date.': 'Chapote has tracked these numbers since {day}: nothing before that date.',
   'Télécharger la vidéo': 'Download video',
   'Télécharger la miniature': 'Download thumbnail',
@@ -9,5 +14,16 @@ const EN: Record<string, string> = {
   'Hashtags': 'Hashtags',
   'Miniature': 'Thumbnail',
   'Lire la vidéo en plein écran': 'Play video full screen',
+  'Dossiers': 'Folders',
+  'Par dossiers': 'By folder',
+  'Toutes les vidéos': 'All videos',
+  'Aucune vidéo posée directement dans ce dossier : ouvrez un sous-dossier.': 'No video directly in this folder: open a subfolder.',
+  'Aucune vidéo dans cet espace. Vos dossiers Drive sont reliés à un autre espace :': 'No videos in this space. Your Drive folders are linked to another space:',
+  'Ouvrir « {space} » ({n} vidéos)': 'Open “{space}” ({n} videos)',
+  'Seuls les dossiers partagés avec l’adresse du robot de Chapote apparaissent ici : le reste de votre Drive reste privé.': 'Only folders shared with the Chapote robot’s address show up here: the rest of your Drive stays private.',
+  // Planning : filtre par état
+  'Action requise': 'Action needed',
+  'Non publié': 'Not posted yet',
+  'Rien pour ce filtre sur cette période': 'Nothing for this filter in this period',
 }
 export default EN

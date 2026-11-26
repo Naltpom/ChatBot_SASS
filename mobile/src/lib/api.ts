@@ -1,7 +1,7 @@
 // Appels à l'API de cm.chapote.fr, les mêmes que le site (copie de cm/src/api.ts), avec la session
 // de l'application mobile (voir ./http.ts) : /api/cm/..., /api/tiktok/..., /api/youtube/..., /api/auth/...
 import * as WebBrowser from 'expo-web-browser'
-import { API_URL, ApiError, call, callPage, type Page } from './http'
+import { API_URL, ApiError, authHeaders, call, callPage, type Page } from './http'
 export { ApiError, type Page }
 
 
@@ -157,7 +157,7 @@ export const syncAccount = (org: number | null, a: Account) => send<Account>('PO
 export const getOverview = (s: ScopeArg, days: number) => call<Overview>(`/api/cm/overview${q(s, { days })}`)
 export const getVideos = (s: ScopeArg, opts: { platform?: string; sort?: string; order?: Order; limit?: number; days?: number }) =>
   call<Video[]>(`/api/cm/videos${q(s, opts)}`)
-export const getPosts = (s: ScopeArg, start: Date, end: Date, opts: { q?: string; status?: 'upcoming' | 'published' | 'failed'; order?: Order; limit?: number } = {}) =>
+export const getPosts = (s: ScopeArg, start: Date, end: Date, opts: { q?: string; status?: 'upcoming' | 'published' | 'failed' | 'inbox' | 'action'; order?: Order; limit?: number } = {}) =>
   call<Post[]>(`/api/cm/posts${q(s, { start: start.toISOString(), end: end.toISOString(), ...opts })}`)
 export const getVideosPage = (s: ScopeArg, opts: { platform?: string; sort?: string; order?: Order; q?: string; limit?: number; cursor?: string | null }) =>
   callPage<Video>(`/api/cm/videos${q(s, { ...opts, cursor: opts.cursor || undefined })}`)
@@ -250,6 +250,18 @@ export interface Proposal {
   id: number; status: 'open' | 'used' | 'dismissed'; title: string | null; caption: string | null
   scheduled_at: string | null; when_from: 'path' | 'date' | null
   accounts: { key: string; name: string | null; platform: Platform }[]; asset: Asset | null; created_at: string
+  /** Réglages par compte (« tiktok:12 » -> options de l'API), préparés par l'assistant. */
+  options?: Record<string, Record<string, unknown>> | null; origin?: string | null
+}
+/** « Lancer la programmation » d'un brouillon de l'assistant : le lien signé, mêmes vérifications qu'à la main. */
+export const launchProposal = (id: number, s: string) => send<{ post_id?: number; id?: number }>('POST', `/api/cm/proposals/${id}/launch`, { s })
+/** Jeton court de l'assistant « mes données » (null : accord IA pas donné, le bot reste en mode public). */
+export async function assistantToken(): Promise<{ token: string; aliases: Record<string, string> } | null> {
+  try {
+    const r = await fetch(`${API_URL}/api/cm/assistant/token`, { credentials: 'omit', headers: await authHeaders() })
+    if (r.status !== 200) return null
+    return await r.json() as { token: string; aliases: Record<string, string> }
+  } catch { return null }
 }
 export const analyzeSource = (org: number | null, id: number) => send<Analysis>('POST', `/api/cm/sources/${id}/analyze${q(org)}`)
 export const previewRecipe = (org: number | null, id: number, recipe: Recipe) =>
@@ -287,7 +299,15 @@ export const patchSource = (org: number | null, id: number, body: { group_id?: n
   send<Source>('PATCH', `/api/cm/sources/${id}${q(org)}`, body)
 export const scanSource = (org: number | null, id: number) => send<Source>('POST', `/api/cm/sources/${id}/scan${q(org)}`)
 export const removeSource = (org: number | null, id: number) => send<{ ok: boolean; hint: string }>('DELETE', `/api/cm/sources/${id}${q(org)}`)
-export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; sort?: string; order?: Order; limit?: number; cursor?: string | null }) =>
+/** Sous-dossiers d'un dossier relié (vue « comme dans le Drive »). `path` vide : la racine du dossier relié. */
+export interface FolderView { source_id: number; name: string | null; path: string; videos: number; folders: { name: string; path: string; videos: number }[] }
+export const getFolders = (org: number | null, sourceId: number, path: string) =>
+  call<FolderView>(`/api/cm/sources/${sourceId}/folders${q(org, { path: path || undefined })}`)
+/** Espaces de la personne qui ont des vidéos (bibliothèque vide dans l'espace affiché). */
+export const getLibraryElsewhere = (org: number | null) =>
+  call<{ org_id: number | null; folders: number; videos: number }[]>(`/api/cm/library/elsewhere${q(org)}`)
+/** `folder` : vidéos posées directement dans ce sous-dossier (« / » = à la racine du dossier relié). */
+export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; sort?: string; order?: Order; limit?: number; cursor?: string | null; folder?: string }) =>
   callPage<Asset>(`/api/cm/assets${q(org, { ...opts, cursor: opts.cursor || undefined })}`)
 export const getAsset = (org: number | null, id: number) => call<Asset>(`/api/cm/assets/${id}${q(org)}`)
 export const patchAsset = (org: number | null, id: number, body: { title?: string; caption?: string }) =>

@@ -90,6 +90,18 @@ async def lifespan(app: FastAPI):
     cm_jobs.start_scheduler()
     # Application mobile : notifications (vidéo publiée, échec, brouillon, commentaires).
     cm_push.start_scheduler()
+    # Assistant Chapote CM : consignes et connaissances du dépôt (api/scripts/cm_assistant/) remises sur le
+    # bot dès qu'elles changent, sans lancer le script à la main. En tâche de fond : jamais bloquant.
+    if settings.is_production:
+        import asyncio
+        from scripts.create_cm_assistant import sync_on_startup
+
+        async def _sync_assistant():
+            try:
+                await sync_on_startup()
+            except Exception:  # noqa: BLE001 - un échec ne doit jamais empêcher l'API de démarrer
+                logger.exception("Synchro de l'assistant Chapote CM impossible")
+        app.state.assistant_sync = asyncio.create_task(_sync_assistant())
     # emails.chapote.fr : gestionnaire Streamable HTTP du serveur MCP (sans état, /mcp).
     async with emails_mcp.running(), cm_mcp.running():
         yield
@@ -240,7 +252,8 @@ async def serve_widget():
 async def widget_frame(key: str, preview_token: str | None = None,
                        parent_origin: str | None = None, design_nonce: str | None = None,
                        color: str | None = None, color_text: str | None = None,
-                       theme: str | None = None, header: str | None = None):
+                       theme: str | None = None, header: str | None = None,
+                       token_origin: str | None = None):
     """Page hote pour l'integration iframe : le chat s'affiche ouvert, en
     pleine zone. La securite reste identique (origin de l'iframe = l'API,
     toujours accepte ; le referer de la page parente est verifie au handshake
@@ -293,6 +306,12 @@ async def widget_frame(key: str, preview_token: str | None = None,
     # ?header=0 : sans bandeau d'en-tête (l'app hôte affiche déjà son titre).
     if header in ("0", "false"):
         look_attr += ' data-header="false"'
+    # App mobile (WebView dont la page parente est servie sous cm.chapote.fr) : le jeton « mes données »
+    # arrive par postMessage de CETTE origine seulement, et seulement si c'est l'origine de Chapote CM
+    # (jamais une origine quelconque : le cadre ne demande son jeton qu'à cm).
+    cm_origin = settings.CM_URL.rstrip("/")
+    if token_origin and token_origin == cm_origin and not reskin_attr:
+        look_attr += f' data-token-origin="{cm_origin}"'
     inline_val = "false" if reskin_attr else "true"
     open_attr = ' data-preview-open="1"' if reskin_attr else ""
     # Mode flottant (éditeur d'apparence) : fond TRANSPARENT pour que l'iframe ne

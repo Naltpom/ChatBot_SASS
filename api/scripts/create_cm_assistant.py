@@ -7,7 +7,7 @@ Ce que fait le script :
   1. retrouve le compte propriétaire (--owner-email, OBLIGATOIRE : aucune adresse
      n'est écrite dans le code) ; il doit être administrateur (is_superadmin) ;
   2. crée le bot perso s'il n'existe pas (inactif par défaut), puis règle :
-     mode IA, consignes (scripts/cm_assistant/system_prompt.md), apparence,
+     mode hybride (menu de départ scripts/cm_assistant/tree.json, puis IA), consignes (scripts/cm_assistant/system_prompt.md), apparence,
      domaines autorisés (cm.chapote.fr + localhost), captcha Turnstile (clés
      existantes du serveur) ;
   3. pose l'override « offert » (sans Stripe) décidé à l'étape 1 : statut actif,
@@ -78,6 +78,68 @@ DESIGN = {
 }
 
 
+def _tree() -> dict:
+    """Menu de départ (« Comment puis-je vous aider ? ») : scripts/cm_assistant/tree.json, validé.
+    Mode « hybride » : on clique un choix, ou on écrit librement et l'IA répond."""
+    import json
+    from src.services.tree_engine import validate_tree
+    tree = json.loads((HERE / "tree.json").read_text(encoding="utf-8"))
+    validate_tree(tree)
+    return tree
+
+
+def _kb_ref(title: str, text: str) -> str:
+    """Nom de la source : titre + empreinte du texte (un texte modifié dans le dépôt change de nom)."""
+    import hashlib
+    return f"{title} · {hashlib.sha256(text.encode()).hexdigest()[:10]}"
+
+
+async def sync_on_startup() -> None:
+    """Au démarrage de l'API (production) : consignes et base de connaissances du bot existant remises
+    à jour d'après le dépôt, seulement si elles ont changé (empreinte de chaque texte). Ne crée jamais
+    le bot, ne touche ni à l'apparence, ni aux droits, ni au connecteur. Un seul worker à la fois."""
+    import logging
+    from sqlalchemy import text as sql
+    log = logging.getLogger("cm_assistant_sync")
+    system_prompt = (HERE / "system_prompt.md").read_text(encoding="utf-8").strip()
+    want = {_kb_ref(t, x): (t, x) for t, x in _kb_files()}
+    if not want:
+        return
+    todo = []
+    async with AsyncSessionLocal() as db:
+        if not (await db.execute(sql("SELECT pg_try_advisory_xact_lock(724501)"))).scalar():
+            return
+        bot = (await db.execute(
+            select(Bot).join(User, User.id == Bot.owner_user_id)
+            .where(Bot.name == BOT_NAME, User.is_superadmin.is_(True)).order_by(Bot.id).limit(1)
+        )).scalar_one_or_none()
+        if bot is None:
+            return
+        have = {r: i for i, r in (await db.execute(
+            select(KbSource.id, KbSource.ref).where(KbSource.bot_id == bot.id))).all()}
+        stale = [i for r, i in have.items() if r not in want]
+        missing = [r for r in want if r not in have]
+        prompt_changed = (bot.system_prompt or "").strip() != system_prompt
+        tree = _tree()
+        tree_changed = bot.tree_json != tree or bot.mode != "hybrid"
+        if not stale and not missing and not prompt_changed and not tree_changed:
+            return
+        bot.system_prompt = system_prompt
+        bot.tree_json, bot.mode = tree, "hybrid"
+        if stale:
+            await db.execute(delete(KbSource).where(KbSource.id.in_(stale)))
+        for ref in missing:
+            src = KbSource(bot_id=bot.id, type="text", ref=ref, status="pending")
+            db.add(src)
+            todo.append((src, want[ref][1]))
+        await db.commit()
+        ids = [(src.id, x) for src, x in todo]
+    for sid, x in ids:
+        await ingest_source(sid, text_content=x)
+    log.info("Assistant Chapote CM : consignes %s, %d texte(s) remplacé(s), %d ajouté(s)",
+             "mises à jour" if prompt_changed else "inchangées", len(stale), len(missing))
+
+
 def _kb_files() -> list[tuple[str, str]]:
     """(titre, texte) de chaque fichier de la base, dans l'ordre des noms."""
     out = []
@@ -124,7 +186,8 @@ async def run(owner_email: str, dry_run: bool, activate: bool, connect_mcp: bool
             db.add(bot)
             await db.flush()
 
-        bot.mode = "ai"
+        bot.mode = "hybrid"
+        bot.tree_json = _tree()
         bot.system_prompt = system_prompt
         bot.temperature = 30
         bot.api_key_mode = "managed"
@@ -161,7 +224,7 @@ async def run(owner_email: str, dry_run: bool, activate: bool, connect_mcp: bool
             await db.execute(delete(KbSource).where(KbSource.id.in_(old_ids)))
         sources = []
         for title, text in kb:
-            src = KbSource(bot_id=bot.id, type="text", ref=title, status="pending")
+            src = KbSource(bot_id=bot.id, type="text", ref=_kb_ref(title, text), status="pending")
             db.add(src)
             sources.append((src, text))
         await db.commit()

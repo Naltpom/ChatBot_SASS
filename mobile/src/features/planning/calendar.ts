@@ -58,6 +58,25 @@ export function filterItems(list: CalendarItem[], platforms: Platform[] = [], ki
     .filter(i => kind === 'all' || (kind === 'planned' ? isPlanned(i) : !isPlanned(i)))
 }
 
+/** Filtre d'état du planning (liste déroulante). Les trois choix ne se recouvrent pas pour une même plateforme :
+ *  action = échec ou brouillon TikTok à publier dans l'app (ce qui attend l'utilisateur) ;
+ *  done = publiée (vidéo relevée ou cible PUBLISHED) ; planned = programmée ou en cours d'envoi (rien à faire). */
+export type StatusFilter = 'all' | 'action' | 'done' | 'planned'
+export const needsAction = (i: CalendarItem) => i.kind === 'target' && (i.status === 'FAILED' || i.status === 'INBOX')
+export function matchesStatus(i: CalendarItem, f: StatusFilter): boolean {
+  if (f === 'all') return true
+  if (f === 'action') return needsAction(i)
+  if (f === 'done') return !isPlanned(i)
+  return isPlanned(i) && !needsAction(i) && !(i.kind === 'target' && i.status === 'CANCELLED')
+}
+/** Garde les publications dont au moins une plateforme correspond au filtre (toutes ses plateformes restent affichées). */
+export function filterByStatus(list: CalendarItem[], f: StatusFilter): CalendarItem[] {
+  if (f === 'all') return list
+  const keyOf = (i: CalendarItem) => i.group || itemKey(i)
+  const hit = new Set(list.filter(i => matchesStatus(i, f)).map(keyOf))
+  return list.filter(i => hit.has(keyOf(i)))
+}
+
 /** Éléments rangés par jour local (AAAA-MM-JJ). */
 export function byDay(list: CalendarItem[]): Map<string, CalendarItem[]> {
   const m = new Map<string, CalendarItem[]>()

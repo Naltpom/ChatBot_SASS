@@ -340,6 +340,10 @@ class CmProposal(Base):
     scheduled_at = Column(DateTime, nullable=True)        # UTC
     when_from = Column(String(10), nullable=True)
     accounts = Column(JSON, nullable=False, default=list)
+    # Réglages par compte (clé "plateforme:id" → options de cible, même format que POST /posts) ;
+    # origine : auto (dossier Drive) | assistant (préparé en discutant avec l'Assistant Chapote CM).
+    options = Column(JSON, nullable=True)
+    origin = Column(String(12), nullable=True)
     status = Column(String(12), nullable=False, default="open", index=True)   # open | used | dismissed
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

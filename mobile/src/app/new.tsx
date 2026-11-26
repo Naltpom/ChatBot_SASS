@@ -27,7 +27,7 @@ import { Missing, StepProgress } from '../ui/Progress'
 import { locale, t } from '../lib/i18n'
 import { radius, space, useTheme } from '../ui/theme'
 import {
-  accKey, accountProblems, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, earliestSlot,
+  accKey, fromApiOptions, accountProblems, buildBody, postOrg, captionCount, CAPTION_MAX, defaults, fileNameOf, groupAccounts, landingDay, nearbyPosts, earliestSlot,
   needsOptions, recapOf, stepProblems, tooClose,
   titleFromFile, YT_PRIVACY, type ComposeState, type CreatorState, type InstaOpts, type Opts, type TikTokOpts, type YouTubeOpts,
 } from '../features/planning/compose'
@@ -233,12 +233,21 @@ export default function NewPost() {
     const id = Number(params.proposal)
     if (!id || draftDone.current || !accounts.data) return
     draftDone.current = true
-    getProposal(params.org ? Number(params.org) : org, id).then(d => {
+    const where = params.org ? Number(params.org) : org
+    getProposal(where, id).catch(() => getProposal(null, id)).then(d => {
       if (d.asset) { setAsset(d.asset); setVideo(null) }
       setTitle((d.title || d.asset?.title || '').slice(0, 200))
       setCaption(d.caption ?? d.asset?.caption ?? '')
       add(all.filter(x => d.accounts.some(k => k.key === accKey(x))))
       if (d.scheduled_at) { setWhen('at'); setAt(new Date(d.scheduled_at)) }
+      // Réglages préparés par l'assistant (qui peut voir la vidéo, enfants, IA…) : posés une fois les comptes ajoutés.
+      const o = d.options || {}
+      const yt = Object.entries(o).find(([k]) => k.startsWith('youtube:'))?.[1]
+      if (typeof yt?.made_for_kids === 'boolean') setKids(yt.made_for_kids ? 'yes' : 'no')
+      const anyAi = Object.values(o).find(v => typeof v.is_aigc === 'boolean' || typeof v.synthetic_media === 'boolean')
+      if (anyAi) setAi(Boolean(anyAi.is_aigc ?? anyAi.synthetic_media))
+      if (Object.keys(o).length) setTimeout(() => setOpts(cur => Object.fromEntries(Object.entries(cur).map(([k, v]) =>
+        [k, o[k] ? fromApiOptions(k, o[k], v) : v]))), 0)
     }).catch(e => setErr((e as Error).message))
   }, [params.proposal, accounts.data]) // eslint-disable-line react-hooks/exhaustive-deps
   // Compte ou groupe affiché dans l'app : proposé d'office (une fois), sauf pour un brouillon.

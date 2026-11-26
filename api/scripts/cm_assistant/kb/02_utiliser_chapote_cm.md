@@ -17,11 +17,21 @@ Source : documentation de Chapote CM (docs/CM.md), réécrite en mots simples. S
 
 ## Programmer une vidéo (Nouvelle publication)
 
-- Choisissez la vidéo, les comptes (ou un groupe), une légende commune ou propre à chaque compte, puis l'heure : tout de suite ou à une heure précise.
+- Deux étapes. 1. La vidéo : choisissez-la dans la Bibliothèque (vos dossiers Drive) ou envoyez un fichier, puis un titre et une légende. Vous indiquez aussi la limite d'âge (YouTube : vidéo conçue pour les enfants ou non), les droits d'auteur et si la vidéo est générée par IA. 2. Les comptes et l'heure : choisissez les comptes (ou un groupe), puis le jour et l'heure.
+- « Planifier » montre un récapitulatif avant de tout programmer. « Suivant » ouvre les réglages de chaque compte (un onglet par compte : qui peut voir la vidéo, duo et collage TikTok, titre YouTube…), puis une vérification compte par compte : « Valider », « Modifier » ou « Retirer ce compte ».
 - Rien ne part avant l'heure choisie.
 - Pour TikTok, Chapote CM reprend les choix proposés par TikTok pour votre compte (par exemple qui peut voir la vidéo).
-- Vous pouvez ajouter une couverture personnalisée (image JPEG ou PNG).
+- Miniature : choisissez l'image de la vidéo qui servira de miniature (on glisse sur la barre ou on avance image par image). Pour Instagram, vous pouvez aussi envoyer une image à part (JPEG ou PNG).
 - Si un envoi échoue, la vidéo est gardée 48 heures pour pouvoir « Réessayer ».
+- Une publication partie se télécharge depuis sa page : la vidéo et sa miniature.
+
+## Préparer une publication en discutant avec l'assistant
+
+- Une fois l'assistant activé (Réglages → Assistant IA, et pour chaque compte le droit « planning »), vous pouvez lui demander par exemple : « programme ma vidéo Paul's Dream sur TikTok demain soir ».
+- L'assistant cherche la vidéo dans votre bibliothèque, propose des créneaux libres d'après votre planning et vos meilleures heures, reprend le style de vos légendes, et vous demande ce qu'il ne peut pas choisir à votre place (qui peut voir la vidéo sur TikTok, vidéo pour enfants ou non sur YouTube).
+- Il prépare alors un brouillon et vous donne deux liens : « Lancer la programmation » (programme le brouillon tel qu'il est, une seule fois) et « Ouvrir le brouillon » (pour le relire et le modifier dans Nouvelle publication).
+- L'assistant ne programme jamais rien lui-même : c'est vous qui cliquez. Le lien est signé par Chapote CM ; s'il ne correspond plus au brouillon (brouillon modifié depuis), il est refusé.
+- Les brouillons préparés par l'assistant apparaissent aussi dans la page « À valider ».
 
 ## Planning
 
@@ -48,6 +58,10 @@ Source : documentation de Chapote CM (docs/CM.md), réécrite en mots simples. S
 
 - Pour un dossier de la bibliothèque, Chapote CM peut préparer des brouillons de publication à partir de l'organisation de vos dossiers et du nom de vos fichiers (jamais à partir du contenu des vidéos) : comptes, date et heure, titre, légende, couverture.
 - Les brouillons arrivent dans la page « À valider ». Rien ne part sans votre validation : « Vérifier et programmer » ouvre la publication pré-remplie, « Écarter » retire le brouillon.
+
+## Langue et apparence
+
+- Français ou anglais, et thème clair ou sombre : dans les Réglages, pour le site et l'app.
 
 ## Groupes de comptes
 

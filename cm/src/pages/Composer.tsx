@@ -36,6 +36,28 @@ type Opts = TikTokOpts | YouTubeOpts | InstaOpts
 const key = (a: Account) => `${a.platform}:${a.id}`
 const YT_CATEGORIES: [string, string][] = [['10', 'Musique'], ['22', 'Personnes et blogs'], ['24', 'Divertissement'], ['27', 'Éducation'], ['26', 'Vie pratique et style']]
 
+/** Options de cible (format de l'API, ex. brouillon préparé par l'assistant) → réglages de l'écran. */
+function fromApiOptions(k: string, v: Record<string, unknown>, base: Opts): Opts {
+  const str = (x: unknown) => (typeof x === 'string' ? x : undefined)
+  const bool = (x: unknown) => (typeof x === 'boolean' ? x : undefined)
+  const num = (x: unknown) => (typeof x === 'number' ? x : undefined)
+  if (k.startsWith('tiktok:')) {
+    const b = base as TikTokOpts
+    return { ...b, mode: v.mode === 'draft' ? 'draft' : b.mode, privacy: str(v.privacy_level) ?? b.privacy,
+      comment: bool(v.allow_comment) ?? b.comment, duet: bool(v.allow_duet) ?? b.duet, stitch: bool(v.allow_stitch) ?? b.stitch,
+      text: str(v.caption) ?? str(v.title) ?? b.text, coverMs: num(v.cover_timestamp_ms) ?? b.coverMs, aigc: bool(v.is_aigc) ?? b.aigc }
+  }
+  if (k.startsWith('youtube:')) {
+    const b = base as YouTubeOpts
+    return { ...b, title: str(v.title) ?? b.title, description: str(v.description) ?? b.description,
+      tags: Array.isArray(v.tags) ? (v.tags as unknown[]).map(String).join(', ') : b.tags, privacy: str(v.privacy_status) ?? b.privacy,
+      kids: typeof v.made_for_kids === 'boolean' ? (v.made_for_kids ? 'yes' : 'no') : b.kids,
+      synthetic: bool(v.synthetic_media) ?? b.synthetic, category: str(v.category_id) ?? b.category }
+  }
+  const b = base as InstaOpts
+  return { ...b, text: str(v.caption) ?? b.text, feed: bool(v.share_to_feed) ?? b.feed, coverMs: num(v.thumb_offset_ms) ?? b.coverMs }
+}
+
 function defaults(a: Account): Opts {
   if (a.platform === 'tiktok') return { mode: a.can_direct === false ? 'draft' : 'direct', privacy: '', comment: false, duet: false, stitch: false, commercial: false, yourBrand: false, branded: false, text: '' }
   if (a.platform === 'youtube') return { title: '', description: '', privacy: 'public', kids: '', synthetic: false, category: '10', notify: true, tags: '' }
@@ -123,7 +145,8 @@ export default function Composer() {
   useEffect(() => {
     const id = Number(params.get('brouillon'))
     if (!id) return
-    getProposal(baseOrg, id).then(setDraft).catch(e => setErr((e as Error).message))
+    // Lien de l'assistant : le brouillon peut être d'un autre espace que celui affiché, le serveur retrouve le sien.
+    getProposal(baseOrg, id).catch(() => getProposal(null, id)).then(setDraft).catch(e => setErr((e as Error).message))
   }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!draft || !accounts.data || !draft.asset) return
@@ -133,6 +156,17 @@ export default function Composer() {
     setCaption(draft.caption ?? a.caption ?? '')
     add(accounts.data.filter(x => draft.accounts.some(k => k.key === key(x))))
     if (draft.scheduled_at) { setWhen('at'); setAt(toLocalInput(new Date(draft.scheduled_at))) }
+    // Réglages par compte préparés (assistant) : repris dans les réglages de chaque réseau.
+    const o = draft.options || {}
+    const yt = Object.entries(o).find(([k]) => k.startsWith('youtube:'))?.[1]
+    if (yt && typeof yt.made_for_kids === 'boolean') setKids(yt.made_for_kids ? 'yes' : 'no')
+    const anyAi = Object.values(o).some(v => v.is_aigc === true || v.synthetic_media === true)
+    if (anyAi) setAi(true)
+    setTimeout(() => setOpts(cur => {
+      const next = { ...cur }
+      for (const [k, v] of Object.entries(o)) { if (next[k]) next[k] = fromApiOptions(k, v, next[k]) }
+      return next
+    }), 0)
   }, [draft, accounts.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const [pendingAsset, setPendingAsset] = useState<Asset | null>(null)
   useEffect(() => { if (pendingAsset && accounts.data) { useAsset(pendingAsset); setPendingAsset(null) } }, [pendingAsset, accounts.data]) // eslint-disable-line react-hooks/exhaustive-deps

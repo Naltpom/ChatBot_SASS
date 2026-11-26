@@ -244,8 +244,9 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
                       sort: Literal["recent", "name", "duration", "size"] = "recent",
                       order: Optional[Literal["asc", "desc"]] = None,
                       limit: int = Query(40, ge=1, le=100), cursor: Optional[str] = Query(None, max_length=300),
+                      folder: Optional[str] = Query(None, max_length=500),
                       db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    """Vidéos de la bibliothèque : recherche (nom, titre, légende, dossier), tri dans les deux sens,
+    """Vidéos de la bibliothèque (`folder` : seulement celles de ce sous-dossier, « » = à la racine du dossier relié) : recherche (nom, titre, légende, dossier), tri dans les deux sens,
     pages par curseur. En SQL (index d'expression) pour tenir sur de très gros dossiers."""
     tenant = await _tenant(db, user, org_id)
     sources = {s.id: s for s in (await db.execute(select(CmSource).where(
@@ -260,6 +261,9 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
            "duration": CmAsset.duration_sec, "size": CmAsset.size}[sort]
     key = paging.nulls_last(col, ASSET_SORTS[sort], order).label("_k")
     stmt = select(CmAsset, key).where(CmAsset.source_id.in_(ids), CmAsset.removed_at.is_(None))
+    if folder is not None:
+        f = folder.strip("/")
+        stmt = stmt.where(CmAsset.folder_path == f if f else or_(CmAsset.folder_path.is_(None), CmAsset.folder_path == ""))
     used = select(CmPost.id).where(CmPost.asset_id == CmAsset.id).exists()
     elsewhere = CmAsset.kind.in_(("published", "routine", "waiting"))   # gérées par l'outil de publication
     if state == "new":
@@ -275,6 +279,56 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
     rows = [a for a, _ in rows]
     usage = await lib.usage_of(db, [a.id for a in rows])
     return [lib.asset_out(a, sources.get(a.source_id), usage.get(a.id)) for a in rows]
+
+
+@router.get("/sources/{source_id}/folders")
+async def source_folders(source_id: int, path: str = Query("", max_length=500), org_id: Optional[int] = Query(None),
+                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Vue « comme dans le Drive » : les sous-dossiers directs de `path` dans un dossier relié, avec le
+    nombre de vidéos de chacun (sous-dossiers compris), et le nombre de vidéos posées directement dans `path`."""
+    tenant = await _tenant(db, user, org_id)
+    src = await db.get(CmSource, source_id)
+    if src is None or src.revoked_at is not None or not _same(src, tenant) or not cm_access.group_allowed(tenant, src.group_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier introuvable")
+    base = path.strip("/")
+    rows = (await db.execute(select(func.coalesce(CmAsset.folder_path, ""), func.count()).where(
+        CmAsset.source_id == source_id, CmAsset.removed_at.is_(None)).group_by(CmAsset.folder_path))).all()
+    here, children = 0, {}
+    for fp, n in rows:
+        fp = (fp or "").strip("/")
+        if fp == base:
+            here += n
+            continue
+        if base and not fp.startswith(base + "/"):
+            continue
+        rest = fp[len(base) + 1:] if base else fp
+        name = rest.split("/", 1)[0]
+        children[name] = children.get(name, 0) + n
+    folders = [{"name": k, "path": f"{base}/{k}" if base else k, "videos": v}
+               for k, v in sorted(children.items(), key=lambda kv: kv[0].lower())]
+    return {"source_id": source_id, "name": src.name, "path": base, "videos": here, "folders": folders}
+
+
+@router.get("/library/elsewhere")
+async def library_elsewhere(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                            user: User = Depends(get_cm_user)):
+    """Bibliothèque vide ici : les autres espaces de la personne qui ont des vidéos (nom, nombre), pour
+    lui montrer où sont ses dossiers Drive au lieu d'un simple « aucune vidéo »."""
+    from src.services import cm_access as acc
+    here = await _tenant(db, user, org_id)
+    out = []
+    for t in await acc._all_tenants(db, user):
+        if (t.org_id or None) == (here.org_id or None):
+            continue
+        ids = [s.id for s in (await db.execute(select(CmSource).where(t.where(CmSource), CmSource.revoked_at.is_(None)))).scalars()
+               if acc.group_allowed(t, s.group_id)]
+        if not ids:
+            continue
+        n = (await db.execute(select(func.count()).select_from(CmAsset).where(
+            CmAsset.source_id.in_(ids), CmAsset.removed_at.is_(None)))).scalar() or 0
+        if n:
+            out.append({"org_id": t.org_id, "folders": len(ids), "videos": n})
+    return out
 
 
 async def _asset(db: AsyncSession, tenant: Tenant, asset_id: int) -> tuple[CmAsset, CmSource]:
@@ -456,7 +510,8 @@ async def _proposal_out(db: AsyncSession, p: CmProposal, names: dict[str, str]) 
     return {"id": p.id, "org_id": p.organization_id, "status": p.status, "title": p.title, "caption": p.caption,
             "scheduled_at": cm.iso(p.scheduled_at), "when_from": p.when_from,
             "accounts": [{"key": k, "name": names.get(k), "platform": k.split(":")[0]} for k in p.accounts or [] if k in names],
-            "asset": lib.asset_out(a, src) if a else None, "created_at": cm.iso(p.created_at)}
+            "asset": lib.asset_out(a, src) if a else None, "created_at": cm.iso(p.created_at),
+            "options": p.options or {}, "origin": p.origin or "auto"}
 
 
 async def _proposal_scope(db: AsyncSession, tenant: Tenant, group_id: Optional[int]):
@@ -534,9 +589,18 @@ async def _proposal(db: AsyncSession, tenant: Tenant, proposal_id: int) -> CmPro
 @router.get("/proposals/{proposal_id}")
 async def get_proposal(proposal_id: int, org_id: Optional[int] = Query(None),
                        db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    tenant = await _tenant(db, user, org_id)
+    tenant = None
+    if org_id is None:
+        # Lien d'un brouillon de l'assistant (/brouillon/12) : l'espace n'est pas dans l'adresse, on prend
+        # celui du brouillon s'il est accessible (sinon 404 comme pour tout brouillon d'un autre espace).
+        row = await db.get(CmProposal, proposal_id)
+        tenant = await _tenant_of(db, user, row) if row is not None else None
+    if tenant is None:
+        tenant = await _tenant(db, user, org_id)
     accounts, _ = await _names(db, tenant)
-    return await _proposal_out(db, await _proposal(db, tenant, proposal_id), accounts)
+    out = await _proposal_out(db, await _proposal(db, tenant, proposal_id), accounts)
+    out["org_id"] = tenant.org_id
+    return out
 
 
 class ArchiveIn(BaseModel):
@@ -562,6 +626,49 @@ async def archive_proposals(body: ArchiveIn, org_id: Optional[int] = Query(None)
                            .execution_options(synchronize_session=False))
     await db.commit()
     return {"archived": res.rowcount or 0}
+
+
+class LaunchIn(BaseModel):
+    s: str = Field(min_length=10, max_length=100)
+
+
+@router.post("/proposals/{proposal_id}/launch")
+async def launch_proposal(proposal_id: int, body: LaunchIn, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(get_cm_user)):
+    """« Lancer la programmation » depuis le lien donné par l'Assistant : programme le brouillon tel quel.
+    Le lien est signé par le serveur, lié au brouillon et à la personne, et ne vaut plus si le brouillon a changé ;
+    la publication passe par exactement les mêmes vérifications qu'une publication faite à la main."""
+    import hmac as _hmac
+    from src.routers.cm import PostIn, TargetIn, create_post
+    from src.services.cm_assistant_drafts import launch_sig
+    p = await db.get(CmProposal, proposal_id)
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Brouillon introuvable")
+    tenant = await _tenant_of(db, user, p)
+    if tenant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Brouillon introuvable")
+    cm_access.require(tenant, "edit")
+    if not _hmac.compare_digest(body.s, launch_sig(p.id, user.id, p.updated_at)):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Ce lien ne correspond plus au brouillon (il a été modifié) : ouvrez le brouillon pour le vérifier.")
+    if p.status != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce brouillon a déjà été programmé ou écarté.")
+    asset = await db.get(CmAsset, p.asset_id)
+    opts = p.options or {}
+    from datetime import timezone as _tz
+    when = p.scheduled_at.replace(tzinfo=_tz.utc) if p.scheduled_at else None
+    targets = [TargetIn(platform=k.split(":")[0], account_id=int(k.split(":")[1]), scheduled_at=when,
+                        options=opts.get(k) or {}) for k in (p.accounts or [])]
+    if not targets:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ce brouillon ne vise aucun compte : ouvrez-le pour choisir.")
+    body_post = PostIn(org_id=p.organization_id, title=(p.title or (asset.title if asset else None) or "Vidéo")[:200],
+                       caption=p.caption or "", asset_id=p.asset_id, targets=targets)
+    out = await create_post(body_post, db=db, user=user)
+    p = await db.get(CmProposal, proposal_id)
+    if p is not None and p.status == "open":
+        p.status = "used"
+        await db.commit()
+    return out
 
 
 @router.post("/proposals/{proposal_id}/dismiss")

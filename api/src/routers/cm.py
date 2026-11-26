@@ -1803,7 +1803,7 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
                      q: Optional[str] = Query(None, max_length=100),
                      ref: Optional[str] = Query(None, max_length=200),
                      ref_prefix: Optional[str] = Query(None, min_length=1, max_length=200),
-                     status_: Optional[Literal["upcoming", "published", "failed"]] = Query(None, alias="status"),
+                     status_: Optional[Literal["upcoming", "published", "failed", "inbox", "action"]] = Query(None, alias="status"),
                      order: Literal["asc", "desc"] = "asc",
                      limit: int = Query(200, ge=1, le=500), cursor: Optional[str] = Query(None, max_length=300),
                      response: Response = None, request: Request = None,
@@ -1811,7 +1811,9 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
     """Planning : publications dont une cible tombe entre `start` et `end` (défaut : -30 j / +90 j),
     triées par première heure prévue (asc ou desc), recherche dans titre et légende, pages par curseur.
     Avec un groupe / un compte, seules leurs cibles sont renvoyées. Tout le filtrage est en SQL.
-    `ref` (exacte) / `ref_prefix` (ex. « kiwi/ ») : publications de l'outil, sans fenêtre de dates par défaut."""
+    `ref` (exacte) / `ref_prefix` (ex. « kiwi/ ») : publications de l'outil, sans fenêtre de dates par défaut.
+    `status` : upcoming (pas encore finie), published, failed, inbox (brouillon TikTok à publier dans l'app),
+    action (échec ou brouillon TikTok : ce qui attend l'utilisateur ; centre d'activité de l'app)."""
     now = utcnow()
     by_ref = bool(ref or ref_prefix)
     if org_id is None and request is not None and _bearer(request) is not None:
@@ -1846,6 +1848,10 @@ async def list_posts(org_id: Optional[int] = Query(None), start: Optional[dateti
         conds.append(CmTarget.status == T_PUBLISHED)
     elif status_ == "failed":
         conds.append(CmTarget.status == T_FAILED)
+    elif status_ == "inbox":
+        conds.append(CmTarget.status == T_INBOX)
+    elif status_ == "action":
+        conds.append(CmTarget.status.in_((T_FAILED, T_INBOX)))
     pattern = paging.like(q)
     if pattern:
         conds.append(or_(CmPost.title.ilike(pattern, escape="\\"), CmPost.caption.ilike(pattern, escape="\\")))

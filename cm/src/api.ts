@@ -302,7 +302,11 @@ export interface Proposal {
   id: number; org_id?: number | null; status: 'open' | 'used' | 'dismissed'; title: string | null; caption: string | null
   scheduled_at: string | null; when_from: 'path' | 'date' | null
   accounts: { key: string; name: string | null; platform: Platform }[]; asset: Asset | null; created_at: string
+  /** Réglages par compte (« plateforme:id » → options de cible) ; origine : auto (dossier) ou assistant. */
+  options?: Record<string, Record<string, unknown>>; origin?: 'auto' | 'assistant'
 }
+/** « Lancer la programmation » depuis le lien signé de l'Assistant. */
+export const launchProposal = (id: number, s: string) => send<{ post_id?: number }>('POST', `/api/cm/proposals/${id}/launch`, { s })
 export const analyzeSource = (org: number | null, id: number) => send<Analysis>('POST', `/api/cm/sources/${id}/analyze${q(org)}`)
 export const previewRecipe = (org: number | null, id: number, recipe: Recipe) =>
   send<{ recipe: Recipe; examples: RecipeExample[] }>('POST', `/api/cm/sources/${id}/recipe/preview${q(org)}`, { recipe })
@@ -351,7 +355,15 @@ export const patchSource = (org: number | null, id: number, body: { group_id?: n
   send<Source>('PATCH', `/api/cm/sources/${id}${q(org)}`, body)
 export const scanSource = (org: number | null, id: number) => send<Source>('POST', `/api/cm/sources/${id}/scan${q(org)}`)
 export const removeSource = (org: number | null, id: number) => send<{ ok: boolean; hint: string }>('DELETE', `/api/cm/sources/${id}${q(org)}`)
-export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; sort?: string; order?: Order; limit?: number; cursor?: string | null }) =>
+/** Sous-dossiers d'un dossier relié (vue « comme dans le Drive »). `path` vide : la racine du dossier relié. */
+export interface FolderView { source_id: number; name: string | null; path: string; videos: number; folders: { name: string; path: string; videos: number }[] }
+export const getFolders = (org: number | null, sourceId: number, path: string) =>
+  call<FolderView>(`/api/cm/sources/${sourceId}/folders${q(org, { path: path || undefined })}`)
+/** Espaces de la personne qui ont des vidéos (bibliothèque vide dans l'espace affiché). */
+export const getLibraryElsewhere = (org: number | null) =>
+  call<{ org_id: number | null; folders: number; videos: number }[]>(`/api/cm/library/elsewhere${q(org)}`)
+/** `folder` : vidéos posées directement dans ce sous-dossier (« / » = à la racine du dossier relié). */
+export const getAssetsPage = (org: number | null, opts: { source_id?: number; state?: AssetState; q?: string; sort?: string; order?: Order; limit?: number; cursor?: string | null; folder?: string }) =>
   callPage<Asset>(`/api/cm/assets${q(org, { ...opts, cursor: opts.cursor || undefined })}`)
 export const getAsset = (org: number | null, id: number) => call<Asset>(`/api/cm/assets/${id}${q(org)}`)
 export const patchAsset = (org: number | null, id: number, body: { title?: string; caption?: string }) =>

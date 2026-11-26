@@ -18,10 +18,27 @@ import { useLoad, useSession } from '../session'
 import { t, locale } from '../i18n'
 
 type View = 'agenda' | 'day' | 'week' | 'month'
-type Kind = 'all' | 'done' | 'planned'
+/** Filtre d'état : action = échec ou brouillon TikTok à publier dans l'app (ce qui vous attend) ; done = publiée ;
+ *  planned = programmée ou en cours d'envoi (rien à faire). Même règles que mobile/src/features/planning/calendar.ts. */
+type Kind = 'all' | 'action' | 'done' | 'planned'
+const KINDS: Kind[] = ['all', 'action', 'done', 'planned']
+const KIND_KEY = 'cm.planning.status'
 
 const isPlanned = (i: CalendarItem) => i.kind === 'target' && i.status !== 'PUBLISHED'   // brouillon TikTok : encore à publier
 const itemKey = (i: CalendarItem) => `${i.kind}-${i.id}`
+const needsAction = (i: CalendarItem) => i.kind === 'target' && (i.status === 'FAILED' || i.status === 'INBOX')
+const matchesKind = (i: CalendarItem, k: Kind) =>
+  k === 'all' || (k === 'action' ? needsAction(i) : k === 'done' ? !isPlanned(i) : isPlanned(i) && !needsAction(i))
+/** Garde les publications dont au moins une plateforme correspond (toutes ses plateformes restent affichées). */
+function byKind(list: CalendarItem[], k: Kind): CalendarItem[] {
+  if (k === 'all') return list
+  const keyOf = (i: CalendarItem) => i.group || itemKey(i)
+  const hit = new Set(list.filter(i => matchesKind(i, k)).map(keyOf))
+  return list.filter(i => hit.has(keyOf(i)))
+}
+function storedKind(): Kind {
+  try { const v = localStorage.getItem(KIND_KEY) as Kind | null; return v && KINDS.includes(v) ? v : 'all' } catch { return 'all' }
+}
 
 function range(view: View, anchor: Date): [Date, Date] {
   if (view === 'month') {
@@ -68,7 +85,8 @@ export default function Planning() {
   const [anchor, setAnchor] = useState(() => new Date())
   const [selected, setSelected] = useState(() => dayKey(new Date()))
   const [platforms, setPlatforms] = useState<Platform[]>([])
-  const [kind, setKind] = useState<Kind>('all')
+  const [kind, setKindState] = useState<Kind>(storedKind)
+  const setKind = (k: Kind) => { setKindState(k); try { localStorage.setItem(KIND_KEY, k) } catch { /* stockage refusé */ } }
   const [openGroup, setOpenGroup] = useState<Group | null>(null)
   const groupOf = useGroupOf()
   useEffect(() => { setView(v => (desktop && v === 'agenda' ? 'week' : !desktop && (v === 'week' || v === 'day') ? 'agenda' : v)) }, [desktop])
@@ -80,10 +98,9 @@ export default function Planning() {
   const [search, setSearch] = useState('')
   useEffect(() => { const t = setTimeout(() => setSearch(input.trim()), 300); return () => clearTimeout(t) }, [input])
   const found = useLoad(s => (search ? getCalendar(s, addDays(new Date(), -365), addDays(new Date(), 180), search) : Promise.resolve(null)), [search])
-  const filters = (list: CalendarItem[]) => list
+  const filters = (list: CalendarItem[]) => byKind(list
     .filter(i => !(i.kind === 'target' && i.status === 'CANCELLED'))
-    .filter(i => !platforms.length || platforms.includes(i.platform))
-    .filter(i => kind === 'all' || (kind === 'planned' ? isPlanned(i) : !isPlanned(i)))
+    .filter(i => !platforms.length || platforms.includes(i.platform)), kind)
   const results = useMemo(() => {
     if (!search || !found.data) return []
     const m = new Map<string, CalendarItem[]>()
@@ -91,10 +108,7 @@ export default function Planning() {
     return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]))   // la plus récente d'abord
   }, [search, found.data, platforms, kind]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const items = (cal.data?.items || [])
-    .filter(i => !(i.kind === 'target' && i.status === 'CANCELLED'))
-    .filter(i => !platforms.length || platforms.includes(i.platform))
-    .filter(i => kind === 'all' || (kind === 'planned' ? isPlanned(i) : !isPlanned(i)))
+  const items = filters(cal.data?.items || [])
   const byDay = useMemo(() => {
     const m = new Map<string, CalendarItem[]>()
     for (const i of items) { const k = dayKey(new Date(i.at)); m.set(k, [...(m.get(k) || []), i]) }
@@ -183,7 +197,12 @@ export default function Planning() {
         </div>
         <div className="cal-search"><SearchBox value={input} onChange={setInput} label={t('Rechercher une vidéo')} placeholder={t('Rechercher (titre, légende)')} /></div>
         <div className="row" style={{ gap: 8 }}>
-          <Seg label={t('Type')} value={kind} onChange={setKind} options={[['all', t('Tout')], ['done', t('Publié')], ['planned', t('Programmé')]]} />
+          <select className="select select-sm" aria-label={t('Afficher')} value={kind} onChange={e => setKind(e.target.value as Kind)}>
+            <option value="all">{t('Tout')}</option>
+            <option value="action">{t('Action requise')}</option>
+            <option value="done">{t('Publié')}</option>
+            <option value="planned">{t('Non publié')}</option>
+          </select>
           <button type="button" className="btn icon-btn btn-sm only-desktop" aria-label={t('Actualiser')} onClick={cal.reload}><Icon name="refresh" /></button>
         </div>
       </div>
@@ -306,7 +325,12 @@ export default function Planning() {
         </div>
       )}
 
-      {!search && cal.data && items.length === 0 && view !== 'month' && (
+      {!search && cal.data && items.length === 0 && view !== 'month' && kind !== 'all' && (
+        <Empty title={t('Rien pour ce filtre sur cette période')} icon="calendar">
+          <button type="button" className="btn btn-sm" onClick={() => setKind('all')}>{t('Tout afficher')}</button>
+        </Empty>
+      )}
+      {!search && cal.data && items.length === 0 && view !== 'month' && kind === 'all' && (
         <Empty title={t('Rien sur cette période')} icon="calendar">
           <p style={{ marginBottom: 14 }}>{t('Les vidéos publiées sur vos comptes apparaissent ici après le relevé des chiffres ; programmez la suite depuis Chapote.')}</p>
           <Link className="btn btn-primary" to="/nouvelle"><Icon name="plus" size={16} />{t('Nouvelle publication')}</Link>

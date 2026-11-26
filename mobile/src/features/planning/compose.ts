@@ -16,6 +16,28 @@ export interface InstaOpts { text: string; feed: boolean; collaborators: string
 export type Opts = TikTokOpts | YouTubeOpts | InstaOpts
 export type CreatorState = CreatorInfo | 'loading' | { error: string }
 
+/** Options de cible au format de l'API (brouillon préparé par l'assistant) → réglages de l'écran. */
+export function fromApiOptions(k: string, v: Record<string, unknown>, base: Opts): Opts {
+  const str = (x: unknown) => (typeof x === 'string' ? x : undefined)
+  const bool = (x: unknown) => (typeof x === 'boolean' ? x : undefined)
+  const num = (x: unknown) => (typeof x === 'number' ? x : undefined)
+  if (k.startsWith('tiktok:')) {
+    const b = base as TikTokOpts
+    return { ...b, mode: v.mode === 'draft' ? 'draft' : b.mode, privacy: str(v.privacy_level) ?? b.privacy,
+      comment: bool(v.allow_comment) ?? b.comment, duet: bool(v.allow_duet) ?? b.duet, stitch: bool(v.allow_stitch) ?? b.stitch,
+      text: str(v.caption) ?? str(v.title) ?? b.text, coverMs: num(v.cover_timestamp_ms) ?? b.coverMs, aigc: bool(v.is_aigc) ?? b.aigc }
+  }
+  if (k.startsWith('youtube:')) {
+    const b = base as YouTubeOpts
+    return { ...b, title: str(v.title) ?? b.title, description: str(v.description) ?? b.description,
+      tags: Array.isArray(v.tags) ? (v.tags as unknown[]).map(String).join(', ') : b.tags, privacy: str(v.privacy_status) ?? b.privacy,
+      kids: typeof v.made_for_kids === 'boolean' ? (v.made_for_kids ? 'yes' : 'no') : b.kids,
+      synthetic: bool(v.synthetic_media) ?? b.synthetic, category: str(v.category_id) ?? b.category }
+  }
+  const b = base as InstaOpts
+  return { ...b, text: str(v.caption) ?? b.text, feed: bool(v.share_to_feed) ?? b.feed, coverMs: num(v.thumb_offset_ms) ?? b.coverMs }
+}
+
 export const accKey = (a: { platform: string; id: number }) => `${a.platform}:${a.id}`
 export const YT_CATEGORIES: [string, string][] = [['10', 'Musique'], ['22', 'Personnes et blogs'], ['24', 'Divertissement'], ['27', 'Éducation'], ['26', 'Vie pratique et style']]
 export const YT_PRIVACY: [string, string][] = [['public', 'Publique'], ['unlisted', 'Non répertoriée'], ['private', 'Privée']]
