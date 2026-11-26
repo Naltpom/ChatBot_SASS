@@ -181,6 +181,8 @@ export const patchTarget = (id: number, body: { scheduled_at?: string; options?:
 export const publishNow = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/publish-now`)
 export const cancelTarget = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/cancel`)
 export const getPost = (id: number) => call<Post>(`/api/cm/posts/${id}`)
+/** Lien signé (10 min) pour télécharger la vidéo ou la miniature d'une publication dans le navigateur. */
+export const downloadLink = (id: number, kind: 'video' | 'thumbnail') => send<{ url: string }>('POST', `/api/cm/posts/${id}/download-link?kind=${kind}`)
 export const patchPost = (id: number, body: { rights?: Rights; rights_note?: string }) => send<Post>('PATCH', `/api/cm/posts/${id}`, body)
 export const setYoutubeAccount = (org: number | null, id: number, body: { public_domain_only: boolean }) =>
   send<Account>('PATCH', `/api/cm/accounts/youtube/${id}${q(org)}`, body)

@@ -12,6 +12,8 @@ export default function ViewsChart({ series: all, metric = 'views' }: { series: 
   // La courbe commence au premier jour relevé (pas de faux départ à zéro).
   const first = all.findIndex(pt => Object.values(pt.by_platform).some(v => v?.[metric] != null))
   const series = first > 0 ? all.slice(first) : all
+  // Période choisie plus longue que les relevés : on le dit (la courbe commence au 1er relevé).
+  const since = first > 0 ? new Date(all[first].day + 'T12:00:00').toLocaleDateString(locale(), { day: 'numeric', month: 'long' }) : null
   const box = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(720)
   const [hover, setHover] = useState<number | null>(null)
@@ -126,6 +128,7 @@ export default function ViewsChart({ series: all, metric = 'views' }: { series: 
           )}
         </div>
       )}
+      {since && <p className="tiny muted" style={{ margin: 0 }}>{t('Chiffres relevés par Chapote depuis le {day} : rien avant cette date.', { day: since })}</p>}
     </div>
   )
 }

@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.time import utcnow
+from src.i18n import tr, trf
 from src.services.background import spawn_background
 
 if TYPE_CHECKING:  # imports type-only (pas de cout/cycle a l'import runtime)
@@ -64,14 +65,41 @@ HELLO_FROM = f"Chapote <{HELLO_EMAIL}>"
 EMAIL_SIGNATURE = "— L'équipe Chapote"
 
 
-def _greeting(name: str) -> str:
-    """Formule d'accueil FR commune aux emails personnalisés."""
-    return f"Bonjour {name},"
+# Langue des emails : `lang` = "en" pour l'anglais (Chapote CM, voir src/i18n/en_emails.py), sinon français.
+# None (défaut) = français : les emails de chapote.fr ne changent pas.
 
 
-def _role_fr(role: str) -> str:
-    """Libellé FR d'un rôle d'équipe (admin -> administrateur·rice, sinon membre)."""
+def _t(text: str, lang: Optional[str]) -> str:
+    """Texte français, traduit en anglais si `lang` vaut « en »."""
+    return tr(text, "en") if lang == "en" else text
+
+
+def _greeting(name: str, lang: Optional[str] = None) -> str:
+    """Formule d'accueil commune aux emails personnalisés."""
+    return trf("Bonjour {},", lang, name)
+
+
+def _role_fr(role: str, lang: Optional[str] = None) -> str:
+    """Libellé d'un rôle d'équipe (admin -> administrateur·rice, sinon membre)."""
+    if lang == "en":
+        return "an admin" if role == "admin" else "a member"
     return "administrateur·rice" if role == "admin" else "membre"
+
+
+async def email_languages(db: AsyncSession, emails) -> dict[str, str]:
+    """{email en minuscules: "en"} des personnes qui ont choisi l'anglais dans Chapote CM (cm_profiles.language).
+    Les autres (français, langue de l'appareil, pas de préférence, pas de compte) sont absentes : français."""
+    from sqlalchemy import func
+
+    from src.models.cm import CmProfile
+    from src.models.user import User
+
+    low = {e.lower() for e in emails if e}
+    if not low:
+        return {}
+    rows = await db.execute(select(func.lower(User.email)).join(CmProfile, CmProfile.user_id == User.id)
+                            .where(func.lower(User.email).in_(low), CmProfile.language == "en"))
+    return {e: "en" for e in rows.scalars().all() if isinstance(e, str)}
 
 
 def _send_sync(to: list[str], subject: str, body: str,
@@ -244,119 +272,120 @@ def build_handoff_email(bot: "Bot", conversation: "Conversation") -> tuple[str, 
     return (f"Un visiteur demande un conseiller — {bot.name}", "\n".join(lines))
 
 
-def build_verify_email(user: "User", link: str) -> tuple[str, str]:
-    """(sujet, corps texte brut FR) du mail de confirmation d'adresse email."""
+def build_verify_email(user: "User", link: str, lang: Optional[str] = None) -> tuple[str, str]:
+    """(sujet, corps texte brut) du mail de confirmation d'adresse email."""
     lines = [
-        _greeting(user.name),
+        _greeting(user.name, lang),
         "",
-        "Merci d'avoir créé votre compte Chapote. Confirmez votre adresse email "
-        "en ouvrant le lien ci-dessous :",
+        _t("Merci d'avoir créé votre compte Chapote. Confirmez votre adresse email "
+           "en ouvrant le lien ci-dessous :", lang),
         "",
         link,
         "",
-        "Ce lien est valable 48 heures. Si vous n'êtes pas à l'origine de cette "
-        "inscription, vous pouvez ignorer ce message.",
+        _t("Ce lien est valable 48 heures. Si vous n'êtes pas à l'origine de cette "
+           "inscription, vous pouvez ignorer ce message.", lang),
         "",
-        EMAIL_SIGNATURE,
+        _t(EMAIL_SIGNATURE, lang),
     ]
-    return ("Confirmez votre adresse email", "\n".join(lines))
+    return (_t("Confirmez votre adresse email", lang), "\n".join(lines))
 
 
-def build_reset_email(user: "User", link: str) -> tuple[str, str]:
-    """(sujet, corps texte brut FR) du mail de réinitialisation de mot de passe."""
+def build_reset_email(user: "User", link: str, lang: Optional[str] = None) -> tuple[str, str]:
+    """(sujet, corps texte brut) du mail de réinitialisation de mot de passe."""
     lines = [
-        _greeting(user.name),
+        _greeting(user.name, lang),
         "",
-        "Vous avez demandé à réinitialiser le mot de passe de votre compte "
-        "Chapote. Choisissez un nouveau mot de passe via le lien ci-dessous :",
+        _t("Vous avez demandé à réinitialiser le mot de passe de votre compte "
+           "Chapote. Choisissez un nouveau mot de passe via le lien ci-dessous :", lang),
         "",
         link,
         "",
-        "Ce lien est valable 1 heure et ne fonctionne qu'une seule fois. Si vous "
-        "n'êtes pas à l'origine de cette demande, ignorez ce message : votre mot "
-        "de passe actuel reste inchangé.",
+        _t("Ce lien est valable 1 heure et ne fonctionne qu'une seule fois. Si vous "
+           "n'êtes pas à l'origine de cette demande, ignorez ce message : votre mot "
+           "de passe actuel reste inchangé.", lang),
         "",
-        EMAIL_SIGNATURE,
+        _t(EMAIL_SIGNATURE, lang),
     ]
-    return ("Réinitialisation de votre mot de passe", "\n".join(lines))
+    return (_t("Réinitialisation de votre mot de passe", lang), "\n".join(lines))
 
 
-def build_welcome_email(user: "User", app_url: str) -> tuple[str, str]:
-    """(sujet, corps texte brut FR) de bienvenue, envoyé après confirmation
+def build_welcome_email(user: "User", app_url: str, lang: Optional[str] = None) -> tuple[str, str]:
+    """(sujet, corps texte brut) de bienvenue, envoyé après confirmation
     de l'adresse email."""
     lines = [
-        _greeting(user.name),
+        _greeting(user.name, lang),
         "",
-        "Votre adresse email est confirmée : bienvenue chez Chapote !",
+        _t("Votre adresse email est confirmée : bienvenue chez Chapote !", lang),
         "",
-        "Vous pouvez dès maintenant créer votre premier chatbot et le mettre en "
-        "ligne en quelques minutes :",
+        _t("Vous pouvez dès maintenant créer votre premier chatbot et le mettre en "
+           "ligne en quelques minutes :", lang),
         "",
         f"{app_url}/app",
         "",
-        "Une question ? Écrivez-nous, nous sommes là pour vous aider.",
+        _t("Une question ? Écrivez-nous, nous sommes là pour vous aider.", lang),
         "",
-        EMAIL_SIGNATURE,
+        _t(EMAIL_SIGNATURE, lang),
     ]
-    return ("Bienvenue chez Chapote", "\n".join(lines))
+    return (_t("Bienvenue chez Chapote", lang), "\n".join(lines))
 
 
-def build_invite_email(org_name: str, role: str, app_url: str) -> tuple[str, str]:
-    """(sujet, corps texte brut FR) d'une invitation à rejoindre une équipe.
+def build_invite_email(org_name: str, role: str, app_url: str,
+                       lang: Optional[str] = None) -> tuple[str, str]:
+    """(sujet, corps texte brut) d'une invitation à rejoindre une équipe.
     Pas de token : l'invitation se consomme par correspondance d'email à
     l'inscription."""
-    role_fr = _role_fr(role)
     lines = [
-        f"Vous êtes invité·e à rejoindre l'équipe « {org_name} » sur Chapote "
-        f"en tant que {role_fr}.",
+        trf("Vous êtes invité·e à rejoindre l'équipe « {} » sur Chapote en tant que {}.",
+            lang, org_name, _role_fr(role, lang)),
         "",
-        "Pour accepter, créez votre compte avec cette même adresse email — vous "
-        "rejoindrez automatiquement l'équipe :",
+        _t("Pour accepter, créez votre compte avec cette même adresse email — vous "
+           "rejoindrez automatiquement l'équipe :", lang),
         "",
         f"{app_url}/register",
         "",
-        "Si vous n'attendiez pas cette invitation, vous pouvez ignorer ce message.",
+        _t("Si vous n'attendiez pas cette invitation, vous pouvez ignorer ce message.", lang),
         "",
-        EMAIL_SIGNATURE,
+        _t(EMAIL_SIGNATURE, lang),
     ]
-    return (f"Vous êtes invité·e à rejoindre {org_name} sur Chapote", "\n".join(lines))
+    return (trf("Vous êtes invité·e à rejoindre {} sur Chapote", lang, org_name), "\n".join(lines))
 
 
-def build_added_to_org_email(org_name: str, role: str, app_url: str) -> tuple[str, str]:
-    """(sujet, corps texte brut FR) pour un utilisateur EXISTANT ajouté
+def build_added_to_org_email(org_name: str, role: str, app_url: str,
+                             lang: Optional[str] = None) -> tuple[str, str]:
+    """(sujet, corps texte brut) pour un utilisateur EXISTANT ajouté
     directement comme membre d'une équipe."""
-    role_fr = _role_fr(role)
     lines = [
-        f"Vous avez été ajouté·e à l'équipe « {org_name} » sur Chapote "
-        f"en tant que {role_fr}.",
+        trf("Vous avez été ajouté·e à l'équipe « {} » sur Chapote en tant que {}.",
+            lang, org_name, _role_fr(role, lang)),
         "",
-        "Retrouvez l'équipe et ses chatbots depuis votre tableau de bord :",
+        _t("Retrouvez l'équipe et ses chatbots depuis votre tableau de bord :", lang),
         "",
         f"{app_url}/app",
         "",
-        EMAIL_SIGNATURE,
+        _t(EMAIL_SIGNATURE, lang),
     ]
-    return (f"Vous avez été ajouté·e à {org_name}", "\n".join(lines))
+    return (trf("Vous avez été ajouté·e à {}", lang, org_name), "\n".join(lines))
 
 
-def build_password_changed_email(user: "User", app_url: str) -> tuple[str, str]:
-    """(sujet, corps texte brut FR) — notification de sécurité après un
+def build_password_changed_email(user: "User", app_url: str,
+                                 lang: Optional[str] = None) -> tuple[str, str]:
+    """(sujet, corps texte brut) — notification de sécurité après un
     changement de mot de passe."""
     lines = [
-        _greeting(user.name),
+        _greeting(user.name, lang),
         "",
-        "Le mot de passe de votre compte Chapote vient d'être modifié.",
+        _t("Le mot de passe de votre compte Chapote vient d'être modifié.", lang),
         "",
-        "Si vous êtes à l'origine de ce changement, aucune action n'est requise.",
+        _t("Si vous êtes à l'origine de ce changement, aucune action n'est requise.", lang),
         "",
-        "Dans le cas contraire, réinitialisez immédiatement votre mot de passe "
-        "et contactez le support :",
+        _t("Dans le cas contraire, réinitialisez immédiatement votre mot de passe "
+           "et contactez le support :", lang),
         "",
         f"{app_url}/forgot-password",
         "",
-        EMAIL_SIGNATURE,
+        _t(EMAIL_SIGNATURE, lang),
     ]
-    return ("Votre mot de passe a été modifié", "\n".join(lines))
+    return (_t("Votre mot de passe a été modifié", lang), "\n".join(lines))
 
 
 def build_bot_suspended_email(bot: "Bot", reason: Optional[str],
@@ -560,7 +589,7 @@ def _button(url: str, label: str, color: str, *, pill: bool = False) -> str:
 
 
 def _render_blocks(text_body: str, theme: EmailTheme, *, center: bool,
-                   pill_button: bool) -> str:
+                   pill_button: bool, lang: Optional[str] = None) -> str:
     """Paragraphes -> HTML. Une URL nue seule sur sa ligne => bouton CTA themé
     (libellé = theme.cta). Sauts de ligne simples => <br>."""
     align = "center" if center else "left"
@@ -570,7 +599,7 @@ def _render_blocks(text_body: str, theme: EmailTheme, *, center: bool,
         if not stripped:
             continue
         if _is_bare_url(stripped):
-            blocks.append(_button(stripped, theme.cta, theme.accent,
+            blocks.append(_button(stripped, _t(theme.cta, lang), theme.accent,
                                   pill=pill_button))
         else:
             html_para = _html_escape(para).replace("\n", "<br>")
@@ -610,7 +639,8 @@ def _logo_header(theme: EmailTheme) -> str:
     )
 
 
-def _eyebrow_line(theme: EmailTheme, *, spacing: str, upper: bool = False) -> str:
+def _eyebrow_line(theme: EmailTheme, *, spacing: str, upper: bool = False,
+                  lang: Optional[str] = None) -> str:
     """Eyebrow texte (hero/banner) : libellé catégorie coloré au-dessus du corps.
     `spacing` = letter-spacing ; `upper` ajoute text-transform:uppercase (banner)."""
     if not theme.eyebrow:
@@ -619,11 +649,11 @@ def _eyebrow_line(theme: EmailTheme, *, spacing: str, upper: bool = False) -> st
     return (
         f'<div style="color:{theme.eyebrow_color};font-size:11.5px;'
         f'font-weight:bold;letter-spacing:{spacing};margin:0 0 10px 0;'
-        f'{transform}font-family:{_FONT};">{_html_escape(theme.eyebrow)}</div>'
+        f'{transform}font-family:{_FONT};">{_html_escape(_t(theme.eyebrow, lang))}</div>'
     )
 
 
-def _eyebrow_badge(theme: EmailTheme) -> str:
+def _eyebrow_badge(theme: EmailTheme, lang: Optional[str] = None) -> str:
     """Pastille de catégorie (layout='epure')."""
     if not theme.eyebrow:
         return ''
@@ -633,25 +663,25 @@ def _eyebrow_badge(theme: EmailTheme) -> str:
         f'<td bgcolor="{theme.wash}" style="background:{theme.wash};'
         f'border-radius:999px;padding:6px 13px;color:{theme.eyebrow_color};'
         f'font-size:11.5px;font-weight:bold;letter-spacing:.06em;'
-        f'white-space:nowrap;font-family:{_FONT};">{_html_escape(theme.eyebrow)}</td>'
+        f'white-space:nowrap;font-family:{_FONT};">{_html_escape(_t(theme.eyebrow, lang))}</td>'
         '</tr></table>'
     )
 
 
-def _footer() -> str:
+def _footer(lang: Optional[str] = None) -> str:
     return (
         '<tr><td style="padding:6px 32px 28px 32px;">'
         f'<div style="border-top:1px solid {_HAIRLINE};margin-bottom:14px;"></div>'
         f'<div style="color:{_MUTED_COLOR};font-size:12.5px;line-height:1.6;'
         f'font-family:{_FONT};">Chapote · https://chapote.fr<br>'
-        'Une question ? support@chapote.fr</div></td></tr>'
+        f'{_t("Une question ?", lang)} support@chapote.fr</div></td></tr>'
     )
 
 
-def _shell(inner: str) -> str:
+def _shell(inner: str, lang: Optional[str] = None) -> str:
     """Coque HTML commune (fond page + carte 560px centrée)."""
     return (
-        '<!doctype html><html><head><meta charset="utf-8">'
+        f'<!doctype html><html lang="{"en" if lang == "en" else "fr"}"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '</head>'
         f'<body style="margin:0;padding:0;background:{_PAGE_BG};">'
@@ -666,45 +696,48 @@ def _shell(inner: str) -> str:
     )
 
 
-def render_email_html(text_body: str, *, theme: Optional[EmailTheme] = None) -> str:
+def render_email_html(text_body: str, *, theme: Optional[EmailTheme] = None,
+                      lang: Optional[str] = None) -> str:
     """Transforme un corps texte brut en email HTML brandé selon `theme`.
 
     Compat : `render_email_html(text)` sans thème => rendu neutre (DEFAULT_THEME).
     Tables + styles inline, robuste Gmail/Outlook. Le texte
     est HTML-échappé. Une URL nue seule sur sa ligne => bouton CTA (libellé =
-    theme.cta). Trois mises en page : hero / banner / epure (voir EmailTheme)."""
+    theme.cta). Trois mises en page : hero / banner / epure (voir EmailTheme).
+    `lang` = "en" : libellés du thème, pied de page et <html lang> en anglais
+    (le corps est déjà écrit dans la langue voulue par l'appelant)."""
     th = theme or DEFAULT_THEME
     header = _logo_header(th)
 
     if th.layout == "hero":
         # Bloc d'accueil coloré : emoji + contenu centré sur fond wash.
-        body = _render_blocks(text_body, th, center=True, pill_button=True)
+        body = _render_blocks(text_body, th, center=True, pill_button=True, lang=lang)
         emoji = (f'<div style="font-size:46px;line-height:1;margin:0 0 10px 0;">'
                  f'{th.emoji}</div>') if th.emoji else ''
-        eyebrow = _eyebrow_line(th, spacing=".08em")
+        eyebrow = _eyebrow_line(th, spacing=".08em", lang=lang)
         hero = (
             f'<tr><td bgcolor="{th.wash}" '
             f'style="background:{th.wash};padding:30px 36px 34px 36px;'
             'text-align:center;">'
             f'{emoji}{eyebrow}{body}</td></tr>'
         )
-        inner = header + hero + _footer()
-        return _shell(inner)
+        inner = header + hero + _footer(lang)
+        return _shell(inner, lang)
 
     if th.layout == "banner":
-        body = _render_blocks(text_body, th, center=False, pill_button=False)
-        eyebrow = _eyebrow_line(th, spacing=".06em", upper=True)
+        body = _render_blocks(text_body, th, center=False, pill_button=False, lang=lang)
+        eyebrow = _eyebrow_line(th, spacing=".06em", upper=True, lang=lang)
         block = (f'<tr><td style="padding:26px 32px 6px 32px;">'
                  f'{eyebrow}{body}</td></tr>')
-        inner = header + block + _footer()
-        return _shell(inner)
+        inner = header + block + _footer(lang)
+        return _shell(inner, lang)
 
     # epure (défaut)
-    body = _render_blocks(text_body, th, center=False, pill_button=False)
+    body = _render_blocks(text_body, th, center=False, pill_button=False, lang=lang)
     block = (f'<tr><td style="padding:14px 32px 6px 32px;">'
-             f'{_eyebrow_badge(th)}{body}</td></tr>')
-    inner = header + block + _footer()
-    return _shell(inner)
+             f'{_eyebrow_badge(th, lang)}{body}</td></tr>')
+    inner = header + block + _footer(lang)
+    return _shell(inner, lang)
 
 
 def _theme_for(kind: str) -> EmailTheme:
@@ -719,14 +752,16 @@ def _theme_for(kind: str) -> EmailTheme:
 def send_account_email(recipients: list[str], subject: str, text: str, *,
                        error_label: str, kind: str = "default",
                        reply_to: str = SUPPORT_EMAIL,
-                       from_addr: Optional[str] = None) -> None:
+                       from_addr: Optional[str] = None,
+                       lang: Optional[str] = None) -> None:
     """Envoi BRANDÉ (multipart/alternative) d'un email compte/facturation.
 
     `kind` sélectionne le thème dans THEMES (welcome, reset, verify,
     suspended, …). Inconnu/omis => DEFAULT_THEME (rendu neutre, compat).
     `reply_to` défaut support ; `from_addr` défaut None (no-reply) ;
-    fire-and-forget (ne bloque jamais l'endpoint)."""
-    html = render_email_html(text, theme=_theme_for(kind))
+    fire-and-forget (ne bloque jamais l'endpoint). `lang` = "en" : habillage
+    HTML en anglais (sujet et texte sont fournis déjà traduits)."""
+    html = render_email_html(text, theme=_theme_for(kind), lang=lang)
     spawn_background(
         send_email(recipients, subject, text, reply_to=reply_to, html=html,
                    from_addr=from_addr, inline_images=_inline_logos_for(html)),
@@ -734,18 +769,20 @@ def send_account_email(recipients: list[str], subject: str, text: str, *,
 
 
 def send_org_member_email(email: str, org_name: str, role: str, *,
-                          existing: bool, app_url: str) -> None:
+                          existing: bool, app_url: str,
+                          lang: Optional[str] = None) -> None:
     """Notifie une personne ajoutée (compte existant) ou invitée (compte
     inexistant) à une équipe. Email BRANDÉ, fire-and-forget. Partagé entre
-    l'inscription (auth.register) et l'invitation (orgs.invite_member)."""
+    l'inscription (auth.register), l'invitation (orgs.invite_member) et Chapote CM
+    (cm_team). `lang` = "en" : email en anglais (défaut : français)."""
     if existing:
-        subject, body = build_added_to_org_email(org_name, role, app_url)
+        subject, body = build_added_to_org_email(org_name, role, app_url, lang)
         kind = "added"
     else:
-        subject, body = build_invite_email(org_name, role, app_url)
+        subject, body = build_invite_email(org_name, role, app_url, lang)
         kind = "invite"
     # Email relationnel -> expéditeur hello@ (au lieu de no-reply) : meilleur
     # placement Gmail (Principale) et une réponse arrive sur une boîte suivie.
     send_account_email([email], subject, body, kind=kind, from_addr=HELLO_FROM,
-                       reply_to=HELLO_EMAIL,
+                       reply_to=HELLO_EMAIL, lang=lang,
                        error_label="Envoi e-mail invitation échoué")

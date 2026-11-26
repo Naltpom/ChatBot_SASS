@@ -115,3 +115,47 @@ async def test_request_without_answer_can_be_disputed_and_cancelled(pg_session, 
         assert (await c.as_(owner).get("/api/cm/account-requests")).json()["incoming"] == []
         # L'ancienne route de reprise immédiate est inchangée (toujours en place pour le site).
         assert (await pg_session.execute(select(TikTokAccount))).scalars().one().owner_user_id == owner.id
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_request_emails_in_each_recipient_language(pg_session, cmenv, tiktok, monkeypatch):
+    """Chaque administrateur reçoit l'e-mail dans sa langue de Chapote CM (cm_profiles.language) ; le demandeur aussi."""
+    from src.models.cm import CmProfile
+    sent = []
+    monkeypatch.setattr("src.routers.cm_account_requests.send_account_email",
+                        lambda to, subject, text, **kw: sent.append((to, subject, text, kw.get("lang"))))
+    boss = await _user(pg_session, "boss@t.dev")
+    other = await _user(pg_session, "other@t.dev")
+    me = await _user(pg_session, "me@t.dev")
+    org = await _org(pg_session, boss, (other, "admin"))
+    acc = await _account(pg_session, org=org, by=boss, open_id="oid-1")
+    pg_session.add_all([CmProfile(user_id=boss.id, language="en"), CmProfile(user_id=other.id, language="fr"),
+                        CmProfile(user_id=me.id, language="en")])
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        token = await _claim_token(c, me)
+        # La requête du demandeur est en français : chaque admin reçoit quand même sa langue.
+        req = (await c.as_(me).post("/api/cm/account-requests", json={"claim_token": token, "message": "C'est le mien"})).json()["request"]
+        mails = {tuple(m[0]): m for m in sent}
+        assert set(mails) == {("boss@t.dev",), ("other@t.dev",)}
+        _, subject, text, lang = mails[("boss@t.dev",)]
+        assert lang == "en" and subject.startswith("Request to take over")
+        assert "is asking to take over the TikTok account" in text and "Their message: “C'est le mien”" in text
+        assert "Accounts tab" in text and "demande" not in text
+        _, subject, text, lang = mails[("other@t.dev",)]
+        assert lang is None and subject.startswith("Demande de reprise du compte")
+        assert "demande à reprendre le compte TikTok" in text and "Son message : « C'est le mien »" in text
+        sent.clear()
+        assert (await c.as_(other).post(f"/api/cm/account-requests/{req['id']}/decline")).status_code == 200
+        assert sent[-1][0] == ["me@t.dev"] and sent[-1][3] == "en" and sent[-1][1].endswith(": request declined")
+        assert "declined your takeover request" in sent[-1][2]
+
+
+def test_account_email_html_in_english():
+    """Habillage HTML : bouton, catégorie, pied de page et <html lang> en anglais ; français inchangé sans langue."""
+    from src.services.email_service import THEMES, render_email_html
+    en = render_email_html("Hi Ann,\n\nhttps://x.test/a", theme=THEMES["verify"], lang="en")
+    assert '<html lang="en">' in en and "Confirm my email" in en and "CONFIRMATION" in en and "Questions? support@chapote.fr" in en
+    fr = render_email_html("Bonjour Ann,\n\nhttps://x.test/a", theme=THEMES["reset"])
+    assert '<html lang="fr">' in fr and "Choisir un nouveau mot de passe" in fr and "Une question ? support@chapote.fr" in fr

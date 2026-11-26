@@ -32,7 +32,8 @@ from src.routers.cm import get_cm_user
 from src.routers.tiktok import _tenant, _tenant_of
 from src.services import cm_access
 from src.services import cm_service as cm
-from src.services.email_service import SUPPORT_EMAIL, send_account_email
+from src.i18n import trf
+from src.services.email_service import SUPPORT_EMAIL, email_languages, send_account_email
 from src.services.rate_limit import RateLimiter
 
 router = APIRouter(prefix="/api/cm", tags=["cm-account-requests"])
@@ -41,6 +42,8 @@ request_limiter = RateLimiter("rl:cmacctreq:", 10, 3600)
 REQUEST_TTL = timedelta(days=7)
 DISPUTE_AFTER = timedelta(days=3)
 LABEL = {"tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram"}
+# Langue des e-mails : chaque destinataire reçoit sa langue de Chapote CM (cm_profiles.language = « en » : anglais,
+# sinon français). La réclamation au support reste en français (équipe Chapote).
 
 
 class RequestIn(BaseModel):
@@ -132,13 +135,18 @@ async def create_request(body: RequestIn, db: AsyncSession = Depends(get_db), us
     await db.refresh(r)
     name = cm.account_name(platform, acc) or LABEL[platform]
     who = f"{user.name} ({user.email})" if user.name else user.email
-    text = (f"{who} demande à reprendre le compte {LABEL[platform]} « {name} », relié à votre espace Chapote CM.\n\n"
-            f"Cette personne vient de se connecter au compte chez {LABEL[platform]}.\n"
-            + (f"Son message : « {r.message} »\n" if r.message else "")
-            + f"\nAcceptez ou refusez dans Chapote CM, onglet Comptes (sous 7 jours) :\n{settings.CM_URL.rstrip('/')}/accounts\n\n"
-            "Sans réponse, ou en cas de refus, elle pourra s'adresser au support de Chapote, qui tranchera.")
-    send_account_email(await _admin_emails(db, acc), f"Demande de reprise du compte {name}", text,
-                       error_label="cm account request")
+    admins = await _admin_emails(db, acc)
+    langs = await email_languages(db, admins)
+    for lang in {langs.get(e.lower()) for e in admins}:
+        text = (trf("{} demande à reprendre le compte {} « {} », relié à votre espace Chapote CM.", lang, who, LABEL[platform], name)
+                + "\n\n" + trf("Cette personne vient de se connecter au compte chez {}.", lang, LABEL[platform]) + "\n"
+                + (trf("Son message : « {} »", lang, r.message) + "\n" if r.message else "")
+                + "\n" + trf("Acceptez ou refusez dans Chapote CM, onglet Comptes (sous 7 jours) :", lang)
+                + f"\n{settings.CM_URL.rstrip('/')}/accounts\n\n"
+                + trf("Sans réponse, ou en cas de refus, elle pourra s'adresser au support de Chapote, qui tranchera.", lang))
+        send_account_email([e for e in admins if langs.get(e.lower()) == lang],
+                           trf("Demande de reprise du compte {}", lang, name), text,
+                           error_label="cm account request", lang=lang)
     return {"request": await _out(db, r, incoming=False),
             "message": "Demande envoyée : l'espace actuel du compte a 7 jours pour répondre. Vous serez prévenu ici."}
 
@@ -195,9 +203,11 @@ async def accept_request(request_id: int, db: AsyncSession = Depends(get_db), us
     result = await cm_access.move_account(db, r.platform, acc, dest, requester.id)
     if requester and requester.email:
         name = cm.account_name(r.platform, acc) or LABEL[r.platform]
-        send_account_email([requester.email], f"Compte {name} : demande acceptée",
-                           f"Votre demande a été acceptée : le compte {LABEL[r.platform]} « {name} » est maintenant dans votre espace Chapote CM, "
-                           "avec ses publications à venir.", error_label="cm account request accepted")
+        lang = (await email_languages(db, [requester.email])).get(requester.email.lower())
+        send_account_email([requester.email], trf("Compte {} : demande acceptée", lang, name),
+                           trf("Votre demande a été acceptée : le compte {} « {} » est maintenant dans votre espace Chapote CM, "
+                               "avec ses publications à venir.", lang, LABEL[r.platform], name),
+                           error_label="cm account request accepted", lang=lang)
     return {"moved": True, **result}
 
 
@@ -209,10 +219,11 @@ async def decline_request(request_id: int, db: AsyncSession = Depends(get_db), u
     requester = await db.get(User, r.requester_user_id)
     if requester and requester.email:
         name = cm.account_name(r.platform, acc) or LABEL[r.platform]
-        send_account_email([requester.email], f"Compte {name} : demande refusée",
-                           f"L'espace qui gère le compte {LABEL[r.platform]} « {name} » a refusé votre demande de reprise.\n\n"
-                           "Si ce compte vous appartient, vous pouvez faire une réclamation au support depuis Chapote CM (Comptes).",
-                           error_label="cm account request declined")
+        lang = (await email_languages(db, [requester.email])).get(requester.email.lower())
+        send_account_email([requester.email], trf("Compte {} : demande refusée", lang, name),
+                           trf("L'espace qui gère le compte {} « {} » a refusé votre demande de reprise.", lang, LABEL[r.platform], name)
+                           + "\n\n" + trf("Si ce compte vous appartient, vous pouvez faire une réclamation au support depuis Chapote CM (Comptes).", lang),
+                           error_label="cm account request declined", lang=lang)
     return {"ok": True}
 
 

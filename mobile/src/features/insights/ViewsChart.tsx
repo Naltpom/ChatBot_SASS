@@ -42,6 +42,9 @@ export function ViewsChart({ series: all, metric = 'views' }: { series: SeriesPo
   const touch = (e: GestureResponderEvent) => setPick(nearestIndex(e.nativeEvent.locationX, n, w, m.pad))
   const val = (i: number, p: keyof SeriesPoint['by_platform']) => m.series[i].by_platform[p]?.[metric]
   const summary = summaryText(m, label)
+  // Période choisie plus longue que les relevés : on le dit (la courbe commence au 1er relevé).
+  const firstIdx = all.findIndex(pt => Object.values(pt.by_platform).some(v => v?.[metric] != null))
+  const since = firstIdx > 0 ? new Date(all[firstIdx].day + 'T12:00:00').toLocaleDateString(locale(), { day: 'numeric', month: 'long' }) : null
 
   return (
     <View style={{ gap: space.sm }}>
@@ -107,6 +110,7 @@ export function ViewsChart({ series: all, metric = 'views' }: { series: SeriesPo
         ) : <Txt small faint>{t('Touchez la courbe pour voir les chiffres d’un jour.')}</Txt>
 
       ) : null}
+      {since ? <Txt size={12} muted>{t('Chiffres relevés par Chapote depuis le {day} : rien avant cette date.', { day: since })}</Txt> : null}
     </View>
   )
 }

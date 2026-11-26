@@ -16,7 +16,7 @@ import hashlib
 import hmac
 import json
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -98,6 +98,14 @@ class FakeMeta:
                  "like_count": 300, "comments_count": 12},
                 {"id": "img1", "media_type": "IMAGE", "like_count": 5, "timestamp": "2026-11-01T10:00:00+0000"},
             ]})
+        if path == f"{v}/{IG_ID}/insights":            # chiffres du compte jour par jour (historique)
+            q = parse_qs(req.url.query.decode())
+            if q["metric"] == ["views"]:
+                return httpx.Response(200, json={"data": [{"name": "views", "period": "day", "total_value": {"value": 100}}]})
+            since, until = int(q["since"][0]), int(q["until"][0])
+            ends = range(since + 86400, until + 1, 86400)
+            return httpx.Response(200, json={"data": [{"name": "follower_count", "period": "day", "values": [
+                {"value": 2, "end_time": datetime.utcfromtimestamp(e).strftime("%Y-%m-%dT07:00:00+0000")} for e in ends]}]})
         if path == f"{v}/media9/insights":
             return httpx.Response(200, json={"data": [{"name": "views", "values": [{"value": 15000}]},
                                                       {"name": "shares", "values": [{"value": 40}]},
@@ -563,6 +571,19 @@ async def test_instagram_oauth_publish_reel_and_stats(pg_session, cmenv, meta):
         overview = (await h.get("/api/cm/overview")).json()
         assert overview["totals"]["followers"] == 5400 and overview["totals"]["views"] == 15000
         assert overview["series"][-1]["views"] == 15000 and overview["top_videos"][0]["external_id"] == "media9"
+        # Historique d'avant le 1er relevé, reconstitué depuis les chiffres jour par jour d'Instagram
+        # (1re publication le 1er novembre : rien avant le 31 octobre), puis plus jamais redemandé.
+        hist = {s.day: s for s in (await pg_session.execute(select(CmAccountStat).where(
+            CmAccountStat.platform == "instagram", CmAccountStat.account_id == acc.id))).scalars()}
+        today = utcnow().date()
+        assert min(hist) == datetime(2026, 10, 31).date() and len(hist) == (today - min(hist)).days + 1
+        y = hist[today - timedelta(days=1)]
+        assert (y.views, y.followers) == (15000 - 100, 5400 - 2)
+        await pg_session.refresh(acc)
+        assert acc.history_done is True
+        before = len(meta.calls)
+        await cm.sync_account(pg_session, "instagram", acc)
+        assert not [r for r in meta.calls[before:] if r.url.path.endswith(f"/{IG_ID}/insights")]
 
 
 @pytest.mark.real_db
@@ -782,6 +803,82 @@ async def test_cover_sent_the_day_before_survives_cleanup(pg_session, cmenv):
         os.utime(f, (old, old))
     await cm_jobs.cleanup(pg_session)
     assert os.path.exists(post.cover_path) and os.path.exists(post.media_path)
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_thumbnail_and_download_links(pg_session, cmenv, tmp_path):
+    """Miniature : la couverture envoyée, sinon l'image de la vidéo à l'instant choisi ; liens de téléchargement signés."""
+    import shutil, subprocess
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    when = (utcnow() + timedelta(days=1)).isoformat() + "Z"
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        data = mp4_bytes(10_000)
+        target = _ig_target(acc.id, scheduled_at=when)
+        target["options"]["thumb_offset_ms"] = 500
+        post_id, r = await _publish(h, [target], data)
+        assert r.status_code == 200, r.text
+        # Sans couverture ni image extractible (fausse vidéo) : choisie par la plateforme.
+        if not shutil.which("ffmpeg"):
+            assert (await h.get(f"/api/cm/posts/{post_id}/thumbnail")).status_code == 404
+        assert (await h.put(f"/api/cm/posts/{post_id}/cover", content=b"\xff\xd8\xff\xe0" + b"1" * 500)).status_code == 200
+        r = await h.get(f"/api/cm/posts/{post_id}/thumbnail")
+        assert r.status_code == 200 and r.content.startswith(b"\xff\xd8") and "miniature" in r.headers["content-disposition"]
+        # Liens signés (app) : sans session, valables 10 minutes, liés à la publication et au type.
+        link = (await h.post(f"/api/cm/posts/{post_id}/download-link?kind=video")).json()["url"]
+        path = urlparse(link).path
+        anon = httpx.AsyncClient(transport=c.http._transport, base_url="http://test")
+        r = await anon.get(path)
+        assert r.status_code == 200 and r.content == data and "attachment" in r.headers["content-disposition"]
+        assert (await anon.get(path.replace("/video/", "/thumbnail/"))).status_code == 404
+        thumb = (await h.post(f"/api/cm/posts/{post_id}/download-link?kind=thumbnail")).json()["url"]
+        assert (await anon.get(urlparse(thumb).path)).content.startswith(b"\xff\xd8")
+        await anon.aclose()
+    if shutil.which("ffmpeg"):
+        # Vraie vidéo, pas de couverture : l'image à l'instant choisi est extraite.
+        src = tmp_path / "v.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:size=64x112:rate=10", "-t", "2", "-pix_fmt", "yuv420p", str(src)], check=True)
+        post = await pg_session.get(CmPost, post_id)
+        cm.remove_cover(post)
+        shutil.copy(src, post.media_path)
+        await pg_session.commit()
+        async with Client(pg_session) as c:
+            r = await c.as_(u).get(f"/api/cm/posts/{post_id}/thumbnail")
+            assert r.status_code == 200 and r.content.startswith(b"\xff\xd8")
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_routine_history_backfills_days_before_first_reading(pg_session, cmenv, monkeypatch):
+    """Historique Instagram envoyé par la routine : jours d'avant le 1er relevé reconstitués à rebours, jamais écrasés."""
+    from datetime import date
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_routine(pg_session, owner=u)
+    pg_session.add(CmAccountStat(platform="instagram", account_id=acc.id, day=date(2026, 11, 23), followers=1000, views=50_000))
+    pg_session.add(CmAccountStat(platform="instagram", account_id=acc.id, day=date(2026, 11, 24), followers=1010, views=52_000))
+    await pg_session.commit()
+    monkeypatch.setattr(settings, "CM_SERVICE_USER_EMAIL", "a@t.dev")
+    async with Client(pg_session) as c:
+        h = c.http
+        _service(h)
+        days = [{"day": "2026-11-23", "views": 3000, "followers_gained": 20},
+                {"day": "2026-11-22", "views": 2000, "followers_gained": 10},
+                {"day": "2026-11-21", "views": 1000, "followers_gained": 5},
+                {"day": "2026-11-24", "views": 999, "followers_gained": 999}]     # après le 1er relevé : ignoré
+        r = await h.post("/api/cm/routine/stats/history", json={"username": "ghosthands.music", "days": days})
+        assert r.status_code == 200, r.text
+        assert r.json()["added"] == 3
+        # Rejouer n'ajoute rien et ne modifie rien.
+        assert (await h.post("/api/cm/routine/stats/history", json={"username": "ghosthands.music", "days": days})).json()["added"] == 0
+    rows = {s.day: (s.followers, s.views) for s in (await pg_session.execute(
+        select(CmAccountStat).where(CmAccountStat.account_id == acc.id))).scalars()}
+    assert rows[date(2026, 11, 22)] == (980, 47_000)
+    assert rows[date(2026, 11, 21)] == (970, 45_000)
+    assert rows[date(2026, 11, 20)] == (965, 44_000)
+    assert rows[date(2026, 11, 24)] == (1010, 52_000)
 
 
 def test_media_links_expire_and_are_bound_to_the_target(monkeypatch):

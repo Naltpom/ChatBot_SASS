@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -526,6 +526,43 @@ async def save_snapshot(db: AsyncSession, platform: str, account_id: int, *, fol
     return row
 
 
+async def backfill_history(db: AsyncSession, platform: str, account_id: int, days: list[dict]) -> int:
+    """Jours d'avant le premier relevé de Chapote, reconstitués à rebours depuis ce premier relevé avec les chiffres
+    jour par jour de la plateforme (`views` = vues du jour, `followers_gained` = nouveaux abonnés du jour).
+    Abonnés(J) = abonnés(1er relevé) − nouveaux abonnés après J ; vues cumulées(J) = vues(1er relevé) − vues après J.
+    Un jour déjà relevé n'est jamais modifié. Renvoie le nombre de jours ajoutés."""
+    first = (await db.execute(select(CmAccountStat).where(
+        CmAccountStat.platform == platform, CmAccountStat.account_id == account_id,
+        or_(CmAccountStat.followers.is_not(None), CmAccountStat.views.is_not(None)))
+        .order_by(CmAccountStat.day).limit(1))).scalar_one_or_none()
+    if first is None:
+        return 0
+    by_day: dict[date, dict] = {}
+    for d in days:
+        try:
+            day = date.fromisoformat(str(d.get("day")))
+        except ValueError:
+            continue
+        by_day[day] = d
+    followers, views, added = first.followers, first.views, 0
+    day = first.day
+    existing = {r for r in (await db.execute(select(CmAccountStat.day).where(
+        CmAccountStat.platform == platform, CmAccountStat.account_id == account_id))).scalars()}
+    # On recule jour par jour : enlever les chiffres du jour J donne le total à la fin du jour J-1.
+    while day in by_day:
+        d = by_day[day]
+        if followers is not None and d.get("followers_gained") is not None:
+            followers = max(0, followers - int(d["followers_gained"]))
+        if views is not None and d.get("views") is not None:
+            views = max(0, views - int(d["views"]))
+        day = day - timedelta(days=1)
+        if day not in existing:
+            db.add(CmAccountStat(platform=platform, account_id=account_id, day=day, followers=followers, views=views))
+            added += 1
+    await db.commit()
+    return added
+
+
 def _sum(values) -> Optional[int]:
     vals = [v for v in values if v is not None]
     return sum(vals) if vals else None
@@ -645,7 +682,43 @@ async def _sync_instagram(db: AsyncSession, acc: InstagramAccount, full: bool = 
                               views=_sum(views_total), likes=_sum(_num(m.get("like_count")) for m in media),
                               videos=_num(prof.get("media_count")))
     await db.commit()
+    if not acc.history_done:
+        try:
+            await _instagram_history(db, acc, token, media)
+        except ig.InstagramError as e:
+            logger.info("cm : historique Instagram %s non récupéré (%s)", acc.id, e.code)
     return row
+
+
+HISTORY_CHUNK_DAYS = 60       # jours d'historique récupérés par relevé (une requête par jour)
+HISTORY_MAX_DAYS = 365
+
+
+async def _instagram_history(db: AsyncSession, acc: InstagramAccount, token: str, media: list[dict]) -> None:
+    """Remonte l'historique du compte avant le 1er relevé de Chapote, 60 jours par relevé, jusqu'à la création du
+    compte (1re publication) ou un an : les courbes de la page Stats couvrent alors les périodes choisies."""
+    earliest = (await db.execute(select(CmAccountStat).where(
+        CmAccountStat.platform == "instagram", CmAccountStat.account_id == acc.id,
+        or_(CmAccountStat.followers.is_not(None), CmAccountStat.views.is_not(None)))
+        .order_by(CmAccountStat.day).limit(1))).scalar_one_or_none()
+    if earliest is None:
+        return
+    starts = [_parse_time(m.get("timestamp")) for m in media]
+    born = min((d.date() for d in starts if d), default=None)
+    floor = utcnow().date() - timedelta(days=HISTORY_MAX_DAYS)
+    if born:
+        floor = max(floor, born - timedelta(days=1))
+    if earliest.day <= floor:
+        acc.history_done = True
+        await db.commit()
+        return
+    first = max(floor + timedelta(days=1), earliest.day - timedelta(days=HISTORY_CHUNK_DAYS))
+    days = [d for d in await ig.daily_history(token, acc.ig_user_id, first, earliest.day)
+            if d.get("views") is not None or d.get("followers_gained") is not None]   # jour sans chiffre : on s'arrête
+    added = await backfill_history(db, "instagram", acc.id, days)
+    if added == 0 or first <= floor + timedelta(days=1):
+        acc.history_done = True
+    await db.commit()
 
 
 async def ingest_routine_stats(db: AsyncSession, acc: InstagramAccount, payload: dict) -> CmAccountStat:
