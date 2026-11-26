@@ -18,7 +18,7 @@ Source : documentation de Chapote CM (docs/CM.md), réécrite en mots simples. S
 ## Programmer une vidéo (Nouvelle publication)
 
 - Deux étapes. 1. La vidéo : choisissez-la dans la Bibliothèque (vos dossiers Drive) ou envoyez un fichier, puis un titre et une légende. Vous indiquez aussi la limite d'âge (YouTube : vidéo conçue pour les enfants ou non), les droits d'auteur et si la vidéo est générée par IA. 2. Les comptes et l'heure : choisissez les comptes (ou un groupe), puis le jour et l'heure.
-- « Planifier » montre un récapitulatif avant de tout programmer. « Suivant » ouvre les réglages de chaque compte (un onglet par compte : qui peut voir la vidéo, commentaires, titre YouTube…), puis une vérification compte par compte : « Valider », « Modifier » ou « Retirer ce compte ».
+- « Planifier » montre un récapitulatif avant de tout programmer. « Suivant » ouvre les réglages de chaque compte (un onglet par compte : qui peut voir la vidéo, duo et collage TikTok, titre YouTube…), puis une vérification compte par compte : « Valider », « Modifier » ou « Retirer ce compte ».
 - Rien ne part avant l'heure choisie.
 - Pour TikTok, Chapote CM reprend les choix proposés par TikTok pour votre compte (par exemple qui peut voir la vidéo).
 - Miniature : choisissez l'image de la vidéo qui servira de miniature (on glisse sur la barre ou on avance image par image). Pour Instagram, vous pouvez aussi envoyer une image à part (JPEG ou PNG).
