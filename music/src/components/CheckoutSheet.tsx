@@ -26,7 +26,6 @@ export default function CheckoutSheet() {
   const [promoOpen, setPromoOpen] = useState(codes.length > 0)
   const { me } = useAuth()
   const [email, setEmail] = useState('')
-  const [instagram, setInstagram] = useState('')
   const [consent, setConsent] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -69,7 +68,7 @@ export default function CheckoutSheet() {
     try {
       track('checkout', { cents: quote?.total_cents, sheets: ids.length, promo: quote?.promo_code || null })
       const r = await postCheckout({ sheet_ids: ids, promo_codes: quote?.promo_codes || [], email: email.trim() || undefined,
-                                    instagram: instagram.trim() || undefined, consent, lang,
+                                    consent, lang,
                                     track: trackingOn() ? trackCode() || undefined : undefined })
       // l'achat est parti : on retire ces partitions du panier
       ids.forEach(id => cart.lines.some(l => l.id === id) && cart.remove(id))
@@ -77,7 +76,6 @@ export default function CheckoutSheet() {
     } catch (e) {
       const ae = e as ApiError
       setErr(ae.code === 'network' ? t.errNetwork : ae.code === 'amount_too_low' ? t.minAmount
-        : ae.code === 'instagram_invalid' ? t.igLabel
         : t.promoErr[ae.code] || t.errGeneric)
       setBusy(false)
     }
@@ -147,13 +145,6 @@ export default function CheckoutSheet() {
               <input id="email" className="field" type="email" inputMode="email" autoComplete="email" value={email}
                      onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
               {!free && <span className="field-hint">{t.emailHint}</span>}
-            </div>
-
-            <div>
-              <label htmlFor="ig" className="field-label">{t.igLabel}</label>
-              <input id="ig" className="field" autoComplete="off" autoCapitalize="none" spellCheck={false} value={instagram}
-                     onChange={e => setInstagram(e.target.value)} placeholder="@" />
-              <span className="field-hint">{t.igHint}</span>
             </div>
 
             {quote && (
