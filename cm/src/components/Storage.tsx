@@ -5,11 +5,13 @@ import { Link } from 'react-router-dom'
 import { addStorage, getAccounts, getStorages, patchStorage, removeStorage, startDriveOAuth, type Account, type Group, type Retention, type Storage, type StorageItem, type Storages } from '../api'
 import { useLoad, useRole, useSession } from '../session'
 import { Icon, Msg, Sheet } from './ui'
+import { locale, t } from '../i18n'
 
 const GB = 1024 ** 3
 export function bytes(n: number | null | undefined): string {
   if (n == null) return '—'
-  return n >= GB / 10 ? `${(n / GB).toFixed(1).replace('.', ',')} Go` : `${Math.max(0, Math.round(n / (1024 * 1024)))} Mo`
+  return n >= GB / 10 ? t('{n} Go', { n: (n / GB).toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })
+    : t('{n} Mo', { n: Math.max(0, Math.round(n / (1024 * 1024))) })
 }
 const RETENTION: [Retention, string][] = [
   ['keep', 'Tout garder dans le Drive'],
@@ -28,12 +30,14 @@ function Gauge({ s }: { s: Storage }) {
   const color = s.state === 'full' ? 'var(--danger)' : s.state === 'almost_full' ? 'var(--warn)' : 'var(--primary)'
   return (
     <div className="col" style={{ gap: 6 }}>
-      <div role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Stockage utilisé"
+      <div role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={t('Stockage utilisé')}
            style={{ height: 10, borderRadius: 999, background: 'var(--surface-2)', overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: color }} />
       </div>
       <span className="tiny muted">
-        {bytes(s.used_bytes)} utilisés par Chapote{s.quota_gb ? ` sur ${s.quota_gb} Go réservés` : cap ? ` · ${bytes(s.drive_free_bytes)} libres dans le Drive` : ''}
+        {s.quota_gb ? t('{used} utilisés par Chapote sur {quota} Go réservés', { used: bytes(s.used_bytes), quota: s.quota_gb })
+          : cap ? t('{used} utilisés par Chapote · {free} libres dans le Drive', { used: bytes(s.used_bytes), free: bytes(s.drive_free_bytes) })
+          : t('{used} utilisés par Chapote', { used: bytes(s.used_bytes) })}
       </span>
     </div>
   )
@@ -66,23 +70,23 @@ export function StorageCard() {
       <div className="row-nw" style={{ gap: 10 }}>
         <span className="empty-ico" style={{ width: 36, height: 36, flex: 'none' }}><Icon name="layers" /></span>
         <div className="grow" style={{ minWidth: 0 }}>
-          <h2 id="t-storage" style={{ margin: 0, fontSize: 16 }}>Stockage</h2>
-          <div className="tiny muted">{list.length ? `${list.length} stockage${list.length > 1 ? 's' : ''} · ${bytes(data.used_bytes)} utilisés` : 'Aucun Google Drive relié : obligatoire pour publier.'}</div>
+          <h2 id="t-storage" style={{ margin: 0, fontSize: 16 }}>{t('Stockage')}</h2>
+          <div className="tiny muted">{list.length ? (list.length > 1 ? t('{n} stockages · {used} utilisés', { n: list.length, used: bytes(data.used_bytes) }) : t('{n} stockage · {used} utilisés', { n: list.length, used: bytes(data.used_bytes) })) : t('Aucun Google Drive relié : obligatoire pour publier.')}</div>
         </div>
         {canAdmin && (list.length
-          ? <button type="button" className="btn btn-sm" onClick={() => setAdding(a => !a)}><Icon name="plus" size={16} />Ajouter</button>
-          : <button type="button" className="btn btn-sm btn-primary" onClick={() => connectDrive(org, setErr)}>Connecter Google Drive</button>)}
+          ? <button type="button" className="btn btn-sm" onClick={() => setAdding(a => !a)}><Icon name="plus" size={16} />{t('Ajouter')}</button>
+          : <button type="button" className="btn btn-sm btn-primary" onClick={() => connectDrive(org, setErr)}>{t('Connecter Google Drive')}</button>)}
       </div>
       {adding && <AddStorage list={list} onCancel={() => setAdding(false)} onErr={setErr}
-                             onFolder={(from, name) => run(() => addStorage(org, from, name), `Dossier « ${name} » créé.`).then(() => setAdding(false))} />}
-      {list.length > 1 && <p className="tiny muted" style={{ margin: 0 }}>Chaque vidéo va dans le stockage attribué à son compte (ou à son groupe) ; sinon dans le premier stockage « tous les comptes » qui a de la place, dans l’ordre ci-dessous.</p>}
+                             onFolder={(from, name) => run(() => addStorage(org, from, name), t('Dossier « {name} » créé.', { name })).then(() => setAdding(false))} />}
+      {list.length > 1 && <p className="tiny muted" style={{ margin: 0 }}>{t('Chaque vidéo va dans le stockage attribué à son compte (ou à son groupe) ; sinon dans le premier stockage « tous les comptes » qui a de la place, dans l’ordre ci-dessous.')}</p>}
       {list.map((s, i) => (
         <StorageRow key={s.id} s={s} canAdmin={canAdmin} accounts={accounts.data || []} groups={groups}
                     first={i === 0} last={i === list.length - 1} onMove={d => move(i, d)}
-                    onSave={body => run(() => patchStorage(org, s.id, body), 'Stockage enregistré.')}
+                    onSave={body => run(() => patchStorage(org, s.id, body), t('Stockage enregistré.'))}
                     onRemove={() => {
-                      if (window.confirm(`Retirer « ${s.name} » ? Les fichiers déjà rangés restent dans le Drive.${list.length === 1 ? ' Sans stockage, impossible de publier.' : ''}`))
-                        run(() => removeStorage(org, s.id), 'Stockage retiré.')
+                      if (window.confirm(list.length === 1 ? t('Retirer « {name} » ? Les fichiers déjà rangés restent dans le Drive. Sans stockage, impossible de publier.', { name: s.name }) : t('Retirer « {name} » ? Les fichiers déjà rangés restent dans le Drive.', { name: s.name })))
+                        run(() => removeStorage(org, s.id), t('Stockage retiré.'))
                     }} />
       ))}
       {ok && <Msg kind="ok">{ok}</Msg>}
@@ -98,20 +102,20 @@ function AddStorage({ list, onFolder, onCancel, onErr }: { list: StorageItem[]; 
   const [name, setName] = useState('')
   return (
     <div className="col" style={{ gap: 10, padding: 12, borderRadius: 12, background: 'var(--surface-2)' }}>
-      <label className="field">Nom du stockage
-        <input className="input" value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Ex. Kiwi, Clients musique, Archives 2027" />
+      <label className="field">{t('Nom du stockage')}
+        <input className="input" value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder={t('Ex. Kiwi, Clients musique, Archives 2027')} />
       </label>
-      <label className="field">Où
+      <label className="field">{t('Où')}
         <select className="input" value={from} onChange={e => setFrom(Number(e.target.value))}>
-          {emails.map(s => <option key={s.id} value={s.id}>Nouveau dossier dans le Drive de {s.email}</option>)}
+          {emails.map(s => <option key={s.id} value={s.id}>{t('Nouveau dossier dans le Drive de {email}', { email: s.email })}</option>)}
         </select>
       </label>
       <div className="row" style={{ gap: 8 }}>
-        <button type="button" className="btn btn-sm btn-primary" disabled={!name.trim()} onClick={() => onFolder(from, name.trim())}>Créer le dossier</button>
-        <button type="button" className="btn btn-sm" onClick={() => connectDrive(org, onErr, name.trim() || undefined)}>Autre compte Google…</button>
-        <button type="button" className="btn btn-sm btn-ghost" onClick={onCancel}>Annuler</button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={!name.trim()} onClick={() => onFolder(from, name.trim())}>{t('Créer le dossier')}</button>
+        <button type="button" className="btn btn-sm" onClick={() => connectDrive(org, onErr, name.trim() || undefined)}>{t('Autre compte Google…')}</button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onCancel}>{t('Annuler')}</button>
       </div>
-      <span className="field-hint">Chapote crée le dossier « cm.chapote.fr — nom » à la racine du Drive ; vous pouvez ensuite le déplacer ou le renommer.</span>
+      <span className="field-hint">{t('Chapote crée le dossier « cm.chapote.fr — nom » à la racine du Drive ; vous pouvez ensuite le déplacer ou le renommer.')}</span>
     </div>
   )
 }
@@ -140,36 +144,36 @@ function StorageRow({ s, canAdmin, accounts, groups, first, last, onMove, onSave
       <div className="row-nw" style={{ gap: 8, alignItems: 'flex-start' }}>
         <div className="grow col" style={{ gap: 2, minWidth: 0 }}>
           <span className="strong ellipsis">{s.name}</span>
-          <span className="tiny muted ellipsis">{s.email}{s.folder_url ? <> · <a href={s.folder_url} target="_blank" rel="noreferrer">ouvrir le dossier</a></> : null}</span>
-          <span className="tiny">{assigned.length ? <>Pour : <b>{assigned.join(', ')}</b></> : <span className="muted">Pour : tous les comptes (dans l’ordre)</span>}</span>
+          <span className="tiny muted ellipsis">{s.email}{s.folder_url ? <> · <a href={s.folder_url} target="_blank" rel="noreferrer">{t('ouvrir le dossier')}</a></> : null}</span>
+          <span className="tiny">{assigned.length ? <>{t('Pour :')} <b>{assigned.join(', ')}</b></> : <span className="muted">{t('Pour : tous les comptes (dans l’ordre)')}</span>}</span>
         </div>
         {canAdmin && (
           <span className="row-nw" style={{ gap: 2 }}>
-            <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Monter « ${s.name} »`} disabled={first} onClick={() => onMove(-1)}><Icon name="up" size={16} /></button>
-            <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Descendre « ${s.name} »`} disabled={last} onClick={() => onMove(1)}><Icon name="down" size={16} /></button>
+            <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={t('Monter « {name} »', { name: s.name })} disabled={first} onClick={() => onMove(-1)}><Icon name="up" size={16} /></button>
+            <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={t('Descendre « {name} »', { name: s.name })} disabled={last} onClick={() => onMove(1)}><Icon name="down" size={16} /></button>
           </span>
         )}
       </div>
       <Gauge s={s} />
       {s.error && <Msg kind="err">{s.error}</Msg>}
-      {s.state === 'full' && <Msg kind="err">Plein : ce stockage ne reçoit plus de vidéos.</Msg>}
-      {s.state === 'almost_full' && <div className="msg msg-warn" role="status">Presque plein (plus de 90 %).</div>}
+      {s.state === 'full' && <Msg kind="err">{t('Plein : ce stockage ne reçoit plus de vidéos.')}</Msg>}
+      {s.state === 'almost_full' && <div className="msg msg-warn" role="status">{t('Presque plein (plus de 90 %).')}</div>}
       {!form && (
         <div className="row small" style={{ gap: 8, alignItems: 'center' }}>
-          <span className="muted">Conservation :</span>
-          <b>{s.retention === 'delete_after_days' ? `supprimer ${s.delete_after_days} j après publication` : RETENTION.find(r => r[0] === s.retention)?.[1]}</b>
-          {canAdmin && <button type="button" className="linkbtn" onClick={edit}>Modifier</button>}
-          {canAdmin && <button type="button" className="linkbtn" style={{ color: 'var(--danger)' }} onClick={onRemove}>Retirer</button>}
+          <span className="muted">{t('Conservation :')}</span>
+          <b>{s.retention === 'delete_after_days' ? t('supprimer {n} j après publication', { n: s.delete_after_days }) : t(RETENTION.find(r => r[0] === s.retention)?.[1] || '')}</b>
+          {canAdmin && <button type="button" className="linkbtn" onClick={edit}>{t('Modifier')}</button>}
+          {canAdmin && <button type="button" className="linkbtn" style={{ color: 'var(--danger)' }} onClick={onRemove}>{t('Retirer')}</button>}
         </div>
       )}
       {form && (
         <div className="col" style={{ gap: 10 }}>
-          <label className="field">Nom<input className="input" value={form.name} maxLength={80} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
+          <label className="field">{t('Nom')}<input className="input" value={form.name} maxLength={80} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
           <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
-            <legend>Pour quels comptes ?</legend>
-            <span className="field-hint">Rien de coché : tous les comptes, dans l’ordre des stockages.</span>
+            <legend>{t('Pour quels comptes ?')}</legend>
+            <span className="field-hint">{t('Rien de coché : tous les comptes, dans l’ordre des stockages.')}</span>
             {groups.length > 0 && <div className="row" style={{ gap: 6 }}>{groups.map(g => (
-              <button key={g.id} type="button" className="chip" aria-pressed={form.groups.includes(g.id)} onClick={() => setForm({ ...form, groups: toggle(form.groups, g.id) })}>Groupe {g.name}</button>
+              <button key={g.id} type="button" className="chip" aria-pressed={form.groups.includes(g.id)} onClick={() => setForm({ ...form, groups: toggle(form.groups, g.id) })}>{t('Groupe {name}', { name: g.name })}</button>
             ))}</div>}
             <div className="row" style={{ gap: 6 }}>{accounts.map(a => {
               const k = `${a.platform}:${a.id}`
@@ -177,25 +181,25 @@ function StorageRow({ s, canAdmin, accounts, groups, first, last, onMove, onSave
             })}</div>
           </fieldset>
           <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
-            <legend>Après publication</legend>
+            <legend>{t('Après publication')}</legend>
             {RETENTION.map(([v, label]) => (
-              <label key={v} className="check"><input type="radio" name={`retention-${s.id}`} checked={form.retention === v} onChange={() => setForm({ ...form, retention: v })} /><span>{label}</span></label>
+              <label key={v} className="check"><input type="radio" name={`retention-${s.id}`} checked={form.retention === v} onChange={() => setForm({ ...form, retention: v })} /><span>{t(label)}</span></label>
             ))}
             {form.retention === 'delete_after_days' && (
-              <label className="field">Nombre de jours
+              <label className="field">{t('Nombre de jours')}
                 <input className="input" type="number" inputMode="numeric" min={1} max={365} value={form.days} onChange={e => setForm({ ...form, days: e.target.value })} />
               </label>
             )}
-            <span className="field-hint">Seuls les fichiers rangés par Chapote (vidéo, couverture, légende) vont à la corbeille du Drive ; infos.json reste.</span>
+            <span className="field-hint">{t('Seuls les fichiers rangés par Chapote (vidéo, couverture, légende) vont à la corbeille du Drive ; infos.json reste.')}</span>
           </fieldset>
-          <label className="field">Go réservés à Chapote
+          <label className="field">{t('Go réservés à Chapote')}
             <input className="input" type="number" inputMode="numeric" min={1} max={s.max_quota_gb || undefined} value={form.quota}
-                   placeholder="Vide = tout l’espace libre du Drive" onChange={e => setForm({ ...form, quota: e.target.value })} />
-            {s.max_quota_gb != null && <span className="field-hint">{s.max_quota_gb} Go au plus (espace libre du Drive).</span>}
+                   placeholder={t('Vide = tout l’espace libre du Drive')} onChange={e => setForm({ ...form, quota: e.target.value })} />
+            {s.max_quota_gb != null && <span className="field-hint">{t('{n} Go au plus (espace libre du Drive).', { n: s.max_quota_gb })}</span>}
           </label>
           <div className="row" style={{ gap: 8 }}>
-            <button type="button" className="btn btn-sm btn-primary" onClick={save}>Enregistrer</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm(null)}>Annuler</button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={save}>{t('Enregistrer')}</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm(null)}>{t('Annuler')}</button>
           </div>
         </div>
       )}
@@ -219,27 +223,26 @@ export function StorageGate() {
   if (s.state === 'missing') {
     return seen ? (
       <div className="msg msg-warn" role="status" style={{ margin: '0 0 12px' }}>
-        Connectez un Google Drive pour pouvoir publier. <Link to="/bibliotheque">Stockage</Link>
+        {t('Connectez un Google Drive pour pouvoir publier.')} <Link to="/bibliotheque">{t('Stockage')}</Link>
       </div>
     ) : (
-      <Sheet title="Connecter votre Google Drive" onClose={later}>
+      <Sheet title={t('Connecter votre Google Drive')} onClose={later}>
         <div className="col" style={{ gap: 12 }}>
-          <p style={{ margin: 0 }}>Chapote range vos vidéos, légendes et couvertures dans <b>votre</b> Google Drive : c’est là qu’elles sont stockées, et vous les gardez.</p>
-          <p className="small" style={{ margin: 0 }}>Rien à choisir : Chapote crée son dossier « cm.chapote.fr » à la racine de votre Drive
-            (renommez-le ou déplacez-le si vous voulez), et y range chaque vidéo par compte, mois et date.</p>
+          <p style={{ margin: 0 }}>{t('Chapote range vos vidéos, légendes et couvertures dans')} <b>{t('votre')}</b> {t('Google Drive : c’est là qu’elles sont stockées, et vous les gardez.')}</p>
+          <p className="small" style={{ margin: 0 }}>{t('Rien à choisir : Chapote crée son dossier « cm.chapote.fr » à la racine de votre Drive (renommez-le ou déplacez-le si vous voulez), et y range chaque vidéo par compte, mois et date.')}</p>
           <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
-            <li>Chapote ne voit que les fichiers qu’il crée, rien d’autre de votre Drive.</li>
-            <li>Vous choisissez combien de place lui réserver, et si les vidéos sont supprimées après publication.</li>
-            <li>Sans Drive relié, impossible de créer une publication.</li>
+            <li>{t('Chapote ne voit que les fichiers qu’il crée, rien d’autre de votre Drive.')}</li>
+            <li>{t('Vous choisissez combien de place lui réserver, et si les vidéos sont supprimées après publication.')}</li>
+            <li>{t('Sans Drive relié, impossible de créer une publication.')}</li>
           </ul>
           {err && <Msg kind="err">{err}</Msg>}
-          <button type="button" className="btn btn-primary" onClick={() => connectDrive(org, setErr)}>Connecter Google Drive</button>
-          <button type="button" className="btn btn-ghost" onClick={later}>Plus tard</button>
+          <button type="button" className="btn btn-primary" onClick={() => connectDrive(org, setErr)}>{t('Connecter Google Drive')}</button>
+          <button type="button" className="btn btn-ghost" onClick={later}>{t('Plus tard')}</button>
         </div>
       </Sheet>
     )
   }
-  if (s.state === 'full') return <div className="msg msg-err" role="alert" style={{ margin: '0 0 12px' }}>Stockage Drive plein : les nouvelles publications sont bloquées. <Link to="/bibliotheque">Gérer le stockage</Link></div>
-  if (s.state === 'almost_full') return <div className="msg msg-warn" role="status" style={{ margin: '0 0 12px' }}>Stockage Drive presque plein (plus de 90 %). <Link to="/bibliotheque">Gérer le stockage</Link></div>
+  if (s.state === 'full') return <div className="msg msg-err" role="alert" style={{ margin: '0 0 12px' }}>{t('Stockage Drive plein : les nouvelles publications sont bloquées.')} <Link to="/bibliotheque">{t('Gérer le stockage')}</Link></div>
+  if (s.state === 'almost_full') return <div className="msg msg-warn" role="status" style={{ margin: '0 0 12px' }}>{t('Stockage Drive presque plein (plus de 90 %).')} <Link to="/bibliotheque">{t('Gérer le stockage')}</Link></div>
   return null
 }

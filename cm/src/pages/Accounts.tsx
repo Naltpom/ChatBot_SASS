@@ -18,6 +18,7 @@ import { fmtDateTime, short } from '../format'
 import { useLoad, useRole, useSession } from '../session'
 import { SearchBox, SortControl, useListState } from '../components/list'
 import { accountState } from './Dashboard'
+import { t } from '../i18n'
 
 const HINT: Record<Platform, string> = {
   tiktok: "Pour connecter un autre compte, connectez-vous d'abord à ce compte sur tiktok.com dans ce navigateur.",
@@ -46,31 +47,31 @@ function GroupEditor({ group, accounts: everyone, onClose, onSaved }: { group: G
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   return (
-    <Sheet title={group ? 'Modifier le groupe' : 'Nouveau groupe'} onClose={onClose}>
+    <Sheet title={group ? t('Modifier le groupe') : t('Nouveau groupe')} onClose={onClose}>
       <form className="col" style={{ gap: 16 }} onSubmit={save}>
-        <label className="field">Nom
-          <input className="input" value={name} onChange={e => setName(e.target.value)} maxLength={60} required autoFocus placeholder="Ex. Ghost Hands, Clients, Piano FR" />
+        <label className="field">{t('Nom')}
+          <input className="input" value={name} onChange={e => setName(e.target.value)} maxLength={60} required autoFocus placeholder={t('Ex. Ghost Hands, Clients, Piano FR')} />
         </label>
         <fieldset>
-          <legend>Couleur</legend>
+          <legend>{t('Couleur')}</legend>
           <div className="row" style={{ gap: 6 }}>
             {GROUP_COLORS.map(c => (
-              <button key={c} type="button" className="chip" aria-pressed={c === color} aria-label={COLOR_LABEL[c]} onClick={() => setColor(c)}
+              <button key={c} type="button" className="chip" aria-pressed={c === color} aria-label={t(COLOR_LABEL[c])} onClick={() => setColor(c)}
                       style={{ width: 40, padding: 0, justifyContent: 'center' }}><GroupDot color={c} /></button>
             ))}
           </div>
         </fieldset>
         <fieldset>
-          <legend>Comptes du groupe <span className="muted" style={{ fontWeight: 400 }}>· {picked.length} choisi{picked.length > 1 ? 's' : ''}</span></legend>
-          {accounts.length === 0 ? <p className="muted small">Connectez d’abord des comptes.</p> : (
+          <legend>{t('Comptes du groupe')} <span className="muted" style={{ fontWeight: 400 }}>· {picked.length > 1 ? t('{n} choisis', { n: picked.length }) : t('{n} choisi', { n: picked.length })}</span></legend>
+          {accounts.length === 0 ? <p className="muted small">{t('Connectez d’abord des comptes.')}</p> : (
             <AccountPicker mode="multi" accountsOnly accounts={accounts} groups={[]} picked={picked} onChange={setPicked} />
           )}
-          <p className="field-hint" style={{ marginTop: 8 }}>Un compte peut appartenir à plusieurs groupes.</p>
+          <p className="field-hint" style={{ marginTop: 8 }}>{t('Un compte peut appartenir à plusieurs groupes.')}</p>
         </fieldset>
         {err && <Msg kind="err">{err}</Msg>}
         <div className="row-nw">
-          <button type="button" className="btn grow" onClick={onClose}>Annuler</button>
-          <button className="btn btn-primary grow" disabled={busy || !name.trim()}>{group ? 'Enregistrer' : 'Créer le groupe'}</button>
+          <button type="button" className="btn grow" onClick={onClose}>{t('Annuler')}</button>
+          <button className="btn btn-primary grow" disabled={busy || !name.trim()}>{group ? t('Enregistrer') : t('Créer le groupe')}</button>
         </div>
       </form>
     </Sheet>
@@ -92,30 +93,33 @@ function TransferSheet({ a, onClose, onDone }: { a: Account; onClose: () => void
       const body = to === 'email' ? { to_email: email.trim() } : to === 'perso' ? { to_perso: true } : { to_org_id: Number(to) }
       const r = await transferAccount(org, a, body)
       const dest = spaces.find(s => String(s.org_id ?? 'perso') === to)?.name
-      onDone(r.pending ? (r.message || 'Transfert proposé.') : `${a.name} est maintenant dans « ${dest} »${r.moved_targets ? `, avec ${r.moved_targets} publication${r.moved_targets > 1 ? 's' : ''} à venir` : ''}.`)
+      onDone(r.pending ? (r.message || t('Transfert proposé.'))
+        : !r.moved_targets ? t('{account} est maintenant dans « {space} ».', { account: a.name, space: dest })
+        : r.moved_targets > 1 ? t('{account} est maintenant dans « {space} », avec {n} publications à venir.', { account: a.name, space: dest, n: r.moved_targets })
+        : t('{account} est maintenant dans « {space} », avec {n} publication à venir.', { account: a.name, space: dest, n: r.moved_targets }))
     } catch (ex) { setErr((ex as Error).message) } finally { setBusy(false) }
   }
   return (
-    <Sheet title={`Transférer ${a.name}`} onClose={onClose}>
+    <Sheet title={t('Transférer {account}', { account: a.name })} onClose={onClose}>
       <form className="col" style={{ gap: 14 }} onSubmit={submit}>
-        <p className="small muted" style={{ margin: 0 }}>Le compte part avec son planning à venir, ses chiffres et ses vidéos. Les publications déjà parties restent dans l’historique de cet espace.</p>
+        <p className="small muted" style={{ margin: 0 }}>{t('Le compte part avec son planning à venir, ses chiffres et ses vidéos. Les publications déjà parties restent dans l’historique de cet espace.')}</p>
         <fieldset className="col" style={{ gap: 6 }}>
-          <legend>Vers</legend>
+          <legend>{t('Vers')}</legend>
           {mine.map(sp => (
             <label key={sp.org_id ?? 'perso'} className="check"><input type="radio" name="to" checked={to === String(sp.org_id ?? 'perso')} onChange={() => setTo(String(sp.org_id ?? 'perso'))} />{sp.name}</label>
           ))}
-          <label className="check"><input type="radio" name="to" checked={to === 'email'} onChange={() => setTo('email')} />Une autre personne</label>
+          <label className="check"><input type="radio" name="to" checked={to === 'email'} onChange={() => setTo('email')} />{t('Une autre personne')}</label>
         </fieldset>
         {to === 'email' && (
-          <label className="field">Son adresse e-mail Chapote
+          <label className="field">{t('Son adresse e-mail Chapote')}
             <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus />
-            <span className="field-hint">Elle devra accepter le transfert dans cm (14 jours). Rien ne change d’ici là.</span>
+            <span className="field-hint">{t('Elle devra accepter le transfert dans cm (14 jours). Rien ne change d’ici là.')}</span>
           </label>
         )}
         {err && <Msg kind="err">{err}</Msg>}
         <div className="row-nw">
-          <button type="button" className="btn grow" onClick={onClose}>Annuler</button>
-          <button className="btn btn-primary grow" disabled={busy || (to === 'email' && !email.trim())}>{to === 'email' ? 'Proposer le transfert' : 'Transférer'}</button>
+          <button type="button" className="btn grow" onClick={onClose}>{t('Annuler')}</button>
+          <button className="btn btn-primary grow" disabled={busy || (to === 'email' && !email.trim())}>{to === 'email' ? t('Proposer le transfert') : t('Transférer')}</button>
         </div>
       </form>
     </Sheet>
@@ -136,24 +140,24 @@ function Transfers({ onChanged }: { onChanged: (text: string) => void }) {
   const d = data.data
   if (!d || (!d.incoming.length && !d.outgoing.length)) return null
   return (
-    <section className="card col" style={{ gap: 10 }} aria-label="Transferts de comptes">
-      {d.incoming.map(t => (
-        <div key={t.id} className="row" style={{ gap: 10 }}>
-          <span className="grow small"><b>{t.from || 'Quelqu’un'}</b> vous transfère <b>{t.account_name}</b> ({PLATFORM_LABEL[t.platform]}).</span>
+    <section className="card col" style={{ gap: 10 }} aria-label={t('Transferts de comptes')}>
+      {d.incoming.map(tr => (
+        <div key={tr.id} className="row" style={{ gap: 10 }}>
+          <span className="grow small"><b>{tr.from || t('Quelqu’un')}</b> {t('vous transfère')} <b>{tr.account_name}</b> ({PLATFORM_LABEL[tr.platform]}).</span>
           {adminSpaces.length > 1 && (
-            <select className="input select-sm" style={{ width: 'auto' }} aria-label="Espace d’arrivée" value={dest[t.id] ?? 'perso'}
-                    onChange={e => setDest(x => ({ ...x, [t.id]: e.target.value }))}>
+            <select className="input select-sm" style={{ width: 'auto' }} aria-label={t('Espace d’arrivée')} value={dest[tr.id] ?? 'perso'}
+                    onChange={e => setDest(x => ({ ...x, [tr.id]: e.target.value }))}>
               {adminSpaces.map(sp => <option key={sp.org_id ?? 'perso'} value={sp.org_id ?? 'perso'}>{sp.name}</option>)}
             </select>
           )}
-          <button type="button" className="btn btn-sm btn-primary" onClick={() => act(() => acceptTransfer(t.id, (dest[t.id] ?? 'perso') === 'perso' ? null : Number(dest[t.id])), `${t.account_name} a rejoint votre espace.`)}>Accepter</button>
-          <button type="button" className="btn btn-sm" onClick={() => act(() => declineTransfer(t.id), 'Transfert refusé.')}>Refuser</button>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => act(() => acceptTransfer(tr.id, (dest[tr.id] ?? 'perso') === 'perso' ? null : Number(dest[tr.id])), t('{account} a rejoint votre espace.', { account: tr.account_name }))}>{t('Accepter')}</button>
+          <button type="button" className="btn btn-sm" onClick={() => act(() => declineTransfer(tr.id), t('Transfert refusé.'))}>{t('Refuser')}</button>
         </div>
       ))}
-      {d.outgoing.map(t => (
-        <div key={t.id} className="row" style={{ gap: 10 }}>
-          <span className="grow small muted">En attente : <b>{t.account_name}</b> proposé à {t.to_email}.</span>
-          <button type="button" className="btn btn-sm" onClick={() => act(() => cancelTransfer(t.id), 'Transfert annulé.')}>Annuler</button>
+      {d.outgoing.map(tr => (
+        <div key={tr.id} className="row" style={{ gap: 10 }}>
+          <span className="grow small muted">{t('En attente :')} <b>{tr.account_name}</b> {t('proposé à {email}.', { email: tr.to_email })}</span>
+          <button type="button" className="btn btn-sm" onClick={() => act(() => cancelTransfer(tr.id), t('Transfert annulé.'))}>{t('Annuler')}</button>
         </div>
       ))}
       {err && <Msg kind="err">{err}</Msg>}
@@ -206,43 +210,43 @@ export default function Accounts() {
   const addRoutine = (e: FormEvent) => {
     e.preventDefault()
     if (!routineName.trim()) return
-    run('routine', () => addRoutineAccount(org, routineName), 'Compte ajouté : la routine publiera les Reels programmés et enverra les chiffres.')
+    run('routine', () => addRoutineAccount(org, routineName), t('Compte ajouté : la routine publiera les Reels programmés et enverra les chiffres.'))
       .then(() => setRoutineName(''))
   }
   const removeGroup = (g: Group) => {
-    if (!window.confirm(`Supprimer le groupe « ${g.name} » ? Les comptes restent connectés.`)) return
-    run(`g${g.id}`, async () => { await deleteGroup(g.org_id ?? null, g.id); if (picked.includes(g.id)) toggleGroup(g.id) }, 'Groupe supprimé.')
+    if (!window.confirm(t('Supprimer le groupe « {group} » ? Les comptes restent connectés.', { group: g.name }))) return
+    run(`g${g.id}`, async () => { await deleteGroup(g.org_id ?? null, g.id); if (picked.includes(g.id)) toggleGroup(g.id) }, t('Groupe supprimé.'))
   }
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>Comptes</h1>
-          <p>Vos comptes, et ceux des groupes partagés avec vous (avec le nom de leur propriétaire).</p>
+          <h1>{t('Comptes')}</h1>
+          <p>{t('Vos comptes, et ceux des groupes partagés avec vous (avec le nom de leur propriétaire).')}</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <Link to="/partage" className="btn"><Icon name="users" />Partage</Link>
-          <Link to="/bibliotheque" className="btn"><Icon name="layers" />Bibliothèque Google Drive</Link>
+          <Link to="/partage" className="btn"><Icon name="users" />{t('Partage')}</Link>
+          <Link to="/bibliotheque" className="btn"><Icon name="layers" />{t('Bibliothèque Google Drive')}</Link>
         </div>
       </div>
       {msg && <Msg kind={msg.kind}>{msg.text}</Msg>}
-      <Transfers onChanged={t => { setMsg({ kind: 'ok', text: t }); accounts.reload(); reloadGroups() }} />
+      <Transfers onChanged={text => { setMsg({ kind: 'ok', text }); accounts.reload(); reloadGroups() }} />
       {accounts.error && <Msg kind="err">{accounts.error}</Msg>}
 
       <section id="groupes" className="col" aria-labelledby="t-groupes" style={{ scrollMarginTop: 80 }}>
         <div className="card-head">
           <div>
-            <h2 id="t-groupes">Groupes</h2>
-            <p className="small muted" style={{ marginTop: 2 }}>Par artiste, client, langue… Filtrez l’accueil, le planning et les stats, publiez sur un groupe en un geste, et partagez-le.</p>
+            <h2 id="t-groupes">{t('Groupes')}</h2>
+            <p className="small muted" style={{ marginTop: 2 }}>{t('Par artiste, client, langue… Filtrez l’accueil, le planning et les stats, publiez sur un groupe en un geste, et partagez-le.')}</p>
           </div>
-          {canAdmin && <button type="button" className="btn btn-sm" onClick={() => setEditing('new')}><Icon name="plus" size={16} />Nouveau groupe</button>}
+          {canAdmin && <button type="button" className="btn btn-sm" onClick={() => setEditing('new')}><Icon name="plus" size={16} />{t('Nouveau groupe')}</button>}
         </div>
         {groups.length === 0 ? (
           <button type="button" className="card empty" style={{ cursor: 'pointer', borderStyle: 'dashed', width: '100%', color: 'var(--text)' }} onClick={() => setEditing('new')}>
             <span className="empty-ico"><Icon name="layers" size={24} /></span>
-            <span className="strong">Créer un premier groupe</span>
-            <span className="small muted">Ex. « Ghost Hands » = TikTok + YouTube + Instagram de l’artiste.</span>
+            <span className="strong">{t('Créer un premier groupe')}</span>
+            <span className="small muted">{t('Ex. « Ghost Hands » = TikTok + YouTube + Instagram de l’artiste.')}</span>
           </button>
         ) : (
           <div className="grid-3">
@@ -255,19 +259,19 @@ export default function Accounts() {
                 <article key={g.id} className="card col" style={{ gap: 12 }}>
                   <div className="row-nw">
                     <GroupDot color={g.color} />
-                    <h3 className="grow ellipsis">{g.name}{owner && <span className="tiny muted" style={{ fontWeight: 400 }}> · de {owner}</span>}</h3>
-                    {admin && <button type="button" className="btn btn-sm" onClick={() => setSharing(g)}>Partager</button>}
-                    {admin && !owner && <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={`Modifier ${g.name}`} onClick={() => setEditing(g)}><Icon name="edit" size={16} /></button>}
-                    {admin && !owner && <button type="button" className="btn btn-ghost icon-btn btn-sm btn-danger" aria-label={`Supprimer ${g.name}`} disabled={busy === `g${g.id}`} onClick={() => removeGroup(g)}><Icon name="trash" size={16} /></button>}
+                    <h3 className="grow ellipsis">{g.name}{owner && <span className="tiny muted" style={{ fontWeight: 400 }}> · {t('de {owner}', { owner })}</span>}</h3>
+                    {admin && <button type="button" className="btn btn-sm" onClick={() => setSharing(g)}>{t('Partager')}</button>}
+                    {admin && !owner && <button type="button" className="btn btn-ghost icon-btn btn-sm" aria-label={t('Modifier {group}', { group: g.name })} onClick={() => setEditing(g)}><Icon name="edit" size={16} /></button>}
+                    {admin && !owner && <button type="button" className="btn btn-ghost icon-btn btn-sm btn-danger" aria-label={t('Supprimer {group}', { group: g.name })} disabled={busy === `g${g.id}`} onClick={() => removeGroup(g)}><Icon name="trash" size={16} /></button>}
                   </div>
                   <div className="row" style={{ gap: 6 }}>
-                    {members.length === 0 ? <span className="small muted">Aucun compte</span>
+                    {members.length === 0 ? <span className="small muted">{t('Aucun compte')}</span>
                       : members.map(a => <Avatar key={akey(a.platform, a.id)} src={a.avatar_url} name={a.name} platform={a.platform} size="sm" />)}
                   </div>
                   <div className="row between small">
-                    <span className="muted">{members.length} compte{members.length > 1 ? 's' : ''}{followers ? ` · ${short(followers)} abonnés` : ''}</span>
+                    <span className="muted">{members.length > 1 ? t('{n} comptes', { n: members.length }) : t('{n} compte', { n: members.length })}{followers ? ` · ${t('{n} abonnés', { n: short(followers) })}` : ''}</span>
                     <button type="button" className="btn btn-sm btn-ghost" aria-pressed={picked.includes(g.id)} onClick={() => toggleGroup(g.id)}>
-                      {picked.includes(g.id) ? <><Icon name="check" size={16} />Affiché</> : 'Afficher'}
+                      {picked.includes(g.id) ? <><Icon name="check" size={16} />{t('Affiché')}</> : t('Afficher')}
                     </button>
                   </div>
                 </article>
@@ -279,8 +283,8 @@ export default function Accounts() {
 
       {all.length > 4 && (
         <div className="listbar">
-          <SearchBox value={lst.input} onChange={lst.setInput} label="Rechercher un compte" />
-          <span className="sortctl"><SortControl list={lst} options={[['connected', 'Date de connexion'], ['name', 'Nom'], ['followers', 'Abonnés'], ['views', 'Vues']]} /></span>
+          <SearchBox value={lst.input} onChange={lst.setInput} label={t('Rechercher un compte')} />
+          <span className="sortctl"><SortControl list={lst} options={[['connected', t('Date de connexion')], ['name', t('Nom')], ['followers', t('Abonnés')], ['views', t('Vues')]]} /></span>
         </div>
       )}
       {!accounts.data && accounts.loading && <Skeleton h={120} n={3} />}
@@ -293,45 +297,45 @@ export default function Accounts() {
               <h2 id={`t-${p}`} className="row-nw" style={{ gap: 10 }}><PlatformLogo platform={p} size={22} />{PLATFORM_LABEL[p]}</h2>
               {!canAdmin ? null : enabled(p) ? (
                 <button type="button" className="btn btn-sm" disabled={busy === p} onClick={() => connect(p)}>
-                  <Icon name="plus" size={16} />{list.length ? 'Autre compte' : 'Connecter'}
+                  <Icon name="plus" size={16} />{list.length ? t('Autre compte') : t('Connecter')}
                 </button>
-              ) : <span className="muted small">{p === 'instagram' ? 'Connexion officielle bientôt (validation Meta)' : 'Module indisponible'}</span>}
+              ) : <span className="muted small">{p === 'instagram' ? t('Connexion officielle bientôt (validation Meta)') : t('Module indisponible')}</span>}
             </div>
-            {list.length === 0 && <p className="muted small">Aucun compte. {enabled(p) && HINT[p]}</p>}
+            {list.length === 0 && <p className="muted small">{t('Aucun compte.')} {enabled(p) && t(HINT[p])}</p>}
             {list.length > 0 && (
               <ul className="list">
                 {list.map(a => <AccountRow key={a.id} a={a} groups={groupsOf(a)} busy={busy} canAdmin={adminOf(a)} owner={ownerOf(a)}
                   onTransfer={() => setTransferring(a)}
-                  onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? null, a), 'Chiffres actualisés.')}
-                  onRemove={() => { if (window.confirm(`Déconnecter ${a.name} ? Les publications à venir sur ce compte ne partiront plus.`)) run(`d${p}${a.id}`, () => disconnect(a.org_id ?? null, a)) }}
+                  onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? null, a), t('Chiffres actualisés.'))}
+                  onRemove={() => { if (window.confirm(t('Déconnecter {account} ? Les publications à venir sur ce compte ne partiront plus.', { account: a.name }))) run(`d${p}${a.id}`, () => disconnect(a.org_id ?? null, a)) }}
                   onReconnect={() => connect(p, a.org_id ?? null)}
                   onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(a.org_id ?? null, a.id, { public_domain_only: v }),
-                    v ? 'Cette chaîne n’accepte plus que des œuvres du domaine public.' : 'Réglage « domaine public seulement » retiré.')} />)}
+                    v ? t('Cette chaîne n’accepte plus que des œuvres du domaine public.') : t('Réglage « domaine public seulement » retiré.'))} />)}
               </ul>
             )}
             {p === 'instagram' && canAdmin && (
               <form onSubmit={addRoutine} className="row" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, alignItems: 'flex-end' }}>
-                <label className="field grow" style={{ flex: '1 1 240px' }}>Compte géré par la routine Claude
-                  <input className="input" value={routineName} onChange={e => setRoutineName(e.target.value)} placeholder="@nom.du.compte" autoCapitalize="none" />
-                  <span className="field-hint">Sans connexion officielle : la routine publie les Reels programmés et envoie les chiffres.</span>
+                <label className="field grow" style={{ flex: '1 1 240px' }}>{t('Compte géré par la routine Claude')}
+                  <input className="input" value={routineName} onChange={e => setRoutineName(e.target.value)} placeholder={t('@nom.du.compte')} autoCapitalize="none" />
+                  <span className="field-hint">{t('Sans connexion officielle : la routine publie les Reels programmés et envoie les chiffres.')}</span>
                 </label>
-                <button className="btn" disabled={busy === 'routine' || !routineName.trim()}>Ajouter</button>
+                <button className="btn" disabled={busy === 'routine' || !routineName.trim()}>{t('Ajouter')}</button>
               </form>
             )}
           </section>
         )
       })}
       {config && !config.tiktok_stats && (
-        <p className="muted small">Statistiques TikTok : elles s'afficheront après la validation de l'accès aux chiffres par TikTok, puis une reconnexion des comptes.</p>
+        <p className="muted small">{t("Statistiques TikTok : elles s'afficheront après la validation de l'accès aux chiffres par TikTok, puis une reconnexion des comptes.")}</p>
       )}
       {transferring && (
         <TransferSheet a={transferring} onClose={() => setTransferring(null)}
-                       onDone={t => { setTransferring(null); setMsg({ kind: 'ok', text: t }); accounts.reload(); reloadGroups() }} />
+                       onDone={text => { setTransferring(null); setMsg({ kind: 'ok', text }); accounts.reload(); reloadGroups() }} />
       )}
       {sharing && <GroupShareSheet g={sharing} onClose={() => setSharing(null)} />}
       {editing && (
         <GroupEditor group={editing === 'new' ? null : editing} accounts={all} onClose={() => setEditing(null)}
-                     onSaved={g => { setEditing(null); reloadGroups(); setMsg({ kind: 'ok', text: `Groupe « ${g.name} » enregistré.` }) }} />
+                     onSaved={g => { setEditing(null); reloadGroups(); setMsg({ kind: 'ok', text: t('Groupe « {group} » enregistré.', { group: g.name }) }) }} />
       )}
     </>
   )
@@ -346,16 +350,16 @@ function AccountRow({ a, groups, busy, canAdmin, owner, onSync, onRemove, onReco
       <div className="grow" style={{ flex: '1 1 180px' }}>
         <div className="strong ellipsis">{a.name}</div>
         <div className="tiny muted">
-          {owner && <span>De {owner} · {a.role === 'viewer' ? 'Lecture seule' : a.role === 'editor' ? 'Peut publier' : 'Admin'} · </span>}
-          <span className={`status-${st.tone}`}>{st.label}</span>
-          {a.stats?.updated_at && ` · chiffres du ${fmtDateTime(a.stats.updated_at)}`}
+          {owner && <span>{t('De {owner}', { owner })} · {a.role === 'viewer' ? t('Lecture seule') : a.role === 'editor' ? t('Peut publier') : t('Admin')} · </span>}
+          <span className={`status-${st.tone}`}>{t(st.label)}</span>
+          {a.stats?.updated_at && ` · ${t('chiffres du {date}', { date: fmtDateTime(a.stats.updated_at) })}`}
           {a.stats?.error && <> · <span className="status-warn">{a.stats.error}</span></>}
         </div>
         {a.platform === 'youtube' && (
           <label className={`check tiny${canAdmin ? '' : ' disabled'}`} style={{ marginTop: 6 }}>
             <input type="checkbox" checked={!!a.public_domain_only} disabled={!canAdmin || busy === `p${a.platform}${a.id}`}
                    onChange={e => onPublicDomain(e.target.checked)} />
-            <span>Domaine public seulement <span className="muted">(refuse les œuvres protégées ou aux droits inconnus)</span></span>
+            <span>{t('Domaine public seulement')} <span className="muted">{t('(refuse les œuvres protégées ou aux droits inconnus)')}</span></span>
           </label>
         )}
         {groups.length > 0 && (
@@ -366,19 +370,19 @@ function AccountRow({ a, groups, busy, canAdmin, owner, onSync, onRemove, onReco
       </div>
       {a.stats_available && a.stats && (
         <div className="metrics" style={{ fontSize: 13 }}>
-          <span><b>{short(a.stats.followers)}</b> abonnés</span>
-          <span><b>{short(a.stats.views)}</b> vues</span>
+          <span><b>{short(a.stats.followers)}</b> {t('abonnés')}</span>
+          <span><b>{short(a.stats.views)}</b> {t('vues')}</span>
         </div>
       )}
       <div className="row" style={{ gap: 6 }}>
-        {a.needs_reconnect && canAdmin && <button type="button" className="btn btn-sm btn-primary" onClick={onReconnect}>Reconnecter</button>}
+        {a.needs_reconnect && canAdmin && <button type="button" className="btn btn-sm btn-primary" onClick={onReconnect}>{t('Reconnecter')}</button>}
         {a.stats_available && a.mode !== 'routine' && !a.needs_reconnect && (
-          <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy === `s${a.platform}${a.id}`} aria-label={`Actualiser les chiffres de ${a.name}`}><Icon name="refresh" size={16} /><span className="only-desktop">Actualiser</span></button>
+          <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy === `s${a.platform}${a.id}`} aria-label={t('Actualiser les chiffres de {account}', { account: a.name })}><Icon name="refresh" size={16} /><span className="only-desktop">{t('Actualiser')}</span></button>
         )}
-        {canAdmin && <button type="button" className="btn btn-sm" onClick={onTransfer}>Transférer</button>}
+        {canAdmin && <button type="button" className="btn btn-sm" onClick={onTransfer}>{t('Transférer')}</button>}
         {canAdmin && (
           <button type="button" className="btn btn-sm btn-danger" onClick={onRemove} disabled={busy === `d${a.platform}${a.id}`}>
-            {a.mode === 'routine' ? 'Retirer' : 'Déconnecter'}
+            {a.mode === 'routine' ? t('Retirer') : t('Déconnecter')}
           </button>
         )}
       </div>

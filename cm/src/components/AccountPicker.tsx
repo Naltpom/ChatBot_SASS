@@ -8,6 +8,7 @@ import { PLATFORM_LABEL, PLATFORMS, type Account, type Group, type Platform } fr
 import { useDesktop } from '../hooks'
 import { PlatformLogo } from './PlatformLogo'
 import { Avatar, GroupDot, Icon } from './ui'
+import { t } from '../i18n'
 
 export const accKey = (a: { platform: string; id: number }) => `${a.platform}:${a.id}`
 const norm = (s: string | null | undefined) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/^@/, '')
@@ -141,19 +142,19 @@ export function AccountPicker(props: Single | Multi) {
         <input className="input" type="search" role="combobox" aria-expanded="true" aria-controls={`${id}-list`}
                aria-activedescendant={rows[active] ? optId(active) : undefined} aria-autocomplete="list"
                autoFocus={desktop} value={query} onChange={e => setQuery(e.target.value)} enterKeyHint="search"
-               placeholder={tab === 'groups' ? 'Rechercher un groupe' : 'Rechercher un compte'} aria-label="Rechercher" autoComplete="off" />
-        {query && <button type="button" className="searchbox-clear" aria-label="Effacer la recherche" onClick={() => setQuery('')}><Icon name="close" size={16} /></button>}
+               placeholder={tab === 'groups' ? t('Rechercher un groupe') : t('Rechercher un compte')} aria-label={t('Rechercher')} autoComplete="off" />
+        {query && <button type="button" className="searchbox-clear" aria-label={t('Effacer la recherche')} onClick={() => setQuery('')}><Icon name="close" size={16} /></button>}
       </div>
-      {!props.accountsOnly && <div className="picker-tabs" role="tablist" aria-label="Choisir parmi">
-        {(['groups', 'accounts'] as const).map(t => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t === 'groups' ? 'Groupes' : 'Comptes'} <span className="fchip-n">{counts[t]}</span>
+      {!props.accountsOnly && <div className="picker-tabs" role="tablist" aria-label={t('Choisir parmi')}>
+        {(['groups', 'accounts'] as const).map(k => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
+            {k === 'groups' ? t('Groupes') : t('Comptes')} <span className="fchip-n">{counts[k]}</span>
           </button>
         ))}
       </div>}
       {tab === 'accounts' && (
-        <div className="picker-plat" role="group" aria-label="Plateforme">
-          <button type="button" className="chip chip-sm" aria-pressed={platform === ''} onClick={() => setPlatform('')}>Toutes</button>
+        <div className="picker-plat" role="group" aria-label={t('Plateforme')}>
+          <button type="button" className="chip chip-sm" aria-pressed={platform === ''} onClick={() => setPlatform('')}>{t('Toutes')}</button>
           {PLATFORMS.filter(p => accounts.some(a => a.platform === p)).map(p => (
             <button key={p} type="button" className="chip chip-sm" aria-pressed={platform === p} onClick={() => setPlatform(platform === p ? '' : p)}
                     aria-label={PLATFORM_LABEL[p]} title={PLATFORM_LABEL[p]}>
@@ -162,9 +163,9 @@ export function AccountPicker(props: Single | Multi) {
           ))}
         </div>
       )}
-      <p className="sr-only" aria-live="polite">{rows.length} résultat{rows.length > 1 ? 's' : ''}</p>
+      <p className="sr-only" aria-live="polite">{rows.length > 1 ? t('{n} résultats', { n: rows.length }) : t('{n} résultat', { n: rows.length })}</p>
       <ul id={`${id}-list`} ref={listRef} className="picker-list" role="listbox" aria-multiselectable={props.mode === 'multi' || undefined}
-          aria-label={tab === 'groups' ? 'Groupes' : 'Comptes'}>
+          aria-label={tab === 'groups' ? t('Groupes') : t('Comptes')}>
         {rows.map((r, i) => {
           const on = isOn(r)
           const pinKey: PinKey = r.kind === 'group' ? `g:${r.g.id}` : `a:${accKey(r.a)}`
@@ -184,8 +185,8 @@ export function AccountPicker(props: Single | Multi) {
                   <span className="grow col" style={{ minWidth: 0, gap: 0 }}>
                     <span className="ellipsis strong">{r.g.name}</span>
                     <span className="tiny muted row-nw" style={{ gap: 4 }}>
-                      {props.ownerOf?.(r.g) && <span className="ellipsis">Partagé par {props.ownerOf(r.g)} ·</span>}
-                      {membersOf(r.g).length} compte{membersOf(r.g).length > 1 ? 's' : ''}
+                      {props.ownerOf?.(r.g) && <span className="ellipsis">{t('Partagé par {name} ·', { name: props.ownerOf(r.g) })}</span>}
+                      {membersOf(r.g).length > 1 ? t('{n} comptes', { n: membersOf(r.g).length }) : t('{n} compte', { n: membersOf(r.g).length })}
                       {[...new Set(membersOf(r.g).map(a => a.platform))].map(p => <PlatformLogo key={p} platform={p} size={12} />)}
                     </span>
                   </span>
@@ -195,13 +196,13 @@ export function AccountPicker(props: Single | Multi) {
                   <span className="fchip-av"><Avatar src={r.a.avatar_url} name={r.a.name} size="sm" /><PlatformLogo platform={r.a.platform} size={12} /></span>
                   <span className="grow col" style={{ minWidth: 0, gap: 0 }}>
                     <span className="ellipsis strong">{r.a.name || PLATFORM_LABEL[r.a.platform]}</span>
-                    <span className="tiny muted ellipsis">{why || (props.mode === 'multi' && props.detail ? props.detail(r.a) : PLATFORM_LABEL[r.a.platform])}{!why && props.ownerOf?.(r.a) ? ` · de ${props.ownerOf(r.a)}` : ''}</span>
+                    <span className="tiny muted ellipsis">{why || (props.mode === 'multi' && props.detail ? props.detail(r.a) : PLATFORM_LABEL[r.a.platform])}{!why && props.ownerOf?.(r.a) ? ` · ${t('de {owner}', { owner: props.ownerOf(r.a) })}` : ''}</span>
                   </span>
                 </>
               )}
               {onTogglePin && (
                 <button type="button" className={`pin${pins.includes(pinKey) ? ' on' : ''}`} aria-pressed={pins.includes(pinKey)}
-                        aria-label={`${pins.includes(pinKey) ? 'Désépingler' : 'Épingler'} ${r.kind === 'group' ? r.g.name : r.a.name}`}
+                        aria-label={pins.includes(pinKey) ? t('Désépingler {name}', { name: r.kind === 'group' ? r.g.name : r.a.name }) : t('Épingler {name}', { name: r.kind === 'group' ? r.g.name : r.a.name })}
                         onClick={e => { e.stopPropagation(); onTogglePin(pinKey) }}>
                   <Icon name="star" size={16} />
                 </button>
@@ -210,11 +211,11 @@ export function AccountPicker(props: Single | Multi) {
             </li>
           )
         })}
-        {!rows.length && <li className="picker-empty muted small">{n ? `Rien ne correspond à « ${query} ».` : tab === 'groups' ? 'Aucun groupe.' : 'Aucun compte.'}</li>}
+        {!rows.length && <li className="picker-empty muted small">{n ? t('Rien ne correspond à « {q} ».', { q: query }) : tab === 'groups' ? t('Aucun groupe.') : t('Aucun compte.')}</li>}
       </ul>
       {props.mode === 'multi' && rows.length > 1 && (
         <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={selectAllShown}>
-          Tout cocher{n || platform ? ' (résultats affichés)' : ''}
+          {n || platform ? t('Tout cocher (résultats affichés)') : t('Tout cocher')}
         </button>
       )}
       {props.footer}
