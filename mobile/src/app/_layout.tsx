@@ -18,6 +18,7 @@ import { ShareProvider, useSharedVideo } from '../lib/share'
 import { launchUpdateChecked, UpdateBanner, useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
 import { DialogHost } from '../ui/dialog'
+import { LaunchCover, launchDone } from '../ui/LaunchCover'
 import { loadFonts } from '../ui/fonts'
 import { takeResume } from '../lib/app-icon'
 import { offerPasskey } from '../lib/passkey'
@@ -30,12 +31,12 @@ installCrashHandler()
 
 /** Erreur d'affichage : message lisible au lieu d'une fermeture. */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  useEffect(() => { remember(error); SplashScreen.hideAsync().catch(() => {}) }, [error])
+  useEffect(() => { remember(error); launchDone() }, [error])
   return <ThemeProvider><ErrorScreen message={error.message} stack={String(error.stack || '').split('\n').slice(0, 8).join('\n')} onRetry={retry} /></ThemeProvider>
 }
 
 // L'écran de démarrage reste affiché le temps de vérifier une nouvelle version (4 s au plus).
-const hideSplash = () => { launchUpdateChecked.then(() => SplashScreen.hideAsync()).catch(() => {}) }
+const hideSplash = () => { launchUpdateChecked.then(launchDone).catch(launchDone) }
 
 function Gate() {
   const { me, ready, spaces, org } = useSession()
@@ -131,7 +132,7 @@ function Gate() {
 
 export default function RootLayout() {
   const [fatal, setFatal] = useState<{ message: string; stack?: string } | null>(null)
-  useEffect(() => onCrash(e => { SplashScreen.hideAsync().catch(() => {}); setFatal(e) }), [])
+  useEffect(() => onCrash(e => { launchDone(); setFatal(e) }), [])
   if (fatal) return <ThemeProvider><ErrorScreen message={fatal.message} stack={fatal.stack} onRetry={() => setFatal(null)} /></ThemeProvider>
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -146,6 +147,7 @@ export default function RootLayout() {
                 </IdentityProvider>
             </SessionProvider>
           </ShareProvider>
+          <LaunchCover />
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
