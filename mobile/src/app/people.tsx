@@ -2,7 +2,7 @@
 // (Admin, Peut publier, Lecture seule) et à quels comptes (tous, ou certains comptes / groupes).
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Alert, FlatList, RefreshControl, View } from 'react-native'
+import { FlatList, RefreshControl, View } from 'react-native'
 import { getPeople, removePerson, updatePerson, type CmRole, type Order, type Person, type PersonScope } from '../lib/api'
 import { useLoad, useSession } from '../lib/session'
 import { Avatar, Button, Card, Chip, Empty, GroupDot, Label, Msg, PlatformLogo, Row, SearchField, Sheet, Skeleton, Txt } from '../ui/kit'
@@ -11,6 +11,7 @@ import { ShareSheet } from '../features/accounts/ShareSheet'
 import { PEOPLE_SORTS, ROLE_CHOICES, ROLE_NAME, filterAccounts, personLine, scopeText, toggleIn, type PeopleSort } from '../features/accounts/logic'
 import { useDebounced } from '../features/library/hooks'
 import { Choice, SortBar } from '../features/library/ui'
+import { showDialog } from '../ui/dialog'
 
 function EditPerson({ p, org, onClose, onSaved }: { p: Person; org: number; onClose: () => void; onSaved: (t: string) => void }) {
   const { groups, accounts } = useSession()
@@ -24,7 +25,7 @@ function EditPerson({ p, org, onClose, onSaved }: { p: Person; org: number; onCl
     try { await updatePerson(org, p.email, role, scope); onSaved('Accès mis à jour.') }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
-  const remove = () => Alert.alert(`Retirer l’accès de ${p.email} ?`, 'Les comptes, le planning et la bibliothèque restent.', [
+  const remove = () => showDialog(`Retirer l’accès de ${p.email} ?`, 'Les comptes, le planning et la bibliothèque restent.', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Retirer', style: 'destructive', onPress: async () => {
       setBusy(true)

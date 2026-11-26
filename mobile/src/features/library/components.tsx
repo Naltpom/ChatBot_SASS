@@ -3,7 +3,7 @@
 import * as Clipboard from 'expo-clipboard'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, Linking, Pressable, View } from 'react-native'
+import { Linking, Pressable, View } from 'react-native'
 import { openAuthorize,
   addSource, disconnectDriveArchive, getDriveArchive, getIdentities, getSources, patchIdentity, patchSource, removeIdentity, removeSource,
   scanSource, startDriveOAuth, type Asset, type DriveArchive, type Identities, type Source,
@@ -17,6 +17,7 @@ import { BROWSER_HINT } from '../accounts/logic'
 import { assetBadge, recipeSavedNote, sourceLine } from './logic'
 import { RecipeSheet } from './RecipeSheet'
 import { AuthImage, Badge, Fold, Select, ToggleRow } from './ui'
+import { showDialog } from '../../ui/dialog'
 
 const open = (url: string) => Linking.openURL(url).catch(() => WebBrowser.openBrowserAsync(url).catch(() => {}))
 
@@ -49,7 +50,7 @@ export function GoogleAddresses({ compact = false }: { compact?: boolean }) {
     setErr('')
     try { setD(await fn()) } catch (e) { setErr((e as Error).message) }
   }
-  const remove = (id: number, email: string) => Alert.alert(`Retirer ${email} ?`, 'Les dossiers qu’il partagera ne seront plus reliés tout seuls.', [
+  const remove = (id: number, email: string) => showDialog(`Retirer ${email} ?`, 'Les dossiers qu’il partagera ne seront plus reliés tout seuls.', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Retirer', style: 'destructive', onPress: () => run(() => removeIdentity(id)) },
   ])
@@ -151,7 +152,7 @@ export function SourceCard({ s, onChanged, onRemoved }: { s: Source; onChanged: 
     setErr('')
     try { onChanged(await fn()) } catch (e) { setErr((e as Error).message) }
   }
-  const remove = () => Alert.alert(`Retirer « ${s.name || 'ce dossier'} » ?`,
+  const remove = () => showDialog(`Retirer « ${s.name || 'ce dossier'} » ?`,
     'Les publications pas encore parties depuis ce dossier seront annulées. Les fichiers restent dans votre Drive.', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Retirer', style: 'destructive', onPress: async () => {
@@ -215,7 +216,7 @@ export function DriveArchiveCard() {
     try { await openAuthorize((await startDriveOAuth(org)).authorize_url) } catch (e) { setErr((e as Error).message) }
     finally { setBusy(false); load() }
   }
-  const off = () => Alert.alert('Déconnecter le Drive d’archivage ?', 'Les fichiers déjà archivés restent dans votre Drive.', [
+  const off = () => showDialog('Déconnecter le Drive d’archivage ?', 'Les fichiers déjà archivés restent dans votre Drive.', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Déconnecter', style: 'destructive', onPress: async () => { try { setA(await disconnectDriveArchive(org)) } catch (e) { setErr((e as Error).message) } } },
   ])

@@ -2,7 +2,7 @@
 // Avec un compte à soi : on continue vers le Drive. Invité seulement : l'inscription se termine ici.
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Alert, View } from 'react-native'
+import { View } from 'react-native'
 import { inviteToken, openAuthorize, PLATFORM_LABEL, PLATFORMS, startOAuth, type Platform } from '../lib/api'
 import { STEPS } from '../lib/onboarding'
 import { useSession } from '../lib/session'
@@ -11,6 +11,7 @@ import { InvitationCard } from '../ui/ScopeBar'
 import { Missing, StepProgress } from '../ui/Progress'
 import { Button, Card, Field, H1, Icon, Msg, PlatformLogo, Row, Screen, Txt } from '../ui/kit'
 import { space, useTheme } from '../ui/theme'
+import { showDialog } from '../ui/dialog'
 
 const HINT: Record<Platform, string> = { tiktok: 'Compte TikTok', youtube: 'Chaîne YouTube (Shorts)', instagram: 'Compte pro ou créateur' }
 
@@ -78,7 +79,7 @@ export default function Welcome() {
         <Field label="Lien d’invitation" value={link} onChangeText={setLink} placeholder="https://cm.chapote.fr/api/cm/join?t=…" autoCapitalize="none" autoCorrect={false} />
         <Button title="Ouvrir l’invitation" disabled={!inviteToken(link)} onPress={() => { const t = inviteToken(link); if (t) router.push({ pathname: '/join', params: { t } }) }} />
       </Card>
-      <Button kind="ghost" small title={`Pas le bon compte (${me?.email}) ? Changer`} onPress={() => Alert.alert('Changer de compte ?', 'Vous serez déconnecté de ce téléphone.', [
+      <Button kind="ghost" small title={`Pas le bon compte (${me?.email}) ? Changer`} onPress={() => showDialog('Changer de compte ?', 'Vous serez déconnecté de ce téléphone.', [
         { text: 'Annuler', style: 'cancel' }, { text: 'Se déconnecter', style: 'destructive', onPress: () => { signOut() } },
       ])} />
     </Screen>

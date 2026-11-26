@@ -2,9 +2,10 @@
 // Module natif présent à partir de la version 6 de l'app ; avant, ces options n'apparaissent pas.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Device from 'expo-device'
-import { Alert, NativeModules, Platform } from 'react-native'
+import { NativeModules, Platform } from 'react-native'
 import { JUST_SIGNED_IN } from './auth'
 import { passkeyRegisterBegin, passkeyRegisterComplete } from './api'
+import { showDialog } from '../ui/dialog'
 
 export const passkeyAvailable = (() => {
   if (Platform.OS === 'web' || !NativeModules.Passkey) return false
@@ -51,7 +52,7 @@ export async function offerPasskey(userId: number, onYes: () => void) {
     if (!passkeyAvailable || Date.now() - at > 10 * 60_000 || await passkeyDone(userId)) return
     const asked = Number(await AsyncStorage.getItem(askedKey(userId)))
     if (asked && Date.now() - asked < 30 * 864e5) return
-    Alert.alert('Se connecter avec l’empreinte ?',
+    showDialog('Se connecter avec l’empreinte ?',
       'La prochaine fois, votre empreinte ou votre visage remplacera le code de connexion. Rien n’est demandé en dehors de la connexion.', [
         { text: 'Plus tard', style: 'cancel', onPress: () => { AsyncStorage.setItem(askedKey(userId), String(Date.now())).catch(() => {}) } },
         { text: 'Activer', onPress: onYes },

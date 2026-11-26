@@ -4,7 +4,7 @@
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { useState } from 'react'
-import { Alert, Pressable, View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import { commentAction, PLATFORM_LABEL, type Comment } from '../../lib/api'
 import { fmtAgo } from '../../lib/format'
 import { useSession } from '../../lib/session'
@@ -13,6 +13,7 @@ import { radius, space, useTheme } from '../../ui/theme'
 import { errText, openApp } from './hooks'
 import { commentActions, personalize, STATUS_DONE, type CommentActionId } from './logic'
 import { ActionMenu, Thumb, type MenuItem } from './parts'
+import { showDialog } from '../../ui/dialog'
 
 export function CommentCard({ c, onChanged, canEdit, template }:
   { c: Comment; onChanged: (c: Comment | null) => void; canEdit: boolean; template?: string }) {
@@ -50,7 +51,7 @@ export function CommentCard({ c, onChanged, canEdit, template }:
       case 'dm': if (c.dm_url) openApp(c.dm_url); break
       case 'profile': if (c.profile_url) openApp(c.profile_url); break
       case 'hide':
-        Alert.alert('Masquer ce commentaire ?', 'Il sera masqué pour tout le monde.', [
+        showDialog('Masquer ce commentaire ?', 'Il sera masqué pour tout le monde.', [
           { text: 'Annuler', style: 'cancel' },
           { text: 'Masquer', style: 'destructive', onPress: () => run(() => commentAction(org, c.id, 'hide')) },
         ])

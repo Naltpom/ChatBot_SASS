@@ -3,7 +3,7 @@
 // ouverte dans le navigateur : la liste est relue au retour dans l'app.
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
-import { Alert, AppState, View } from 'react-native'
+import { AppState, View } from 'react-native'
 import { openAuthorize,
   addRoutineAccount, deleteGroup, getAccountRequests, requestAccount, disconnect, getAccounts, getTransfers, startOAuth, syncAccount,
   PLATFORM_LABEL, PLATFORMS, type Account, type Group, type Order, type Platform, type ShareWhat, setYoutubeAccount } from '../lib/api'
@@ -20,6 +20,7 @@ import {
 } from '../features/accounts/logic'
 import { useDebounced } from '../features/library/hooks'
 import { SortBar } from '../features/library/ui'
+import { showDialog } from '../ui/dialog'
 
 type Flash = { kind: 'err' | 'ok' | 'info'; text: string } | null
 
@@ -93,11 +94,11 @@ export default function Accounts() {
     if (!routineName.trim()) return
     if (await run('routine', () => addRoutineAccount(org, routineName.trim()), 'Compte ajouté : la routine publiera les Reels programmés et enverra les chiffres.')) setRoutineName('')
   }
-  const removeGroup = (g: Group) => Alert.alert(`Supprimer le groupe « ${g.name} » ?`, 'Les comptes restent connectés.', [
+  const removeGroup = (g: Group) => showDialog(`Supprimer le groupe « ${g.name} » ?`, 'Les comptes restent connectés.', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Supprimer', style: 'destructive', onPress: () => run(`g${g.id}`, async () => { await deleteGroup((g as Group & { org_id?: number | null }).org_id ?? null, g.id); if (current?.id === g.id) setGroup(null) }, 'Groupe supprimé.') },
   ])
-  const removeAccount = (a: Account) => Alert.alert(`${a.mode === 'routine' ? 'Retirer' : 'Déconnecter'} ${a.name || PLATFORM_LABEL[a.platform]} ?`,
+  const removeAccount = (a: Account) => showDialog(`${a.mode === 'routine' ? 'Retirer' : 'Déconnecter'} ${a.name || PLATFORM_LABEL[a.platform]} ?`,
     'Les publications à venir sur ce compte ne partiront plus.', [
       { text: 'Annuler', style: 'cancel' },
       { text: a.mode === 'routine' ? 'Retirer' : 'Déconnecter', style: 'destructive', onPress: () => run(`d${a.platform}${a.id}`, () => disconnect(org, a)) },

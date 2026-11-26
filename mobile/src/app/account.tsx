@@ -4,11 +4,12 @@ import * as Clipboard from 'expo-clipboard'
 import * as WebBrowser from 'expo-web-browser'
 import { Stack, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Linking, View } from 'react-native'
+import { Linking, View } from 'react-native'
 import { API_URL, call } from '../lib/http'
 import { useSession } from '../lib/session'
 import { Button, Card, Divider, Field, Label, Msg, Row, Screen, Txt } from '../ui/kit'
 import { space } from '../ui/theme'
+import { showDialog } from '../ui/dialog'
 
 interface TwoFA { totp_enabled: boolean; passkeys: { id: number; name?: string | null; created_at?: string | null }[]; recovery_remaining: number; required: boolean; enabled: boolean }
 const PRIVACY_EMAIL = 'nathan.provost78990@gmail.com'
@@ -72,11 +73,11 @@ export default function Account() {
     setCode(''); setCodes(r.recovery_codes); load()
     return 'Nouveaux codes de secours créés.'
   })
-  const removeKey = (id: number) => Alert.alert('Retirer cette clé d’accès ?', '', [
+  const removeKey = (id: number) => showDialog('Retirer cette clé d’accès ?', '', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Retirer', style: 'destructive', onPress: () => run(async () => { await send('DELETE', `/api/auth/2fa/webauthn/credentials/${id}`); load(); return 'Clé retirée.' }) },
   ])
-  const askDelete = () => Alert.alert('Supprimer mon compte',
+  const askDelete = () => showDialog('Supprimer mon compte',
     'Toutes vos données Chapote seront supprimées sous 7 jours (comptes connectés, planning, bibliothèque, commentaires). Un e-mail de demande va s’ouvrir.', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Continuer', style: 'destructive', onPress: () => {

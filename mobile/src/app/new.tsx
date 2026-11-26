@@ -12,7 +12,7 @@ import { StorageBanner } from '../features/storage'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   creatorInfo, createPost, getCalendar, sendFeedback, type AbandonReason, isRisky, RIGHTS_LABEL, RIGHTS_WARNING, type Rights, deletePost, getAccounts, getAsset, getProposal, getRobot, submitPost, PLATFORM_LABEL,
@@ -34,6 +34,7 @@ import { LibrarySheet } from '../features/planning/LibrarySheet'
 import { apiUrl, openLink, useAuthHeaders } from '../features/planning/media'
 import { InstaPanel, TikTokPanel, YouTubePanel } from '../features/planning/Panels'
 import { Check, DateTimeField, Section, TooSoon, useNow } from '../features/planning/ui'
+import { showDialog } from '../ui/dialog'
 
 const TIPS = [
   'vous pouvez fermer l’app : l’envoi reprend où il s’est arrêté.',
@@ -249,16 +250,16 @@ export default function NewPost() {
       setVideo({ uri: a.uri, name, size, duration: a.duration != null ? a.duration / 1000 : null, mime: a.mimeType || null })
       setAsset(null); setErr('')
       if (!title.trim()) setTitle(titleFromFile(name))
-    } catch (e) { Alert.alert('Galerie indisponible', (e as Error).message) }
+    } catch (e) { showDialog('Galerie indisponible', (e as Error).message) }
   }
   const pickCover = async () => {
     try {
       const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 0.9 })
       if (r.canceled || !r.assets?.length) return
       const a = r.assets[0]
-      if (a.fileSize && a.fileSize > 8 * 1024 * 1024) { Alert.alert('Image trop lourde', 'JPEG ou PNG, 8 Mo au plus.'); return }
+      if (a.fileSize && a.fileSize > 8 * 1024 * 1024) { showDialog('Image trop lourde', 'JPEG ou PNG, 8 Mo au plus.'); return }
       setCover({ uri: a.uri, mime: a.mimeType === 'image/png' ? 'image/png' : 'image/jpeg' })
-    } catch (e) { Alert.alert('Galerie indisponible', (e as Error).message) }
+    } catch (e) { showDialog('Galerie indisponible', (e as Error).message) }
   }
 
   const state: ComposeState = {
@@ -301,7 +302,7 @@ export default function NewPost() {
     if (!state.hasVideo || problems.length || busy) return
     if (isRisky(rights || null) && n) {
       const names = [...new Set(chosen.map(a => PLATFORM_LABEL[a.platform]))].join(', ')
-      const ok = await new Promise<boolean>(res => Alert.alert('Œuvre protégée', `${RIGHTS_WARNING}\n\nPublier quand même sur ${names} ?`, [
+      const ok = await new Promise<boolean>(res => showDialog('Œuvre protégée', `${RIGHTS_WARNING}\n\nPublier quand même sur ${names} ?`, [
         { text: 'Annuler', style: 'cancel', onPress: () => res(false) }, { text: 'Publier quand même', style: 'destructive', onPress: () => res(true) },
       ], { cancelable: true, onDismiss: () => res(false) }))
       if (!ok) return

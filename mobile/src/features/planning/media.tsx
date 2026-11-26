@@ -2,10 +2,11 @@
 import { Image } from 'expo-image'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import { useEffect, useState } from 'react'
-import { Alert, Linking, Pressable, View, type StyleProp, type ViewStyle } from 'react-native'
+import { Linking, Pressable, View, type StyleProp, type ViewStyle } from 'react-native'
 import { API_URL, authHeaders } from '../../lib/http'
 import { Icon } from '../../ui/kit'
 import { radius, useTheme } from '../../ui/theme'
+import { showDialog } from '../../ui/dialog'
 
 /** Adresse complète d'un chemin de l'API (« /api/cm/assets/3/stream »), avec l'espace. */
 export function apiUrl(path: string, org: number | null): string {
@@ -24,7 +25,7 @@ export function useAuthHeaders(): Record<string, string> | null {
 
 /** Ouvre un lien externe (la publication sur la plateforme, le dossier Drive). */
 export async function openLink(url: string) {
-  try { await Linking.openURL(url) } catch { Alert.alert('Lien impossible à ouvrir', url) }
+  try { await Linking.openURL(url) } catch { showDialog('Lien impossible à ouvrir', url) }
 }
 
 function Player({ uri, headers, style }: { uri: string; headers: Record<string, string>; style: StyleProp<ViewStyle> }) {

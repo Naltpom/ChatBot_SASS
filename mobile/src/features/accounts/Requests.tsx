@@ -1,12 +1,13 @@
 // Demandes de reprise de compte : reçues (accepter / refuser, après confirmation) et envoyées
 // (en attente, refusée, sans réponse → réclamation au support de Chapote).
 import { useState } from 'react'
-import { Alert, View } from 'react-native'
+import { View } from 'react-native'
 import {
   acceptAccountRequest, cancelAccountRequest, declineAccountRequest, disputeAccountRequest, PLATFORM_LABEL, type AccountRequest,
 } from '../../lib/api'
 import { Button, Card, Field, Row, Sheet, Txt } from '../../ui/kit'
 import { space, useTheme } from '../../ui/theme'
+import { showDialog } from '../../ui/dialog'
 
 const STATUS: Record<AccountRequest['status'], string> = {
   pending: 'en attente de réponse', accepted: 'acceptée', declined: 'refusée', cancelled: 'annulée', expired: 'sans réponse',
@@ -27,12 +28,12 @@ export function AccountRequests({ data, onChanged }: {
     try { await fn(); onChanged(ok) } catch (e) { onChanged(null, (e as Error).message) } finally { setBusy(false) }
   }
   const name = (r: AccountRequest) => `${r.account_name || 'Compte'} (${PLATFORM_LABEL[r.platform]})`
-  const accept = (r: AccountRequest) => Alert.alert(`Donner ${name(r)} ?`,
+  const accept = (r: AccountRequest) => showDialog(`Donner ${name(r)} ?`,
     `${r.requester?.name || r.requester?.email || 'Cette personne'} récupère le compte et ses publications à venir. L’historique reste chez vous.`, [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Accepter', onPress: () => act(() => acceptAccountRequest(r.id), `${r.account_name || 'Le compte'} a été transféré.`) },
     ])
-  const decline = (r: AccountRequest) => Alert.alert(`Refuser la demande ?`, 'Le compte reste dans votre espace. La personne pourra s’adresser au support de Chapote.', [
+  const decline = (r: AccountRequest) => showDialog(`Refuser la demande ?`, 'Le compte reste dans votre espace. La personne pourra s’adresser au support de Chapote.', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Refuser', style: 'destructive', onPress: () => act(() => declineAccountRequest(r.id), 'Demande refusée.') },
   ])
