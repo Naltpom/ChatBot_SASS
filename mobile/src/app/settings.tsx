@@ -45,16 +45,20 @@ export default function Settings() {
   const [keys, setKeys] = useState<BioKey[] | null>(null)
   const [oldKeys, setOldKeys] = useState<PasskeyRow[]>([])
   const [hereId, setHereId] = useState<number | null>(null)
-  const loadKeys = () => {
-    getBioKeys().then(setKeys).catch(() => setKeys(null))
+  // Liste du compte et clé de ce téléphone relues ENSEMBLE : comparer une liste ancienne à une clé toute neuve
+  // faisait croire que la clé avait été retirée, et l'effaçait juste après l'activation.
+  const loadKeys = async () => {
     getPasskeys().then(setOldKeys).catch(() => setOldKeys([]))
-    if (me) passkeyIdHere(me.id).then(setHereId)
+    if (!me) return
+    const id = me.id
+    try {
+      const [list, here] = await Promise.all([getBioKeys(), passkeyIdHere(id)])
+      setKeys(list); setHereId(here)
+      // La clé de ce téléphone n'est plus sur le compte (retirée ailleurs) : on peut la refaire.
+      if (here && !list.some(k => k.id === here)) { await forgetPasskey(id); setPasskey(false); setHereId(null) }
+    } catch { setKeys(null) }
   }
   useEffect(() => { if (me) loadKeys() }, [me?.id, passkey]) // eslint-disable-line react-hooks/exhaustive-deps
-  // La clé de ce téléphone n'est plus sur le compte (retirée ailleurs) : on peut la refaire.
-  useEffect(() => {
-    if (me && keys && passkey && hereId && !keys.some(k => k.id === hereId)) { forgetPasskey(me.id); setPasskey(false); setHereId(null) }
-  }, [keys, hereId]) // eslint-disable-line react-hooks/exhaustive-deps
   const removeKey = (k: BioKey) => showDialog(`Retirer « ${k.name || 'Téléphone'} » ?`,
     k.id === hereId ? 'Ce téléphone ne pourra plus se connecter avec l’empreinte. Vous pourrez la réactiver ensuite.'
       : 'Ce téléphone ne pourra plus se connecter avec l’empreinte.', [

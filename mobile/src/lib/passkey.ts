@@ -4,6 +4,7 @@
 // téléphone demande l'empreinte pour la lire, et l'app l'envoie au serveur (qui n'en garde que l'empreinte SHA-256).
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Device from 'expo-device'
+import * as LocalAuthentication from 'expo-local-authentication'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import { bioEnable } from './api'
@@ -31,6 +32,9 @@ export async function forgetPasskey(userId: number) {
 
 /** Active l'empreinte sur ce téléphone. Renvoie les codes de secours s'ils viennent d'être créés. */
 export async function enablePasskey(userId: number): Promise<string[] | null> {
+  // L'empreinte est demandée tout de suite : on voit que c'est bien elle qui servira (et on évite une clé inutile).
+  const ok = await LocalAuthentication.authenticateAsync({ promptMessage: 'Activer la connexion par empreinte', cancelLabel: 'Annuler' })
+  if (!ok.success) throw new Error(ok.error === 'user_cancel' || ok.error === 'system_cancel' ? 'cancel' : (ok.error || 'Empreinte non vérifiée.'))
   const name = (Device.deviceName || Device.modelName || 'Téléphone').slice(0, 80)
   const r = await bioEnable(name)
   const value: Stored = { id: r.id, secret: r.secret }
@@ -60,8 +64,7 @@ export function passkeyError(e: unknown): string {
 /** Numéro du compte contenu dans le défi de double authentification (jeton signé, lu sans le vérifier). */
 export function challengeUser(challenge: string): number | null {
   try {
-    const part = challenge.split('.')[1]
-    const json = JSON.parse(globalThis.atob(part.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (part.length % 4)) % 4)))
+    const json = JSON.parse(b64urlDecode(challenge.split('.')[1]))
     return Number(json.sub) || null
   } catch { return null }
 }
@@ -83,4 +86,17 @@ export async function offerPasskey(userId: number, onYes: () => void) {
         { text: 'Activer', onPress: onYes },
       ])
   } catch { /* rien */ }
+}
+
+/** Décodage base64url (texte ASCII), sans dépendre de atob. */
+function b64urlDecode(s: string): string {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+  let bits = 0, n = 0, out = ''
+  for (const ch of s.replace(/=+$/, '')) {
+    const v = A.indexOf(ch)
+    if (v < 0) continue
+    bits = (bits << 6) | v; n += 6
+    if (n >= 8) { n -= 8; out += String.fromCharCode((bits >> n) & 0xff) }
+  }
+  return out
 }
