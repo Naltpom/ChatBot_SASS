@@ -66,6 +66,7 @@ export interface Quote {
   bundles: string[]
   promo_code: string | null
   promo_codes?: string[]
+  promos?: { code: string; kind: 'percent' | 'amount'; value: number; cents: number }[]
   promo_error: string | null
 }
 

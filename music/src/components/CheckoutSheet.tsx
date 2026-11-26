@@ -1,7 +1,7 @@
 // Feuille d'achat : récapitulatif, code promo, e-mail, consentement, paiement.
 // Le prix affiché vient TOUJOURS du back (/api/music/quote) ; le paiement
 // part vers Stripe Checkout (ou directement vers la page « merci » si gratuit).
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, postCheckout, postQuote, type Quote } from '../api'
 import { useCart } from '../cart'
@@ -25,6 +25,7 @@ export default function CheckoutSheet() {
   // champ caché derrière « J'ai un code promo » (ou « un autre code » s'il y en a déjà un, ex. celui du lien) :
   // n'incite pas à aller chercher un code ailleurs
   const [promoOpen, setPromoOpen] = useState(false)
+  const [promoMsg, setPromoMsg] = useState('')
   const { me } = useAuth()
   const [email, setEmail] = useState('')
   const [consent, setConsent] = useState(false)
@@ -45,6 +46,14 @@ export default function CheckoutSheet() {
     return () => { alive = false }
   }, [key, appliedPromo, lines === null]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // code refusé : on garde le message et on le retire (seuls les codes valables restent au récapitulatif)
+  useEffect(() => {
+    if (!quote?.promo_error) return
+    setPromoMsg(t.promoErr[quote.promo_error] || t.errGeneric)
+    const ok = quote.promo_codes || []
+    if (codes.some(c => !ok.includes(c))) setCodes(cs => cs.filter(c => ok.includes(c)))
+  }, [quote]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => { if (me && !email) setEmail(me.email) }, [me]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -59,7 +68,12 @@ export default function CheckoutSheet() {
   if (!lines) return null
 
   const free = quote?.total_cents === 0
-  const promoError = quote?.promo_error ? (t.promoErr[quote.promo_error] || t.errGeneric) : ''
+  const applyCode = (e: FormEvent) => {
+    e.preventDefault()
+    const c = promo.trim().toUpperCase()
+    if (!c || codes.includes(c)) return
+    track('promo', { code: c }); setPromoMsg(''); setCodes(cs => [...cs, c].slice(0, 2)); setPromo(''); setPromoOpen(false)
+  }
 
   const pay = async () => {
     setErr('')
@@ -107,37 +121,6 @@ export default function CheckoutSheet() {
               )
             })}
 
-            <div className="promo">
-              {codes.length > 0 && (
-                <div className="promo-chips">
-                  {codes.map(c => (
-                    <span key={c} className={`promo-chip ${quote?.promo_codes?.includes(c) ? 'ok' : ''}`}>{c}
-                      <button type="button" aria-label={t.remove} onClick={() => setCodes(cs => cs.filter(x => x !== c))}>×</button></span>
-                  ))}
-                </div>
-              )}
-              {codes.length < 2 && (!promoOpen ? (
-                <button type="button" className="promo-toggle" aria-expanded={false} aria-controls="promo-box"
-                        onClick={() => { setPromoOpen(true); track('promo_open', { second: codes.length > 0 }) }}>
-                  {codes.length ? t.promoAnother : t.promo}</button>
-              ) : (
-                <form id="promo-box" className="promo-row" onSubmit={e => {
-                  e.preventDefault()
-                  const c = promo.trim().toUpperCase()
-                  if (!c || codes.includes(c)) return
-                  track('promo', { code: c }); setCodes(cs => [...cs, c].slice(0, 2)); setPromo(''); setPromoOpen(false)
-                }}>
-                  <label htmlFor="promo" className="sr">{t.code}</label>
-                  <input id="promo" className="field" value={promo} placeholder={codes.length ? t.codeSecond : t.code} autoCapitalize="characters"
-                         autoComplete="off" spellCheck={false} autoFocus
-                         onChange={e => setPromo(e.target.value.toUpperCase())} />
-                  <button type="submit" className="btn dark small">{t.apply}</button>
-                </form>
-              ))}
-              {appliedPromo && quote && !quote.promo_error && <div className="msg ok" style={{ marginTop: 8 }}>{t.promoOk(appliedPromo)}</div>}
-              {promoError && <div className="msg err" style={{ marginTop: 8 }}>{promoError}</div>}
-            </div>
-
             <div>
               <label htmlFor="email" className="field-label">{free ? t.emailRequired : t.emailLabel}</label>
               <input id="email" className="field" type="email" inputMode="email" autoComplete="email" value={email}
@@ -148,7 +131,29 @@ export default function CheckoutSheet() {
             {quote && (
               <div className="sum">
                 {quote.bundle_savings_cents > 0 && <div><span>{t.bundleSaving}</span><span>−{euros(quote.bundle_savings_cents)}</span></div>}
-                {quote.discount_cents > 0 && <div><span>{t.discount} {quote.promo_code}</span><span>−{euros(quote.discount_cents)}</span></div>}
+                {(quote.promos?.length || 0) > 0 && <div><span>{t.subtotal}</span><span>{euros(quote.subtotal_cents)}</span></div>}
+                {quote.promos?.map(p => (
+                  <div className="sum-promo" key={p.code}>
+                    <span>{t.discount} {p.code} · −{p.kind === 'percent' ? `${p.value} %` : euros(p.value)}
+                      <button type="button" className="sum-rm" aria-label={`${t.remove} ${p.code}`}
+                              onClick={() => { setPromoMsg(''); setCodes(cs => cs.filter(x => x !== p.code)) }}>×</button></span>
+                    <span>−{euros(p.cents)}</span>
+                  </div>
+                ))}
+                {codes.length < 2 && (!promoOpen ? (
+                  <div><button type="button" className="promo-toggle" aria-expanded={false} aria-controls="promo-box"
+                          onClick={() => { setPromoOpen(true); setPromoMsg(''); track('promo_open', { second: codes.length > 0 }) }}>
+                    {codes.length ? t.promoAnother : t.promo}</button></div>
+                ) : (
+                  <form id="promo-box" className="promo-row" onSubmit={applyCode}>
+                    <label htmlFor="promo" className="sr">{t.code}</label>
+                    <input id="promo" className="field" value={promo} placeholder={codes.length ? t.codeSecond : t.code} autoCapitalize="characters"
+                           autoComplete="off" spellCheck={false} autoFocus
+                           onChange={e => setPromo(e.target.value.toUpperCase())} />
+                    <button type="submit" className="btn dark small">{t.apply}</button>
+                  </form>
+                ))}
+                {promoMsg && <div className="msg err" role="alert">{promoMsg}</div>}
                 <div className="tot"><span>{t.total}</span><b>{euros(quote.total_cents)}</b></div>
                 {approx(quote.total_cents) && <div className="fx"><span /><span>{approx(quote.total_cents)}</span></div>}
               </div>
