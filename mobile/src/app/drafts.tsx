@@ -3,7 +3,7 @@
 // En bas : la préparation automatique de chaque dossier (cm/src/components/RecipeSheet.tsx).
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Alert, FlatList, RefreshControl, View } from 'react-native'
+import { FlatList, RefreshControl, View } from 'react-native'
 import { archiveProposals, dismissProposal, getProposalCount, getProposalsPage, getSources, type Proposal, type Source } from '../lib/api'
 import { fmtDateTime, fmtDuration } from '../lib/format'
 import { useLoad, useRole, useSession } from '../lib/session'
@@ -13,6 +13,7 @@ import { useAuthHeaders, usePaged } from '../features/library/hooks'
 import { archivedNote, plural, proposalWhen, recipeSavedNote } from '../features/library/logic'
 import { RecipeSheet } from '../features/library/RecipeSheet'
 import { AuthImage } from '../features/library/ui'
+import { showDialog } from '../ui/dialog'
 
 function ProposalCard({ p, canEdit, headers, onDismiss }: { p: Proposal; canEdit: boolean; headers: Record<string, string> | null; onDismiss: () => void }) {
   const { c } = useTheme()
@@ -98,7 +99,7 @@ export default function Drafts() {
   const refresh = () => { pages.refresh(); count.reload(); sources.reload() }
   const archiveAll = () => {
     const n = open || items.length
-    Alert.alert(`Ranger les ${n} brouillons en archive ?`, 'Rien n’est publié ; les vidéos restent dans la bibliothèque et ne seront plus proposées.', [
+    showDialog(`Ranger les ${n} brouillons en archive ?`, 'Rien n’est publié ; les vidéos restent dans la bibliothèque et ne seront plus proposées.', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Ranger', style: 'destructive', onPress: async () => {
         setErr('')

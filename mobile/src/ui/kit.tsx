@@ -47,14 +47,14 @@ export const Label = ({ children, style }: { children: ReactNode; style?: StyleP
   return <Txt size={12} bold color={c.muted} style={[{ textTransform: 'uppercase', letterSpacing: 0.5 }, style]}>{children}</Txt>
 }
 
-type BtnKind = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ink'
+type BtnKind = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ink' | 'destructive'
 export function Button({ title, onPress, kind = 'secondary', icon, disabled, loading, small, style, accessibilityLabel, flex }:
   { title?: string; onPress?: () => void | Promise<unknown>; kind?: BtnKind; icon?: IconName; disabled?: boolean; loading?: boolean
     small?: boolean; style?: StyleProp<ViewStyle>; accessibilityLabel?: string; flex?: boolean }) {
   const { c } = useTheme()
   const [busy, setBusy] = useState(false)
-  const bg = { primary: c.primary, secondary: c.surface, ghost: 'transparent', danger: 'transparent', ink: c.ink }[kind]
-  const fg = { primary: c.onPrimary, secondary: c.text, ghost: c.primary, danger: c.danger, ink: c.onInk }[kind]
+  const bg = { primary: c.primary, secondary: c.surface, ghost: 'transparent', danger: 'transparent', ink: c.ink, destructive: c.danger }[kind]
+  const fg = { primary: c.onPrimary, secondary: c.text, ghost: c.primary, danger: c.danger, ink: c.onInk, destructive: c.bg }[kind]
   const off = disabled || loading || busy
   const press = async () => {
     if (off || !onPress) return

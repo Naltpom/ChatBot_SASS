@@ -3,7 +3,7 @@
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { useState } from 'react'
-import { Alert, Pressable, StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
 import {
   cancelTarget, markPublished, patchTarget, publishNow, resendDraft, retryTarget, PLATFORM_LABEL, type CalendarItem,
 } from '../../lib/api'
@@ -14,10 +14,11 @@ import { STATE_LABEL, stateOf, type TargetItem } from './calendar'
 import { openLink } from './media'
 import { diffsOf, editableText, tiktokLinkOk } from './sheet'
 import { DateTimeField } from './ui'
+import { showDialog } from '../../ui/dialog'
 
 /** Demande une confirmation (Oui / Non). */
 export const confirm = (title: string, message: string, ok: string, destructive = false) =>
-  new Promise<boolean>(resolve => Alert.alert(title, message, [
+  new Promise<boolean>(resolve => showDialog(title, message, [
     { text: 'Non', style: 'cancel', onPress: () => resolve(false) },
     { text: ok, style: destructive ? 'destructive' : 'default', onPress: () => resolve(true) },
   ], { cancelable: true, onDismiss: () => resolve(false) }))

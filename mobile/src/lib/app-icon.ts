@@ -1,8 +1,8 @@
 // Icône de l'app assortie à la couleur choisie (orange par défaut, bleu océan, vert forêt).
 // Module natif présent seulement à partir de la version 4 : avant, l'option n'apparaît pas.
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { Alert } from 'react-native'
 import type { Palette } from '../ui/theme'
+import { showDialog } from '../ui/dialog'
 
 type Mod = typeof import('expo-alternate-app-icons')
 let mod: Mod | null = null
@@ -50,7 +50,7 @@ const LABEL: Record<Palette, string> = { warm: 'orange', ocean: 'bleu océan', f
 /** Propose l'icône assortie à la couleur (rien si elle l'est déjà, ou si ce téléphone ne le permet pas). */
 export function offerIcon(p: Palette, resumeTo: string, done?: () => void, intro?: string) {
   if (!iconAvailable() || currentIcon() === p) return
-  Alert.alert(`Icône ${LABEL[p]} ?`,
+  showDialog(`Icône ${LABEL[p]} ?`,
     `${intro ? `${intro}\n\n` : ''}Sur certains téléphones, l’app redémarre pour changer d’icône : vous reviendrez ici. L’icône peut mettre quelques secondes à changer sur l’écran d’accueil.`, [
       { text: 'Non, garder l’icône actuelle', style: 'cancel' },
       { text: 'Oui, changer', onPress: () => { setIcon(p, resumeTo).then(() => done?.()).catch(() => {}) } },

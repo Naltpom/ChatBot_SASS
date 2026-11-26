@@ -5,7 +5,7 @@ import { FEATURES } from '../lib/features'
 import Constants from 'expo-constants'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, Pressable, Switch, View } from 'react-native'
+import { Pressable, Switch, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import { call } from '../lib/http'
 import { disablePush, enablePush, getPush, pushUnsupported, setPushPrefs, type PushPrefs, type PushState } from '../lib/push'
@@ -17,6 +17,7 @@ import { PALETTE_PREVIEW, radius, space, useTheme, type Palette, type ThemePref 
 import { Logo } from '../ui/Logo'
 import { enablePasskey, passkeyAvailable, passkeyDone, passkeyError } from '../lib/passkey'
 import { currentIcon, iconAvailable, offerIcon } from '../lib/app-icon'
+import { showDialog } from '../ui/dialog'
 
 interface DeviceRow { id: number; name: string | null; platform: string | null; push: boolean; created_at: string | null; last_used_at: string | null }
 
@@ -81,7 +82,7 @@ export default function Settings() {
     setPush({ ...push, prefs: { ...push.prefs, [k]: v } })
     setPush(await setPushPrefs({ [k]: v })); ok()
   }
-  const revoke = (d: DeviceRow) => Alert.alert('Déconnecter cet appareil ?', d.name || 'Appareil', [
+  const revoke = (d: DeviceRow) => showDialog('Déconnecter cet appareil ?', d.name || 'Appareil', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Déconnecter', style: 'destructive', onPress: async () => { await call(`/api/cm/mobile/devices/${d.id}`, { method: 'DELETE' }); load() } },
   ])
@@ -221,7 +222,7 @@ export default function Settings() {
 
       <Card style={{ borderColor: c.dangerBorder }}>
         <Label>Zone sensible</Label>
-        <Button kind="danger" icon="logout" title="Se déconnecter de ce téléphone" onPress={() => Alert.alert('Se déconnecter ?', 'Vous pourrez vous reconnecter à tout moment.', [
+        <Button kind="danger" icon="logout" title="Se déconnecter de ce téléphone" onPress={() => showDialog('Se déconnecter ?', 'Vous pourrez vous reconnecter à tout moment.', [
           { text: 'Annuler', style: 'cancel' }, { text: 'Se déconnecter', style: 'destructive', onPress: () => { signOut() } },
         ])} />
         <Button kind="danger" icon="trash" title="Supprimer mon compte…" onPress={() => router.push('/account')} />

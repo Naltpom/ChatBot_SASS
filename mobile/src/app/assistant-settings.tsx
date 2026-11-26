@@ -2,12 +2,13 @@
 // facultatif, ce que l'assistant peut lire, permissions de chaque compte (modifiables par son possesseur,
 // en lecture seule pour les invités), effacement des conversations. Retirer l'accord : un geste, effet immédiat.
 import { useEffect, useState } from 'react'
-import { Alert, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { eraseAiConversations, getAiStatus, PLATFORM_LABEL, putAiConsent, putAiPermissions, type AiAccount, type AiKind, type AiStatus } from '../lib/api'
 import { openLink } from '../features/planning/media'
 import { Check } from '../features/planning/ui'
 import { Button, Card, Label, Loading, Msg, Screen, Txt } from '../ui/kit'
 import { space, useTheme } from '../ui/theme'
+import { showDialog } from '../ui/dialog'
 
 const KINDS: { id: AiKind; label: string; hint: string }[] = [
   { id: 'stats', label: 'Statistiques', hint: 'Vues, j’aime, partages, enregistrements, abonnés.' },
@@ -44,7 +45,7 @@ export default function AssistantSettings() {
     const [platform, id] = a.key.split(':')
     return run(() => putAiPermissions(platform as AiAccount['platform'], Number(id), { ...cur, [kind]: value }))
   }
-  const erase = () => Alert.alert('Effacer vos conversations ?', 'Toutes vos conversations avec l’assistant seront supprimées. C’est définitif.', [
+  const erase = () => showDialog('Effacer vos conversations ?', 'Toutes vos conversations avec l’assistant seront supprimées. C’est définitif.', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Effacer', style: 'destructive', onPress: () => run(async () => { const r = await eraseAiConversations(); setDone(`${r.deleted} conversation(s) effacée(s)`) }, '') },
   ])

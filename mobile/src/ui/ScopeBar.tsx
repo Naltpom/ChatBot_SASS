@@ -2,11 +2,12 @@
 // accès aux comptes et réglages. Plus d'« espaces » (docs/CM_ROUTINES.md §10).
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Alert, Pressable, View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import { acceptInvitation, declineInvitation, PLATFORM_LABEL, type Invitation } from '../lib/api'
 import { groupToken, useSession } from '../lib/session'
 import { Avatar, Button, Card, Chip, GroupDot, Icon, IconButton, Label, Row, SearchField, Sheet, Txt } from './kit'
 import { space, useTheme } from './theme'
+import { showDialog } from './dialog'
 
 /** Texte de la sélection : « Tous », nom du groupe, « 3 groupes », nom du compte. */
 function useSelLabel(): string {
@@ -65,8 +66,8 @@ export function InvitationCard({ inv }: { inv: Invitation }) {
       <Row gap={8}><GroupDot color={inv.group_color} /><Txt bold style={{ flex: 1 }}>{inv.group_name}</Txt></Row>
       <Txt small muted>{inv.invited_by || inv.owner || 'Quelqu’un'} vous invite : {inv.role_label}{n ? ` · ${n} compte${n > 1 ? 's' : ''}` : ''}{inv.owner ? ` · chez ${inv.owner}` : ''}</Txt>
       <Row>
-        <Button flex small kind="primary" title="Accepter" onPress={async () => { try { await acceptInvitation(inv.id); await done() } catch (e: any) { Alert.alert('Erreur', e?.message || '') } }} />
-        <Button flex small kind="danger" title="Refuser" onPress={async () => { try { await declineInvitation(inv.id); await done() } catch (e: any) { Alert.alert('Erreur', e?.message || '') } }} />
+        <Button flex small kind="primary" title="Accepter" onPress={async () => { try { await acceptInvitation(inv.id); await done() } catch (e: any) { showDialog('Erreur', e?.message || '') } }} />
+        <Button flex small kind="danger" title="Refuser" onPress={async () => { try { await declineInvitation(inv.id); await done() } catch (e: any) { showDialog('Erreur', e?.message || '') } }} />
       </Row>
     </Card>
   )

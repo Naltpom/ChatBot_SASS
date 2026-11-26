@@ -17,6 +17,7 @@ import { IdentityProvider, useIdentity } from '../lib/identity'
 import { ShareProvider, useSharedVideo } from '../lib/share'
 import { launchUpdateChecked, UpdateBanner, useAppUpdate } from '../lib/app-update'
 import { ThemeProvider, useTheme } from '../ui/theme'
+import { DialogHost } from '../ui/dialog'
 import { loadFonts } from '../ui/fonts'
 import { takeResume } from '../lib/app-icon'
 import { offerPasskey } from '../lib/passkey'
@@ -141,6 +142,7 @@ export default function RootLayout() {
                 <AppearanceSync />
                 <IdentityProvider>
                   <Gate />
+                  <DialogHost />
                 </IdentityProvider>
             </SessionProvider>
           </ShareProvider>
