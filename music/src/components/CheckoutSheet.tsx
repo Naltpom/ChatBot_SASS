@@ -22,6 +22,8 @@ export default function CheckoutSheet() {
   // codes appliqués (2 au plus) ; celui du lien (?code=INSTA20) est déjà là
   const [codes, setCodes] = useState<string[]>(() => (savedPromo() ? [savedPromo()] : []))
   const appliedPromo = codes.join('+')
+  // champ caché derrière « J'ai un code promo » : n'incite pas à aller chercher un code ailleurs
+  const [promoOpen, setPromoOpen] = useState(codes.length > 0)
   const { me } = useAuth()
   const [email, setEmail] = useState('')
   const [instagram, setInstagram] = useState('')
@@ -106,31 +108,39 @@ export default function CheckoutSheet() {
               )
             })}
 
-            <details className="promo" open={!!appliedPromo}>
-              <summary>{t.promo}</summary>
-              {codes.length > 0 && (
-                <div className="promo-chips">
-                  {codes.map(c => (
-                    <span key={c} className={`promo-chip ${quote?.promo_codes?.includes(c) ? 'ok' : ''}`}>{c}
-                      <button type="button" aria-label={t.remove} onClick={() => setCodes(cs => cs.filter(x => x !== c))}>×</button></span>
-                  ))}
+            <div className="promo">
+              {!promoOpen ? (
+                <button type="button" className="promo-toggle" aria-expanded={false} aria-controls="promo-box"
+                        onClick={() => { setPromoOpen(true); track('promo_open') }}>{t.promo}</button>
+              ) : (
+                <div id="promo-box">
+                  {codes.length > 0 && (
+                    <div className="promo-chips">
+                      {codes.map(c => (
+                        <span key={c} className={`promo-chip ${quote?.promo_codes?.includes(c) ? 'ok' : ''}`}>{c}
+                          <button type="button" aria-label={t.remove} onClick={() => setCodes(cs => cs.filter(x => x !== c))}>×</button></span>
+                      ))}
+                    </div>
+                  )}
+                  {codes.length < 2 && (
+                    <form className="promo-row" onSubmit={e => {
+                      e.preventDefault()
+                      const c = promo.trim().toUpperCase()
+                      if (!c || codes.includes(c)) return
+                      track('promo', { code: c }); setCodes(cs => [...cs, c].slice(0, 2)); setPromo('')
+                    }}>
+                      <label htmlFor="promo" className="sr">{t.code}</label>
+                      <input id="promo" className="field" value={promo} placeholder={codes.length ? t.codeSecond : t.code} autoCapitalize="characters"
+                             autoComplete="off" spellCheck={false} autoFocus={codes.length === 0}
+                             onChange={e => setPromo(e.target.value.toUpperCase())} />
+                      <button type="submit" className="btn dark small">{t.apply}</button>
+                    </form>
+                  )}
+                  {appliedPromo && quote && !quote.promo_error && <div className="msg ok" style={{ marginTop: 8 }}>{t.promoOk(appliedPromo)}</div>}
+                  {promoError && <div className="msg err" style={{ marginTop: 8 }}>{promoError}</div>}
                 </div>
               )}
-              {codes.length < 2 && (
-                <div className="promo-row">
-                  <label htmlFor="promo" className="sr">{t.code}</label>
-                  <input id="promo" className="field" value={promo} placeholder={codes.length ? t.codeSecond : t.code} autoCapitalize="characters"
-                         onChange={e => setPromo(e.target.value.toUpperCase())} />
-                  <button type="button" className="btn dark small" onClick={() => {
-                    const c = promo.trim().toUpperCase()
-                    if (!c || codes.includes(c)) return
-                    track('promo', { code: c }); setCodes(cs => [...cs, c].slice(0, 2)); setPromo('')
-                  }}>{t.apply}</button>
-                </div>
-              )}
-              {appliedPromo && quote && !quote.promo_error && <div className="msg ok" style={{ marginTop: 8 }}>{t.promoOk(appliedPromo)}</div>}
-              {promoError && <div className="msg err" style={{ marginTop: 8 }}>{promoError}</div>}
-            </details>
+            </div>
 
             <div>
               <label htmlFor="email" className="field-label">{free ? t.emailRequired : t.emailLabel}</label>

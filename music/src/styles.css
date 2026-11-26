@@ -224,7 +224,8 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .sum div { display: flex; justify-content: space-between; }
 .sum .tot { font-size: 16px; color: var(--ink); align-items: baseline; margin-top: 4px; }
 .sum .tot b { font-family: var(--display); font-size: 26px; }
-.promo summary { color: var(--link); padding: 8px 0; cursor: pointer; font-size: 15px; }
+.promo-toggle { border: 0; background: none; color: var(--mut); padding: 8px 0; cursor: pointer; font: inherit; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+.promo-toggle:hover { color: var(--link); }
 .promo-row { display: flex; gap: 8px; margin-top: 6px; }
 .field { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--bg); }
 .field-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
