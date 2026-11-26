@@ -3,7 +3,7 @@
 import { isChallenge } from '../lib/session-logic'
 import * as WebBrowser from 'expo-web-browser'
 import { useEffect, useRef, useState } from 'react'
-import { AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native'
+import { AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { Path } from 'react-native-svg'
 import type { TwoFAChallenge } from '../lib/api'
@@ -36,6 +36,7 @@ export default function Login() {
   const insets = useSafeAreaInsets()
   const { signedIn } = useSession()
   const [mode, setMode] = useState<'choose' | 'email'>('choose')
+  // Formulaire (e-mail, code, empreinte) : seulement l'essentiel en haut, pour que le clavier ne cache rien.
   const [tab, setTab] = useState<'in' | 'up'>('in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -54,6 +55,7 @@ export default function Login() {
     return () => sub.remove()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const compact = !!challenge || mode === 'email'
   const run = async (fn: () => Promise<void>) => {
     setError(null); setInfo(null)
     try { await fn() } catch (e: any) { setError(e?.message || 'Connexion impossible') }
@@ -110,9 +112,9 @@ export default function Login() {
   }, [challenge?.challenge, canPasskey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: c.bg }}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: c.bg }}>
       <ScrollView keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.xl, paddingTop: insets.top + 48, paddingBottom: insets.bottom + space.lg,
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.xl, paddingTop: insets.top + (compact ? 24 : 48), paddingBottom: insets.bottom + space.lg,
           gap: space.xl, width: '100%', maxWidth: 480, alignSelf: 'center' }}>
         <View style={{ gap: space.lg }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
@@ -122,18 +124,23 @@ export default function Login() {
               <Txt small muted>Content & Community Manager</Txt>
             </View>
           </View>
-          <Txt size={32} bold style={{ lineHeight: 38, letterSpacing: -0.6 }} accessibilityRole="header">Vos vidéos courtes, programmées et suivies.</Txt>
-          <Txt muted size={16}>Un seul planning pour TikTok, YouTube Shorts et Instagram Reels. Vos chiffres au même endroit.</Txt>
-          <View style={{ flexDirection: 'row', gap: space.sm }}>
-            {(['tiktok', 'youtube', 'instagram'] as const).map(p => (
-              <View key={p} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' }}>
-                <PlatformLogo platform={p} size={20} />
+          {/* Étape du code ou de l'empreinte : seulement l'essentiel, pour que le clavier ne cache rien. */}
+          {!compact ? (
+            <>
+              <Txt size={32} bold style={{ lineHeight: 38, letterSpacing: -0.6 }} accessibilityRole="header">Vos vidéos courtes, programmées et suivies.</Txt>
+              <Txt muted size={16}>Un seul planning pour TikTok, YouTube Shorts et Instagram Reels. Vos chiffres au même endroit.</Txt>
+              <View style={{ flexDirection: 'row', gap: space.sm }}>
+                {(['tiktok', 'youtube', 'instagram'] as const).map(p => (
+                  <View key={p} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' }}>
+                    <PlatformLogo platform={p} size={20} />
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
+            </>
+          ) : null}
         </View>
 
-        <View style={{ gap: space.md, marginTop: 'auto' }}>
+        <View style={{ gap: space.md, marginTop: compact ? 0 : 'auto' }}>
           {error ? <Msg kind="err">{error}</Msg> : null}
           {info ? <Msg kind="ok">{info}</Msg> : null}
           {challenge && canPasskey && !useCode ? (
@@ -149,10 +156,13 @@ export default function Login() {
             </>
           ) : challenge ? (
             <>
-              <Txt bold size={18}>Double authentification</Txt>
-              <Txt small muted>{recovery ? 'Entrez un de vos codes de secours.' : 'Entrez le code à 6 chiffres de votre application d’authentification.'}</Txt>
-              <Field label={recovery ? 'Code de secours' : 'Code'} value={code} onChangeText={setCode} autoFocus
-                keyboardType={recovery ? 'default' : 'number-pad'} textContentType="oneTimeCode" autoComplete="one-time-code" onSubmitEditing={viaCode} />
+              <Txt bold size={22} accessibilityRole="header">{recovery ? 'Code de secours' : 'Code de connexion'}</Txt>
+              <Txt muted>{recovery ? 'Entrez un de vos codes de secours.' : 'Le code à 6 chiffres de votre application d’authentification.'}</Txt>
+              <CodeInput value={code} recovery={recovery} onChange={v => {
+                setCode(v)
+                // 6 chiffres tapés : validé tout de suite, sans chercher le bouton.
+                if (!recovery && /^\d{6}$/.test(v) && challenge) run(async () => { signedIn(await loginWithCode(challenge.challenge, v, false)) })
+              }} onSubmit={viaCode} />
               <Button kind="primary" title="Valider" onPress={viaCode} disabled={!code.trim()} />
               {!code.trim() ? <Missing items={['le code']} /> : null}
               {challenge.methods.recovery ? <Button kind="ghost" title={recovery ? 'Utiliser le code de l’application' : 'Utiliser un code de secours'} onPress={() => setRecovery(!recovery)} /> : null}
@@ -194,5 +204,18 @@ export default function Login() {
         </Txt>
       </ScrollView>
     </KeyboardAvoidingView>
+  )
+}
+
+/** Champ du code : grand, centré, chiffres espacés ; 6 chiffres pour le code de l'application. */
+function CodeInput({ value, recovery, onChange, onSubmit }: { value: string; recovery: boolean; onChange: (v: string) => void; onSubmit: () => void }) {
+  const { c } = useTheme()
+  return (
+    <TextInput value={value} autoFocus onSubmitEditing={onSubmit} accessibilityLabel={recovery ? 'Code de secours' : 'Code à 6 chiffres'}
+      onChangeText={v => onChange(recovery ? v : v.replace(/\D/g, '').slice(0, 6))}
+      keyboardType={recovery ? 'default' : 'number-pad'} textContentType="oneTimeCode" autoComplete="one-time-code" autoCapitalize="characters"
+      placeholder={recovery ? 'XXXX-XXXX' : '••••••'} placeholderTextColor={c.faint} maxLength={recovery ? 20 : 6}
+      style={{ height: 64, borderRadius: radius.md, borderWidth: 1.5, borderColor: value ? c.primary : c.borderStrong, backgroundColor: c.surface,
+        color: c.text, fontSize: recovery ? 22 : 30, letterSpacing: recovery ? 2 : 12, textAlign: 'center', fontWeight: '700' }} />
   )
 }
