@@ -16,7 +16,9 @@ const EN: Record<string, string> = Object.assign({}, ...Object.values(files))
 
 // Hors navigateur (pré-rendu du build, scripts/prerender.mjs) : français, quelle que soit la langue de la machine.
 // Robots des moteurs de recherche (Googlebot se présente en en-US) : la version française, celle du HTML pré-rendu.
-const BOT = /bot|crawler|spider|crawling|slurp|lighthouse/i
+// Pas seulement « bot » : le test en direct de Search Console (Google-InspectionTool), GoogleOther,
+// Google-Extended, Lighthouse / PageSpeed et les aperçus de liens n'ont pas ce mot.
+const BOT = /bot|crawl|spider|slurp|lighthouse|google-|googleother|inspectiontool|headlesschrome|facebookexternalhit|embedly|preview/i
 const nav = () => (typeof window !== 'undefined' && typeof navigator !== 'undefined' && !BOT.test(navigator.userAgent || '')
   && navigator.language) || 'fr-FR'
 export const systemLang = (): Lang => (nav().toLowerCase().startsWith('fr') ? 'fr' : 'en')

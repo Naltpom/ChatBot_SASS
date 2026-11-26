@@ -1,0 +1,32 @@
+# Chapote CM
+
+> Chapote CM (cm.chapote.fr) est un outil français et gratuit de community management pour les vidéos courtes : on planifie et publie une vidéo sur TikTok, YouTube Shorts et Instagram Reels, sur plusieurs comptes en une fois, avec un planning, des statistiques réunies, une bibliothèque Google Drive et le partage en équipe. Édité par Chapote (https://chapote.fr).
+
+## Ce que fait Chapote CM
+
+- **Publication programmée multi-réseaux** : la vidéo est envoyée une fois ; on choisit les comptes TikTok, YouTube (Shorts) et Instagram (Reels), une légende commune ou propre à chaque compte, et l'heure de publication.
+- **Plusieurs comptes par réseau** : pensé pour les community managers, agences, créateurs et artistes qui gèrent plusieurs comptes.
+- **Planning** : la semaine jour par jour, avec le statut de chaque publication sur chaque réseau (programmée, publiée, échouée).
+- **Statistiques** : vues, abonnés, j'aime, partages et engagement sur 7, 30, 90 jours ou un an, par compte ou par groupe.
+- **Bibliothèque Google Drive** : les vidéos restent dans le Google Drive de l'utilisateur.
+- **Groupes et équipe** : comptes rangés par client, artiste ou chaîne ; partage avec rôles administrateur, éditeur ou lecteur.
+- **Sécurité** : connexion par les pages officielles de TikTok, Google (YouTube) et Meta (Instagram) ; Chapote CM ne voit jamais les mots de passe.
+- **Prix** : gratuit pour l'instant, sans carte bancaire.
+- **Langues** : français et anglais. Disponible sur le web, application Android en préparation.
+- Le compte est le même que sur chapote.fr (e-mail ou Google).
+
+## Pour qui
+
+Community managers, content managers, freelances et agences social media, créateurs de contenu, artistes et marques qui publient des vidéos verticales sur TikTok, YouTube Shorts et Instagram Reels et cherchent une alternative simple et gratuite aux planificateurs de réseaux sociaux.
+
+## Pages
+
+- [Accueil Chapote CM](https://cm.chapote.fr/): fonctionnalités, démonstration interactive, étapes et FAQ.
+- [Créer un compte](https://cm.chapote.fr/inscription)
+- [Politique de confidentialité](https://cm.chapote.fr/privacy)
+- [Conditions d'utilisation](https://cm.chapote.fr/terms)
+
+## Éditeur
+
+- [Chapote](https://chapote.fr/) : l'éditeur, qui propose aussi un chatbot hybride français pour les sites web (arbre guidé, IA plafonnée, relais humain).
+- Contact : contact@chapote.fr
