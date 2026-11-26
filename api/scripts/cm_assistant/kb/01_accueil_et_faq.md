@@ -59,6 +59,9 @@ CM veut dire « community manager » : la personne qui gère les réseaux sociau
 ### D'où vient l'idée de Chapote CM ? Comment est né Chapote CM ? Pourquoi l'avoir créé ?
 L'idée vient de Nathan, le créateur de Chapote. Au départ, il avait un compte Instagram, puis un deuxième. Publier régulièrement demandait de planifier, et l'app ne le permettait pas. Ensuite, pour plus de visibilité, il a ajouté TikTok et YouTube… et s'est retrouvé avec 6 comptes, un planning pour chacun et les mêmes vidéos partout : une vraie galère. En automatisant, il perdait le visuel, la cohérence et le suivi des statistiques. Alors il a fait l'app, pour lui. Elle est maintenant ouverte à tous, en version 1, gratuite pour l'instant : les retours des utilisateurs comptent plus que tout pour la suite.
 
+### Chapote CM, c'est quoi ?
+Un planificateur de réseaux sociaux gratuit, pensé pour les community managers, content managers, créateurs et agences : vous programmez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois, puis vous suivez vos statistiques au même endroit.
+
 ### Mes comptes sont-ils en sécurité ?
 Vous vous connectez par les pages officielles de TikTok, de Google (YouTube) et de Meta (Instagram). Chapote CM ne voit jamais vos mots de passe. Vous pouvez retirer l'accès à tout moment, depuis Chapote CM ou depuis le réseau.
 
