@@ -22,8 +22,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from webauthn import verify_authentication_response, verify_registration_response
+from webauthn import generate_authentication_options, options_to_json, verify_authentication_response, verify_registration_response
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor, UserVerificationRequirement
 
 from src.core.config import settings
 from src.core.database import get_db
@@ -78,6 +79,29 @@ def _why(credential: dict, err: Exception) -> str:
     return f"{type(err).__name__} : {str(err)[:160]}"
 
 
+# Où la clé est rangée (sur ce téléphone, ou via un autre appareil) : sans cette indication, certains
+# gestionnaires (Samsung Pass) ne retrouvent pas la clé à la connexion.
+_TRANSPORTS = {t.value for t in AuthenticatorTransport}
+DEFAULT_TRANSPORTS = ["internal", "hybrid"]
+
+
+def _transports_of(credential: dict) -> list[str]:
+    got = (credential.get("response") or {}).get("transports") or credential.get("transports") or []
+    return [t for t in got if isinstance(t, str) and t in _TRANSPORTS][:6] or list(DEFAULT_TRANSPORTS)
+
+
+def _login_options(creds) -> tuple[str, str]:
+    options = generate_authentication_options(
+        rp_id=settings.webauthn_rp_id,
+        allow_credentials=[PublicKeyCredentialDescriptor(
+            id=base64url_to_bytes(c.credential_id),
+            transports=[AuthenticatorTransport(t) for t in (c.transports or DEFAULT_TRANSPORTS) if t in _TRANSPORTS])
+            for c in creds],
+        user_verification=UserVerificationRequirement.PREFERRED,
+    )
+    return options_to_json(options), bytes_to_base64url(options.challenge)
+
+
 class BeginOut(BaseModel):
     options: str            # JSON des options WebAuthn
 
@@ -121,7 +145,7 @@ async def register_complete(body: RegisterIn, request: Request, user: User = Dep
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette clé est déjà enregistrée.")
     name = (body.name or "").strip()[:60] or "Téléphone"
     db.add(WebAuthnCredential(user_id=user.id, credential_id=cred_id, public_key=bytes_to_base64url(v.credential_public_key),
-                              sign_count=v.sign_count, transports=None, name=name))
+                              sign_count=v.sign_count, transports=_transports_of(body.credential), name=name))
     user.webauthn_challenge = user.webauthn_challenge_at = None
     # Sans code de secours, perdre le téléphone fermerait le compte : on en donne à la première activation.
     codes = None
@@ -138,7 +162,7 @@ async def login_begin(body: LoginBeginIn, db: AsyncSession = Depends(get_db)):
     creds = await _passkeys(db, user.id)
     if not creds:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Aucune empreinte enregistrée pour ce compte.")
-    options_json, ceremony = tf.authentication_options(creds)
+    options_json, ceremony = _login_options(creds)
     user.webauthn_challenge, user.webauthn_challenge_at = ceremony, utcnow()
     await db.commit()
     return BeginOut(options=options_json)
