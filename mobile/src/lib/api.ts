@@ -157,7 +157,7 @@ export const syncAccount = (org: number | null, a: Account) => send<Account>('PO
 export const getOverview = (s: ScopeArg, days: number) => call<Overview>(`/api/cm/overview${q(s, { days })}`)
 export const getVideos = (s: ScopeArg, opts: { platform?: string; sort?: string; order?: Order; limit?: number; days?: number }) =>
   call<Video[]>(`/api/cm/videos${q(s, opts)}`)
-export const getPosts = (s: ScopeArg, start: Date, end: Date, opts: { q?: string; status?: 'upcoming' | 'published' | 'failed'; order?: Order; limit?: number } = {}) =>
+export const getPosts = (s: ScopeArg, start: Date, end: Date, opts: { q?: string; status?: 'upcoming' | 'published' | 'failed' | 'inbox' | 'action'; order?: Order; limit?: number } = {}) =>
   call<Post[]>(`/api/cm/posts${q(s, { start: start.toISOString(), end: end.toISOString(), ...opts })}`)
 export const getVideosPage = (s: ScopeArg, opts: { platform?: string; sort?: string; order?: Order; q?: string; limit?: number; cursor?: string | null }) =>
   callPage<Video>(`/api/cm/videos${q(s, { ...opts, cursor: opts.cursor || undefined })}`)

@@ -21,5 +21,9 @@ const EN: Record<string, string> = {
   'Aucune vidéo dans cet espace. Vos dossiers Drive sont reliés à un autre espace :': 'No videos in this space. Your Drive folders are linked to another space:',
   'Ouvrir « {space} » ({n} vidéos)': 'Open “{space}” ({n} videos)',
   'Seuls les dossiers partagés avec l’adresse du robot de Chapote apparaissent ici : le reste de votre Drive reste privé.': 'Only folders shared with the Chapote robot’s address show up here: the rest of your Drive stays private.',
+  // Planning : filtre par état
+  'Action requise': 'Action needed',
+  'Non publié': 'Not posted yet',
+  'Rien pour ce filtre sur cette période': 'Nothing for this filter in this period',
 }
 export default EN

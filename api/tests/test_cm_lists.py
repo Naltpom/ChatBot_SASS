@@ -118,6 +118,36 @@ async def test_posts_search_status_order_pages(pg_session, cmenv, tiktok):
 
 @pytest.mark.real_db
 @pytest.mark.asyncio
+async def test_posts_status_inbox_and_action(pg_session, cmenv, tiktok):
+    """Centre d'activité : filtre côté serveur des brouillons TikTok (inbox) et de ce qui attend l'utilisateur (action)."""
+    from sqlalchemy import update as _update
+    from src.models.cm import CmTarget
+    from test_cm import _tt_target
+    from test_cm_team import _plan
+    me = await _user(pg_session, "activite@t.dev")
+    acc = await _account(pg_session, owner=me, open_id="a1")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(me)
+        ids = {}
+        for i, name in enumerate(("publiee", "echec", "brouillon", "programmee")):
+            at = (utcnow() + timedelta(days=i + 1)).isoformat() + "Z"
+            post = await _plan(h, [_tt_target(acc.id, scheduled_at=at)], title=name)
+            ids[name] = post["id"]
+        for name, st in (("publiee", "PUBLISHED"), ("echec", "FAILED"), ("brouillon", "INBOX")):
+            await pg_session.execute(_update(CmTarget).where(CmTarget.post_id == ids[name]).values(status=st))
+        await pg_session.commit()
+        titles = lambda r: sorted(p["title"] for p in r.json())  # noqa: E731
+        assert titles(await h.get("/api/cm/posts?status=inbox")) == ["brouillon"]
+        assert titles(await h.get("/api/cm/posts?status=action")) == ["brouillon", "echec"]
+        assert titles(await h.get("/api/cm/posts?status=failed")) == ["echec"]
+        assert titles(await h.get("/api/cm/posts?status=published")) == ["publiee"]
+        assert titles(await h.get("/api/cm/posts?status=upcoming")) == ["programmee"]
+        assert (await h.get("/api/cm/posts?status=autre")).status_code == 422
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
 async def test_video_sheet_groups_platforms_and_filters_comments(pg_session, cmenv, tiktok):
     from sqlalchemy import select as _select
     from src.models.cm import CmComment, CmTarget

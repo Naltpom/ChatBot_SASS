@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  byDay, dayKey, filterItems, groupItems, groupOf, openTarget, periodSummary, pillOf, postIdOf, rowNote, rowSide,
+  byDay, dayKey, filterByStatus, filterItems, groupItems, matchesStatus, groupOf, openTarget, periodSummary, pillOf, postIdOf, rowNote, rowSide,
   searchSections, shiftKey, shortTitle, startOfWeek, stateOf, weekKeys, weekRange,
 } from './calendar.ts'
 import { diffsOf, editableText, initialOpen, postItems, postWindow, splitCommon, tiktokLinkOk } from './sheet.ts'
@@ -251,4 +251,22 @@ test('récapitulatif par compte et ordre des dates selon la langue', () => {
   assert.deepEqual(dateOrder('en-US'), ['month', 'day', 'year'])
   assert.equal(fromParts({ day: 31, month: 2, year: 2027, hour: 10, minute: 0 }), null)
   assert.equal(fromParts({ day: 30, month: 11, year: 2026, hour: 19, minute: 10 })?.getHours(), 19)
+})
+
+test('filtre d’état : action requise, publié, non publié (par publication)', () => {
+  const failed = target({ id: 2, status: 'FAILED', platform: 'instagram' })
+  const ok = target({ id: 3, status: 'PUBLISHED', platform: 'youtube' })
+  const later = target({ id: 4, post_id: 11, group: 'p11', status: 'SCHEDULED' })
+  const draft = target({ id: 5, post_id: 12, group: 'p12', status: 'INBOX' })
+  const routine = target({ id: 6, post_id: 13, group: 'p13', status: 'AWAITING_ROUTINE' })
+  const v = video({ id: 9 })
+  const all = [failed, ok, later, draft, routine, v]
+  assert.ok(matchesStatus(draft, 'action') && !matchesStatus(draft, 'planned') && !matchesStatus(draft, 'done'))
+  assert.ok(matchesStatus(routine, 'planned') && !matchesStatus(routine, 'action'))
+  assert.ok(matchesStatus(v, 'done') && matchesStatus(ok, 'done'))
+  assert.equal(filterByStatus(all, 'all'), all)
+  // Publication p10 : un échec (Instagram) et une réussite (YouTube) → affichée entière dans « Action requise » et « Publié ».
+  assert.deepEqual(filterByStatus(all, 'action').map(i => i.id), [2, 3, 5])
+  assert.deepEqual(filterByStatus(all, 'done').map(i => i.id), [2, 3, 9])
+  assert.deepEqual(filterByStatus(all, 'planned').map(i => i.id), [4, 6])
 })

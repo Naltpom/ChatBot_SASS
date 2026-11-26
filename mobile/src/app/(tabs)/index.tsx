@@ -1,6 +1,7 @@
 // Planning : un jour à la fois (glisser à gauche / à droite pour changer de jour), bande des semaines qui glisse,
 // recherche faite par le serveur, tirer pour actualiser. Passé : vidéos publiées (avec chiffres) ;
 // futur : publications programmées. Comme cm/src/pages/Planning.tsx (vue Agenda).
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -12,15 +13,17 @@ import { useLoad, useRole, useSession } from '../../lib/session'
 import { StartChecklist } from '../../features/StartChecklist'
 import { AttentionBar } from '../../features/Attention'
 import { ExampleWeek } from '../../features/ExampleWeek'
+import { Select } from '../../features/library/ui'
 import { Button, Chip, Delta, Empty, Msg, PlatformLogo, Row, SearchField, Skeleton, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import {
-  byDay, dayKey, filterItems, fromKey, groupItems, groupOf, openTarget, periodSummary, searchRange, searchSections,
-  shiftKey, weekKeys, weekRange, type PlanGroup,
+  byDay, dayKey, filterByStatus, filterItems, fromKey, groupItems, groupOf, openTarget, periodSummary, searchRange, searchSections,
+  shiftKey, weekKeys, weekRange, type PlanGroup, type StatusFilter,
 } from '../../features/planning/calendar'
 import { PlanRow } from '../../features/planning/ui'
 import { t, locale } from '../../lib/i18n'
 
+const STATUS_KEY = 'planning-status'
 type ListRow = { type: 'head'; day: string } | { type: 'row'; g: PlanGroup }
 
 const longDay = (k: string) => fromKey(k).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })
@@ -34,6 +37,13 @@ export default function Planning() {
   const today = dayKey(new Date())
   const [selected, setSelected] = useState(today)
   const [platforms, setPlatforms] = useState<Platform[]>([])
+  // Filtre d'état (Tout / Action requise / Publié / Non publié), retenu sur l'appareil.
+  const [status, setStatusState] = useState<StatusFilter>('all')
+  useEffect(() => {
+    AsyncStorage.getItem(STATUS_KEY).then(v => { if (v === 'action' || v === 'done' || v === 'planned') setStatusState(v) }).catch(() => {})
+  }, [])
+  const setStatus = (v: StatusFilter) => { setStatusState(v); AsyncStorage.setItem(STATUS_KEY, v).catch(() => {}) }
+  const statusOptions: [StatusFilter, string][] = [['all', t('Tout')], ['action', t('Action requise')], ['done', t('Publié')], ['planned', t('Non publié')]]
   const [flash, setFlash] = useState<string | null>(null)
   // Retour de « Nouvelle publication » : le jour programmé et un message.
   useEffect(() => {
@@ -65,10 +75,12 @@ export default function Planning() {
   const refresh = () => { setPulling(true); cal.reload(); if (search) found.reload() }
 
   const items = useMemo(() => filterItems(cal.data?.items || [], platforms, 'all'), [cal.data, platforms])
-  const days = useMemo(() => byDay(items), [items])
+  // Le filtre d'état garde les publications entières (une plateforme qui correspond suffit) ; le résumé de la semaine reste complet.
+  const shown = useMemo(() => filterByStatus(items, status), [items, status])
+  const days = useMemo(() => byDay(shown), [shown])
   const stats = useMemo(() => new Map((cal.data?.days || []).map(d => [d.day, d])), [cal.data])
   const dayGroups = useMemo(() => groupItems(days.get(selected) || []), [days, selected])
-  const results = useMemo(() => (search && found.data ? searchSections(filterItems(found.data.items, platforms, 'all')) : []), [search, found.data, platforms])
+  const results = useMemo(() => (search && found.data ? searchSections(filterByStatus(filterItems(found.data.items, platforms, 'all'), status)) : []), [search, found.data, platforms, status])
   const summary = useMemo(() => periodSummary(items), [items])
   const weekFollowers = (cal.data?.days || []).reduce((s, d) => s + (d.followers_delta || 0), 0)
 
@@ -129,6 +141,7 @@ export default function Planning() {
       {!search ? <AttentionBar /> : null}
       {!search ? <StartChecklist /> : null}
       <SearchField value={input} onChangeText={setInput} placeholder={t('Rechercher (titre, légende)')} />
+      <Select label="" value={status} onChange={setStatus} options={statusOptions} />
       {connected.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} accessibilityLabel={t('Réseaux')}>
           {connected.map(p => (
@@ -173,7 +186,10 @@ export default function Planning() {
   const empty = search
     ? (found.loading && !found.data ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View> : undefined)
     : !cal.data && cal.loading ? <View style={{ gap: space.sm }}><Skeleton h={72} n={3} /></View>
-    : !isPast && canEdit && summary.planned + summary.done === 0 ? <ExampleWeek canEdit={canEdit} /> : (
+    : !isPast && canEdit && summary.planned + summary.done === 0 ? <ExampleWeek canEdit={canEdit} />
+    : status !== 'all' ? (
+      <Empty title={t('Rien pour ce filtre ce jour-là')} icon="calendar" action={<Button title={t('Tout afficher')} onPress={() => setStatus('all')} />} />
+    ) : (
       <Animated.View style={[{ flex: 1, minHeight: 260, justifyContent: 'center', borderRadius: radius.lg, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.borderStrong }, face]}>
       <Empty bare title={isPast ? t('Aucune publication ce jour-là') : t('Rien de prévu ce jour-là')} icon="calendar"
         action={!isPast && canEdit ? <Button kind="primary" icon="plus" title={t('Planifier une vidéo')} onPress={() => router.push('/new')} /> : undefined}>
