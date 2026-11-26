@@ -17,6 +17,10 @@
 - [Démo « 1 URL → chatbot »](https://chapote.fr/demo): générer un aperçu de chatbot à partir de l'URL d'un site.
 - [Ils utilisent Chapote](https://chapote.fr/showcase): cas d'usage e-commerce, sites de services, commerces locaux et SaaS.
 
+## Autre produit de Chapote
+
+- [Chapote CM](https://cm.chapote.fr/): outil gratuit de community management pour planifier et publier des vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur plusieurs comptes, avec planning, statistiques et bibliothèque Google Drive. Détails : https://cm.chapote.fr/llms.txt
+
 ## Légal
 
 - [Mentions légales](https://chapote.fr/legal/mentions-legales)

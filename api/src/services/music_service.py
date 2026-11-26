@@ -162,6 +162,7 @@ class Quote:
     promo: Optional[MusicPromoCode] = None
     promo_error: Optional[str] = None
     promos: list = field(default_factory=list)       # tous les codes appliqués (2 au plus)
+    promo_cuts: list = field(default_factory=list)   # remise de chaque code, dans l'ordre de promos
 
     def as_dict(self) -> dict:
         return {
@@ -176,6 +177,9 @@ class Quote:
             "bundles": self.bundles,
             "promo_code": "+".join(p.code for p in self.promos) if self.promos else None,
             "promo_codes": [p.code for p in self.promos],
+            # détail par code pour le récapitulatif (« INSTA20 · −20 % … −0,49 € »)
+            "promos": [{"code": p.code, "kind": p.kind, "value": p.value, "cents": c}
+                       for p, c in zip(self.promos, self.promo_cuts)],
             "promo_error": self.promo_error,
         }
 
@@ -226,6 +230,7 @@ async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str
     codes = list(dict.fromkeys(c.strip().upper() for c in ([promo_code] if promo_code else []) + list(promo_codes or [])
                                 if c and c.strip()))
     promos: list[MusicPromoCode] = []
+    promo_cuts: list[int] = []
     promo_error, discount = None, 0
     if len(codes) > MAX_PROMOS:
         promo_error, codes = "promo_too_many", codes[:MAX_PROMOS]
@@ -246,6 +251,7 @@ async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str
         rest -= cut
         discount += cut
         promos.append(found)
+        promo_cuts.append(cut)
     promo = promos[0] if promos else None
     total = subtotal - discount
     if discount:
@@ -254,7 +260,7 @@ async def quote(db: AsyncSession, sheet_ids: list[int], promo_code: Optional[str
             l.price_cents -= cut
     return Quote(lines=lines, list_total_cents=list_total, subtotal_cents=subtotal,
                  discount_cents=discount, total_cents=total, currency=st.currency,
-                 bundles=bundles, promo=promo, promo_error=promo_error, promos=promos)
+                 bundles=bundles, promo=promo, promo_error=promo_error, promos=promos, promo_cuts=promo_cuts)
 
 
 # --------------------------------------------------------------------------

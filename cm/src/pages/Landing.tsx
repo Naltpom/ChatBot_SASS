@@ -52,7 +52,9 @@ const FEATURES: { k: string; title: string; text: string; img: string; alt: stri
     alt: 'Écran Groupes : création d’un groupe et choix de ses comptes' },
 ]
 
-const FAQ: [string, string][] = [
+// Aussi publiée en données structurées FAQPage sur l'accueil (scripts/prerender.mjs) : texte affiché = texte déclaré.
+export const FAQ: [string, string][] = [
+  ['Chapote CM, c’est quoi ?', 'Un planificateur de réseaux sociaux gratuit, pensé pour les community managers, content managers, créateurs et agences : vous programmez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois, puis vous suivez vos statistiques au même endroit.'],
   ['Mes comptes sont-ils en sécurité ?', 'Vous vous connectez par les pages officielles de TikTok, de Google (YouTube) et de Meta (Instagram). Chapote CM ne voit jamais vos mots de passe. Vous pouvez retirer l’accès à tout moment, depuis Chapote CM ou depuis le réseau.'],
   ['Où vont mes vidéos ?', 'Dans votre propre Google Drive, dans un dossier créé par Chapote CM. Chapote CM ne voit que les fichiers qu’il y range. Après publication, vous choisissez de les garder ou de les supprimer.'],
   ['Combien ça coûte ?', 'Chapote CM est gratuit pour l’instant, sans carte bancaire. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.'],
@@ -63,7 +65,7 @@ const FAQ: [string, string][] = [
 
 export default function Landing() {
   const { appUrl } = useSession()
-  useEffect(() => { document.title = t('Chapote CM · Planifiez vos vidéos sur TikTok, YouTube et Instagram') }, [])
+  useEffect(() => { document.title = t('Chapote CM · Planifier ses vidéos TikTok, YouTube Shorts et Instagram Reels (gratuit)') }, [])
   // Apparition au défilement : un seul observateur pour toute la page. Sans lui, tout reste visible.
   const page = useRef<HTMLDivElement>(null)
   useEffect(() => {

@@ -222,6 +222,11 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -0.025em; margin: 0; }
 .line .rm { border: 0; background: none; color: var(--link); font-size: 13px; cursor: pointer; padding: 8px 0 8px 8px; }
 .sum { border-top: 1px solid var(--line2); padding-top: 12px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--ink2); }
 .sum div { display: flex; justify-content: space-between; }
+.sum .sum-promo { color: #1e7a3a; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .sum .sum-promo { color: #7ee2a0; } }
+.sum .sum-rm { border: 0; background: none; color: inherit; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 6px; }
+.sum .promo-row { margin: 2px 0 4px; }
+.sum .msg { display: block; }
 .sum .tot { font-size: 16px; color: var(--ink); align-items: baseline; margin-top: 4px; }
 .sum .tot b { font-family: var(--display); font-size: 26px; }
 .promo-toggle { border: 0; background: none; color: var(--mut); padding: 8px 0; cursor: pointer; font: inherit; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
