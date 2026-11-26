@@ -30,6 +30,24 @@ export function draftLink(url: string): { id: number; launch: string | null } | 
   return { id: Number(m[1]), launch: m[2] ? s : null }
 }
 
+/** Page de cm.chapote.fr citée par l'assistant → écran de l'app (on reste dans l'app). null : pas d'équivalent,
+ * le lien part dans le navigateur. */
+const ROUTES: [RegExp, string][] = [
+  [/^\/(planning)?\/?$/, '/'], [/^\/stats\/?$/, '/stats'], [/^\/bibliotheque\/?$/, '/library'],
+  [/^\/nouvelle\/?$/, '/new'], [/^\/a-valider\/?$/, '/drafts'], [/^\/comptes\/?$/, '/accounts'],
+  [/^\/(partage|personnes|equipe)\/?$/, '/people'], [/^\/commentaires\/?$/, '/comments'], [/^\/videos\/?$/, '/videos'],
+  [/^\/reglages\/assistant-ia\/?$/, '/assistant-settings'], [/^\/reglages\/compte\/?$/, '/account'], [/^\/reglages\/?$/, '/settings'],
+]
+export function appRoute(url: string): string | null {
+  // Pas de new URL(...).pathname : l'URL de React Native ne le fournit pas partout.
+  const m = /^https:\/\/cm\.chapote\.fr(\/[^?#]*)?(?:[?#].*)?$/.exec(url)
+  if (!m) return null
+  const path = m[1] || '/'
+  const v = /^\/videos\/(\d+)\/?$/.exec(path)
+  if (v) return `/video/${v[1]}`
+  return ROUTES.find(([re]) => re.test(path))?.[1] ?? null
+}
+
 /** Réponse du jeton au cadre du bot (injectée dans la page parente), seulement vers l'origine de chapote.fr. */
 export function tokenReply(id: string, token: string | null, aliases: Record<string, string> | null): string {
   const msg = JSON.stringify({ type: 'chapote-user-token', id, token, aliases })
@@ -38,13 +56,14 @@ export function tokenReply(id: string, token: string | null, aliases: Record<str
 
 /** Page qui contient l'iframe du bot, aux couleurs de l'app. Aucune donnée du compte n'y est mise : le cadre
  * demande son jeton court par message, la page le relaie à l'app (qui seule a la session) et l'app répond.
- * Le bandeau du chat (nom, statut) sert de titre : l'onglet n'affiche pas le sien. */
+ * Sans bandeau (header=0) : l'onglet « Assistant » de l'app suffit comme titre. Cadre en bloc : sinon une
+ * fine bande (l'espace sous une ligne de texte) apparaît sous le chat. */
 export function assistantHtml(color: string, text: string, theme: 'light' | 'dark', bg: string): string {
-  const src = `${FRAME}?key=${BOT_KEY}&color=${encodeURIComponent(color)}&color_text=${encodeURIComponent(text)}&theme=${theme}&token_origin=${encodeURIComponent(CM_ORIGIN)}`
+  const src = `${FRAME}?key=${BOT_KEY}&color=${encodeURIComponent(color)}&color_text=${encodeURIComponent(text)}&theme=${theme}&token_origin=${encodeURIComponent(CM_ORIGIN)}&header=0`
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<style>html,body,iframe{margin:0;border:0;width:100%;height:100%;background:${bg}}</style>
+<style>html,body,iframe{margin:0;padding:0;border:0;width:100%;height:100%;background:${bg};overflow:hidden}iframe{display:block}</style>
 </head><body><iframe src="${src}" title="${escapeAttr(t('Assistant Chapote CM'))}"></iframe>
 <script>window.addEventListener('message',function(e){var d=e.data;var f=document.querySelector('iframe');
 if(e.origin!==${JSON.stringify(FRAME_ORIGIN)}||!f||e.source!==f.contentWindow||!d||d.type!=='need-user-token'||typeof d.id!=='string')return;
