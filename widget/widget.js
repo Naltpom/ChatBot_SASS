@@ -101,6 +101,33 @@
       }, function () { clearTimeout(timer); resolve(null); });
     });
   }
+  // Cadre ouvert par l'app mobile (data-token-origin, posé par /widget-frame seulement pour l'origine de
+  // Chapote CM) : le jeton est demandé à la page parente par message, la réponse n'est acceptée que de
+  // cette origine ET de la fenêtre parente. Le jeton reste en mémoire, comme avec setUserTokenProvider.
+  const TOKEN_ORIGIN = INLINE ? (script.getAttribute("data-token-origin") || "") : "";
+  if (TOKEN_ORIGIN && window.parent && window.parent !== window) {
+    const waiting = {};
+    let seq = 0;
+    window.addEventListener("message", function (e) {
+      if (e.origin !== TOKEN_ORIGIN || e.source !== window.parent) return;
+      const msg = e.data;
+      if (!msg || msg.type !== "chapote-user-token" || !waiting[msg.id]) return;
+      const done = waiting[msg.id];
+      delete waiting[msg.id];
+      aliasMap = msg.aliases && typeof msg.aliases === "object" ? msg.aliases : null;
+      done(typeof msg.token === "string" ? msg.token : null);
+    });
+    userTokenProvider = function () {
+      return new Promise(function (resolve) {
+        const id = "t" + (++seq);
+        waiting[id] = resolve;
+        setTimeout(function () { if (waiting[id]) { delete waiting[id]; resolve(null); } }, 3500);
+        try {
+          window.parent.postMessage({ source: "chapote-widget", type: "need-user-token", id: id }, TOKEN_ORIGIN);
+        } catch (err) { delete waiting[id]; resolve(null); }
+      });
+    };
+  }
   function withAliases(text) {
     if (!aliasMap || text == null) return text;
     let out = String(text);

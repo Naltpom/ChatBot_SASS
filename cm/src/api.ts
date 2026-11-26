@@ -302,7 +302,11 @@ export interface Proposal {
   id: number; org_id?: number | null; status: 'open' | 'used' | 'dismissed'; title: string | null; caption: string | null
   scheduled_at: string | null; when_from: 'path' | 'date' | null
   accounts: { key: string; name: string | null; platform: Platform }[]; asset: Asset | null; created_at: string
+  /** Réglages par compte (« plateforme:id » → options de cible) ; origine : auto (dossier) ou assistant. */
+  options?: Record<string, Record<string, unknown>>; origin?: 'auto' | 'assistant'
 }
+/** « Lancer la programmation » depuis le lien signé de l'Assistant. */
+export const launchProposal = (id: number, s: string) => send<{ post_id?: number }>('POST', `/api/cm/proposals/${id}/launch`, { s })
 export const analyzeSource = (org: number | null, id: number) => send<Analysis>('POST', `/api/cm/sources/${id}/analyze${q(org)}`)
 export const previewRecipe = (org: number | null, id: number, recipe: Recipe) =>
   send<{ recipe: Recipe; examples: RecipeExample[] }>('POST', `/api/cm/sources/${id}/recipe/preview${q(org)}`, { recipe })

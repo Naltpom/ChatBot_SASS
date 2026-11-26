@@ -1,7 +1,7 @@
 // Appels à l'API de cm.chapote.fr, les mêmes que le site (copie de cm/src/api.ts), avec la session
 // de l'application mobile (voir ./http.ts) : /api/cm/..., /api/tiktok/..., /api/youtube/..., /api/auth/...
 import * as WebBrowser from 'expo-web-browser'
-import { API_URL, ApiError, call, callPage, type Page } from './http'
+import { API_URL, ApiError, authHeaders, call, callPage, type Page } from './http'
 export { ApiError, type Page }
 
 
@@ -250,6 +250,18 @@ export interface Proposal {
   id: number; status: 'open' | 'used' | 'dismissed'; title: string | null; caption: string | null
   scheduled_at: string | null; when_from: 'path' | 'date' | null
   accounts: { key: string; name: string | null; platform: Platform }[]; asset: Asset | null; created_at: string
+  /** Réglages par compte (« tiktok:12 » -> options de l'API), préparés par l'assistant. */
+  options?: Record<string, Record<string, unknown>> | null; origin?: string | null
+}
+/** « Lancer la programmation » d'un brouillon de l'assistant : le lien signé, mêmes vérifications qu'à la main. */
+export const launchProposal = (id: number, s: string) => send<{ post_id?: number; id?: number }>('POST', `/api/cm/proposals/${id}/launch`, { s })
+/** Jeton court de l'assistant « mes données » (null : accord IA pas donné, le bot reste en mode public). */
+export async function assistantToken(): Promise<{ token: string; aliases: Record<string, string> } | null> {
+  try {
+    const r = await fetch(`${API_URL}/api/cm/assistant/token`, { credentials: 'omit', headers: await authHeaders() })
+    if (r.status !== 200) return null
+    return await r.json() as { token: string; aliases: Record<string, string> }
+  } catch { return null }
 }
 export const analyzeSource = (org: number | null, id: number) => send<Analysis>('POST', `/api/cm/sources/${id}/analyze${q(org)}`)
 export const previewRecipe = (org: number | null, id: number, recipe: Recipe) =>

@@ -162,5 +162,9 @@ const EN: Record<string, string> = {
 
   // lib/assistant.ts
   'Assistant Chapote CM': 'Chapote CM Assistant',
+  'C’est programmé': 'It’s scheduled',
+  'La vidéo partira à l’heure prévue. Vous pouvez la vérifier dans le planning.': 'The video will go out at the planned time. You can check it in the schedule.',
+  'Programmation impossible': 'Couldn’t schedule',
+  'Ouvrir le brouillon': 'Open the draft',
 }
 export default EN

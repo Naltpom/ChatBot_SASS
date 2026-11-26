@@ -93,3 +93,15 @@ async def test_uploads_csp_not_clobbered(client):
     csp = resp.headers.get("Content-Security-Policy", "")
     assert "default-src 'none'" in csp
     assert "frame-ancestors" not in csp
+
+
+@pytest.mark.asyncio
+async def test_widget_frame_token_origin_only_cm(client):
+    # App mobile : le jeton « mes données » n'est demandé par message qu'à l'origine de Chapote CM.
+    from src.core.config import settings
+    cm = settings.CM_URL.rstrip("/")
+    async with client as c:
+        ok = await c.get("/widget-frame", params={"key": "pk_" + "a" * 12, "token_origin": cm})
+        bad = await c.get("/widget-frame", params={"key": "pk_" + "a" * 12, "token_origin": "https://evil.example"})
+    assert f'data-token-origin="{cm}"' in ok.text
+    assert "data-token-origin" not in bad.text

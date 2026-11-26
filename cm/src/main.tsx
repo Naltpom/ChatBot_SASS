@@ -41,6 +41,8 @@ const Register = lazyPage(() => import('./pages/auth/Register'))
 const Forgot = lazyPage(() => import('./pages/auth/Forgot'))
 const Planning = lazyPage(() => import('./pages/Planning'))
 const Composer = lazyPage(() => import('./pages/Composer'))
+const OpenDraft = lazyPage(() => import('./pages/DraftLink').then(m => ({ default: m.OpenDraft })))
+const LaunchDraft = lazyPage(() => import('./pages/DraftLink').then(m => ({ default: m.LaunchDraft })))
 const Stats = lazyPage(() => import('./pages/Stats'))
 const Videos = lazyPage(() => import('./pages/Videos'))
 const Accounts = lazyPage(() => import('./pages/Accounts'))
@@ -153,6 +155,8 @@ function Pages({ me, ready }: { me: boolean; ready: boolean }) {
         <Route path="/" element={<Navigate to="/planning" replace />} />
         <Route path="/planning" element={<Planning />} />
         <Route path="/nouvelle" element={<Composer />} />
+        <Route path="/brouillon/:id" element={<OpenDraft />} />
+        <Route path="/brouillon/:id/lancer" element={<LaunchDraft />} />
         <Route path="/stats" element={<Stats />} />
         <Route path="/reglages" element={<Settings />} />
         <Route path="/reglages/compte" element={<Account />} />

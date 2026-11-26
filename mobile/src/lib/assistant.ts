@@ -17,14 +17,37 @@ export const FRAME = 'https://chapote.fr/widget-frame'
 export const BASE = 'https://cm.chapote.fr/assistant'
 /** Seules ces adresses s'ouvrent dans l'assistant ; tout autre lien part dans le navigateur. */
 export const INSIDE = [BASE, FRAME, 'https://challenges.cloudflare.com/', 'about:blank']
+/** Origine de la page parente (cm) et du cadre du bot (chapote.fr), pour le jeton « mes données ». */
+export const CM_ORIGIN = 'https://cm.chapote.fr'
+export const FRAME_ORIGIN = 'https://chapote.fr'
 
-/** Page qui contient l'iframe du bot, aux couleurs de l'app. Aucune donnée du compte n'y est mise.
+/** Lien d'un brouillon de l'assistant : « Ouvrir » (/brouillon/12) ou « Lancer » (/brouillon/12/lancer?s=…). */
+export function draftLink(url: string): { id: number; launch: string | null } | null {
+  const m = /^https:\/\/cm\.chapote\.fr\/brouillon\/(\d+)(\/lancer)?\/?(?:\?(.*))?$/.exec(url)
+  if (!m) return null
+  const s = m[2] ? new URLSearchParams(m[3] || '').get('s') : null
+  if (m[2] && !s) return null
+  return { id: Number(m[1]), launch: m[2] ? s : null }
+}
+
+/** Réponse du jeton au cadre du bot (injectée dans la page parente), seulement vers l'origine de chapote.fr. */
+export function tokenReply(id: string, token: string | null, aliases: Record<string, string> | null): string {
+  const msg = JSON.stringify({ type: 'chapote-user-token', id, token, aliases })
+  return `(function(){var f=document.querySelector('iframe');if(f&&f.contentWindow){f.contentWindow.postMessage(${msg},${JSON.stringify(FRAME_ORIGIN)});}})();true;`
+}
+
+/** Page qui contient l'iframe du bot, aux couleurs de l'app. Aucune donnée du compte n'y est mise : le cadre
+ * demande son jeton court par message, la page le relaie à l'app (qui seule a la session) et l'app répond.
  * Le bandeau du chat (nom, statut) sert de titre : l'onglet n'affiche pas le sien. */
 export function assistantHtml(color: string, text: string, theme: 'light' | 'dark', bg: string): string {
-  const src = `${FRAME}?key=${BOT_KEY}&color=${encodeURIComponent(color)}&color_text=${encodeURIComponent(text)}&theme=${theme}`
+  const src = `${FRAME}?key=${BOT_KEY}&color=${encodeURIComponent(color)}&color_text=${encodeURIComponent(text)}&theme=${theme}&token_origin=${encodeURIComponent(CM_ORIGIN)}`
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <style>html,body,iframe{margin:0;border:0;width:100%;height:100%;background:${bg}}</style>
-</head><body><iframe src="${src}" title="${escapeAttr(t('Assistant Chapote CM'))}"></iframe></body></html>`
+</head><body><iframe src="${src}" title="${escapeAttr(t('Assistant Chapote CM'))}"></iframe>
+<script>window.addEventListener('message',function(e){var d=e.data;var f=document.querySelector('iframe');
+if(e.origin!==${JSON.stringify(FRAME_ORIGIN)}||!f||e.source!==f.contentWindow||!d||d.type!=='need-user-token'||typeof d.id!=='string')return;
+if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({kind:'token',id:d.id.slice(0,20)}));});</script>
+</body></html>`
 }

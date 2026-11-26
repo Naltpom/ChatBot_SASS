@@ -535,9 +535,18 @@ async def _proposal(db: AsyncSession, tenant: Tenant, proposal_id: int) -> CmPro
 @router.get("/proposals/{proposal_id}")
 async def get_proposal(proposal_id: int, org_id: Optional[int] = Query(None),
                        db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    tenant = await _tenant(db, user, org_id)
+    tenant = None
+    if org_id is None:
+        # Lien d'un brouillon de l'assistant (/brouillon/12) : l'espace n'est pas dans l'adresse, on prend
+        # celui du brouillon s'il est accessible (sinon 404 comme pour tout brouillon d'un autre espace).
+        row = await db.get(CmProposal, proposal_id)
+        tenant = await _tenant_of(db, user, row) if row is not None else None
+    if tenant is None:
+        tenant = await _tenant(db, user, org_id)
     accounts, _ = await _names(db, tenant)
-    return await _proposal_out(db, await _proposal(db, tenant, proposal_id), accounts)
+    out = await _proposal_out(db, await _proposal(db, tenant, proposal_id), accounts)
+    out["org_id"] = tenant.org_id
+    return out
 
 
 class ArchiveIn(BaseModel):
