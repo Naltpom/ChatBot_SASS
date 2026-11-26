@@ -12,6 +12,7 @@ import { PEOPLE_SORTS, ROLE_CHOICES, ROLE_NAME, filterAccounts, personLine, scop
 import { useDebounced } from '../features/library/hooks'
 import { Choice, SortBar } from '../features/library/ui'
 import { showDialog } from '../ui/dialog'
+import { t } from '../lib/i18n'
 
 function EditPerson({ p, org, onClose, onSaved }: { p: Person; org: number; onClose: () => void; onSaved: (t: string) => void }) {
   const { groups, accounts } = useSession()
@@ -22,38 +23,38 @@ function EditPerson({ p, org, onClose, onSaved }: { p: Person; org: number; onCl
   const [busy, setBusy] = useState(false)
   const save = async () => {
     setErr(''); setBusy(true)
-    try { await updatePerson(org, p.email, role, scope); onSaved('Accès mis à jour.') }
+    try { await updatePerson(org, p.email, role, scope); onSaved(t('Accès mis à jour.')) }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
-  const remove = () => showDialog(`Retirer l’accès de ${p.email} ?`, 'Les comptes, le planning et la bibliothèque restent.', [
-    { text: 'Annuler', style: 'cancel' },
-    { text: 'Retirer', style: 'destructive', onPress: async () => {
+  const remove = () => showDialog(t('Retirer l’accès de {email} ?', { email: p.email }), t('Les comptes, le planning et la bibliothèque restent.'), [
+    { text: t('Annuler'), style: 'cancel' },
+    { text: t('Retirer'), style: 'destructive', onPress: async () => {
       setBusy(true)
-      try { await removePerson(org, p.email); onSaved('Accès retiré.') } catch (e) { setErr((e as Error).message); setBusy(false) }
+      try { await removePerson(org, p.email); onSaved(t('Accès retiré.')) } catch (e) { setErr((e as Error).message); setBusy(false) }
     } },
   ])
   const shownAccounts = filterAccounts(accounts, q)
   return (
     <Sheet visible title={p.name || p.email} onClose={onClose}
       footer={<Row gap={space.sm}>
-        <Button kind="danger" title="Retirer" disabled={busy} onPress={remove} />
-        <Button title="Annuler" onPress={onClose} flex />
-        <Button kind="primary" title="Enregistrer" loading={busy} onPress={save} flex />
+        <Button kind="danger" title={t('Retirer')} disabled={busy} onPress={remove} />
+        <Button title={t('Annuler')} onPress={onClose} flex />
+        <Button kind="primary" title={t('Enregistrer')} loading={busy} onPress={save} flex />
       </Row>}>
       {p.name ? <Txt small muted>{p.email}</Txt> : null}
-      <View accessibilityRole="radiogroup" accessibilityLabel="Accès">
-        <Label>Accès</Label>
-        {ROLE_CHOICES.map(([v, l, d]) => <Choice key={v} radio label={l} hint={d} checked={role === v} onPress={() => setRole(v)} />)}
+      <View accessibilityRole="radiogroup" accessibilityLabel={t('Accès')}>
+        <Label>{t('Accès')}</Label>
+        {ROLE_CHOICES.map(([v, l, d]) => <Choice key={v} radio label={t(l)} hint={t(d)} checked={role === v} onPress={() => setRole(v)} />)}
       </View>
       {role !== 'admin' ? (
         <View style={{ gap: space.sm }}>
-          <Label>Comptes</Label>
-          <Choice label="Tous les comptes de l’espace" checked={scope.all} onPress={() => setScope(s => ({ ...s, all: !s.all }))} />
+          <Label>{t('Comptes')}</Label>
+          <Choice label={t('Tous les comptes de l’espace')} checked={scope.all} onPress={() => setScope(s => ({ ...s, all: !s.all }))} />
           {!scope.all ? (
             <>
               {groups.length ? (
-                <View accessibilityLabel="Groupes" style={{ gap: space.sm }}>
-                  <Txt small bold>Groupes</Txt>
+                <View accessibilityLabel={t('Groupes')} style={{ gap: space.sm }}>
+                  <Txt small bold>{t('Groupes')}</Txt>
                   <Row gap={space.sm} wrap>
                     {groups.map(g => (
                       <Chip key={g.id} label={g.name} selected={scope.groups.includes(g.id)} left={<GroupDot color={g.color} />}
@@ -62,8 +63,8 @@ function EditPerson({ p, org, onClose, onSaved }: { p: Person; org: number; onCl
                   </Row>
                 </View>
               ) : null}
-              <Txt small bold>Comptes</Txt>
-              {accounts.length > 8 ? <SearchField value={q} onChangeText={setQ} placeholder="Rechercher un compte" /> : null}
+              <Txt small bold>{t('Comptes')}</Txt>
+              {accounts.length > 8 ? <SearchField value={q} onChangeText={setQ} placeholder={t('Rechercher un compte')} /> : null}
               <Row gap={space.sm} wrap>
                 {shownAccounts.map(a => {
                   const k = `${a.platform}:${a.id}`
@@ -101,23 +102,23 @@ export default function People() {
 
   const header = (
     <View style={{ gap: space.md, paddingBottom: space.md }}>
-      <Txt muted>{space_ && !space_.owner && space_.owner_name ? `Espace partagé par ${space_.owner_name}. ` : ''}On partage un groupe de comptes : Comptes → le groupe → Partager.</Txt>
-      {d?.can_manage ? <Button kind="primary" icon="plus" title="Partager un groupe" onPress={() => router.push('/accounts')} /> : null}
+      <Txt muted>{space_ && !space_.owner && space_.owner_name ? t('Espace partagé par {nom}. ', { nom: space_.owner_name }) : ''}{t('On partage un groupe de comptes : Comptes → le groupe → Partager.')}</Txt>
+      {d?.can_manage ? <Button kind="primary" icon="plus" title={t('Partager un groupe')} onPress={() => router.push('/accounts')} /> : null}
       {msg ? <Msg kind={msg.kind}>{msg.text}</Msg> : null}
       {data.error ? <Msg kind="err">{data.error}</Msg> : null}
       {!d && data.loading ? <Skeleton h={64} n={3} /> : null}
       {d && !shared ? (
-        <Empty title="Vous êtes seul·e ici" icon="users">
-          Pour travailler avec un monteur ou un client : Comptes → créez un groupe → Partager. Vous choisissez : Admin, Peut publier ou Lecture seule.
+        <Empty title={t('Vous êtes seul·e ici')} icon="users">
+          {t('Pour travailler avec un monteur ou un client : Comptes → créez un groupe → Partager. Vous choisissez : Admin, Peut publier ou Lecture seule.')}
         </Empty>
       ) : null}
       {shared ? (
         <>
-          <SearchField value={input} onChangeText={setInput} placeholder="Rechercher une personne (nom, e-mail)" />
-          <SortBar sort={sort} order={order} options={PEOPLE_SORTS} onSort={s => { setSort(s); setOrder('asc') }} onOrder={setOrder} />
+          <SearchField value={input} onChangeText={setInput} placeholder={t('Rechercher une personne (nom, e-mail)')} />
+          <SortBar sort={sort} order={order} options={PEOPLE_SORTS.map(([v, l]) => [v, t(l)] as [PeopleSort, string])} onSort={s => { setSort(s); setOrder('asc') }} onOrder={setOrder} />
         </>
       ) : null}
-      {shared && d && d.people.length === 0 ? <Txt small muted>Personne ne correspond à « {q} ».</Txt> : null}
+      {shared && d && d.people.length === 0 ? <Txt small muted>{t('Personne ne correspond à « {q} ».', { q })}</Txt> : null}
     </View>
   )
 
@@ -134,15 +135,15 @@ export default function People() {
           const editable = !!d?.can_manage && !p.you && !p.owner && d.org_id != null
           const name = p.name || p.email
           return (
-            <Card onPress={editable ? () => setEditing(p) : undefined} accessibilityLabel={editable ? `${name}, ${ROLE_NAME[p.role]}. Modifier` : undefined}>
+            <Card onPress={editable ? () => setEditing(p) : undefined} accessibilityLabel={editable ? t('{nom}, {role}. Modifier', { nom: name, role: t(ROLE_NAME[p.role]) }) : undefined}>
               <Row gap={space.md}>
                 <Avatar src={null} name={name} />
                 <View style={{ flex: 1 }}>
-                  <Txt bold numberOfLines={1}>{name}{p.you ? <Txt small muted> (vous)</Txt> : null}</Txt>
-                  <Txt small muted numberOfLines={2}>{personLine(p, scopeText(p, groupName, accountName))}</Txt>
+                  <Txt bold numberOfLines={1}>{name}{p.you ? <Txt small muted>{t(' (vous)')}</Txt> : null}</Txt>
+                  <Txt small muted numberOfLines={2}>{t(personLine(p, scopeText(p, groupName, accountName)))}</Txt>
                 </View>
                 <View style={{ paddingHorizontal: 10, minHeight: 28, borderRadius: 999, backgroundColor: c.surface2, justifyContent: 'center' }}>
-                  <Txt small>{ROLE_NAME[p.role]}</Txt>
+                  <Txt small>{t(ROLE_NAME[p.role])}</Txt>
                 </View>
               </Row>
             </Card>
@@ -150,16 +151,16 @@ export default function People() {
         }}
         ListFooterComponent={(
           <Txt small faint style={{ marginTop: space.md }}>
-            Un compte TikTok, YouTube ou Instagram n’est relié qu’à un seul espace Chapote : quand quelqu’un part, les comptes restent ici. Pour confier un compte à quelqu’un d’autre : Comptes → Transférer.
+            {t('Un compte TikTok, YouTube ou Instagram n’est relié qu’à un seul espace Chapote : quand quelqu’un part, les comptes restent ici. Pour confier un compte à quelqu’un d’autre : Comptes → Transférer.')}
           </Txt>
         )}
         refreshControl={<RefreshControl refreshing={refreshing} tintColor={c.muted}
           onRefresh={() => { setRefreshing(true); data.reload(); setTimeout(() => setRefreshing(false), 600) }} />}
       />
-      {sharing ? <ShareSheet what={{ all: true }} label="tout l’espace" onClose={() => setSharing(false)} onDone={() => data.reload()} /> : null}
+      {sharing ? <ShareSheet what={{ all: true }} label={t('tout l’espace')} onClose={() => setSharing(false)} onDone={() => data.reload()} /> : null}
       {editing && d?.org_id != null ? (
         <EditPerson p={editing} org={d.org_id} onClose={() => setEditing(null)}
-          onSaved={t => { setEditing(null); setMsg({ kind: 'ok', text: t }); data.reload() }} />
+          onSaved={txt => { setEditing(null); setMsg({ kind: 'ok', text: txt }); data.reload() }} />
       ) : null}
     </View>
   )
