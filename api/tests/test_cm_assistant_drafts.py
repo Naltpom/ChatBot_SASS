@@ -191,8 +191,11 @@ def test_when_and_fake_links():
     assert parse_when("Demain à 18h23").strftime("%H:%M") == "18:23"
     assert parse_when("2026-11-27T18:23:00").strftime("%Y-%m-%d %H:%M") == "2026-11-27 18:23"
     assert parse_when("n'importe quand") is None
-    fake = "[Lancer la programmation](https://cm.chapote.fr/draft/launch/1234567890)"
-    assert "1234567890" not in _guard_draft_links(fake, [])
+    fake = ("Le brouillon est prêt :\n- [Lancer la programmation](https://cm.chapote.fr/draft/launch/1234567890)\n"
+            "- [Ouvrir le brouillon](https://cm.chapote.fr/brouillon/1234567890)\nRien n'est programmé avant.")
+    out = _guard_draft_links(fake, [], "Compte TikTok 1 n'est pas dans le même espace que cette vidéo")
+    assert "1234567890" not in out and "est prêt" not in out
+    assert out.startswith("Je n'ai pas pu créer le brouillon : Compte TikTok 1 n'est pas dans le même espace"), out
     real = "https://cm.chapote.fr/brouillon/95/lancer?s=abc"
     assert _guard_draft_links(f"[Lancer]({real})", [f'{{"url": "{real}"}}']) == f"[Lancer]({real})"
     assert _guard_draft_links("Voir https://cm.chapote.fr/stats", []) == "Voir https://cm.chapote.fr/stats"

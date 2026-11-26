@@ -425,7 +425,8 @@ async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
     # Garde-fou « mes données » : un lien de brouillon (« Lancer la programmation ») n'est montré que s'il
     # a été fabriqué par Chapote (résultat d'outil de cette réponse, ou déjà donné plus tôt dans la conversation).
     seen = [str(m.get("content", "")) for m in history] if data_mode else []
-    guard = (lambda t: _guard_draft_links(t, seen)) if data_mode else (lambda t: t)
+    draft_error: list[str] = []          # dernière erreur de create_draft dans cette réponse
+    guard = (lambda t: _guard_draft_links(t, seen, draft_error[-1] if draft_error else None)) if data_mode else (lambda t: t)
     async with httpx.AsyncClient(timeout=AI_TIMEOUT_S) as client:
         for turn in range(max_turns):
             res = await adapter.request(
@@ -450,6 +451,8 @@ async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
                 tool_results.append((call, content, is_error))
                 if data_mode and not is_error:
                     seen.append(str(content))
+                if data_mode and is_error and "create_draft" in (call.name + json.dumps(call.args or {}, ensure_ascii=False)):
+                    draft_error.append(str(content)[:300])
             adapter.append_turn(messages, res, tool_results)
     return AIResult(content=guard(last_text) if last_text else TOOL_EXHAUSTED_MESSAGE,
                     tokens_in=tokens_in, tokens_out=tokens_out)
@@ -457,22 +460,31 @@ async def _run_tool_loop(adapter, api_key: str, bot: Bot, system: str,
 
 _DRAFT_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)|(https?://[^\s<>()\[\]]+)")
 _DRAFT_PATH_RE = re.compile(r"/(brouillon|draft|drafts|proposals?)(/|\?|$)", re.I)
-_FAKE_LINK_NOTE = "(lien indisponible : le brouillon n'a pas été créé, réessayez)"
 
 
-def _guard_draft_links(text: str, seen: list[str]) -> str:
+def _guard_draft_links(text: str, seen: list[str], error: Optional[str] = None) -> str:
     """Retire les liens de brouillon que l'IA aurait écrits elle-même (adresse absente des résultats des outils
-    et de la conversation) : seul Chapote fabrique et signe ces liens."""
+    et de la conversation) : seul Chapote fabrique et signe ces liens. Si elle en avait écrit, la réponse ne
+    peut plus annoncer un brouillon « prêt » : elle commence par dire qu'il n'a pas été créé, et pourquoi."""
     if not text:
         return text
     blob = "\n".join(seen)
+    removed = []
 
     def fix(m: "re.Match") -> str:
         url = (m.group(2) or m.group(3) or "").rstrip(".,;:!?»")
         if not _DRAFT_PATH_RE.search(url) or url in blob:
             return m.group(0)
-        return f"{m.group(1)} {_FAKE_LINK_NOTE}" if m.group(1) else _FAKE_LINK_NOTE
-    return _DRAFT_LINK_RE.sub(fix, text)
+        removed.append(url)
+        return ""
+    out = _DRAFT_LINK_RE.sub(fix, text)
+    if not removed:
+        return text
+    out = re.sub(r"(?im)^.*\b(brouillon est pr[eê]t|draft is ready|voici les (deux )?liens).*$\n?", "", out)
+    out = re.sub(r"(?m)^[ \t]*[-*•]?[ \t]*:?[ \t]*$\n?", "", out).strip()
+    why = f" : {error.strip()}" if error else "."
+    head = f"Je n'ai pas pu créer le brouillon{why} Rien n'est programmé."
+    return f"{head}\n\n{out}" if out else head
 
 
 class _AnthropicAdapter:
