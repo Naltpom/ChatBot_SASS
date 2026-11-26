@@ -7,7 +7,7 @@ Ce que fait le script :
   1. retrouve le compte propriétaire (--owner-email, OBLIGATOIRE : aucune adresse
      n'est écrite dans le code) ; il doit être administrateur (is_superadmin) ;
   2. crée le bot perso s'il n'existe pas (inactif par défaut), puis règle :
-     mode IA, consignes (scripts/cm_assistant/system_prompt.md), apparence,
+     mode hybride (menu de départ scripts/cm_assistant/tree.json, puis IA), consignes (scripts/cm_assistant/system_prompt.md), apparence,
      domaines autorisés (cm.chapote.fr + localhost), captcha Turnstile (clés
      existantes du serveur) ;
   3. pose l'override « offert » (sans Stripe) décidé à l'étape 1 : statut actif,
@@ -78,6 +78,16 @@ DESIGN = {
 }
 
 
+def _tree() -> dict:
+    """Menu de départ (« Comment puis-je vous aider ? ») : scripts/cm_assistant/tree.json, validé.
+    Mode « hybride » : on clique un choix, ou on écrit librement et l'IA répond."""
+    import json
+    from src.services.tree_engine import validate_tree
+    tree = json.loads((HERE / "tree.json").read_text(encoding="utf-8"))
+    validate_tree(tree)
+    return tree
+
+
 def _kb_ref(title: str, text: str) -> str:
     """Nom de la source : titre + empreinte du texte (un texte modifié dans le dépôt change de nom)."""
     import hashlib
@@ -110,9 +120,12 @@ async def sync_on_startup() -> None:
         stale = [i for r, i in have.items() if r not in want]
         missing = [r for r in want if r not in have]
         prompt_changed = (bot.system_prompt or "").strip() != system_prompt
-        if not stale and not missing and not prompt_changed:
+        tree = _tree()
+        tree_changed = bot.tree_json != tree or bot.mode != "hybrid"
+        if not stale and not missing and not prompt_changed and not tree_changed:
             return
         bot.system_prompt = system_prompt
+        bot.tree_json, bot.mode = tree, "hybrid"
         if stale:
             await db.execute(delete(KbSource).where(KbSource.id.in_(stale)))
         for ref in missing:
@@ -173,7 +186,8 @@ async def run(owner_email: str, dry_run: bool, activate: bool, connect_mcp: bool
             db.add(bot)
             await db.flush()
 
-        bot.mode = "ai"
+        bot.mode = "hybrid"
+        bot.tree_json = _tree()
         bot.system_prompt = system_prompt
         bot.temperature = 30
         bot.api_key_mode = "managed"

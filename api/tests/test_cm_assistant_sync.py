@@ -39,6 +39,7 @@ async def test_sync_only_when_changed(pg_engine, pg_session, monkeypatch):
     assert len(refs) == n and "Ancien titre" not in refs and len(ingested) == n
     await pg_session.refresh(bot)
     assert bot.system_prompt.startswith("Tu es « Assistant Chapote CM »")
+    assert bot.mode == "hybrid" and bot.tree_json["nodes"]["root"]["message"] == "Bonjour ! Comment puis-je vous aider ?"
 
     # Rien n'a changé : aucune nouvelle ingestion.
     await m.sync_on_startup()
