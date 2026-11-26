@@ -35,6 +35,7 @@ from src.routers import cm_assistant as cm_assistant_router
 from src.routers import cm_invite_links
 from src.routers import cm_account_requests
 from src.routers import cm_passkey
+from src.routers import cm_biometric
 from src.services import cm_push
 from src.services import cm_mcp, emails_mcp
 from src.services.auth_service import ensure_dev_admin
@@ -349,6 +350,7 @@ app.include_router(cm_assistant_router.router)
 app.include_router(cm_invite_links.router)
 app.include_router(cm_account_requests.router)
 app.include_router(cm_passkey.router)
+app.include_router(cm_biometric.router)
 app.include_router(music.router)
 app.include_router(admin_music.router)
 app.include_router(uploads.router)

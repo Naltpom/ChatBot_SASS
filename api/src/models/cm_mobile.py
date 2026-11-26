@@ -119,3 +119,18 @@ class CmAccountRequest(Base):
     disputed_at = Column(DateTime, nullable=True)
     dispute_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class CmBiometricKey(Base):
+    """Empreinte gérée par l'app : une clé secrète tirée au sort par le serveur, rangée dans la puce sécurisée
+    du téléphone et protégée par l'empreinte (ou le visage). Elle remplace le code de double authentification
+    à la connexion. Seule son empreinte SHA-256 est gardée ici ; on peut la retirer à tout moment."""
+    __tablename__ = "cm_biometric_keys"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(80), nullable=True)                 # « Galaxy S24 de Nathan » (donné par l'app)
+    secret_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
