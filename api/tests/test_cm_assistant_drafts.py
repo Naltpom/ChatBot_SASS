@@ -171,12 +171,14 @@ async def test_find_accounts_by_real_name(pg_session, assistant, tiktok):
                      json={"stats": True, "planning": True, "captions": True})
         token = await _token(ha)
         aliases = (await ha.get("/api/cm/assistant/token")).json()["aliases"]
-    assert aliases["Compte TikTok 1"] == "alice.secret" and aliases["Groupe 1"] == "Naltpom Piano"
+    assert aliases["Compte TikTok 1"] == "alice.secret (TikTok)" and aliases["Groupe 1"] == "Naltpom Piano"
     out, err = await _run(token, "find_accounts", {"text": "ALICE"})
     assert not err and json.loads(out)["comptes"] == [{"compte": "Compte TikTok 1", "reseau": "TikTok"}]
     assert "alice.secret" not in out
     out, err = await _run(token, "find_accounts", {"text": "mes comptes naltpom"})
     res = json.loads(out)
     assert res["groupes"] == [{"groupe": "Groupe 1", "comptes": ["Compte TikTok 1"]}] and "Naltpom" not in out.replace(res["recherche"], "")
+    out, err = await _run(token, "my_accounts", {})
+    assert not err and json.loads(out)["groupes"] == [{"groupe": "Groupe 1", "comptes": ["Compte TikTok 1"]}]
     out, err = await _run(token, "find_accounts", {"text": "bob"})
     assert not err and json.loads(out)["comptes"] == [] and "bob" not in out.replace(json.loads(out)["recherche"], "")

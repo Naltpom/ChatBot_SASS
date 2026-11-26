@@ -178,7 +178,7 @@ export default function Composer() {
   // Espace de la publication : celui des comptes choisis, sinon celui du brouillon / de la vidéo, sinon le mien.
   const fixed = params.get('org')
   const baseOrg = fixed ? (fixed === 'perso' ? null : Number(fixed)) : home
-  const org = chosen.length ? chosen[0].org_id ?? null : baseOrg
+  const org = chosen.length ? chosen[0].org_id ?? null : draft && draft.org_id !== undefined ? draft.org_id ?? null : baseOrg
   const sameOrg = (a: Account) => (a.org_id ?? null) === org
   const why = (a: Account): string | null => {
     if (!a.can_publish) return a.needs_reconnect ? t('Indisponible : à reconnecter') : t('Indisponible')
@@ -190,7 +190,9 @@ export default function Composer() {
 
   const add = (list: Account[]) => {
     const first = picked.length ? all.find(a => key(a) === picked[0]) : null
-    const where = first ? first.org_id ?? null : (asset || draft ? baseOrg : list.find(a => a.can_publish && a.role !== 'viewer')?.org_id ?? null)
+    // Brouillon (assistant, « À valider ») : l'espace du brouillon, pas celui affiché (ses comptes y sont).
+    const where = first ? first.org_id ?? null : draft ? (draft.org_id ?? null)
+      : (asset ? baseOrg : list.find(a => a.can_publish && a.role !== 'viewer')?.org_id ?? null)
     const fresh = list.filter(a => a.can_publish && a.role !== 'viewer' && (a.org_id ?? null) === where && !picked.includes(key(a)))
     if (!fresh.length) return
     setPicked(p => [...p, ...fresh.map(key)])
