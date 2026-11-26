@@ -144,7 +144,7 @@ export type FooterColumn = { title: string; links: NavLink[] }
 // Liens en « / » → routes internes (rendues en <Link> par Footer). « # » → ancre
 // ou placeholder. Le pack légal pointe vers les pages publiques réelles.
 export const FOOTER_COLUMNS: FooterColumn[] = [
-  { title: 'Produit', links: [{ href: '#story', label: 'Comment ça marche' }, { href: '#tarifs', label: 'Tarifs' }, { href: '#install', label: 'Installation' }, { href: '/demo', label: 'Démo' }, { href: '/a-propos', label: 'À propos' }] },
+  { title: 'Produit', links: [{ href: '#story', label: 'Comment ça marche' }, { href: '#tarifs', label: 'Tarifs' }, { href: '#install', label: 'Installation' }, { href: '/demo', label: 'Démo' }, { href: '/a-propos', label: 'À propos' }, { href: 'https://cm.chapote.fr/', label: 'Chapote CM : planifier ses vidéos' }] },
   { title: 'Légal', links: [{ href: '/legal/mentions-legales', label: 'Mentions légales' }, { href: '/legal/cgu', label: 'CGU' }, { href: '/legal/cgv', label: 'CGV' }, { href: '/legal/confidentialite', label: 'Confidentialité' }, { href: '/legal/tiktok-cgu', label: 'CGU module TikTok' }, { href: '/legal/tiktok-confidentialite', label: 'Confidentialité TikTok' }, { href: '/legal/youtube-cgu', label: 'CGU module YouTube' }, { href: '/legal/youtube-confidentialite', label: 'Confidentialité YouTube' }, { href: '/legal/instagram-cgu', label: 'CGU Instagram' }, { href: '/legal/instagram-confidentialite', label: 'Confidentialité Instagram' }] },
   { title: 'Ressources', links: [{ href: '#', label: 'Documentation' }, { href: 'mailto:hello@chapote.fr', label: 'Contact' }] },
 ]
