@@ -21,7 +21,8 @@ def test_android_origin_and_assetlinks():
     o = cp.android_origin("00:" * 31 + "FF")
     assert o.startswith("android:apk-key-hash:") and "=" not in o and len(o.split(":", 2)[2]) == 43
     origins = cp.app_origins()
-    assert settings.webauthn_origin in origins and len([x for x in origins if x.startswith("android:")]) == 3
+    assert settings.webauthn_origin in origins and len([x for x in origins if x.startswith("android:")]) == 4
+    assert "android:apk-key-hash:aBI196oC21Gs4wsT59FPnTq0Q28bxexG722NQV5JFlc" in origins
     import pathlib
     links = json.loads((pathlib.Path(__file__).resolve().parents[2] / "app/public/.well-known/assetlinks.json").read_text())
     assert "delegate_permission/common.get_login_creds" in links[0]["relation"]
