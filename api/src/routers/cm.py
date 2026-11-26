@@ -32,7 +32,7 @@ from typing import Any, Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
@@ -78,6 +78,7 @@ from src.services import cm_storage
 from src.services import cm_paging as paging
 from src.services import cm_jobs
 from src.services import cm_library
+from src.services import gdrive_service as gd
 from src.services import cm_service as cm
 from src.services import instagram_service as ig
 from src.services import tiktok_service as tt
@@ -1905,6 +1906,23 @@ async def _thumbnail_file(db: AsyncSession, post: CmPost, targets: list[CmTarget
     (extraite par ffmpeg, gardée une heure sur le serveur). None : miniature choisie par la plateforme."""
     if post.cover_path and os.path.exists(post.cover_path):
         return post.cover_path
+    # Publiée et archivée : la couverture n'est plus sur le serveur, on la reprend dans le Drive
+    # (copie de passage, effacée par le nettoyage au bout d'une heure).
+    cover_id = (post.archive or {}).get("cover_id")
+    if cover_id and gd.is_enabled():
+        cached = str(cm.media_dir() / f"thumb-{post.id}-cover.jpg")
+        if os.path.exists(cached):
+            return cached
+        try:
+            await gd.download(cover_id, cached, cm.COVER_MAX_BYTES)
+            if os.path.getsize(cached) > 0:
+                return cached
+        except gd.DriveError:
+            pass
+        try:
+            os.unlink(cached)
+        except OSError:
+            pass
     ms = _chosen_ms(targets)
     if ms is None or post.status != POST_READY:
         return None
@@ -1927,6 +1945,15 @@ async def _thumbnail_file(db: AsyncSession, post: CmPost, targets: list[CmTarget
     return out if os.path.exists(out) and os.path.getsize(out) > 0 else None
 
 
+async def _platform_thumbnail(db: AsyncSession, targets: list[CmTarget]) -> Optional[str]:
+    """Miniature de la vidéo publiée, telle que la plateforme l'affiche (choisie par elle)."""
+    ids = [t.id for t in targets]
+    if not ids:
+        return None
+    return (await db.execute(select(CmVideo.thumbnail_url).where(
+        CmVideo.target_id.in_(ids), CmVideo.thumbnail_url.is_not(None)).limit(1))).scalar_one_or_none()
+
+
 @router.get("/posts/{post_id}/thumbnail")
 async def post_thumbnail(post_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
     """Miniature de la publication (image affichée à la place de la vidéo, téléchargeable)."""
@@ -1934,6 +1961,9 @@ async def post_thumbnail(post_id: int, db: AsyncSession = Depends(get_db), user:
     targets = await _visible_targets(db, tenant, post)
     path = await _thumbnail_file(db, post, targets)
     if not path:
+        url = await _platform_thumbnail(db, targets)
+        if url:
+            return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Miniature choisie par la plateforme")
     return FileResponse(path, media_type="image/png" if path.endswith(".png") else "image/jpeg",
                         filename=f"cm-{post.id}-miniature.{path.rsplit('.', 1)[-1]}",
@@ -1967,6 +1997,9 @@ async def download_by_link(post_id: int, kind: str, exp: int, sig: str, db: Asyn
         targets = (await db.execute(select(CmTarget).where(CmTarget.post_id == post.id))).scalars().all()
         path = await _thumbnail_file(db, post, list(targets))
         if not path:
+            url = await _platform_thumbnail(db, list(targets))
+            if url:
+                return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Miniature choisie par la plateforme")
         return FileResponse(path, media_type="image/png" if path.endswith(".png") else "image/jpeg",
                             filename=f"cm-{post.id}-miniature.{path.rsplit('.', 1)[-1]}")

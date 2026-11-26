@@ -881,6 +881,44 @@ async def test_routine_history_backfills_days_before_first_reading(pg_session, c
     assert rows[date(2026, 11, 24)] == (1010, 52_000)
 
 
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_thumbnail_after_publication(pg_session, cmenv, monkeypatch):
+    """Publiée : couverture reprise dans le Drive (archive) ; sans couverture ni instant choisi : celle de la plateforme."""
+    from src.services import gdrive_service as gd
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_routine(pg_session, owner=u)
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        post_id, r = await _publish(h, [_ig_target(acc.id, scheduled_at=(utcnow() + timedelta(days=1)).isoformat() + "Z")], mp4_bytes(10_000))
+        tid = r.json()["targets"][0]["id"]
+    post = await pg_session.get(CmPost, post_id)
+    cm.remove_media(post)                               # publiée et rangée : plus rien sur le serveur
+    post.archive = {"cover_id": "drive-cover-1"}
+    await pg_session.commit()
+    monkeypatch.setattr(gd, "is_enabled", lambda: True)
+    async def fake_download(file_id, dest, max_bytes):
+        assert file_id == "drive-cover-1"
+        open(dest, "wb").write(b"\xff\xd8\xff\xe0drive")
+        return 9
+    monkeypatch.setattr(gd, "download", fake_download)
+    async with Client(pg_session) as c:
+        r = await c.as_(u).get(f"/api/cm/posts/{post_id}/thumbnail")
+        assert r.status_code == 200 and r.content == b"\xff\xd8\xff\xe0drive"
+    # Sans couverture archivée ni instant choisi : redirigé vers la miniature de la plateforme.
+    post.archive = {}
+    await pg_session.commit()
+    for f in os.listdir(settings.CM_MEDIA_DIR):
+        if f.startswith(f"thumb-{post_id}-"):
+            os.unlink(os.path.join(settings.CM_MEDIA_DIR, f))
+    pg_session.add(CmVideo(platform="instagram", account_id=acc.id, external_id="r1", target_id=tid, thumbnail_url="https://cdn.ig/t.jpg"))
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        r = await c.as_(u).get(f"/api/cm/posts/{post_id}/thumbnail")
+        assert r.status_code == 302 and r.headers["location"] == "https://cdn.ig/t.jpg"
+
+
 def test_media_links_expire_and_are_bound_to_the_target(monkeypatch):
     t = CmTarget(id=7)
     url = cm.media_url(t, "video/mp4")
