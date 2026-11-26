@@ -50,6 +50,9 @@ Donner son avis à Nathan : https://cm.chapote.fr/avis.
 
 ## Questions fréquentes
 
+### Chapote CM, c'est quoi ?
+Un planificateur de réseaux sociaux gratuit, pensé pour les community managers, content managers, créateurs et agences : vous programmez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois, puis vous suivez vos statistiques au même endroit.
+
 ### Pourquoi « CM » ? Que veut dire Chapote CM ?
 CM veut dire « community manager » : la personne qui gère les réseaux sociaux d'une marque ou d'un artiste. Chapote CM fait cette partie du travail à votre place : planifier les vidéos sur tous vos comptes, les publier à l'heure et suivre leurs chiffres au même endroit. Chapote est le nom de la famille d'outils (chapote.fr, Chapote CM, la boutique de partitions).
 

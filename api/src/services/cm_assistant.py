@@ -695,9 +695,10 @@ TOOLS.update({
         "schema": {"type": "object", "properties": {
             "video_id": {"type": "integer", "description": "video_id renvoyé par library_search."},
             "accounts": _ALIASES,
-            "when": {"type": "string", "description": "Date et heure de Paris, « AAAA-MM-JJ HH:MM »."},
-            "title": {"type": "string", "description": "Titre (nom dans le planning, titre YouTube)."},
-            "caption": {"type": "string", "description": "Légende commune avec hashtags."},
+            "when": {"type": "string", "description": ("Date et heure de Paris : « AAAA-MM-JJ HH:MM », ou tel que la "
+                                                       "personne le dit : « demain 18:23 », « aujourd'hui 20:30 ».")},
+            "title": {"type": "string", "description": "Titre, facultatif (défaut : celui de la vidéo). Ne pas le demander."},
+            "caption": {"type": "string", "description": "Légende avec hashtags, facultative (défaut : celle de la vidéo). Ne pas la demander."},
             "per_account": {"type": "object", "description": (
                 "Réglages propres à un compte, par alias. TikTok : privacy_level (PUBLIC_TO_EVERYONE, "
                 "MUTUAL_FOLLOW_FRIENDS, SELF_ONLY), allow_comment, allow_duet, allow_stitch, caption. YouTube : "

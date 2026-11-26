@@ -190,9 +190,9 @@ async def _run_search_docs(bot: Bot, args: dict, db) -> tuple[str, bool]:
     if not results:
         return "Aucun résultat dans la documentation", False
     payload = json.dumps(
-        [{"content": r["content"][:600], "ref": r["ref"]} for r in results],
+        [{"content": r["content"][:1000], "ref": r["ref"]} for r in results],
         ensure_ascii=False,
-    )[:2000]
+    )[:4000]
     # Anti-injection de prompt INDIRECTE (RAG) : ces extraits proviennent de
     # pages/PDF/sitemaps ingérés (potentiellement tiers, user-generated ou
     # altérés). On les encadre explicitement comme DONNÉE de référence à citer,
