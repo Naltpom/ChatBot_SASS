@@ -50,7 +50,7 @@ async def test_register_then_login_with_fingerprint(pg_session, monkeypatch):
         assert r.status_code == 200, r.text
         opts = json.loads(r.json()["options"])
         assert opts["rp"]["id"] == settings.webauthn_rp_id and opts["challenge"]
-        r = await c.post("/api/cm/mobile/passkey/register/complete", json={"name": "Pixel 8", "credential": {"id": "x"}})
+        r = await c.post("/api/cm/mobile/passkey/register/complete", json={"name": "Pixel 8", "credential": {"id": "x", "response": {"transports": ["internal", "bidon"]}}})
         assert r.status_code == 200, r.text
         out = r.json()
         # Première clé, sans code de secours : on en donne (sinon un téléphone perdu fermerait le compte).
@@ -60,14 +60,15 @@ async def test_register_then_login_with_fingerprint(pg_session, monkeypatch):
         await c.post("/api/cm/mobile/passkey/register/begin")
         assert (await c.post("/api/cm/mobile/passkey/register/complete", json={"credential": {"id": "x"}})).status_code == 409
     cred = (await pg_session.execute(select(WebAuthnCredential))).scalar_one()
-    assert cred.name == "Pixel 8"
+    assert cred.name == "Pixel 8" and cred.transports == ["internal"]
 
     # Connexion : défi du mot de passe -> empreinte -> session ouverte ; défi à usage unique.
     challenge = create_twofa_challenge_token(user.id)
     async with _App(pg_session, ip="7.7.7.7") as c:
         r = await c.post("/api/cm/mobile/passkey/login/begin", json={"challenge": challenge})
         assert r.status_code == 200, r.text
-        assert json.loads(r.json()["options"])["allowCredentials"][0]["id"] == cred.credential_id
+        allow = json.loads(r.json()["options"])["allowCredentials"][0]
+        assert allow["id"] == cred.credential_id and allow["transports"] == ["internal"]
         body = {"challenge": challenge, "credential": {"id": cred.credential_id}}
         r = await c.post("/api/cm/mobile/passkey/login/complete", json=body)
         assert r.status_code == 200, r.text
@@ -118,3 +119,10 @@ def test_refusal_reason_names_unknown_origin():
     cd = b64.urlsafe_b64encode(json.dumps({"origin": ok}).encode()).decode().rstrip("=")
     assert cp._why({"response": {"clientDataJSON": cd}}, ValueError("mauvais défi")) == "ValueError : mauvais défi"
     assert cp._why({}, KeyError("id")).startswith("KeyError")
+
+
+def test_login_options_default_transports():
+    from types import SimpleNamespace as NS
+    from webauthn.helpers import bytes_to_base64url as b
+    opts, _ = cp._login_options([NS(credential_id=b(b"\x01"), transports=None)])
+    assert json.loads(opts)["allowCredentials"][0]["transports"] == ["internal", "hybrid"]
