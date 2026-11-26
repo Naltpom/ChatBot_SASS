@@ -14,6 +14,7 @@ Mêmes garde-fous que /api/auth/2fa/login/webauthn/* : limite par adresse, plafo
 """
 import base64
 import json
+import logging
 import os
 from typing import Optional
 
@@ -36,6 +37,7 @@ from src.routers.twofa import (
 from src.services import twofa_service as tf
 
 router = APIRouter(prefix="/api/cm/mobile/passkey", tags=["cm-mobile-passkey"])
+logger = logging.getLogger(__name__)
 
 # Empreintes SHA-256 des certificats qui signent l'app Android fr.chapote.cm (les mêmes que dans
 # assetlinks.json) : clé de signature Google Play, ancienne clé Google Play, clé d'envoi (APK de test).
@@ -56,6 +58,22 @@ def app_origins() -> list[str]:
     """Origines acceptées ici : celles du site, plus l'app Android (CM_ANDROID_CERT_SHA256 pour en changer)."""
     certs = [c for c in os.environ.get("CM_ANDROID_CERT_SHA256", "").split(",") if c.strip()] or list(DEFAULT_ANDROID_CERTS)
     return list(settings.webauthn_origins) + [android_origin(c) for c in certs]
+
+
+def _why(credential: dict, err: Exception) -> str:
+    """Raison lisible d'un refus (rien de secret : l'origine présentée par le téléphone, ou le type d'erreur).
+    Une origine inconnue = certificat de signature de l'app absent de la liste (CM_ANDROID_CERT_SHA256)."""
+    origin = None
+    try:
+        raw = (credential.get("response") or {}).get("clientDataJSON") or ""
+        origin = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))).get("origin")
+    except Exception:
+        pass
+    if origin and origin not in app_origins():
+        logger.warning("cm passkey : origine non reconnue %s", origin)
+        return f"origine de l'app non reconnue ({origin})"
+    logger.warning("cm passkey : vérification refusée (%s : %s)", type(err).__name__, str(err)[:200])
+    return f"{type(err).__name__} : {str(err)[:160]}"
 
 
 class BeginOut(BaseModel):
@@ -94,8 +112,8 @@ async def register_complete(body: RegisterIn, request: Request, user: User = Dep
         v = verify_registration_response(
             credential=json.dumps(body.credential), expected_challenge=base64url_to_bytes(user.webauthn_challenge),
             expected_origin=app_origins(), expected_rp_id=settings.webauthn_rp_id)
-    except Exception:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empreinte non vérifiée : recommencez.")
+    except Exception as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Empreinte non vérifiée : {_why(body.credential, e)}.")
     cred_id = bytes_to_base64url(v.credential_id)
     if (await db.execute(select(WebAuthnCredential.id).where(WebAuthnCredential.credential_id == cred_id))).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette clé est déjà enregistrée.")
@@ -140,8 +158,8 @@ async def login_complete(body: LoginCompleteIn, request: Request, response: Resp
             credential=json.dumps(body.credential), expected_challenge=base64url_to_bytes(user.webauthn_challenge),
             expected_rp_id=settings.webauthn_rp_id, expected_origin=app_origins(),
             credential_public_key=base64url_to_bytes(cred.public_key), credential_current_sign_count=cred.sign_count)
-    except Exception:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Empreinte non vérifiée.")
+    except Exception as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Empreinte non vérifiée : {_why(body.credential, e)}.")
     cred.sign_count, cred.last_used_at = v.new_sign_count, utcnow()
     await _consume_challenge(challenge_key)
     await _reset_2fa_counters(request, user.id, challenge_key)

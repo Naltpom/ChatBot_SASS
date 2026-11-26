@@ -107,3 +107,13 @@ async def test_login_refused_without_key_or_with_bad_signature(pg_session, monke
         await c.post("/api/cm/mobile/passkey/register/begin")
         r = await c.post("/api/cm/mobile/passkey/register/complete", json={"credential": {"id": "y"}})
         assert r.status_code == 200 and r.json()["recovery_codes"] is None
+
+
+def test_refusal_reason_names_unknown_origin():
+    import base64 as b64
+    cd = b64.urlsafe_b64encode(json.dumps({"origin": "android:apk-key-hash:INCONNU"}).encode()).decode().rstrip("=")
+    assert "android:apk-key-hash:INCONNU" in cp._why({"response": {"clientDataJSON": cd}}, ValueError("x"))
+    ok = cp.app_origins()[-1]
+    cd = b64.urlsafe_b64encode(json.dumps({"origin": ok}).encode()).decode().rstrip("=")
+    assert cp._why({"response": {"clientDataJSON": cd}}, ValueError("mauvais défi")) == "ValueError : mauvais défi"
+    assert cp._why({}, KeyError("id")).startswith("KeyError")
