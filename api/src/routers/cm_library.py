@@ -244,8 +244,9 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
                       sort: Literal["recent", "name", "duration", "size"] = "recent",
                       order: Optional[Literal["asc", "desc"]] = None,
                       limit: int = Query(40, ge=1, le=100), cursor: Optional[str] = Query(None, max_length=300),
+                      folder: Optional[str] = Query(None, max_length=500),
                       db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
-    """Vidéos de la bibliothèque : recherche (nom, titre, légende, dossier), tri dans les deux sens,
+    """Vidéos de la bibliothèque (`folder` : seulement celles de ce sous-dossier, « » = à la racine du dossier relié) : recherche (nom, titre, légende, dossier), tri dans les deux sens,
     pages par curseur. En SQL (index d'expression) pour tenir sur de très gros dossiers."""
     tenant = await _tenant(db, user, org_id)
     sources = {s.id: s for s in (await db.execute(select(CmSource).where(
@@ -260,6 +261,9 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
            "duration": CmAsset.duration_sec, "size": CmAsset.size}[sort]
     key = paging.nulls_last(col, ASSET_SORTS[sort], order).label("_k")
     stmt = select(CmAsset, key).where(CmAsset.source_id.in_(ids), CmAsset.removed_at.is_(None))
+    if folder is not None:
+        f = folder.strip("/")
+        stmt = stmt.where(CmAsset.folder_path == f if f else or_(CmAsset.folder_path.is_(None), CmAsset.folder_path == ""))
     used = select(CmPost.id).where(CmPost.asset_id == CmAsset.id).exists()
     elsewhere = CmAsset.kind.in_(("published", "routine", "waiting"))   # gérées par l'outil de publication
     if state == "new":
@@ -275,6 +279,56 @@ async def list_assets(response: Response, org_id: Optional[int] = Query(None), s
     rows = [a for a, _ in rows]
     usage = await lib.usage_of(db, [a.id for a in rows])
     return [lib.asset_out(a, sources.get(a.source_id), usage.get(a.id)) for a in rows]
+
+
+@router.get("/sources/{source_id}/folders")
+async def source_folders(source_id: int, path: str = Query("", max_length=500), org_id: Optional[int] = Query(None),
+                         db: AsyncSession = Depends(get_db), user: User = Depends(get_cm_user)):
+    """Vue « comme dans le Drive » : les sous-dossiers directs de `path` dans un dossier relié, avec le
+    nombre de vidéos de chacun (sous-dossiers compris), et le nombre de vidéos posées directement dans `path`."""
+    tenant = await _tenant(db, user, org_id)
+    src = await db.get(CmSource, source_id)
+    if src is None or src.revoked_at is not None or not _same(src, tenant) or not cm_access.group_allowed(tenant, src.group_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier introuvable")
+    base = path.strip("/")
+    rows = (await db.execute(select(func.coalesce(CmAsset.folder_path, ""), func.count()).where(
+        CmAsset.source_id == source_id, CmAsset.removed_at.is_(None)).group_by(CmAsset.folder_path))).all()
+    here, children = 0, {}
+    for fp, n in rows:
+        fp = (fp or "").strip("/")
+        if fp == base:
+            here += n
+            continue
+        if base and not fp.startswith(base + "/"):
+            continue
+        rest = fp[len(base) + 1:] if base else fp
+        name = rest.split("/", 1)[0]
+        children[name] = children.get(name, 0) + n
+    folders = [{"name": k, "path": f"{base}/{k}" if base else k, "videos": v}
+               for k, v in sorted(children.items(), key=lambda kv: kv[0].lower())]
+    return {"source_id": source_id, "name": src.name, "path": base, "videos": here, "folders": folders}
+
+
+@router.get("/library/elsewhere")
+async def library_elsewhere(org_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+                            user: User = Depends(get_cm_user)):
+    """Bibliothèque vide ici : les autres espaces de la personne qui ont des vidéos (nom, nombre), pour
+    lui montrer où sont ses dossiers Drive au lieu d'un simple « aucune vidéo »."""
+    from src.services import cm_access as acc
+    here = await _tenant(db, user, org_id)
+    out = []
+    for t in await acc._all_tenants(db, user):
+        if (t.org_id or None) == (here.org_id or None):
+            continue
+        ids = [s.id for s in (await db.execute(select(CmSource).where(t.where(CmSource), CmSource.revoked_at.is_(None)))).scalars()
+               if acc.group_allowed(t, s.group_id)]
+        if not ids:
+            continue
+        n = (await db.execute(select(func.count()).select_from(CmAsset).where(
+            CmAsset.source_id.in_(ids), CmAsset.removed_at.is_(None)))).scalar() or 0
+        if n:
+            out.append({"org_id": t.org_id, "folders": len(ids), "videos": n})
+    return out
 
 
 async def _asset(db: AsyncSession, tenant: Tenant, asset_id: int) -> tuple[CmAsset, CmSource]:
