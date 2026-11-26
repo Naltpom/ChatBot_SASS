@@ -14,7 +14,7 @@ export function useOffer(): Offer | null {
   return offer
 }
 
-export function SubscriptionCard({ offer }: { offer: Offer }) {
+export function SubscriptionCard({ offer: baseOffer }: { offer: Offer }) {
   const { t, lang } = useI18n()
   const { eur } = useMoney()
   const { me } = useAuth()
@@ -23,7 +23,30 @@ export function SubscriptionCard({ offer }: { offer: Offer }) {
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const code = savedPromo()
+  // code du lien (?code=...), sinon celui tapé derrière « J'ai un code promo »
+  const linkCode = savedPromo()
+  const [typed, setTyped] = useState('')
+  const [manual, setManual] = useState<{ code: string; offer: Offer } | null>(null)
+  const [promoOpen, setPromoOpen] = useState(false)
+  const [promoErr, setPromoErr] = useState('')
+  const [checking, setChecking] = useState(false)
+  const code = linkCode || manual?.code || ''
+  const offer = manual?.offer ?? baseOffer
+  const applyCode = async () => {
+    const c = typed.trim().toUpperCase()
+    if (!c) return
+    setPromoErr(''); setChecking(true)
+    track('promo', { code: c, sub: true })
+    try {
+      const o = await getOffer(trackCode(), c)
+      // l'offre ne dit pas si le code existe : il compte s'il ouvre un essai ou une remise d'abonnement
+      if (o.trial_days > 0 || (o.first_discount_pct || 0) > 0) { setManual({ code: c, offer: o }); setTyped('') }
+      else setPromoErr(t.promoErr.promo_invalid)
+    } catch (e) {
+      const ae = e as ApiError
+      setPromoErr(ae.code === 'network' ? t.errNetwork : t.promoErr[ae.code] || t.errGeneric)
+    } finally { setChecking(false) }
+  }
   const trial = offer.trial_days > 0
   const [plan, setPlan] = useState<Plan>('year')
   const cents = (p: Plan) => offer.plans.find(x => x.plan === p)?.cents ?? 0
@@ -76,6 +99,28 @@ export function SubscriptionCard({ offer }: { offer: Offer }) {
         <button type="button" className="btn block" onClick={() => { track('subscribe_open', { trial }); setOpen(true) }}>{trial ? t.subCtaTrial : t.subCta}</button>
       ) : (
         <div className="sub-confirm">
+          {!linkCode && (
+            <div className="promo">
+              {manual ? (
+                <div className="promo-chips">
+                  <span className="promo-chip ok">{manual.code}
+                    <button type="button" aria-label={t.remove} onClick={() => setManual(null)}>×</button></span>
+                </div>
+              ) : !promoOpen ? (
+                <button type="button" className="promo-toggle" aria-expanded={false} aria-controls="sub-promo"
+                        onClick={() => { setPromoOpen(true); track('promo_open', { sub: true }) }}>{t.promo}</button>
+              ) : (
+                <form id="sub-promo" className="promo-row" onSubmit={e => { e.preventDefault(); applyCode() }}>
+                  <label htmlFor="sub-promo-code" className="sr">{t.code}</label>
+                  <input id="sub-promo-code" className="field" value={typed} placeholder={t.code} autoCapitalize="characters"
+                         autoComplete="off" spellCheck={false} autoFocus onChange={e => setTyped(e.target.value.toUpperCase())} />
+                  <button type="submit" className="btn dark small" disabled={checking}>{checking ? '…' : t.apply}</button>
+                </form>
+              )}
+              {manual && <div className="msg ok" style={{ marginTop: 8 }}>{t.promoOk(manual.code)}</div>}
+              {promoErr && <div className="msg err" style={{ marginTop: 8 }}>{promoErr}</div>}
+            </div>
+          )}
           <p className="hint">{trial ? t.subTrialNote(offer.trial_downloads, price) : t.subNote(price)}</p>
           <label className="consent">
             <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />
