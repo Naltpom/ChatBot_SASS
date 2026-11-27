@@ -299,7 +299,7 @@ export default function Accounts() {
               <ul className="list">
                 {list.map(a => <AccountRow key={a.id} a={a} groups={groupsOf(a)} busy={busy} canAdmin={adminOf(a)} owner={ownerOf(a)}
                   onTransfer={() => setTransferring(a)}
-                  onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? null, a), t('Chiffres actualisés.'))}
+                  onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? null, a), a.stats_available ? t('Chiffres actualisés.') : t('Nom et photo du compte actualisés.'))}
                   onRemove={() => { if (window.confirm(t('Déconnecter {account} ? Les publications à venir sur ce compte ne partiront plus.', { account: a.name }))) run(`d${p}${a.id}`, () => disconnect(a.org_id ?? null, a)) }}
                   onReconnect={() => connect(p, a.org_id ?? null)}
                   onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(a.org_id ?? null, a.id, { public_domain_only: v }),
@@ -360,8 +360,9 @@ function AccountRow({ a, groups, busy, canAdmin, owner, onSync, onRemove, onReco
       )}
       <div className="row" style={{ gap: 6 }}>
         {a.needs_reconnect && canAdmin && <button type="button" className="btn btn-sm btn-primary" onClick={onReconnect}>{t('Reconnecter')}</button>}
-        {a.stats_available && a.mode !== 'routine' && !a.needs_reconnect && (
-          <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy === `s${a.platform}${a.id}`} aria-label={t('Actualiser les chiffres de {account}', { account: a.name })}><Icon name="refresh" size={16} /><span className="only-desktop">{t('Actualiser')}</span></button>
+        {/* Aussi sans statistiques (TikTok en attente de validation) : relit le nom et la photo du compte. */}
+        {a.mode !== 'routine' && !a.needs_reconnect && (
+          <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy === `s${a.platform}${a.id}`} aria-label={t('Actualiser {account}', { account: a.name })}><Icon name="refresh" size={16} /><span className="only-desktop">{t('Actualiser')}</span></button>
         )}
         {canAdmin && <button type="button" className="btn btn-sm" onClick={onTransfer}>{t('Transférer')}</button>}
         {canAdmin && (
