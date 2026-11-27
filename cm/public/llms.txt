@@ -11,7 +11,7 @@
 - **Bibliothèque Google Drive** : les vidéos restent dans le Google Drive de l'utilisateur.
 - **Groupes et équipe** : comptes rangés par client, artiste ou chaîne ; partage avec rôles administrateur, éditeur ou lecteur.
 - **Sécurité** : connexion par les pages officielles de TikTok, Google (YouTube) et Meta (Instagram) ; Chapote CM ne voit jamais les mots de passe.
-- **Prix** : gratuit pour l'instant, sans carte bancaire.
+- **Prix** : gratuit pendant la bêta.
 - **Langues** : français et anglais. Disponible sur le web, application Android en préparation.
 - Le compte est le même que sur chapote.fr (e-mail ou Google).
 

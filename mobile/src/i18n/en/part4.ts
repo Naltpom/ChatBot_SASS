@@ -459,7 +459,7 @@ const EN: Record<string, string> = {
   'Utiliser le code de l’application': 'Use the app code',
   'Continuer avec Google': 'Continue with Google',
   'Continuer avec un e-mail': 'Continue with email',
-  'Nouveau ? Le compte se crée en continuant. Gratuit, sans carte bancaire.': 'New? Your account is created as you continue. Free, no credit card.',
+  'Nouveau ? Le compte se crée en continuant.': 'New? Your account is created as you continue.',
   'Se connecter': 'Sign in',
   'Créer un compte': 'Create an account',
   'E-mail': 'Email',

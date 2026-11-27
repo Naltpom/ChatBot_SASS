@@ -178,7 +178,7 @@ export default function Login() {
                 <GoogleG /><Txt bold size={16}>{t('Continuer avec Google')}</Txt>
               </Pressable>
               <Button kind="primary" icon="bolt" title={t('Continuer avec un e-mail')} onPress={() => setMode('email')} style={{ minHeight: 52 }} />
-              <Txt small muted center>{t('Nouveau ? Le compte se crée en continuant. Gratuit, sans carte bancaire.')}</Txt>
+              <Txt small muted center>{t('Nouveau ? Le compte se crée en continuant.')}</Txt>
             </>
           ) : (
             <>

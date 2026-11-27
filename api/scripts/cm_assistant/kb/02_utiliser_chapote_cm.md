@@ -85,7 +85,7 @@ Source : documentation de Chapote CM (docs/CM.md), réécrite en mots simples. S
 
 ## Prix
 
-- Chapote CM est gratuit pour l'instant, sans carte bancaire.
+- Chapote CM est gratuit pendant la bêta.
 
 ## Une question sans réponse ici ?
 

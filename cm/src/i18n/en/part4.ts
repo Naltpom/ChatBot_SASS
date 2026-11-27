@@ -18,7 +18,7 @@ const EN: Record<string, string> = {
   'Publiez partout.': 'Post everywhere.',
   'Vos vidéos courtes sur TikTok, YouTube et Instagram, à l’heure choisie, sur tous vos comptes. Et toutes vos statistiques au même endroit.':
     'Your short videos on TikTok, YouTube and Instagram, at the time you choose, on all your accounts. And all your stats in one place.',
-  'Gratuit, sans carte bancaire': 'Free, no credit card',
+  'Gratuit pendant la bêta': 'Free during the beta',
   'Connexion officielle TikTok, Google et Meta': 'Official TikTok, Google and Meta sign-in',
   'Vos vidéos restent dans votre Google Drive': 'Your videos stay in your Google Drive',
   'Essayez : c’est l’écran de l’app, avec une vidéo de démonstration. Rien n’est publié.': 'Try it: this is the app’s screen, with a demo video. Nothing gets posted.',
@@ -71,8 +71,8 @@ const EN: Record<string, string> = {
   'Dans votre propre Google Drive, dans un dossier créé par Chapote CM. Chapote CM ne voit que les fichiers qu’il y range. Après publication, vous choisissez de les garder ou de les supprimer.':
     'Into your own Google Drive, in a folder created by Chapote CM. Chapote CM only sees the files it puts there. After posting, you choose whether to keep or delete them.',
   'Combien ça coûte ?': 'How much does it cost?',
-  'Chapote CM est gratuit pour l’instant, sans carte bancaire. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.':
-    'Chapote CM is free for now, no credit card needed. If a subscription ever arrives, beta testers will keep some freedom.',
+  'Chapote CM est gratuit pendant la bêta. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.':
+    'Chapote CM is free during the beta. If a subscription ever arrives, beta testers will keep some freedom.',
   'Puis-je travailler en équipe ?': 'Can I work as a team?',
   'Oui. Partagez un groupe de comptes avec d’autres personnes. Chacun voit le planning et les statistiques de ce groupe, selon son rôle : administrateur, éditeur ou lecteur.':
     'Yes. Share a group of accounts with other people. Everyone sees that group’s schedule and stats, according to their role: admin, editor or viewer.',
