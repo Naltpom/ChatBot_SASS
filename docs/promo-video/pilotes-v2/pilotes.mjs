@@ -12,57 +12,57 @@ function require_spawn(c, a) { return spawnSync(c, a, { encoding: 'utf8', maxBuf
 const norm = w => w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
 
 // ---------- Plans des 3 vidéos (coordonnées en px CSS de l'écran mobile 390×844, boîtes mesurées par la capture) ----------
-const CASE = { x: 44, y: 456, w: 22, h: 22 }            // case « Atelier Lumen » (Groupes), composer-2
-const PUCES = [{ x: 34, y: 188, w: 172, h: 36 }, { x: 34, y: 230, w: 172, h: 36 }, { x: 34, y: 272, w: 166, h: 36 }]
+// Écrans de l'app Android (version web de démo, profil fictif), px CSS 390×844 ; positions mesurées à la capture.
+const COMPTES3 = [{ x: 33, y: 189, w: 324, h: 53 }, { x: 33, y: 254, w: 324, h: 53 }, { x: 33, y: 319, w: 324, h: 53 }]
+const box = b => [b.x, b.y, b.w, b.h]
 const VIDEOS = {
   pov: {
-    musique: 'musique/voxel.mp3', accroche: 'POV : CM débordé',
-    cles: ['huit', 'trois', 'seule', 'comptes', 'heure', 'semaine', 'gratuit'],
+    musique: 'musique/voxel.mp3', accroche: '8 comptes. Une seule fois.',
+    cles: ['huit', 'trois', 'seule', 'comptes', 'heure', 'semaine', 'bio'],
     plans: (L, at) => [
       { type: 'chaos', lignes: [0, 1], horloge: 0, apparitions: [at(1, 'tiktok'), at(1, 'youtube'), at(1, 'instagram')], comptes8: [at(0, 'huit'), at(0, 'remplir')] },
-      { type: 'ecran', lignes: [2], ecran: 'composer-1', entree: 'punch', cam: [[0, 195, 430, 0.82, 12, -20], [at(2, 'chapote'), 195, 400, 1.0, 4, -6], [at(2, 'une'), 190, 190, 2.1, 0, 0], [1, 200, 205, 2.25, 0, 0]],
-        hl: [[at(2, 'envoies'), 1, 16, 128, 358, 118]], sons: [[0, 'sons/punch.ogg', 0.5]] },
-      { type: 'ecran', lignes: [3], ecran: 'composer-2', entree: 'whip', cam: [[0, 195, 520, 1.9], [at(3, 'coches'), 170, 470, 2.2], [1, 150, 250, 2.0]],
-        taps: [[at(3, 'coches'), CASE.x + 11, CASE.y + 11]], masques: [[at(3, 'coches') + 0.12, CASE.x - 3, CASE.y - 3, CASE.w + 6, CASE.h + 6, 'case'], [at(3, 'coches') + 0.12, 32, 150, 330, 162, 'blanc']] },
-      { type: 'ecran', lignes: [4], ecran: 'composer-2-date', entree: 'whip', cam: [[0, 195, 430, 1.3, 6, 8], [at(4, 'jour'), 195, 520, 2.0], [1, 230, 545, 2.4]],
-        taps: [[at(4, 'jour'), 60, 543], [at(4, 'heure'), 271, 543]], hl: [[at(4, 'jour') + 0.1, 1, 34, 482, 322, 30]] },
-      { type: 'ecran', lignes: [5], ecran: 'publication-plateformes', entree: 'whip', cam: [[0, 195, 560, 1.25, 8, -10], [0.45, 195, 670, 1.8], [1, 200, 680, 1.95]],
-        badges: [[0.25, 24, 602], [0.45, 24, 679], [0.65, 24, 757]] },
+      { type: 'ecran', lignes: [2], ecran: 'app/n2', entree: 'punch', cam: [[0, 195, 520, 0.85, 10, -16], [at(2, 'chapote'), 195, 560, 1.15, 2, -4], [at(2, 'une'), 195, 760, 1.9], [1, 195, 780, 2.0]],
+        taps: [[at(2, 'une'), 195, 788]], hl: [[at(2, 'une') + 0.1, 1, 16, 744, 358, 88]] },
+      { type: 'ecran', lignes: [3], ecran: 'app/c4', entree: 'whip', cam: [[0, 195, 300, 1.6], [at(3, 'comptes'), 195, 270, 1.95], [1, 195, 265, 2.0]],
+        hl: [[at(3, 'coches'), 1, ...box(COMPTES3[0])], [at(3, 'coches') + 0.25, 1, ...box(COMPTES3[1])], [at(3, 'coches') + 0.5, 1, ...box(COMPTES3[2])]] },
+      { type: 'ecran', lignes: [4], ecran: 'app/c4', entree: 'aucune', cam: [[0, 195, 300, 1.9], [0.35, 195, 555, 2.1], [1, 230, 560, 2.35]],
+        taps: [[at(4, 'jour'), 60, 562], [at(4, 'lheure'), 271, 562]], hl: [[at(4, 'jour') + 0.1, 1, 33, 509, 324, 22]] },
+      { type: 'ecran', lignes: [5], ecran: 'app/post1', entree: 'whip', cam: [[0, 195, 560, 1.2, 8, -10], [0.4, 195, 660, 1.75], [1, 200, 665, 1.85]],
+        badges: [[0.3, 348, 606], [0.5, 348, 681], [0.7, 348, 756]] },
       { type: 'fin', lignes: [6] },
     ],
   },
   resultat: {
     musique: 'musique/werq.mp3', accroche: '1 vidéo → 3 réseaux',
-    cles: ['trois', 'une', 'bibliotheque', 'legende', 'tiktok', 'dixhuit', 'part', 'gratuit'],
+    cles: ['trois', 'quune', 'bibliotheque', 'legende', 'tiktok', 'dixhuit', 'part', 'bio'],
     plans: (L, at) => [
-      { type: 'ecran', lignes: [0], ecran: 'publication-plateformes', entree: 'punch', cam: [[0, 195, 600, 1.15, 10, -14], [0.5, 195, 680, 1.75], [1, 195, 690, 1.9]],
-        badges: [[at(0, 'partir'), 24, 602], [at(0, 'trois'), 24, 679], [at(0, 'reseaux'), 24, 757]] },
+      { type: 'ecran', lignes: [0], ecran: 'app/post1', entree: 'aucune', cam: [[0, 195, 620, 1.2, 10, -14], [0.5, 195, 665, 1.75], [1, 195, 670, 1.85]],
+        badges: [[at(0, 'partir'), 348, 606], [at(0, 'trois'), 348, 681], [at(0, 'reseaux'), 348, 756]] },
       { type: 'texte', lignes: [1], cles: ['quune'], sansSousTitres: true },
-      { type: 'ecran', lignes: [2], ecran: 'bibliotheque-videos', entree: 'whip', cam: [[0, 195, 400, 1.05, 6, 10], [0.55, 103, 380, 1.9], [1, 103, 390, 2.05]],
-        taps: [[at(2, 'bibliotheque'), 103, 400]], hl: [[at(2, 'bibliotheque') + 0.1, 1, 18, 254, 172, 268]] },
-      { type: 'ecran', lignes: [3], ecran: 'composer-1', entree: 'whip', cam: [[0, 195, 420, 1.4], [0.5, 195, 590, 2.1], [1, 195, 600, 2.25]],
-        taps: [[at(3, 'legende') - 0.2, 195, 590]], hl: [[at(3, 'legende'), 1, 34, 529, 322, 128]] },
-      { type: 'ecran', lignes: [4], ecran: 'composer-2', entree: 'whip', cam: [[0, 195, 500, 2.0], [at(4, 'coche'), 170, 470, 2.2], [at(4, 'tiktok'), 120, 230, 2.4], [1, 120, 250, 2.4]],
-        taps: [[at(4, 'coche'), CASE.x + 11, CASE.y + 11]], masques: [[at(4, 'coche') + 0.12, CASE.x - 3, CASE.y - 3, CASE.w + 6, CASE.h + 6, 'case'], [at(4, 'coche') + 0.12, 32, 150, 330, 162, 'blanc']],
-        hl: [[at(4, 'tiktok'), at(4, 'youtube'), ...Object.values(PUCES[0])], [at(4, 'youtube'), at(4, 'instagram'), ...Object.values(PUCES[1])], [at(4, 'instagram'), 1, ...Object.values(PUCES[2])]] },
-      { type: 'ecran', lignes: [5], ecran: 'composer-2-date', entree: 'whip', cam: [[0, 195, 450, 1.4, 6, 8], [0.4, 240, 540, 2.3], [1, 250, 545, 2.5]],
-        taps: [[at(5, 'dixhuit'), 271, 543]], hl: [[at(5, 'dixhuit') + 0.1, 1, 240, 514, 63, 63]] },
+      { type: 'ecran', lignes: [2], ecran: 'app/n2', entree: 'whip', cam: [[0, 195, 520, 1.0, 6, 10], [0.55, 195, 770, 1.9], [1, 195, 780, 2.0]],
+        taps: [[at(2, 'bibliotheque'), 195, 788]], hl: [[at(2, 'bibliotheque') + 0.1, 1, 16, 744, 358, 88]] },
+      { type: 'ecran', lignes: [3], ecran: 'app/c3', entree: 'whip', cam: [[0, 195, 440, 1.4], [0.5, 195, 495, 2.1], [1, 195, 500, 2.2]],
+        taps: [[at(3, 'legende') - 0.2, 195, 495]], hl: [[at(3, 'legende'), 1, 33, 442, 324, 110]] },
+      { type: 'ecran', lignes: [4], ecran: 'app/c4', entree: 'whip', cam: [[0, 195, 300, 1.7], [at(4, 'tiktok'), 195, 270, 2.0], [1, 195, 270, 2.05]],
+        hl: [[at(4, 'tiktok'), at(4, 'youtube'), ...box(COMPTES3[0])], [at(4, 'youtube'), at(4, 'instagram'), ...box(COMPTES3[1])], [at(4, 'instagram'), 1, ...box(COMPTES3[2])]] },
+      { type: 'ecran', lignes: [5], ecran: 'app/c4', entree: 'aucune', cam: [[0, 195, 300, 2.0], [0.4, 240, 555, 2.3], [1, 250, 560, 2.45]],
+        taps: [[at(5, 'dixhuit'), 271, 562]], hl: [[at(5, 'dixhuit') + 0.1, 1, 33, 509, 324, 22]] },
       { type: 'texte', lignes: [6], cles: ['part'], sansSousTitres: true },
       { type: 'texte', lignes: [7], cles: ['tiktok'], sansSousTitres: true },
-      { type: 'fin', lignes: [7], debut: at(7, 'gratuit') },
+      { type: 'fin', lignes: [7], debut: at(7, 'lien') },
     ],
   },
   'avant-apres': {
     musique: 'musique/newerwave.mp3', accroche: 'Tu fais encore ça ?',
-    cles: ['alarmes', 'seul', 'une', 'ecran', 'gratuit'],
+    cles: ['alarmes', 'seul', 'tous', 'ecran', 'bio'],
     plans: (L, at) => [
       { type: 'texte', lignes: [0], cles: ['avant'], sansSousTitres: true },
       { type: 'chaos', lignes: [1], horloge: 0, apparitions: [at(1, 'envois'), at(1, 'legendes'), at(1, 'alarmes')] },
-      { type: 'split', lignes: [2], sons: [[0, 'sons/impact.wav', 0.5]] },
-      { type: 'ecran', lignes: [3], ecran: 'composer-2', entree: 'whip', cam: [[0, 195, 500, 1.9, 4, 8], [at(3, 'fois'), 170, 470, 2.2], [at(3, 'tous'), 120, 240, 2.3], [1, 120, 250, 2.35]],
-        taps: [[at(3, 'fois'), CASE.x + 11, CASE.y + 11]], masques: [[at(3, 'fois') + 0.12, CASE.x - 3, CASE.y - 3, CASE.w + 6, CASE.h + 6, 'case'], [at(3, 'fois') + 0.12, 32, 150, 330, 162, 'blanc']] },
-      { type: 'ecran', lignes: [4], ecran: 'planning', entree: 'whip', cam: [[0, 195, 422, 0.9, 14, -18], [0.4, 195, 600, 1.7, 0, 0], [0.75, 195, 720, 1.9], [1, 195, 730, 1.95]],
-        hl: [[at(4, 'semaine'), 1, 16, 569, 358, 67]] },
+      { type: 'split', lignes: [2] },
+      { type: 'ecran', lignes: [3], ecran: 'app/c4', entree: 'whip', cam: [[0, 195, 320, 1.5, 4, 8], [at(3, 'tous'), 195, 270, 1.95], [1, 195, 270, 2.0]],
+        hl: [[at(3, 'tous'), 1, ...box(COMPTES3[0])], [at(3, 'tous') + 0.2, 1, ...box(COMPTES3[1])], [at(3, 'tous') + 0.4, 1, ...box(COMPTES3[2])]] },
+      { type: 'ecran', lignes: [4], ecran: 'app/planning', entree: 'whip', cam: [[0, 195, 422, 0.9, 12, -16], [0.4, 195, 560, 1.7, 0, 0], [0.75, 195, 700, 1.9], [1, 195, 710, 1.95]],
+        hl: [[at(4, 'semaine'), 1, 16, 531, 358, 58]] },
       { type: 'fin', lignes: [5] },
     ],
   },
@@ -86,7 +86,7 @@ async function main() {
     const coupes = []   // [temps de coupe, silence ajouté]
     mots.forEach((m, i) => {
       if (i === mots.length - 1) return
-      const pause = finsLigne.has(i) ? 0.5 : /[.!?]$/.test(m.word) ? 0.25 : 0
+      const pause = finsLigne.has(i) ? 0.35 : /[.!?]$/.test(m.word) ? 0.15 : 0
       if (pause) coupes.push([(m.end + mots[i + 1].start) / 2, pause])
     })
     const garde = []; let cur = debut
@@ -125,7 +125,7 @@ async function main() {
     const dureeVoix = mots0[mots0.length - 1].end
     const duree = +(dureeVoix + 1.6).toFixed(2)
     const bruts = V.plans(L, at)
-    const sons = [son(0, 'sons/impact.wav', 0.45)]
+    const sons = []
     const plans = bruts.map((b, j) => {
       const debut = x => x.debut !== undefined ? x.debut - 1000 - 0.08 : Math.max(0, L[x.lignes[0]].start - 0.12)
       const start = j === 0 ? 0 : debut(b)
@@ -138,20 +138,17 @@ async function main() {
       if (b.hl) p.hl = b.hl.map(([t0, t1, x, y, w, h]) => ({ t0: tt(t0), t1: tt(t1), x, y, w, h }))
       if (b.masques) p.masques = b.masques.map(([t1, x, y, w, h, style]) => ({ t1: tt(t1), x, y, w, h, style }))
       if (b.badges) p.badges = b.badges.map(([t, x, y]) => ({ t: tt(t), x, y }))
-      if (b.type === 'chaos') { p.horloge = tt(b.horloge); p.apparitions = b.apparitions.map(tt); p.comptes8 = b.comptes8 && b.comptes8.map(tt); p.etapes = [p.horloge, ...(p.comptes8 ? Array.from({ length: 8 }, (_, i) => p.comptes8[0] + (p.comptes8[1] - p.comptes8[0]) * i / 8) : [])]; if (p.comptes8) sons.push(son(p.comptes8[0], 'sons/pop.wav', 0.3), son(p.comptes8[0] + (p.comptes8[1] - p.comptes8[0]) / 2, 'sons/pop.wav', 0.3)) }
+      if (b.type === 'chaos') { p.horloge = tt(b.horloge); p.apparitions = b.apparitions.map(tt); p.comptes8 = b.comptes8 && b.comptes8.map(tt); p.etapes = [p.horloge, ...(p.comptes8 ? Array.from({ length: 8 }, (_, i) => p.comptes8[0] + (p.comptes8[1] - p.comptes8[0]) * i / 8) : [])];  }
       // Sons : whoosh à chaque entrée glissée, clic sur chaque tap, ding sur chaque ✓, pop sur chaque carte.
-      if (j > 0 && b.type !== 'fin') sons.push(son(start, b.entree === 'punch' ? 'sons/punch.ogg' : 'sons/whoosh.wav', 0.35))
-      ;(p.taps || []).forEach(x => sons.push(son(x.t, 'sons/clic.wav', 0.6)))
-      ;(p.badges || []).forEach(x => sons.push(son(x.t, 'sons/ding.wav', 0.22)))
-      ;(p.hl || []).forEach(x => sons.push(son(x.t0, 'sons/pop.wav', 0.25)))
-      ;(p.apparitions || []).forEach(x => sons.push(son(x, 'sons/pop.wav', 0.35)))
+      ;(p.taps || []).forEach(x => sons.push(son(x.t, 'sons/clic.wav', 0.45)))
+      ;(p.badges || []).forEach(x => sons.push(son(x.t, 'sons/ding.wav', 0.16)))
       ;(b.sons || []).forEach(([t, s, v]) => sons.push(son(tt(t), s, v)))
-      if (b.type === 'split') { sons.push(son(start + 0.45, 'sons/punch.ogg', 0.4)); p.etapes = [start, start + 0.45, start + 1.0] }
-      if (b.type === 'fin') { sons.push(son(start - 1.2, 'sons/riser.wav', 0.25)); sons.push(son(start, 'sons/impact.wav', 0.5)); sons.push(son(start + 0.3, 'sons/pop.wav', 0.3)); sons.push(son(start + 0.6, 'sons/pop.wav', 0.3)); p.etapes = [start, start + 0.3, start + 0.6, start + 1.6]; sons.push(son(start + 1.6, 'sons/ding.wav', 0.15)) }
+      if (b.type === 'split') { p.etapes = [start, start + 0.45, start + 1.0] }
+      if (b.type === 'fin') { p.etapes = [start, start + 0.3, start + 0.6, start + 1.6] }
       return p
     })
     const accroche = { texte: V.accroche, fin: Math.min(2.6, L[1] ? L[1].start : 2.4) }
-    const props = { audio: `voix/${id}.wav`, musique: V.musique, volMusique: 0.32, duree, mots: mots0, accroche, plans, sons: sons.filter(s => s.t >= 0) }
+    const props = { audio: `voix/${id}.wav`, musique: V.musique, volMusique: 0.2, duree, mots: mots0, accroche, plans, sons: sons.filter(s => s.t >= 0) }
     fs.writeFileSync(`${OUT}/${id}.props.json`, JSON.stringify(props, null, 1))
     const comp = await selectComposition({ serveUrl: serve, id: 'Pilote', inputProps: props })
     if (process.env.IMAGES) {
