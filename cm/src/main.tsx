@@ -59,6 +59,7 @@ const Settings = lazyPage(() => import('./pages/Settings'))
 const Account = lazyPage(() => import('./pages/Account'))
 const AssistantSettings = lazyPage(() => import('./pages/AssistantSettings'))
 const AiPolicy = lazyPage(() => import('./pages/AiPolicy'))
+const Promo = lazyPage(() => import('./pages/Promo'))
 
 const PUBLIC = ['/', '/connexion', '/inscription', '/mot-de-passe-oublie', '/privacy', '/terms', '/avis', '/politique-ia']
 const HINT = 'cm.session'
@@ -94,7 +95,7 @@ function Shell() {
   const { me, ready } = useSession()
   const { pathname } = useLocation()
   useEffect(() => {
-    if ((pathname === '/' && !me) || pathname === '/privacy' || pathname === '/terms') return   // la landing et les pages légales posent leur titre
+    if ((pathname === '/' && !me) || pathname === '/privacy' || pathname === '/terms' || pathname === '/promo') return   // la landing, les pages légales et /promo posent leur titre
     document.title = `${TITLES[pathname] ? t(TITLES[pathname]) + ' · ' : ''}Chapote CM`
   }, [pathname, me])
 
@@ -151,6 +152,8 @@ function Pages({ me, ready }: { me: boolean; ready: boolean }) {
       <Route path="/privacy" element={<Suspense fallback={<Splash />}><Legal doc="privacy" /></Suspense>} />
       <Route path="/terms" element={<Suspense fallback={<Splash />}><Legal doc="terms" /></Suspense>} />
       <Route path="/politique-ia" element={<Suspense fallback={<Splash />}><AiPolicy /></Suspense>} />
+      {/* Plan de lancement (réservé au superadmin, contrôlé dans la page ; noindex). */}
+      <Route path="/promo" element={<Suspense fallback={<Splash />}><Promo /></Suspense>} />
       <Route element={<Layout fallback={<PageLoading />} />}>
         <Route path="/" element={<Navigate to="/planning" replace />} />
         <Route path="/planning" element={<Planning />} />

@@ -7,7 +7,7 @@ export type Platform = 'tiktok' | 'youtube' | 'instagram'
 export const PLATFORMS: Platform[] = ['tiktok', 'youtube', 'instagram']
 export const PLATFORM_LABEL: Record<Platform, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
 
-export interface Me { id: number; email: string; name: string; avatar_url?: string | null; auth_source?: 'local' | 'google' }
+export interface Me { id: number; email: string; name: string; avatar_url?: string | null; auth_source?: 'local' | 'google'; is_superadmin?: boolean }
 export interface TwoFAChallenge { twofa_required: true; challenge: string; methods: { totp: boolean; passkey: boolean; recovery: boolean } }
 
 export interface Stats {

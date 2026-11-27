@@ -5,5 +5,6 @@ Allow: /terms
 Allow: /politique-ia
 Allow: /avis
 Disallow: /api/
+Disallow: /promo
 
 Sitemap: https://cm.chapote.fr/sitemap.xml

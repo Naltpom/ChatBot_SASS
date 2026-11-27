@@ -1,0 +1,76 @@
+/* Page /promo (plan de lancement) : mobile d'abord, mêmes jetons que le reste du site. */
+.pr { min-height: 100dvh; background: var(--bg); color: var(--text); padding: 0 16px 48px; max-width: 1180px; margin: 0 auto; }
+.pr-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; position: sticky; top: 0; z-index: 5; background: var(--bg); }
+.pr-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--text); font-weight: 700; text-decoration: none; }
+.pr-draft { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--warn, #f59e0b); color: #fff; white-space: nowrap; }
+.pr-hero h1 { font-size: clamp(24px, 6vw, 36px); margin: 8px 0; letter-spacing: -.02em; }
+.pr-hero > p { color: var(--muted); max-width: 70ch; margin: 0 0 14px; line-height: 1.5; }
+.pr-counts { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0 0 12px; }
+.pr-counts li { display: inline-flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px 4px 4px; }
+.pr-counts a { text-decoration: none; }
+.pr-rules { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; }
+.pr-rules summary { cursor: pointer; font-weight: 600; }
+.pr-rules ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; color: var(--muted); }
+
+.pr-filters { position: sticky; top: 56px; z-index: 4; background: var(--bg); padding: 10px 0; display: grid; gap: 8px; }
+.pr-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.pr-chips::-webkit-scrollbar { display: none; }
+.pr-chips button { flex: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.pr-chips button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+.pr-day { margin-top: 24px; }
+.pr-day h2 { font-size: 20px; margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pr-day h2 span { font-size: 14px; font-weight: 600; color: var(--muted); text-transform: capitalize; }
+.pr-goal { color: var(--muted); margin: 4px 0 12px; }
+.pr-grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .pr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1100px) { .pr-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+.pr-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pr-card-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
+.pr-time { font-family: var(--mono); font-weight: 700; }
+.pr-format { color: var(--muted); }
+.pr-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.pr-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; }
+.pr-instagram { background: linear-gradient(45deg, #f58529, #dd2a7b, #8134af); }
+.pr-tiktok { background: #111; }
+.pr-youtube { background: #e00; }
+.pr-linkedin { background: #0a66c2; }
+.pr-x { background: #000; }
+.pr-card h3 { margin: 0; font-size: 17px; line-height: 1.3; }
+.pr-hook { margin: 0; font-style: italic; color: var(--muted); }
+
+.pr-visuels { display: flex; gap: 10px; overflow-x: auto; }
+.pr-vis { position: relative; margin: 0; border-radius: 12px; overflow: hidden; background: var(--surface-2); flex: none; }
+.pr-vis img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pr-paysage { width: 100%; aspect-ratio: 16 / 9; }
+.pr-carre { width: min(100%, 320px); aspect-ratio: 1; }
+.pr-portrait { width: 160px; aspect-ratio: 9 / 16; border: 6px solid #111; border-radius: 22px; }
+.pr-story { width: 180px; aspect-ratio: 9 / 16; }
+.pr-cap.pr-story img { object-fit: contain; background: linear-gradient(#fbe3d6, #faf8f5); padding: 22% 10% 8%; box-sizing: border-box; }
+.pr-vis figcaption { position: absolute; left: 0; right: 0; top: 0; padding: 12px 12px 22px; display: grid; gap: 2px; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, .5); background: linear-gradient(rgba(20, 16, 14, .78), rgba(20, 16, 14, .5) 70%, transparent); }
+.pr-vis figcaption b { font-size: 18px; line-height: 1.15; font-weight: 800; letter-spacing: -.01em; }
+.pr-vis figcaption span { font-size: 13px; opacity: .95; }
+.pr-paysage figcaption { top: 0; bottom: 0; left: 0; right: 40%; padding: 14px; align-content: center; background: linear-gradient(90deg, rgba(20, 16, 14, .8), rgba(20, 16, 14, .45) 75%, transparent); }
+.pr-paysage figcaption b { font-size: clamp(20px, 5vw, 30px); }
+.pr-cap.pr-story figcaption { text-align: center; }
+.pr-cap.pr-story figcaption b { font-size: 14px; }
+.pr-carre figcaption b { font-size: 20px; }
+
+.pr-sec summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.pr-script { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.pr-script li { display: grid; grid-template-columns: 58px 1fr; gap: 8px; font-size: 14px; }
+.pr-t { font-family: var(--mono); font-size: 12px; color: var(--muted); padding-top: 2px; }
+.pr-script p { margin: 0; line-height: 1.4; }
+.pr-voix { font-weight: 500; }
+.pr-ecran { color: var(--muted); font-size: 13px; }
+
+.pr-textes { display: grid; gap: 8px; }
+.pr-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.pr-tabs button { border: 0; background: var(--surface-2); color: var(--text); border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.pr-tabs button.on { background: var(--text); color: var(--bg); }
+.pr-text { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 14px; line-height: 1.5; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; max-height: 320px; overflow: auto; }
+.pr-yt-title { margin: 0; font-size: 14px; }
+.pr-copy { justify-self: start; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.pr-prod { margin: 0; font-size: 13px; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 8px; }
+.pr-foot { margin-top: 32px; color: var(--muted); font-size: 13px; line-height: 1.5; }
