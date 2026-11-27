@@ -95,7 +95,7 @@ function Shell() {
   const { me, ready } = useSession()
   const { pathname } = useLocation()
   useEffect(() => {
-    if ((pathname === '/' && !me) || pathname === '/privacy' || pathname === '/terms' || pathname === '/promo') return   // la landing, les pages légales et /promo posent leur titre
+    if ((pathname === '/' && !me) || pathname === '/privacy' || pathname === '/terms' || pathname.startsWith("/promo")) return   // la landing, les pages légales et /promo posent leur titre
     document.title = `${TITLES[pathname] ? t(TITLES[pathname]) + ' · ' : ''}Chapote CM`
   }, [pathname, me])
 
@@ -153,7 +153,7 @@ function Pages({ me, ready }: { me: boolean; ready: boolean }) {
       <Route path="/terms" element={<Suspense fallback={<Splash />}><Legal doc="terms" /></Suspense>} />
       <Route path="/politique-ia" element={<Suspense fallback={<Splash />}><AiPolicy /></Suspense>} />
       {/* Plan de lancement (réservé au superadmin, contrôlé dans la page ; noindex). */}
-      <Route path="/promo" element={<Suspense fallback={<Splash />}><Promo /></Suspense>} />
+      <Route path="/promo/*" element={<Suspense fallback={<Splash />}><Promo /></Suspense>} />
       <Route element={<Layout fallback={<PageLoading />} />}>
         <Route path="/" element={<Navigate to="/planning" replace />} />
         <Route path="/planning" element={<Planning />} />
