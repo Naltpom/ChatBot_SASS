@@ -6,7 +6,7 @@ import { COMPTES, REGLES, SEMAINES, type Plateforme } from './plan'
 import { BILAN, NOTES } from './bilan'
 import { COMPARAISON } from './pilotes'
 import { BarresEmpilees, BarresGroupees } from './charts'
-import { ACTIONS, ENTREES, LABO, PREVISIONNEL, STATUTS, dateDu, fmt, noteActuelle, noteV1, parId, versionActuelle, type Entree, type Statut } from './suivi'
+import { ACTIONS, ANTI_SLOP, DIFFUSIONS, ENTREES, LABO, PREVISIONNEL, STATUTS, dateDu, fmt, noteActuelle, noteV1, parId, scoreSlop, versionActuelle, type Entree, type Statut, type Version } from './suivi'
 import { Badge, Contenu, DOCS, GRILLES, Ligne, NOMS, ORDRE, Pastille, couleur } from './ui'
 
 const Markdown = lazy(() => import('react-markdown'))
@@ -17,6 +17,7 @@ const TITRES: Record<string, string> = {
   '03-viraux-startups': 'Vidéos virales de startups', '04-voix-scripts': 'Voix et scripts', '05-sous-titres': 'Sous-titres', '06-son-musique': 'Son et musique',
   '07-algorithmes': 'Les algorithmes en 2025-2026', '08-youtube-long': 'YouTube horizontal', '09-outils-ia-video': 'Outils : Remotion, HyperFrames, IA',
   '10-fondateur-linkedin-x-fr': 'Fondateur, LinkedIn, X et marché français', '11-pilotes-v2': 'Carnet : comment on a fait les pilotes v2', '12-retours-utilisateurs': 'Conception : des retours utilisateurs aux PR (bugs et idées)',
+  '20-benchmark-tableau-de-bord': 'Benchmark : 14 outils de calendrier éditorial', '21-anti-slop': 'Anti-slop : les marqueurs à éviter et la checklist', '22-concurrents': 'Veille concurrentielle : 11 outils, 5 angles libres', '23-references-ton': 'Références de ton : fondateurs français et bêtas',
 }
 const ECRANS_APP = ['planning', 'n2', 'n3', 'n4', 'stats', 'library', 'post-1', 'post-3', 'accounts', 'settings', 'videos', 'drafts', 'storage', 'welcome']
 const NOMS_APP: Record<string, string> = { planning: 'Planning', n2: 'Nouvelle publication : bibliothèque', n3: 'Nouvelle publication : titre et légende', n4: 'Comptes et date',
@@ -47,7 +48,7 @@ export function Calendrier() {
                 <div key={j.date} className="pr-cal-j">
                   <b>{j.date}</b><small>{j.theme}</small>
                   {es.map(e => <Link key={e.id} to={`/promo/p/${e.id}`} className="pr-cal-e" style={{ borderLeftColor: STATUTS[e.statut].couleur }}>
-                    <span>{e.heure}</span> {e.titre}<em>{e.plateformes.map(p => NOMS[p][0]).join(' ')}</em></Link>)}
+                    <span>{e.heure}</span> {e.titre}<em>{e.plateformes.map(p => NOMS[p][0]).join(' ')}<b className={`pr-cal-badge ${noteActuelle(e) !== undefined ? couleur(noteActuelle(e)!) : ''}`}>{versionActuelle(e).v}{noteActuelle(e) !== undefined ? ` · ${noteActuelle(e)}` : ''}</b></em></Link>)}
                 </div>
               )
             })}
@@ -114,7 +115,7 @@ export function Tableau() {
   const prevu = ENTREES.length + PREVISIONNEL.reduce((a, s) => a + Object.values(s.prevu).reduce((x, y) => x + (y || 0), 0), 0)
   const notes = ENTREES.map(noteActuelle)
   const pretes = ENTREES.filter(e => (noteActuelle(e) ?? 0) >= 7).length
-  const aRefaire = ENTREES.filter(e => e.statut === 'a_refaire').length
+  const aRefaire = ENTREES.filter(e => e.statut === 'a_produire' || e.statut === 'retours').length
   const moyV1 = moy(ENTREES.map(noteV1)), moyAct = moy(notes)
   const prochaine = ENTREES[0]
   const parStatut = (Object.keys(STATUTS) as Statut[]).map(s => ({ s, es: ENTREES.filter(e => e.statut === s) }))
@@ -135,6 +136,7 @@ export function Tableau() {
         <Kpi label="Prêtes à publier (≥ 7/10)" valeur={pretes} sous={`sur ${ENTREES.length}`} ton={pretes ? 'ok' : 'faible'} />
         <Kpi label="À refaire" valeur={aRefaire} sous="v1 sous le seuil" ton="faible" />
         <Kpi label="Note moyenne" valeur={<>{moyAct ?? '—'}<small>/10</small></>} sous={<>v1 : {moyV1}/10 · pilotes v2 : {COMPARAISON.v2.moyenne}/10</>} />
+        <Kpi label="Anti-slop (pilotes v2.1)" valeur={<>{scoreSlop(LABO[0]?.versions.find(v => v.slop && v.v === 'v2.1')?.slop)?.ok ?? '—'}<small>/25</small></>} sous={<Link to="/promo/blog/21-anti-slop">voix de synthèse, personne absente : à trancher</Link>} ton="faible" />
         <Kpi label="Prochaine publication" valeur={<small>{prochaine.date} · {prochaine.heure}</small>} sous={<Link to={`/promo/p/${prochaine.id}`}>{prochaine.titre}</Link>} />
       </section>
 
@@ -202,60 +204,63 @@ export function Publications() {
   )
 }
 
+function Cercle({ n }: { n?: number }) {
+  return <span className={`pr-cercle ${n === undefined ? 'vide' : couleur(n)}`}>{n ?? '—'}</span>
+}
+
+function CarteVersion({ v }: { v: Version }) {
+  const sl = scoreSlop(v.slop)
+  return (
+    <article className={`pr-vcarte ${v.aFaire ? 'afaire' : ''}`}>
+      <header><b>{v.v}</b><span className="pr-muted">{v.date}</span><Cercle n={v.note} />{sl && <span className="pr-muted">anti-slop {sl.ok}/{sl.total}</span>}</header>
+      {v.video ? <video className={`pr-video pr-${v.video.format === 'horizontale' ? 'paysage' : 'portrait'}`} src={v.video.src} poster={v.video.poster} controls playsInline preload="none" />
+        : <div className="pr-vide-video">{v.aFaire ? 'À produire' : 'Pas de vidéo pour cette version'}</div>}
+      <p>{v.resume}</p>
+      {v.problemes && v.problemes.length > 0 && <details><summary>Problèmes relevés ({v.problemes.length})</summary><ul className="pr-pb">{v.problemes.map(x => <li key={x}>{x}</li>)}</ul></details>}
+    </article>
+  )
+}
+
 export function Fiche() {
   const { id = '' } = useParams()
   const e = parId(id)
+  const [ga, setGa] = useState<number | null>(null)
+  const [dr, setDr] = useState<number | null>(null)
   if (!e) return <><Titre t="Publication introuvable" /><Link to="/promo/publications">← Publications</Link></>
-  const faites = e.versions.filter(v => !v.aFaire)
-  const notees = e.versions.filter(v => v.detail)
-  const grilles = [...new Set(notees.flatMap(v => Object.keys(v.detail!)))]
+  const vs = e.versions
+  const faites = vs.filter(v => !v.aFaire)
+  const iG = ga ?? 0, iD = dr ?? Math.max(0, vs.length - 1)
+  const gauche = vs[iG], droite = vs[iD]
+  const grilles = [...new Set(vs.flatMap(v => Object.keys(v.detail ?? {})))]
   const act = versionActuelle(e)
+  const avecSlop = vs.filter(v => v.slop)
   return (
     <>
       <p><Link to="/promo/publications" className="pr-lien">← Publications</Link></p>
       <div className="pr-dash-h">
         <div><h1>{e.titre}</h1>
           <div className="pr-faits">
-            <span><small>Date</small>{e.date} · {e.heure}</span><span><small>Format</small>{e.format}</span>
+            <span><small>Date prévue</small>{e.date} · {e.heure}</span><span><small>Format</small>{e.format}</span>
             <span><small>Réseaux</small><span className="pr-badges">{e.plateformes.map(x => <Badge key={x} p={x} />)}</span></span>
-            <span><small>Statut</small><Pastille s={e.statut} /></span>
+            <span><small>Validation</small><Pastille s={e.statut} /></span>
+            <span><small>Publication</small>{DIFFUSIONS[e.diffusion]}</span>
             <span><small>Version actuelle</small>{act.v}</span>
-            <span><small>Note</small>{noteActuelle(e) !== undefined ? <b className={`pr-score ${couleur(noteActuelle(e)!)}`}>{noteActuelle(e)}/10</b> : '—'}</span>
+            <span><small>Note</small><Cercle n={noteActuelle(e)} /></span>
           </div></div>
       </div>
 
-      <section className="pr-panel">
-        <div className="pr-panel-h"><h2>Versions</h2><span className="pr-muted">{faites.length} produite{faites.length > 1 ? 's' : ''}</span></div>
-        <div className="pr-table-wrap">
-          <table className="pr-table pr-versions">
-            <thead><tr><th>Critère</th>{e.versions.map(v => <th key={v.v} className="num">{v.v}<small className="pr-muted"> {v.date}</small></th>)}{notees.length > 1 && <th className="num">Écart</th>}</tr></thead>
-            <tbody>
-              {grilles.map(g => {
-                const vals = e.versions.map(v => v.detail?.[g]); const nn = vals.filter((x): x is number => x !== undefined)
-                const d = nn.length > 1 ? Math.round((nn[nn.length - 1] - nn[0]) * 10) / 10 : undefined
-                return <tr key={g}><td>{GRILLES[g] ?? g}</td>{vals.map((x, i) => <td key={i} className="num">{x ?? (e.versions[i].aFaire ? 'cible 7' : '—')}</td>)}{notees.length > 1 && <td className={`num ${d === undefined ? '' : d >= 0 ? 'pr-plus' : 'pr-moins'}`}>{d === undefined ? '' : `${d > 0 ? '+' : ''}${d}`}</td>}</tr>
-              })}
-              <tr className="pr-total"><td>Note globale</td>{e.versions.map(v => <td key={v.v} className="num">{v.note !== undefined ? <span className={`pr-score ${couleur(v.note)}`}>{v.note}</span> : v.aFaire ? 'à produire' : 'non notée'}</td>)}{notees.length > 1 && <td />}</tr>
-            </tbody>
-          </table>
-        </div>
-        <div className="pr-versions-cartes">
-          {e.versions.map(v => (
-            <article key={v.v} className={`pr-vcarte ${v.aFaire ? 'afaire' : ''}`}>
-              <header><b>{v.v}</b><span className="pr-muted">{v.date}</span>{v.note !== undefined && <span className={`pr-score ${couleur(v.note)}`}>{v.note}/10</span>}</header>
-              {v.video ? <video className={`pr-video pr-${v.video.format === 'horizontale' ? 'paysage' : 'portrait'}`} src={v.video.src} poster={v.video.poster} controls playsInline preload="none" />
-                : <div className="pr-vide-video">{v.aFaire ? 'À produire' : 'Pas de vidéo'}</div>}
-              <p>{v.resume}</p>
-              {v.problemes && v.problemes.length > 0 && <details><summary>Problèmes relevés ({v.problemes.length})</summary><ul className="pr-pb">{v.problemes.map(x => <li key={x}>{x}</li>)}</ul></details>}
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <div className="pr-fiche">
+      <div className="pr-fiche2">
         <section className="pr-panel">
-          <div className="pr-panel-h"><h2>Contenu</h2></div>
-          {e.piece && <Contenu p={e.piece} />}
+          <div className="pr-panel-h"><h2>Historique des versions</h2><span className="pr-muted">{faites.length} produite{faites.length > 1 ? 's' : ''}</span></div>
+          <ol className="pr-histo">
+            {[...vs].map((v, i) => ({ v, i })).reverse().map(({ v, i }) => (
+              <li key={v.v} className={v.aFaire ? 'afaire' : ''}>
+                <Cercle n={v.note} />
+                <div><b>{v.v}</b>{v === act && <span className="pr-actuelle">actuelle</span>}<small className="pr-muted"> {v.date}</small><p>{v.resume}</p>
+                  <div className="pr-histo-b"><button type="button" onClick={() => setGa(i)} className={iG === i ? 'on' : ''}>Comparer à gauche</button><button type="button" onClick={() => setDr(i)} className={iD === i ? 'on' : ''}>à droite</button></div></div>
+              </li>
+            ))}
+          </ol>
         </section>
         <section className="pr-panel">
           <div className="pr-panel-h"><h2>Retours d'expérience</h2><span className="pr-muted">{e.retours.length}</span></div>
@@ -263,6 +268,44 @@ export function Fiche() {
             : <p className="pr-muted">Aucun retour. Après publication : vues, rétention, commentaires et ce qu'on en retient.</p>}
         </section>
       </div>
+
+      <section className="pr-panel">
+        <div className="pr-panel-h"><h2>Comparaison</h2><span className="pr-muted">{gauche.v} ↔ {droite.v}</span></div>
+        <div className="pr-cote">
+          <CarteVersion v={gauche} />
+          <div className="pr-cote-milieu">
+            <table className="pr-table pr-versions">
+              <thead><tr><th>Critère</th><th className="num">{gauche.v}</th><th className="num">{droite.v}</th><th className="num">Écart</th></tr></thead>
+              <tbody>
+                {grilles.map(g => { const x = gauche.detail?.[g], y = droite.detail?.[g]; const d = x !== undefined && y !== undefined ? Math.round((y - x) * 10) / 10 : undefined
+                  return <tr key={g}><td>{GRILLES[g] ?? g}</td><td className="num">{x ?? '—'}</td><td className="num">{y ?? (droite.aFaire ? 'cible 7' : '—')}</td><td className={`num ${d === undefined ? '' : d >= 0 ? 'pr-plus' : 'pr-moins'}`}>{d === undefined ? '' : `${d > 0 ? '+' : ''}${d}`}</td></tr> })}
+                <tr className="pr-total"><td>Note globale</td><td className="num"><Cercle n={gauche.note} /></td><td className="num"><Cercle n={droite.note} /></td><td className="num">{gauche.note !== undefined && droite.note !== undefined ? `${droite.note - gauche.note > 0 ? '+' : ''}${Math.round((droite.note - gauche.note) * 10) / 10}` : ''}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <CarteVersion v={droite} />
+        </div>
+      </section>
+
+      {avecSlop.length > 0 && (
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Grille anti-slop</h2><Link to="/promo/blog/21-anti-slop" className="pr-muted">25 points sourcés</Link></div>
+          <p className="pr-muted">Évaluation par Claude, à confirmer. ✓ respecté · ✗ non · ? non vérifié.</p>
+          <div className="pr-table-wrap">
+            <table className="pr-table pr-versions pr-slop">
+              <thead><tr><th>Point</th>{avecSlop.map(v => <th key={v.v} className="num">{v.v}<small className="pr-muted"> {scoreSlop(v.slop)!.ok}/{ANTI_SLOP.length}</small></th>)}</tr></thead>
+              <tbody>{ANTI_SLOP.map((it, i) => <tr key={it.id}>{(i === 0 || ANTI_SLOP[i - 1].groupe !== it.groupe) ? null : null}
+                <td><small className="pr-muted">{it.groupe} · </small>{it.texte}</td>
+                {avecSlop.map(v => { const x = v.slop![it.id]; return <td key={v.v} className={`num ${x === true ? 'pr-plus' : x === false ? 'pr-moins' : 'pr-muted'}`}>{x === true ? '✓' : x === false ? '✗' : '?'}</td> })}</tr>)}</tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <section className="pr-panel">
+        <div className="pr-panel-h"><h2>Contenu</h2></div>
+        {e.piece && <Contenu p={e.piece} />}
+      </section>
     </>
   )
 }
