@@ -100,17 +100,17 @@ const S1: Jour[] = [
     yt('s1-yt', 'J\'avais 6 comptes et 3 applis : j\'ai fait mon propre outil',
       'Gérer TikTok, YouTube Shorts et Instagram en une fois : j\'ai créé Chapote CM (gratuit)', [
         { t: '0:00', voix: 'Six comptes. Trois applis. Les mêmes vidéos partout. Et chaque soir, la même galère.', ecran: 'Titre', texte: '6 comptes · 3 applis' },
-        { t: '0:15', voix: 'Au départ j\'avais un compte Instagram, puis un deuxième. Ensuite TikTok et YouTube, pour plus de visibilité. Publier régulièrement demandait de planifier, et je perdais le fil.', ecran: 'Accueil', vue: 'landing' },
-        { t: '0:45', voix: 'Alors j\'ai fait l\'outil, pour moi. Il s\'appelle Chapote CM, et il est ouvert à tous.', ecran: 'Accueil', vue: 'landing', texte: 'Chapote CM' },
-        { t: '1:00', voix: 'Je connecte mes comptes par les pages officielles de TikTok, de Google et de Meta. Chapote CM ne voit jamais mes mots de passe. Plusieurs comptes par réseau, c\'est prévu.', ecran: 'Comptes', vue: 'comptes' },
-        { t: '1:30', voix: 'Pour publier, d\'abord la vidéo, le titre et la légende. Ensuite les comptes et l\'heure. Et si un réseau a des réglages, une dernière étape, compte par compte.', ecran: 'Nouvelle publication', vue: 'composer-1' },
-        { t: '1:50', voix: 'Je coche mes comptes, ou un groupe entier, et je choisis le jour et l\'heure. Rien ne part avant.', ecran: 'Étape 2', vue: 'composer-2' },
-        { t: '2:10', voix: 'Le planning me montre la semaine : ce qui est programmé, ce qui est parti, ce qui a échoué, réseau par réseau.', ecran: 'Planning', vue: 'planning' },
-        { t: '2:30', voix: 'Les statistiques des trois réseaux sont au même endroit : vues, abonnés, j\'aime, partages et engagement.', ecran: 'Stats', vue: 'stats' },
-        { t: '2:50', voix: 'Et mes vidéos restent dans mon Google Drive. J\'ajoute un dossier, ses vidéos sont prêtes à programmer.', ecran: 'Bibliothèque', vue: 'bibliotheque' },
-        { t: '3:10', voix: 'C\'est gratuit pour l\'instant, sans carte bancaire. Ce qui compte pour la suite, ce sont vos retours. Dites-moi en commentaire ce qui vous manque. Le lien est en description.', ecran: 'Fin', texte: 'cm.chapote.fr' },
+        { t: '0:06', voix: 'Au départ j\'avais un compte Instagram, puis un deuxième. Ensuite TikTok et YouTube, pour plus de visibilité. Publier régulièrement demandait de planifier, et je perdais le fil.', ecran: 'Accueil', vue: 'landing' },
+        { t: '0:17', voix: 'Alors j\'ai fait l\'outil, pour moi. Il s\'appelle Chapote CM, et il est ouvert à tous.', ecran: 'Accueil', vue: 'landing', texte: 'Chapote CM' },
+        { t: '0:22', voix: 'Je connecte mes comptes par les pages officielles de TikTok, de Google et de Meta. Chapote CM ne voit jamais mes mots de passe. Plusieurs comptes par réseau, c\'est prévu.', ecran: 'Comptes', vue: 'comptes' },
+        { t: '0:31', voix: 'Pour publier, d\'abord la vidéo, le titre et la légende. Ensuite les comptes et l\'heure. Et si un réseau a des réglages, une dernière étape, compte par compte.', ecran: 'Nouvelle publication', vue: 'composer-1' },
+        { t: '0:40', voix: 'Je coche mes comptes, ou un groupe entier, et je choisis le jour et l\'heure. Rien ne part avant.', ecran: 'Étape 2', vue: 'composer-2' },
+        { t: '0:45', voix: 'Le planning me montre la semaine : ce qui est programmé, ce qui est parti, ce qui a échoué, réseau par réseau.', ecran: 'Planning', vue: 'planning' },
+        { t: '0:51', voix: 'Les statistiques des trois réseaux sont au même endroit : vues, abonnés, j\'aime, partages et engagement.', ecran: 'Stats', vue: 'stats' },
+        { t: '0:57', voix: 'Et mes vidéos restent dans mon Google Drive. J\'ajoute un dossier, ses vidéos sont prêtes à programmer.', ecran: 'Bibliothèque', vue: 'bibliotheque' },
+        { t: '1:02', voix: 'C\'est gratuit pour l\'instant, sans carte bancaire. Ce qui compte pour la suite, ce sont vos retours. Dites-moi en commentaire ce qui vous manque. Le lien est en description.', ecran: 'Fin', texte: 'cm.chapote.fr' },
       ],
-      `Chapote CM, c'est l'outil que j'ai créé pour planifier mes vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous mes comptes en une fois.\n\n👉 Gratuit, sans carte bancaire : ${L}\n\n0:00 Le problème\n0:45 Chapote CM\n1:00 Connecter ses comptes\n1:30 Programmer une vidéo\n2:10 Le planning\n2:30 Les statistiques\n2:50 Google Drive\n3:10 Prix et retours\n\nVos idées : ${L}/avis\n#communitymanager #tiktok #youtubeshorts #instagramreels`,
+      `Chapote CM, c'est l'outil que j'ai créé pour planifier mes vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous mes comptes en une fois.\n\n👉 Gratuit, sans carte bancaire : ${L}\n\n• Le problème\n• Chapote CM\n• Connecter ses comptes\n• Programmer une vidéo\n• Le planning\n• Les statistiques\n• Google Drive\n• Prix et retours\n\nVos idées : ${L}/avis\n#communitymanager #tiktok #youtubeshorts #instagramreels`,
       { type: 'image', src: '/promo/yt-lancement.webp', format: 'paysage', titre: '6 COMPTES, 1 OUTIL', sous: 'TikTok · Shorts · Reels' }),
     vert('s1-l', '12:30', 'Planifie une fois. Publie partout.', 'Tu postes la même vidéo sur TikTok, Insta et YouTube, à la main ?', [
       { t: '1', voix: 'Tu postes la même vidéo sur TikTok, Insta et YouTube, à la main ?', ecran: 'Accroche', texte: '3 applis. 1 vidéo. 😩' },
@@ -214,19 +214,19 @@ Qu'est-ce qui vous fait hésiter avant d'adopter un nouvel outil pour vos compte
 
 // ───────────────────────────── Semaine 2 : les détails qui font gagner du temps ─────────────────────────────
 const S2: Jour[] = [
-  { date: 'lun. 7 déc.', nom: 'Lundi', theme: 'Tuto complet', but: 'Le tuto qu\'on peut envoyer à quelqu\'un qui débute.', pieces: [
-    yt('s2-yt', 'Tuto complet : de zéro à ta première vidéo programmée', 'Tuto Chapote CM : programmer ses vidéos TikTok, Shorts et Reels (de A à Z)', [
-      { t: '0:00', voix: 'Dans cette vidéo, on part de zéro et on programme une vidéo sur TikTok, YouTube et Instagram.', ecran: 'Titre', texte: 'Tuto complet' },
-      { t: '0:15', voix: 'D\'abord, un compte Chapote : par e-mail ou avec Google. C\'est le même compte que sur chapote point f r.', ecran: 'Accueil', vue: 'landing' },
-      { t: '0:35', voix: 'Ensuite, la page Comptes. Chaque bouton ouvre la page officielle du réseau. Pour Instagram, il faut un compte professionnel, Créateur ou Entreprise.', ecran: 'Comptes', vue: 'comptes' },
-      { t: '1:05', voix: 'La Bibliothèque : tu ajoutes un dossier de ton Google Drive, ses vidéos et ses sous-dossiers apparaissent.', ecran: 'Bibliothèque', vue: 'bibliotheque' },
-      { t: '1:30', voix: 'Nouvelle publication, étape un : la vidéo, le titre et la légende. Tu indiques aussi la limite d\'âge, les droits d\'auteur, et si la vidéo contient du contenu généré par IA.', ecran: 'Étape 1', vue: 'composer-1' },
-      { t: '2:00', voix: 'Étape deux : les comptes, ou un groupe, puis le jour et l\'heure.', ecran: 'Étape 2', vue: 'composer-2' },
-      { t: '2:20', voix: 'Étape trois, si un réseau demande des réglages : un onglet par compte. Sur TikTok, qui peut voir la vidéo, les commentaires, les duos et les collages.', ecran: 'Réglages par compte', vue: 'composer-reglages' },
-      { t: '2:50', voix: 'Et voilà : la vidéo est dans le planning. Elle partira à l\'heure choisie, et tu suis son statut réseau par réseau.', ecran: 'Planning', vue: 'planning' },
-      { t: '3:10', voix: 'Le lien pour commencer est en description. Et si tu bloques quelque part, dis-le en commentaire.', ecran: 'Fin', texte: 'cm.chapote.fr' },
-    ], `Tuto complet de Chapote CM (gratuit) : ${L}\n\n0:00 Intro\n0:15 Créer son compte\n0:35 Connecter TikTok, YouTube, Instagram\n1:05 Google Drive\n1:30 Étape 1 : la vidéo\n2:00 Étape 2 : comptes et heure\n2:20 Réglages par compte\n2:50 Le planning`,
-      { type: 'image', src: '/promo/yt-tuto.webp', format: 'paysage', titre: 'TUTO COMPLET', sous: 'De 0 à ta 1re vidéo programmée' }),
+  { date: 'lun. 7 déc.', nom: 'Lundi', theme: 'Tuto express', but: 'Le tuto d\'une minute qu\'on peut envoyer à quelqu\'un qui débute.', pieces: [
+    yt('s2-yt', 'Tuto express : de zéro à ta première vidéo programmée', 'Tuto Chapote CM en 1 minute : programmer ses vidéos TikTok, Shorts et Reels', [
+      { t: '0:00', voix: 'Dans cette vidéo, on part de zéro et on programme une vidéo sur TikTok, YouTube et Instagram.', ecran: 'Titre', texte: 'Tuto express' },
+      { t: '0:06', voix: 'D\'abord, un compte Chapote : par e-mail ou avec Google. C\'est le même compte que sur chapote point f r.', ecran: 'Accueil', vue: 'landing' },
+      { t: '0:13', voix: 'Ensuite, la page Comptes. Chaque bouton ouvre la page officielle du réseau. Pour Instagram, il faut un compte professionnel, Créateur ou Entreprise.', ecran: 'Comptes', vue: 'comptes' },
+      { t: '0:21', voix: 'La Bibliothèque : tu ajoutes un dossier de ton Google Drive, ses vidéos et ses sous-dossiers apparaissent.', ecran: 'Bibliothèque', vue: 'bibliotheque' },
+      { t: '0:26', voix: 'Nouvelle publication, étape un : la vidéo, le titre et la légende. Tu indiques aussi la limite d\'âge, les droits d\'auteur, et si la vidéo contient du contenu généré par IA.', ecran: 'Étape 1', vue: 'composer-1' },
+      { t: '0:36', voix: 'Étape deux : les comptes, ou un groupe, puis le jour et l\'heure.', ecran: 'Étape 2', vue: 'composer-2' },
+      { t: '0:40', voix: 'Étape trois, si un réseau demande des réglages : un onglet par compte. Sur TikTok, qui peut voir la vidéo, les commentaires, les duos et les collages.', ecran: 'Réglages par compte', vue: 'composer-reglages' },
+      { t: '0:47', voix: 'Et voilà : la vidéo est dans le planning. Elle partira à l\'heure choisie, et tu suis son statut réseau par réseau.', ecran: 'Planning', vue: 'planning' },
+      { t: '0:53', voix: 'Le lien pour commencer est en description. Et si tu bloques quelque part, dis-le en commentaire.', ecran: 'Fin', texte: 'cm.chapote.fr' },
+    ], `Tuto express de Chapote CM (gratuit) : ${L}\n\n• Intro\n• Créer son compte\n• Connecter TikTok, YouTube, Instagram\n• Google Drive\n• Étape 1 : la vidéo\n• Étape 2 : comptes et heure\n• Réglages par compte\n• Le planning`,
+      { type: 'image', src: '/promo/yt-tuto.webp', format: 'paysage', titre: 'TUTO EXPRESS', sous: 'Ta 1re vidéo programmée en 1 min' }),
     vert('s2-l', '12:30', 'Publier en 3 étapes', 'Programmer une vidéo, ça prend combien d\'étapes ?', [
       { t: '1', voix: 'Programmer une vidéo partout, ça prend combien d\'étapes ? Trois, au plus.', ecran: 'Accroche', texte: '3 étapes.' },
       { t: '2', voix: 'Un : la vidéo, le titre et la légende.', ecran: 'Étape 1', vue: 'composer-1' },
@@ -235,8 +235,8 @@ const S2: Jour[] = [
       { t: '5', voix: 'Lien dans la bio.', ecran: 'Fin', texte: 'cm.chapote.fr' },
     ], 'Publier partout en 3 étapes au plus 🚀\n1. La vidéo, le titre, la légende.\n2. Les comptes et l\'heure.\n3. Les réglages de chaque compte, si le réseau en a.',
       '3 étapes pour publier partout 🚀 #communitymanager #tiktoktips', 'Programmer une vidéo partout en 3 étapes'),
-    story('s2-l-st', 'Nouveau : le tuto complet sur YouTube', 'Lien en story', null, 'Sticker lien YouTube'),
-    x('s2-l-x', '12:00', 'Tuto', `Le tuto complet de Chapote CM est en ligne : de zéro à ta première vidéo programmée sur TikTok, YouTube et Instagram.\n${L}`),
+    story('s2-l-st', 'Nouveau : le tuto express sur YouTube', 'Lien en story', null, 'Sticker lien YouTube'),
+    x('s2-l-x', '12:00', 'Tuto', `Le tuto express de Chapote CM est en ligne : de zéro à ta première vidéo programmée sur TikTok, YouTube et Instagram.\n${L}`),
   ] },
   { date: 'mar. 8 déc.', nom: 'Mardi', theme: 'La miniature', but: 'Une fonction concrète que les créateurs adorent.', pieces: [
     vert('s2-ma', '12:30', 'La miniature, choisie dans ta vidéo', 'Ta miniature TikTok, tu la choisis vraiment ?', [
@@ -320,13 +320,13 @@ const S3: Jour[] = [
   { date: 'lun. 14 déc.', nom: 'Lundi', theme: 'Freelance multi-clients', but: 'La vidéo longue pour les CM freelances.', pieces: [
     yt('s3-yt', 'CM freelance : gérer plusieurs clients sans se perdre', 'Community manager freelance : gérer plusieurs clients sur TikTok, Shorts et Reels', [
       { t: '0:00', voix: 'Tu es community manager freelance, et tu gères plusieurs clients ? Voici comment je m\'organise avec Chapote CM.', ecran: 'Titre', texte: 'CM freelance' },
-      { t: '0:15', voix: 'Un : un groupe par client. Le planning, les statistiques et les vidéos se filtrent d\'un geste.', ecran: 'Groupes', vue: 'groupes' },
-      { t: '0:40', voix: 'Deux : un dossier Drive par client dans la bibliothèque. Tu peux même lui donner un dossier à part.', ecran: 'Bibliothèque', vue: 'bibliotheque' },
-      { t: '1:05', voix: 'Trois : le partage. Ton client en lecture seule voit son planning et ses chiffres, rien d\'autre. Un éditeur peut programmer. Un administrateur gère tout.', ecran: 'Partage', vue: 'partage' },
-      { t: '1:40', voix: 'Quatre : les statistiques par groupe, sur sept jours, trente, quatre-vingt-dix ou un an. Ton rapport est prêt.', ecran: 'Stats', vue: 'stats' },
-      { t: '2:05', voix: 'Et si un client reprend la main, tu lui transfères son compte, avec son planning à venir et ses chiffres. Il a quatorze jours pour accepter.', ecran: 'Comptes', vue: 'comptes' },
-      { t: '2:35', voix: 'Tout ça est gratuit pour l\'instant. Le lien est en description.', ecran: 'Fin', texte: 'cm.chapote.fr' },
-    ], `Comment gérer plusieurs clients avec Chapote CM (gratuit) : ${L}\n\n0:00 Intro\n0:15 Un groupe par client\n0:40 Un dossier Drive par client\n1:05 Partage et rôles\n1:40 Stats par client\n2:05 Transférer un compte`,
+      { t: '0:08', voix: 'Un : un groupe par client. Le planning, les statistiques et les vidéos se filtrent d\'un geste.', ecran: 'Groupes', vue: 'groupes' },
+      { t: '0:13', voix: 'Deux : un dossier Drive par client dans la bibliothèque. Tu peux même lui donner un dossier à part.', ecran: 'Bibliothèque', vue: 'bibliotheque' },
+      { t: '0:18', voix: 'Trois : le partage. Ton client en lecture seule voit son planning et ses chiffres, rien d\'autre. Un éditeur peut programmer. Un administrateur gère tout.', ecran: 'Partage', vue: 'partage' },
+      { t: '0:28', voix: 'Quatre : les statistiques par groupe, sur sept jours, trente, quatre-vingt-dix ou un an. Ton rapport est prêt.', ecran: 'Stats', vue: 'stats' },
+      { t: '0:34', voix: 'Et si un client reprend la main, tu lui transfères son compte, avec son planning à venir et ses chiffres. Il a quatorze jours pour accepter.', ecran: 'Comptes', vue: 'comptes' },
+      { t: '0:41', voix: 'Tout ça est gratuit pour l\'instant. Le lien est en description.', ecran: 'Fin', texte: 'cm.chapote.fr' },
+    ], `Comment gérer plusieurs clients avec Chapote CM (gratuit) : ${L}\n\n• Intro\n• Un groupe par client\n• Un dossier Drive par client\n• Partage et rôles\n• Stats par client\n• Transférer un compte`,
       { type: 'image', src: '/promo/equipe.webp', format: 'paysage', titre: 'CM FREELANCE', sous: 'Plusieurs clients, un planning' }),
     vert('s3-l', '12:30', 'Ton client voit, toi tu publies', 'Ton client te demande « c\'est publié quand ? » ?', [
       { t: '1', voix: 'Ton client te demande encore : c\'est publié quand ?', ecran: 'Accroche', texte: '« C\'est publié quand ? »' },
@@ -404,13 +404,13 @@ const S4: Jour[] = [
   { date: 'lun. 21 déc.', nom: 'Lundi', theme: 'Vos questions', but: 'La FAQ en vidéo : sécurité, Drive, prix, équipe.', pieces: [
     yt('s4-yt', 'Vos questions sur Chapote CM : sécurité, Drive, prix', 'Chapote CM : mes comptes sont-ils en sécurité ? Où vont mes vidéos ? (FAQ)', [
       { t: '0:00', voix: 'Les questions qu\'on me pose le plus sur Chapote CM. Réponses courtes.', ecran: 'Titre', texte: 'FAQ' },
-      { t: '0:10', voix: 'Mes comptes sont-ils en sécurité ? Tu te connectes par les pages officielles de TikTok, de Google et de Meta. Chapote CM ne voit jamais tes mots de passe, et tu peux retirer l\'accès à tout moment.', ecran: 'Comptes', vue: 'comptes' },
-      { t: '0:40', voix: 'Où vont mes vidéos ? Dans ton Google Drive, dans un dossier créé par Chapote CM, rangées par compte, mois et date.', ecran: 'Bibliothèque', vue: 'bibliotheque' },
-      { t: '1:05', voix: 'Combien ça coûte ? C\'est gratuit pour l\'instant, sans carte bancaire.', ecran: 'Accueil', vue: 'landing' },
-      { t: '1:20', voix: 'Je peux travailler en équipe ? Oui : tu partages un groupe de comptes, en administrateur, en éditeur ou en lecteur.', ecran: 'Partage', vue: 'partage' },
-      { t: '1:45', voix: 'Quels réseaux ? TikTok, YouTube Shorts et Instagram Reels, avec un compte professionnel pour Instagram. Plusieurs comptes par réseau.', ecran: 'Comptes', vue: 'comptes' },
-      { t: '2:10', voix: 'Il faut un nouveau compte ? Non, si tu en as déjà un sur chapote point f r. Une autre question ? Pose-la en commentaire.', ecran: 'Fin', texte: 'cm.chapote.fr/avis' },
-    ], `Les réponses aux questions les plus fréquentes sur Chapote CM.\n${L}\n\n0:10 Sécurité des comptes\n0:40 Où vont les vidéos\n1:05 Prix\n1:20 Équipe\n1:45 Réseaux pris en charge\n2:10 Compte Chapote`,
+      { t: '0:05', voix: 'Mes comptes sont-ils en sécurité ? Tu te connectes par les pages officielles de TikTok, de Google et de Meta. Chapote CM ne voit jamais tes mots de passe, et tu peux retirer l\'accès à tout moment.', ecran: 'Comptes', vue: 'comptes' },
+      { t: '0:16', voix: 'Où vont mes vidéos ? Dans ton Google Drive, dans un dossier créé par Chapote CM, rangées par compte, mois et date.', ecran: 'Bibliothèque', vue: 'bibliotheque' },
+      { t: '0:24', voix: 'Combien ça coûte ? C\'est gratuit pour l\'instant, sans carte bancaire.', ecran: 'Accueil', vue: 'landing' },
+      { t: '0:27', voix: 'Je peux travailler en équipe ? Oui : tu partages un groupe de comptes, en administrateur, en éditeur ou en lecteur.', ecran: 'Partage', vue: 'partage' },
+      { t: '0:34', voix: 'Quels réseaux ? TikTok, YouTube Shorts et Instagram Reels, avec un compte professionnel pour Instagram. Plusieurs comptes par réseau.', ecran: 'Comptes', vue: 'comptes' },
+      { t: '0:41', voix: 'Il faut un nouveau compte ? Non, si tu en as déjà un sur chapote point f r. Une autre question ? Pose-la en commentaire.', ecran: 'Fin', texte: 'cm.chapote.fr/avis' },
+    ], `Les réponses aux questions les plus fréquentes sur Chapote CM.\n${L}\n\n• Sécurité des comptes\n• Où vont les vidéos\n• Prix\n• Équipe\n• Réseaux pris en charge\n• Compte Chapote`,
       { type: 'image', src: '/promo/yt-tuto.webp', format: 'paysage', titre: 'VOS QUESTIONS', sous: 'Sécurité · Drive · Prix' }),
     vert('s4-l', '12:30', 'Tes mots de passe ? Jamais vus.', 'Une appli te demande ton mot de passe TikTok ? Fuis.', [
       { t: '1', voix: 'Une appli te demande ton mot de passe TikTok ? Méfie-toi.', ecran: 'Accroche', texte: '🔐' },

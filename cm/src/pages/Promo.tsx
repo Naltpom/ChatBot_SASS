@@ -47,7 +47,7 @@ function Carte({ p }: { p: Piece }) {
     <article className="pr-card">
       <header className="pr-card-h">
         <span className="pr-time">{p.heure}</span>
-        <span className="pr-format">{p.format}{p.duree ? ` · ${p.duree}` : ''}</span>
+        <span className="pr-format">{p.format}{VIDEOS[p.id] ? ` · ${Math.round(VIDEOS[p.id].duree)} s` : p.duree ? ` · ${p.duree}` : ''}</span>
         <span className="pr-badges">{p.plateformes.map(x => <Badge key={x} p={x} />)}</span>
       </header>
       <h3>{p.titre}</h3>
