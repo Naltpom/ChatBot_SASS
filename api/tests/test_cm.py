@@ -692,6 +692,51 @@ async def test_youtube_stats_sync(pg_session, cmenv, google, monkeypatch):
 
 @pytest.mark.real_db
 @pytest.mark.asyncio
+async def test_refresh_button_reports_failures_instead_of_500(pg_session, cmenv, google, monkeypatch):
+    """Bouton Actualiser : une plateforme en erreur, injoignable ou un jeton refusé donnent un relevé en
+    erreur (et « à reconnecter »), jamais un 500 (le rollback expirait le compte relu ensuite)."""
+    from src.routers import cm as cm_router
+    monkeypatch.setattr(cm_router.sync_limiter, "check", lambda *_a, **_k: _true())
+    monkeypatch.setattr(cm_router.full_sync_limiter, "check", lambda *_a, **_k: _true())
+    orig = google.handler
+    mode = {"v": "quota"}
+
+    def handler(req):
+        if req.url.path.startswith("/youtube/v3/"):
+            if mode["v"] == "network":
+                raise httpx.ConnectTimeout("délai dépassé", request=req)
+            return httpx.Response(403, json={"error": {"code": 403, "message": "quota",
+                                                       "errors": [{"reason": "quotaExceeded"}]}})
+        if req.url.path.endswith("/token") and mode["v"] == "revoked":
+            return httpx.Response(400, json={"error": "invalid_grant"})
+        return orig(req)
+    monkeypatch.setattr(yt, "_transport", httpx.MockTransport(handler))
+    u = await _user(pg_session, "a@t.dev")
+    yacc = await _yt_account(pg_session, owner=u)
+    await pg_session.commit()
+    url = f"/api/cm/accounts/youtube/{yacc.id}/sync"
+    async with Client(pg_session) as c:
+        http = c.as_(u)     # la session est partagée avec l'app : son rollback expire aussi u et yacc
+        for m in ("quota", "network"):
+            mode["v"] = m
+            r = await http.post(url)
+            assert r.status_code == 200, (m, r.text)
+            assert r.json()["stats"]["error"] and r.json()["needs_reconnect"] is False
+        mode["v"] = "revoked"
+        await pg_session.refresh(yacc)
+        yacc.access_token_expires_at = utcnow() - timedelta(minutes=1)
+        await pg_session.commit()
+        r = await http.post(url)
+        assert r.status_code == 200, r.text
+        assert r.json()["needs_reconnect"] is True and r.json()["stats"]["error"] == "Compte à reconnecter."
+
+
+async def _true():
+    return True
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
 async def test_tiktok_stats_wait_for_tiktok_approval(pg_session, cmenv, tiktok):
     """Sans les autorisations de statistiques (pas encore validées par TikTok), aucun appel."""
     u = await _user(pg_session, "a@t.dev")

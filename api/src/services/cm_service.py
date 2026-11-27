@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import httpx
 from fastapi import HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -579,16 +580,21 @@ async def sync_account(db: AsyncSession, platform: str, acc, full: bool = False)
             return await _sync_tiktok(db, acc)
         return await _sync_instagram(db, acc, full)
     except (tt.ReconnectRequired, yt.ReconnectRequired, ig.ReconnectRequired):
-        await db.rollback()
-        row = await save_snapshot(db, platform, acc.id, error="Compte à reconnecter.")
-        await db.commit()
-        return row
+        error = "Compte à reconnecter."
     except (tt.TikTokError, yt.YouTubeError, ig.InstagramError) as e:
-        await db.rollback()
         logger.info("cm : relevé %s du compte %s en échec (%s)", platform, acc.id, e.code)
-        row = await save_snapshot(db, platform, acc.id, error=e.describe())
-        await db.commit()
-        return row
+        error = e.describe()
+    except httpx.HTTPError as e:
+        logger.info("cm : relevé %s du compte %s en échec (réseau : %s)", platform, acc.id, type(e).__name__)
+        error = "La plateforme ne répond pas pour le moment : réessayez dans quelques minutes."
+    # Le rollback expire `acc` (et `needs_reconnect` a pu être enregistré entre-temps) : on le relit
+    # tout de suite, sinon l'appelant qui le lit ensuite (account_view) échouerait hors greenlet (500).
+    account_id = acc.id
+    await db.rollback()
+    row = await save_snapshot(db, platform, account_id, error=error)
+    await db.commit()
+    await db.refresh(acc)
+    return row
 
 
 async def _sync_youtube(db: AsyncSession, acc: YouTubeAccount) -> CmAccountStat:
