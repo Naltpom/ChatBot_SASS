@@ -16,7 +16,7 @@ const CASE = { x: 44, y: 456, w: 22, h: 22 }            // case « Atelier Lumen
 const PUCES = [{ x: 34, y: 188, w: 172, h: 36 }, { x: 34, y: 230, w: 172, h: 36 }, { x: 34, y: 272, w: 166, h: 36 }]
 const VIDEOS = {
   pov: {
-    musique: 'musique/voxel.mp3', accroche: 'POV : 8 comptes, dimanche 23 h',
+    musique: 'musique/voxel.mp3', accroche: 'POV : CM débordé',
     cles: ['huit', 'trois', 'seule', 'comptes', 'heure', 'semaine', 'gratuit'],
     plans: (L, at) => [
       { type: 'chaos', lignes: [0, 1], horloge: 0, apparitions: [at(1, 'tiktok'), at(1, 'youtube'), at(1, 'instagram')], comptes8: [at(0, 'huit'), at(0, 'remplir')] },
@@ -36,7 +36,7 @@ const VIDEOS = {
     cles: ['trois', 'une', 'bibliotheque', 'legende', 'tiktok', 'dixhuit', 'part', 'gratuit'],
     plans: (L, at) => [
       { type: 'ecran', lignes: [0], ecran: 'publication-plateformes', entree: 'punch', cam: [[0, 195, 600, 1.15, 10, -14], [0.5, 195, 680, 1.75], [1, 195, 690, 1.9]],
-        badges: [[at(0, 'partir'), 24, 602], [at(0, 'trois'), 24, 679], [at(0, 'reseaux'), 24, 757]], sons: [[0, 'sons/impact.wav', 0.6]] },
+        badges: [[at(0, 'partir'), 24, 602], [at(0, 'trois'), 24, 679], [at(0, 'reseaux'), 24, 757]] },
       { type: 'texte', lignes: [1], cles: ['quune'], sansSousTitres: true },
       { type: 'ecran', lignes: [2], ecran: 'bibliotheque-videos', entree: 'whip', cam: [[0, 195, 400, 1.05, 6, 10], [0.55, 103, 380, 1.9], [1, 103, 390, 2.05]],
         taps: [[at(2, 'bibliotheque'), 103, 400]], hl: [[at(2, 'bibliotheque') + 0.1, 1, 18, 254, 172, 268]] },
@@ -47,17 +47,16 @@ const VIDEOS = {
         hl: [[at(4, 'tiktok'), at(4, 'youtube'), ...Object.values(PUCES[0])], [at(4, 'youtube'), at(4, 'instagram'), ...Object.values(PUCES[1])], [at(4, 'instagram'), 1, ...Object.values(PUCES[2])]] },
       { type: 'ecran', lignes: [5], ecran: 'composer-2-date', entree: 'whip', cam: [[0, 195, 450, 1.4, 6, 8], [0.4, 240, 540, 2.3], [1, 250, 545, 2.5]],
         taps: [[at(5, 'dixhuit'), 271, 543]], hl: [[at(5, 'dixhuit') + 0.1, 1, 240, 514, 63, 63]] },
-      { type: 'ecran', lignes: [6], ecran: 'planning', entree: 'whip', cam: [[0, 195, 560, 1.15, 8, -10], [0.45, 195, 790, 1.9], [1, 195, 800, 2.0]],
-        hl: [[at(6, 'dixhuit'), 1, 16, 776, 358, 74]], badges: [[at(6, 'part'), 330, 812]] },
+      { type: 'texte', lignes: [6], cles: ['part'], sansSousTitres: true },
       { type: 'texte', lignes: [7], cles: ['tiktok'], sansSousTitres: true },
       { type: 'fin', lignes: [7], debut: at(7, 'gratuit') },
     ],
   },
   'avant-apres': {
-    musique: 'musique/newerwave.mp3', accroche: '3 applis contre 1 planning',
-    cles: ['trois', 'alarmes', 'seul', 'une', 'ecran', 'gratuit'],
+    musique: 'musique/newerwave.mp3', accroche: 'Tu fais encore ça ?',
+    cles: ['alarmes', 'seul', 'une', 'ecran', 'gratuit'],
     plans: (L, at) => [
-      { type: 'texte', lignes: [0], cles: ['trois'], sansSousTitres: true },
+      { type: 'texte', lignes: [0], cles: ['avant'], sansSousTitres: true },
       { type: 'chaos', lignes: [1], horloge: 0, apparitions: [at(1, 'envois'), at(1, 'legendes'), at(1, 'alarmes')] },
       { type: 'split', lignes: [2], sons: [[0, 'sons/impact.wav', 0.5]] },
       { type: 'ecran', lignes: [3], ecran: 'composer-2', entree: 'whip', cam: [[0, 195, 500, 1.9, 4, 8], [at(3, 'fois'), 170, 470, 2.2], [at(3, 'tous'), 120, 240, 2.3], [1, 120, 250, 2.35]],
@@ -78,26 +77,27 @@ async function main() {
     const src = `${P}/voix/${id}.mp3.mp3`, wj = `${P}/voix/${id}.mp3.words.json`
     if (!fs.existsSync(src) || !fs.existsSync(wj)) { console.log('pas de voix', id); continue }
     let mots = JSON.parse(fs.readFileSync(wj, 'utf8')).filter(m => /[\p{L}\p{N}]/u.test(m.word))
-    // 1. Voix : silences de plus de 0,2 s ramenés à 0,13 s (débit visé 3,3-3,8 mots/s), premier mot à 0,1 s,
-    //    puis chaîne radio (passe-haut, présence, compresseur, de-esser, limiteur).
-    const sd = require_spawn('ffmpeg', ['-i', src, '-af', 'silencedetect=noise=-38dB:d=0.2', '-f', 'null', '-'])
-    const sil = []; let deb = null
-    for (const l of sd.split('\n')) { let m1 = l.match(/silence_start: (-?[\d.]+)/); if (m1) deb = Math.max(0, +m1[1]); let m2 = l.match(/silence_end: ([\d.]+)/); if (m2 && deb !== null) { sil.push([deb, +m2[1]]); deb = null } }
+    // 1. Voix : débit naturel (aucune accélération, silences gardés), une respiration ajoutée entre les phrases
+    //    (0,5 s entre deux lignes du script, 0,25 s après un point dans une ligne), premier mot à 0,1 s ; puis chaîne radio.
     const total = +sh('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', src])
-    const garde = []; let cur = 0
-    for (const [a, b] of sil) {
-      const keepA = a === 0 ? 0.1 : 0.065, keepB = 0.065   // ce qu'on garde du silence de chaque côté
-      if (a === 0) { cur = Math.max(0, b - 0.1); continue }
-      if (b - a > keepA + keepB) { garde.push([cur, a + keepA]); cur = b - keepB }
-    }
-    garde.push([cur, total])
-    const remap = t => { let off = 0; for (const [a, b] of garde) { if (t < a) return off; if (t <= b) return off + (t - a); off += b - a } return off }
-    const TEMPO = 1.1
-    mots = mots.map(m => ({ ...m, start: +(remap(m.start) / TEMPO).toFixed(3), end: +(remap(Math.max(m.start + 0.05, m.end)) / TEMPO).toFixed(3) }))
-    const fc = garde.map(([a, b], i) => `[0:a]atrim=${a.toFixed(3)}:${b.toFixed(3)},asetpts=PTS-STARTPTS[s${i}]`).join(';') + ';' + garde.map((_, i) => `[s${i}]`).join('') + `concat=n=${garde.length}:v=0:a=1,atempo=1.1,` +
+    const lignesTxt = fs.readFileSync(`${P}/voix/${id}.txt`, 'utf8').trim().split('\n')
+    const finsLigne = new Set(); { let k = 0; for (const l of lignesTxt) { k += l.split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w)).length; finsLigne.add(k - 1) } }
+    const debut = Math.max(0, mots[0].start - 0.1)
+    const coupes = []   // [temps de coupe, silence ajouté]
+    mots.forEach((m, i) => {
+      if (i === mots.length - 1) return
+      const pause = finsLigne.has(i) ? 0.5 : /[.!?]$/.test(m.word) ? 0.25 : 0
+      if (pause) coupes.push([(m.end + mots[i + 1].start) / 2, pause])
+    })
+    const garde = []; let cur = debut
+    for (const [c, p] of coupes) { garde.push([cur, c, p]); cur = c }
+    garde.push([cur, total, 0])
+    const remap = t => { let off = 0; for (const [a, b, p] of garde) { if (t <= b) return off + Math.max(0, t - a); off += b - a + p } return off }
+    mots = mots.map(m => ({ ...m, start: +remap(m.start).toFixed(3), end: +remap(Math.max(m.start + 0.05, m.end)).toFixed(3) }))
+    const fc = garde.map(([a, b, p], i) => `[0:a]atrim=${a.toFixed(3)}:${b.toFixed(3)},asetpts=PTS-STARTPTS${p ? `,apad=pad_dur=${p}` : ''}[s${i}]`).join(';') + ';' + garde.map((_, i) => `[s${i}]`).join('') + `concat=n=${garde.length}:v=0:a=1,` +
       'highpass=f=90,equalizer=f=220:t=q:w=1:g=-2,equalizer=f=3200:t=q:w=1.2:g=3.5,equalizer=f=9000:t=q:w=1:g=1.5,acompressor=threshold=-21dB:ratio=3.5:attack=4:release=90:makeup=5dB,deesser=i=0.35,alimiter=limit=0.89[o]'
     execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', src, '-filter_complex', fc, '-map', '[o]', '-ar', '48000', `${R}/public/voix/${id}.wav`])
-    console.log(`  ${id} : voix ${total.toFixed(2)} s → ${garde.reduce((x, [a, b]) => x + b - a, 0).toFixed(2)} s`)
+    console.log(`  ${id} : voix ${total.toFixed(2)} s → ${garde.reduce((x, [a, b, p]) => x + b - a + p, 0).toFixed(2)} s`)
     prets.push({ id, mots })
   }
   const serve = await bundle({ entryPoint: `${R}/src/index.ts`, publicDir: `${R}/public` })
@@ -123,7 +123,7 @@ async function main() {
       throw new Error(`${id} : mot « ${mot} » absent de la phrase ${i}`)
     }
     const dureeVoix = mots0[mots0.length - 1].end
-    const duree = +(dureeVoix + 0.9).toFixed(2)
+    const duree = +(dureeVoix + 1.6).toFixed(2)
     const bruts = V.plans(L, at)
     const sons = [son(0, 'sons/impact.wav', 0.45)]
     const plans = bruts.map((b, j) => {
@@ -167,7 +167,7 @@ async function main() {
     const m = require_spawn('ffmpeg', ['-i', brut, '-af', 'loudnorm=I=-14:TP=-1:LRA=9:print_format=json', '-f', 'null', '-'])
     const j = JSON.parse(m.slice(m.lastIndexOf('{')))
     const final = `${OUT}/${id}.mp4`
-    execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', brut, '-af', `loudnorm=I=-14:TP=-1:LRA=9:measured_I=${j.input_i}:measured_TP=${j.input_tp}:measured_LRA=${j.input_lra}:measured_thresh=${j.input_thresh}:offset=${j.target_offset}:linear=true,alimiter=limit=0.84:level=false,aresample=48000`,
+    execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', brut, '-af', `loudnorm=I=-14:TP=-1:LRA=9:measured_I=${j.input_i}:measured_TP=${j.input_tp}:measured_LRA=${j.input_lra}:measured_thresh=${j.input_thresh}:offset=${j.target_offset}:linear=true,alimiter=limit=0.8:level=false,aresample=48000`,
       '-c:v', 'libx264', '-preset', 'slow', '-crf', '21', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', final])
     fs.rmSync(brut)
     // 4. Contrôles automatiques.

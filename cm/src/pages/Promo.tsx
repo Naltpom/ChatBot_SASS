@@ -202,7 +202,7 @@ export default function Promo() {
               })}</tbody>
             </table>
             <p className="pr-goal">Notes v2 données par un évaluateur indépendant (agent séparé, mêmes grilles, vidéos regardées et mesurées) sur la première version des pilotes ;
-              plusieurs défauts relevés sont déjà corrigés (détail sur chaque fiche). Reste surtout : des vidéos de 13-14 s, trop courtes (viser 25-35 s).</p>
+              plusieurs défauts relevés sont déjà corrigés (détail sur chaque fiche). Rythme ralenti après écoute : 19-24 s au lieu de 13-14 s (la note v2 porte sur la version rapide).</p>
             <div className="pr-grid">{PILOTES.map(p => <CartePilote key={p.id} p={p} />)}</div>
           </section>
         )}
