@@ -17,6 +17,19 @@ Bilan des 32 vidéos actuelles : **5,2/10 en moyenne** (page `/promo`, section �
 | 09 | [Outils (Remotion, HyperFrames)](recherches/09-outils-ia-video.md) | Garder Remotion, le mettre à jour + paquets d'effets + skills agents ; essai HyperFrames ; contrôles automatiques |
 | 10 | [Fondateur, LinkedIn, X, marché FR](recherches/10-fondateur-linkedin-x-fr.md) | Le profil de Nathan porte le lancement ; carrousels PDF ; Meta Business Suite ne fait ni TikTok ni YouTube |
 
+## Règle 0 : pas d'« IA slop » (27/11/2026, recherche 21)
+
+Un contenu passe pour de l'IA quand il paraît générique et interchangeable, quel que soit l'outil. Le soupçon coûte cher : -48 % de confiance (Raptive), 62 % des gens rejettent les voix ou personnes créées par IA dans la pub (Gallup), -40 % de vues sur LinkedIn pour le contenu classé « AI slop » (Fortune). Conséquences pour nos vidéos, qui l'emportent sur les règles ci-dessous quand elles s'opposent :
+- **une vraie personne et une vraie voix** (Nathan, ou un testeur d'accord) ; plus de voix de synthèse, même clonée ;
+- l'IA reste en coulisses (script relu à voix haute, recherche, sous-titres, nettoyage du son) ;
+- **vrais écrans de l'app**, vrais chiffres précis (même petits), scènes vécues de CM ;
+- sous-titres **en casse de phrase**, relus, 2 lignes max, sans preset « mot par mot » en capitales ;
+- un effet (zoom, bruitage) seulement quand il a une raison, jamais à chaque coupe ;
+- pas d'accroche « POV: » ni « Attends la fin » ; promesse claire en 5 s ;
+- musique 20 à 25 dB sous la voix, ou pas de musique ; pas de ukulélé « corporate » ;
+- avant publication : 3 à 5 personnes de la cible répondent « non » à « ça a l'air fait par IA ? ».
+Grille complète (25 points sourcés) : `recherches/12-anti-slop.md` ; elle est notée version par version sur chaque fiche de `/promo`.
+
 ## Les 12 règles (à tenir pour chaque vidéo verticale)
 
 1. **Image 0 = l'idée.** Texte-accroche de 6 mots au plus, différent des sous-titres, entre y = 300 et 700 ; quelque chose bouge et désigne l'idée dès l'image 0 (01, 05).
