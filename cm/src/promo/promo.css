@@ -103,3 +103,7 @@
 .pr-barres i { height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
 .pr-barres em { display: block; height: 100%; }
 .pr-barres em.ok { background: #15803d; } .pr-barres em.moyen { background: #d97706; } .pr-barres em.faible { background: #dc2626; }
+.pr-comp { width: 100%; border-collapse: collapse; font-size: 14px; margin: 4px 0 10px; }
+.pr-comp th, .pr-comp td { text-align: left; padding: 6px 4px; border-bottom: 1px dashed var(--border); }
+.pr-comp th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.pr-plus { color: #15803d; font-weight: 800; } .pr-moins { color: #dc2626; font-weight: 800; }

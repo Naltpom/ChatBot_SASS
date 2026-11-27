@@ -8,7 +8,7 @@ import { useSession } from '../session'
 import { COMPTES, REGLES, SEMAINES, VUES, type Piece, type Plateforme, type Visuel } from '../promo/plan'
 import { VIDEOS } from '../promo/videos'
 import { BILAN, NOTES } from '../promo/bilan'
-import { PILOTES, type Pilote } from '../promo/pilotes'
+import { COMPARAISON, PILOTES, type Pilote } from '../promo/pilotes'
 import '../promo/promo.css'
 
 const NOMS: Record<Plateforme, string> = { youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok', linkedin: 'LinkedIn', x: 'X' }
@@ -121,7 +121,7 @@ function CartePilote({ p }: { p: Pilote }) {
       <p className="pr-hook">Accroche : « {p.accroche} »</p>
       <video className="pr-video pr-portrait" src={p.src} poster={p.poster} controls playsInline preload="none" />
       <details className="pr-note" open>
-        <summary><span className={`pr-score ${couleur(p.note)}`}>{p.note}/10</span> Note (avant : {p.avant}/10)</summary>
+        <summary><span className={`pr-score ${couleur(p.note)}`}>v2 {p.note}/10</span> v1 : {p.avant}/10 en moyenne</summary>
         <ul className="pr-sousnotes">{Object.entries(p.detail).map(([k, v]) => <li key={k}><span>{GRILLES[k] ?? k}</span><b>{v}</b></li>)}</ul>
         <ul className="pr-pb">{p.remarques.map(x => <li key={x}>{x}</li>)}</ul>
       </details>
@@ -188,6 +188,21 @@ export default function Promo() {
             <p>{PILOTES.length} vidéos refaites selon le guide : caméra qui voyage dans les vrais écrans, taps simulés, téléphone en 3D,
               accroche dès l'image 0, voix plus vive, sous-titres de 2-3 mots dans la zone visible, musique libre et bruitages mixés à -14 LUFS.
               À valider avant de refaire les 32 autres. Rien n'est programmé.</p>
+            <div className="pr-moy">
+              <div><b className={`pr-score ${couleur(COMPARAISON.v1.moyenne)}`}>{COMPARAISON.v1.moyenne}/10</b><span>v1 · 32 vidéos</span></div>
+              <div><b className={`pr-score ${couleur(COMPARAISON.v2.moyenne)}`}>{COMPARAISON.v2.moyenne}/10</b><span>v2 · 3 pilotes</span></div>
+            </div>
+            <table className="pr-comp">
+              <thead><tr><th>Grille</th><th>v1</th><th>v2</th><th></th></tr></thead>
+              <tbody>{Object.entries(COMPARAISON.v2.grilles).map(([k, v]) => {
+                const a = (COMPARAISON.v1.grilles as Record<string, number>)[k]
+                const d = Math.round((v - a) * 10) / 10
+                return <tr key={k}><td>{GRILLES[k] ?? k}</td><td><span className={`pr-score ${couleur(a)}`}>{a}</span></td><td><span className={`pr-score ${couleur(v)}`}>{v}</span></td>
+                  <td className={d >= 0 ? 'pr-plus' : 'pr-moins'}>{d >= 0 ? '+' : ''}{d}</td></tr>
+              })}</tbody>
+            </table>
+            <p className="pr-goal">Notes v2 données par un évaluateur indépendant (agent séparé, mêmes grilles, vidéos regardées et mesurées) sur la première version des pilotes ;
+              plusieurs défauts relevés sont déjà corrigés (détail sur chaque fiche). Reste surtout : des vidéos de 13-14 s, trop courtes (viser 25-35 s).</p>
             <div className="pr-grid">{PILOTES.map(p => <CartePilote key={p.id} p={p} />)}</div>
           </section>
         )}

@@ -1,0 +1,13 @@
+{
+  "musique": {
+    "voxel.mp3": { "titre": "Voxel Revolution", "auteur": "Kevin MacLeod", "source": "https://incompetech.com", "licence": "CC BY 4.0", "credit": "« Voxel Revolution », Kevin MacLeod (incompetech.com), licence CC BY 4.0", "video": "pov" },
+    "werq.mp3": { "titre": "Werq", "auteur": "Kevin MacLeod", "source": "https://incompetech.com", "licence": "CC BY 4.0", "credit": "« Werq », Kevin MacLeod (incompetech.com), licence CC BY 4.0", "video": "resultat" },
+    "newerwave.mp3": { "titre": "Newer Wave", "auteur": "Kevin MacLeod", "source": "https://incompetech.com", "licence": "CC BY 4.0", "credit": "« Newer Wave », Kevin MacLeod (incompetech.com), licence CC BY 4.0", "video": "avant-apres" }
+  },
+  "effets": {
+    "punch.ogg": { "source": "Kenney.nl (impactPunch_heavy_001)", "licence": "CC0" },
+    "clic.wav, pop.wav, whoosh.wav": { "source": "dépôt claude-cloud, public/sons/cta", "licence": "générés / libres" },
+    "ding.wav, riser.wav, impact.wav": { "source": "générés par ffmpeg (sinus, bruit rose)", "licence": "aucun droit" }
+  },
+  "voix": "Qwen3-TTS 0.6B (CPU), voix de référence elevenlabs_saira du dépôt claude-cloud"
+}
