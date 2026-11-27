@@ -74,3 +74,14 @@
 .pr-copy { justify-self: start; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
 .pr-prod { margin: 0; font-size: 13px; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 8px; }
 .pr-foot { margin-top: 32px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+.pr-sem { align-self: center; font-size: 13px; color: var(--muted); white-space: nowrap; padding-left: 4px; }
+.pr-video { background: #000; border-radius: 12px; flex: none; }
+.pr-video.pr-portrait { width: 200px; aspect-ratio: 9 / 16; border: 0; }
+.pr-video.pr-paysage { width: 100%; aspect-ratio: 16 / 9; }
+
+.pr-ecrans { margin-top: 28px; }
+.pr-galerie { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+.pr-galerie figure { margin: 0; }
+.pr-galerie img { width: 100%; border-radius: 12px; border: 1px solid var(--border); display: block; }
+.pr-galerie figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }

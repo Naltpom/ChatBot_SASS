@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BrandMark } from '../components/ui'
 import { useSession } from '../session'
-import { COMPTES, REGLES, SEMAINE, type Piece, type Plateforme, type Visuel } from '../promo/plan'
+import { COMPTES, REGLES, SEMAINES, VUES, type Piece, type Plateforme, type Visuel } from '../promo/plan'
+import { VIDEOS } from '../promo/videos'
 import '../promo/promo.css'
 
 const NOMS: Record<Plateforme, string> = { youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok', linkedin: 'LinkedIn', x: 'X' }
@@ -46,12 +47,18 @@ function Carte({ p }: { p: Piece }) {
     <article className="pr-card">
       <header className="pr-card-h">
         <span className="pr-time">{p.heure}</span>
-        <span className="pr-format">{p.format}{p.duree ? ` · ${p.duree}` : ''}</span>
+        <span className="pr-format">{p.format}{VIDEOS[p.id] ? ` · ${Math.round(VIDEOS[p.id].duree)} s` : p.duree ? ` · ${p.duree}` : ''}</span>
         <span className="pr-badges">{p.plateformes.map(x => <Badge key={x} p={x} />)}</span>
       </header>
       <h3>{p.titre}</h3>
       {p.accroche && <p className="pr-hook">« {p.accroche} »</p>}
-      {p.visuels && <div className="pr-visuels">{p.visuels.map((v, i) => <Apercu key={i} v={v} />)}</div>}
+      {VIDEOS[p.id] ? (
+        <div className="pr-visuels">
+          <video className={`pr-video pr-${p.video === 'horizontale' ? 'paysage' : 'portrait'}`} src={VIDEOS[p.id].src} poster={VIDEOS[p.id].poster}
+            controls playsInline preload="none" />
+          {p.visuels?.filter(v => v.format === 'paysage').map((v, i) => <Apercu key={i} v={v} />)}
+        </div>
+      ) : p.visuels && <div className="pr-visuels">{p.visuels.map((v, i) => <Apercu key={i} v={v} />)}</div>}
 
       {p.script && (
         <details className="pr-sec">
@@ -59,7 +66,7 @@ function Carte({ p }: { p: Piece }) {
           <ol className="pr-script">
             {p.script.map((s, i) => (
               <li key={i}><span className="pr-t">{s.t}</span>
-                <div>{s.voix && <p className="pr-voix">🎙 {s.voix}</p>}<p className="pr-ecran">🎬 {s.ecran}</p></div>
+                <div>{s.voix && <p className="pr-voix">🎙 {s.voix}</p>}<p className="pr-ecran">🎬 {s.vue ? `Écran réel : ${VUES[s.vue] ?? s.vue}` : s.ecran}{s.texte ? ` · texte « ${s.texte} »` : ''}</p></div>
               </li>
             ))}
           </ol>
@@ -85,6 +92,7 @@ function Carte({ p }: { p: Piece }) {
 
 export default function Promo() {
   const { me } = useSession()
+  const [sem, setSem] = useState(0)
   const [jour, setJour] = useState<number | null>(null)
   const [plat, setPlat] = useState<Plateforme | null>(null)
   useEffect(() => {
@@ -96,7 +104,7 @@ export default function Promo() {
 
   const compte = useMemo(() => {
     const n: Record<Plateforme, number> = { youtube: 0, instagram: 0, tiktok: 0, linkedin: 0, x: 0 }
-    SEMAINE.forEach(d => d.pieces.forEach(p => p.plateformes.forEach(x => { n[x]++ })))
+    SEMAINES.forEach(w => w.jours.forEach(d => d.pieces.forEach(p => p.plateformes.forEach(x => { n[x]++ }))))
     return n
   }, [])
 
@@ -104,7 +112,9 @@ export default function Promo() {
     return <div className="col" style={{ padding: 24 }}><h1>Page introuvable</h1><Link to="/">Retour à l'accueil</Link></div>
   }
 
+  const SEMAINE = SEMAINES[sem].jours
   const jours = SEMAINE.map((d, i) => ({ d, i })).filter(({ i }) => jour === null || i === jour)
+  const nVideos = Object.keys(VIDEOS).length
   return (
     <div className="pr">
       <header className="pr-top">
@@ -113,9 +123,10 @@ export default function Promo() {
       </header>
 
       <section className="pr-hero">
-        <h1>Plan de lancement · semaine 1</h1>
-        <p>Une semaine de contenu pour faire connaître Chapote CM : une vidéo verticale par jour (Reels, Shorts, TikTok),
-          deux vidéos YouTube longues, des stories, LinkedIn et X. Tout vient du code et des textes officiels de l'app.</p>
+        <h1>Plan de lancement · 1 mois</h1>
+        <p>Quatre semaines de contenu pour faire connaître Chapote CM : une vidéo verticale par jour (Reels, Shorts, TikTok),
+          une vidéo YouTube longue par semaine, des stories, LinkedIn et X. Faits et écrans vérifiés dans le code de l'app.
+          {nVideos > 0 && ` ${nVideos} vidéos produites, à regarder ici (rien n'est programmé).`}</p>
         <ul className="pr-counts">
           {ORDRE.map(p => <li key={p}><a href={COMPTES[p].url} target="_blank" rel="noreferrer"><Badge p={p} /></a><b>{compte[p]}</b></li>)}
         </ul>
@@ -126,6 +137,10 @@ export default function Promo() {
       </section>
 
       <nav className="pr-filters" aria-label="Filtres">
+        <div className="pr-chips">
+          {SEMAINES.map((w, i) => <button key={w.titre} type="button" className={sem === i ? 'on' : ''} onClick={() => { setSem(i); setJour(null) }}>S{i + 1}</button>)}
+          <span className="pr-sem">{SEMAINES[sem].titre} · {SEMAINES[sem].dates}</span>
+        </div>
         <div className="pr-chips">
           <button type="button" className={jour === null ? 'on' : ''} onClick={() => setJour(null)}>Semaine</button>
           {SEMAINE.map((d, i) => <button key={d.nom} type="button" className={jour === i ? 'on' : ''} onClick={() => setJour(i)}>{d.nom.slice(0, 3)}</button>)}
@@ -147,6 +162,16 @@ export default function Promo() {
           </section>
         )
       })}
+
+      <details className="pr-rules pr-ecrans">
+        <summary>Les écrans réels montrés dans les vidéos ({Object.keys(VUES).length})</summary>
+        <p className="pr-goal">Captures du code actuel de l'app (site et app Android), avec des comptes fictifs et des données de démonstration.</p>
+        <div className="pr-galerie">
+          {Object.entries(VUES).map(([k, nom]) => (
+            <figure key={k}><img src={`/promo/ecrans/mobile/${k}.webp`} alt={nom} loading="lazy" /><figcaption>{nom}</figcaption></figure>
+          ))}
+        </div>
+      </details>
 
       <footer className="pr-foot">
         <p>Visuels : captures de l'app (données de démonstration) et fonds générés avec Gemini, titres posés par la page.
