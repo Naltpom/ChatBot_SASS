@@ -49,6 +49,7 @@ type Slop = Record<string, boolean | null>
 /** Évaluation par Claude (27/11/2026), à confirmer par Nathan. */
 const SLOP_V1: Slop = { t1: true, t2: null, t3: null, t4: true, t5: null, t6: null, t7: null, v1: false, v2: false, v3: true, m1: true, m2: null, m3: true, m4: false, m5: false, m6: false, m7: null, s1: true, s2: true, s3: true, p1: true, p2: false, p3: false, p4: null, p5: false }
 const SLOP_V2: Slop = { t1: true, t2: null, t3: true, t4: true, t5: true, t6: null, t7: true, v1: false, v2: false, v3: true, m1: true, m2: null, m3: true, m4: false, m5: false, m6: true, m7: true, s1: true, s2: false, s3: true, p1: true, p2: false, p3: false, p4: null, p5: false }
+const SLOP_V22: Slop = { ...SLOP_V2, t6: true, m4: true, m5: true, m7: true, s2: true, p2: null, p3: null }
 export const scoreSlop = (s?: Slop) => s ? { ok: Object.values(s).filter(x => x === true).length, non: Object.values(s).filter(x => x === false).length, total: ANTI_SLOP.length } : undefined
 
 export interface Retour { date: string; auteur: string; texte: string }
@@ -93,7 +94,8 @@ export const ENTREES: Entree[] = SEMAINES.flatMap((s, si) => s.jours.flatMap((j,
   if (pil) {
     versions.push(
       { v: 'v2.0', date: '27/11/2026', resume: `Pilote « ${pil.titre} » : caméra dans les vrais écrans, taps, accroche dès l'image 0, musique et effets à -14 LUFS. Rapide (voix ×1,1, 13-14 s). Notée par un évaluateur indépendant.`, note: pil.note, detail: pil.detail, problemes: pil.remarques.slice(0, -2) },
-      { v: 'v2.1', date: '27/11/2026', resume: 'Rythme ralenti : voix naturelle, 0,5 s de respiration entre les phrases, fin tenue plus longtemps. Pas encore notée.', video: { src: pil.src, poster: pil.poster, format: 'verticale', duree: pil.duree }, slop: { ...SLOP_V2, m7: pil.id === 'pov' ? false : true } },
+      { v: 'v2.1', date: '27/11/2026', resume: 'Rythme ralenti : voix naturelle, 0,5 s de respiration entre les phrases, fin tenue plus longtemps. Pas encore notée.', video: { src: `/promo/pilotes/${pil.id}-v21.mp4`, poster: `/promo/pilotes/${pil.id}-v21.jpg`, format: 'verticale', duree: pil.duree }, slop: { ...SLOP_V2, m7: pil.id === 'pov' ? false : true } },
+      { v: 'v2.2', date: '27/11/2026', resume: 'Écrans de l\'app Android (bibliothèque, légende, 3 comptes, 18 h 00, « Publiée » sur les 3 réseaux), voix ElevenLabs (Victoria, française, ton de conversation) relue mot à mot, sous-titres en casse de phrase, sons seulement sur les taps et les publications, musique ~22 dB sous la voix, plus de « POV : » ni de gratuité. Pas encore notée.', video: { src: pil.src, poster: pil.poster, format: 'verticale', duree: pil.duree }, slop: SLOP_V22 },
     )
     retours.push({ date: '27/11/2026', auteur: 'Évaluateur indépendant', texte: `v2.0 notée ${pil.note}/10 (v1 : ${n?.note ?? '—'}/10). ${pil.remarques[0]}` }, RETOUR_VITESSE, RETOUR_AUDIO)
     statut = 'a_noter'
@@ -132,7 +134,7 @@ export const ACTIONS: { fait: boolean; texte: string }[] = [
   { fait: true, texte: '4 recherches Chrome intégrées : benchmark de 14 outils, anti-slop (25 points), concurrents, références de ton' },
   { fait: false, texte: 'Nathan tranche : sa vraie voix (et/ou face caméra) au lieu de la voix de synthèse (règle anti-slop)' },
   { fait: false, texte: 'Refaire voix et sous-titres sur le PC (Qwen3 GPU) quand la connexion revient' },
-  { fait: false, texte: 'Remonter les pilotes avec les écrans de l\'app Android' },
+  { fait: true, texte: 'Pilotes v2.2 : écrans de l\'app Android, voix ElevenLabs, rendu anti-slop' },
   { fait: true, texte: 'Textes du mois réécrits : la valeur, pas la gratuité (appel aux 12 testeurs Android)' },
   { fait: false, texte: 'Nathan valide le style des pilotes → refaire les 32 vidéos' },
   { fait: false, texte: 'Écrire les semaines 5 à 12 (prévisionnel)' },

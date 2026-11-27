@@ -119,14 +119,14 @@ function Texte({ p, t, fps, mots }: { p: Plan; t: number; fps: number; mots: Mot
   // Les mots de la phrase tombent un par un, au moment où la voix les dit.
   const ms = mots.filter(m => m.start >= p.start - 0.05 && m.start < p.end)
   return <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'center', padding: '0 90px' }}>
-    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px 26px', transform: `rotate(${Math.sin(t * 2) * 1.2}deg)` }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '14px 30px', transform: `rotate(${Math.sin(t * 2) * 0.8}deg) scale(${1 + (t - p.start) * 0.02})` }}>
       {ms.map((m, i) => {
         if (t < m.start - 0.04) return null
         const s = spring({ frame: Math.round((t - m.start + 0.04) * fps), fps, config: { damping: 10, stiffness: 260 } })
         const cle = (p.cles || []).some(k => m.word.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '') === k)
-        return <span key={i} style={{ fontSize: 132, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1.0, textTransform: 'uppercase',
+        return <span key={i} style={{ fontSize: 104, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.12,
           color: cle ? '#fff' : ENCRE, background: cle ? ORANGE : 'transparent', padding: cle ? '6px 22px 12px' : 0, borderRadius: 22,
-          transform: `scale(${0.4 + 0.6 * s}) translateY(${(1 - s) * 80}px) rotate(${(1 - s) * (i % 2 ? 8 : -8)}deg)`, display: 'inline-block' }}>{m.word.replace(/[,.:;!?]$/, '')}</span>
+          transform: `scale(${0.6 + 0.4 * s}) translateY(${(1 - s) * 60}px)`, opacity: Math.min(1, s * 1.5), display: 'inline-block' }}>{m.word.replace(/[,.:;!?]$/, '')}</span>
       })}
     </div>
   </AbsoluteFill>
@@ -191,9 +191,9 @@ function Split({ p, t, fps }: { p: Plan; t: number; fps: number }) {
     <div style={{ flex: 1, background: '#fff4ec', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', paddingTop: 300, gap: 24,
       transform: `translateX(${(1 - s2) * 540}px)` }}>
       <div style={{ fontSize: 64, fontWeight: 900, color: ORANGE }}>APRÈS</div>
-      <div style={{ width: 300, height: 600, borderRadius: 40, border: '12px solid #121212', overflow: 'hidden', boxShadow: '0 30px 70px rgba(80,30,10,.3)',
+      <div style={{ width: 370, height: 800, borderRadius: 44, border: '12px solid #121212', overflow: 'hidden', boxShadow: '0 30px 70px rgba(80,30,10,.3)',
         transform: `scale(${1 + Math.sin(l * 1.5) * 0.015})` }}>
-        <Img src={staticFile('pilotes/planning.png')} style={{ width: '100%', display: 'block' }} />
+        <Img src={staticFile('pilotes/app/planning.png')} style={{ width: '100%', display: 'block' }} />
       </div>
       <div style={{ fontSize: 44, color: '#15803d', fontWeight: 800, transform: `scale(${s3})` }}>1 planning</div>
     </div>
@@ -209,7 +209,7 @@ function Fin({ p, t, fps }: { p: Plan; t: number; fps: number }) {
     <Img src={staticFile('logo.svg')} style={{ width: 220, height: 220, transform: `scale(${s}) rotate(${(1 - s) * -30}deg)` }} />
     <div style={{ fontSize: 112, fontWeight: 900, letterSpacing: '-0.04em', color: ENCRE, transform: `scale(${0.6 + 0.4 * s2})`, opacity: s2 }}>Chapote CM</div>
     <div style={{ fontSize: 60, fontWeight: 800, color: '#fff', background: ORANGE, borderRadius: 999, padding: '16px 44px', transform: `translateY(${(1 - s2) * 60}px)`, opacity: s2 }}>cm.chapote.fr</div>
-    <div style={{ fontSize: 46, fontWeight: 800, color: ENCRE, opacity: s2, transform: `scale(${1 + 0.12 * spring({ frame: Math.round((l - 1.6) * fps), fps, config: { damping: 8 } }) * Math.max(0, 1 - Math.max(0, l - 1.6) * 1.5)})` }}>Gratuit · sans carte bancaire</div>
+    <div style={{ fontSize: 46, fontWeight: 800, color: ENCRE, opacity: s2, transform: `scale(${1 + 0.12 * spring({ frame: Math.round((l - 1.6) * fps), fps, config: { damping: 8 } }) * Math.max(0, 1 - Math.max(0, l - 1.6) * 1.5)})` }}>Une vidéo, trois réseaux</div>
   </AbsoluteFill>
 }
 
@@ -221,19 +221,19 @@ function SousTitres({ mots, t, plans }: { mots: Mot[]; t: number; plans: Plan[] 
   mots.forEach(m => {
     if (g.length && g[g.length - 1].ligne !== m.ligne) { pages.push(g); g = [] }
     g.push(m)
-    const court = m.word.replace(/[^\p{L}\p{N}]/gu, '').length <= 3
-    if (g.length >= 3 || (g.length >= 2 && !court && /[.,!?:;]$/.test(m.word)) || /[.!?:]$/.test(m.word)) { pages.push(g); g = [] }
+    const petit = /^(à|a|la|le|les|un|une|de|des|du|ta|tes|ton|ma|mes|mon|sur|pour|et|en|tu|je|qu'une|l'ai|ne|ses|ce|c'est)$/i.test(m.word)
+    if ((g.length >= 3 && !petit) || g.length >= 4 || /[.,!?:;]$/.test(m.word) && g.length >= 2 || /[.!?:]$/.test(m.word)) { pages.push(g); g = [] }
   })
   if (g.length) pages.push(g)
   const cur = pages.find((x, i) => t >= x[0].start - 0.06 && t < (pages[i + 1] ? Math.min(pages[i + 1][0].start - 0.06, x[x.length - 1].end + 0.4) : x[x.length - 1].end + 0.4))
   if (!cur) return null
-  return <div style={{ position: 'absolute', left: 120, right: 192, top: 1030, height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '0 20px', background: 'rgba(28,25,23,.55)', borderRadius: 26, padding: '10px 26px 16px', backdropFilter: 'blur(6px)' }}>
+  return <div style={{ position: 'absolute', left: 120, right: 192, bottom: 1920 - 1240, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}><div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '0 20px', background: 'rgba(20,16,14,.72)', borderRadius: 18, padding: '10px 22px 12px' }}>
     {cur.map((m, i) => {
       const dit = t >= m.start - 0.03
       const s = dit ? Math.min(1, (t - m.start + 0.03) / 0.09) : 0
-      return <span key={i} style={{ fontSize: 80, fontWeight: 900, lineHeight: 1.08, textTransform: 'uppercase', letterSpacing: '-0.02em',
-        color: m.cle ? ORANGE : '#fff', WebkitTextStroke: '9px #1c1917', paintOrder: 'stroke fill', textShadow: '0 8px 20px rgba(0,0,0,.35)',
-        transform: `scale(${dit ? 1 + 0.14 * (1 - Math.abs(2 * s - 1)) * (s < 1 ? 1 : 0) : 0.92})`, opacity: dit ? 1 : 0.7, display: 'inline-block' }}>{m.word}</span>
+      return <span key={i} style={{ fontSize: 62, fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.01em',
+        color: m.cle ? '#ffb38a' : '#fff', textShadow: '0 2px 6px rgba(0,0,0,.35)',
+        opacity: dit ? 1 : 0.55, display: 'inline-block' }}>{m.word}</span>
     })}
   </div></div>
 }
@@ -243,12 +243,12 @@ function Accroche({ a, t, fps }: { a: { texte: string; fin: number }; t: number;
   const s = spring({ frame: Math.round(t * fps) + 8, fps, config: { damping: 10, stiffness: 200 } })   // visible dès l'image 0
   const sortie = t > a.fin ? 1 - (t - a.fin) / 0.25 : 1
   return <div style={{ position: 'absolute', left: 120, right: 192, top: 330, display: 'flex', justifyContent: 'center' }}>
-    <div style={{ background: '#fff', color: ENCRE, fontSize: 70, fontWeight: 900, lineHeight: 1.08, letterSpacing: '-0.03em', textAlign: 'center',
+    <div style={{ maxWidth: 728, boxSizing: 'border-box', background: '#fff', color: ENCRE, fontSize: 64, fontWeight: 900, lineHeight: 1.08, letterSpacing: '-0.03em', textAlign: 'center',
       borderRadius: 28, padding: '22px 34px', boxShadow: '0 18px 50px rgba(80,30,10,.3)', transform: `scale(${s * sortie}) rotate(-2deg)`, border: `6px solid ${ORANGE}` }}>{a.texte}</div>
   </div>
 }
 
-export function Pilote({ audio, musique, volMusique = 0.3, mots, accroche, plans, sons }: PropsPilote) {
+export function Pilote({ audio, musique, volMusique = 0.3, duree, mots, accroche, plans, sons }: PropsPilote) {
   const frame = useCurrentFrame(); const { fps } = useVideoConfig(); const t = frame / fps
   const p = plans.find(x => t >= x.start && t < x.end) || plans[plans.length - 1]
   const parle = (u: number) => mots.some(m => u >= m.start - 0.12 && u <= m.end + 0.12)
@@ -256,6 +256,7 @@ export function Pilote({ audio, musique, volMusique = 0.3, mots, accroche, plans
     <style>{POLICE}</style>
     <Fond t={t} />
     {p.type === 'ecran' && <Ecran p={p} t={t} fps={fps} />}
+    {p.type === 'ecran' && <div style={{ position: 'absolute', left: 120, right: 192, top: 250, textAlign: 'center', fontSize: 24, fontWeight: 700, color: 'rgba(28,25,23,.6)' }}>Écran réel de l'app · données de démo</div>}
     {p.type === 'texte' && <Texte p={p} t={t} fps={fps} mots={mots} />}
     {p.type === 'chaos' && <Chaos p={p} t={t} fps={fps} />}
     {p.type === 'split' && <Split p={p} t={t} fps={fps} />}
@@ -267,7 +268,7 @@ export function Pilote({ audio, musique, volMusique = 0.3, mots, accroche, plans
       const u = f / fps
       // Ducking : la musique descend sous la voix (≈ -18 dB sous elle après normalisation), remonte dans les silences.
       let v = 0; for (let k = -4; k <= 4; k++) v += parle(u + k * 0.04) ? 1 : 0
-      return volMusique * (1 - 0.62 * (v / 9))
+      return volMusique * (1 - 0.93 * (v / 9)) * Math.min(1, Math.max(0, (duree - u) / 0.6))
     }} />}
     {sons.map((s, i) => <Sequence key={i} from={Math.max(0, Math.round(s.t * fps))} durationInFrames={Math.round(2 * fps)}><Audio src={staticFile(s.src)} volume={s.vol} /></Sequence>)}
   </AbsoluteFill>
