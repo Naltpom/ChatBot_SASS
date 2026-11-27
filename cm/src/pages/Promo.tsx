@@ -7,10 +7,28 @@ import { BrandMark } from '../components/ui'
 import { useSession } from '../session'
 import { COMPTES, REGLES, SEMAINES, VUES, type Piece, type Plateforme, type Visuel } from '../promo/plan'
 import { VIDEOS } from '../promo/videos'
+import { BILAN, NOTES } from '../promo/bilan'
 import '../promo/promo.css'
 
 const NOMS: Record<Plateforme, string> = { youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok', linkedin: 'LinkedIn', x: 'X' }
 const ORDRE: Plateforme[] = ['instagram', 'tiktok', 'youtube', 'linkedin', 'x']
+const GRILLES: Record<string, string> = { hook: 'Hook (0-3 s)', dynamisme: 'Dynamisme / motion', voix_script: 'Voix et script', sous_titres: 'Sous-titres',
+  son: 'Son et musique', plateforme: 'Adapté à la plateforme', youtube_long: 'Format YouTube long', interaction: 'Interaction', ecran_reel: 'Écran réel',
+  mouvement: 'Mouvement', accroche: 'Accroche', fait: 'Fait vérifiable', utile: 'Utile pour un CM', format: 'Format', authenticite: 'Voix du fondateur', produit: 'Produit à sa place' }
+const DOCS = 'https://github.com/Naltpom/ChatBot_SASS/tree/master/docs/promo-video'
+const couleur = (n: number) => n >= 7 ? 'ok' : n >= 5 ? 'moyen' : 'faible'
+
+function NoteBloc({ id }: { id: string }) {
+  const n = NOTES[id]
+  if (!n) return null
+  return (
+    <details className="pr-note">
+      <summary><span className={`pr-score ${couleur(n.note)}`}>{n.note}/10</span> Bilan avant refonte</summary>
+      <ul className="pr-sousnotes">{Object.entries(n.detail).map(([k, v]) => <li key={k}><span>{GRILLES[k] ?? k}</span><b>{v}</b></li>)}</ul>
+      <ul className="pr-pb">{n.problemes.map(x => <li key={x}>{x}</li>)}</ul>
+    </details>
+  )
+}
 
 function Badge({ p }: { p: Plateforme }) {
   return <span className={`pr-badge pr-${p}`}>{NOMS[p]}</span>
@@ -51,6 +69,7 @@ function Carte({ p }: { p: Piece }) {
         <span className="pr-badges">{p.plateformes.map(x => <Badge key={x} p={x} />)}</span>
       </header>
       <h3>{p.titre}</h3>
+      <NoteBloc id={p.id} />
       {p.accroche && <p className="pr-hook">« {p.accroche} »</p>}
       {VIDEOS[p.id] ? (
         <div className="pr-visuels">
@@ -130,6 +149,22 @@ export default function Promo() {
         <ul className="pr-counts">
           {ORDRE.map(p => <li key={p}><a href={COMPTES[p].url} target="_blank" rel="noreferrer"><Badge p={p} /></a><b>{compte[p]}</b></li>)}
         </ul>
+        <section className="pr-bilan">
+          <h2>Bilan avant refonte</h2>
+          <p>Chaque élément noté sur 10 avec les grilles de 10 recherches (hooks, motion design, viraux, voix, sous-titres, son,
+            algorithmes, YouTube, outils, fondateur/LinkedIn/X) et des mesures sur les fichiers. Seuil de publication : 7/10.</p>
+          <div className="pr-moy">
+            <div><b className={`pr-score ${couleur(BILAN.moyenneVideos)}`}>{BILAN.moyenneVideos}/10</b><span>vidéos (32)</span></div>
+            <div><b className={`pr-score ${couleur(BILAN.moyenneAutres)}`}>{BILAN.moyenneAutres}/10</b><span>stories et posts</span></div>
+          </div>
+          <ul className="pr-barres">
+            {Object.entries(BILAN.grilles).map(([k, v]) => (
+              <li key={k}><span>{GRILLES[k] ?? k}</span><i><em className={couleur(v)} style={{ width: `${v * 10}%` }} /></i><b>{v}</b></li>
+            ))}
+          </ul>
+          <p className="pr-goal">À corriger d'abord : images figées (38 % du temps), son trop bas (-23 LUFS au lieu de -14) et sans musique,
+            voix sans énergie, sous-titres sous la zone visible des applis. <a href={DOCS} target="_blank" rel="noreferrer">Guide et 10 recherches</a>.</p>
+        </section>
         <details className="pr-rules">
           <summary>Règles de la semaine</summary>
           <ul>{REGLES.map(r => <li key={r}>{r}</li>)}</ul>
