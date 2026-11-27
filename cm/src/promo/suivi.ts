@@ -20,7 +20,7 @@ export interface Retour { date: string; auteur: string; texte: string }
 export interface Version {
   v: string; date: string; resume: string
   video?: { src: string; poster: string; format: 'verticale' | 'horizontale'; duree: number }
-  note?: number; detail?: Record<string, number>; problemes?: string[]
+  note?: number; detail?: Record<string, number>; problemes?: string[]; aFaire?: boolean
 }
 export interface Entree {
   id: string; titre: string; format: string; plateformes: Plateforme[]; date: string; jour: number; semaine: number
@@ -36,36 +36,44 @@ const RETOUR_V1: Retour = { date: '27/11/2026', auteur: 'Bilan', texte: 'v1 jug�
 const RETOUR_ECRANS: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'Les écrans téléphone doivent venir de l\'app Android (c\'est l\'app qui prime), pas de cm.chapote.fr en version mobile, qui est en retard. Ordinateur : cm web.' }
 const RETOUR_PRIX: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'Ne pas vendre la gratuité ni « sans carte bancaire » : vendre la valeur et attirer des clients ; la bêta est gratuite pour les testeurs, pas un argument.' }
 
+const RETOUR_SLOP: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'Pas d\'« IA slop » : du contenu professionnel, qu\'on regarde sans se dire « c\'est de l\'IA ». Voix, textes, visuels et montage à juger avec la grille anti-slop.' }
+const RETOUR_VITESSE: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'v2.0 trop rapide : pas le temps de voir ni de lire, pas de respiration. Le hook est bon.' }
+const RETOUR_AUDIO: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'Audio et sous-titres faits sur le processeur du cloud (panne internet chez Nathan) : mauvais, à refaire sur le PC (Qwen3 GPU) au retour de la connexion.' }
+
+/** Pilotes v2 rattachés à une publication du plan (le pilote devient la v2 de cette publication). */
+export const PILOTE_DE: Record<string, string> = { resultat: 's1-l', pov: 's2-d', 'avant-apres': 's4-d' }
+
 /** Toutes les publications du mois 1 (plan.ts), avec leur statut, leurs versions et leurs retours. */
 export const ENTREES: Entree[] = SEMAINES.flatMap((s, si) => s.jours.flatMap((j, ji) => j.pieces.map(p => {
   const jour = si * 7 + ji
   const v = VIDEOS[p.id], n = NOTES[p.id]
   const versions: Version[] = [{
-    v: 'v1', date: '27/11/2026', resume: v ? 'Rendu automatique : voix Qwen3 (PC), écrans de cm.chapote.fr, sous-titres mot à mot.' : 'Textes et visuels.',
+    v: 'v1', date: '27/11/2026', resume: v ? 'Rendu automatique : voix Qwen3 (PC), écrans de cm.chapote.fr, sous-titres mot à mot, sans musique.' : 'Textes et visuels.',
     video: v ? { src: v.src, poster: v.poster, format: p.video === 'horizontale' ? 'horizontale' : 'verticale', duree: v.duree } : undefined,
     note: n?.note, detail: n?.detail, problemes: n?.problemes,
   }]
-  const retours: Retour[] = [...(v ? [RETOUR_V1, RETOUR_ECRANS] : []), ...(/gratuit|carte bancaire/i.test(JSON.stringify(p.textes)) ? [RETOUR_PRIX] : [])]
-  const statut: Statut = v ? 'a_refaire' : n && n.note < 7 ? 'a_refaire' : 'a_valider'
+  const retours: Retour[] = v ? [RETOUR_V1, RETOUR_ECRANS, RETOUR_SLOP] : []
+  const pil = PILOTES.find(x => PILOTE_DE[x.id] === p.id)
+  let statut: Statut = v ? 'a_refaire' : n && n.note < 7 ? 'a_refaire' : 'a_valider'
+  if (pil) {
+    versions.push(
+      { v: 'v2.0', date: '27/11/2026', resume: `Pilote « ${pil.titre} » : caméra dans les vrais écrans, taps, accroche dès l'image 0, musique et effets à -14 LUFS. Rapide (voix ×1,1, 13-14 s). Notée par un évaluateur indépendant.`, note: pil.note, detail: pil.detail, problemes: pil.remarques.slice(0, -2) },
+      { v: 'v2.1', date: '27/11/2026', resume: 'Rythme ralenti : voix naturelle, 0,5 s de respiration entre les phrases, fin tenue plus longtemps. Pas encore notée.', video: { src: pil.src, poster: pil.poster, format: 'verticale', duree: pil.duree } },
+    )
+    retours.push({ date: '27/11/2026', auteur: 'Évaluateur indépendant', texte: `v2.0 notée ${pil.note}/10 (v1 : ${n?.note ?? '—'}/10). ${pil.remarques[0]}` }, RETOUR_VITESSE, RETOUR_AUDIO)
+    statut = 'en_test'
+  } else if (v) {
+    versions.push({ v: 'v2', date: 'à venir', resume: 'À produire selon le guide v2 et la grille anti-slop (écrans de l\'app Android, voix refaite sur le PC). Cible : 7/10 minimum sur chaque grille.', aFaire: true })
+  }
   return { id: p.id, titre: p.titre, format: p.format, plateformes: p.plateformes, date: fmt(dateDu(jour)), jour, semaine: si, heure: p.heure, statut, versions, retours, piece: p }
 })))
 
-/** Pilotes v2 (laboratoire) : chacun a sa page, ses versions et ses retours. */
-export const LABO: Entree[] = PILOTES.map(p => ({
-  id: `pilote-${p.id}`, titre: p.titre, format: `Pilote · ${p.format}`, plateformes: ['instagram', 'tiktok', 'youtube'], date: '27/11/2026', jour: -1, semaine: -1, heure: '',
-  statut: 'en_test',
-  versions: [
-    { v: 'v2.0', date: '27/11/2026', resume: 'Première version v2 (rapide : voix ×1,1, silences raccourcis, 13-14 s). Notée par un évaluateur indépendant.', note: p.note, detail: p.detail, problemes: p.remarques.slice(0, -2) },
-    { v: 'v2.1', date: '27/11/2026', resume: 'Rythme ralenti : voix naturelle, 0,5 s de respiration entre les phrases, fin tenue plus longtemps.', video: { src: p.src, poster: p.poster, format: 'verticale', duree: p.duree } },
-  ],
-  retours: [
-    { date: '27/11/2026', auteur: 'Évaluateur indépendant', texte: `Note ${p.note}/10 sur la v2.0 (v1 : 5,2 en moyenne). ${p.remarques[0]}` },
-    { date: '27/11/2026', auteur: 'Nathan', texte: 'Trop vite : on n\'a pas le temps de voir ni de lire, pas de respiration. Le hook est bon.' },
-    RETOUR_ECRANS,
-    { date: '27/11/2026', auteur: 'Nathan', texte: 'Audio et sous-titres faits sur le processeur du cloud (panne internet chez Nathan) : à refaire sur le PC (Qwen3 GPU) dès le retour de la connexion.' },
-    RETOUR_PRIX,
-  ],
-}))
+/** Publications qui ont un pilote v2 (laboratoire). */
+export const LABO: Entree[] = ENTREES.filter(e => Object.values(PILOTE_DE).includes(e.id))
+
+export const noteV1 = (e: Entree) => e.versions[0]?.note
+export const noteActuelle = (e: Entree) => [...e.versions].reverse().find(v => v.note !== undefined)?.note
+export const versionActuelle = (e: Entree) => [...e.versions].reverse().find(v => !v.aFaire) ?? e.versions[0]
 
 /** Prévisionnel des mois 2 et 3 : une semaine = un thème, un but et ce qu'on prévoit d'y produire (rien n'est écrit). */
 export interface SemainePrev { n: number; titre: string; but: string; prevu: Partial<Record<Plateforme | 'story', number>>; idees: string[] }
@@ -95,5 +103,5 @@ export const ACTIONS: { fait: boolean; texte: string }[] = [
   { fait: false, texte: 'Nathan répond aux 8 questions du circuit des retours, puis étape 1 (collecte + regroupement + mail)' },
 ]
 
-export const toutes = (): Entree[] => [...LABO, ...ENTREES]
-export const parId = (id: string) => toutes().find(e => e.id === id)
+export const toutes = (): Entree[] => ENTREES
+export const parId = (id: string) => ENTREES.find(e => e.id === id || `pilote-${Object.keys(PILOTE_DE).find(k => PILOTE_DE[k] === e.id)}` === id)

@@ -1,12 +1,13 @@
 // Pages du tableau de bord /promo (superadmin) : tableau de bord, calendrier 3 mois, publications, fiche d'une publication,
 // labo (pilotes), blog (guide et recherches), règles et sources, bilan, écrans.
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { COMPTES, REGLES, SEMAINES, type Plateforme } from './plan'
 import { BILAN, NOTES } from './bilan'
-import { COMPARAISON, PILOTES } from './pilotes'
-import { ACTIONS, ENTREES, LABO, PREVISIONNEL, STATUTS, dateDu, fmt, parId, toutes, type Statut } from './suivi'
-import { Badge, Carte, Contenu, Copier, DOCS, GRILLES, Ligne, NOMS, ORDRE, Pastille, VersionBloc, couleur } from './ui'
+import { COMPARAISON } from './pilotes'
+import { BarresEmpilees, BarresGroupees } from './charts'
+import { ACTIONS, ENTREES, LABO, PREVISIONNEL, STATUTS, dateDu, fmt, noteActuelle, noteV1, parId, versionActuelle, type Entree, type Statut } from './suivi'
+import { Badge, Contenu, DOCS, GRILLES, Ligne, NOMS, ORDRE, Pastille, couleur } from './ui'
 
 const Markdown = lazy(() => import('react-markdown'))
 const ARTICLES = import.meta.glob('./articles/*.md', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>
@@ -25,56 +26,6 @@ const NOMS_APP: Record<string, string> = { planning: 'Planning', n2: 'Nouvelle p
 function Titre({ t, sous }: { t: string; sous?: string }) {
   useEffect(() => { document.title = `${t} · Promo Chapote CM` }, [t])
   return <div className="pr-hero"><h1>{t}</h1>{sous && <p>{sous}</p>}</div>
-}
-
-export function Tableau() {
-  const tout = toutes()
-  const parStatut = useMemo(() => {
-    const n = {} as Record<Statut, number>; (Object.keys(STATUTS) as Statut[]).forEach(s => { n[s] = 0 })
-    tout.forEach(e => { n[e.statut]++ }); PREVISIONNEL.forEach(s => { n.idee += Object.values(s.prevu).reduce((a, b) => a + (b || 0), 0) })
-    return n
-  }, [tout])
-  const prochaines = ENTREES.slice(0, 8)
-  const fait = ACTIONS.filter(a => a.fait).length
-  return (
-    <>
-      <Titre t="Promo · tableau de bord" sous="Suivi prévisionnel de la promo de Chapote CM sur 3 mois : ce qui est prêt, à refaire, à valider, et ce qu'on en a appris. Rien n'est programmé ni publié d'ici." />
-      <section className="pr-kpis">
-        <div><b>{ENTREES.length}</b><span>publications écrites (mois 1)</span></div>
-        <div><b>{PREVISIONNEL.reduce((a, s) => a + Object.values(s.prevu).reduce((x, y) => x + (y || 0), 0), 0)}</b><span>prévues (mois 2-3)</span></div>
-        <div><b className={`pr-score ${couleur(COMPARAISON.v1.moyenne)}`}>{COMPARAISON.v1.moyenne}</b><span>note v1 (32 vidéos)</span></div>
-        <div><b className={`pr-score ${couleur(COMPARAISON.v2.moyenne)}`}>{COMPARAISON.v2.moyenne}</b><span>note v2 (3 pilotes)</span></div>
-      </section>
-      <section className="pr-bilan">
-        <h2>Où en est-on</h2>
-        <ul className="pr-barres">
-          {(Object.keys(STATUTS) as Statut[]).map(s => (
-            <li key={s}><span>{STATUTS[s].nom}</span><i><em style={{ width: `${Math.min(100, parStatut[s] / Math.max(1, ...Object.values(parStatut)) * 100)}%`, background: STATUTS[s].couleur }} /></i><b>{parStatut[s]}</b></li>
-          ))}
-        </ul>
-      </section>
-      <div className="pr-2col">
-        <section className="pr-bilan">
-          <h2>Prochaines actions <small className="pr-muted">{fait}/{ACTIONS.length}</small></h2>
-          <ul className="pr-actions">{ACTIONS.map(a => <li key={a.texte} className={a.fait ? 'fait' : ''}>{a.fait ? '✓' : '○'} {a.texte}</li>)}</ul>
-        </section>
-        <section className="pr-bilan">
-          <h2>Laboratoire : pilotes v2</h2>
-          <div className="pr-liste">{LABO.map(e => <Ligne key={e.id} e={e} />)}</div>
-          <Link className="pr-lien" to="/promo/labo">Comparer v1 et v2 →</Link>
-        </section>
-      </div>
-      <section className="pr-bilan">
-        <h2>Semaine 1 · à partir du {fmt(dateDu(0))}</h2>
-        <div className="pr-liste">{prochaines.map(e => <Ligne key={e.id} e={e} />)}</div>
-        <Link className="pr-lien" to="/promo/calendrier">Tout le calendrier (3 mois) →</Link>
-      </section>
-      <section className="pr-bilan">
-        <h2>Comptes de la promo</h2>
-        <ul className="pr-counts">{ORDRE.map(p => <li key={p}><a href={COMPTES[p].url} target="_blank" rel="noreferrer"><Badge p={p} /></a><span>{COMPTES[p].nom}</span></li>)}</ul>
-      </section>
-    </>
-  )
 }
 
 export function Calendrier() {
@@ -119,34 +70,134 @@ export function Calendrier() {
   )
 }
 
-export function Publications() {
-  const [sem, setSem] = useState(0)
-  const [plat, setPlat] = useState<Plateforme | null>(null)
-  const [st, setSt] = useState<Statut | null>(null)
-  const es = ENTREES.filter(e => e.semaine === sem && (!plat || e.plateformes.includes(plat)) && (!st || e.statut === st))
+const GR6 = ['hook', 'dynamisme', 'voix_script', 'sous_titres', 'son', 'plateforme']
+const NOM_PLAT: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', linkedin: 'LinkedIn', x: 'X', story: 'Stories' }
+const ORDRE_VOL = ['instagram', 'tiktok', 'youtube', 'linkedin', 'x', 'story'] as const
+const moy = (xs: (number | undefined)[]) => { const v = xs.filter((x): x is number => x !== undefined); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : undefined }
+
+function Kpi({ label, valeur, sous, ton }: { label: string; valeur: React.ReactNode; sous?: React.ReactNode; ton?: string }) {
+  return <div className="pr-kpi"><span className="pr-kpi-l">{label}</span><b className={ton ? `pr-kpi-v ${ton}` : 'pr-kpi-v'}>{valeur}</b>{sous && <span className="pr-kpi-s">{sous}</span>}</div>
+}
+
+/** Tableau des publications : trié, une ligne = une publication, clic = sa fiche. */
+function TablePubs({ es }: { es: Entree[] }) {
+  type Cle = 'jour' | 'titre' | 'statut' | 'v1' | 'act' | 'delta'
+  const [tri, setTri] = useState<{ k: Cle; inv: boolean }>({ k: 'jour', inv: false })
+  const val = (e: Entree, k: Cle): number | string => k === 'jour' ? e.jour * 100 + parseInt(e.heure) : k === 'titre' ? e.titre : k === 'statut' ? Object.keys(STATUTS).indexOf(e.statut)
+    : k === 'v1' ? noteV1(e) ?? -1 : k === 'act' ? noteActuelle(e) ?? -1 : (noteActuelle(e) ?? 0) - (noteV1(e) ?? 0)
+  const rows = [...es].sort((a, b) => { const x = val(a, tri.k), y = val(b, tri.k); const r = x < y ? -1 : x > y ? 1 : 0; return tri.inv ? -r : r })
+  const th = (k: Cle, t: string, cls = '') => <th className={cls}><button type="button" onClick={() => setTri(s => ({ k, inv: s.k === k ? !s.inv : false }))}>{t}{tri.k === k ? (tri.inv ? ' ↓' : ' ↑') : ''}</button></th>
+  const nav = useNavigate()
+  return (
+    <div className="pr-table-wrap">
+      <table className="pr-table">
+        <thead><tr>{th('jour', 'Date')}{th('titre', 'Publication')}<th>Réseaux</th>{th('statut', 'Statut')}<th className="num">Versions</th>{th('v1', 'v1', 'num')}{th('act', 'Actuelle', 'num')}{th('delta', 'Écart', 'num')}</tr></thead>
+        <tbody>{rows.map(e => {
+          const a = noteV1(e), b = noteActuelle(e), d = a !== undefined && b !== undefined && b !== a ? Math.round((b - a) * 10) / 10 : undefined
+          return <tr key={e.id} onClick={() => nav(`/promo/p/${e.id}`)}>
+            <td className="pr-nowrap">{e.date}<small> {e.heure}</small></td>
+            <td><Link to={`/promo/p/${e.id}`} onClick={ev => ev.stopPropagation()}>{e.titre}</Link><small className="pr-muted"> · {e.format}</small></td>
+            <td className="pr-nowrap">{e.plateformes.map(p => <span key={p} className="pr-mini">{NOMS[p].slice(0, 2)}</span>)}</td>
+            <td><Pastille s={e.statut} /></td>
+            <td className="num">{e.versions.filter(v => !v.aFaire).map(v => v.v).join(' · ')}</td>
+            <td className="num">{a ?? '—'}</td>
+            <td className="num">{b !== undefined ? <span className={`pr-score ${couleur(b)}`}>{b}</span> : '—'}</td>
+            <td className={`num ${d === undefined ? '' : d >= 0 ? 'pr-plus' : 'pr-moins'}`}>{d === undefined ? '' : `${d > 0 ? '+' : ''}${d}`}</td>
+          </tr>
+        })}</tbody>
+      </table>
+    </div>
+  )
+}
+
+export function Tableau() {
+  const prevu = ENTREES.length + PREVISIONNEL.reduce((a, s) => a + Object.values(s.prevu).reduce((x, y) => x + (y || 0), 0), 0)
+  const notes = ENTREES.map(noteActuelle)
+  const pretes = ENTREES.filter(e => (noteActuelle(e) ?? 0) >= 7).length
+  const aRefaire = ENTREES.filter(e => e.statut === 'a_refaire').length
+  const moyV1 = moy(ENTREES.map(noteV1)), moyAct = moy(notes)
+  const prochaine = ENTREES[0]
+  const parStatut = (Object.keys(STATUTS) as Statut[]).map(s => ({ s, es: ENTREES.filter(e => e.statut === s) }))
+  // Qualité par critère : moyenne v1 des vidéos qui ont un pilote, et moyenne des pilotes v2.0.
+  const lignesQ = GR6.map(k => ({ nom: GRILLES[k] ?? k, valeurs: [(COMPARAISON.v1.grilles as Record<string, number>)[k], (COMPARAISON.v2.grilles as Record<string, number>)[k]] }))
+  const semaines = [...SEMAINES.map((s, si) => {
+    const es = ENTREES.filter(e => e.semaine === si)
+    return { nom: `S${si + 1}`, sous: s.dates, valeurs: ORDRE_VOL.map(p => p === 'story' ? es.filter(e => /story/i.test(e.format)).length : es.filter(e => !/story/i.test(e.format) && e.plateformes.includes(p as Plateforme)).length) }
+  }), ...PREVISIONNEL.map(s => ({ nom: `S${s.n}`, sous: `prévu · ${s.titre}`, valeurs: ORDRE_VOL.map(p => s.prevu[p] ?? 0) }))]
   return (
     <>
-      <Titre t="Publications · mois 1" sous="Chaque publication avec son statut, sa dernière version et sa note. La fiche complète garde les versions, les textes et les retours d'expérience." />
-      <nav className="pr-filters" aria-label="Filtres">
-        <div className="pr-chips">
-          {SEMAINES.map((w, i) => <button key={w.titre} type="button" className={sem === i ? 'on' : ''} onClick={() => setSem(i)}>S{i + 1}</button>)}
-          <span className="pr-sem">{SEMAINES[sem].titre} · {SEMAINES[sem].dates}</span>
+      <div className="pr-dash-h">
+        <div><h1>Promo · vue d'ensemble</h1><p className="pr-muted">30 nov. 2026 → 21 févr. 2027 · 12 semaines · Instagram, TikTok, YouTube, LinkedIn, X</p></div>
+        <Link to="/promo/publications" className="pr-btn">Toutes les publications</Link>
+      </div>
+      <section className="pr-kpis">
+        <Kpi label="Prévues sur 3 mois" valeur={prevu} sous={`${ENTREES.length} écrites (mois 1)`} />
+        <Kpi label="Prêtes à publier (≥ 7/10)" valeur={pretes} sous={`sur ${ENTREES.length}`} ton={pretes ? 'ok' : 'faible'} />
+        <Kpi label="À refaire" valeur={aRefaire} sous="v1 sous le seuil" ton="faible" />
+        <Kpi label="Note moyenne" valeur={<>{moyAct ?? '—'}<small>/10</small></>} sous={<>v1 : {moyV1}/10 · pilotes v2 : {COMPARAISON.v2.moyenne}/10</>} />
+        <Kpi label="Prochaine publication" valeur={<small>{prochaine.date} · {prochaine.heure}</small>} sous={<Link to={`/promo/p/${prochaine.id}`}>{prochaine.titre}</Link>} />
+      </section>
+
+      <section className="pr-panel">
+        <div className="pr-panel-h"><h2>Pipeline</h2><span className="pr-muted">{ENTREES.length} publications du mois 1 par statut</span></div>
+        <div className="pr-board">
+          {parStatut.map(({ s, es }) => (
+            <div key={s} className="pr-col">
+              <div className="pr-col-h"><i style={{ background: STATUTS[s].couleur }} />{STATUTS[s].nom}<b>{es.length}</b></div>
+              {es.slice(0, 5).map(e => <Link key={e.id} to={`/promo/p/${e.id}`} className="pr-tuile">
+                <span>{e.titre}</span><small>{e.date} · {e.plateformes.map(p => NOMS[p].slice(0, 2)).join(' ')}{noteActuelle(e) !== undefined ? ` · ${noteActuelle(e)}/10` : ''}</small></Link>)}
+              {es.length > 5 && <Link to={`/promo/publications?statut=${s}`} className="pr-col-plus">+ {es.length - 5} autres</Link>}
+              {!es.length && <span className="pr-col-vide">—</span>}
+            </div>
+          ))}
         </div>
-        <div className="pr-chips">
-          <button type="button" className={plat === null ? 'on' : ''} onClick={() => setPlat(null)}>Tout</button>
-          {ORDRE.map(p => <button key={p} type="button" className={plat === p ? 'on' : ''} onClick={() => setPlat(p)}>{NOMS[p]}</button>)}
-        </div>
-        <div className="pr-chips">
-          <button type="button" className={st === null ? 'on' : ''} onClick={() => setSt(null)}>Tous statuts</button>
-          {(Object.keys(STATUTS) as Statut[]).map(s => <button key={s} type="button" className={st === s ? 'on' : ''} onClick={() => setSt(s)}>{STATUTS[s].nom}</button>)}
-        </div>
-      </nav>
-      {SEMAINES[sem].jours.map((j, ji) => {
-        const d = es.filter(e => e.jour === sem * 7 + ji).sort((a, b) => a.heure.localeCompare(b.heure))
-        if (!d.length) return null
-        return <section key={j.date} className="pr-day"><h2><span>{j.date}</span> {j.theme}</h2><p className="pr-goal">{j.but}</p>
-          <div className="pr-grid">{d.map(e => <Carte key={e.id} e={e} />)}</div></section>
-      })}
+      </section>
+
+      <div className="pr-2col">
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Qualité par critère</h2><Link to="/promo/labo" className="pr-muted">v1 → v2</Link></div>
+          <BarresGroupees lignes={lignesQ} series={['v1 (32 vidéos)', 'v2.0 (3 pilotes)']} seuil={7} />
+        </section>
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Volume par semaine</h2><Link to="/promo/calendrier" className="pr-muted">Calendrier</Link></div>
+          <BarresEmpilees colonnes={semaines} series={ORDRE_VOL.map(p => NOM_PLAT[p])} />
+        </section>
+      </div>
+
+      <section className="pr-panel">
+        <div className="pr-panel-h"><h2>Les plus faibles</h2><span className="pr-muted">à refaire en priorité</span></div>
+        <TablePubs es={[...ENTREES].filter(e => noteActuelle(e) !== undefined).sort((a, b) => (noteActuelle(a) ?? 0) - (noteActuelle(b) ?? 0)).slice(0, 6)} />
+      </section>
+
+      <div className="pr-2col">
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Prochaines actions</h2><span className="pr-muted">{ACTIONS.filter(a => a.fait).length}/{ACTIONS.length} faites</span></div>
+          <ul className="pr-actions">{ACTIONS.map(a => <li key={a.texte} className={a.fait ? 'fait' : ''}><span aria-hidden>{a.fait ? '✓' : '○'}</span>{a.texte}</li>)}</ul>
+        </section>
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Comptes</h2></div>
+          <ul className="pr-comptes">{ORDRE.map(p => <li key={p}><Badge p={p} /><a href={COMPTES[p].url} target="_blank" rel="noreferrer">{COMPTES[p].nom}</a></li>)}</ul>
+        </section>
+      </div>
+    </>
+  )
+}
+
+export function Publications() {
+  const [q] = useSearchParams()
+  const [sem, setSem] = useState<number | null>(null)
+  const [plat, setPlat] = useState<Plateforme | null>(null)
+  const [st, setSt] = useState<Statut | null>((q.get('statut') as Statut) || null)
+  const es = ENTREES.filter(e => (sem === null || e.semaine === sem) && (!plat || e.plateformes.includes(plat)) && (!st || e.statut === st))
+  return (
+    <>
+      <Titre t="Publications" sous={`${es.length} sur ${ENTREES.length} · cliquez une ligne pour sa fiche (versions, notes, retours, textes).`} />
+      <div className="pr-filtres">
+        <select value={sem ?? ''} onChange={e => setSem(e.target.value === '' ? null : +e.target.value)} aria-label="Semaine"><option value="">Toutes les semaines</option>{SEMAINES.map((w, i) => <option key={i} value={i}>{w.titre} · {w.dates}</option>)}</select>
+        <select value={plat ?? ''} onChange={e => setPlat((e.target.value || null) as Plateforme | null)} aria-label="Réseau"><option value="">Tous les réseaux</option>{ORDRE.map(p => <option key={p} value={p}>{NOMS[p]}</option>)}</select>
+        <select value={st ?? ''} onChange={e => setSt((e.target.value || null) as Statut | null)} aria-label="Statut"><option value="">Tous les statuts</option>{(Object.keys(STATUTS) as Statut[]).map(s => <option key={s} value={s}>{STATUTS[s].nom}</option>)}</select>
+      </div>
+      <section className="pr-panel"><TablePubs es={es} /></section>
     </>
   )
 }
@@ -155,40 +206,63 @@ export function Fiche() {
   const { id = '' } = useParams()
   const e = parId(id)
   if (!e) return <><Titre t="Publication introuvable" /><Link to="/promo/publications">← Publications</Link></>
-  const pilote = PILOTES.find(p => `pilote-${p.id}` === e.id)
+  const faites = e.versions.filter(v => !v.aFaire)
+  const notees = e.versions.filter(v => v.detail)
+  const grilles = [...new Set(notees.flatMap(v => Object.keys(v.detail!)))]
+  const act = versionActuelle(e)
   return (
     <>
-      <p><Link to={e.semaine < 0 ? '/promo/labo' : '/promo/publications'} className="pr-lien">← {e.semaine < 0 ? 'Laboratoire' : 'Publications'}</Link></p>
-      <div className="pr-hero">
-        <h1>{e.titre}</h1>
-        <p className="pr-card-h"><Pastille s={e.statut} /><span>{e.date}{e.heure ? ` · ${e.heure}` : ''}</span><span className="pr-format">{e.format}</span>
-          <span className="pr-badges">{e.plateformes.map(x => <Badge key={x} p={x} />)}</span></p>
+      <p><Link to="/promo/publications" className="pr-lien">← Publications</Link></p>
+      <div className="pr-dash-h">
+        <div><h1>{e.titre}</h1>
+          <div className="pr-faits">
+            <span><small>Date</small>{e.date} · {e.heure}</span><span><small>Format</small>{e.format}</span>
+            <span><small>Réseaux</small><span className="pr-badges">{e.plateformes.map(x => <Badge key={x} p={x} />)}</span></span>
+            <span><small>Statut</small><Pastille s={e.statut} /></span>
+            <span><small>Version actuelle</small>{act.v}</span>
+            <span><small>Note</small>{noteActuelle(e) !== undefined ? <b className={`pr-score ${couleur(noteActuelle(e)!)}`}>{noteActuelle(e)}/10</b> : '—'}</span>
+          </div></div>
       </div>
-      <div className="pr-fiche">
-        <section className="pr-bilan">
-          <h2>Versions ({e.versions.length})</h2>
-          {[...e.versions].reverse().map((v, i) => <VersionBloc key={v.v} v={v} ouverte={i === 0} />)}
-        </section>
-        <section className="pr-bilan">
-          <h2>Retours d'expérience ({e.retours.length})</h2>
-          {e.retours.length ? <ol className="pr-retours">{e.retours.map((r, i) => <li key={i}><b>{r.auteur}</b> <span className="pr-muted">{r.date}</span><p>{r.texte}</p></li>)}</ol>
-            : <p className="pr-muted">Aucun retour pour l'instant. Après publication : vues, rétention, commentaires et ce qu'on en retient.</p>}
-          <p className="pr-muted">Pour ajouter un retour : le dire à Claude dans la session, il l'écrit dans <code>cm/src/promo/suivi.ts</code>.</p>
-        </section>
-      </div>
-      <section className="pr-bilan">
-        <h2>Contenu</h2>
-        {e.piece ? <Contenu p={e.piece} /> : pilote && <>
-          <p className="pr-hook">Accroche : « {pilote.accroche} »</p>
-          <details className="pr-sec" open><summary>Contrôles automatiques (dernière version)</summary>
-            <ul className="pr-pb">
-              <li>{pilote.controles.mots_par_s} mots/s · accroche de {pilote.controles.accroche_mots} mots · premier mot à {pilote.controles.premier_mot_s} s</li>
-              <li>Son {pilote.controles.lufs} LUFS, crête {pilote.controles.true_peak} dBTP</li>
-              <li>Images figées : {pilote.controles.images_figees_1_5s.length ? pilote.controles.images_figees_1_5s.join(', ') : 'aucune'} · {pilote.controles.plans} plans · {pilote.controles.taps} taps</li>
-            </ul></details>
-          <div className="pr-textes"><pre className="pr-text">{pilote.legende}</pre><Copier texte={pilote.legende} /></div>
-        </>}
+
+      <section className="pr-panel">
+        <div className="pr-panel-h"><h2>Versions</h2><span className="pr-muted">{faites.length} produite{faites.length > 1 ? 's' : ''}</span></div>
+        <div className="pr-table-wrap">
+          <table className="pr-table pr-versions">
+            <thead><tr><th>Critère</th>{e.versions.map(v => <th key={v.v} className="num">{v.v}<small className="pr-muted"> {v.date}</small></th>)}{notees.length > 1 && <th className="num">Écart</th>}</tr></thead>
+            <tbody>
+              {grilles.map(g => {
+                const vals = e.versions.map(v => v.detail?.[g]); const nn = vals.filter((x): x is number => x !== undefined)
+                const d = nn.length > 1 ? Math.round((nn[nn.length - 1] - nn[0]) * 10) / 10 : undefined
+                return <tr key={g}><td>{GRILLES[g] ?? g}</td>{vals.map((x, i) => <td key={i} className="num">{x ?? (e.versions[i].aFaire ? 'cible 7' : '—')}</td>)}{notees.length > 1 && <td className={`num ${d === undefined ? '' : d >= 0 ? 'pr-plus' : 'pr-moins'}`}>{d === undefined ? '' : `${d > 0 ? '+' : ''}${d}`}</td>}</tr>
+              })}
+              <tr className="pr-total"><td>Note globale</td>{e.versions.map(v => <td key={v.v} className="num">{v.note !== undefined ? <span className={`pr-score ${couleur(v.note)}`}>{v.note}</span> : v.aFaire ? 'à produire' : 'non notée'}</td>)}{notees.length > 1 && <td />}</tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="pr-versions-cartes">
+          {e.versions.map(v => (
+            <article key={v.v} className={`pr-vcarte ${v.aFaire ? 'afaire' : ''}`}>
+              <header><b>{v.v}</b><span className="pr-muted">{v.date}</span>{v.note !== undefined && <span className={`pr-score ${couleur(v.note)}`}>{v.note}/10</span>}</header>
+              {v.video ? <video className={`pr-video pr-${v.video.format === 'horizontale' ? 'paysage' : 'portrait'}`} src={v.video.src} poster={v.video.poster} controls playsInline preload="none" />
+                : <div className="pr-vide-video">{v.aFaire ? 'À produire' : 'Pas de vidéo'}</div>}
+              <p>{v.resume}</p>
+              {v.problemes && v.problemes.length > 0 && <details><summary>Problèmes relevés ({v.problemes.length})</summary><ul className="pr-pb">{v.problemes.map(x => <li key={x}>{x}</li>)}</ul></details>}
+            </article>
+          ))}
+        </div>
       </section>
+
+      <div className="pr-fiche">
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Contenu</h2></div>
+          {e.piece && <Contenu p={e.piece} />}
+        </section>
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Retours d'expérience</h2><span className="pr-muted">{e.retours.length}</span></div>
+          {e.retours.length ? <ol className="pr-retours">{e.retours.map((r, i) => <li key={i}><div><b>{r.auteur}</b><span className="pr-muted">{r.date}</span></div><p>{r.texte}</p></li>)}</ol>
+            : <p className="pr-muted">Aucun retour. Après publication : vues, rétention, commentaires et ce qu'on en retient.</p>}
+        </section>
+      </div>
     </>
   )
 }
@@ -196,23 +270,18 @@ export function Fiche() {
 export function Labo() {
   return (
     <>
-      <Titre t="Laboratoire · pilotes v2" sous="Les essais de la nouvelle méthode, avant de refaire les 32 vidéos. Chaque pilote a sa fiche avec ses versions et les retours." />
-      <section className="pr-bilan">
-        <h2>v1 → v2 par grille</h2>
-        <div className="pr-moy">
-          <div><b className={`pr-score ${couleur(COMPARAISON.v1.moyenne)}`}>{COMPARAISON.v1.moyenne}/10</b><span>v1 · 32 vidéos</span></div>
-          <div><b className={`pr-score ${couleur(COMPARAISON.v2.moyenne)}`}>{COMPARAISON.v2.moyenne}/10</b><span>v2.0 · 3 pilotes</span></div>
-        </div>
-        <table className="pr-comp">
-          <thead><tr><th>Grille</th><th>v1</th><th>v2</th><th></th></tr></thead>
-          <tbody>{Object.entries(COMPARAISON.v2.grilles).map(([k, v]) => {
-            const a = (COMPARAISON.v1.grilles as Record<string, number>)[k], d = Math.round((v - a) * 10) / 10
-            return <tr key={k}><td>{GRILLES[k] ?? k}</td><td><span className={`pr-score ${couleur(a)}`}>{a}</span></td><td><span className={`pr-score ${couleur(v)}`}>{v}</span></td><td className={d >= 0 ? 'pr-plus' : 'pr-moins'}>{d >= 0 ? '+' : ''}{d}</td></tr>
-          })}</tbody>
-        </table>
-        <p className="pr-muted">Notes données par un évaluateur indépendant sur la v2.0 (rapide). Depuis : rythme ralenti (v2.1). À venir : voix refaites sur le PC et écrans de l'app Android.</p>
-      </section>
-      <div className="pr-liste">{LABO.map(e => <Ligne key={e.id} e={e} />)}</div>
+      <Titre t="Labo · v1 → v2" sous="Chaque pilote v2 est la nouvelle version d'une publication du plan. Notes données par un évaluateur indépendant, mêmes grilles." />
+      <div className="pr-2col">
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Qualité par critère</h2></div>
+          <BarresGroupees lignes={GR6.map(k => ({ nom: GRILLES[k] ?? k, valeurs: [(COMPARAISON.v1.grilles as Record<string, number>)[k], (COMPARAISON.v2.grilles as Record<string, number>)[k]] }))} series={['v1 (32 vidéos)', 'v2.0 (3 pilotes)']} seuil={7} />
+        </section>
+        <section className="pr-panel">
+          <div className="pr-panel-h"><h2>Les 3 publications en test</h2></div>
+          <TablePubs es={LABO} />
+          <p className="pr-muted">v2.0 notée ; v2.1 (rythme ralenti) pas encore notée. Prochaine version : voix refaite sur le PC, écrans de l'app Android, grille anti-slop.</p>
+        </section>
+      </div>
     </>
   )
 }
