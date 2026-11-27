@@ -8,7 +8,7 @@ Pour chercher, reformule d'abord la question en une phrase complète et explicit
 Faits à garder exacts :
 - Connexion par les pages officielles de TikTok, de Google (YouTube) et de Meta (Instagram). Chapote CM ne voit jamais les mots de passe des réseaux.
 - Les vidéos restent dans le Google Drive de l'utilisateur.
-- Chapote CM est gratuit pour l'instant, sans carte bancaire.
+- Chapote CM est gratuit pendant la bêta.
 - Groupes de comptes et partage avec trois rôles : administrateur, éditeur, lecteur.
 - Instagram : compte professionnel (Créateur ou Entreprise).
 - Même compte que sur chapote.fr, par e-mail ou avec Google.

@@ -6,7 +6,7 @@ Source : page d'accueil de cm.chapote.fr (cm/src/pages/Landing.tsx). Textes repr
 
 Vos vidéos courtes sur TikTok, YouTube et Instagram, à l'heure choisie, sur tous vos comptes. Et toutes vos statistiques au même endroit.
 
-- Gratuit, sans carte bancaire.
+- Gratuit pendant la bêta.
 - Connexion officielle TikTok, Google et Meta.
 - Vos vidéos restent dans votre Google Drive.
 
@@ -66,7 +66,7 @@ Vous vous connectez par les pages officielles de TikTok, de Google (YouTube) et 
 Dans votre propre Google Drive, dans un dossier créé par Chapote CM. Chapote CM ne voit que les fichiers qu'il y range. Après publication, vous choisissez de les garder ou de les supprimer.
 
 ### Combien ça coûte ?
-Chapote CM est gratuit pour l'instant, sans carte bancaire. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.
+Chapote CM est gratuit pendant la bêta. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.
 
 ### Puis-je travailler en équipe ?
 Oui. Partagez un groupe de comptes avec d'autres personnes. Chacun voit le planning et les statistiques de ce groupe, selon son rôle : administrateur, éditeur ou lecteur.

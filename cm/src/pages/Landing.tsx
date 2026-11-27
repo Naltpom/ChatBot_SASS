@@ -57,7 +57,7 @@ export const FAQ: [string, string][] = [
   ['Chapote CM, c’est quoi ?', 'Un planificateur de réseaux sociaux gratuit, pensé pour les community managers, content managers, créateurs et agences : vous programmez vos vidéos courtes sur TikTok, YouTube Shorts et Instagram Reels, sur tous vos comptes en une fois, puis vous suivez vos statistiques au même endroit.'],
   ['Mes comptes sont-ils en sécurité ?', 'Vous vous connectez par les pages officielles de TikTok, de Google (YouTube) et de Meta (Instagram). Chapote CM ne voit jamais vos mots de passe. Vous pouvez retirer l’accès à tout moment, depuis Chapote CM ou depuis le réseau.'],
   ['Où vont mes vidéos ?', 'Dans votre propre Google Drive, dans un dossier créé par Chapote CM. Chapote CM ne voit que les fichiers qu’il y range. Après publication, vous choisissez de les garder ou de les supprimer.'],
-  ['Combien ça coûte ?', 'Chapote CM est gratuit pour l’instant, sans carte bancaire. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.'],
+  ['Combien ça coûte ?', 'Chapote CM est gratuit pendant la bêta. Si un abonnement arrive un jour, les bêta-testeurs garderont une certaine liberté.'],
   ['Puis-je travailler en équipe ?', 'Oui. Partagez un groupe de comptes avec d’autres personnes. Chacun voit le planning et les statistiques de ce groupe, selon son rôle : administrateur, éditeur ou lecteur.'],
   ['Quels réseaux sont pris en charge ?', 'TikTok, YouTube Shorts et Instagram Reels (compte professionnel Créateur ou Entreprise). Plusieurs comptes par réseau.'],
   ['Faut-il un nouveau compte ?', 'Non si vous en avez déjà un : c’est le même compte Chapote que sur chapote.fr, par e-mail ou avec Google.'],
@@ -104,7 +104,7 @@ export default function Landing() {
               <div className="lp-act">
                 <Link to="/inscription" className="lp-cta">{t(CTA)}<span aria-hidden="true" className="lp-arrow">→</span></Link>
                 <ul className="lp-proof">
-                  <li><Check />{t('Gratuit, sans carte bancaire')}</li>
+                  <li><Check />{t('Gratuit pendant la bêta')}</li>
                   <li><Check />{t('Connexion officielle TikTok, Google et Meta')}</li>
                   <li><Check />{t('Vos vidéos restent dans votre Google Drive')}</li>
                 </ul>
