@@ -52,7 +52,7 @@ def test_no_email_no_comments():
 
 def test_key_facts_present():
     kb = _norm(_kb_text()).lower()
-    for fact in ("gratuit pour l'instant", "google drive", "administrateur, éditeur ou lecteur",
+    for fact in ("gratuit pendant la bêta", "google drive", "administrateur, éditeur ou lecteur",
                  "connexion officielle tiktok, google et meta", "https://cm.chapote.fr/avis"):
         assert fact in kb, fact
 
