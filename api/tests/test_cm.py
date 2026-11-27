@@ -659,6 +659,8 @@ async def test_youtube_stats_sync(pg_session, cmenv, google, monkeypatch):
         if req.url.path == "/youtube/v3/channels" and "statistics" in req.url.params.get("part", ""):
             return httpx.Response(200, json={"items": [{"id": "UC123", "statistics": {
                 "viewCount": "250000", "subscriberCount": "1800", "videoCount": "64"},
+                "snippet": {"title": "Nouveau nom", "customUrl": "@nouveau",
+                            "thumbnails": {"default": {"url": "https://yt3.ggpht/nouvelle.jpg"}}},
                 "contentDetails": {"relatedPlaylists": {"uploads": "UU123"}}}]})
         if req.url.path == "/youtube/v3/playlistItems":
             return httpx.Response(200, json={"items": [{"contentDetails": {"videoId": "v1"}},
@@ -688,6 +690,8 @@ async def test_youtube_stats_sync(pg_session, cmenv, google, monkeypatch):
     async with Client(pg_session) as c:
         accs = (await c.as_(u).get("/api/cm/accounts")).json()
         assert accs[0]["stats"]["followers"] == 1800 and accs[0]["stats"]["views"] == 250000
+        # Nom et photo de la chaîne relus au relevé.
+        assert accs[0]["name"] == "Nouveau nom" and accs[0]["avatar_url"] == "https://yt3.ggpht/nouvelle.jpg"
 
 
 @pytest.mark.real_db
@@ -737,6 +741,49 @@ async def _true():
 
 @pytest.mark.real_db
 @pytest.mark.asyncio
+async def test_instagram_token_invalidated_by_meta(pg_session, cmenv, meta, monkeypatch):
+    """Jeton invalidé par Meta (mot de passe changé…) : « à reconnecter », jeton effacé, et les tâches
+    planifiées continuent avec les autres comptes (le rollback d'un compte expirait les suivants)."""
+    from src.routers import cm as cm_router
+    from src.services import cm_inbox
+    monkeypatch.setattr(cm_router.sync_limiter, "check", lambda *_a, **_k: _true())
+    monkeypatch.setattr(cm_router.full_sync_limiter, "check", lambda *_a, **_k: _true())
+    u = await _user(pg_session, "a@t.dev")
+    dead = []
+    for i in (1, 2):
+        d = InstagramAccount(owner_user_id=u.id, mode="api", ig_user_id=f"99{i}", username=f"mort{i}",
+                             scopes=ig.SCOPES, access_token_enc=encrypt_secret("IGrevoque"),
+                             access_token_expires_at=utcnow() + timedelta(days=50))
+        pg_session.add(d)
+        dead.append(d)
+    await pg_session.flush()
+    good = await _ig_api(pg_session, u)
+    ids, good_id = [d.id for d in dead], good.id
+    await pg_session.commit()
+    # Tâches planifiées : ni l'une ni l'autre ne plante, le bon compte est relevé.
+    await cm_inbox.sync_due(pg_session)
+    await cm_jobs.sync_due(pg_session)
+    stats = {s.account_id: s for s in (await pg_session.execute(select(CmAccountStat).where(
+        CmAccountStat.day == utcnow().date()))).scalars()}
+    assert stats[good_id].error is None and stats[good_id].followers == 5400
+    for i in ids:
+        acc = await pg_session.get(InstagramAccount, i)
+        await pg_session.refresh(acc)
+        assert acc.needs_reconnect is True and acc.access_token_enc is None
+        assert stats[i].error == "Compte à reconnecter."
+    # Bouton Actualiser sur un compte dont Meta vient d'invalider le jeton : 200, « à reconnecter ».
+    acc = await pg_session.get(InstagramAccount, ids[0])
+    acc.needs_reconnect, acc.access_token_enc = False, encrypt_secret("IGrevoque")
+    await pg_session.commit()
+    await pg_session.refresh(u)
+    async with Client(pg_session) as c:
+        r = await c.as_(u).post(f"/api/cm/accounts/instagram/{ids[0]}/sync")
+        assert r.status_code == 200, r.text
+        assert r.json()["needs_reconnect"] is True and r.json()["stats"]["error"] == "Compte à reconnecter."
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
 async def test_tiktok_stats_wait_for_tiktok_approval(pg_session, cmenv, tiktok):
     """Sans les autorisations de statistiques (pas encore validées par TikTok), aucun appel."""
     u = await _user(pg_session, "a@t.dev")
@@ -747,6 +794,23 @@ async def test_tiktok_stats_wait_for_tiktok_approval(pg_session, cmenv, tiktok):
     async with Client(pg_session) as c:
         accs = (await c.as_(u).get("/api/cm/accounts")).json()
         assert accs[0]["stats_available"] is False and accs[0]["stats"] is None
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_tiktok_refresh_updates_name_and_photo(pg_session, cmenv, tiktok, monkeypatch):
+    """Actualiser relit le nom et la photo TikTok, même sans les autorisations de statistiques."""
+    from src.routers import cm as cm_router
+    monkeypatch.setattr(cm_router.sync_limiter, "check", lambda *_a, **_k: _true())
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _tt_account(pg_session, owner=u)
+    acc.display_name, acc.avatar_url = "ancien.nom", "https://p16.tiktok/expiree.jpg"
+    await pg_session.commit()
+    url = f"/api/cm/accounts/tiktok/{acc.id}/sync"
+    async with Client(pg_session) as c:
+        r = await c.as_(u).post(url)
+        assert r.status_code == 200, r.text
+        assert r.json()["name"] == "studio.demo" and r.json()["avatar_url"] == "https://p16.tiktok/a.jpg"
 
 
 @pytest.mark.real_db
