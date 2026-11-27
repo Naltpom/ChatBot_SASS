@@ -8,6 +8,7 @@ import { useSession } from '../session'
 import { COMPTES, REGLES, SEMAINES, VUES, type Piece, type Plateforme, type Visuel } from '../promo/plan'
 import { VIDEOS } from '../promo/videos'
 import { BILAN, NOTES } from '../promo/bilan'
+import { PILOTES, type Pilote } from '../promo/pilotes'
 import '../promo/promo.css'
 
 const NOMS: Record<Plateforme, string> = { youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok', linkedin: 'LinkedIn', x: 'X' }
@@ -109,6 +110,38 @@ function Carte({ p }: { p: Piece }) {
   )
 }
 
+
+function CartePilote({ p }: { p: Pilote }) {
+  const c = p.controles
+  return (
+    <article className="pr-card">
+      <div className="pr-card-h"><span className="pr-format">{p.format} · {p.duree} s</span>
+        <span className="pr-badges">{(['instagram', 'tiktok', 'youtube'] as Plateforme[]).map(x => <Badge key={x} p={x} />)}</span></div>
+      <h3>{p.titre}</h3>
+      <p className="pr-hook">Accroche : « {p.accroche} »</p>
+      <video className="pr-video pr-portrait" src={p.src} poster={p.poster} controls playsInline preload="none" />
+      <details className="pr-note" open>
+        <summary><span className={`pr-score ${couleur(p.note)}`}>{p.note}/10</span> Note (avant : {p.avant}/10)</summary>
+        <ul className="pr-sousnotes">{Object.entries(p.detail).map(([k, v]) => <li key={k}><span>{GRILLES[k] ?? k}</span><b>{v}</b></li>)}</ul>
+        <ul className="pr-pb">{p.remarques.map(x => <li key={x}>{x}</li>)}</ul>
+      </details>
+      <details className="pr-sec">
+        <summary>Contrôles automatiques</summary>
+        <ul className="pr-pb">
+          <li>Premier mot à {c.premier_mot_s} s · {c.mots_par_s} mots/s · accroche de {c.accroche_mots} mots</li>
+          <li>Son {c.lufs} LUFS, crête {c.true_peak} dBTP (cible -14 / -1)</li>
+          <li>Images figées plus de 1,5 s : {c.images_figees_1_5s.length ? c.images_figees_1_5s.join(', ') + ' s' : 'aucune'} · plus long sans événement : {c.plus_long_sans_evenement_s} s</li>
+          <li>{c.plans} plans, {c.taps} taps simulés</li>
+        </ul>
+      </details>
+      <div className="pr-textes">
+        <pre className="pr-text">{p.legende}</pre>
+        <Copier texte={p.legende} />
+      </div>
+    </article>
+  )
+}
+
 export default function Promo() {
   const { me } = useSession()
   const [sem, setSem] = useState(0)
@@ -149,6 +182,15 @@ export default function Promo() {
         <ul className="pr-counts">
           {ORDRE.map(p => <li key={p}><a href={COMPTES[p].url} target="_blank" rel="noreferrer"><Badge p={p} /></a><b>{compte[p]}</b></li>)}
         </ul>
+        {PILOTES.length > 0 && (
+          <section className="pr-bilan">
+            <h2>Pilotes v2 · nouvelle méthode</h2>
+            <p>{PILOTES.length} vidéos refaites selon le guide : caméra qui voyage dans les vrais écrans, taps simulés, téléphone en 3D,
+              accroche dès l'image 0, voix plus vive, sous-titres de 2-3 mots dans la zone visible, musique libre et bruitages mixés à -14 LUFS.
+              À valider avant de refaire les 32 autres. Rien n'est programmé.</p>
+            <div className="pr-grid">{PILOTES.map(p => <CartePilote key={p.id} p={p} />)}</div>
+          </section>
+        )}
         <section className="pr-bilan">
           <h2>Bilan avant refonte</h2>
           <p>Chaque élément noté sur 10 avec les grilles de 10 recherches (hooks, motion design, viraux, voix, sous-titres, son,
