@@ -6,7 +6,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  acceptTransfer, addRoutineAccount, cancelTransfer, createGroup, declineTransfer, deleteGroup, disconnect, getAccounts,
+  acceptTransfer, cancelTransfer, createGroup, declineTransfer, deleteGroup, disconnect, getAccounts,
   getTransfers, startOAuth, syncAccount, transferAccount, updateGroup,
   GROUP_COLORS, PLATFORM_LABEL, PLATFORMS, type Account, type Group, type GroupColor, type Platform,
   setYoutubeAccount, ALL,
@@ -176,7 +176,6 @@ export default function Accounts() {
                         [lst.q, lst.sort, lst.order])
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok' | 'info'; text: string } | null>(
     (loc.state as { flash?: string } | null)?.flash ? { kind: 'ok', text: (loc.state as { flash: string }).flash } : null)
-  const [routineName, setRoutineName] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [transferring, setTransferring] = useState<Account | null>(null)
@@ -206,12 +205,6 @@ export default function Accounts() {
       setMsg(r && typeof r === 'object' && 'warning' in r && r.warning ? { kind: 'info', text: r.warning } : ok ? { kind: 'ok', text: ok } : null)
       accounts.reload(); reloadGroups()
     } catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) } finally { setBusy(null) }
-  }
-  const addRoutine = (e: FormEvent) => {
-    e.preventDefault()
-    if (!routineName.trim()) return
-    run('routine', () => addRoutineAccount(org, routineName), t('Compte ajouté : la routine publiera les Reels programmés et enverra les chiffres.'))
-      .then(() => setRoutineName(''))
   }
   const removeGroup = (g: Group) => {
     if (!window.confirm(t('Supprimer le groupe « {group} » ? Les comptes restent connectés.', { group: g.name }))) return
@@ -312,15 +305,6 @@ export default function Accounts() {
                   onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(a.org_id ?? null, a.id, { public_domain_only: v }),
                     v ? t('Cette chaîne n’accepte plus que des œuvres du domaine public.') : t('Réglage « domaine public seulement » retiré.'))} />)}
               </ul>
-            )}
-            {p === 'instagram' && canAdmin && (
-              <form onSubmit={addRoutine} className="row" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, alignItems: 'flex-end' }}>
-                <label className="field grow" style={{ flex: '1 1 240px' }}>{t('Compte géré par la routine Claude')}
-                  <input className="input" value={routineName} onChange={e => setRoutineName(e.target.value)} placeholder={t('@nom.du.compte')} autoCapitalize="none" />
-                  <span className="field-hint">{t('Sans connexion officielle : la routine publie les Reels programmés et envoie les chiffres.')}</span>
-                </label>
-                <button className="btn" disabled={busy === 'routine' || !routineName.trim()}>{t('Ajouter')}</button>
-              </form>
             )}
           </section>
         )
