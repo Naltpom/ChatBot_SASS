@@ -86,7 +86,7 @@ async function main() {
     const coupes = []   // [temps de coupe, silence ajouté]
     mots.forEach((m, i) => {
       if (i === mots.length - 1) return
-      const pause = finsLigne.has(i) ? 0.35 : /[.!?]$/.test(m.word) ? 0.15 : 0
+      const pause = 0   // voix d'un seul bloc : aucune pause ajoutée ni coupée (coupures audibles sinon)
       if (pause) coupes.push([(m.end + mots[i + 1].start) / 2, pause])
     })
     const garde = []; let cur = debut
@@ -133,7 +133,8 @@ async function main() {
       // ancre de mot = 1000 + temps absolu ; sinon fraction du plan (0 = début, 1 = fin)
       const tt = x => (x >= 500 ? x - 1000 : start + (end - start) * x)
       const p = { type: b.type, start, end, etapes: undefined, ecran: b.ecran, entree: b.entree, cles: b.cles, sansSousTitres: b.sansSousTitres }
-      if (b.cam) p.cam = b.cam.map(([t, x, y, z, rx = 0, ry = 0]) => ({ t: tt(t), x, y, z, rx, ry }))
+      // Zoom modéré (retour de Nathan : trop zoomé) : on garde 40 % de l'écart à 1, soit ×1,4 au plus environ.
+      if (b.cam) p.cam = b.cam.map(([t, x, y, z, rx = 0, ry = 0]) => ({ t: tt(t), x, y, z: +(1 + (z - 1) * 0.4).toFixed(3), rx, ry }))
       if (b.taps) p.taps = b.taps.map(([t, x, y]) => ({ t: tt(t), x, y }))
       if (b.hl) p.hl = b.hl.map(([t0, t1, x, y, w, h]) => ({ t0: tt(t0), t1: tt(t1), x, y, w, h }))
       if (b.masques) p.masques = b.masques.map(([t1, x, y, w, h, style]) => ({ t1: tt(t1), x, y, w, h, style }))

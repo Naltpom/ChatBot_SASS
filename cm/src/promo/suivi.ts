@@ -74,6 +74,7 @@ const RETOUR_PRIX: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'Ne p
 
 const RETOUR_SLOP: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'Pas d\'« IA slop » : du contenu professionnel, qu\'on regarde sans se dire « c\'est de l\'IA ». Voix, textes, visuels et montage à juger avec la grille anti-slop.' }
 const RETOUR_VITESSE: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'v2.0 trop rapide : pas le temps de voir ni de lire, pas de respiration. Le hook est bon.' }
+const RETOUR_V22: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'v2.2 : écrans trop zoomés ; la voix semble générée phrase par phrase, coupures bizarres. → v2.3.' }
 const RETOUR_AUDIO: Retour = { date: '27/11/2026', auteur: 'Nathan', texte: 'Audio et sous-titres faits sur le processeur du cloud (panne internet chez Nathan) : mauvais, à refaire sur le PC (Qwen3 GPU) au retour de la connexion.' }
 
 /** Pilotes v2 rattachés à une publication du plan (le pilote devient la v2 de cette publication). */
@@ -95,9 +96,10 @@ export const ENTREES: Entree[] = SEMAINES.flatMap((s, si) => s.jours.flatMap((j,
     versions.push(
       { v: 'v2.0', date: '27/11/2026', resume: `Pilote « ${pil.titre} » : caméra dans les vrais écrans, taps, accroche dès l'image 0, musique et effets à -14 LUFS. Rapide (voix ×1,1, 13-14 s). Notée par un évaluateur indépendant.`, note: pil.note, detail: pil.detail, problemes: pil.remarques.slice(0, -2) },
       { v: 'v2.1', date: '27/11/2026', resume: 'Rythme ralenti : voix naturelle, 0,5 s de respiration entre les phrases, fin tenue plus longtemps. Pas encore notée.', video: { src: `/promo/pilotes/${pil.id}-v21.mp4`, poster: `/promo/pilotes/${pil.id}-v21.jpg`, format: 'verticale', duree: pil.duree }, slop: { ...SLOP_V2, m7: pil.id === 'pov' ? false : true } },
-      { v: 'v2.2', date: '27/11/2026', resume: 'Écrans de l\'app Android (bibliothèque, légende, 3 comptes, 18 h 00, « Publiée » sur les 3 réseaux), voix ElevenLabs (Victoria, française, ton de conversation) relue mot à mot, sous-titres en casse de phrase, sons seulement sur les taps et les publications, musique ~22 dB sous la voix, plus de « POV : » ni de gratuité. Pas encore notée.', video: { src: pil.src, poster: pil.poster, format: 'verticale', duree: pil.duree }, slop: SLOP_V22 },
+      { v: 'v2.2', date: '27/11/2026', resume: 'Écrans de l\'app Android (bibliothèque, légende, 3 comptes, 18 h 00, « Publiée » sur les 3 réseaux), voix ElevenLabs (Victoria, française, ton de conversation) relue mot à mot, sous-titres en casse de phrase, sons seulement sur les taps et les publications, musique ~22 dB sous la voix, plus de « POV : » ni de gratuité. Pas encore notée.', video: { src: `/promo/pilotes/${pil.id}-v22.mp4`, poster: `/promo/pilotes/${pil.id}-v22.jpg`, format: 'verticale', duree: pil.duree }, slop: SLOP_V22 },
+      { v: 'v2.3', date: '27/11/2026', resume: 'Retours de Nathan sur la v2.2 : voix ElevenLabs d\'un seul bloc (plus aucun silence coupé ni ajouté : fini les coupures bizarres) et zoom modéré (×1,4 au plus, l\'écran reste lisible en entier). Pas encore notée.', video: { src: pil.src, poster: pil.poster, format: 'verticale', duree: pil.duree }, slop: SLOP_V22 },
     )
-    retours.push({ date: '27/11/2026', auteur: 'Évaluateur indépendant', texte: `v2.0 notée ${pil.note}/10 (v1 : ${n?.note ?? '—'}/10). ${pil.remarques[0]}` }, RETOUR_VITESSE, RETOUR_AUDIO)
+    retours.push({ date: '27/11/2026', auteur: 'Évaluateur indépendant', texte: `v2.0 notée ${pil.note}/10 (v1 : ${n?.note ?? '—'}/10). ${pil.remarques[0]}` }, RETOUR_VITESSE, RETOUR_AUDIO, RETOUR_V22)
     statut = 'a_noter'
   } else if (v) {
     versions.push({ v: 'v2', date: 'à venir', resume: 'À produire selon le guide v2 et la grille anti-slop (écrans de l\'app Android, voix refaite sur le PC). Cible : 7/10 minimum sur chaque grille.', aFaire: true })
