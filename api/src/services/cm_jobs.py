@@ -517,12 +517,16 @@ async def sync_due(db: AsyncSession) -> None:
     now = utcnow()
     done = 0
     for platform, model in cm.MODELS.items():
-        accounts = (await db.execute(
-            select(model).where(model.revoked_at.is_(None), model.needs_reconnect.is_(False))
+        ids = (await db.execute(
+            select(model.id).where(model.revoked_at.is_(None), model.needs_reconnect.is_(False))
         )).scalars().all()
-        for acc in accounts:
+        for acc_id in ids:
             if done >= SYNC_BATCH:
                 return
+            # Relu un par un : le relevé en échec d'un compte fait un rollback, qui expire les autres.
+            acc = await db.get(model, acc_id)
+            if acc is None or acc.revoked_at is not None or acc.needs_reconnect:
+                continue
             if platform == "instagram" and acc.mode != IG_MODE_API:
                 continue
             if platform == "tiktok" and not cm.stats_available("tiktok", acc):

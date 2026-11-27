@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import httpx
 from fastapi import HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -579,21 +580,39 @@ async def sync_account(db: AsyncSession, platform: str, acc, full: bool = False)
             return await _sync_tiktok(db, acc)
         return await _sync_instagram(db, acc, full)
     except (tt.ReconnectRequired, yt.ReconnectRequired, ig.ReconnectRequired):
-        await db.rollback()
-        row = await save_snapshot(db, platform, acc.id, error="Compte à reconnecter.")
-        await db.commit()
-        return row
+        error = "Compte à reconnecter."
+        dead = False
     except (tt.TikTokError, yt.YouTubeError, ig.InstagramError) as e:
-        await db.rollback()
         logger.info("cm : relevé %s du compte %s en échec (%s)", platform, acc.id, e.code)
-        row = await save_snapshot(db, platform, acc.id, error=e.describe())
+        error = e.describe()
+        # Jeton refusé par Meta (mot de passe changé, session invalidée…) : à reconnecter, et jeton
+        # effacé (inutilisable ; confidentialité, section 7), comme au rafraîchissement planifié.
+        dead = platform == "instagram" and e.code == "invalid_token"
+    except httpx.HTTPError as e:
+        logger.info("cm : relevé %s du compte %s en échec (réseau : %s)", platform, acc.id, type(e).__name__)
+        error = "La plateforme ne répond pas pour le moment : réessayez dans quelques minutes."
+        dead = False
+    # Le rollback expire `acc` (et `needs_reconnect` a pu être enregistré entre-temps) : on le relit
+    # tout de suite, sinon l'appelant qui le lit ensuite (account_view) échouerait hors greenlet (500).
+    account_id = acc.id
+    await db.rollback()
+    row = await save_snapshot(db, platform, account_id, error=error)
+    await db.commit()
+    await db.refresh(acc)
+    if dead:
+        ig.clear_tokens(acc)
+        acc.needs_reconnect = True
+        row.error = "Compte à reconnecter."
         await db.commit()
-        return row
+    return row
 
 
 async def _sync_youtube(db: AsyncSession, acc: YouTubeAccount) -> CmAccountStat:
     token = await yt.valid_access_token(db, acc)
     ch = await yt.channel_stats(token)
+    acc.title = ch.get("title") or acc.title
+    acc.handle = ch.get("handle") or acc.handle
+    acc.thumbnail_url = ch.get("thumbnail_url") or acc.thumbnail_url
     videos = await yt.recent_videos(token, ch["uploads_playlist"])
     for v in videos:
         if v.get("id"):
@@ -608,13 +627,17 @@ async def _sync_youtube(db: AsyncSession, acc: YouTubeAccount) -> CmAccountStat:
 
 
 async def _sync_tiktok(db: AsyncSession, acc: TikTokAccount) -> CmAccountStat:
+    # Nom et photo relus à chaque relevé (le lien de la photo TikTok expire, et le compte a pu changer).
+    token = await tt.valid_access_token(db, acc)
+    info = await tt.user_info(token)
+    acc.display_name = info.get("display_name") or acc.display_name
+    acc.avatar_url = info.get("avatar_url") or acc.avatar_url
     if not stats_available("tiktok", acc):
         row = await save_snapshot(db, "tiktok", acc.id, error=(
             "Statistiques TikTok pas encore autorisées : elles arriveront quand TikTok aura validé "
             "l'accès aux chiffres et que le compte aura été reconnecté."))
         await db.commit()
         return row
-    token = await tt.valid_access_token(db, acc)
     followers = likes = count = views = None
     if tt.has_scope(acc, tt.SCOPE_STATS):
         u = await tt.user_stats(token)
@@ -677,6 +700,7 @@ async def _sync_instagram(db: AsyncSession, acc: InstagramAccount, full: bool = 
                            views=v, likes=_num(m.get("like_count")), comments=_num(m.get("comments_count")),
                            shares=_num(insights.get("shares")), saves=_num(insights.get("saved")))
     acc.username = prof.get("username") or acc.username
+    acc.name = prof.get("name") or acc.name
     acc.profile_picture_url = prof.get("profile_picture_url") or acc.profile_picture_url
     row = await save_snapshot(db, "instagram", acc.id, followers=_num(prof.get("followers_count")),
                               views=_sum(views_total), likes=_sum(_num(m.get("like_count")) for m in media),

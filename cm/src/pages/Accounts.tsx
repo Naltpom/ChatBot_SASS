@@ -2,11 +2,11 @@
 // (avec leur propriétaire), et les groupes de comptes. Un groupe réunit plusieurs comptes, toutes
 // plateformes ; un compte peut être dans plusieurs groupes. On partage un groupe, pas un compte seul.
 // Chaque action se fait dans l'espace du compte (org_id), selon mon rôle sur ce compte.
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  acceptTransfer, addRoutineAccount, cancelTransfer, createGroup, declineTransfer, deleteGroup, disconnect, getAccounts,
+  acceptTransfer, cancelTransfer, createGroup, declineTransfer, deleteGroup, disconnect, getAccounts,
   getTransfers, startOAuth, syncAccount, transferAccount, updateGroup,
   GROUP_COLORS, PLATFORM_LABEL, PLATFORMS, type Account, type Group, type GroupColor, type Platform,
   setYoutubeAccount, ALL,
@@ -176,7 +176,6 @@ export default function Accounts() {
                         [lst.q, lst.sort, lst.order])
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok' | 'info'; text: string } | null>(
     (loc.state as { flash?: string } | null)?.flash ? { kind: 'ok', text: (loc.state as { flash: string }).flash } : null)
-  const [routineName, setRoutineName] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [transferring, setTransferring] = useState<Account | null>(null)
@@ -207,11 +206,37 @@ export default function Accounts() {
       accounts.reload(); reloadGroups()
     } catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) } finally { setBusy(null) }
   }
-  const addRoutine = (e: FormEvent) => {
-    e.preventDefault()
-    if (!routineName.trim()) return
-    run('routine', () => addRoutineAccount(org, routineName), t('Compte ajouté : la routine publiera les Reels programmés et enverra les chiffres.'))
-      .then(() => setRoutineName(''))
+  const [adding, setAdding] = useState(false)
+  const [tab, setTab] = useState<Platform>(() => {
+    const h = loc.hash.slice(1) as Platform
+    return PLATFORMS.includes(h) ? h : PLATFORMS[0]
+  })
+  const listOf = (p: Platform) => ((filtered && shown.data) || all).filter(a => a.platform === p)
+  // Tout actualiser : comptes que je peux actualiser (pas en lecture seule, ni à reconnecter, ni gérés par la routine).
+  const refreshable = all.filter(a => a.mode !== 'routine' && !a.needs_reconnect && a.role !== 'viewer')
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const refreshAll = async () => {
+    setBusy('all'); setMsg(null)
+    const todo = refreshable
+    let ok = 0, recent = 0, reconnect = 0, failed = 0
+    for (let i = 0; i < todo.length; i++) {
+      setProgress({ done: i, total: todo.length })
+      try {
+        const r = await syncAccount(todo[i].org_id ?? null, todo[i])
+        if (r?.needs_reconnect) reconnect++
+        else ok++
+      } catch (e) {
+        if ((e as { status?: number }).status === 429 || /récemment/.test((e as Error).message)) recent++
+        else failed++
+      }
+    }
+    setProgress(null); setBusy(null)
+    const parts = [ok > 1 ? t('{n} comptes actualisés', { n: ok }) : t('{n} compte actualisé', { n: ok })]
+    if (recent) parts.push(recent > 1 ? t('{n} déjà actualisés récemment', { n: recent }) : t('{n} déjà actualisé récemment', { n: recent }))
+    if (reconnect) parts.push(reconnect > 1 ? t('{n} à reconnecter', { n: reconnect }) : t('{n} à reconnecter', { n: reconnect }))
+    if (failed) parts.push(failed > 1 ? t('{n} en erreur (voir leur ligne)', { n: failed }) : t('{n} en erreur (voir sa ligne)', { n: failed }))
+    setMsg({ kind: failed || reconnect ? 'info' : 'ok', text: parts.join(' · ') + '.' })
+    accounts.reload(); reloadGroups()
   }
   const removeGroup = (g: Group) => {
     if (!window.confirm(t('Supprimer le groupe « {group} » ? Les comptes restent connectés.', { group: g.name }))) return
@@ -226,6 +251,12 @@ export default function Accounts() {
           <p>{t('Vos comptes, et ceux des groupes partagés avec vous (avec le nom de leur propriétaire).')}</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
+          {canAdmin && <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}><Icon name="plus" />{t('Ajouter un compte')}</button>}
+          {refreshable.length > 0 && (
+            <button type="button" className="btn" disabled={busy === 'all'} onClick={refreshAll}>
+              <Icon name="refresh" />{busy === 'all' && progress ? t('Actualisation {done}/{total}…', progress) : t('Tout actualiser')}
+            </button>
+          )}
           <Link to="/partage" className="btn"><Icon name="users" />{t('Partage')}</Link>
           <Link to="/bibliotheque" className="btn"><Icon name="layers" />{t('Bibliothèque Google Drive')}</Link>
         </div>
@@ -288,43 +319,37 @@ export default function Accounts() {
         </div>
       )}
       {!accounts.data && accounts.loading && <Skeleton h={120} n={3} />}
-      {accounts.data && PLATFORMS.map(p => {
-        const list = ((filtered && shown.data) || all).filter(a => a.platform === p)
-        if (filtered && lst.q && !list.length) return null
-        return (
-          <section key={p} className="card col" aria-labelledby={`t-${p}`}>
-            <div className="card-head">
-              <h2 id={`t-${p}`} className="row-nw" style={{ gap: 10 }}><PlatformLogo platform={p} size={22} />{PLATFORM_LABEL[p]}</h2>
-              {!canAdmin ? null : enabled(p) ? (
-                <button type="button" className="btn btn-sm" disabled={busy === p} onClick={() => connect(p)}>
-                  <Icon name="plus" size={16} />{list.length ? t('Autre compte') : t('Connecter')}
-                </button>
-              ) : <span className="muted small">{p === 'instagram' ? t('Connexion officielle bientôt (validation Meta)') : t('Module indisponible')}</span>}
-            </div>
-            {list.length === 0 && <p className="muted small">{t('Aucun compte.')} {enabled(p) && t(HINT[p])}</p>}
-            {list.length > 0 && (
-              <ul className="list">
-                {list.map(a => <AccountRow key={a.id} a={a} groups={groupsOf(a)} busy={busy} canAdmin={adminOf(a)} owner={ownerOf(a)}
-                  onTransfer={() => setTransferring(a)}
-                  onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? null, a), t('Chiffres actualisés.'))}
-                  onRemove={() => { if (window.confirm(t('Déconnecter {account} ? Les publications à venir sur ce compte ne partiront plus.', { account: a.name }))) run(`d${p}${a.id}`, () => disconnect(a.org_id ?? null, a)) }}
-                  onReconnect={() => connect(p, a.org_id ?? null)}
-                  onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(a.org_id ?? null, a.id, { public_domain_only: v }),
-                    v ? t('Cette chaîne n’accepte plus que des œuvres du domaine public.') : t('Réglage « domaine public seulement » retiré.'))} />)}
-              </ul>
-            )}
-            {p === 'instagram' && canAdmin && (
-              <form onSubmit={addRoutine} className="row" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, alignItems: 'flex-end' }}>
-                <label className="field grow" style={{ flex: '1 1 240px' }}>{t('Compte géré par la routine Claude')}
-                  <input className="input" value={routineName} onChange={e => setRoutineName(e.target.value)} placeholder={t('@nom.du.compte')} autoCapitalize="none" />
-                  <span className="field-hint">{t('Sans connexion officielle : la routine publie les Reels programmés et envoie les chiffres.')}</span>
-                </label>
-                <button className="btn" disabled={busy === 'routine' || !routineName.trim()}>{t('Ajouter')}</button>
-              </form>
-            )}
-          </section>
-        )
-      })}
+      {accounts.data && (
+        <PlatformPager tab={tab} onTab={setTab} counts={Object.fromEntries(PLATFORMS.map(p => [p, listOf(p).length])) as Record<Platform, number>}>
+          {p => {
+            const list = listOf(p)
+            return (
+              <section className="card col" aria-labelledby={`t-${p}`}>
+                <h2 id={`t-${p}`} className="row-nw" style={{ gap: 10 }}><PlatformLogo platform={p} size={22} />{PLATFORM_LABEL[p]}</h2>
+                {list.length === 0 && (
+                  <div className="col" style={{ gap: 10, alignItems: 'flex-start' }}>
+                    <p className="muted small" style={{ margin: 0 }}>{lst.q ? t('Aucun compte ne correspond.') : t('Aucun compte.')}</p>
+                    {!lst.q && canAdmin && enabled(p) && <button type="button" className="btn btn-sm" disabled={busy === p} onClick={() => connect(p)}><Icon name="plus" size={16} />{t('Connecter {platform}', { platform: PLATFORM_LABEL[p] })}</button>}
+                    {!lst.q && !enabled(p) && <p className="muted small" style={{ margin: 0 }}>{t(UNAVAILABLE(p))}</p>}
+                  </div>
+                )}
+                {list.length > 0 && (
+                  <ul className="list">
+                    {list.map(a => <AccountRow key={a.id} a={a} groups={groupsOf(a)} busy={busy} canAdmin={adminOf(a)} owner={ownerOf(a)}
+                      onTransfer={() => setTransferring(a)}
+                      onSync={() => run(`s${p}${a.id}`, () => syncAccount(a.org_id ?? null, a), a.stats_available ? t('Chiffres actualisés.') : t('Nom et photo du compte actualisés.'))}
+                      onRemove={() => { if (window.confirm(t('Déconnecter {account} ? Les publications à venir sur ce compte ne partiront plus.', { account: a.name }))) run(`d${p}${a.id}`, () => disconnect(a.org_id ?? null, a)) }}
+                      onReconnect={() => connect(p, a.org_id ?? null)}
+                      onPublicDomain={v => run(`p${p}${a.id}`, () => setYoutubeAccount(a.org_id ?? null, a.id, { public_domain_only: v }),
+                        v ? t('Cette chaîne n’accepte plus que des œuvres du domaine public.') : t('Réglage « domaine public seulement » retiré.'))} />)}
+                  </ul>
+                )}
+              </section>
+            )
+          }}
+        </PlatformPager>
+      )}
+      {adding && <AddAccountSheet enabled={enabled} busy={busy} onClose={() => setAdding(false)} onPick={p => connect(p)} />}
       {config && !config.tiktok_stats && (
         <p className="muted small">{t("Statistiques TikTok : elles s'afficheront après la validation de l'accès aux chiffres par TikTok, puis une reconnexion des comptes.")}</p>
       )}
@@ -338,6 +363,76 @@ export default function Accounts() {
                      onSaved={g => { setEditing(null); reloadGroups(); setMsg({ kind: 'ok', text: t('Groupe « {group} » enregistré.', { group: g.name }) }) }} />
       )}
     </>
+  )
+}
+
+const UNAVAILABLE = (p: Platform) => p === 'instagram' ? 'Connexion officielle bientôt (validation Meta)' : 'Module indisponible'
+
+/** Ajouter un compte : on choisit la plateforme, et sa page de connexion s'ouvre. */
+function AddAccountSheet({ enabled, busy, onClose, onPick }: { enabled: (p: Platform) => boolean; busy: string | null; onClose: () => void; onPick: (p: Platform) => void }) {
+  return (
+    <Sheet title={t('Ajouter un compte')} onClose={onClose}>
+      <div className="col" style={{ gap: 10 }}>
+        {PLATFORMS.map(p => (
+          <button key={p} type="button" className="card row-nw" disabled={!enabled(p) || busy === p} onClick={() => onPick(p)}
+                  style={{ gap: 12, textAlign: 'left', cursor: enabled(p) ? 'pointer' : 'not-allowed', color: 'var(--text)', opacity: enabled(p) ? 1 : 0.6, width: '100%' }}>
+            <PlatformLogo platform={p} size={28} />
+            <span className="col grow" style={{ gap: 2 }}>
+              <span className="strong">{PLATFORM_LABEL[p]}</span>
+              <span className="tiny muted">{enabled(p) ? t(HINT[p]) : t(UNAVAILABLE(p))}</span>
+            </span>
+            {enabled(p) && <Icon name="right" size={18} />}
+          </button>
+        ))}
+      </div>
+    </Sheet>
+  )
+}
+
+/** Comptes par plateforme : onglets, et dessous une page par plateforme qu'on fait glisser au doigt (mobile). */
+function PlatformPager({ tab, onTab, counts, children }: { tab: Platform; onTab: (p: Platform) => void; counts: Record<Platform, number>; children: (p: Platform) => ReactNode }) {
+  const track = useRef<HTMLDivElement>(null)
+  const index = PLATFORMS.indexOf(tab)
+  // Défilement lancé par un onglet : on ignore les positions intermédiaires jusqu'à la page visée.
+  const aiming = useRef<number | null>(null)
+  const scrollTo = (i: number, smooth = true) => {
+    const tr = track.current
+    if (!tr) return
+    aiming.current = smooth ? i : null
+    tr.scrollTo({ left: i * (tr.clientWidth + 16), behavior: smooth ? 'smooth' : 'instant' as ScrollBehavior })
+  }
+  useEffect(() => { scrollTo(index, false) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const go = (i: number) => {
+    onTab(PLATFORMS[i]); scrollTo(i)
+    try { history.replaceState(history.state, '', `#${PLATFORMS[i]}`) } catch { /* rien */ }
+  }
+  const onScroll = () => {
+    const tr = track.current
+    if (!tr) return
+    const i = Math.round(tr.scrollLeft / (tr.clientWidth + 16))
+    if (aiming.current !== null) { if (i === aiming.current) aiming.current = null; return }
+    if (i !== index && i >= 0 && i < PLATFORMS.length) {
+      onTab(PLATFORMS[i])
+      try { history.replaceState(history.state, '', `#${PLATFORMS[i]}`) } catch { /* rien */ }
+    }
+  }
+  return (
+    <div className="col" style={{ gap: 12 }}>
+      <div className="acc-tabs" role="tablist" aria-label={t('Plateformes')}
+           onKeyDown={e => { if (e.key === 'ArrowRight') go(Math.min(index + 1, PLATFORMS.length - 1)); if (e.key === 'ArrowLeft') go(Math.max(index - 1, 0)) }}>
+        {PLATFORMS.map((p, i) => (
+          <button key={p} type="button" role="tab" id={`tab-${p}`} aria-controls={`panel-${p}`} className="acc-tab" style={{ paddingLeft: 12 }}
+                  aria-selected={i === index} tabIndex={i === index ? 0 : -1} onClick={() => go(i)}>
+            <PlatformLogo platform={p} size={18} />{PLATFORM_LABEL[p]}<span className="muted" style={{ fontWeight: 400 }}>{counts[p]}</span>
+          </button>
+        ))}
+      </div>
+      <div className="pager" ref={track} onScroll={onScroll}>
+        {PLATFORMS.map(p => (
+          <div key={p} id={`panel-${p}`} className="pager-page" role="tabpanel" aria-labelledby={`tab-${p}`}>{children(p)}</div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -376,8 +471,9 @@ function AccountRow({ a, groups, busy, canAdmin, owner, onSync, onRemove, onReco
       )}
       <div className="row" style={{ gap: 6 }}>
         {a.needs_reconnect && canAdmin && <button type="button" className="btn btn-sm btn-primary" onClick={onReconnect}>{t('Reconnecter')}</button>}
-        {a.stats_available && a.mode !== 'routine' && !a.needs_reconnect && (
-          <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy === `s${a.platform}${a.id}`} aria-label={t('Actualiser les chiffres de {account}', { account: a.name })}><Icon name="refresh" size={16} /><span className="only-desktop">{t('Actualiser')}</span></button>
+        {/* Aussi sans statistiques (TikTok en attente de validation) : relit le nom et la photo du compte. */}
+        {a.mode !== 'routine' && !a.needs_reconnect && (
+          <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy === `s${a.platform}${a.id}`} aria-label={t('Actualiser {account}', { account: a.name })}><Icon name="refresh" size={16} /><span className="only-desktop">{t('Actualiser')}</span></button>
         )}
         {canAdmin && <button type="button" className="btn btn-sm" onClick={onTransfer}>{t('Transférer')}</button>}
         {canAdmin && (

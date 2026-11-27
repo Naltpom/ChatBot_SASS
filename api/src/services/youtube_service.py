@@ -496,19 +496,24 @@ def iso_duration(value: Optional[str]) -> Optional[float]:
 
 
 async def channel_stats(access_token: str) -> dict:
-    """{views, subscribers, videos, uploads_playlist} de la chaîne autorisée."""
+    """{views, subscribers, videos, uploads_playlist, title, handle, thumbnail_url} de la chaîne autorisée
+    (nom et photo relus à chaque relevé : la chaîne a pu les changer)."""
     body = await _api("GET", "/youtube/v3/channels", access_token,
-                      params={"part": "statistics,contentDetails", "mine": "true"})
+                      params={"part": "snippet,statistics,contentDetails", "mine": "true"})
     items = body.get("items") or []
     if not items:
         raise YouTubeError("no_channel", "Aucune chaîne pour ce compte Google", 400)
     st = items[0].get("statistics") or {}
     uploads = ((items[0].get("contentDetails") or {}).get("relatedPlaylists") or {}).get("uploads")
+    sn = items[0].get("snippet") or {}
+    thumbs = sn.get("thumbnails") or {}
     return {
         "views": _int(st.get("viewCount")),
         "subscribers": None if st.get("hiddenSubscriberCount") else _int(st.get("subscriberCount")),
         "videos": _int(st.get("videoCount")),
         "uploads_playlist": uploads,
+        "title": sn.get("title"), "handle": sn.get("customUrl"),
+        "thumbnail_url": (thumbs.get("default") or thumbs.get("medium") or {}).get("url"),
     }
 
 

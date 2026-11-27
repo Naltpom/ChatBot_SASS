@@ -172,10 +172,14 @@ async def sync_due(db: AsyncSession, batch: int = 10) -> None:
     """Tâche planifiée : relit les commentaires des comptes qui le permettent (toutes les 15 min)."""
     done = 0
     for platform, model in (("instagram", InstagramAccount), ("youtube", YouTubeAccount)):
-        rows = (await db.execute(select(model).where(model.revoked_at.is_(None)))).scalars().all()
-        for acc in rows:
+        ids = (await db.execute(select(model.id).where(model.revoked_at.is_(None)))).scalars().all()
+        for acc_id in ids:
             if done >= batch:
                 return
+            # Relu un par un : l'échec d'un compte fait un rollback, qui expire les autres.
+            acc = await db.get(model, acc_id)
+            if acc is None or acc.revoked_at is not None:
+                continue
             if not capabilities(platform, acc)["read"] or capabilities(platform, acc)["source"] != "api":
                 continue
             if not await sync_lock.claim(f"{platform}:{acc.id}:{int(utcnow().timestamp() // SYNC_EVERY.total_seconds())}"):
@@ -183,7 +187,7 @@ async def sync_due(db: AsyncSession, batch: int = 10) -> None:
             try:
                 await sync_account(db, platform, acc)
             except Exception as e:                 # une erreur de compte n'arrête pas les autres
-                logger.info("cm : commentaires %s %s non relus (%s)", platform, acc.id, type(e).__name__)
+                logger.info("cm : commentaires %s %s non relus (%s)", platform, acc_id, type(e).__name__)
                 await db.rollback()
             done += 1
 
