@@ -1,10 +1,8 @@
-// Briques communes des pages /promo (superadmin) : badges, cartes de publication, notes, versions, retours.
+// Briques communes de l'espace /promo (superadmin) : badges, pastilles de statut, aperçus, contenu d'une publication.
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { VUES, type Piece, type Plateforme, type Visuel } from './plan'
 import { VIDEOS } from './videos'
-import { NOTES } from './bilan'
-import { STATUTS, type Entree, type Statut, type Version } from './suivi'
+import { STATUTS, type Statut } from './suivi'
 
 export const NOMS: Record<Plateforme, string> = { youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok', linkedin: 'LinkedIn', x: 'X' }
 export const ORDRE: Plateforme[] = ['instagram', 'tiktok', 'youtube', 'linkedin', 'x']
@@ -40,45 +38,6 @@ export function Copier({ texte }: { texte: string }) {
   )
 }
 
-export function NoteBloc({ id }: { id: string }) {
-  const n = NOTES[id]
-  if (!n) return null
-  return (
-    <details className="pr-note">
-      <summary><span className={`pr-score ${couleur(n.note)}`}>{n.note}/10</span> Note v1</summary>
-      <ul className="pr-sousnotes">{Object.entries(n.detail).map(([k, v]) => <li key={k}><span>{GRILLES[k] ?? k}</span><b>{v}</b></li>)}</ul>
-      <ul className="pr-pb">{n.problemes.map(x => <li key={x}>{x}</li>)}</ul>
-    </details>
-  )
-}
-
-/** Une version d'une publication : vidéo, note, problèmes relevés. */
-export function VersionBloc({ v, ouverte }: { v: Version; ouverte?: boolean }) {
-  return (
-    <details className="pr-version" open={ouverte}>
-      <summary><b>{v.v}</b> <span className="pr-muted">{v.date}</span>
-        {v.note !== undefined && <span className={`pr-score ${couleur(v.note)}`}>{v.note}/10</span>}</summary>
-      <p className="pr-muted">{v.resume}</p>
-      {v.video && <video className={`pr-video pr-${v.video.format === 'horizontale' ? 'paysage' : 'portrait'}`} src={v.video.src} poster={v.video.poster} controls playsInline preload="none" />}
-      {v.detail && <ul className="pr-sousnotes">{Object.entries(v.detail).map(([k, x]) => <li key={k}><span>{GRILLES[k] ?? k}</span><b>{x}</b></li>)}</ul>}
-      {v.problemes && v.problemes.length > 0 && <ul className="pr-pb">{v.problemes.map(x => <li key={x}>{x}</li>)}</ul>}
-    </details>
-  )
-}
-
-/** Ligne compacte d'une publication (listes, tableau de bord). */
-export function Ligne({ e }: { e: Entree }) {
-  const der = e.versions[e.versions.length - 1]
-  const note = [...e.versions].reverse().find(v => v.note !== undefined)?.note
-  return (
-    <Link to={`/promo/p/${e.id}`} className="pr-ligne">
-      {der.video ? <img src={der.video.poster} alt="" loading="lazy" /> : <span className="pr-ligne-vide">{e.format.slice(0, 1)}</span>}
-      <span className="pr-ligne-t"><b>{e.titre}</b><small>{e.date}{e.heure ? ` · ${e.heure}` : ''} · {e.format} · {e.versions.length} version{e.versions.length > 1 ? 's' : ''}</small></span>
-      <span className="pr-ligne-d">{note !== undefined && <span className={`pr-score ${couleur(note)}`}>{note}</span>}<Pastille s={e.statut} /></span>
-    </Link>
-  )
-}
-
 /** Contenu d'une publication : script, textes par plateforme, production. */
 export function Contenu({ p }: { p: Piece }) {
   const cles = (Object.keys(p.textes) as (Plateforme | 'commun')[])
@@ -110,24 +69,5 @@ export function Contenu({ p }: { p: Piece }) {
       </div>
       {p.prod && <p className="pr-prod">🛠 {p.prod}</p>}
     </>
-  )
-}
-
-/** Carte d'une publication dans la liste par jour. */
-export function Carte({ e }: { e: Entree }) {
-  const p = e.piece!
-  const der = e.versions[e.versions.length - 1]
-  return (
-    <article className="pr-card">
-      <header className="pr-card-h">
-        <span className="pr-time">{p.heure}</span>
-        <span className="pr-format">{p.format}{der.video ? ` · ${Math.round(der.video.duree)} s` : p.duree ? ` · ${p.duree}` : ''}</span>
-        <span className="pr-badges">{p.plateformes.map(x => <Badge key={x} p={x} />)}</span>
-      </header>
-      <h3><Link to={`/promo/p/${e.id}`}>{p.titre}</Link></h3>
-      <div className="pr-card-st"><Pastille s={e.statut} /><NoteBloc id={p.id} /></div>
-      {der.video && <video className={`pr-video pr-${der.video.format === 'horizontale' ? 'paysage' : 'portrait'}`} src={der.video.src} poster={der.video.poster} controls playsInline preload="none" />}
-      <Link className="pr-lien" to={`/promo/p/${e.id}`}>Fiche complète : versions, retours, textes →</Link>
-    </article>
   )
 }
