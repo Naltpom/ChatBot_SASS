@@ -497,6 +497,7 @@ export const SEMAINES: Semaine[] = [
 ]
 
 export const REGLES = [
+  'Pas d\'« IA slop » : contenu professionnel qu\'on regarde sans se dire « c\'est de l\'IA » (pas de tournures génériques, d\'emojis en série, de visuels générés ni de voix plate ; vrais écrans, vrais faits, ton humain).',
   'Chaque vidéo verticale part sur Reels, Shorts et TikTok (programmée plus tard avec Chapote CM lui-même).',
   'Tutoiement sur Instagram, TikTok, YouTube et X ; vouvoiement sur LinkedIn.',
   'Aucun chiffre inventé : les écrans montrent des données de démonstration, et c\'est dit.',
