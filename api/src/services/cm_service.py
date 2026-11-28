@@ -7,12 +7,14 @@
   Instagram les télécharge par un lien signé et temporaire.
 - Statistiques : relevé d'un compte (abonnés, vues, j'aime, vidéos récentes).
 """
+import asyncio
 import hashlib
 import hmac
 import logging
 import os
 import re
 import shutil
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -210,6 +212,7 @@ def _bool(v, default=False) -> bool:
 
 
 IG_USERNAME = re.compile(r"^[A-Za-z0-9._]{1,30}$")
+IG_MENTION = re.compile(r"(?<![\w@])@([A-Za-z0-9._]{1,30})")
 LANG = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
 
 
@@ -310,8 +313,10 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
         raise bad("Instagram : 3 collaborateurs au plus, nom d'utilisateur Instagram sans espace.")
     if len(caption) > ig.CAPTION_MAX:
         raise bad(f"Instagram : légende trop longue ({ig.CAPTION_MAX} caractères maximum).")
-    if caption.count("#") > 30:
-        raise bad("Instagram : 30 hashtags au plus.")
+    if caption.count("#") > ig.HASHTAGS_MAX:
+        raise bad(f"Instagram : {ig.HASHTAGS_MAX} hashtags au plus.")
+    if len(set(m.lower() for m in IG_MENTION.findall(caption))) > ig.MENTIONS_MAX:
+        raise bad(f"Instagram : {ig.MENTIONS_MAX} mentions (@compte) au plus dans la légende.")
     thumb = _cover_ms(o.get("thumb_offset_ms"), "Instagram")
     return {"caption": caption, "share_to_feed": _bool(o.get("share_to_feed"), True), "thumb_offset_ms": thumb,
             "collaborators": collab}
@@ -449,8 +454,48 @@ def check_cover_link(target_id: int, exp: int, sig: str) -> bool:
 COVER_MAX_BYTES = 8 * 1024 * 1024
 
 
+def _png_to_jpeg(src: str, dest: str) -> None:
+    from PIL import Image
+    with Image.open(src) as im:
+        im.load()
+        if im.mode in ("RGBA", "LA", "P"):
+            im = im.convert("RGBA")
+            bg = Image.new("RGB", im.size, (255, 255, 255))     # transparence -> fond blanc
+            bg.paste(im, mask=im.getchannel("A"))
+            im = bg
+        elif im.mode != "RGB":
+            im = im.convert("RGB")
+        im.save(dest, "JPEG", quality=90, optimize=True)
+
+
+async def ensure_jpeg_cover(db, post: CmPost) -> None:
+    """Couverture PNG convertie en JPEG (format exigé par Instagram pour cover_url). Sans effet si la
+    couverture est déjà en JPEG ; une image illisible est retirée (Instagram prend alors une image de la vidéo)."""
+    path = post.cover_path
+    if not path or not os.path.exists(path):
+        return
+    with open(path, "rb") as f:
+        if image_kind(f.read(16)) == "jpeg":
+            return
+    dest = str(media_dir() / f"{uuid.uuid4().hex}.jpg")
+    try:
+        await asyncio.to_thread(_png_to_jpeg, path, dest)
+        if os.path.getsize(dest) > COVER_MAX_BYTES:
+            raise ValueError("couverture trop lourde")
+    except Exception as e:      # la couverture ne doit jamais bloquer la publication
+        unlink_quiet(dest)
+        logger.info("cm : couverture de la publication %s non convertie (%s)", post.id, e)
+        remove_cover(post)
+        await db.commit()
+        return
+    os.chmod(dest, 0o600)
+    unlink_quiet(path)
+    post.cover_path = dest
+    await db.commit()
+
+
 def image_kind(data: bytes) -> Optional[str]:
-    """jpeg | png d'après les premiers octets (Instagram accepte JPEG ; PNG converti par Meta)."""
+    """jpeg | png d'après les premiers octets (Instagram n'accepte que le JPEG : PNG converti avant l'envoi)."""
     if data[:3] == b"\xff\xd8\xff":
         return "jpeg"
     if data[:8] == b"\x89PNG\r\n\x1a\n":
@@ -670,6 +715,8 @@ async def _sync_instagram(db: AsyncSession, acc: InstagramAccount, full: bool = 
         return row or await save_snapshot(db, "instagram", acc.id, error="En attente des chiffres de la routine.")
     token = await ig.valid_token(db, acc)
     prof = await ig.profile(token)
+    if prof.get("id") and not acc.ig_app_user_id:     # comptes connectés avant le stockage de l'ID des rappels Meta
+        acc.ig_app_user_id = str(prof["id"])
     media = await ig.all_media(token, acc.ig_user_id)
     # Vues (insights) : une requête par Reel, donc par tournées. D'abord ceux qui n'ont encore aucun
     # chiffre, puis les 15 plus récents, puis ceux dont le relevé est le plus ancien.

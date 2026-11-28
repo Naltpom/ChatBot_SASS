@@ -211,6 +211,21 @@ async def _collect_events(db: AsyncSession) -> list[dict]:
             _send(uids, "storage", "Stockage Drive presque plein",
                   "Plus de 90 % utilisés : pensez à libérer de la place ou à changer la conservation.", data)
 
+    # Comptes passés « à reconnecter » (jeton expiré ou retiré) : une fois par compte et par jour au plus.
+    from src.services.cm_service import MODELS
+    for platform, model in MODELS.items():
+        accounts = (await db.execute(select(model).where(
+            model.needs_reconnect.is_(True), model.revoked_at.is_(None), model.updated_at >= since))).scalars().all()
+        for acc in accounts:
+            day = int(acc.updated_at.timestamp() // 86400) % 100000
+            if not await _reserve(db, f"reconnect_{platform}", acc.id * 100000 + day):
+                continue
+            label = PLATFORM_LABEL.get(platform, platform)
+            name = getattr(acc, "username", None) or getattr(acc, "display_name", None) or getattr(acc, "title", None) or ""
+            _send(await audience.users(acc, platform, acc.id, by_user), "failed", f"{label} à reconnecter",
+                  lambda lang, name=name: _colon(name or label, _t("les publications sur ce compte sont en pause", lang), lang),
+                  {"type": "reconnect", "platform": platform, "account_id": acc.id})
+
     comments = (await db.execute(select(CmComment).where(
         CmComment.status == "new", CmComment.created_at >= since).order_by(CmComment.id))).scalars().all()
     per_device: dict[int, list[CmComment]] = {}

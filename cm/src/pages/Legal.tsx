@@ -10,6 +10,13 @@ import privacyEn from '../legal/privacy.en.md?raw'
 import termsEn from '../legal/terms.en.md?raw'
 import { getLang, t } from '../i18n'
 
+// Ancres stables des titres (#instagram…), déclarées chez les plateformes : « 8. Instagram » -> instagram.
+function slug(children: unknown): string {
+  const text = (Array.isArray(children) ? children : [children]).map(c => typeof c === 'string' ? c : '').join('')
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/^[0-9.\s]+/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
 const DOCS = {
   privacy: { md: privacy, en: privacyEn, title: 'Politique de confidentialité' },
   terms: { md: terms, en: termsEn, title: 'Conditions d’utilisation' },
@@ -25,6 +32,8 @@ export default function Legal({ doc }: { doc: keyof typeof DOCS }) {
       </header>
       <main className="legal" style={{ maxWidth: 760, margin: '0 auto', padding: '8px 16px 48px', lineHeight: 1.6, overflowWrap: 'anywhere' }}>
         <ReactMarkdown components={{
+          h2: ({ children }) => <h2 id={slug(children)}>{children}</h2>,
+          h3: ({ children }) => <h3 id={slug(children)}>{children}</h3>,
           a: ({ href, children }) => href?.startsWith('/') ? <Link to={href}>{children}</Link>
             : <a href={href} target="_blank" rel="noreferrer">{children}</a>,
         }}>{getLang() === 'en' ? d.en : d.md}</ReactMarkdown>

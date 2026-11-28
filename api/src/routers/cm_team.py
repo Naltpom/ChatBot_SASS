@@ -378,6 +378,7 @@ async def claim(body: ClaimIn, db: AsyncSession = Depends(get_db), user: User = 
         prof = tok.get("_profile") or {}
         ig.apply_long_token(acc, tok)
         acc.mode, acc.ig_user_id = IG_MODE_API, tok.get("_ig_id") or acc.ig_user_id
+        acc.ig_app_user_id = tok.get("_ig_app_id") or acc.ig_app_user_id
         acc.username = prof.get("username") or acc.username
         acc.scopes = tok.get("_scopes") or acc.scopes
     acc.needs_reconnect = False

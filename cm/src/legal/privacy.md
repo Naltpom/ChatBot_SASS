@@ -71,6 +71,16 @@ Les données obtenues via les API Google ne sont **jamais vendues**, ni utilisé
 - **Réseaux sociaux** : page Comptes → « Déconnecter », ou depuis les réglages de la plateforme.
 - **Suppression de toutes vos données** : écrivez à [nathan.provost78990@gmail.com](mailto:nathan.provost78990@gmail.com). La suppression est faite **sous 7 jours**.
 
+### Instagram
+
+La connexion à Instagram passe par l'application Meta **« Chapote Publisher »**. Pour retirer l'accès et supprimer les données liées à un compte Instagram :
+
+- **Depuis Chapote CM** : page Comptes → compte Instagram → **« Déconnecter »**. Le jeton d'accès est supprimé immédiatement et les publications à venir sur ce compte sont annulées.
+- **Depuis Instagram** : Paramètres → **Applications et sites web** → « Chapote Publisher » → **Supprimer**. Meta prévient Chapote CM, qui supprime aussitôt le jeton d'accès et déconnecte le compte.
+- **Demande de suppression des données** : depuis Instagram ou Facebook, vous pouvez demander la suppression des données transmises à « Chapote Publisher ». Meta vous donne alors un **code de confirmation** et un lien pour suivre l'état de la demande. Le jeton, le nom et la photo du compte sont supprimés immédiatement ; les vidéos, commentaires et statistiques relevés le sont automatiquement dans l'heure.
+
+Dans tous les cas, les vidéos, commentaires et statistiques du compte déconnecté sont supprimés de nos serveurs automatiquement. Les publications déjà en ligne sur Instagram restent sur votre compte : vous les gérez depuis Instagram.
+
 ## 9. Vos droits
 
 Vous disposez d'un droit d'**accès**, de **rectification**, d'**effacement**, de **limitation**, de **portabilité** et d'**opposition** sur vos données. Pour les exercer : [nathan.provost78990@gmail.com](mailto:nathan.provost78990@gmail.com). Vous pouvez aussi adresser une réclamation à la **CNIL** ([www.cnil.fr](https://www.cnil.fr)).

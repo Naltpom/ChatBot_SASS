@@ -45,7 +45,8 @@ from test_youtube import _account as _yt_account
 from test_youtube import google  # noqa: F401  (fixture)
 
 SERVICE = "svc-cm-token"
-IG_ID = "17841400000000001"
+IG_ID = "17841400000000001"          # compte professionnel (/me user_id)
+IG_APP_ID = "26000000000000001"      # ID « app-scoped » (jeton, /me id) : celui des rappels Meta
 
 
 # --------------------------------------------------------------------------
@@ -58,6 +59,7 @@ class FakeMeta:
         self.container_states = ["IN_PROGRESS", "FINISHED"]
         self.created: list[dict] = []
         self.account_type = "MEDIA_CREATOR"
+        self.quota_usage = 0
 
     def handler(self, req: httpx.Request) -> httpx.Response:
         self.calls.append(req)
@@ -68,7 +70,7 @@ class FakeMeta:
                 return httpx.Response(400, json={"error_type": "OAuthException", "code": 400,
                                                  "error_message": "Invalid authorization code"})
             assert form["code"] == ["AQ123"], form["code"]       # « #_ » retiré
-            return httpx.Response(200, json={"access_token": "IGshort", "user_id": int(IG_ID),
+            return httpx.Response(200, json={"access_token": "IGshort", "user_id": int(IG_APP_ID),
                                              "permissions": [ig.SCOPE_BASIC, ig.SCOPE_PUBLISH, ig.SCOPE_INSIGHTS]})
         if path == "/access_token":
             return httpx.Response(200, json={"access_token": "IGlong", "token_type": "bearer", "expires_in": 5183944})
@@ -79,9 +81,12 @@ class FakeMeta:
             return httpx.Response(401, json={"error": {"message": "Invalid OAuth access token", "type": "OAuthException", "code": 190}})
         v = f"/{settings.INSTAGRAM_API_VERSION}"
         if path == f"{v}/me":
-            return httpx.Response(200, json={"user_id": IG_ID, "username": "ghosthands.music", "name": "Ghost Hands",
+            return httpx.Response(200, json={"id": IG_APP_ID, "user_id": IG_ID, "username": "ghosthands.music", "name": "Ghost Hands",
                                              "account_type": self.account_type, "profile_picture_url": "https://cdn.ig/p.jpg",
                                              "followers_count": 5400, "media_count": 120})
+        if path == f"{v}/{IG_ID}/content_publishing_limit":
+            return httpx.Response(200, json={"data": [{"quota_usage": self.quota_usage,
+                                                       "config": {"quota_total": 100, "quota_duration": 86400}}]})
         if path == f"{v}/{IG_ID}/media" and req.method == "POST":
             self.created.append(parse_qs(req.content.decode()))
             return httpx.Response(200, json={"id": "cont1"})
@@ -532,7 +537,8 @@ async def test_instagram_oauth_publish_reel_and_stats(pg_session, cmenv, meta):
         # State à usage unique.
         assert (await h.post("/api/cm/instagram/oauth/exchange", json={"code": "AQ123", "state": state})).status_code == 400
         acc = await pg_session.get(InstagramAccount, acc_out["id"])
-        assert acc.ig_user_id == IG_ID and decrypt_secret(acc.access_token_enc) == "IGlong"
+        assert acc.ig_user_id == IG_ID and acc.ig_app_user_id == IG_APP_ID
+        assert decrypt_secret(acc.access_token_enc) == "IGlong"
         assert "IGlong" not in json.dumps(acc_out)
 
         post_id, r = await _publish(h, [_ig_target(acc.id)], data)
@@ -563,7 +569,10 @@ async def test_instagram_oauth_publish_reel_and_stats(pg_session, cmenv, meta):
         # Publiée : le lien ne sert plus.
         assert (await c.http.get(path)).status_code == 404
 
+        acc.ig_app_user_id = None                           # compte connecté avant : complété au relevé
+        await pg_session.commit()
         stat = await cm.sync_account(pg_session, "instagram", acc)
+        assert acc.ig_app_user_id == IG_APP_ID
         assert stat.error is None and stat.followers == 5400 and stat.views == 15000 and stat.videos == 120
         v = (await pg_session.execute(select(CmVideo).where(CmVideo.external_id == "media9"))).scalar_one()
         assert v.views == 15000 and v.likes == 300 and v.saves == 90 and v.target_id == t.id
@@ -602,6 +611,9 @@ async def test_instagram_rejects_personal_accounts_and_bad_codes(pg_session, cme
         meta.account_type = "PERSONAL"
         r = await h.post("/api/cm/instagram/oauth/exchange", json={"code": "AQ123", "state": state()})
         assert r.status_code == 400 and "professionnel" in r.json()["detail"]
+        meta.account_type = None              # type absent : refusé aussi
+        r = await h.post("/api/cm/instagram/oauth/exchange", json={"code": "AQ123", "state": state()})
+        assert r.status_code == 400 and "professionnel" in r.json()["detail"]
     assert (await pg_session.execute(select(InstagramAccount))).scalars().all() == []
 
 
@@ -616,21 +628,44 @@ def _signed(payload: dict, secret: str) -> str:
 @pytest.mark.real_db
 @pytest.mark.asyncio
 async def test_meta_deauthorize_and_data_deletion_callbacks(pg_session, cmenv, meta):
+    """Meta envoie l'ID « app-scoped » (différent de l'ID du compte professionnel)."""
     u = await _user(pg_session, "a@t.dev")
     acc = await _ig_api(pg_session, u)
+    acc.ig_app_user_id, acc.name, acc.profile_picture_url = IG_APP_ID, "Ghost Hands", "https://cdn.ig/p.jpg"
+    other = await _ig_api(pg_session, u)
+    other.ig_user_id, other.ig_app_user_id, other.username = "17841400000000002", "26000000000000002", "autre"
     await pg_session.commit()
     async with Client(pg_session) as c:
         r = await c.http.post("/api/cm/instagram/deauthorize",
-                              data={"signed_request": _signed({"user_id": IG_ID}, "faux-secret")})
+                              data={"signed_request": _signed({"user_id": IG_APP_ID}, "faux-secret")})
         assert r.status_code == 400
         await pg_session.refresh(acc)
         assert acc.revoked_at is None
         r = await c.http.post("/api/cm/instagram/data-deletion",
-                              data={"signed_request": _signed({"user_id": IG_ID, "algorithm": "HMAC-SHA256"}, "ig-secret")})
-        assert r.status_code == 200 and r.json()["confirmation_code"]
-        assert r.json()["url"].endswith("/legal/instagram-confidentialite#suppression")
-    await pg_session.refresh(acc)
-    assert acc.revoked_at is not None and acc.access_token_enc is None
+                              data={"signed_request": _signed({"user_id": IG_APP_ID, "algorithm": "HMAC-SHA256"}, "ig-secret")})
+        assert r.status_code == 200, r.text
+        code, url = r.json()["confirmation_code"], r.json()["url"]
+        assert url == f"https://cm.chapote.test/api/cm/instagram/data-deletion/{code}"
+        await pg_session.refresh(acc)
+        assert acc.revoked_at is not None and acc.access_token_enc is None
+        assert acc.name is None and acc.profile_picture_url is None
+        await pg_session.refresh(other)
+        assert other.revoked_at is None                     # seul le compte concerné
+        # Page publique de suivi : en cours, puis terminée après le nettoyage planifié.
+        page = await c.http.get(urlparse(url).path)
+        assert page.status_code == 200 and code in page.text and "en cours" in page.text
+        assert "IGlong" not in page.text
+        await cm_jobs.cleanup(pg_session)
+        page = await c.http.get(urlparse(url).path)
+        assert "terminée" in page.text
+        assert (await c.http.get("/api/cm/instagram/data-deletion/0123456789abcdef")).status_code == 404
+        assert (await c.http.get("/api/cm/instagram/data-deletion/pas-un-code")).status_code == 404
+        # Désautorisation : l'ID du compte professionnel est accepté aussi (par sécurité).
+        r = await c.http.post("/api/cm/instagram/deauthorize",
+                              data={"signed_request": _signed({"user_id": "17841400000000002"}, "ig-secret")})
+        assert r.status_code == 200
+        await pg_session.refresh(other)
+        assert other.revoked_at is not None and other.access_token_enc is None
 
 
 @pytest.mark.real_db

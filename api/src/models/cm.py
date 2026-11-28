@@ -80,7 +80,10 @@ class InstagramAccount(Base):
     owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     connected_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     mode = Column(String(20), nullable=False, default=IG_MODE_API)
-    ig_user_id = Column(String, nullable=True)          # mode api
+    ig_user_id = Column(String, nullable=True)          # mode api : ID du compte professionnel (/me user_id)
+    # ID « app-scoped » (jeton / me.id) : celui que Meta envoie dans les rappels de désautorisation et
+    # de suppression des données. Différent de ig_user_id.
+    ig_app_user_id = Column(String, nullable=True, index=True)
     username = Column(String, nullable=False)
     name = Column(String, nullable=True)
     profile_picture_url = Column(Text, nullable=True)
@@ -94,6 +97,18 @@ class InstagramAccount(Base):
     history_done = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class IgDeletionRequest(Base):
+    """Demande de suppression des données reçue de Meta : suivie par un code public (page de statut)."""
+    __tablename__ = "ig_deletion_requests"
+
+    id = Column(Integer, primary_key=True)
+    code = Column(String(32), nullable=False, unique=True, index=True)
+    accounts = Column(Integer, nullable=False, default=0)     # comptes trouvés et déconnectés
+    status = Column(String(20), nullable=False, default="received")   # received | done
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
 
 
 class CmPost(Base):

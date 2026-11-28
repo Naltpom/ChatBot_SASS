@@ -53,6 +53,7 @@ from src.models.cm import (
     CmPost,
     CmTarget,
     CmVideo,
+    IgDeletionRequest,
     InstagramAccount,
 )
 from src.models.tiktok import TikTokAccount, TikTokPost
@@ -81,6 +82,8 @@ DRAFT_FALLBACK_REASONS = ("unaudited_client_can_only_post_to_private_accounts", 
 DRAFT_FALLBACK_NOTICE = ("TikTok n'a pas accepté la publication directe (application pas encore validée) : "
                          "la vidéo est partie en brouillon dans l'app TikTok, à publier depuis le téléphone.")
 CONTAINER_TIMEOUT = timedelta(hours=1)
+# Erreur passagère d'Instagram à l'envoi : nouvel essai après 1, puis 5 min (MAX_ATTEMPTS envois au total).
+IG_RETRY_DELAYS = (timedelta(minutes=1), timedelta(minutes=5), timedelta(minutes=15))
 ROUTINE_CLAIM_TIMEOUT = timedelta(hours=6)
 RECEIVING_TIMEOUT = timedelta(hours=2)
 # Vidéo gardée après un échec (pour « Réessayer »), puis supprimée.
@@ -94,6 +97,16 @@ _scheduler_task: Optional[asyncio.Task] = None
 
 
 class _Fail(Exception):
+    def __init__(self, code: str, message: str, reconnect_ig: Optional[int] = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        # Compte Instagram à marquer « à reconnecter » APRÈS le rollback (sinon le marquage est perdu).
+        self.reconnect_ig = reconnect_ig
+
+
+class _Retry(Exception):
+    """Erreur passagère de la plateforme : la cible est remise à plus tard (backoff)."""
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
@@ -251,10 +264,20 @@ async def _dispatch_instagram(db: AsyncSession, t: CmTarget, post: CmPost) -> No
     o = t.options or {}
     try:
         token = await ig.valid_token(db, acc)
+        # Limite de 100 publications par 24 h : vérifiée avant (sinon Meta télécharge la vidéo pour rien).
+        try:
+            quota = await ig.publishing_quota(token, acc.ig_user_id)
+        except ig.InstagramError as e:
+            if e.code == "invalid_token":
+                raise
+            quota = None              # la vérification ne doit pas bloquer l'envoi
+        if quota and quota[0] >= quota[1]:
+            raise _Fail("publish_limit", ig.ERROR_MESSAGES["publish_limit"])
         # Le conteneur est créé avec le lien signé : Meta télécharge la vidéo.
         t.status = T_PUBLISHING
         await db.commit()
         await cm_library.ensure_cover(db, post)
+        await cm.ensure_jpeg_cover(db, post)          # Instagram n'accepte que le JPEG pour cover_url
         cover = cm.cover_url(t) if post.cover_path and os.path.exists(post.cover_path) else None
         container = await ig.create_reel_container(
             token, acc.ig_user_id, cm.media_url(t, post.mime_type), o.get("caption") or "",
@@ -262,10 +285,15 @@ async def _dispatch_instagram(db: AsyncSession, t: CmTarget, post: CmPost) -> No
     except ig.ReconnectRequired:
         raise _Fail("reconnect_required", ig.ERROR_MESSAGES["invalid_token"])
     except ig.InstagramError as e:
+        logger.info("cm : envoi Instagram de la cible %s refusé (%s)", t.id, e.log_ref())
         if e.code == "invalid_token":
-            acc.needs_reconnect = True
+            raise _Fail(e.code, e.describe(), reconnect_ig=acc.id)
+        if e.transient:
+            raise _Retry(e.code, e.describe())
         raise _Fail(e.code, e.describe())
     t.ig_container_id = container
+    if t.notice and "Nouvel essai automatique" in t.notice:
+        t.notice = None
     await db.commit()
 
 
@@ -310,10 +338,26 @@ async def dispatch_target(db: AsyncSession, target_id: int) -> None:
         t.status = T_SCHEDULED
         t.attempts = max(0, (t.attempts or 1) - 1)
         await db.commit()
+    except _Retry as e:
+        await db.rollback()
+        t = await db.get(CmTarget, target_id)
+        n = t.attempts or 1
+        if n >= MAX_ATTEMPTS:
+            fail_target(t, e.code, e.message)
+        else:
+            delay = IG_RETRY_DELAYS[min(n, len(IG_RETRY_DELAYS)) - 1]
+            t.status = T_SCHEDULED
+            t.scheduled_at = utcnow() + delay
+            t.notice = f"{e.message} Nouvel essai automatique dans {int(delay.total_seconds() // 60)} min."
+        await db.commit()
     except _Fail as e:
         await db.rollback()
         t = await db.get(CmTarget, target_id)
         fail_target(t, e.code, e.message)
+        if e.reconnect_ig:
+            acc = await db.get(InstagramAccount, e.reconnect_ig)
+            if acc is not None:
+                acc.needs_reconnect = True
         await db.commit()
     except Exception:
         logger.exception("cm : envoi de la cible %s en échec", target_id)
@@ -474,7 +518,7 @@ async def _follow_instagram(db: AsyncSession, t: CmTarget, post: Optional[CmPost
             if await _already_online(token, acc, t):
                 await _record_published(db, t, post)
                 return
-            logger.info("cm : suivi Instagram de la cible %s en attente (%s)", t.id, e.code)
+            logger.info("cm : suivi Instagram de la cible %s en attente (%s)", t.id, e.log_ref())
 
 
 async def follow_pending(db: AsyncSession) -> None:
@@ -602,6 +646,10 @@ async def cleanup(db: AsyncSession) -> None:
         await db.execute(delete(CmComment).where(CmComment.platform == platform, CmComment.account_id.not_in(alive)))
         await db.execute(delete(CmAccountStat).where(CmAccountStat.platform == platform,
                                                      CmAccountStat.account_id.not_in(alive)))
+    # Demandes de suppression Meta : les données des comptes déconnectés viennent d'être supprimées.
+    await db.execute(update(IgDeletionRequest).where(IgDeletionRequest.status == "received",
+                                                   IgDeletionRequest.created_at <= now)
+                     .values(status="done", completed_at=now))
     # Commentaires relevés il y a plus de 12 mois (pages de confidentialité).
     await db.execute(delete(CmComment).where(CmComment.created_at < now - timedelta(days=365)))
     # Historique ancien.
