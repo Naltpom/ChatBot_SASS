@@ -1,11 +1,12 @@
 // Carte d'une plateforme dans la fiche de publication : état, ce qui diffère du commun, lien, chiffres,
-// actions (changer l'heure ou le texte, publier maintenant, annuler, réessayer) et brouillon TikTok.
+// actions (changer l'heure ou le texte, publier maintenant, annuler, réessayer) et « publier soi-même » (textes à
+// copier + « Publié » avec le lien) : brouillon TikTok, publication ratée, ou prévue.
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import {
-  cancelTarget, markPublished, patchTarget, publishNow, resendDraft, retryTarget, PLATFORM_LABEL, type CalendarItem,
+  cancelTarget, markPublished, patchTarget, publishNow, publishedByHand, resendDraft, retryTarget, PLATFORM_LABEL, type CalendarItem,
 } from '../../lib/api'
 import { fmtDateTime, num } from '../../lib/format'
 import { locale, t } from '../../lib/i18n'
@@ -13,7 +14,7 @@ import { Button, Field, Icon, Msg, PlatformLogo, Row, Txt } from '../../ui/kit'
 import { radius, space, useTheme } from '../../ui/theme'
 import { STATE_LABEL, stateOf, type TargetItem } from './calendar'
 import { openLink } from './media'
-import { diffsOf, editableText, tiktokLinkOk } from './sheet'
+import { diffsOf, editableText, linkOk, LINK_EXAMPLE, manualTexts } from './sheet'
 import { DateTimeField } from './ui'
 import { showDialog } from '../../ui/dialog'
 
@@ -33,6 +34,7 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
   const st = stateOf(item)
   const inbox = item.kind === 'target' && item.status === 'INBOX'
   const [editing, setEditing] = useState(false)
+  const [manual, setManual] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const act: Act = async (fn, ask) => {
@@ -94,7 +96,9 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
           ) : null}
           {err ? <Msg kind="err">{err}</Msg> : null}
           {item.kind === 'target' && editing ? <EditInline item={item} onDone={() => { setEditing(false); onChanged() }} onCancel={() => setEditing(false)} /> : null}
-          {inbox ? <DraftBox item={item as TargetItem} busy={busy} act={act} canEdit={canEdit} /> : null}
+          {item.kind === 'target' && !editing && (inbox || item.status === 'FAILED' || (item.status === 'SCHEDULED' && manual))
+            ? <ManualBox item={item as TargetItem} common={common} busy={busy} act={act} canEdit={canEdit}
+                onClose={item.status === 'SCHEDULED' ? () => setManual(false) : undefined} /> : null}
           {item.kind === 'target' && canEdit && !editing && !inbox ? (
             <Row gap={8} wrap>
               {item.status === 'SCHEDULED' ? <Button small icon="clock" title={t('Changer l’heure ou le texte')} disabled={busy} onPress={() => setEditing(true)} /> : null}
@@ -102,6 +106,7 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
                 <Button small icon="bolt" title={t('Publier maintenant')} disabled={busy}
                   onPress={() => act(() => publishNow(item.id), { title: t('Publier maintenant ?'), message: t('La vidéo part tout de suite sur {name}.', { name }), ok: t('Publier') })} />
               ) : null}
+              {item.status === 'SCHEDULED' && !manual ? <Button small icon="copy" title={t('Publier moi-même')} disabled={busy} onPress={() => setManual(true)} /> : null}
               {item.can_retry ? <Button small kind="primary" icon="refresh" title={t('Réessayer')} disabled={busy} onPress={() => act(() => retryTarget(item.id))} /> : null}
             </Row>
           ) : null}
@@ -118,34 +123,41 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
   )
 }
 
-/** Brouillon TikTok (arrivé sans légende) : légende à copier, « Publié dans l'app » (lien facultatif), « Renvoyer le brouillon ». */
-function DraftBox({ item, busy, act, canEdit }: { item: TargetItem; busy: boolean; act: Act; canEdit: boolean }) {
+/** Publier soi-même : textes à copier, « Publié » (lien facultatif). Brouillon TikTok : aussi « Renvoyer le brouillon ».
+ *  Pour une publication ratée (ouverte d'office) ou prévue (repliée derrière « Publier moi-même »). */
+function ManualBox({ item, common, busy, act, canEdit, onClose }: { item: TargetItem; common: string; busy: boolean; act: Act; canEdit: boolean; onClose?: () => void }) {
   const { c } = useTheme()
-  const caption = String(item.options?.title || '')
-  const [copied, setCopied] = useState(false)
+  const inbox = item.status === 'INBOX'
+  const name = PLATFORM_LABEL[item.platform]
+  const texts = manualTexts(item, common)
+  const [copied, setCopied] = useState<string | null>(null)
   const [asking, setAsking] = useState(false)
   const [link, setLink] = useState('')
-  const copy = async () => {
-    try { await Clipboard.setStringAsync(caption); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+  const copy = async (k: string, v: string) => {
+    try { await Clipboard.setStringAsync(v); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); setCopied(k); setTimeout(() => setCopied(null), 2000) }
     catch { /* presse-papiers indisponible */ }
   }
-  const linkOk = tiktokLinkOk(link)
+  const ok = linkOk(item.platform, link)
+  const done = (url?: string) => inbox ? markPublished(item.id, url) : publishedByHand(item.id, url)
   return (
     <View style={{ gap: space.md }}>
-      <Txt small>{t('La vidéo est dans vos brouillons TikTok,')} <Txt small bold>{t('sans légende')}</Txt>{t(' : ouvrez l’app, collez la légende, publiez, puis revenez ici.')}</Txt>
-      {caption ? (
-        <View style={{ gap: 6 }}>
-          <Txt small muted>{t('Légende TikTok')}</Txt>
-          <View style={{ backgroundColor: c.bg, borderRadius: radius.sm, padding: space.md }}><Txt small selectable>{caption}</Txt></View>
-          <Button small icon={copied ? 'check' : 'copy'} title={copied ? t('Légende copiée') : t('Copier la légende')} onPress={copy} style={{ alignSelf: 'flex-start' }} />
+      {inbox
+        ? <Txt small>{t('La vidéo est dans vos brouillons TikTok,')} <Txt small bold>{t('sans légende')}</Txt>{t(' : ouvrez l’app, collez la légende, publiez, puis revenez ici.')}</Txt>
+        : <Txt small>{t('Copiez le texte, publiez la vidéo vous-même dans {name}, puis revenez ici.', { name })}</Txt>}
+      {texts.map(([k, v]) => (
+        <View key={k} style={{ gap: 6 }}>
+          <Txt small muted>{t(k)}</Txt>
+          <View style={{ backgroundColor: c.bg, borderRadius: radius.sm, padding: space.md }}><Txt small selectable>{v}</Txt></View>
+          <Button small icon={copied === k ? 'check' : 'copy'} title={copied === k ? t('Copié') : t('Copier')} onPress={() => copy(k, v)}
+            accessibilityLabel={t('Copier : {what}', { what: t(k) })} style={{ alignSelf: 'flex-start' }} />
         </View>
-      ) : null}
+      ))}
       {!canEdit ? null : asking ? (
         <View style={{ gap: space.sm }}>
-          <Field label={t('Lien de la vidéo TikTok (facultatif)')} value={link} onChangeText={setLink} keyboardType="url" autoCapitalize="none" autoCorrect={false}
-            placeholder="https://www.tiktok.com/@compte/video/…" error={linkOk ? null : t('Collez un lien TikTok (ou laissez vide).')} />
+          <Field label={t('Lien de la vidéo {name} (facultatif)', { name })} value={link} onChangeText={setLink} keyboardType="url" autoCapitalize="none" autoCorrect={false}
+            placeholder={LINK_EXAMPLE[item.platform] ?? 'https://…'} error={ok ? null : t('Collez un lien {name} (ou laissez vide).', { name })} />
           <Row gap={8}>
-            <Button small kind="primary" icon="check" title={t('Marquer publiée')} disabled={busy || !linkOk} onPress={() => act(() => markPublished(item.id, link.trim() || undefined))} />
+            <Button small kind="primary" icon="check" title={t('Marquer publiée')} disabled={busy || !ok} onPress={() => act(() => done(link.trim() || undefined))} />
             <Button small kind="ghost" title={t('Annuler')} onPress={() => setAsking(false)} />
           </Row>
         </View>
@@ -153,10 +165,15 @@ function DraftBox({ item, busy, act, canEdit }: { item: TargetItem; busy: boolea
         <View style={{ gap: space.sm }}>
           <Row gap={8} wrap>
             <Button small kind="primary" icon="check" title={t('Publié dans l’app')} disabled={busy} onPress={() => setAsking(true)} />
-            <Button small icon="refresh" title={t('Renvoyer le brouillon')} disabled={busy}
-              onPress={() => act(() => resendDraft(item.id), { title: t('Renvoyer le brouillon ?'), message: t('À faire seulement si le brouillon a été supprimé dans TikTok.'), ok: t('Renvoyer') })} />
+            {inbox ? <Button small icon="refresh" title={t('Renvoyer le brouillon')} disabled={busy}
+              onPress={() => act(() => resendDraft(item.id), { title: t('Renvoyer le brouillon ?'), message: t('À faire seulement si le brouillon a été supprimé dans TikTok.'), ok: t('Renvoyer') })} /> : null}
+            {onClose ? <Button small kind="ghost" title={t('Fermer')} onPress={onClose} /> : null}
           </Row>
-          <Txt size={12} muted>{t('« Publié dans l’app » : collez le lien de la vidéo si vous l’avez. « Renvoyer » : si le brouillon a été supprimé dans TikTok.')}</Txt>
+          <Txt size={12} muted>{inbox
+            ? t('« Publié dans l’app » : collez le lien de la vidéo si vous l’avez. « Renvoyer » : si le brouillon a été supprimé dans TikTok.')
+            : item.status === 'SCHEDULED'
+              ? t('« Publié dans l’app » : collez le lien si vous l’avez. La publication prévue est alors retirée, rien ne partira en double.')
+              : t('« Publié dans l’app » : collez le lien de la vidéo si vous l’avez.')}</Txt>
         </View>
       )}
     </View>
