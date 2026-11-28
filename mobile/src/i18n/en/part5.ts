@@ -186,5 +186,12 @@ const EN: Record<string, string> = {
   'Vidéos publiées': 'Posted videos',
   'Rien de ce type': 'Nothing of this kind',
   'Rien sur les 14 derniers jours pour « {filter} ».': 'Nothing in the last 14 days for “{filter}”.',
+  'Copiez le texte, publiez la vidéo vous-même dans {name}, puis revenez ici.': 'Copy the text, post the video yourself in {name}, then come back here.',
+  'Copier : {what}': 'Copy: {what}',
+  'Lien de la vidéo {name} (facultatif)': '{name} video link (optional)',
+  'Collez un lien {name} (ou laissez vide).': 'Paste a {name} link (or leave empty).',
+  'Publier moi-même': 'Post it myself',
+  '« Publié dans l’app » : collez le lien si vous l’avez. La publication prévue est alors retirée, rien ne partira en double.': '“Posted in the app”: paste the link if you have it. The scheduled post is then removed, nothing goes out twice.',
+  '« Publié dans l’app » : collez le lien de la vidéo si vous l’avez.': '“Posted in the app”: paste the video link if you have it.',
 }
 export default EN
