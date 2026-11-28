@@ -227,6 +227,8 @@ EN = {
     "Brouillon TikTok à publier": "TikTok draft to post",
     "{} : copiez la légende et publiez dans TikTok.": "{}: copy the caption and post it in TikTok.",
     "Stockage Drive plein": "Drive storage full",
+    "{} à reconnecter": "Reconnect {}",
+    "les publications sur ce compte sont en pause": "posts on this account are on hold",
     "Les nouvelles publications sont bloquées : libérez de la place ou changez la conservation.":
         "New posts are blocked. Free up space or change the retention setting.",
     "Stockage Drive presque plein": "Drive storage almost full",

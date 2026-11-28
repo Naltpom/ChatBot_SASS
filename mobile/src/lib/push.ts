@@ -81,6 +81,7 @@ export function usePushRouting() {
     if (!data) return
     if (data.type === 'comment') { if (FEATURES.comments) router.push('/comments') }
     else if (data.type === 'storage') router.push('/storage')
+    else if (data.type === 'reconnect') router.push('/accounts')
     else if (data.post_id) router.push({ pathname: '/post/[id]', params: { id: String(data.post_id) } })
   }, [last, router])
 }

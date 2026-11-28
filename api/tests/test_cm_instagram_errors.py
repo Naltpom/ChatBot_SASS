@@ -220,3 +220,22 @@ async def test_caption_mentions_limited_to_20(pg_session, cmenv, meta):
         assert (await h.post("/api/cm/posts", json=body(ok))).status_code == 200
         r = await h.post("/api/cm/posts", json=body(ok + " @compte20"))
         assert r.status_code == 400 and "20 mentions" in r.json()["detail"]
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_push_when_account_needs_reconnect(pg_session, cmenv):
+    from src.services import cm_push
+    from test_cm_mobile import _device
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_api(pg_session, u)
+    await _device(pg_session, u, "ExponentPushToken[abc]")
+    await pg_session.commit()
+    assert [m for m in await cm_push.collect(pg_session) if m["data"]["type"] == "reconnect"] == []
+    acc.needs_reconnect = True
+    await pg_session.commit()
+    msgs = [m for m in await cm_push.collect(pg_session) if m["data"]["type"] == "reconnect"]
+    assert len(msgs) == 1 and msgs[0]["title"] == "Instagram à reconnecter"
+    assert "ghosthands.music" in msgs[0]["body"] and msgs[0]["data"]["account_id"] == acc.id
+    # Une seule fois.
+    assert [m for m in await cm_push.collect(pg_session) if m["data"]["type"] == "reconnect"] == []
