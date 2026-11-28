@@ -59,6 +59,7 @@ class FakeMeta:
         self.container_states = ["IN_PROGRESS", "FINISHED"]
         self.created: list[dict] = []
         self.account_type = "MEDIA_CREATOR"
+        self.quota_usage = 0
 
     def handler(self, req: httpx.Request) -> httpx.Response:
         self.calls.append(req)
@@ -83,6 +84,9 @@ class FakeMeta:
             return httpx.Response(200, json={"id": IG_APP_ID, "user_id": IG_ID, "username": "ghosthands.music", "name": "Ghost Hands",
                                              "account_type": self.account_type, "profile_picture_url": "https://cdn.ig/p.jpg",
                                              "followers_count": 5400, "media_count": 120})
+        if path == f"{v}/{IG_ID}/content_publishing_limit":
+            return httpx.Response(200, json={"data": [{"quota_usage": self.quota_usage,
+                                                       "config": {"quota_total": 100, "quota_duration": 86400}}]})
         if path == f"{v}/{IG_ID}/media" and req.method == "POST":
             self.created.append(parse_qs(req.content.decode()))
             return httpx.Response(200, json={"id": "cont1"})

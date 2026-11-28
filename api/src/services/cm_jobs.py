@@ -264,6 +264,15 @@ async def _dispatch_instagram(db: AsyncSession, t: CmTarget, post: CmPost) -> No
     o = t.options or {}
     try:
         token = await ig.valid_token(db, acc)
+        # Limite de 100 publications par 24 h : vérifiée avant (sinon Meta télécharge la vidéo pour rien).
+        try:
+            quota = await ig.publishing_quota(token, acc.ig_user_id)
+        except ig.InstagramError as e:
+            if e.code == "invalid_token":
+                raise
+            quota = None              # la vérification ne doit pas bloquer l'envoi
+        if quota and quota[0] >= quota[1]:
+            raise _Fail("publish_limit", ig.ERROR_MESSAGES["publish_limit"])
         # Le conteneur est créé avec le lien signé : Meta télécharge la vidéo.
         t.status = T_PUBLISHING
         await db.commit()

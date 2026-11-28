@@ -212,6 +212,7 @@ def _bool(v, default=False) -> bool:
 
 
 IG_USERNAME = re.compile(r"^[A-Za-z0-9._]{1,30}$")
+IG_MENTION = re.compile(r"(?<![\w@])@([A-Za-z0-9._]{1,30})")
 LANG = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
 
 
@@ -312,8 +313,10 @@ def normalize_options(platform: str, acc, options: dict, post_title: str, post_c
         raise bad("Instagram : 3 collaborateurs au plus, nom d'utilisateur Instagram sans espace.")
     if len(caption) > ig.CAPTION_MAX:
         raise bad(f"Instagram : légende trop longue ({ig.CAPTION_MAX} caractères maximum).")
-    if caption.count("#") > 30:
-        raise bad("Instagram : 30 hashtags au plus.")
+    if caption.count("#") > ig.HASHTAGS_MAX:
+        raise bad(f"Instagram : {ig.HASHTAGS_MAX} hashtags au plus.")
+    if len(set(m.lower() for m in IG_MENTION.findall(caption))) > ig.MENTIONS_MAX:
+        raise bad(f"Instagram : {ig.MENTIONS_MAX} mentions (@compte) au plus dans la légende.")
     thumb = _cover_ms(o.get("thumb_offset_ms"), "Instagram")
     return {"caption": caption, "share_to_feed": _bool(o.get("share_to_feed"), True), "thumb_offset_ms": thumb,
             "collaborators": collab}

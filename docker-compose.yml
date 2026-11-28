@@ -162,6 +162,9 @@ services:
       - CM_MEDIA_DIR=/tmp/cm_media
       - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID:-}
       - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET:-}
+      - INSTAGRAM_REDIRECT_URI=${INSTAGRAM_REDIRECT_URI:-http://localhost:3003/instagram/callback}
+      - INSTAGRAM_EXTRA_SCOPES=${INSTAGRAM_EXTRA_SCOPES:-}
+      - INSTAGRAM_API_VERSION=${INSTAGRAM_API_VERSION:-v23.0}
       # emails.chapote.fr en dev (service `emails` ci-dessous, ou cd emails && npm run dev : port 3004).
       # Désactivé par défaut ; MAILBOX_ENCRYPTION_KEY vide = clé éphémère (dev seulement).
       - EMAILS_ENABLED=${EMAILS_ENABLED:-false}

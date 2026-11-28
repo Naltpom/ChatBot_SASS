@@ -69,6 +69,8 @@ MAX_DURATION_SEC = 900
 MAX_VIDEO_SIZE = 300 * 1024 * 1024
 ALLOWED_MIME = {"video/mp4", "video/quicktime"}
 CAPTION_MAX = 2200
+HASHTAGS_MAX = 30
+MENTIONS_MAX = 20
 
 LONG_TOKEN_TTL = timedelta(days=60)
 # Rafraîchi quand il expire dans moins de 10 jours.
@@ -305,6 +307,17 @@ async def create_reel_container(token: str, ig_user_id: str, video_url: str, cap
     if not body.get("id"):
         raise InstagramError("invalid_response", "Identifiant de conteneur absent")
     return str(body["id"])
+
+
+async def publishing_quota(token: str, ig_user_id: str) -> Optional[tuple[int, int]]:
+    """(publications des dernières 24 h, limite) ; None si Instagram ne répond pas clairement."""
+    body = await _request("GET", _graph(f"/{ig_user_id}/content_publishing_limit"), token=token,
+                          params={"fields": "quota_usage,config"})
+    row = (body.get("data") or [{}])[0]
+    usage, total = row.get("quota_usage"), (row.get("config") or {}).get("quota_total")
+    if isinstance(usage, int) and isinstance(total, int) and total > 0:
+        return usage, total
+    return None
 
 
 async def container_status(token: str, container_id: str) -> dict:

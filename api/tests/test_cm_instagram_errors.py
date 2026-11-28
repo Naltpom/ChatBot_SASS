@@ -189,3 +189,34 @@ async def test_png_cover_converted_to_jpeg(pg_session, cmenv, meta):
     assert got.content[:3] == b"\xff\xd8\xff"
     from PIL import Image
     assert Image.open(io.BytesIO(got.content)).size == (90, 160)
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_publishing_quota_checked_before_container(pg_session, cmenv, meta):
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_api(pg_session, u)
+    await pg_session.commit()
+    meta.quota_usage = 100
+    async with Client(pg_session) as c:
+        tid = await _target(pg_session, c, u, acc)
+        await cm_jobs.dispatch_target(pg_session, tid)
+    t = await _reload(pg_session, CmTarget, tid)
+    assert t.status == "FAILED" and t.fail_reason == "publish_limit" and meta.created == []
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_caption_mentions_limited_to_20(pg_session, cmenv, meta):
+    u = await _user(pg_session, "a@t.dev")
+    acc = await _ig_api(pg_session, u)
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        def body(caption):
+            return {"title": "t", "file_name": "c.mp4", "video_size": 30_000,
+                    "targets": [{"platform": "instagram", "account_id": acc.id, "options": {"caption": caption}}]}
+        ok = " ".join(f"@compte{i}" for i in range(20)) + " contact@chapote.fr"   # une adresse n'est pas une mention
+        assert (await h.post("/api/cm/posts", json=body(ok))).status_code == 200
+        r = await h.post("/api/cm/posts", json=body(ok + " @compte20"))
+        assert r.status_code == 400 and "20 mentions" in r.json()["detail"]
