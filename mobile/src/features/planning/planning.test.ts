@@ -4,7 +4,7 @@ import {
   byDay, dayKey, filterByStatus, filterItems, groupItems, matchesStatus, groupOf, openTarget, periodSummary, pillOf, postIdOf, rowNote, rowSide,
   searchSections, shiftKey, shortTitle, startOfWeek, stateOf, weekKeys, weekRange,
 } from './calendar.ts'
-import { diffsOf, editableText, initialOpen, postItems, postWindow, splitCommon, tiktokLinkOk } from './sheet.ts'
+import { diffsOf, editableText, initialOpen, postItems, postWindow, splitCommon, tiktokLinkOk, linkOk, manualTexts } from './sheet.ts'
 import {
   buildBody, buildTarget, recapOf, dateOrder, fromParts, postOrg, earliestSlot, daySlots, toSlot, stepProblems, needsOptions, nearbyPosts, tooClose, unavailable, captionCount, defaults, fileNameOf, landingDay, nextHour, parseCollaborators, problems,
   type ComposeState, type TikTokOpts, type YouTubeOpts,
@@ -269,4 +269,18 @@ test('filtre d’état : action requise, publié, non publié (par publication)'
   assert.deepEqual(filterByStatus(all, 'action').map(i => i.id), [2, 3, 5])
   assert.deepEqual(filterByStatus(all, 'done').map(i => i.id), [2, 3, 9])
   assert.deepEqual(filterByStatus(all, 'planned').map(i => i.id), [4, 6])
+})
+
+test('publier soi-même : lien par réseau et textes à copier', () => {
+  assert.equal(linkOk('instagram', ''), true)
+  assert.equal(linkOk('instagram', 'https://www.instagram.com/reel/DAbc12/'), true)
+  assert.equal(linkOk('instagram', 'https://www.tiktok.com/@a/video/1'), false)
+  assert.equal(linkOk('youtube', 'https://youtu.be/abcDEF12345'), true)
+  assert.equal(linkOk('youtube', 'https://youtube.com/@chaine'), false)
+  assert.equal(linkOk('tiktok', 'https://vm.tiktok.com/abc'), true)
+  assert.deepEqual(manualTexts({ platform: 'youtube', options: { title: 'Nocturne', description: 'Au piano' } } as any, 'commun'),
+    [['Titre YouTube', 'Nocturne'], ['Description', 'Au piano']])
+  assert.deepEqual(manualTexts({ platform: 'instagram', options: { caption: 'Clair', hashtags: ['piano'] } } as any, ''), [['Légende', 'Clair\n\n#piano']])
+  assert.deepEqual(manualTexts({ platform: 'tiktok', options: { title: 'Clair\n\n#piano', hashtags: ['piano'] } } as any, ''), [['Légende', 'Clair\n\n#piano']])
+  assert.deepEqual(manualTexts({ platform: 'tiktok', options: {} } as any, 'Texte commun'), [['Légende', 'Texte commun']])
 })
