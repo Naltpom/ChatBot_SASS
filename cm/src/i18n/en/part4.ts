@@ -222,5 +222,15 @@ const EN: Record<string, string> = {
   'L’assistant sur vos données n’est pas encore proposé.': 'The assistant on your data isn’t available yet.',
   'Anthropic Ireland Limited, fournisseur du modèle Claude, traite ces données sur des serveurs aux États-Unis ; ce transfert est encadré par les clauses contractuelles types de la Commission européenne. Anthropic n’utilise pas ces données pour entraîner ses modèles et les supprime sous 30 jours (sauf contenu signalé comme contraire à ses règles d’usage, gardé jusqu’à 2 ans).':
     'Anthropic Ireland Limited, provider of the Claude model, processes this data on servers in the United States; this transfer is governed by the European Commission’s standard contractual clauses. Anthropic does not use this data to train its models and deletes it within 30 days (except content flagged as violating its usage policies, kept for up to 2 years).',
+  'Copiez le texte, publiez la vidéo vous-même dans {name}, puis revenez ici.': 'Copy the text, post the video yourself in {name}, then come back here.',
+  'Copier : {what}': 'Copy: {what}',
+  'Collez un lien {name} (ou laissez vide).': 'Paste a {name} link (or leave empty).',
+  'Publier moi-même': 'Post it myself',
+  '« Publié dans l’app » : collez le lien si vous l’avez. La publication prévue est alors retirée, rien ne partira en double.': '“Posted in the app”: paste the link if you have it. The scheduled post is then removed, nothing goes out twice.',
+  'Modifier le lien': 'Edit link',
+  'Ajouter le lien': 'Add link',
+  'Enregistrer le lien': 'Save link',
+  '(vide pour le retirer)': '(empty to remove it)',
+  'Lien de la vidéo {name}': '{name} video link',
 }
 export default EN

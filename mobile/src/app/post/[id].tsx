@@ -124,7 +124,7 @@ export default function PublicationScreen() {
         {items.length === 0 ? <Txt small muted>{t('Aucune plateforme (publication annulée).')}</Txt> : null}
         {items.map(i => {
           const k = `${i.kind}-${i.id}`
-          return <PlatformCard key={k} item={i} common={common} open={shownKey === k} canEdit={canEdit}
+          return <PlatformCard key={k} item={i} common={common} open={shownKey === k} canEdit={canEdit} targets={post.data?.targets}
             onToggle={() => setOpenKey(shownKey === k ? null : k)} onChanged={reload} />
         })}
       </View>

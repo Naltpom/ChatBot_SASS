@@ -7,10 +7,11 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
-  cancelTarget, getAsset, getPost, markPublished, patchPost, patchTarget, publishNow, resendDraft, retryTarget, PLATFORM_LABEL,
+  cancelTarget, fixLink, getAsset, getPost, markPublished, patchPost, patchTarget, publishNow, publishedByHand, resendDraft, retryTarget, PLATFORM_LABEL,
   RIGHTS_LABEL, RIGHTS_WARNING, type Rights,
-  type Asset, type CalendarItem, type Group, type Post,
+  type Asset, type CalendarItem, type Group, type Post, type Target,
 } from '../api'
+import { linkOk, LINK_EXAMPLE, manualTexts } from '../manual'
 import { PlatformLogo } from '../components/PlatformLogo'
 import { GroupDot, Icon, Msg, Sheet } from '../components/ui'
 import { fmtDateTime, fmtDuration, fmtTime, num, short, toLocalInput } from '../format'
@@ -65,12 +66,17 @@ export function PlanRow({ g, group, onOpen }: { g: Group_; group: Group | null; 
 
 const HASHTAG = /#[^\s#.,;!?]+/g
 
-function PlatformCard({ item, common, open, onToggle, onChanged }: {
-  item: CalendarItem; common: string; open: boolean; onToggle: () => void; onChanged: () => void
+function PlatformCard({ item, common, open, onToggle, onChanged, targets = [] }: {
+  item: CalendarItem; common: string; open: boolean; onToggle: () => void; onChanged: () => void; targets?: Target[]
 }) {
   const st = stateOf(item)
   const inbox = item.kind === 'target' && item.status === 'INBOX'
+  // Cible publiée derrière la carte (vidéo relevée : retrouvée dans la publication) : son lien se corrige.
+  const published = item.kind === 'target' ? (item.status === 'PUBLISHED' ? item : null)
+    : targets.find(x => x.status === 'PUBLISHED' && x.platform === item.platform && x.account_id === item.account_id && x.external_id === item.external_id) || null
   const [editing, setEditing] = useState(false)
+  const [manual, setManual] = useState(false)
+  const [linkEdit, setLinkEdit] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const act = async (fn: () => Promise<unknown>, confirmText?: string) => {
@@ -121,9 +127,17 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
           )}
           {err && <Msg kind="err">{err}</Msg>}
           {item.kind === 'target' && editing && <EditInline item={item} onDone={() => { setEditing(false); onChanged() }} onCancel={() => setEditing(false)} />}
-          {inbox && <DraftBox item={item as Extract<CalendarItem, { kind: 'target' }>} busy={busy} act={act} />}
+          {item.kind === 'target' && !editing && (inbox || item.status === 'FAILED' || (item.status === 'SCHEDULED' && manual)) && (
+            <ManualBox item={item} common={common} busy={busy} act={act} onClose={item.status === 'SCHEDULED' ? () => setManual(false) : undefined} />
+          )}
+          {published && (linkEdit
+            ? <LinkEdit target={published} busy={busy} act={act} onDone={() => setLinkEdit(false)} />
+            : <button type="button" className="linkbtn" style={{ alignSelf: 'flex-start', minHeight: 32 }} disabled={busy} onClick={() => setLinkEdit(true)}>
+                {published.url ? t('Modifier le lien') : t('Ajouter le lien')}
+              </button>)}
           {item.kind === 'target' && !editing && !inbox && (
             <div className="row" style={{ gap: 8 }}>
+              {item.status === 'SCHEDULED' && !manual && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setManual(true)}>{t('Publier moi-même')}</button>}
               {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setEditing(true)}>{t('Changer l’heure ou le texte')}</button>}
               {item.status === 'SCHEDULED' && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => publishNow(item.id), t('Publier maintenant sur {platform} ?', { platform: PLATFORM_LABEL[item.platform] }))}>{t('Publier maintenant')}</button>}
               {item.can_retry && <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => act(() => retryTarget(item.id))}>{t('Réessayer')}</button>}
@@ -137,51 +151,87 @@ function PlatformCard({ item, common, open, onToggle, onChanged }: {
   )
 }
 
-/** Brouillon TikTok (l'app n'étant pas encore validée, la vidéo arrive sans légende) : légende à copier,
- *  « Publié dans l'app » (lien facultatif) et « Renvoyer le brouillon » s'il a été supprimé. */
-function DraftBox({ item, busy, act }: {
-  item: Extract<CalendarItem, { kind: 'target' }>; busy: boolean
+/** Publier soi-même : textes à copier, « Publié dans l'app » (lien facultatif). Brouillon TikTok (arrivé sans
+ *  légende) : aussi « Renvoyer le brouillon » et « Retirer ». Publication ratée : ouvert d'office ; prévue : derrière
+ *  « Publier moi-même » (la publication prévue est alors retirée, rien ne part en double). */
+function ManualBox({ item, common, busy, act, onClose }: {
+  item: Extract<CalendarItem, { kind: 'target' }>; common: string; busy: boolean; onClose?: () => void
   act: (fn: () => Promise<unknown>, confirmText?: string) => Promise<void>
 }) {
-  const caption = String(item.options?.title || '')
-  const [copied, setCopied] = useState(false)
+  const inbox = item.status === 'INBOX'
+  const name = PLATFORM_LABEL[item.platform]
+  const texts = manualTexts(item, common)
+  const [copied, setCopied] = useState<string | null>(null)
   const [asking, setAsking] = useState(false)
   const [link, setLink] = useState('')
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(caption); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* presse-papiers refusé */ }
+  const ok = linkOk(item.platform, link)
+  const copy = async (k: string, v: string) => {
+    try { await navigator.clipboard.writeText(v); setCopied(k); setTimeout(() => setCopied(null), 2000) } catch { /* presse-papiers refusé */ }
   }
+  const done = (url?: string) => (inbox ? markPublished(item.id, url) : publishedByHand(item.id, url))
   return (
     <div className="col" style={{ gap: 10 }}>
-      <p className="small" style={{ margin: 0 }}>{t('La vidéo est dans vos brouillons TikTok,')} <b>{t('sans légende')}</b>{t(' : ouvrez l’app, collez la légende, publiez, puis revenez ici.')}</p>
-      {caption && (
-        <div className="col" style={{ gap: 6 }}>
-          <span className="tiny muted">{t('Légende TikTok')}</span>
-          <p className="small" style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: 'var(--bg)', borderRadius: 10, padding: '10px 12px' }}>{caption}</p>
-          <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={copy} aria-live="polite">
-            <Icon name="check" size={14} />{copied ? t('Copiée') : t('Copier la légende')}
+      {inbox
+        ? <p className="small" style={{ margin: 0 }}>{t('La vidéo est dans vos brouillons TikTok,')} <b>{t('sans légende')}</b>{t(' : ouvrez l’app, collez la légende, publiez, puis revenez ici.')}</p>
+        : <p className="small" style={{ margin: 0 }}>{t('Copiez le texte, publiez la vidéo vous-même dans {name}, puis revenez ici.', { name })}</p>}
+      {texts.map(([k, v]) => (
+        <div key={k} className="col" style={{ gap: 6 }}>
+          <span className="tiny muted">{t(k)}</span>
+          <p className="small" style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: 'var(--bg)', borderRadius: 10, padding: '10px 12px' }}>{v}</p>
+          <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => copy(k, v)} aria-live="polite" aria-label={t('Copier : {what}', { what: t(k) })}>
+            <Icon name="check" size={14} />{copied === k ? t('Copié') : t('Copier')}
           </button>
         </div>
-      )}
+      ))}
       {asking ? (
-        <form className="col" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); act(() => markPublished(item.id, link.trim() || undefined)) }}>
+        <form className="col" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); if (ok) act(() => done(link.trim() || undefined)) }}>
           <label className="col" style={{ gap: 4 }}>
-            <span className="small">{t('Lien de la vidéo TikTok')} <span className="muted">{t('(facultatif)')}</span></span>
-            <input className="input" type="url" inputMode="url" placeholder={t('https://www.tiktok.com/@compte/video/…')} value={link} onChange={e => setLink(e.target.value)} />
+            <span className="small">{t('Lien de la vidéo {name}', { name })} <span className="muted">{t('(facultatif)')}</span></span>
+            <input className="input" type="url" inputMode="url" placeholder={LINK_EXAMPLE[item.platform] ?? 'https://…'} value={link} onChange={e => setLink(e.target.value)}
+              aria-invalid={!ok} />
           </label>
+          {!ok && <span className="small" style={{ color: 'var(--danger)' }}>{t('Collez un lien {name} (ou laissez vide).', { name })}</span>}
           <div className="row" style={{ gap: 8 }}>
-            <button type="submit" className="btn btn-sm btn-primary" disabled={busy}>{t('Marquer publiée')}</button>
+            <button type="submit" className="btn btn-sm btn-primary" disabled={busy || !ok}>{t('Marquer publiée')}</button>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAsking(false)}>{t('Annuler')}</button>
           </div>
         </form>
       ) : (
-        <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => setAsking(true)}>{t('Publié dans l’app')}</button>
-          <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => resendDraft(item.id), t('Renvoyer la vidéo dans vos brouillons TikTok ? (à faire seulement si le brouillon a été supprimé)'))}>{t('Renvoyer le brouillon')}</button>
-          <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy}
-                  onClick={() => act(() => cancelTarget(item.id), t('Retirer ce brouillon du planning ? Il reste dans vos brouillons TikTok : supprimez-le vous-même dans l’app.'))}>{t('Retirer')}</button>
-        </div>
+        <>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => setAsking(true)}>{t('Publié dans l’app')}</button>
+            {inbox && <button type="button" className="btn btn-sm" disabled={busy} onClick={() => act(() => resendDraft(item.id), t('Renvoyer la vidéo dans vos brouillons TikTok ? (à faire seulement si le brouillon a été supprimé)'))}>{t('Renvoyer le brouillon')}</button>}
+            {inbox && <button type="button" className="btn btn-sm btn-ghost btn-danger" disabled={busy}
+                    onClick={() => act(() => cancelTarget(item.id), t('Retirer ce brouillon du planning ? Il reste dans vos brouillons TikTok : supprimez-le vous-même dans l’app.'))}>{t('Retirer')}</button>}
+            {onClose && <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>{t('Fermer')}</button>}
+          </div>
+          {item.status === 'SCHEDULED' && <p className="tiny muted" style={{ margin: 0 }}>{t('« Publié dans l’app » : collez le lien si vous l’avez. La publication prévue est alors retirée, rien ne partira en double.')}</p>}
+        </>
       )}
     </div>
+  )
+}
+
+/** Lien d'une publication publiée, corrigé ou retiré (vide). */
+function LinkEdit({ target, busy, act, onDone }: {
+  target: Target; busy: boolean; onDone: () => void
+  act: (fn: () => Promise<unknown>, confirmText?: string) => Promise<void>
+}) {
+  const name = PLATFORM_LABEL[target.platform]
+  const [link, setLink] = useState(target.url || '')
+  const ok = linkOk(target.platform, link)
+  return (
+    <form className="col" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); if (ok) act(async () => { await fixLink(target.id, link.trim()); onDone() }) }}>
+      <label className="col" style={{ gap: 4 }}>
+        <span className="small">{t('Lien de la vidéo {name}', { name })} <span className="muted">{t('(vide pour le retirer)')}</span></span>
+        <input className="input" type="url" inputMode="url" placeholder={LINK_EXAMPLE[target.platform] ?? 'https://…'} value={link} onChange={e => setLink(e.target.value)} aria-invalid={!ok} autoFocus />
+      </label>
+      {!ok && <span className="small" style={{ color: 'var(--danger)' }}>{t('Collez un lien {name} (ou laissez vide).', { name })}</span>}
+      <div className="row" style={{ gap: 8 }}>
+        <button type="submit" className="btn btn-sm btn-primary" disabled={busy || !ok}>{t('Enregistrer le lien')}</button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onDone}>{t('Annuler')}</button>
+      </div>
+    </form>
   )
 }
 
@@ -345,7 +395,7 @@ export function PublicationSheet({ g, group, onClose, onChanged }: { g: Group_; 
           <h3 id="pub-plats" className="rx-h">{t('Plateformes')}</h3>
           {g.items.map(i => {
             const k = `${i.kind}-${i.id}`
-            return <PlatformCard key={k} item={i} common={common} open={openKey === k} onToggle={() => setOpenKey(openKey === k ? null : k)} onChanged={onChanged} />
+            return <PlatformCard key={k} item={i} common={common} open={openKey === k} onToggle={() => setOpenKey(openKey === k ? null : k)} onChanged={onChanged} targets={post?.targets} />
           })}
         </section>
         <p className="tiny muted" style={{ margin: 0 }}>{t('Trait plein : publiée · pointillé : programmée · rouge : échec.')}</p>

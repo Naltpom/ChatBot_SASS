@@ -193,5 +193,10 @@ const EN: Record<string, string> = {
   'Publier moi-même': 'Post it myself',
   '« Publié dans l’app » : collez le lien si vous l’avez. La publication prévue est alors retirée, rien ne partira en double.': '“Posted in the app”: paste the link if you have it. The scheduled post is then removed, nothing goes out twice.',
   '« Publié dans l’app » : collez le lien de la vidéo si vous l’avez.': '“Posted in the app”: paste the video link if you have it.',
+  'Modifier le lien': 'Edit link',
+  'Ajouter le lien': 'Add link',
+  'Enregistrer le lien': 'Save link',
+  '(vide pour le retirer)': '(empty to remove it)',
+  'Lien de la vidéo {name} (vide pour le retirer)': '{name} video link (empty to remove it)',
 }
 export default EN
