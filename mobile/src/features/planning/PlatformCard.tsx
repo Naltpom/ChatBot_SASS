@@ -6,7 +6,7 @@ import * as Haptics from 'expo-haptics'
 import { useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import {
-  cancelTarget, markPublished, patchTarget, publishNow, publishedByHand, resendDraft, retryTarget, PLATFORM_LABEL, type CalendarItem,
+  cancelTarget, fixLink, markPublished, patchTarget, publishNow, publishedByHand, resendDraft, retryTarget, PLATFORM_LABEL, type CalendarItem, type Target,
 } from '../../lib/api'
 import { fmtDateTime, num } from '../../lib/format'
 import { locale, t } from '../../lib/i18n'
@@ -27,14 +27,18 @@ export const confirm = (title: string, message: string, ok: string, destructive 
 
 type Act = (fn: () => Promise<unknown>, ask?: { title: string; message: string; ok: string; destructive?: boolean }) => Promise<void>
 
-export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit }: {
-  item: CalendarItem; common: string; open: boolean; onToggle: () => void; onChanged: () => void; canEdit: boolean
+export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit, targets = [] }: {
+  item: CalendarItem; common: string; open: boolean; onToggle: () => void; onChanged: () => void; canEdit: boolean; targets?: Target[]
 }) {
   const { c } = useTheme()
   const st = stateOf(item)
   const inbox = item.kind === 'target' && item.status === 'INBOX'
   const [editing, setEditing] = useState(false)
   const [manual, setManual] = useState(false)
+  const [linkEdit, setLinkEdit] = useState(false)
+  // Cible publiée derrière la carte (vidéo relevée : retrouvée dans la publication) : son lien se corrige.
+  const published = item.kind === 'target' ? (item.status === 'PUBLISHED' ? item : null)
+    : targets.find(x => x.status === 'PUBLISHED' && x.platform === item.platform && x.account_id === item.account_id && x.external_id === item.external_id) || null
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const act: Act = async (fn, ask) => {
@@ -75,6 +79,12 @@ export function PlatformCard({ item, common, open, onToggle, onChanged, canEdit 
               <Txt bold color={c.accent}>{t('Voir sur {name}', { name })}</Txt><Icon name="external" size={16} color={c.accent} />
             </Pressable>
           ) : null}
+          {published && canEdit ? (linkEdit
+            ? <LinkEdit target={published} busy={busy} act={act} onDone={() => setLinkEdit(false)} />
+            : <Pressable onPress={() => setLinkEdit(true)} disabled={busy} accessibilityRole="button"
+                style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
+                <Icon name="edit" size={16} color={c.accent} /><Txt bold color={c.accent}>{published.url ? t('Modifier le lien') : t('Ajouter le lien')}</Txt>
+              </Pressable>) : null}
           {diffs.length ? (
             <View style={{ gap: space.sm }}>
               {diffs.map(([k, v]) => (
@@ -176,6 +186,25 @@ function ManualBox({ item, common, busy, act, canEdit, onClose }: { item: Target
               : t('« Publié dans l’app » : collez le lien de la vidéo si vous l’avez.')}</Txt>
         </View>
       )}
+    </View>
+  )
+}
+
+/** Lien d'une publication publiée, corrigé ou retiré (vide). */
+function LinkEdit({ target, busy, act, onDone }: { target: Target; busy: boolean; act: Act; onDone: () => void }) {
+  const name = PLATFORM_LABEL[target.platform]
+  const [link, setLink] = useState(target.url || '')
+  const ok = linkOk(target.platform, link)
+  const save = () => act(async () => { await fixLink(target.id, link.trim()); onDone() })   // erreur : le champ reste ouvert
+  return (
+    <View style={{ gap: space.sm }}>
+      <Field label={t('Lien de la vidéo {name} (vide pour le retirer)', { name })} value={link} onChangeText={setLink} keyboardType="url" autoCapitalize="none" autoCorrect={false}
+        placeholder={LINK_EXAMPLE[target.platform] ?? 'https://…'} error={ok ? null : t('Collez un lien {name} (ou laissez vide).', { name })} autoFocus />
+      <Row gap={8}>
+        <Button small kind="primary" icon="check" title={t('Enregistrer le lien')} disabled={busy || !ok}
+          onPress={save} />
+        <Button small kind="ghost" title={t('Annuler')} onPress={onDone} />
+      </Row>
     </View>
   )
 }

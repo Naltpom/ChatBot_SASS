@@ -191,6 +191,8 @@ export const retryTarget = (id: number) => send<Target>('POST', `/api/cm/targets
 export const markPublished = (id: number, url?: string) => send<Target>('POST', `/api/cm/targets/${id}/published`, url ? { url } : {})
 /** Publiée à la main (prévue, ratée ou brouillon) : ne partira plus. */
 export const publishedByHand = (id: number, url?: string) => send<Target>('POST', `/api/cm/targets/${id}/published-by-hand`, url ? { url } : {})
+/** Lien d'une publication publiée, corrigé (vide = retiré). */
+export const fixLink = (id: number, url: string) => send<Target>('PUT', `/api/cm/targets/${id}/link`, { url })
 /** Brouillon TikTok supprimé dans l'app : renvoyé (même vidéo, même légende). */
 export const resendDraft = (id: number) => send<Target>('POST', `/api/cm/targets/${id}/resend-draft`)
 

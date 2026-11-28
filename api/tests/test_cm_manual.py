@@ -73,3 +73,33 @@ async def test_published_by_hand_needs_edit_right(pg_session, cmenv, tiktok):
         t = (await pg_session.execute(select(CmTarget).where(CmTarget.post_id == pid))).scalar_one()
         r = await c.as_(other).post(f"/api/cm/targets/{t.id}/published-by-hand", json={})
         assert r.status_code == 404
+
+
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_fix_link_of_published(pg_session, cmenv, tiktok):
+    from src.models.cm import CmVideo
+    u = await _user(pg_session, "a@t.dev")
+    tk = await _account(pg_session, owner=u, open_id="bh3")
+    await pg_session.commit()
+    async with Client(pg_session) as c:
+        h = c.as_(u)
+        pid = await _ready(h, [_tt_target(tk.id, scheduled_at=(utcnow() + timedelta(days=1)).isoformat() + "Z")])
+        t = (await pg_session.execute(select(CmTarget).where(CmTarget.post_id == pid))).scalar_one()
+        # Pas encore publiée : rien à corriger.
+        assert (await h.put(f"/api/cm/targets/{t.id}/link", json={"url": None})).status_code == 409
+        wrong = "https://www.tiktok.com/@ghosthands.music/video/1111111111111111111"
+        assert (await h.post(f"/api/cm/targets/{t.id}/published-by-hand", json={"url": wrong})).status_code == 200
+        acc_id, tid = tk.id, t.id
+        vids = lambda: pg_session.execute(select(CmVideo.external_id, CmVideo.target_id).where(CmVideo.account_id == acc_id))
+        assert [tuple(r) for r in (await vids()).all()] == [("1111111111111111111", t.id)]
+        assert (await h.put(f"/api/cm/targets/{t.id}/link", json={"url": "https://exemple.com/x"})).status_code == 400
+        good = "https://www.tiktok.com/@ghosthands.music/video/2222222222222222222"
+        r = await h.put(f"/api/cm/targets/{t.id}/link", json={"url": good})
+        assert r.status_code == 200, r.text
+        assert r.json()["url"] == good and r.json()["external_id"] == "2222222222222222222" and r.json()["status"] == "PUBLISHED"
+        pg_session.expire_all()
+        assert [tuple(r) for r in (await vids()).all()] == [("2222222222222222222", tid)]   # mauvaise fiche effacée
+        # Lien retiré : plus de lien ni d'identifiant tiré du lien.
+        r = await h.put(f"/api/cm/targets/{tid}/link", json={"url": ""})
+        assert r.status_code == 200 and r.json()["url"] is None and r.json()["external_id"] is None
