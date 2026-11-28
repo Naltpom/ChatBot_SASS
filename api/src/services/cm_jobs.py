@@ -53,6 +53,7 @@ from src.models.cm import (
     CmPost,
     CmTarget,
     CmVideo,
+    IgDeletionRequest,
     InstagramAccount,
 )
 from src.models.tiktok import TikTokAccount, TikTokPost
@@ -602,6 +603,10 @@ async def cleanup(db: AsyncSession) -> None:
         await db.execute(delete(CmComment).where(CmComment.platform == platform, CmComment.account_id.not_in(alive)))
         await db.execute(delete(CmAccountStat).where(CmAccountStat.platform == platform,
                                                      CmAccountStat.account_id.not_in(alive)))
+    # Demandes de suppression Meta : les données des comptes déconnectés viennent d'être supprimées.
+    await db.execute(update(IgDeletionRequest).where(IgDeletionRequest.status == "received",
+                                                   IgDeletionRequest.created_at <= now)
+                     .values(status="done", completed_at=now))
     # Commentaires relevés il y a plus de 12 mois (pages de confidentialité).
     await db.execute(delete(CmComment).where(CmComment.created_at < now - timedelta(days=365)))
     # Historique ancien.

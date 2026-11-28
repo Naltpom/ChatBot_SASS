@@ -670,6 +670,8 @@ async def _sync_instagram(db: AsyncSession, acc: InstagramAccount, full: bool = 
         return row or await save_snapshot(db, "instagram", acc.id, error="En attente des chiffres de la routine.")
     token = await ig.valid_token(db, acc)
     prof = await ig.profile(token)
+    if prof.get("id") and not acc.ig_app_user_id:     # comptes connectés avant le stockage de l'ID des rappels Meta
+        acc.ig_app_user_id = str(prof["id"])
     media = await ig.all_media(token, acc.ig_user_id)
     # Vues (insights) : une requête par Reel, donc par tournées. D'abord ceux qui n'ont encore aucun
     # chiffre, puis les 15 plus récents, puis ceux dont le relevé est le plus ancien.

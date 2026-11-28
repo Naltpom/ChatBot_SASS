@@ -32,7 +32,7 @@ from typing import Any, Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
@@ -68,6 +68,7 @@ from src.models.cm import (
     CmSource,
     CmTarget,
     CmVideo,
+    IgDeletionRequest,
     InstagramAccount,
 )
 from src.models.user import Membership, Organization, User
@@ -1054,9 +1055,13 @@ async def instagram_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db
     except ig.InstagramError as e:
         logger.info("Instagram : connexion refusée (%s)", e.code)
         raise _ig_http(e)
-    if prof.get("account_type") not in (None, "BUSINESS", "MEDIA_CREATOR"):
+    # Seuls les comptes professionnels publient : un type absent est refusé aussi (par prudence).
+    if prof.get("account_type") not in ("BUSINESS", "MEDIA_CREATOR"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, ig.ERROR_MESSAGES["not_professional"])
+    # Deux identifiants : user_id = compte professionnel (publication, statistiques) ; id / user_id du
+    # jeton = ID « app-scoped », celui des rappels Meta (désautorisation, suppression des données).
     ig_id = str(prof.get("user_id") or short.get("user_id") or prof.get("id") or "")
+    app_id = str(short.get("user_id") or prof.get("id") or "") or None
     if not ig_id:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Réponse Instagram incomplète : réessayez.")
     username = prof.get("username") or ""
@@ -1066,7 +1071,7 @@ async def instagram_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db
     if taken is not None:
         await cm_access.refuse_taken(db, "instagram", taken, user, claim_tokens={
             **long, "_profile": {k: prof.get(k) for k in ("user_id", "username", "name", "account_type", "profile_picture_url")},
-            "_ig_id": ig_id, "_scopes": short.get("permissions") or ig.SCOPES})
+            "_ig_id": ig_id, "_ig_app_id": app_id, "_scopes": short.get("permissions") or ig.SCOPES})
     acc = (await db.execute(select(model).where(
         tenant.where(model), model.revoked_at.is_(None),
         (model.ig_user_id == ig_id) | (func.lower(model.username) == username.lower()))
@@ -1078,6 +1083,7 @@ async def instagram_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db
     # Un compte « géré par la routine » passe en connexion officielle (même ligne : historique gardé).
     acc.mode = IG_MODE_API
     acc.ig_user_id = ig_id
+    acc.ig_app_user_id = app_id or acc.ig_app_user_id
     acc.username = username or acc.username or ig_id
     acc.name = prof.get("name") or acc.name
     acc.account_type = prof.get("account_type") or acc.account_type
@@ -1152,37 +1158,86 @@ async def remove_instagram(account_id: int, org_id: Optional[int] = Query(None),
     return {"ok": True, "warning": warning}
 
 
-async def _revoke_ig_user(db: AsyncSession, ig_user_id: str) -> int:
+async def _revoke_ig_user(db: AsyncSession, ig_user_id: str, erase_profile: bool = False) -> int:
+    """Comptes déconnectés pour un ID reçu de Meta : ID « app-scoped » (cas normal) ou, par sécurité,
+    ID du compte professionnel."""
     accounts = (await db.execute(select(InstagramAccount).where(
-        InstagramAccount.ig_user_id == ig_user_id, InstagramAccount.revoked_at.is_(None)))).scalars().all()
+        (InstagramAccount.ig_app_user_id == ig_user_id) | (InstagramAccount.ig_user_id == ig_user_id),
+        InstagramAccount.revoked_at.is_(None)))).scalars().all()
     for acc in accounts:
         ig.clear_tokens(acc)
         acc.revoked_at = utcnow()
+        acc.needs_reconnect = False
+        if erase_profile:
+            acc.name = None
+            acc.profile_picture_url = None
     await db.commit()
     return len(accounts)
+
+
+def _meta_user_id(signed_request: str, kind: str) -> str:
+    data = ig.parse_signed_request(signed_request)
+    if not data or not data.get("user_id"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "signed_request invalide")
+    # Seul l'identifiant est loggé (jamais le signed_request) : sert à vérifier quel ID Meta envoie.
+    logger.info("Instagram : rappel Meta %s reçu pour l'utilisateur %s", kind, data["user_id"])
+    return str(data["user_id"])
 
 
 @router.post("/instagram/deauthorize")
 async def instagram_deauthorize(signed_request: str = Form(...), db: AsyncSession = Depends(get_db)):
     """Rappel Meta : l'utilisateur a retiré l'accès de l'app."""
-    data = ig.parse_signed_request(signed_request)
-    if not data or not data.get("user_id"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "signed_request invalide")
-    await _revoke_ig_user(db, str(data["user_id"]))
+    n = await _revoke_ig_user(db, _meta_user_id(signed_request, "désautorisation"))
+    logger.info("Instagram : désautorisation, %s compte(s) déconnecté(s)", n)
     return {"ok": True}
 
 
 @router.post("/instagram/data-deletion")
 async def instagram_data_deletion(signed_request: str = Form(...), db: AsyncSession = Depends(get_db)):
-    """Rappel Meta : demande de suppression des données. Jetons effacés tout de suite ;
-    vidéos et chiffres supprimés par le nettoyage planifié (comptes déconnectés)."""
-    data = ig.parse_signed_request(signed_request)
-    if not data or not data.get("user_id"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "signed_request invalide")
-    await _revoke_ig_user(db, str(data["user_id"]))
+    """Rappel Meta : demande de suppression des données. Jetons, nom et photo effacés tout de suite ;
+    vidéos, commentaires et chiffres supprimés par le nettoyage planifié (comptes déconnectés), qui
+    passe alors la demande à « terminée ». Meta affiche à l'utilisateur l'URL de suivi renvoyée."""
+    n = await _revoke_ig_user(db, _meta_user_id(signed_request, "suppression des données"), erase_profile=True)
     code = secrets.token_hex(8)
-    return {"url": f"{settings.APP_URL.rstrip('/')}/legal/instagram-confidentialite#suppression",
+    db.add(IgDeletionRequest(code=code, accounts=n))
+    await db.commit()
+    return {"url": f"{settings.CM_URL.rstrip('/')}/api/cm/instagram/data-deletion/{code}",
             "confirmation_code": code}
+
+
+_DELETION_PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Suppression des données Instagram – Chapote</title>
+<style>body{{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem;color:#1c1c1c;background:#fff}}
+code{{background:#f1f1f1;padding:.1rem .3rem;border-radius:4px}}</style></head><body>
+<h1>Suppression des données Instagram</h1>
+<p>Code de confirmation : <code>{code}</code></p>
+<p><strong>Statut : {status}</strong></p>
+<p>{detail}</p>
+<p>Demande reçue le {created} (UTC).</p>
+<p>Questions : <a href="{privacy}">politique de confidentialité</a>.</p>
+</body></html>"""
+
+
+@router.get("/instagram/data-deletion/{code}", response_class=HTMLResponse)
+async def instagram_data_deletion_status(code: str, db: AsyncSession = Depends(get_db)):
+    """Page publique de suivi d'une demande de suppression (URL renvoyée à Meta)."""
+    if not re.fullmatch(r"[0-9a-f]{16}", code):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Demande introuvable")
+    req = (await db.execute(select(IgDeletionRequest).where(IgDeletionRequest.code == code))).scalar_one_or_none()
+    if req is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Demande introuvable")
+    if req.status == "done":
+        status_txt = "terminée"
+        detail = ("Les jetons d'accès, le profil, les vidéos, les commentaires et les statistiques liés à ce "
+                  f"compte Instagram ont été supprimés le {req.completed_at:%d/%m/%Y à %H:%M} (UTC).")
+    else:
+        status_txt = "en cours"
+        detail = ("Les jetons d'accès ont été supprimés et le compte a été déconnecté. Les vidéos, commentaires "
+                  "et statistiques sont supprimés automatiquement dans les minutes qui suivent.")
+    page = _DELETION_PAGE.format(code=code, status=status_txt, detail=detail, created=f"{req.created_at:%d/%m/%Y à %H:%M}",
+                                 privacy=f"{settings.CM_URL.rstrip('/')}/privacy")
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 # --------------------------------------------------------------------------
