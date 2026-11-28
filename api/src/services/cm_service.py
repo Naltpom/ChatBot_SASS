@@ -7,12 +7,14 @@
   Instagram les télécharge par un lien signé et temporaire.
 - Statistiques : relevé d'un compte (abonnés, vues, j'aime, vidéos récentes).
 """
+import asyncio
 import hashlib
 import hmac
 import logging
 import os
 import re
 import shutil
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -449,8 +451,48 @@ def check_cover_link(target_id: int, exp: int, sig: str) -> bool:
 COVER_MAX_BYTES = 8 * 1024 * 1024
 
 
+def _png_to_jpeg(src: str, dest: str) -> None:
+    from PIL import Image
+    with Image.open(src) as im:
+        im.load()
+        if im.mode in ("RGBA", "LA", "P"):
+            im = im.convert("RGBA")
+            bg = Image.new("RGB", im.size, (255, 255, 255))     # transparence -> fond blanc
+            bg.paste(im, mask=im.getchannel("A"))
+            im = bg
+        elif im.mode != "RGB":
+            im = im.convert("RGB")
+        im.save(dest, "JPEG", quality=90, optimize=True)
+
+
+async def ensure_jpeg_cover(db, post: CmPost) -> None:
+    """Couverture PNG convertie en JPEG (format exigé par Instagram pour cover_url). Sans effet si la
+    couverture est déjà en JPEG ; une image illisible est retirée (Instagram prend alors une image de la vidéo)."""
+    path = post.cover_path
+    if not path or not os.path.exists(path):
+        return
+    with open(path, "rb") as f:
+        if image_kind(f.read(16)) == "jpeg":
+            return
+    dest = str(media_dir() / f"{uuid.uuid4().hex}.jpg")
+    try:
+        await asyncio.to_thread(_png_to_jpeg, path, dest)
+        if os.path.getsize(dest) > COVER_MAX_BYTES:
+            raise ValueError("couverture trop lourde")
+    except Exception as e:      # la couverture ne doit jamais bloquer la publication
+        unlink_quiet(dest)
+        logger.info("cm : couverture de la publication %s non convertie (%s)", post.id, e)
+        remove_cover(post)
+        await db.commit()
+        return
+    os.chmod(dest, 0o600)
+    unlink_quiet(path)
+    post.cover_path = dest
+    await db.commit()
+
+
 def image_kind(data: bytes) -> Optional[str]:
-    """jpeg | png d'après les premiers octets (Instagram accepte JPEG ; PNG converti par Meta)."""
+    """jpeg | png d'après les premiers octets (Instagram n'accepte que le JPEG : PNG converti avant l'envoi)."""
     if data[:3] == b"\xff\xd8\xff":
         return "jpeg"
     if data[:8] == b"\x89PNG\r\n\x1a\n":

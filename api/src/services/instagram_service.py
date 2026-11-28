@@ -86,16 +86,29 @@ ERROR_MESSAGES = {
     "container_timeout": "Instagram n'a pas fini de traiter la vidéo dans l'heure. Relancez la publication.",
     "scope_missing": "Chapote n'a pas reçu l'autorisation de publier sur ce compte : reconnectez-le en acceptant toutes les autorisations.",
     "access_denied": "Vous avez refusé l'accès : aucun compte n'a été connecté.",
+    "network": "Instagram ne répond pas pour le moment. Réessayez dans quelques minutes.",
 }
 
 
+# Erreurs passagères (Meta conseille de réessayer plus tard) : 1 et 2 = erreur temporaire du
+# service, 4 / 17 / 32 / 613 = trop de requêtes.
+TRANSIENT_CODES = (1, 2, 4, 17, 32, 613)
+
+
 class InstagramError(Exception):
-    def __init__(self, code: str, message: str = "", http_status: int = 0, subcode: Optional[int] = None):
+    def __init__(self, code: str, message: str = "", http_status: int = 0, subcode: Optional[int] = None,
+                 transient: bool = False, fbtrace_id: Optional[str] = None):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
         self.http_status = http_status
         self.subcode = subcode
+        self.transient = transient
+        self.fbtrace_id = fbtrace_id
+
+    def log_ref(self) -> str:
+        """Pour les logs : code et identifiant de trace Meta (à donner au support Meta)."""
+        return f"{self.code}, fbtrace_id={self.fbtrace_id}" if self.fbtrace_id else self.code
 
     def describe(self) -> str:
         txt = ERROR_MESSAGES.get(self.code)
@@ -165,20 +178,26 @@ def _error(resp: httpx.Response, body: dict) -> InstagramError:
             name = "scope_missing"
         else:
             name = f"ig_{code}" if code else f"http_{resp.status_code}"
-        return InstagramError(name, msg, resp.status_code, sub)
+        transient = name != "invalid_token" and (
+            bool(err.get("is_transient")) or code in TRANSIENT_CODES or resp.status_code >= 500)
+        return InstagramError(name, msg, resp.status_code, sub, transient=transient,
+                              fbtrace_id=err.get("fbtrace_id"))
     if isinstance(err, str):     # format OAuth d'api.instagram.com
         return InstagramError(err if err in ERROR_MESSAGES else "oauth_error",
                               body.get("error_description") or body.get("error_message") or "", resp.status_code)
     if body.get("error_type"):   # {"error_type": "OAuthException", "code": 400, "error_message": "..."}
         return InstagramError("oauth_error", body.get("error_message") or "", resp.status_code)
-    return InstagramError(f"http_{resp.status_code}", "", resp.status_code)
+    return InstagramError(f"http_{resp.status_code}", "", resp.status_code, transient=resp.status_code >= 500)
 
 
 async def _request(method: str, url: str, *, token: Optional[str] = None, params: Optional[dict] = None,
                    data: Optional[dict] = None) -> dict:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    async with _client() as c:
-        resp = await c.request(method, url, params=params, data=data, headers=headers)
+    try:
+        async with _client() as c:
+            resp = await c.request(method, url, params=params, data=data, headers=headers)
+    except httpx.TransportError as e:      # réseau coupé, délai dépassé : à réessayer
+        raise InstagramError("network", type(e).__name__, 0, transient=True)
     body = _json(resp)
     if resp.status_code >= 400 or (isinstance(body.get("error"), (dict, str)) and body.get("error")) \
             or body.get("error_type"):

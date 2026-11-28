@@ -1024,7 +1024,8 @@ _BAD_STATE = "Lien de connexion Instagram invalide ou expiré : relancez « Conn
 
 
 def _ig_http(e: ig.InstagramError) -> HTTPException:
-    code = 429 if e.code == "rate_limited" else (400 if 400 <= e.http_status < 500 or e.http_status == 0 else 502)
+    code = 429 if e.code == "rate_limited" else 502 if e.code == "network" else (
+        400 if 400 <= e.http_status < 500 or e.http_status == 0 else 502)
     return HTTPException(code, e.describe())
 
 
@@ -1053,7 +1054,7 @@ async def instagram_exchange(body: ExchangeIn, db: AsyncSession = Depends(get_db
         long = await ig.long_lived_token(short["access_token"])
         prof = await ig.profile(long["access_token"])
     except ig.InstagramError as e:
-        logger.info("Instagram : connexion refusée (%s)", e.code)
+        logger.info("Instagram : connexion refusée (%s)", e.log_ref())
         raise _ig_http(e)
     # Seuls les comptes professionnels publient : un type absent est refusé aussi (par prudence).
     if prof.get("account_type") not in ("BUSINESS", "MEDIA_CREATOR"):
