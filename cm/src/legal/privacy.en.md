@@ -73,6 +73,16 @@ Data obtained through Google APIs is **never sold**, nor used for advertising or
 - **Social media**: Accounts page → "Disconnect", or from the platform's settings.
 - **Deletion of all your data**: write to [nathan.provost78990@gmail.com](mailto:nathan.provost78990@gmail.com). Deletion is carried out **within 7 days**.
 
+### Instagram
+
+The connection to Instagram goes through the Meta app **"Chapote Publisher"**. To remove access and delete the data linked to an Instagram account:
+
+- **From Chapote CM**: Accounts page → Instagram account → **"Disconnect"**. The access token is deleted immediately and upcoming posts on that account are cancelled.
+- **From Instagram**: Settings → **Apps and websites** → "Chapote Publisher" → **Remove**. Meta notifies Chapote CM, which immediately deletes the access token and disconnects the account.
+- **Data deletion request**: from Instagram or Facebook, you can request the deletion of the data shared with "Chapote Publisher". Meta then gives you a **confirmation code** and a link to track the status of the request. The account's token, name and picture are deleted immediately; the videos, comments and statistics collected are deleted automatically within the hour.
+
+In all cases, the videos, comments and statistics of a disconnected account are deleted from our servers automatically. Posts already live on Instagram stay on your account: you manage them from Instagram.
+
 ## 9. Your rights
 
 You have the right of **access**, **rectification**, **erasure**, **restriction**, **portability** and **objection** regarding your data. To exercise them: [nathan.provost78990@gmail.com](mailto:nathan.provost78990@gmail.com). You may also lodge a complaint with the **CNIL** ([www.cnil.fr](https://www.cnil.fr)).

@@ -4,7 +4,7 @@ Dernière mise à jour : 23 novembre 2026.
 
 Les présentes conditions encadrent la publication sur Instagram depuis **Chapote CM** ([cm.chapote.fr](https://cm.chapote.fr)), l'outil de gestion des réseaux sociaux de Chapote. Elles complètent les [Conditions générales d'utilisation de Chapote](/legal/cgu), qui s'appliquent également.
 
-La connexion à Instagram passe par l'application Meta **« Kiwi Signal Publisher »**, éditée par l'éditeur de Chapote pour ce service. **En connectant un compte, vous acceptez aussi les [Conditions d'utilisation d'Instagram](https://help.instagram.com/581066165581870) et les [Règles de la communauté Instagram](https://help.instagram.com/477434105621119).**
+La connexion à Instagram passe par l'application Meta **« Chapote Publisher »**, éditée par l'éditeur de Chapote pour ce service. **En connectant un compte, vous acceptez aussi les [Conditions d'utilisation d'Instagram](https://help.instagram.com/581066165581870) et les [Règles de la communauté Instagram](https://help.instagram.com/477434105621119).**
 
 ## 1. Éditeur
 

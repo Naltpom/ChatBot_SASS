@@ -4,7 +4,7 @@ Dernière mise à jour : 23 novembre 2026.
 
 La présente politique décrit comment **Chapote CM** ([cm.chapote.fr](https://cm.chapote.fr)), l'outil de gestion des réseaux sociaux de Chapote, traite les données obtenues auprès d'Instagram (Meta), conformément au **RGPD** (Règlement (UE) 2016/679) et à la loi Informatique et Libertés. Elle complète la [Politique de confidentialité de Chapote](/legal/confidentialite).
 
-La connexion à Instagram passe par l'application Meta **« Kiwi Signal Publisher »**, éditée par l'éditeur de Chapote pour ce service. En connectant un compte, vous acceptez aussi les [Conditions d'utilisation d'Instagram](https://help.instagram.com/581066165581870), et les données sont également traitées selon la [Politique de confidentialité de Meta](https://privacycenter.instagram.com/policy).
+La connexion à Instagram passe par l'application Meta **« Chapote Publisher »**, éditée par l'éditeur de Chapote pour ce service. En connectant un compte, vous acceptez aussi les [Conditions d'utilisation d'Instagram](https://help.instagram.com/581066165581870), et les données sont également traitées selon la [Politique de confidentialité de Meta](https://privacycenter.instagram.com/policy).
 
 ## 1. Responsable de traitement
 
@@ -69,14 +69,14 @@ La base légale est **l'exécution du contrat** conclu entre Chapote et son clie
 
 L'accès de Chapote à un compte peut être retiré à tout moment :
 
-- **depuis Chapote CM** : Comptes → Instagram → « Retirer ». Le jeton est supprimé de Chapote et les publications à venir sur ce compte sont annulées ;
-- **depuis Instagram** : Paramètres → Applications et sites web → « Kiwi Signal Publisher » → Supprimer. Meta prévient Chapote, qui supprime le jeton du compte.
+- **depuis Chapote CM** : Comptes → Instagram → « Déconnecter ». Le jeton est supprimé de Chapote et les publications à venir sur ce compte sont annulées ;
+- **depuis Instagram** : Paramètres → Applications et sites web → « Chapote Publisher » → Supprimer. Meta prévient Chapote, qui supprime le jeton du compte.
 
 ## 8. Suppression des données
 
 Vous pouvez demander la suppression de toutes les données liées à vos comptes Instagram (jeton, chiffres, liste des vidéos, historique des publications) :
 
-- **depuis Instagram** : en retirant l'accès (Paramètres → Applications et sites web) puis en demandant la suppression de vos données ; Chapote reçoit la demande de Meta, supprime le jeton immédiatement et les autres données sous 24 heures ;
+- **depuis Instagram** : en retirant l'accès (Paramètres → Applications et sites web) puis en demandant la suppression de vos données ; Chapote reçoit la demande de Meta, supprime le jeton, le nom et la photo du compte immédiatement, et les autres données sous 24 heures. Meta vous remet un **code de confirmation** et un lien pour suivre l'état de la demande ;
 - **par e-mail** à [hello@chapote.fr](mailto:hello@chapote.fr), en indiquant le nom d'utilisateur Instagram concerné : suppression effectuée **sous 7 jours**, avec confirmation par e-mail.
 
 ## 9. Vos droits
